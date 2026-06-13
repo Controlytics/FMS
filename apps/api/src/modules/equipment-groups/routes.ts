@@ -143,6 +143,21 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
     return service.fetchStageReadings(ctx, filterId, stageKey, groupId);
   });
 
+  // Admin "Get Latest Values" — test a typed URL (SSRF-hardened) before saving.
+  app.post('/test-url', {
+    preHandler: [app.requireAnyPermission('ASSET_UPDATE', 'EG_EDIT')],
+    schema: {
+      tags: ['Equipment Groups'],
+      summary: 'Test-fetch a single instrument URL (admin config helper)',
+      body: { type: 'object', required: ['url'], properties: { url: { type: 'string' } } },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    const { url } = req.body as { url: string };
+    return service.testUrl(ctx, url);
+  });
+
   app.post('/', {
     preHandler: [app.requireAnyPermission('ASSET_CREATE', 'EG_CREATE')],
     schema: {

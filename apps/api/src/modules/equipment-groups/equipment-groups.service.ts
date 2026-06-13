@@ -486,6 +486,15 @@ export class EquipmentGroupsService {
     return { stageKey, results };
   }
 
+  /**
+   * Admin "Get Latest Values" on the config editor — test a single typed (and
+   * possibly unsaved) URL through the same SSRF-hardened fetch the operator
+   * proxy uses. Lets an admin verify an endpoint before saving. EG_EDIT gated.
+   */
+  async testUrl(_ctx: RequestContext, url: string) {
+    return fetchInstrumentValue(url);
+  }
+
   async delete(ctx: RequestContext, id: string) {
     const existing = await prisma.equipmentGroup.findFirst({
       where: { id },

@@ -77,6 +77,12 @@ export function EquipmentGroupsConfigPage() {
   const { data: groupsData } = useSWR(groupsKey);
 
   const [editing, setEditing] = useState<{ group: Partial<EquipmentGroup>; isNew: boolean } | null>(null);
+  // Auto-fetch (2026-06-13): ONE group-level main toggle drives all instrument
+  // URLs. When on, the URL panel + "Get Latest Values" show; an instrument is
+  // auto-fetch iff the toggle is on AND its URL is filled.
+  const [autoFetchOn, setAutoFetchOn] = useState(false);
+  const [latestValues, setLatestValues] = useState<Record<string, { value?: number; error?: string; loading?: boolean }>>({});
+  const [fetchingLatest, setFetchingLatest] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [savedToast, setSavedToast] = useState('');
@@ -104,12 +110,38 @@ export function EquipmentGroupsConfigPage() {
 
   const handleCreate = () => {
     setEditing({ group: { name: '', blockId: selectedBlockId, instruments: DEFAULT_INSTRUMENTS.map(d => ({ ...d })) }, isNew: true });
+    setAutoFetchOn(false);
+    setLatestValues({});
     setError('');
   };
 
   const openEditor = (g: EquipmentGroup) => {
     setEditing({ group: { ...g, instruments: g.instruments.map(i => ({ ...i })) }, isNew: false });
+    // Main toggle reflects whether any instrument currently auto-fetches.
+    setAutoFetchOn(g.instruments.some(i => i.autoFetchEnabled));
+    setLatestValues({});
     setError('');
+  };
+
+  // "Get Latest Values": test each filled URL through the server proxy and show
+  // the returned value (or error) in the read-only display fields.
+  const handleGetLatestValues = async () => {
+    if (!editing || fetchingLatest) return;
+    const insts = editing.group.instruments ?? [];
+    const targets = insts.filter(i => (i.url ?? '').trim());
+    if (targets.length === 0) { setError('Enter at least one URL first'); return; }
+    setFetchingLatest(true);
+    setLatestValues(prev => { const next = { ...prev }; targets.forEach(i => { next[i.instrumentId || i.description] = { loading: true }; }); return next; });
+    await Promise.all(targets.map(async (i) => {
+      const key = i.instrumentId || i.description;
+      try {
+        const r = await apiClient.post<{ ok: boolean; value?: number; error?: string }>('/api/equipment-groups/test-url', { url: (i.url ?? '').trim() });
+        setLatestValues(prev => ({ ...prev, [key]: r.ok ? { value: r.value } : { error: r.error || 'Failed' } }));
+      } catch (e: any) {
+        setLatestValues(prev => ({ ...prev, [key]: { error: e?.message || 'Request failed' } }));
+      }
+    }));
+    setFetchingLatest(false);
   };
 
   const handleEdit = async (g: EquipmentGroup) => {
@@ -196,28 +228,37 @@ export function EquipmentGroupsConfigPage() {
       if (inst.operatingMin < inst.instrumentMin || inst.operatingMin > inst.instrumentMax) { setError(`Operating Min must be within instrument range for ${inst.description}`); return; }
       if (inst.operatingMax < inst.instrumentMin || inst.operatingMax > inst.instrumentMax) { setError(`Operating Max must be within instrument range for ${inst.description}`); return; }
       if (inst.operatingMin >= inst.operatingMax) { setError(`Operating Min must be less than Operating Max for ${inst.description}`); return; }
-      if (inst.autoFetchEnabled) {
+      // Auto-fetch on → validate any URL the admin filled (blank = manual).
+      if (autoFetchOn) {
         const u = (inst.url ?? '').trim();
-        if (!u) { setError(`Reading URL is required when auto-fetch is enabled for ${inst.description}`); return; }
-        try {
-          const p = new URL(u);
-          if (p.protocol !== 'http:' && p.protocol !== 'https:') throw new Error('scheme');
-        } catch {
-          setError(`Reading URL must be a valid http(s) URL for ${inst.description}`); return;
+        if (u) {
+          try {
+            const p = new URL(u);
+            if (p.protocol !== 'http:' && p.protocol !== 'https:') throw new Error('scheme');
+          } catch {
+            setError(`Reading URL must be a valid http(s) URL for ${inst.description}`); return;
+          }
         }
       }
+    }
+    if (autoFetchOn && !group.instruments!.some(i => (i.url ?? '').trim())) {
+      setError('Auto-fetch is on — enter at least one instrument URL, or turn auto-fetch off.'); return;
     }
     setSaving(true); setError('');
     const payload = {
       name: group.name!.trim(),
       blockId: group.blockId,
-      instruments: group.instruments!.map(i => ({
-        serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
-        instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
-        operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
-        leastCount: Number(i.leastCount),
-        url: (i.url ?? '').trim(), autoFetchEnabled: !!i.autoFetchEnabled,
-      })),
+      instruments: group.instruments!.map(i => {
+        const u = (i.url ?? '').trim();
+        // An instrument is auto-fetch iff the main toggle is on AND it has a URL.
+        return {
+          serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
+          instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
+          operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
+          leastCount: Number(i.leastCount),
+          url: autoFetchOn ? u : '', autoFetchEnabled: autoFetchOn && !!u,
+        };
+      }),
     };
     reauth.execute(
       isNew ? 'CREATE_EQUIPMENT_GROUP' : 'UPDATE_EQUIPMENT_GROUP',
@@ -464,6 +505,19 @@ export function EquipmentGroupsConfigPage() {
                 )}
               </div>
 
+              {/* Auto-fetch MAIN toggle (2026-06-13): one switch enables the URL
+                  panel below for the whole group. Off = manual readings. */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-700">Auto-fetch instrument readings</div>
+                  <div className="text-xs text-slate-400 mt-0.5">Pull readings from instrument APIs during cleaning. Turn on to enter URLs below; off keeps manual entry.</div>
+                </div>
+                <button type="button" onClick={() => setAutoFetchOn(v => !v)} aria-pressed={autoFetchOn}
+                  className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${autoFetchOn ? 'bg-cyan-500' : 'bg-slate-300'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${autoFetchOn ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
+
               {editing.group.instruments?.map((inst, idx) => {
                 const sc = getStageConfig(inst.stageKey);
                 return (
@@ -524,29 +578,6 @@ export function EquipmentGroupsConfigPage() {
                             value={inst.operatingMax} onChange={e => updateInstrument(idx, 'operatingMax', parseFloat(e.target.value) || 0)} />
                         </div>
                       </div>
-                      {/* Auto-fetch (2026-06-13): pull this reading from a URL during cleaning. */}
-                      <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-xs font-semibold text-slate-700">Auto-fetch reading from instrument API</div>
-                            <div className="text-[11px] text-slate-400 mt-0.5">When on, operators get a "Get Values" button during cleaning to pull this reading from the URL. Manual entry stays available as a fallback.</div>
-                          </div>
-                          <button type="button" onClick={() => updateInstrument(idx, 'autoFetchEnabled', !inst.autoFetchEnabled)}
-                            aria-pressed={!!inst.autoFetchEnabled}
-                            className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${inst.autoFetchEnabled ? 'bg-cyan-500' : 'bg-slate-300'}`}>
-                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${inst.autoFetchEnabled ? 'translate-x-5' : ''}`} />
-                          </button>
-                        </div>
-                        {inst.autoFetchEnabled && (
-                          <div className="mt-3">
-                            <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Reading URL *</label>
-                            <input type="url" placeholder="http://192.168.1.x:port/reading"
-                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none font-mono"
-                              value={inst.url ?? ''} onChange={e => updateInstrument(idx, 'url', e.target.value)} />
-                            <p className="text-[11px] text-slate-400 mt-1">Must return JSON <code className="font-mono text-slate-500">{'{ "value": <number> }'}</code> in {inst.uom || 'the instrument UoM'}.</p>
-                          </div>
-                        )}
-                      </div>
                       {previewInst === idx && (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                           <p className="text-xs text-slate-500 mb-2 font-medium">Dropdown values ({formatByLeastCount(inst.operatingMin, inst.leastCount)} to {formatByLeastCount(inst.operatingMax, inst.leastCount)}, step {inst.leastCount}):</p>
@@ -564,6 +595,50 @@ export function EquipmentGroupsConfigPage() {
                   </div>
                 );
               })}
+
+              {/* Consolidated auto-fetch URL panel — shown when the main toggle is
+                  on. All instrument URLs in one place + Get Latest Values + the
+                  read-only latest-value displays. */}
+              {autoFetchOn && (
+                <div className="rounded-2xl border-2 border-cyan-200 overflow-hidden">
+                  <div className="px-4 py-3 bg-cyan-50 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-bold text-cyan-800 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                      Instrument Auto-Fetch URLs
+                    </h3>
+                    <button type="button" onClick={handleGetLatestValues} disabled={fetchingLatest}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-50">
+                      {fetchingLatest
+                        ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                      {fetchingLatest ? 'Fetching…' : 'Get Latest Values'}
+                    </button>
+                  </div>
+                  <div className="p-4 bg-white space-y-3">
+                    <p className="text-[11px] text-slate-400">Each endpoint must return JSON <code className="font-mono text-slate-500">{'{ "value": <number> }'}</code> in the instrument&apos;s UoM. Leave a URL blank to keep that instrument manual.</p>
+                    {(editing.group.instruments ?? []).map((inst, idx) => {
+                      const key = inst.instrumentId || inst.description;
+                      const lv = latestValues[key];
+                      return (
+                        <div key={idx} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
+                          <div>
+                            <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">{inst.description} URL</label>
+                            <input type="url" placeholder="http://192.168.1.x:port/reading"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none font-mono"
+                              value={inst.url ?? ''} onChange={e => updateInstrument(idx, 'url', e.target.value)} />
+                          </div>
+                          <div className="md:w-40">
+                            <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Latest value</label>
+                            <div className={`px-3 py-2 rounded-lg text-sm border ${lv?.error ? 'bg-red-50 border-red-200 text-red-600' : lv?.value !== undefined ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-semibold' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                              {lv?.loading ? 'Fetching…' : lv?.error ? lv.error : lv?.value !== undefined ? `${lv.value} ${inst.uom}` : '—'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {error && (
                 <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center justify-between">

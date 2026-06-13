@@ -123,7 +123,15 @@ Each phase: implement → verify (per CLAUDE.md correctness rule) → only then 
   → `ok:false`; with `http://127.0.0.1/...` → blocked; oversized body → blocked; redirect → not
   followed.
 
-### Phase 3 — Equipment Groups config UI  ✅ CODE DONE (2026-06-13) — visual pass pending
+### Phase 3 — Equipment Groups config UI  ✅ CODE DONE + REVISED (2026-06-13) — visual pass pending
+> **REVISED per user 2026-06-13:** replaced the 3 per-instrument auto-fetch toggles with ONE
+> group-level **main toggle**. Toggle ON → a consolidated **"Instrument Auto-Fetch URLs"** panel
+> (all 3 URLs in one place) + a **"Get Latest Values"** button + read-only **latest-value display**
+> fields per instrument. Toggle OFF → manual setup. Save derives per-instrument
+> `autoFetchEnabled = mainToggle && url-filled` (blank URL = that instrument stays manual);
+> needs ≥1 URL when on. New backend `POST /api/equipment-groups/test-url {url}` (EG_EDIT, SSRF-
+> hardened via fetchInstrumentValue) powers Get Latest Values against TYPED (unsaved) URLs.
+> Verified: API+web tsc 0, vite build clean, test-url e2e (LAN mock value 7.4 / loopback blocked).
 > `apps/web/src/routes/config/equipment-groups.tsx`: per-instrument **auto-fetch toggle** +
 > **Reading URL** field (shown when on; client validates required + http(s) when enabled; sent
 > in the create/update payload). Per-group **enable/disable switch** + Active/Inactive badge,
