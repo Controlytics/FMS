@@ -347,10 +347,20 @@ export function FilterOperationsPage() {
     }
     if (!trimmed) return null;
 
-    // 1. Try API lookup (works when online)
+    // 1. Try API lookup (works when online) — authoritative for reassigned tags.
     try {
       const lookup = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(trimmed)}`);
-      if (lookup?.asset?.id) return { filterId: lookup.asset.id, filterName: lookup.asset.name };
+      if (lookup?.asset?.id) {
+        const resolved = { filterId: lookup.asset.id as string, filterName: lookup.asset.name as string };
+        // Self-heal the offline cache so a later offline scan of this (possibly
+        // just-reassigned) tag resolves to the CURRENT filter, not a stale one.
+        try {
+          const m = (await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map')) || {};
+          m[trimmed] = resolved; m[trimmed.toUpperCase()] = resolved; m[trimmed.toLowerCase()] = resolved;
+          await cache('identifier-map', m);
+        } catch { /* best-effort cache write */ }
+        return resolved;
+      }
     } catch { /* offline or network error — fall through */ }
 
     // 2. Try cached identifier map (works offline — built from identifiers API and stored in IndexedDB)

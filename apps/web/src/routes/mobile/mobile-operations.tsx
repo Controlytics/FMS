@@ -659,14 +659,28 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       if (sv.substring(0, third) === sv.substring(third, third * 2) && sv.substring(0, third) === sv.substring(third * 2)) sv = sv.substring(0, third);
     }
 
-    // Online: try identifier lookup API
-    if (online) {
-      // Lookup is the FIRST of three fallback strategies. A 404 (unknown
-      // identifier) or any network/server error here is non-fatal — code
-      // continues to the cached map and then to name match. Silent ignore
-      // is intentional; do not surface as an error.
-      try { const l = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(sv)}`); if (l?.asset?.id) { filterId = l.asset.id; filterName = l.asset.name; } } catch { /* fall through to cached map */ }
-    }
+    // Identifier lookup API — FIRST of three fallback strategies. Do NOT gate on
+    // the `online` flag: navigator.onLine is unreliable on Android WebViews, so a
+    // stale false-negative would skip a REACHABLE server and fall back to a stale
+    // cached map — exactly the "Filter not found after a tag is reassigned to
+    // another filter" bug (the cache still maps the tag to the old filter, or
+    // lacks the new one). A genuinely-offline call throws (or returns the SPA
+    // shell) and falls through to the cached map. 404 / network error are
+    // non-fatal and intentionally silent.
+    try {
+      const l = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(sv)}`);
+      if (l?.asset?.id) {
+        filterId = l.asset.id; filterName = l.asset.name;
+        // Self-heal the offline cache so a later OFFLINE scan of this (possibly
+        // just-reassigned) tag resolves to the CURRENT filter, not a stale one.
+        try {
+          const m = (await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map')) || {};
+          const entry = { filterId: filterId as string, filterName: filterName as string };
+          m[sv] = entry; m[sv.toUpperCase()] = entry; m[sv.toLowerCase()] = entry;
+          await cache('identifier-map', m);
+        } catch { /* best-effort cache write */ }
+      }
+    } catch { /* offline / network error — fall through to cached map */ }
 
     // Try cached identifier map (works both online and offline)
     if (!filterId) {
