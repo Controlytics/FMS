@@ -20,7 +20,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { sanitizeStrings } from '../../lib/sanitize.js';
-import { fetchInstrumentValue } from './instrument-fetch.js';
+import { fetchReadingObject, type ReadingObjectResult } from './instrument-fetch.js';
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -49,6 +49,7 @@ async function snapshotAndBump(
         name: group.name,
         blockId: group.blockId,
         isActive: group.isActive,
+        readingUrl: group.readingUrl ?? null,
         instruments: group.instruments.map((i: any) => ({
           id: i.id,
           description: i.description,
@@ -61,7 +62,7 @@ async function snapshotAndBump(
           operatingMin: i.operatingMin,
           operatingMax: i.operatingMax,
           leastCount: i.leastCount,
-          url: i.url ?? null,
+          responseKey: i.responseKey ?? null,
           autoFetchEnabled: i.autoFetchEnabled ?? false,
           sortOrder: i.sortOrder,
         })),
@@ -105,24 +106,26 @@ function validateInstrument(inst: any, idx: number) {
   if (inst.operatingMin >= inst.operatingMax) {
     throw new AppError(400, 'VALIDATION', `${prefix}: Operating Min must be less than Operating Max`);
   }
-  // Auto-fetch (2026-06-13): a URL is mandatory once auto-fetch is enabled, and
-  // must be a syntactically valid http(s) URL. Host-level SSRF checks happen in
-  // the proxy (Phase 2), not here — this is just input shape.
-  if (inst.autoFetchEnabled) {
-    const raw = typeof inst.url === 'string' ? inst.url.trim() : '';
-    if (!raw) {
-      throw new AppError(400, 'VALIDATION', `${prefix}: A reading URL is required when auto-fetch is enabled`);
-    }
-    let parsed: URL;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      throw new AppError(400, 'VALIDATION', `${prefix}: Reading URL is not a valid URL`);
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new AppError(400, 'VALIDATION', `${prefix}: Reading URL must use http or https`);
-    }
+}
+
+/**
+ * Auto-fetch (2026-06-13): the group has ONE reading endpoint. Validate its URL
+ * shape here; host-level SSRF checks happen in the proxy at fetch time. Returns
+ * the trimmed URL (or null when blank = auto-fetch off).
+ */
+function normalizeReadingUrl(raw: unknown): string | null {
+  const url = typeof raw === 'string' ? raw.trim() : '';
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new AppError(400, 'VALIDATION', 'Reading URL is not a valid URL');
   }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new AppError(400, 'VALIDATION', 'Reading URL must use http or https');
+  }
+  return url;
 }
 
 export class EquipmentGroupsService {
@@ -159,6 +162,7 @@ export class EquipmentGroupsService {
   async create(ctx: RequestContext, data: any) {
     const sanitized = sanitizeStrings(data);
     const { name, blockId, instruments } = sanitized;
+    const readingUrl = normalizeReadingUrl(sanitized.readingUrl);
 
     if (!name?.trim()) throw new AppError(400, 'VALIDATION', 'Group name is required');
     if (!blockId) throw new AppError(400, 'VALIDATION', 'Block ID is required');
@@ -188,6 +192,7 @@ export class EquipmentGroupsService {
           name: name.trim(),
           blockId,
           isActive: createActive,
+          readingUrl,
           createdBy: ctx.userSub,
         },
       });
@@ -195,6 +200,7 @@ export class EquipmentGroupsService {
       for (let i = 0; i < 3; i++) {
         const inst = instruments[i];
         const def = INSTRUMENT_DESCRIPTIONS[i];
+        const responseKey = typeof inst.responseKey === 'string' ? inst.responseKey.trim() : '';
         await tx.equipmentGroupInstrument.create({
           data: {
             groupId: created.id,
@@ -208,8 +214,9 @@ export class EquipmentGroupsService {
             operatingMin: inst.operatingMin,
             operatingMax: inst.operatingMax,
             leastCount: inst.leastCount,
-            url: inst.autoFetchEnabled ? (inst.url?.trim() ?? null) : (inst.url?.trim() || null),
-            autoFetchEnabled: inst.autoFetchEnabled === true,
+            responseKey: responseKey || null,
+            // Auto-fetch iff the group has a reading URL AND this instrument has a key.
+            autoFetchEnabled: !!(readingUrl && responseKey),
             sortOrder: def.sortOrder,
           },
         });
@@ -234,6 +241,7 @@ export class EquipmentGroupsService {
   async update(ctx: RequestContext, id: string, data: any) {
     const sanitized = sanitizeStrings(data);
     const { name, instruments } = sanitized;
+    const readingUrl = normalizeReadingUrl(sanitized.readingUrl);
 
     const existing = await prisma.equipmentGroup.findFirst({
       where: { id },
@@ -253,15 +261,18 @@ export class EquipmentGroupsService {
       // mutating anything live, then bump version on the live group row.
       await snapshotAndBump(tx, id, data.changeNotes ?? null, ctx);
 
-      if (name && name.trim() !== existing.name) {
-        await tx.equipmentGroup.update({ where: { id }, data: { name: name.trim() } });
-      }
+      // Update the group's name + reading URL (one endpoint for all instruments).
+      await tx.equipmentGroup.update({
+        where: { id },
+        data: { ...(name && name.trim() !== existing.name ? { name: name.trim() } : {}), readingUrl },
+      });
 
       // Update each instrument
       for (let i = 0; i < 3; i++) {
         const inst = instruments[i];
         const existingInst = existing.instruments[i];
         if (existingInst) {
+          const responseKey = typeof inst.responseKey === 'string' ? inst.responseKey.trim() : '';
           await tx.equipmentGroupInstrument.update({
             where: { id: existingInst.id },
             data: {
@@ -273,8 +284,8 @@ export class EquipmentGroupsService {
               operatingMin: inst.operatingMin,
               operatingMax: inst.operatingMax,
               leastCount: inst.leastCount,
-              url: inst.autoFetchEnabled ? (inst.url?.trim() ?? null) : (inst.url?.trim() || null),
-              autoFetchEnabled: inst.autoFetchEnabled === true,
+              responseKey: responseKey || null,
+              autoFetchEnabled: !!(readingUrl && responseKey),
             },
           });
         }
@@ -385,10 +396,10 @@ export class EquipmentGroupsService {
    * for `stageKey`, ordered by sortOrder. Old snapshots lack url/autoFetchEnabled
    * → those come back undefined and are treated as auto-fetch OFF downstream.
    */
-  private async resolveStageInstruments(
+  private async resolveStageContext(
     cycle: { equipmentGroupId: string | null; equipmentGroupVersionPin: number | null; cleaningAreaId: string | null },
     stageKey: string,
-  ): Promise<any[]> {
+  ): Promise<{ readingUrl: string | null; instruments: any[] }> {
     let groupId = cycle.equipmentGroupId;
     let pin = cycle.equipmentGroupVersionPin;
     if (!groupId && cycle.cleaningAreaId) {
@@ -401,49 +412,54 @@ export class EquipmentGroupsService {
         pin = blockGroups[0].version;
       }
     }
-    if (!groupId) return [];
+    if (!groupId) return { readingUrl: null, instruments: [] };
 
+    const fromLive = async () => {
+      const g = await prisma.equipmentGroup.findUnique({
+        where: { id: groupId! },
+        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+      });
+      return { readingUrl: g?.readingUrl ?? null, instruments: g?.instruments ?? [] };
+    };
+
+    let readingUrl: string | null;
     let instruments: any[];
     if (pin !== null) {
       const versionRow = await prisma.equipmentGroupVersion.findUnique({
         where: { groupId_versionNumber: { groupId, versionNumber: pin } },
       });
       if (versionRow) {
-        instruments = ((versionRow.snapshot as any)?.instruments ?? []) as any[];
+        const snap = versionRow.snapshot as any;
+        readingUrl = snap?.readingUrl ?? null;
+        instruments = (snap?.instruments ?? []) as any[];
       } else {
-        const g = await prisma.equipmentGroup.findUnique({
-          where: { id: groupId },
-          include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-        });
-        instruments = g?.instruments ?? [];
+        ({ readingUrl, instruments } = await fromLive());
       }
     } else {
-      const g = await prisma.equipmentGroup.findUnique({
-        where: { id: groupId },
-        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-      });
-      instruments = g?.instruments ?? [];
+      ({ readingUrl, instruments } = await fromLive());
     }
-    return instruments
-      .filter((i) => i.stageKey === stageKey)
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    return {
+      readingUrl,
+      instruments: instruments
+        .filter((i) => i.stageKey === stageKey)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+    };
   }
 
   /**
    * Server-proxied "Get Values": for a filter's in-progress cycle and a given
-   * stage (WASH_IN / DRY_IN), fetch each auto-fetch-enabled instrument's reading
-   * from its configured URL. Read-only — does not mutate the cycle. Returns one
-   * result per auto instrument; the client owns the retry loop and decides
-   * fill-vs-fallback per instrument. Instruments without auto-fetch are omitted
-   * (they stay manual).
+   * stage (WASH_IN / DRY_IN), fetch the group's ONE reading endpoint and extract
+   * each auto-fetch instrument's value by its responseKey. Read-only. Returns one
+   * result per auto instrument; the client owns the retry loop. Manual
+   * instruments (no key) are omitted.
    */
   async fetchStageReadings(_ctx: RequestContext, filterId: string | undefined, stageKey: string, groupId?: string) {
     if (stageKey !== 'WASH_IN' && stageKey !== 'DRY_IN') {
       throw new AppError(400, 'VALIDATION', 'stageKey must be WASH_IN or DRY_IN');
     }
 
-    // Primary: resolve via the filter's in-progress cycle (pinned snapshot URLs).
-    let stageInstruments: any[] = [];
+    // Primary: resolve via the filter's in-progress cycle (pinned snapshot).
+    let ctx: { readingUrl: string | null; instruments: any[] } = { readingUrl: null, instruments: [] };
     if (filterId) {
       const fd = await prisma.filterDetails.findUnique({
         where: { assetInstanceId: filterId },
@@ -455,44 +471,46 @@ export class EquipmentGroupsService {
           select: { id: true, equipmentGroupId: true, equipmentGroupVersionPin: true, cleaningAreaId: true, status: true },
         });
         if (cycle && cycle.status === 'IN_PROGRESS') {
-          stageInstruments = await this.resolveStageInstruments(cycle, stageKey);
+          ctx = await this.resolveStageContext(cycle, stageKey);
         }
       }
     }
 
     // Fallback (cycle-start: no cycle yet) — use the dialog's explicit group's
-    // LIVE instruments. The client only ever sends ids; the URL is resolved here.
-    if (stageInstruments.length === 0 && groupId) {
+    // LIVE config. The client only ever sends ids; the URL is resolved here.
+    if (ctx.instruments.length === 0 && groupId) {
       const g = await prisma.equipmentGroup.findUnique({
         where: { id: groupId },
         include: { instruments: { orderBy: { sortOrder: 'asc' } } },
       });
-      stageInstruments = (g?.instruments ?? []).filter((i) => i.stageKey === stageKey);
+      ctx = { readingUrl: g?.readingUrl ?? null, instruments: (g?.instruments ?? []).filter((i) => i.stageKey === stageKey) };
     }
 
-    const auto = stageInstruments.filter((i) => i.autoFetchEnabled === true && i.url);
+    const auto = ctx.instruments.filter((i) => i.autoFetchEnabled === true && i.responseKey);
+    if (auto.length === 0) return { stageKey, results: [] };
 
-    const results = [];
-    for (const inst of auto) {
-      const r = await fetchInstrumentValue(inst.url);
-      results.push({
-        instrumentId: inst.id,
-        instrumentCode: inst.instrumentId,
-        description: inst.description,
-        uom: inst.uom,
-        ...r,
-      });
-    }
+    // ONE fetch for the whole group; distribute values by responseKey.
+    const fetched: ReadingObjectResult = ctx.readingUrl
+      ? await fetchReadingObject(ctx.readingUrl)
+      : { ok: false, error: 'No reading URL configured' };
+
+    const results = auto.map((inst) => {
+      const base = { instrumentId: inst.id, instrumentCode: inst.instrumentId, description: inst.description, uom: inst.uom };
+      if (!fetched.ok) return { ...base, ok: false, error: fetched.error };
+      const value = fetched.reading[inst.responseKey];
+      if (typeof value !== 'number') return { ...base, ok: false, error: `Key "${inst.responseKey}" not found in response` };
+      return { ...base, ok: true, value, fetchedAt: fetched.fetchedAt };
+    });
     return { stageKey, results };
   }
 
   /**
-   * Admin "Get Latest Values" on the config editor — test a single typed (and
-   * possibly unsaved) URL through the same SSRF-hardened fetch the operator
-   * proxy uses. Lets an admin verify an endpoint before saving. EG_EDIT gated.
+   * Admin "Get Latest Values" on the config editor — fetch a typed (possibly
+   * unsaved) reading URL through the same SSRF-hardened path and return the whole
+   * reading object so the page can map each instrument's key. EG_EDIT gated.
    */
   async testUrl(_ctx: RequestContext, url: string) {
-    return fetchInstrumentValue(url);
+    return fetchReadingObject(url);
   }
 
   async delete(ctx: RequestContext, id: string) {

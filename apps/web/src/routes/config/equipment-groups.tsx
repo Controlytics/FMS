@@ -20,9 +20,10 @@ interface Instrument {
   operatingMin: number;
   operatingMax: number;
   leastCount: number;
-  // Auto-fetch (2026-06-13): pull this instrument's reading from a URL during
-  // cleaning instead of manual entry. url required when autoFetchEnabled.
-  url?: string;
+  // Auto-fetch (2026-06-13): the JSON key for this instrument inside the group's
+  // single reading endpoint (e.g. "air_pressure"). autoFetchEnabled is derived
+  // server-side (group has readingUrl AND this has responseKey).
+  responseKey?: string;
   autoFetchEnabled?: boolean;
 }
 
@@ -31,14 +32,15 @@ interface EquipmentGroup {
   name: string;
   blockId: string;
   isActive: boolean;
+  readingUrl?: string;
   instruments: Instrument[];
   block?: { id: string; name: string };
 }
 
 const DEFAULT_INSTRUMENTS: Instrument[] = [
-  { description: 'Compressed Air Pressure', stageKey: 'WASH_IN', serialNumber: '', instrumentId: '', uom: 'bar', instrumentMin: 0, instrumentMax: 10, operatingMin: 0, operatingMax: 10, leastCount: 0.1, url: '', autoFetchEnabled: false },
-  { description: 'RO Water Pressure', stageKey: 'WASH_IN', serialNumber: '', instrumentId: '', uom: 'bar', instrumentMin: 0, instrumentMax: 10, operatingMin: 0, operatingMax: 10, leastCount: 0.1, url: '', autoFetchEnabled: false },
-  { description: 'Dryer Temperature', stageKey: 'DRY_IN', serialNumber: '', instrumentId: '', uom: '\u00b0C', instrumentMin: 0, instrumentMax: 100, operatingMin: 0, operatingMax: 100, leastCount: 0.5, url: '', autoFetchEnabled: false },
+  { description: 'Compressed Air Pressure', stageKey: 'WASH_IN', serialNumber: '', instrumentId: '', uom: 'bar', instrumentMin: 0, instrumentMax: 10, operatingMin: 0, operatingMax: 10, leastCount: 0.1, responseKey: 'air_pressure' },
+  { description: 'RO Water Pressure', stageKey: 'WASH_IN', serialNumber: '', instrumentId: '', uom: 'bar', instrumentMin: 0, instrumentMax: 10, operatingMin: 0, operatingMax: 10, leastCount: 0.1, responseKey: 'ro_water_pressure' },
+  { description: 'Dryer Temperature', stageKey: 'DRY_IN', serialNumber: '', instrumentId: '', uom: '\u00b0C', instrumentMin: 0, instrumentMax: 100, operatingMin: 0, operatingMax: 100, leastCount: 0.5, responseKey: 'dryer_temperature' },
 ];
 
 function generateValues(opMin: number, opMax: number, leastCount: number): number[] {
@@ -123,25 +125,34 @@ export function EquipmentGroupsConfigPage() {
     setError('');
   };
 
-  // "Get Latest Values": test each filled URL through the server proxy and show
-  // the returned value (or error) in the read-only display fields.
+  // "Get Latest Values": fetch the group's ONE reading endpoint and map each
+  // instrument's responseKey to a value in the read-only display fields.
   const handleGetLatestValues = async () => {
     if (!editing || fetchingLatest) return;
+    const url = (editing.group.readingUrl ?? '').trim();
+    if (!url) { setError('Enter the readings URL first'); return; }
     const insts = editing.group.instruments ?? [];
-    const targets = insts.filter(i => (i.url ?? '').trim());
-    if (targets.length === 0) { setError('Enter at least one URL first'); return; }
-    setFetchingLatest(true);
-    setLatestValues(prev => { const next = { ...prev }; targets.forEach(i => { next[i.instrumentId || i.description] = { loading: true }; }); return next; });
-    await Promise.all(targets.map(async (i) => {
-      const key = i.instrumentId || i.description;
-      try {
-        const r = await apiClient.post<{ ok: boolean; value?: number; error?: string }>('/api/equipment-groups/test-url', { url: (i.url ?? '').trim() });
-        setLatestValues(prev => ({ ...prev, [key]: r.ok ? { value: r.value } : { error: r.error || 'Failed' } }));
-      } catch (e: any) {
-        setLatestValues(prev => ({ ...prev, [key]: { error: e?.message || 'Request failed' } }));
-      }
-    }));
-    setFetchingLatest(false);
+    setFetchingLatest(true); setError('');
+    setLatestValues(() => { const next: Record<string, any> = {}; insts.forEach((_, idx) => { next[String(idx)] = { loading: true }; }); return next; });
+    try {
+      const r = await apiClient.post<{ ok: boolean; reading?: Record<string, number>; error?: string }>('/api/equipment-groups/test-url', { url });
+      const reading = r.reading ?? {};
+      setLatestValues(() => {
+        const next: Record<string, any> = {};
+        insts.forEach((i, idx) => {
+          if (!r.ok) { next[String(idx)] = { error: r.error || 'Failed' }; return; }
+          const k = (i.responseKey ?? '').trim();
+          const v = k ? reading[k] : undefined;
+          next[String(idx)] = typeof v === 'number' ? { value: v } : { error: k ? `Key "${k}" not in response` : 'No key set' };
+        });
+        return next;
+      });
+      if (!r.ok) setError(r.error || 'Failed to fetch readings');
+    } catch (e: any) {
+      setError(e?.message || 'Request failed');
+    } finally {
+      setFetchingLatest(false);
+    }
   };
 
   const handleEdit = async (g: EquipmentGroup) => {
@@ -228,37 +239,32 @@ export function EquipmentGroupsConfigPage() {
       if (inst.operatingMin < inst.instrumentMin || inst.operatingMin > inst.instrumentMax) { setError(`Operating Min must be within instrument range for ${inst.description}`); return; }
       if (inst.operatingMax < inst.instrumentMin || inst.operatingMax > inst.instrumentMax) { setError(`Operating Max must be within instrument range for ${inst.description}`); return; }
       if (inst.operatingMin >= inst.operatingMax) { setError(`Operating Min must be less than Operating Max for ${inst.description}`); return; }
-      // Auto-fetch on → validate any URL the admin filled (blank = manual).
-      if (autoFetchOn) {
-        const u = (inst.url ?? '').trim();
-        if (u) {
-          try {
-            const p = new URL(u);
-            if (p.protocol !== 'http:' && p.protocol !== 'https:') throw new Error('scheme');
-          } catch {
-            setError(`Reading URL must be a valid http(s) URL for ${inst.description}`); return;
-          }
-        }
-      }
     }
-    if (autoFetchOn && !group.instruments!.some(i => (i.url ?? '').trim())) {
-      setError('Auto-fetch is on — enter at least one instrument URL, or turn auto-fetch off.'); return;
+    // Auto-fetch on → one valid reading URL + at least one instrument key.
+    if (autoFetchOn) {
+      const u = (group.readingUrl ?? '').trim();
+      if (!u) { setError('Auto-fetch is on — enter the readings URL, or turn auto-fetch off.'); return; }
+      try {
+        const p = new URL(u);
+        if (p.protocol !== 'http:' && p.protocol !== 'https:') throw new Error('scheme');
+      } catch { setError('Readings URL must be a valid http(s) URL.'); return; }
+      if (!group.instruments!.some(i => (i.responseKey ?? '').trim())) {
+        setError('Auto-fetch is on — set a response key for at least one instrument.'); return;
+      }
     }
     setSaving(true); setError('');
     const payload = {
       name: group.name!.trim(),
       blockId: group.blockId,
-      instruments: group.instruments!.map(i => {
-        const u = (i.url ?? '').trim();
-        // An instrument is auto-fetch iff the main toggle is on AND it has a URL.
-        return {
-          serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
-          instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
-          operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
-          leastCount: Number(i.leastCount),
-          url: autoFetchOn ? u : '', autoFetchEnabled: autoFetchOn && !!u,
-        };
-      }),
+      readingUrl: autoFetchOn ? (group.readingUrl ?? '').trim() : '',
+      instruments: group.instruments!.map(i => ({
+        serialNumber: i.serialNumber, instrumentId: i.instrumentId, uom: i.uom,
+        instrumentMin: Number(i.instrumentMin), instrumentMax: Number(i.instrumentMax),
+        operatingMin: Number(i.operatingMin), operatingMax: Number(i.operatingMax),
+        leastCount: Number(i.leastCount),
+        // Backend derives autoFetchEnabled from readingUrl + responseKey.
+        responseKey: autoFetchOn ? (i.responseKey ?? '').trim() : '',
+      })),
     };
     reauth.execute(
       isNew ? 'CREATE_EQUIPMENT_GROUP' : 'UPDATE_EQUIPMENT_GROUP',
@@ -423,7 +429,7 @@ export function EquipmentGroupsConfigPage() {
                         <span className={`text-sm font-bold ${sc.text}`}>{inst.description}</span>
                         <div className="flex items-center gap-1">
                           {inst.autoFetchEnabled && (
-                            <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full border border-cyan-200 text-cyan-700 bg-cyan-50" title={inst.url || 'Auto-fetch enabled'}>
+                            <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full border border-cyan-200 text-cyan-700 bg-cyan-50" title={inst.responseKey ? `Auto-fetch key: ${inst.responseKey}` : 'Auto-fetch enabled'}>
                               Auto
                             </span>
                           )}
@@ -596,15 +602,15 @@ export function EquipmentGroupsConfigPage() {
                 );
               })}
 
-              {/* Consolidated auto-fetch URL panel — shown when the main toggle is
-                  on. All instrument URLs in one place + Get Latest Values + the
-                  read-only latest-value displays. */}
+              {/* Consolidated auto-fetch panel — shown when the main toggle is on.
+                  ONE reading endpoint for the group + a response key per instrument
+                  + Get Latest Values + read-only latest-value displays. */}
               {autoFetchOn && (
                 <div className="rounded-2xl border-2 border-cyan-200 overflow-hidden">
                   <div className="px-4 py-3 bg-cyan-50 flex items-center justify-between gap-3">
                     <h3 className="text-sm font-bold text-cyan-800 flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                      Instrument Auto-Fetch URLs
+                      Instrument Auto-Fetch
                     </h3>
                     <button type="button" onClick={handleGetLatestValues} disabled={fetchingLatest}
                       className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-50">
@@ -614,18 +620,23 @@ export function EquipmentGroupsConfigPage() {
                       {fetchingLatest ? 'Fetching…' : 'Get Latest Values'}
                     </button>
                   </div>
-                  <div className="p-4 bg-white space-y-3">
-                    <p className="text-[11px] text-slate-400">Each endpoint must return JSON <code className="font-mono text-slate-500">{'{ "value": <number> }'}</code> in the instrument&apos;s UoM. Leave a URL blank to keep that instrument manual.</p>
+                  <div className="p-4 bg-white space-y-4">
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Readings URL (one endpoint for all instruments)</label>
+                      <input type="url" placeholder="http://192.168.1.x:port/readings"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none font-mono"
+                        value={editing.group.readingUrl ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, readingUrl: e.target.value } })} />
+                      <p className="text-[11px] text-slate-400 mt-1">Must return JSON like <code className="font-mono text-slate-500">{'{ "reading": { "air_pressure": 6.2, ... } }'}</code>. Each instrument reads its own value via the key below.</p>
+                    </div>
                     {(editing.group.instruments ?? []).map((inst, idx) => {
-                      const key = inst.instrumentId || inst.description;
-                      const lv = latestValues[key];
+                      const lv = latestValues[String(idx)];
                       return (
                         <div key={idx} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
                           <div>
-                            <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">{inst.description} URL</label>
-                            <input type="url" placeholder="http://192.168.1.x:port/reading"
+                            <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">{inst.description} — response key</label>
+                            <input type="text" placeholder="e.g. air_pressure"
                               className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none font-mono"
-                              value={inst.url ?? ''} onChange={e => updateInstrument(idx, 'url', e.target.value)} />
+                              value={inst.responseKey ?? ''} onChange={e => updateInstrument(idx, 'responseKey', e.target.value)} />
                           </div>
                           <div className="md:w-40">
                             <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Latest value</label>

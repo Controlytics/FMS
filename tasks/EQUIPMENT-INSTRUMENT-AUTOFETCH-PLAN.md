@@ -8,6 +8,18 @@ preserved when disabled / offline / unreachable.
 
 ---
 
+## 0. CONTRACT REVISION (user 2026-06-13) — supersedes D2
+The instrument sends **ALL readings from ONE endpoint per group**, keyed by name under a
+`reading` object: `{ "reading": { "air_pressure": 6.2, "ro_water_pressure": 4.1, "dryer_temperature": 75 } }`.
+So the model is **one `EquipmentGroup.readingUrl` + a per-instrument `responseKey`** (NOT 3 URLs ×
+`{value}`). `autoFetchEnabled` is DERIVED server-side (group has readingUrl AND instrument has key).
+Migration `20260613140000` dropped the per-instrument `url`, added `equipment_groups.reading_url` +
+`equipment_group_instruments.response_key`. Proxy fetches the one URL ONCE and distributes by key.
+Operator reading dialogs (4a) UNCHANGED — proxy still returns per-instrument results. Config editor:
+ONE "Readings URL" + a response-key field per instrument + Get Latest Values shows the mapped values.
+Verified e2e: test-url returns the reading object; create derives auto=true ×3; WASH_IN→air+ro,
+DRY_IN→dryer mapped by key. API+web tsc 0, vite build clean.
+
 ## 1. Decisions (confirmed with user 2026-06-13)
 
 | # | Decision | Choice |

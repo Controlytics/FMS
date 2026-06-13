@@ -1649,6 +1649,11 @@ model EquipmentGroup {
   name      String   @db.VarChar(255)
   blockId   String   @map("block_id") @db.Uuid
   isActive  Boolean  @default(true) @map("is_active")
+  // Instrument auto-fetch (2026-06-13): ONE endpoint per group returns all
+  // readings keyed by name under a `reading` object, e.g.
+  //   { "reading": { "air_pressure": 6.2, "ro_water_pressure": 4.1, "dryer_temperature": 75 } }
+  // Each instrument extracts its own value via EquipmentGroupInstrument.responseKey.
+  readingUrl String? @map("reading_url") @db.VarChar(2048)
   // Monotonic version counter — bumped on every mutation of the group OR any of
   // its 3 instruments. Snapshot-then-bump pattern (Phase A.4): the OUTGOING
   // composite (group + all instruments) is frozen into EquipmentGroupVersion
@@ -1706,11 +1711,11 @@ model EquipmentGroupInstrument {
   operatingMin  Float    @map("operating_min")
   operatingMax  Float    @map("operating_max")
   leastCount    Float    @map("least_count")
-  // Instrument auto-fetch (2026-06-13): when autoFetchEnabled, the cleaning
-  // reading dialog can pull this instrument's value from `url` (server-proxied)
-  // instead of manual entry. Both are snapshot-pinned into EquipmentGroupVersion.
-  // Missing/false = manual entry (backward-compatible default).
-  url              String?  @db.VarChar(2048)
+  // Instrument auto-fetch (2026-06-13): the JSON key for THIS instrument inside
+  // the group's reading endpoint response (e.g. "air_pressure"). autoFetchEnabled
+  // is true iff the group has a readingUrl AND this instrument has a responseKey.
+  // Both are snapshot-pinned into EquipmentGroupVersion. Missing = manual entry.
+  responseKey      String?  @map("response_key") @db.VarChar(100)
   autoFetchEnabled Boolean  @default(false) @map("auto_fetch_enabled")
   sortOrder     Int      @default(0) @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz

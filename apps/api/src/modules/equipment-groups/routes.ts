@@ -19,10 +19,9 @@ const instrumentSchema = {
     operatingMin: { type: 'number' as const },
     operatingMax: { type: 'number' as const },
     leastCount: { type: 'number' as const },
-    // Auto-fetch (2026-06-13): MUST be listed here or Fastify strips them from
-    // the request body before the service sees them.
-    url: { type: 'string' as const },
-    autoFetchEnabled: { type: 'boolean' as const },
+    // Auto-fetch (2026-06-13): the JSON key for this instrument in the group's
+    // reading endpoint. MUST be listed or Fastify strips it from the body.
+    responseKey: { type: 'string' as const },
   },
 };
 
@@ -169,6 +168,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
         properties: {
           name: { type: 'string' },
           blockId: { type: 'string', format: 'uuid' },
+          readingUrl: { type: 'string' },
           instruments: { type: 'array', items: instrumentSchema, minItems: 3, maxItems: 3 },
         },
       },
@@ -193,6 +193,7 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
         required: ['instruments'],
         properties: {
           name: { type: 'string' },
+          readingUrl: { type: 'string' },
           instruments: { type: 'array', items: instrumentSchema, minItems: 3, maxItems: 3 },
         },
       },

@@ -19,12 +19,10 @@ import { lookup } from 'node:dns/promises';
 const TIMEOUT_MS = 5000;
 const MAX_BYTES = 64 * 1024; // 64 KiB — a reading payload is tiny; anything bigger is suspect.
 
-export interface InstrumentFetchResult {
-  ok: boolean;
-  value?: number;
-  error?: string;
-  fetchedAt?: string;
-}
+export type ReadingObjectResult =
+  /** The flat reading object, e.g. { air_pressure: 6.2, ro_water_pressure: 4.1 }. */
+  | { ok: true; reading: Record<string, number>; fetchedAt: string }
+  | { ok: false; error: string };
 
 /**
  * True for addresses we refuse to connect to even when an admin typed the URL:
@@ -73,10 +71,9 @@ async function readCapped(res: Response, max: number): Promise<string | null> {
 }
 
 /**
- * Fetch and parse a single instrument reading. Never throws — always resolves to
- * a result the caller can surface per-instrument.
+ * SSRF-hardened GET that returns parsed JSON. Never throws.
  */
-export async function fetchInstrumentValue(rawUrl: string | null | undefined): Promise<InstrumentFetchResult> {
+async function fetchJsonHardened(rawUrl: string | null | undefined): Promise<{ ok: true; body: any } | { ok: false; error: string }> {
   if (!rawUrl || !rawUrl.trim()) return { ok: false, error: 'No URL configured' };
 
   let url: URL;
@@ -117,17 +114,11 @@ export async function fetchInstrumentValue(rawUrl: string | null | undefined): P
     const text = await readCapped(res, MAX_BYTES);
     if (text === null) return { ok: false, error: 'Response too large' };
 
-    let body: any;
     try {
-      body = JSON.parse(text);
+      return { ok: true, body: JSON.parse(text) };
     } catch {
       return { ok: false, error: 'Response was not valid JSON' };
     }
-    const value = body?.value;
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      return { ok: false, error: 'Response missing numeric "value"' };
-    }
-    return { ok: true, value, fetchedAt: new Date().toISOString() };
   } catch (e: any) {
     if (e?.name === 'AbortError') return { ok: false, error: 'Timed out' };
     if (e?.cause?.code === 'UND_ERR_REDIRECT' || e?.message?.toLowerCase().includes('redirect')) {
@@ -137,4 +128,26 @@ export async function fetchInstrumentValue(rawUrl: string | null | undefined): P
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Fetch the group's reading endpoint and return its flat reading object. The
+ * instrument values live under a `reading` object, e.g.
+ *   { "reading": { "air_pressure": 6.2, "ro_water_pressure": 4.1 } }
+ * Falls back to top-level keys when there's no `reading` wrapper. Only finite
+ * numeric values are kept. Never throws.
+ */
+export async function fetchReadingObject(rawUrl: string | null | undefined): Promise<ReadingObjectResult> {
+  const res = await fetchJsonHardened(rawUrl);
+  if (!res.ok) return { ok: false, error: res.error };
+  const body = res.body;
+  const raw = (body && typeof body === 'object' && body.reading && typeof body.reading === 'object') ? body.reading : body;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'Response missing a reading object' };
+  }
+  const reading: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === 'number' && Number.isFinite(v)) reading[k] = v;
+  }
+  return { ok: true, reading, fetchedAt: new Date().toISOString() };
 }
