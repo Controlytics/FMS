@@ -1706,6 +1706,12 @@ model EquipmentGroupInstrument {
   operatingMin  Float    @map("operating_min")
   operatingMax  Float    @map("operating_max")
   leastCount    Float    @map("least_count")
+  // Instrument auto-fetch (2026-06-13): when autoFetchEnabled, the cleaning
+  // reading dialog can pull this instrument's value from `url` (server-proxied)
+  // instead of manual entry. Both are snapshot-pinned into EquipmentGroupVersion.
+  // Missing/false = manual entry (backward-compatible default).
+  url              String?  @db.VarChar(2048)
+  autoFetchEnabled Boolean  @default(false) @map("auto_fetch_enabled")
   sortOrder     Int      @default(0) @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz

@@ -60,6 +60,8 @@ async function snapshotAndBump(
           operatingMin: i.operatingMin,
           operatingMax: i.operatingMax,
           leastCount: i.leastCount,
+          url: i.url ?? null,
+          autoFetchEnabled: i.autoFetchEnabled ?? false,
           sortOrder: i.sortOrder,
         })),
       } as Prisma.InputJsonValue,
@@ -102,11 +104,31 @@ function validateInstrument(inst: any, idx: number) {
   if (inst.operatingMin >= inst.operatingMax) {
     throw new AppError(400, 'VALIDATION', `${prefix}: Operating Min must be less than Operating Max`);
   }
+  // Auto-fetch (2026-06-13): a URL is mandatory once auto-fetch is enabled, and
+  // must be a syntactically valid http(s) URL. Host-level SSRF checks happen in
+  // the proxy (Phase 2), not here — this is just input shape.
+  if (inst.autoFetchEnabled) {
+    const raw = typeof inst.url === 'string' ? inst.url.trim() : '';
+    if (!raw) {
+      throw new AppError(400, 'VALIDATION', `${prefix}: A reading URL is required when auto-fetch is enabled`);
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new AppError(400, 'VALIDATION', `${prefix}: Reading URL is not a valid URL`);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new AppError(400, 'VALIDATION', `${prefix}: Reading URL must use http or https`);
+    }
+  }
 }
 
 export class EquipmentGroupsService {
-  async list(_ctx: RequestContext, blockId?: string) {
-    const where: any = { isActive: true };
+  async list(_ctx: RequestContext, blockId?: string, includeInactive = false) {
+    // Config UI passes includeInactive=true so admins can see + re-enable
+    // disabled groups; the cleaning runtime keeps the default (active only).
+    const where: any = includeInactive ? {} : { isActive: true };
     if (blockId) where.blockId = blockId;
 
     return prisma.equipmentGroup.findMany({
@@ -151,11 +173,20 @@ export class EquipmentGroupsService {
     // Validate each instrument
     instruments.forEach((inst: any, idx: number) => validateInstrument(inst, idx));
 
+    // Single-active-group invariant: a block may have at most one ACTIVE group
+    // (the cleaning runtime resolves one group per block). If the block already
+    // has an active group, the new one is created INACTIVE — the admin enables
+    // it via setActive() to switch, which flips the others off. This preserves
+    // the invariant without silently stealing the active group on create.
+    const hasActiveInBlock = await prisma.equipmentGroup.count({ where: { blockId, isActive: true } });
+    const createActive = hasActiveInBlock === 0;
+
     const group = await prisma.$transaction(async (tx) => {
       const created = await tx.equipmentGroup.create({
         data: {
           name: name.trim(),
           blockId,
+          isActive: createActive,
           createdBy: ctx.userSub,
         },
       });
@@ -176,6 +207,8 @@ export class EquipmentGroupsService {
             operatingMin: inst.operatingMin,
             operatingMax: inst.operatingMax,
             leastCount: inst.leastCount,
+            url: inst.autoFetchEnabled ? (inst.url?.trim() ?? null) : (inst.url?.trim() || null),
+            autoFetchEnabled: inst.autoFetchEnabled === true,
             sortOrder: def.sortOrder,
           },
         });
@@ -239,6 +272,8 @@ export class EquipmentGroupsService {
               operatingMin: inst.operatingMin,
               operatingMax: inst.operatingMax,
               leastCount: inst.leastCount,
+              url: inst.autoFetchEnabled ? (inst.url?.trim() ?? null) : (inst.url?.trim() || null),
+              autoFetchEnabled: inst.autoFetchEnabled === true,
             },
           });
         }
@@ -259,6 +294,47 @@ export class EquipmentGroupsService {
     });
 
     return group;
+  }
+
+  /**
+   * Enable / disable an equipment group. ENABLING enforces the single-active-
+   * group-per-block invariant: every OTHER group in the same block is flipped
+   * inactive in the same transaction, so the cleaning runtime always resolves
+   * exactly one group per block (no MULTIPLE_EQUIPMENT_GROUPS). Disabling just
+   * flips this one off (a block may legitimately have zero active groups).
+   *
+   * Mirrors `delete()` — this does NOT snapshot-then-bump (isActive flips are
+   * not versioned; the next real edit captures the active state in its
+   * snapshot), keeping the toggle cheap and consistent with soft-delete.
+   */
+  async setActive(ctx: RequestContext, id: string, isActive: boolean) {
+    const existing = await prisma.equipmentGroup.findFirst({ where: { id } });
+    if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
+
+    await prisma.$transaction(async (tx) => {
+      if (isActive) {
+        // Flip every other group in this block off, then turn this one on.
+        await tx.equipmentGroup.updateMany({
+          where: { blockId: existing.blockId, isActive: true, id: { not: id } },
+          data: { isActive: false },
+        });
+      }
+      await tx.equipmentGroup.update({ where: { id }, data: { isActive } });
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: isActive ? 'EQUIPMENT_GROUP_ENABLED' : 'EQUIPMENT_GROUP_DISABLED',
+      targetType: 'equipment_group', targetId: id,
+      beforeValue: { isActive: existing.isActive },
+      afterValue: { name: existing.name, blockId: existing.blockId, isActive },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return prisma.equipmentGroup.findUnique({
+      where: { id },
+      include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+    });
   }
 
   /**

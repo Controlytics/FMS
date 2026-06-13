@@ -1,0 +1,167 @@
+# Equipment-Instrument Auto-Fetch — Implementation Plan
+
+**Branch:** RFID · **Status:** PLAN (no code yet) · **Created:** 2026-06-13
+
+Auto-populate cleaning-stage instrument readings from per-instrument REST endpoints,
+with a manual fallback. Server-proxied fetch, snapshot-pinned URLs, manual flow
+preserved when disabled / offline / unreachable.
+
+---
+
+## 1. Decisions (confirmed with user 2026-06-13)
+
+| # | Decision | Choice |
+|---|---|---|
+| D1 | Who calls the instrument URL | **Server-proxied** (backend fetches; URL/secrets hidden from client; audited) |
+| D2 | Instrument API response shape | **Same fixed JSON** — contract: `{ "value": <number> }`, already in the instrument's UoM, no conversion |
+| D3 | Out-of-range auto value | **Accept but warn** at the fetch/fill step (see DECISION-A below) |
+| D4 | "Get Values" button scope | **One button for the whole stage** (fetches all enabled auto instruments for that stage) |
+
+### DECISION-A — Out-of-range submission (NEEDS REVIEW SIGN-OFF)
+"Accept but warn" cleanly governs the **fetch/fill** step: an out-of-range auto value
+fills the field with a warning and stays editable. **v1 keeps the existing hard range
+guard (#29) at submit** — i.e. submission is governed exactly as manual entry is today;
+the warning just previews what will fail. This is **no compliance change**.
+
+The alternative — allowing out-of-range readings to be *submitted* as a recorded
+deviation — is a materially larger, compliance-weighted change and is **deferred to a
+possible later phase**, not in v1. **User: veto here at review if you want OOS-submittable.**
+
+### Defaulted (stated, correctable)
+- **D2 key** = `value`. If the upstream key differs, it's a one-line change.
+- **Auth** = none in v1 (assume open on the cleanroom LAN). The proxy is designed so an
+  optional per-instrument auth header can be added later without reshaping anything.
+
+---
+
+## 2. Core concepts / invariants
+
+- **Snapshot-pinned URLs.** The URL + auto-fetch toggle live on `EquipmentGroupInstrument`
+  and are captured into the `EquipmentGroupVersion` snapshot at cycle start (same as
+  `operatingMin/Max`). The proxy reads the **cycle's pinned snapshot**, never the live row,
+  so an admin editing a URL mid-cycle can't reach an in-flight cycle.
+- **Backward-compat.** Existing `EquipmentGroupVersion` snapshots and instrument rows have
+  no `url` / `autoFetchEnabled` fields → **missing = auto-fetch OFF** everywhere (readers,
+  proxy, dialogs). No migration of historic snapshots.
+- **Manual is the floor.** Auto-fetch is a convenience layer on top of the current manual
+  flow. OFF / offline / unreachable / 2-min-timeout all converge on the unchanged manual path.
+- **Provenance (ALCOA).** Each reading records how it was obtained:
+  `source ∈ { MANUAL, AUTO, AUTO_OVERRIDDEN }`. If an operator auto-fetches **then edits**
+  the field, source flips `AUTO → AUTO_OVERRIDDEN` (or `MANUAL`) — never stays `AUTO`.
+  Store `fetchedAt` for AUTO/AUTO_OVERRIDDEN.
+- **Submit path unchanged.** Once readings are present (auto / manual / instrument disabled),
+  the existing `advance.ts` validation + event write + stage interlock run as today.
+
+---
+
+## 3. Group enable/disable RULE (resolves MULTIPLE_EQUIPMENT_GROUPS)
+
+The whole point of the per-group toggle is the "multiple groups in one block" case. Today
+`advance.ts` throws `MULTIPLE_EQUIPMENT_GROUPS` when a block has >1 active group.
+
+**Rule (v1):** **enabling a group disables every other group in the same block** (enforced
+server-side in the equipment-group update service, transactionally). Result: at most one
+enabled group per block, so the existing single-active-group resolution keeps working and
+the error path becomes unreachable in normal use. The `MULTIPLE_EQUIPMENT_GROUPS` guard
+stays as a defensive backstop.
+
+> Alternative considered: block *enabling* a second group with a 409. Rejected — the
+> "enable flips the others off" UX matches how the user described switching between groups.
+
+---
+
+## 4. Phases
+
+Each phase: implement → verify (per CLAUDE.md correctness rule) → only then next.
+
+### Phase 1 — Schema + snapshot + group rule  ✅ DONE + VERIFIED (2026-06-13)
+> Migration `20260613120000_add_instrument_autofetch` applied. `EquipmentGroupInstrument`
+> gained `url String?` + `autoFetchEnabled Boolean @default(false)`; both flow through
+> create/update + the `instrumentSchema` (Fastify strip-fix) + the version snapshot.
+> New `setActive()` + `PATCH /:id/active` enforce one-active-group-per-block (enabling flips
+> siblings off); create makes a group inactive if the block already has an active one.
+> `list(includeInactive)` for the config UI. **Live-verified via curl+psql** on block L1
+> (create→inactive+fields persisted, enable→sibling flipped, update→snapshot carried the new
+> fields), then test group hard-deleted and L1 restored. tsc 0 errors.
+- `EquipmentGroupInstrument`: add `url String?`, `autoFetchEnabled Boolean @default(false)`.
+- `snapshotAndBump` (equipment-groups.service.ts): include `url` + `autoFetchEnabled` in the
+  per-instrument snapshot map. Snapshot readers tolerate missing (= OFF).
+- Group enable/disable service rule (Section 3) — transactional flip of siblings.
+- **Windows gotchas:** hand-write the migration + apply via psql (`prisma migrate dev` is
+  broken in repo); **stop the API** before `npx prisma generate` (DLL lock); **rebuild
+  shared** if any shared type changes (`cd packages/shared && npx tsc`).
+- **Verify:** migration applied; API boots; create/edit a group with URLs persists; editing
+  bumps version and the new snapshot carries url+toggle; enabling group B in a block flips
+  group A off.
+
+### Phase 2 — Server proxy endpoint (SSRF-hardened)
+- New route, e.g. `POST /api/equipment-groups/fetch-reading`
+  body `{ cycleId, stageKey }` → resolves the cycle's pinned snapshot, selects enabled +
+  `autoFetchEnabled` instruments for `stageKey`, fetches each, returns per-instrument
+  `{ instrumentId, ok, value?, error?, fetchedAt }`.
+- **SSRF hardening (named requirements, not afterthought):**
+  - short per-call timeout (≈5s — also serves the retry UX),
+  - **no redirect-follow**,
+  - **max response-size cap**,
+  - **scheme allowlist** (http/https only) + **block loopback / link-local / cloud-metadata
+    ranges** (169.254.0.0/16, 127.0.0.0/8, ::1, etc.); ideally an admin host allowlist.
+  - parse strictly to `{ value: number }`; reject non-numeric / wrong shape as `ok:false`.
+- One quick attempt per call — **the client owns the 1-min + 1-min retry loop**, not the server
+  (no long-held HTTP requests).
+- Permission-gated (reuse the filter-operations advance permission context; operator running
+  the cycle can fetch). Audit the fetch attempt minimally if needed.
+- **Verify:** with a local mock endpoint returning `{value:N}` → 200 + value; with mock down
+  → `ok:false`; with `http://127.0.0.1/...` → blocked; oversized body → blocked; redirect → not
+  followed.
+
+### Phase 3 — Equipment Groups config UI
+- Equipment Groups config page: per-instrument **URL** field + **auto-fetch** toggle; per-group
+  **Enable/Disable** control reflecting the Section-3 rule (enabling shows "this turns the
+  others off" affordance).
+- Light theme; lint-clean; no console errors.
+- **Verify:** in-browser save/edit round-trips; toggling group enable flips siblings in the UI
+  + DB.
+
+### Phase 4 — Reading dialogs (web + tablet, kept in SYNC)
+Both `filter-operations.tsx` (web) and `mobile-operations.tsx` (tablet) — mirror every change.
+- Stage reading dialog: if any enabled instrument for the stage has auto-fetch ON **and online**,
+  show **one "Get Values" button** for the stage.
+- Client retry loop: poll the proxy; **track per-instrument success** so retries only re-hit the
+  ones still pending; up to 1 min, then a second 1 min; **abort the loop if the dialog closes**.
+- On value: fill field, `source=AUTO`, show range warning if OOS (DECISION-A); field editable →
+  on manual edit flip `source=AUTO_OVERRIDDEN`.
+- On total failure (≈2 min) per instrument: that field falls back to manual.
+- **DRY_IN:** the dryer-temp fetch belongs at the **SUBMIT_READINGS** sub-step (after half-time),
+  **not** SET_DURATION.
+- Submit sends `instrumentReadings` plus per-reading `source` + `fetchedAt`; `advance.ts` writes
+  them into `FilterEvent.attributes.instrumentReadings[]`.
+- **Verify:** browser + tablet — disabled→manual unchanged; enabled→fetch fills; mock-down→
+  fallback to manual; OOS auto value warns; edited auto value records AUTO_OVERRIDDEN.
+
+### Phase 5 — Offline
+- Offline (Capacitor offline / no server contact) → **force manual**, hide/disable Get Values.
+- Queued offline ops never attempt auto-fetch on replay (readings already captured as MANUAL).
+- **Verify:** airplane-mode tablet → manual only; replay carries MANUAL source.
+
+### Phase 6 — Tests + docs
+- API tests: proxy happy path, mock-down, SSRF blocks (loopback/oversize/redirect), shape
+  rejection — **upstream mocked** (no real network in tests).
+- Unit: source-provenance transitions (AUTO→AUTO_OVERRIDDEN on edit), missing-field=OFF reader.
+- Docs: CHANGELOG, apps/api + apps/web CLAUDE.md (schema field counts / new endpoint), this plan
+  marked done, memory note.
+
+---
+
+## 5. Touchpoints (test all after change — CLAUDE.md correctness rule)
+- `apps/api/prisma/schema.prisma` (EquipmentGroupInstrument)
+- `apps/api/src/modules/equipment-groups/{equipment-groups.service.ts,routes.ts}` (snapshot,
+  group rule, proxy)
+- `apps/api/src/modules/filter-operations/cycle-write/advance.ts` (reading source/fetchedAt write)
+- `packages/shared/src/pipeline-executor/instruments.ts` (only if reader shape touched)
+- web: equipment-groups config page; `filter-operations.tsx`; `mobile-operations.tsx`
+- offline: use-offline / sync paths (force-manual gate)
+- APK rebuild after mobile-operations change (tablet QA)
+
+## 6. Rollback
+- Pre-work git tag before Phase 1. All flags default OFF / fields nullable, so the feature is
+  inert until an admin sets a URL + toggle — safe to ship dark.
