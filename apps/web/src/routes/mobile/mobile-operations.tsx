@@ -171,6 +171,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [justification, setJustification] = useState('');
   const [selectedEquipGroup, setSelectedEquipGroup] = useState<any>(null);
   const [readings, setReadings] = useState<Record<string, number>>({});
+  // Instrument auto-fetch (2026-06-13) — mirrors the shared web EquipmentDialog.
+  const [equipSource, setEquipSource] = useState<Record<string, 'MANUAL' | 'AUTO' | 'AUTO_OVERRIDDEN'>>({});
+  const [equipFetching, setEquipFetching] = useState(false);
+  const [equipFetchStatus, setEquipFetchStatus] = useState('');
+  const [equipPending, setEquipPending] = useState<Set<string>>(new Set());
+  const equipCancelRef = useRef(false);
   const [dryerLoading, setDryerLoading] = useState(false);
   const [dryerError, setDryerError] = useState('');
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, any>>({});
@@ -182,6 +188,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // pre-fix per-filter cycling via `remainingBatch`, which made the operator
   // re-answer the same checklist N times.
   const [pendingBatch, setPendingBatch] = useState<Array<{ filterId: string; filterName: string }> | null>(null);
+
+  // Auto-fetch: reset per-instrument provenance/fetch state when the equipment
+  // dialog opens; abort any in-flight fetch loop when it closes.
+  useEffect(() => {
+    if (equipDialog) {
+      setEquipSource({}); setEquipFetching(false); setEquipFetchStatus(''); setEquipPending(new Set());
+      equipCancelRef.current = false;
+    }
+    return () => { equipCancelRef.current = true; };
+  }, [equipDialog]);
 
   // Refocus the scan input whenever we enter the stage view, all dialogs close,
   // or success flashes. autoFocus only fires once on mount, so without this
@@ -1694,6 +1710,64 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setDryerLoading(false);
   };
 
+  // Mark a value the operator typed/picked. Editing an auto-filled value flips
+  // provenance to AUTO_OVERRIDDEN (never silently stays AUTO).
+  const setEquipReading = (instId: string, raw: string) => {
+    setReadings(prev => {
+      const next = { ...prev };
+      const n = Number(raw);
+      if (raw === '' || Number.isNaN(n)) delete next[instId];
+      else next[instId] = n;
+      return next;
+    });
+    setEquipSource(prev => ({ ...prev, [instId]: (prev[instId] === 'AUTO' || prev[instId] === 'AUTO_OVERRIDDEN') ? 'AUTO_OVERRIDDEN' : 'MANUAL' }));
+  };
+
+  // "Get Values": poll the SSRF-hardened server proxy, filling each auto
+  // instrument as it arrives, retrying the still-pending ones for up to ~2 min,
+  // then leaving them for manual entry. Aborts on dialog close (equipCancelRef).
+  const handleGetValuesMobile = async () => {
+    if (!equipDialog || !selectedEquipGroup || equipFetching) return;
+    const autoIds = (selectedEquipGroup.instruments ?? [])
+      .filter((i: any) => i.stageKey === equipDialog.stage && i.autoFetchEnabled === true)
+      .map((i: any) => i.id);
+    if (autoIds.length === 0) return;
+    equipCancelRef.current = false;
+    setEquipFetching(true);
+    const pending = new Set<string>(autoIds);
+    setEquipPending(new Set(pending));
+    setEquipFetchStatus(`Fetching ${autoIds.length} reading(s)…`);
+    const start = Date.now();
+    try {
+      while (pending.size > 0 && (Date.now() - start) < 120_000) {
+        if (equipCancelRef.current) return;
+        let res: any = null;
+        try {
+          res = await apiClient.post<any>('/api/equipment-groups/fetch-readings', {
+            filterId: equipDialog.filterId, groupId: selectedEquipGroup.id, stageKey: equipDialog.stage,
+          });
+        } catch { res = null; }
+        if (equipCancelRef.current) return;
+        for (const r of (res?.results ?? [])) {
+          if (r?.ok && typeof r.value === 'number' && pending.has(r.instrumentId)) {
+            setReadings(prev => ({ ...prev, [r.instrumentId]: r.value }));
+            setEquipSource(prev => ({ ...prev, [r.instrumentId]: 'AUTO' }));
+            pending.delete(r.instrumentId);
+          }
+        }
+        setEquipPending(new Set(pending));
+        if (pending.size === 0) break;
+        setEquipFetchStatus(`Got ${autoIds.length - pending.size}/${autoIds.length}. Retrying…`);
+        await new Promise(r => setTimeout(r, 5_000));
+      }
+    } finally {
+      if (!equipCancelRef.current) {
+        setEquipFetching(false);
+        setEquipFetchStatus(pending.size > 0 ? `${pending.size} reading(s) couldn't be fetched — enter manually.` : 'All readings fetched.');
+      }
+    }
+  };
+
   const handleEquipSubmit = async () => {
     if (!equipDialog || !selectedEquipGroup) return;
     // Validate all instrument readings are filled
@@ -2994,18 +3068,52 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-4 rounded-t-3xl"><h2 className="text-lg font-bold text-white">{equipDialog.stage === 'DRY_IN' ? 'Dryer Temperature' : 'Equipment Readings'}</h2><p className="text-amber-100 text-sm">{equipDialog.filterName}</p></div>
             <div className="p-5 space-y-3 overflow-y-auto flex-1">
               {!equipDialog.cycleGroup && (equipDialog.groups as any[]).map((g: any) => (
-                <button key={g.id} onClick={() => { setSelectedEquipGroup(g); setReadings({}); }} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedEquipGroup?.id === g.id ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
+                <button key={g.id} onClick={() => { setSelectedEquipGroup(g); setReadings({}); setEquipSource({}); setEquipFetchStatus(''); setEquipPending(new Set()); }} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedEquipGroup?.id === g.id ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
                   <div className="text-sm font-medium text-slate-800">{g.name}</div>
                 </button>
               ))}
-              {selectedEquipGroup && (selectedEquipGroup.instruments ?? []).filter((i: any) => i.stageKey === equipDialog.stage).map((inst: any) => (
-                <div key={inst.id}><label className="text-sm font-medium text-slate-700">{inst.description} ({inst.uom})</label>
-                  <select value={readings[inst.id] ?? ''} onChange={e => setReadings(p => ({ ...p, [inst.id]: Number(e.target.value) }))} className="w-full mt-1 border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white">
-                    <option value="">Select...</option>{genOpts(inst.operatingMin, inst.operatingMax, inst.leastCount).map(v => <option key={v} value={v}>{formatByLeastCount(v, inst.leastCount)} {inst.uom}</option>)}
-                  </select></div>
-              ))}
+              {selectedEquipGroup && (() => {
+                const stageInsts = (selectedEquipGroup.instruments ?? []).filter((i: any) => i.stageKey === equipDialog.stage);
+                const hasAuto = stageInsts.some((i: any) => i.autoFetchEnabled === true);
+                return (
+                  <>
+                    {hasAuto && (
+                      <button type="button" onClick={handleGetValuesMobile} disabled={equipFetching}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-50">
+                        {equipFetching ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                        {equipFetching ? 'Fetching…' : 'Get Values'}
+                      </button>
+                    )}
+                    {hasAuto && equipFetchStatus && <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">{equipFetchStatus}</div>}
+                    {stageInsts.map((inst: any) => {
+                      const val = readings[inst.id];
+                      const src = equipSource[inst.id];
+                      const oor = val !== undefined && (val < inst.operatingMin || val > inst.operatingMax);
+                      return (
+                        <div key={inst.id}>
+                          <div className="flex items-center gap-2">
+                            <label className="text-sm font-medium text-slate-700">{inst.description} ({inst.uom})</label>
+                            {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
+                            {src === 'AUTO_OVERRIDDEN' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700">Auto · edited</span>}
+                          </div>
+                          {inst.autoFetchEnabled ? (
+                            <input type="number" step="any" inputMode="decimal" value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)}
+                              placeholder={equipFetching && equipPending.has(inst.id) ? 'Fetching…' : 'Enter or fetch'}
+                              className={`w-full mt-1 border rounded-xl px-4 py-3 text-sm bg-white ${oor ? 'border-amber-400' : 'border-slate-200'}`} />
+                          ) : (
+                            <select value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)} className="w-full mt-1 border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white">
+                              <option value="">Select...</option>{genOpts(inst.operatingMin, inst.operatingMax, inst.leastCount).map(v => <option key={v} value={v}>{formatByLeastCount(v, inst.leastCount)} {inst.uom}</option>)}
+                            </select>
+                          )}
+                          {oor && <div className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">Outside operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)} {inst.uom}) — can't submit until corrected.</div>}
+                        </div>
+                      );
+                    })}
+                  </>
+                );
+              })()}
             </div>
-            <div className="p-4 border-t border-slate-200 flex gap-3"><button onClick={() => core.dispatch({ type: 'close' })} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium">Cancel</button><button onClick={handleEquipSubmit} disabled={loading || !selectedEquipGroup || (() => { const insts = (selectedEquipGroup?.instruments ?? []).filter((i: any) => i.stageKey === equipDialog.stage); return insts.length > 0 && insts.some((i: any) => readings[i.id] === undefined); })()} className="flex-1 py-3 bg-amber-500 text-white rounded-xl font-bold disabled:opacity-40">{loading ? 'Submitting...' : 'Submit'}</button></div>
+            <div className="p-4 border-t border-slate-200 flex gap-3"><button onClick={() => core.dispatch({ type: 'close' })} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium">Cancel</button><button onClick={handleEquipSubmit} disabled={loading || equipFetching || !selectedEquipGroup || (() => { const insts = (selectedEquipGroup?.instruments ?? []).filter((i: any) => i.stageKey === equipDialog.stage); return insts.length > 0 && insts.some((i: any) => readings[i.id] === undefined); })()} className="flex-1 py-3 bg-amber-500 text-white rounded-xl font-bold disabled:opacity-40">{loading ? 'Submitting...' : 'Submit'}</button></div>
           </div>
         </div>
       )}

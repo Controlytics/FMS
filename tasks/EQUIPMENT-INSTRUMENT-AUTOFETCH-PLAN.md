@@ -157,7 +157,11 @@ Each phase: implement → verify (per CLAUDE.md correctness rule) → only then 
 > Backend: `fetchStageReadings` gained a `groupId` fallback (cycle-start has no cycle to resolve;
 > client sends ids only, server resolves the URL). Verified: API+web tsc 0, vite build clean,
 > endpoint e2e via groupId fallback against a LAN mock → `AIR-1 ok value 6.2 +fetchedAt`, auto-only.
-> PENDING (batched with P3 visual): in-app drive of the dialog on a real cycle (tablet/APK).
+> **DISCOVERY:** the tablet does NOT use the shared dialog — `mobile-operations.tsx` has its own
+> inline equipment dialog. Mirrored the full flow there (state + handleGetValuesMobile +
+> setEquipReading + numeric inputs/badges/warn + Submit disabled while fetching). So 4a now covers
+> BOTH surfaces. tsc+build clean.
+> PENDING (batched with P3 visual): in-app drive of the dialog on a real cycle (tablet/APK) + APK rebuild.
 
 #### Phase 4b — Provenance thread to the audit  ⏳ NEXT
 Both `filter-operations.tsx` (web) and `mobile-operations.tsx` (tablet) — mirror every change.
