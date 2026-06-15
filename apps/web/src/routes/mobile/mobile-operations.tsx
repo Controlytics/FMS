@@ -1754,6 +1754,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // then leaving them for manual entry. Aborts on dialog close (equipCancelRef).
   const handleGetValuesMobile = async () => {
     if (!equipDialog || !selectedEquipGroup || equipFetching) return;
+    // Auto-fetch is online-only; offline there's nothing to poll (the button is
+    // hidden too, but guard here so a stale render can't kick off a doomed loop).
+    if (!online) return;
     const autoIds = (selectedEquipGroup.instruments ?? [])
       .filter((i: any) => i.stageKey === equipDialog.stage && i.autoFetchEnabled === true)
       .map((i: any) => i.id);
@@ -3110,7 +3113,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               ))}
               {selectedEquipGroup && (() => {
                 const stageInsts = (selectedEquipGroup.instruments ?? []).filter((i: any) => i.stageKey === equipDialog.stage);
-                const hasAuto = stageInsts.some((i: any) => i.autoFetchEnabled === true);
+                // Auto-fetch is online-only. Offline → every instrument reverts to
+                // the manual stepped-dropdown (operatingMin/Max + leastCount). P5.
+                const isAutoInstrument = (i: any): boolean => i.autoFetchEnabled === true && online;
+                const hasAuto = stageInsts.some(isAutoInstrument);
                 return (
                   <>
                     {hasAuto && (
@@ -3132,7 +3138,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                             {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
                             {src === 'AUTO_OVERRIDDEN' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700">Auto · edited</span>}
                           </div>
-                          {inst.autoFetchEnabled ? (
+                          {isAutoInstrument(inst) ? (
                             <input type="number" step="any" inputMode="decimal" value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)}
                               placeholder={equipFetching && equipPending.has(inst.id) ? 'Fetching…' : 'Enter or fetch'}
                               className={`w-full mt-1 border rounded-xl px-4 py-3 text-sm bg-white ${oor ? 'border-amber-400' : 'border-slate-200'}`} />

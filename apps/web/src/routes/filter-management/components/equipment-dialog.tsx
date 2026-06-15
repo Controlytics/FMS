@@ -15,6 +15,11 @@ interface EquipmentDialogProps {
   onSubmit: (groupId: string, readings: Record<string, number>) => void;
   loading: boolean;
   error: string;
+  // Auto-fetch is an ONLINE-only convenience. Offline, every instrument falls
+  // back to the original manual flow (stepped dropdown from operatingMin/Max +
+  // leastCount) regardless of its autoFetchEnabled flag — the server proxy is
+  // unreachable, so there's nothing to fetch. See instrument-autofetch plan P5.
+  online: boolean;
 }
 
 type ReadingSource = 'MANUAL' | 'AUTO' | 'AUTO_OVERRIDDEN';
@@ -33,7 +38,7 @@ function generateReadingOptions(opMin: number, opMax: number, leastCount: number
   return options;
 }
 
-export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: EquipmentDialogProps) {
+export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, online }: EquipmentDialogProps) {
   const [selectedEquipmentGroup, setSelectedEquipmentGroup] = useState<any>(null);
   const [instrumentReadings, setInstrumentReadings] = useState<Record<string, number>>({});
   const [source, setSource] = useState<Record<string, ReadingSource>>({});
@@ -67,7 +72,11 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
   const stageInstrumentsOf = (group: any): any[] =>
     (group?.instruments ?? []).filter((i: any) => i.stageKey === dialog.stage.key);
 
-  const hasAuto = stageInstrumentsOf(selectedEquipmentGroup).some((i: any) => i.autoFetchEnabled === true);
+  // Effective auto = configured for auto-fetch AND currently online. Offline the
+  // instrument reverts to the manual stepped-dropdown flow (old process).
+  const isAutoInstrument = (i: any): boolean => i.autoFetchEnabled === true && online;
+
+  const hasAuto = stageInstrumentsOf(selectedEquipmentGroup).some(isAutoInstrument);
 
   // Mark a value the operator typed/picked. If it was auto-filled, an edit flips
   // provenance to AUTO_OVERRIDDEN (never silently stays AUTO).
@@ -90,7 +99,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
   // ~2 minutes, then leaves them empty for manual entry. Aborts on dialog close.
   const handleGetValues = async () => {
     if (!selectedEquipmentGroup || fetching) return;
-    const autoIds = stageInstrumentsOf(selectedEquipmentGroup).filter((i: any) => i.autoFetchEnabled === true).map((i: any) => i.id);
+    const autoIds = stageInstrumentsOf(selectedEquipmentGroup).filter(isAutoInstrument).map((i: any) => i.id);
     if (autoIds.length === 0) return;
 
     cancelRef.current = false;
@@ -217,8 +226,9 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
                 const val = instrumentReadings[inst.id];
                 const src = source[inst.id];
                 const outOfRange = val !== undefined && (val < inst.operatingMin || val > inst.operatingMax);
+                const auto = isAutoInstrument(inst);
                 const isWaiting = fetching && pendingAuto.has(inst.id);
-                const options = inst.autoFetchEnabled ? [] : generateReadingOptions(inst.operatingMin, inst.operatingMax, inst.leastCount);
+                const options = auto ? [] : generateReadingOptions(inst.operatingMin, inst.operatingMax, inst.leastCount);
                 return (
                   <div key={inst.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
                     <div className="flex items-center justify-between">
@@ -231,7 +241,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
                       <span className="text-xs text-slate-400">{formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)} {inst.uom}</span>
                     </div>
 
-                    {inst.autoFetchEnabled ? (
+                    {auto ? (
                       // Auto-fetch instrument: free numeric input so it can hold the
                       // API value (which may be off-step or out of range) and still
                       // serve as the manual fallback.

@@ -1527,7 +1527,7 @@ export function FilterOperationsPage() {
           />
         )}
         <CleaningReasonDialog dialog={reasonDialog} onClose={() => { core.dispatch({ type: 'close' }); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} defaultReasonKey={pmReasonCtx.defaultReasonKey} pmDue={pmReasonCtx.pmDue} />
-        <EquipmentDialog dialog={equipmentDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} />
+        <EquipmentDialog dialog={equipmentDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} online={online} />
         <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { core.dispatch({ type: 'close' }); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
         <ChecklistDialog dialog={checklistDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
         <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying} onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel="Filter Operation" />
@@ -1715,6 +1715,7 @@ export function FilterOperationsPage() {
         onSubmit={handleEquipmentSubmit}
         loading={equipmentLoading}
         error={equipmentError}
+        online={online}
       />
 
       {/* Dryer Duration Dialog */}

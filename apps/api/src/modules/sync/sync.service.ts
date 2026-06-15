@@ -208,13 +208,26 @@ export class SyncService {
         template: { select: { id: true, name: true, templateKind: true } },
         filterDetails: true,
         parent: {
-          // Filter -> AHU -> Area -> Block. Fetch up to 3 ancestor levels.
+          // Filter -> AHU -> (Area?) -> Block. Fetch up to 3 ancestor levels.
+          // The Area level is OPTIONAL: an AHU can be parented directly by a
+          // Block (no Area). So the chain is either Filter→AHU→Area→Block OR
+          // Filter→AHU→Block. We pull templateKind at every level and bucket
+          // ancestors by kind below — a positional walk (area = ahu.parent)
+          // mislabels the Block as the Area and leaves blockId null for any
+          // filter under a direct-under-block AHU.
           select: {
             id: true, name: true, parentId: true,
+            template: { select: { templateKind: true } },
             parent: {
               select: {
                 id: true, name: true, parentId: true,
-                parent: { select: { id: true, name: true } },
+                template: { select: { templateKind: true } },
+                parent: {
+                  select: {
+                    id: true, name: true,
+                    template: { select: { templateKind: true } },
+                  },
+                },
               },
             },
           },
@@ -225,11 +238,19 @@ export class SyncService {
     });
 
     return rows.map(r => {
-      // Resolve parent chain by walking up. Names are best-effort; if any
-      // level is missing, the field is null and the FE renders "—".
-      const ahu = r.parent;
-      const area = ahu?.parent;
-      const block = area?.parent;
+      // Resolve parent chain by KIND, not by position. The Area level is
+      // optional (AHU can sit directly under a Block), so walking by fixed
+      // depth (area = ahu.parent; block = area.parent) breaks for filters
+      // under a direct-under-block AHU — it labels the Block as the Area and
+      // yields blockId = null, which then drops the home-block on the tablet's
+      // offline cache. Collect the linear ancestor chain and bucket by kind.
+      // Names are best-effort; a missing level stays null and the FE renders "—".
+      const chain = [r.parent, r.parent?.parent, (r.parent?.parent as any)?.parent].filter(Boolean) as Array<{ id: string; name: string; template?: { templateKind?: string } | null }>;
+      const byKind = (kind: string) => chain.find(n => n?.template?.templateKind === kind) ?? null;
+      // Direct parent is the AHU; fall back to it if kind metadata is absent.
+      const ahu = byKind('AHU') ?? r.parent;
+      const area = byKind('AREA');
+      const block = byKind('BLOCK');
       return {
         id: r.id,
         name: r.name,

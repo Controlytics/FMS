@@ -204,10 +204,10 @@ describe('SyncService.since() — shape + cursor handling', () => {
           updatedAt: new Date('2026-05-01T11:00:00Z'),
         },
         parent: {
-          id: 'ahu-1', name: 'AHU-1', parentId: 'area-1',
+          id: 'ahu-1', name: 'AHU-1', parentId: 'area-1', template: { templateKind: 'AHU' },
           parent: {
-            id: 'area-1', name: 'Area-A', parentId: 'block-1',
-            parent: { id: 'block-1', name: 'Block-1' },
+            id: 'area-1', name: 'Area-A', parentId: 'block-1', template: { templateKind: 'AREA' },
+            parent: { id: 'block-1', name: 'Block-1', template: { templateKind: 'BLOCK' } },
           },
         },
       },
@@ -227,6 +227,42 @@ describe('SyncService.since() — shape + cursor handling', () => {
     }));
     expect(out.filters[0].updatedAt).toBeInstanceOf(Date);
     expect(out.filters[0].filterDetailsUpdatedAt).toBeInstanceOf(Date);
+  });
+
+  it('10b. AHU parented directly by a Block (no Area) resolves blockId, not areaId', async () => {
+    // Chain is Filter -> AHU -> Block (the Area level is skipped). The old
+    // positional walk (area = ahu.parent; block = area.parent) labeled the
+    // Block as the Area and left blockId null, dropping the filter's home
+    // block on the tablet's offline cache. Kind-based bucketing fixes it.
+    const svc = new SyncService();
+    mockPrisma.assetInstance.findMany.mockResolvedValueOnce([
+      {
+        id: 'f-2',
+        name: 'F-002',
+        templateId: 't-1',
+        status: 'Active',
+        isActive: true,
+        attributes: {},
+        parentId: 'ahu-9',
+        updatedAt: new Date('2026-05-01T10:00:00Z'),
+        template: { id: 't-1', name: 'Filter', templateKind: 'FILTER' },
+        filterDetails: null,
+        parent: {
+          id: 'ahu-9', name: 'AHU-9', parentId: 'block-1', template: { templateKind: 'AHU' },
+          parent: {
+            id: 'block-1', name: 'Block-1', parentId: null, template: { templateKind: 'BLOCK' },
+            parent: null,
+          },
+        },
+      },
+    ]);
+    const out = await svc.since(ctx, {});
+    expect(out.filters[0]).toEqual(expect.objectContaining({
+      id: 'f-2',
+      ahuId: 'ahu-9', ahuName: 'AHU-9',
+      areaId: null, areaName: null,
+      blockId: 'block-1', blockName: 'Block-1',
+    }));
   });
 
   it('11. filter row with missing parent chain leaves names null (no crash)', async () => {
