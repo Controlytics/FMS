@@ -154,7 +154,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
     });
     if (oos.length > 0) {
       const lines = oos.map((i: any) => `• ${i.description}: ${instrumentReadings[i.id]} ${i.uom} (range ${i.operatingMin}–${i.operatingMax})`).join('\n');
-      if (!window.confirm(`These readings are OUTSIDE the operating range:\n\n${lines}\n\nSubmit anyway? This will be recorded as a deviation.`)) return;
+      if (!window.confirm(`These readings are OUTSIDE the operating range:\n\n${lines}\n\nSubmit anyway?`)) return;
     }
     setInternalError('');
     onSubmit(selectedEquipmentGroup.id, instrumentReadings);
@@ -259,7 +259,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error }: E
 
                     {outOfRange && (
                       <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
-                        {formatByLeastCount(val!, inst.leastCount)} {inst.uom} is outside the operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)}). You can submit after confirming — it's recorded as a deviation.
+                        {formatByLeastCount(val!, inst.leastCount)} {inst.uom} is out of the operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)}). You can submit after confirming.
                       </div>
                     )}
                   </div>

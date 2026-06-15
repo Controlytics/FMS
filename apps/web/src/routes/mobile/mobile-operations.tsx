@@ -1812,7 +1812,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     });
     if (oos.length > 0) {
       const lines = oos.map((i: any) => `• ${i.description}: ${readings[i.id]} ${i.uom} (range ${i.operatingMin}–${i.operatingMax})`).join('\n');
-      if (!window.confirm(`These readings are OUTSIDE the operating range:\n\n${lines}\n\nSubmit anyway? This will be recorded as a deviation.`)) return;
+      if (!window.confirm(`These readings are OUTSIDE the operating range:\n\n${lines}\n\nSubmit anyway?`)) return;
     }
     setLoading(true); setError('');
     // Snapshot equip dialog fields before any async dispatch that clears the state
@@ -3141,7 +3141,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                               <option value="">Select...</option>{genOpts(inst.operatingMin, inst.operatingMax, inst.leastCount).map(v => <option key={v} value={v}>{formatByLeastCount(v, inst.leastCount)} {inst.uom}</option>)}
                             </select>
                           )}
-                          {oor && <div className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">Outside operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)} {inst.uom}) — confirm to submit as a deviation.</div>}
+                          {oor && <div className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">Operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)} {inst.uom}) — confirm to submit.</div>}
                         </div>
                       );
                     })}
