@@ -172,7 +172,7 @@ export function ContactAdminPage() {
     if (!requesterUser) return false;
     switch (requestType) {
       case 'CREATE_USER':
-        return newUserId.trim().length >= 6 && fullName.trim() && email.trim() && requestedRole;
+        return newUserId.trim().length >= 6 && fullName.trim() && requestedRole;
       case 'MODIFY_USER':
         return !!lookupUser && !!modifyField && newValue.trim() !== '' && newValue !== currentFieldValue(modifyField);
       case 'UNLOCK':
@@ -192,7 +192,6 @@ export function ContactAdminPage() {
       if (!newUserId.trim()) missing.push('User ID');
       else if (newUserId.trim().length < 6) missing.push('User ID (min 6 characters)');
       if (!fullName.trim()) missing.push('Full Name');
-      if (!email.trim()) missing.push('Email');
       if (!requestedRole) missing.push('Requested Role');
     }
     if (requestType === 'MODIFY_USER') {
@@ -381,9 +380,9 @@ export function ContactAdminPage() {
                     placeholder="Engineering" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">Email <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Email <span className="text-xs font-normal text-slate-400">(optional)</span></label>
                   <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder="user@company.com" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                    placeholder="user@company.com (optional)" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
                 </div>
               </div>
               <div>

@@ -179,12 +179,12 @@ export function CreateUserPage() {
             <div className="grid grid-cols-2 gap-6 mt-6">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">
-                  {userLabels.email} <span className="text-red-500">*</span>
+                  {userLabels.email} <span className="text-xs font-normal text-slate-400">(optional)</span>
                 </label>
                 <Input
                   {...register('email')}
                   type="email"
-                  placeholder="user@example.com"
+                  placeholder="user@example.com (optional)"
                   className="h-12"
                 />
                 {errors.email && (

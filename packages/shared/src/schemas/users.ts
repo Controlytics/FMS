@@ -3,7 +3,9 @@ import { z } from 'zod';
 export const createUserSchema = z.object({
   username: z.string().min(6, 'Minimum 6 characters').max(50, 'Maximum 50 characters'),
   fullName: z.string().min(1, 'Full name is required').max(100),
-  email: z.string().email('Invalid email address').max(100),
+  // Email is optional (not mandatory at creation). Must be a valid email when
+  // provided; '' / omitted are both accepted.
+  email: z.union([z.literal(''), z.string().email('Invalid email address').max(100)]).optional(),
   department: z.string().max(50).optional(),
   role: z.string().min(1, 'Role is required'),
   password: z.string().min(8, 'Minimum 8 characters'),

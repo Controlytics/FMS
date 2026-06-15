@@ -130,7 +130,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
 
     // Dispatch to each user
     for (const user of users) {
-      const userVars = { ...variables, recipientName: user.fullName, recipientEmail: user.email };
+      const userVars = { ...variables, recipientName: user.fullName, recipientEmail: user.email ?? '' };
 
       // Email
       if (rule.emailEnabled && emailTemplate && user.email) {
@@ -196,7 +196,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
  */
 async function resolveRecipients(
   recipients: Array<{ recipientType: string; roleValue: string | null; groupId: string | null; userId: string | null }>
-): Promise<Array<{ id: string; username: string; email: string; fullName: string }>> {
+): Promise<Array<{ id: string; username: string; email: string | null; fullName: string }>> {
   // Collect all user IDs first, then do a single batch fetch
   const allUserIds = new Set<string>();
   const roles: string[] = [];

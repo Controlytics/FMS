@@ -48,11 +48,17 @@ export const userService = {
   },
 
   async create(data: {
-    username: string; fullName: string; email: string; department?: string;
+    username: string; fullName: string; email?: string; department?: string;
     role: string; password: string; status?: string;
   }, ctx: RequestContext) {
     // Sanitize text inputs to prevent XSS
     data = sanitizeStrings(data, ['password', 'email']);
+
+    // Email is optional. Store NULL (not '') when omitted so the @unique index
+    // doesn't collide across multiple no-email users (Postgres treats NULLs as
+    // distinct). '' is never stored, so the uniqueness probe below can pass ''
+    // safely — it matches no one.
+    const email = (data.email ?? '').trim() || null;
 
     // Validate User ID against configuration
     const userIdValidation = await validateUserId(data.username);
@@ -67,8 +73,8 @@ export const userService = {
     if (!targetRole || !targetRole.isActive) throw new ValidationError(`Role ${data.role} does not exist or is inactive`);
     if (targetRole.hierarchyLevel > creatorRole.hierarchyLevel) throw new ForbiddenError(`Cannot create users with role ${data.role}`);
 
-    // Check uniqueness
-    const existing = await userRepository.findByUsernameOrEmail(data.username, data.email);
+    // Check uniqueness (email probed only when provided — see note above)
+    const existing = await userRepository.findByUsernameOrEmail(data.username, email ?? '');
     if (existing) {
       const field = existing.username === data.username ? 'username' : 'email';
       throw new ConflictError(`${field} already exists`);
@@ -83,7 +89,7 @@ export const userService = {
     const user = await userRepository.create({
       username: data.username,
       fullName: data.fullName,
-      email: data.email,
+      email,
       department: data.department,
       role: data.role,
       passwordHash,

@@ -75,7 +75,7 @@ export const userRepository = {
   async create(data: {
     username: string;
     fullName: string;
-    email: string;
+    email?: string | null;
     department?: string;
     role: string;
     passwordHash: string;

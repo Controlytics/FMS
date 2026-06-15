@@ -139,11 +139,11 @@ async function executeApproval(
   const data = (request.requestData ?? {}) as Record<string, any>;
   switch (request.requestType) {
     case 'CREATE_USER': {
+      // Email is optional (no longer mandatory on the contact-admin form).
       const email = String(data.email ?? '').trim();
       const fullName = String(data.fullName ?? request.requesterName).trim();
       const requestedRole = String(data.requestedRole ?? '').trim();
       const department = data.department ? String(data.department).trim() : undefined;
-      if (!email) throw new ValidationError('Request is missing email');
       if (!requestedRole) throw new ValidationError('Request is missing requested role');
 
       // Username: prefer the requester-supplied User ID (collected on the
@@ -167,7 +167,7 @@ async function executeApproval(
         {
           username,
           fullName,
-          email,
+          email: email || undefined,
           department,
           role: requestedRole,
           password: temporaryPassword,

@@ -15,11 +15,14 @@ export default async function userRoutes(app: FastifyInstance) {
       description: 'Create a new user. Requires SUPER_ADMIN or ADMIN role.',
       body: {
         type: 'object',
-        required: ['username', 'fullName', 'email', 'role', 'password', 'confirmPassword'],
+        required: ['username', 'fullName', 'role', 'password', 'confirmPassword'],
         properties: {
           username: { type: 'string', description: 'Must match User ID config' },
           fullName: { type: 'string' },
-          email: { type: 'string', format: 'email' },
+          // Email is optional; createUserSchema (Zod) enforces the format when a
+          // non-empty value is supplied. No `format: 'email'` here so '' passes
+          // the Fastify layer.
+          email: { type: 'string' },
           department: { type: 'string' },
           role: { type: 'string', description: 'Role name (dynamic, from roles management)' },
           password: { type: 'string', minLength: 8 },
