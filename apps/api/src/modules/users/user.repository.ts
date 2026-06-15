@@ -1,6 +1,30 @@
 import { prisma } from '../../lib/prisma.js';
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
 
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Remove every row that holds an ON DELETE RESTRICT foreign key to the users
+ * being deleted, so `user.delete` can proceed. Without this a user who ever
+ * authored content gets a Prisma P2003 ("Foreign key constraint failed") and
+ * the Users page surfaces a generic delete error.
+ *
+ *  - `user_configs` — sidebar/permission overrides for the user.
+ *  - `report_*` — the Reports feature was removed from the app (2026-06-08) but
+ *    its tables linger with RESTRICT FKs (created_by / generated_by / user_id).
+ *    Any user who authored a report template (or signed/generated a report)
+ *    could not be deleted. These rows are vestigial; clear them. Children
+ *    (versions, signatures) cascade from their parents, but we also delete the
+ *    user-owned children directly in case the parent was authored by someone else.
+ */
+async function clearUserDeleteBlockers(tx: Tx, ids: string[]): Promise<void> {
+  await tx.userConfig.deleteMany({ where: { userId: { in: ids } } });
+  await tx.reportSignature.deleteMany({ where: { userId: { in: ids } } });
+  await tx.reportInstance.deleteMany({ where: { generatedBy: { in: ids } } });
+  await tx.reportTemplateVersion.deleteMany({ where: { createdBy: { in: ids } } });
+  await tx.reportTemplate.deleteMany({ where: { createdBy: { in: ids } } });
+}
+
 export const userRepository = {
   async findMany(where: Record<string, unknown>, page: number, limit?: number) {
     const [users, total] = await Promise.all([
@@ -86,15 +110,19 @@ export const userRepository = {
   },
 
   async delete(id: string) {
-    await prisma.userConfig.deleteMany({ where: { userId: id } });
-    const result = await prisma.user.delete({ where: { id } });
+    const result = await prisma.$transaction(async (tx) => {
+      await clearUserDeleteBlockers(tx, [id]);
+      return tx.user.delete({ where: { id } });
+    });
     invalidateUserAuthCache(id);
     return result;
   },
 
   async deleteMany(ids: string[]) {
-    await prisma.userConfig.deleteMany({ where: { userId: { in: ids } } });
-    const result = await prisma.user.deleteMany({ where: { id: { in: ids } } });
+    const result = await prisma.$transaction(async (tx) => {
+      await clearUserDeleteBlockers(tx, ids);
+      return tx.user.deleteMany({ where: { id: { in: ids } } });
+    });
     for (const id of ids) invalidateUserAuthCache(id);
     return result;
   },
