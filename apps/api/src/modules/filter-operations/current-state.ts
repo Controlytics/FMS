@@ -140,7 +140,13 @@ export async function getCurrentStateImpl(
     // under the same FOR UPDATE lock advance uses, so concurrent polls / an
     // in-flight advance can't create duplicate PENDINGs. Fires once: later polls
     // see the PENDING and skip. (Also runs during getBatchStates warmup.)
-    if (!interlockLatest) {
+    //
+    // OFFLINE EXEMPTION (2026-06-15, per user): never self-heal during an offline
+    // replay. getCurrentState runs at the end of each replayed advance/bypass; if
+    // it backfilled here it would re-create the exact PENDING approval that
+    // advance.ts intentionally skipped for offline work, leaving a stuck request
+    // after the filter has already moved past the gated stage.
+    if (!interlockLatest && !ctx.isOfflineReplay) {
       const performer = await resolveStagePerformer(currentCycle.id, stageKey);
       if (performer.sub) {
         const snapshot = await collectFilterApprovalDetails(filterId);

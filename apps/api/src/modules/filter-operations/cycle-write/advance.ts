@@ -99,13 +99,21 @@ export async function advanceImpl(
   // Cannot leave an interlock stage until the latest approval for (cycle, stage)
   // is APPROVED. Config fetched once and reused for the entry step below. No-op
   // when interlock is disabled or fromState is not a gated stage.
+  //
+  // OFFLINE EXEMPTION (2026-06-15, per user): the interlock is an ONLINE-only QA
+  // checkpoint. An operator working offline can't reach an approver, so offline
+  // work must NOT be gated — otherwise queued advances poison the sync. On replay
+  // (ctx.isOfflineReplay) we skip the leave-gate; the state transition + its
+  // offlinePerformedAt audit row are still recorded.
   const interlockConfig = await getInterlockConfig();
-  await assertStageApprovedToLeave({
-    cycleId: cycle.id,
-    fromState: currentState,
-    targetState,
-    config: interlockConfig,
-  });
+  if (!ctx.isOfflineReplay) {
+    await assertStageApprovedToLeave({
+      cycleId: cycle.id,
+      fromState: currentState,
+      targetState,
+      config: interlockConfig,
+    });
+  }
 
   // Compute reachable stages + END detection from pipeline graph.
   const fromNodeForReachability = currentState
@@ -369,8 +377,11 @@ export async function advanceImpl(
   // snapshot (DB reads) is gathered BEFORE the tx; the notification fires AFTER
   // commit (best-effort). willComplete mirrors the auto-complete condition below.
   const willComplete = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget;
+  // Offline exemption (see leave-gate note above): don't raise the gate for an
+  // offline-replayed entry into WASH_OUT / DRY_OUT — offline work isn't gated, so
+  // creating a PENDING approval would leave a stuck request no operator can clear.
   const enteringInterlock =
-    interlockConfig.enabled && isInterlockStage(targetState) && !willComplete;
+    interlockConfig.enabled && isInterlockStage(targetState) && !willComplete && !ctx.isOfflineReplay;
   let interlockSnapshot: FilterApprovalDetails | null = null;
   const interlockApproverRole: string | null = enteringInterlock
     ? getApproverRoleForStage(targetState, interlockConfig)

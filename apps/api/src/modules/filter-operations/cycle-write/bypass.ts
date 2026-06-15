@@ -78,7 +78,9 @@ export async function bypassImpl(
   // KNOWN GAP (Phase 2): a bypass that jumps INTO a later stage, skipping an
   // interlock stage entirely, is not yet blocked — tracked in
   // tasks/STAGE-INTERLOCK-PLAN.md. Most profiles are STRICT (bypass disabled).
-  if (filterCurrentCycleId) {
+  // OFFLINE EXEMPTION (2026-06-15, per user): the interlock is online-only, so an
+  // offline-replayed bypass is not gated (mirrors advance.ts).
+  if (filterCurrentCycleId && !ctx.isOfflineReplay) {
     await assertStageApprovedToLeave({
       cycleId: filterCurrentCycleId,
       fromState,
