@@ -170,7 +170,7 @@ export function BulkUploadDialog({
                 <table className="w-full text-xs">
                   <thead className="bg-slate-50 sticky top-0">
                     <tr>
-                      <th className="text-left px-3 py-2 text-slate-500 font-medium">#</th>
+                      <th className="text-left px-3 py-2 text-slate-500 font-medium">S.No</th>
                       {PREVIEW_KEYS.map(k => (
                         <th key={k} className="text-left px-3 py-2 text-slate-500 font-medium">{k}</th>
                       ))}

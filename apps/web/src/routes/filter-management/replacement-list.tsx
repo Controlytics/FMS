@@ -2,11 +2,15 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useAuth } from '@/hooks/use-auth';
+import { useToast } from '@/hooks/use-toast';
 import { Pagination } from '@/components/ui/pagination';
+import { createReport } from '@/lib/pdf-report';
+import { exportToExcel } from '@/lib/excel-export';
 import { ReplacementSchedulePage } from './replacement-schedule';
 
 export function ReplacementListPage() {
   const { formatDate } = useDatetimeFormat();
+  const { toast } = useToast();
   const { user } = useAuth();
   const perms = user?.permissions ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -54,6 +58,48 @@ export function ReplacementListPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  // ─── Reports (PDF + Excel). Both cover the full filtered set (all pages),
+  // sharing one head/rows builder so the two exports never drift. ───
+  const [exporting, setExporting] = useState(false);
+  const REPORT_HEAD = ['S.No', 'Old Filter ID', 'New Filter ID', 'Replaced On', 'Performed By', 'Remarks'];
+  const reportRows = (): string[][] => filtered.map((r: any, i: number) => [
+    String(i + 1),
+    r.oldFilterName ?? '-',
+    r.newFilterName ?? '-',
+    r.replacedAt ? formatDate(r.replacedAt) : '-',
+    r.performedBy ?? '-',
+    r.remarks ?? '-',
+  ]);
+
+  const downloadReport = async () => {
+    if (filtered.length === 0) { toast.error('Nothing to export', 'No replacements to include'); return; }
+    setExporting(true);
+    try {
+      const report = await createReport({
+        reportKey: 'replacement-list',
+        title: 'Filter Replacement List',
+        subtitle: `Total: ${filtered.length} replacement${filtered.length === 1 ? '' : 's'}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`,
+        orientation: 'landscape',
+        formatDateTime: (d: string) => formatDate(d),
+      });
+      report.addTable({ head: REPORT_HEAD, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
+      report.save('replacement-list.pdf');
+    } catch (e: any) {
+      toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const downloadExcel = () => {
+    if (filtered.length === 0) { toast.error('Nothing to export', 'No replacements to include'); return; }
+    try {
+      exportToExcel({ filename: 'replacement-list', sheetName: 'Replacements', head: REPORT_HEAD, rows: reportRows() });
+    } catch (e: any) {
+      toast.error('Export failed', e?.message ?? 'Could not generate the Excel file');
+    }
+  };
 
   return (
     <div>
@@ -121,6 +167,34 @@ export function ReplacementListPage() {
             className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none transition-all"
           />
         </div>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <button
+            onClick={downloadExcel}
+            disabled={filtered.length === 0}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            title="Export the replacement list as an Excel file"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Export Excel
+          </button>
+          <button
+            onClick={downloadReport}
+            disabled={exporting || filtered.length === 0}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            title="Download the replacement list as a PDF report"
+          >
+            {exporting ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            )}
+            {exporting ? 'Generating…' : 'Download Report'}
+          </button>
+        </div>
       </div>
 
       {/* ─── Table / States ─── */}
@@ -155,7 +229,7 @@ export function ReplacementListPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider w-16">#</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider w-16">S.No</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Old Filter ID</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">New Filter ID</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Replaced On</th>

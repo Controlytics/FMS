@@ -256,7 +256,7 @@ export function BulkUploadFiltersDialog({ open, onClose, ahuId, ahuName, onSucce
                 <table className="w-full text-xs">
                   <thead className="bg-slate-50 sticky top-0">
                     <tr>
-                      <th className="text-left px-3 py-2 text-slate-500 font-medium">#</th>
+                      <th className="text-left px-3 py-2 text-slate-500 font-medium">S.No</th>
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">Name</th>
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">Set</th>
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">AHU Type</th>
