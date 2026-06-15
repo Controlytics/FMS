@@ -389,6 +389,10 @@ export function MobileWrapperPage() {
   // capped at qtyRemaining). Additive to the scan box above it.
   const [replTaskSelected, setReplTaskSelected] = useState<Set<string>>(new Set());
   const [replTaskSearch, setReplTaskSearch] = useState('');
+  // When the AHU has filters that don't match the task's micron/size, they're
+  // hidden by default but reachable via a "show all" toggle (no filter is ever
+  // silently unreachable). Reset to matched-only each time a task is opened.
+  const [replTaskShowAll, setReplTaskShowAll] = useState(false);
   const replBatchResultRef = useRef<{ done: number; failed: string[] } | null>(null);
 
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
@@ -899,8 +903,13 @@ export function MobileWrapperPage() {
       {success && <div className="mx-4 mt-2 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 font-medium shadow-sm">\u2713 {success}</div>}
       {error && <div className="mx-4 mt-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 shadow-sm">{error}</div>}
 
-      {/* --- CONTENT --- */}
-      <div className="flex-1 overflow-y-auto">
+      {/* --- CONTENT ---
+          `replacement-tasks` renders as a separate flex-1 sibling below (its
+          own scroller). This main scroller must collapse (display:none) when
+          that view is active — otherwise two flex-1 siblings split the height
+          50/50, leaving the top half blank and pushing the task content into
+          the bottom half. */}
+      <div className={`flex-1 overflow-y-auto ${view === 'replacement-tasks' ? 'hidden' : ''}`}>
 
         {/* === HOME VIEW (2026-05-21 UI refresh — premium instrument-dashboard) ===
             Operator greeting → pipeline visualization → quick-action cards with
@@ -2926,7 +2935,7 @@ export function MobileWrapperPage() {
               ) : (
                 <div className="space-y-2">
                   {replDueTasks.map((t: any) => (
-                    <button key={t.id} onClick={() => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); }}
+                    <button key={t.id} onClick={() => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); setReplTaskShowAll(false); }}
                       className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50">
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-[14px] font-semibold text-slate-900 truncate">{t.ahuName}</div>
@@ -2962,7 +2971,11 @@ export function MobileWrapperPage() {
                 return micronOk && sizeOk;
               });
               const usingFallback = matched.length === 0 && ahuFilters.length > 0;
-              const baseList = usingFallback ? ahuFilters : matched;
+              // Partial match: some filters match the task spec, some don't.
+              // Default to matched-only, but expose the hidden ones via toggle.
+              const hiddenCount = ahuFilters.length - matched.length;
+              const showingAll = usingFallback || replTaskShowAll;
+              const baseList = showingAll ? ahuFilters : matched;
               const q = replTaskSearch.trim().toLowerCase();
               const candidates = (q ? baseList.filter((f: any) => (f.name ?? '').toLowerCase().includes(q)) : baseList)
                 .slice().sort((a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? '')));
@@ -3004,6 +3017,19 @@ export function MobileWrapperPage() {
                   {usingFallback && (
                     <div className="text-[10.5px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
                       No filters in this AHU match micron {naText(activeReplTask.filterMicron)} · size {naText(activeReplTask.filterSize)} — showing all {ahuFilters.length} active filter(s) instead.
+                    </div>
+                  )}
+                  {!usingFallback && hiddenCount > 0 && (
+                    <div className="text-[10.5px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
+                      <span>
+                        {showingAll
+                          ? `Showing all ${ahuFilters.length} active filter(s) — ${matched.length} match micron ${naText(activeReplTask.filterMicron)} · size ${naText(activeReplTask.filterSize)}.`
+                          : `${hiddenCount} filter(s) don't match micron ${naText(activeReplTask.filterMicron)} · size ${naText(activeReplTask.filterSize)} and are hidden.`}
+                      </span>
+                      <button onClick={() => setReplTaskShowAll(v => !v)}
+                        className="shrink-0 text-amber-700 font-semibold underline underline-offset-2 active:text-amber-900">
+                        {showingAll ? 'Show matching only' : `Show all ${ahuFilters.length}`}
+                      </button>
                     </div>
                   )}
                   <input type="text" value={replTaskSearch} onChange={e => setReplTaskSearch(e.target.value)}
