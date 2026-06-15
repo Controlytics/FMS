@@ -56,7 +56,7 @@ export default function LdapConfigPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const { data: savedConfig, mutate } = useSWR<LdapConfig>('/api/ldap/config');
-  const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active');
+  const { data: rolesData } = useSWR<Array<{ name: string; displayName: string }>>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const reauth = useReauth();
 
   const [config, setConfig] = useState<LdapConfig>(DEFAULTS);

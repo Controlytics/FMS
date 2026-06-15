@@ -23,7 +23,7 @@ export function AccessMatrixPage() {
   const { toast } = useToast();
   const reauth = useReauth();
   const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/access-matrix');
-  const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
+  const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: manifest } = useSWR<any[]>('/api/config/registry/manifest');
 
   const [draft, setDraft] = useState<Matrix>({});

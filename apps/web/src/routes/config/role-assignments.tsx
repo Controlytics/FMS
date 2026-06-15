@@ -11,10 +11,21 @@ import { themeButton } from '@/lib/theme-styles';
 const CONFIG_KEYS = ['pm-schedule-approval', 'replacement-schedule-approval', 'qnn-notifications', 'guest-cleaning-requests'] as const;
 type CfgKey = (typeof CONFIG_KEYS)[number];
 
-function useRoleOptions(): string[] {
-  const { data } = useSWR<any>('/api/roles/active');
+function useRoleOptions(): { name: string; label: string }[] {
+  // Always refetch on mount and bypass the 5s dedupe window, so a role created
+  // or renamed on the Roles & Access page shows up here immediately. With the
+  // global SWR config (dedupingInterval: 5000) this hook could serve a stale
+  // cached snapshot right after a role change — which reads as "roles don't
+  // update dynamically". Mirrors the role-access page's own roles fetch.
+  const { data } = useSWR<any>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const raw = Array.isArray(data) ? data : (data?.data ?? []);
-  return raw.map((r: any) => (typeof r === 'string' ? r : r.name ?? r.value ?? '')).filter(Boolean);
+  // value = role NAME (configs store names); label = displayName for the UI so
+  // renamed roles read correctly.
+  return raw
+    .map((r: any) => (typeof r === 'string'
+      ? { name: r, label: r }
+      : { name: r.name ?? r.value ?? '', label: r.displayName ?? r.name ?? r.value ?? '' }))
+    .filter((r: { name: string }) => r.name);
 }
 
 export function RoleAssignmentsPage() {
@@ -66,7 +77,7 @@ export function RoleAssignmentsPage() {
       <select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30">
         {allowBlank && <option value="">{blankLabel}</option>}
-        {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+        {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
       </select>
     </label>
   );
@@ -77,10 +88,10 @@ export function RoleAssignmentsPage() {
       <div className="flex flex-wrap gap-3 border border-slate-200 rounded-lg p-3">
         {roles.length === 0 && <span className="text-sm text-slate-400">No roles</span>}
         {roles.map((r) => (
-          <label key={r} className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-            <input type="checkbox" checked={sel.includes(r)} onChange={() => toggleArr(k, field, r)}
+          <label key={r.name} className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={sel.includes(r.name)} onChange={() => toggleArr(k, field, r.name)}
               className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
-            {r}
+            {r.label}
           </label>
         ))}
       </div>

@@ -68,7 +68,16 @@ export const roleRepository = {
 
   /** Delete a role by name. Same cache invalidation as update(). */
   async delete(name: string) {
-    const result = await prisma.role.delete({ where: { name } });
+    // role_configs.role references roles.name BY CONVENTION (string key, no FK),
+    // so deleting the role does not cascade its config. Clean it up in the same
+    // transaction — otherwise an orphaned role_configs row lingers and, worse,
+    // resurfaces (sidebar + granted permissions) if a new role is later created
+    // with the same name. Same for per-user sidebar overrides keyed by role is
+    // N/A (user_configs key on userId), so only role_configs needs clearing.
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.roleConfig.deleteMany({ where: { role: name } });
+      return tx.role.delete({ where: { name } });
+    });
     invalidateRolePermsCache(name);
     return result;
   },

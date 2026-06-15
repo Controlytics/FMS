@@ -32,7 +32,7 @@ const {
   mockIsReauthRequired: vi.fn(),
   mockGetDefaultTemplates: vi.fn(),
   mockValidateUserId: vi.fn(),
-  mockPrisma: { role: { findUnique: vi.fn(), updateMany: vi.fn() } },
+  mockPrisma: { role: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() } },
 }));
 
 vi.mock('../config.repository.js', () => ({ configRepository: mockConfigRepo }));
@@ -46,6 +46,10 @@ vi.mock('@digilog/shared', () => ({
   getDefaultTemplates: mockGetDefaultTemplates,
   FEATURE_TO_PERMISSION_MAP: { 'user-management': ['USER_CREATE', 'USER_READ'] },
   FEATURE_PRIVILEGES: [{ id: 'user-management', label: 'User Management' }],
+  SIDEBAR_PRIVILEGE_MAP: [
+    { sidebarId: 'users', label: 'Users', icon: '', description: '', privilegeIds: ['user-management'] },
+    { sidebarId: 'dashboard', label: 'Dashboard', icon: '', description: '', privilegeIds: [] },
+  ],
 }));
 vi.mock('../../../lib/user-id-validator.js', () => ({ validateUserId: mockValidateUserId }));
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
@@ -115,6 +119,33 @@ describe('configService', () => {
 
       const result = await configService.getRoleConfig('ADMIN');
       expect(result.permissions['user-management']).toBe(true);
+    });
+  });
+
+  describe('updateRoleConfig — sidebar ↔ permission link', () => {
+    it('grants a sidebar item\'s primary permission when the item is enabled (sidebar-only save)', async () => {
+      mockConfigRepo.findRoleConfig.mockResolvedValue(null);
+      mockConfigRepo.upsertRoleConfig.mockResolvedValue({ role: 'QA', sidebarItems: ['users'], homeWidgets: [], permissions: {} });
+      mockPrisma.role.findFirst.mockResolvedValue({ permissions: ['ASSET_READ'] }); // pre-existing unrelated perm
+
+      await configService.updateRoleConfig('QA', { sidebarItems: ['users'] }, ctx as any);
+
+      // role.permissions must now include the primary perms for 'users' (USER_CREATE/USER_READ)
+      // while preserving the unrelated ASSET_READ.
+      const written = mockPrisma.role.updateMany.mock.calls.at(-1)?.[0].data.permissions as string[];
+      expect(written).toEqual(expect.arrayContaining(['ASSET_READ', 'USER_CREATE', 'USER_READ']));
+    });
+
+    it('sidebar-only save is additive — never drops existing permissions', async () => {
+      mockConfigRepo.findRoleConfig.mockResolvedValue({ role: 'QA', sidebarItems: [], homeWidgets: [], permissions: {} });
+      mockConfigRepo.upsertRoleConfig.mockResolvedValue({ role: 'QA', sidebarItems: [], homeWidgets: [], permissions: {} });
+      mockPrisma.role.findFirst.mockResolvedValue({ permissions: ['USER_READ', 'CONFIG_READ'] });
+
+      // Disabling all sidebar items (empty list) must not strip the role's perms.
+      await configService.updateRoleConfig('QA', { sidebarItems: [] }, ctx as any);
+
+      const written = mockPrisma.role.updateMany.mock.calls.at(-1)?.[0].data.permissions as string[];
+      expect(written).toEqual(expect.arrayContaining(['USER_READ', 'CONFIG_READ']));
     });
   });
 

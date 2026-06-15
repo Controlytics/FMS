@@ -3,7 +3,7 @@ import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
 import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES } from '@digilog/shared';
+import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, SIDEBAR_PRIVILEGE_MAP } from '@digilog/shared';
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
@@ -23,6 +23,21 @@ function reverseMapPermissions(rolePermissions: string[]): Record<string, boolea
     }
   }
   return featurePerms;
+}
+
+/**
+ * The PRIMARY (first-listed) permission(s) for a sidebar item — the minimal
+ * grant that makes the item visible in the sidebar AND its page usable at a
+ * baseline level. Backs the "link sidebar ↔ permissions" behaviour (2026-06-15):
+ * enabling a menu for a role auto-grants this so the admin no longer has to
+ * separately hand-grant the matching feature permission in the Permissions tab.
+ * Returns [] for items with no privilege requirement (e.g. dashboard,
+ * system-health) — those are always visible regardless of permissions.
+ */
+function primaryPermsForSidebarItem(sidebarId: string): string[] {
+  const section = SIDEBAR_PRIVILEGE_MAP.find(s => s.sidebarId === sidebarId);
+  if (!section || section.privilegeIds.length === 0) return [];
+  return FEATURE_TO_PERMISSION_MAP[section.privilegeIds[0]] ?? [];
 }
 
 export const configService = {
@@ -119,30 +134,47 @@ export const configService = {
 
     const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId);
 
-    // Sync feature privileges to role's permissions array
-    // Preserves any permissions NOT covered by feature toggles (e.g., manually granted)
-    if (data.permissions) {
-      // Get all permissions that are controlled by feature toggles
+    // Sync feature privileges + sidebar selections to the role's permissions
+    // array. Runs whenever EITHER tab saves so the two stay linked (2026-06-15,
+    // user request): enabling a sidebar item for a role now also grants that
+    // item's PRIMARY permission, so the menu actually appears without separately
+    // hand-granting the matching feature permission. Two sources feed the rebuild:
+    //   (1) Feature-privilege toggles (Permissions tab) — granular.
+    //   (2) Enabled sidebar items (Sidebar tab) — each grants its primary perm.
+    // Permissions NOT covered by any feature toggle are preserved (manual grants).
+    if (data.permissions || data.sidebarItems) {
       const allMappedPerms = new Set<string>();
       for (const perms of Object.values(FEATURE_TO_PERMISSION_MAP)) {
         for (const p of perms) allMappedPerms.add(p);
       }
 
-      // Get current role permissions from DB
       const currentRole = await prisma.role.findFirst({ where: { name: role }, select: { permissions: true } });
       const currentPerms = (currentRole?.permissions as string[]) || [];
 
-      // Start with permissions NOT controlled by any feature toggle (preserve them)
-      const permissionSet = new Set<string>(currentPerms.filter(p => !allMappedPerms.has(p)));
+      // Primary permissions implied by the role's effective sidebar selection
+      // (the just-saved list, or the existing one on a permissions-only save).
+      const effectiveSidebar = (data.sidebarItems ?? (existing?.sidebarItems as string[] | undefined) ?? []);
+      const sidebarPerms = effectiveSidebar.flatMap(primaryPermsForSidebarItem);
 
-      // Add permissions from enabled feature toggles
-      for (const [featureId, enabled] of Object.entries(data.permissions)) {
-        if (enabled && FEATURE_TO_PERMISSION_MAP[featureId]) {
-          for (const perm of FEATURE_TO_PERMISSION_MAP[featureId]) {
-            permissionSet.add(perm);
+      let permissionSet: Set<string>;
+      if (data.permissions) {
+        // Permissions tab save → full rebuild from the toggle map, preserving
+        // non-feature perms, then re-add sidebar-implied perms so a permissions
+        // save can't strip access the Sidebar tab granted.
+        permissionSet = new Set<string>(currentPerms.filter(p => !allMappedPerms.has(p)));
+        for (const [featureId, enabled] of Object.entries(data.permissions)) {
+          if (enabled && FEATURE_TO_PERMISSION_MAP[featureId]) {
+            for (const perm of FEATURE_TO_PERMISSION_MAP[featureId]) permissionSet.add(perm);
           }
         }
+      } else {
+        // Sidebar-only save → additive. Keep every current permission and just
+        // grant the primary perms for the enabled items. (Disabling a menu hides
+        // it via the sidebar allow-list; it does NOT revoke the permission, so a
+        // sidebar edit can never silently strip access granted elsewhere.)
+        permissionSet = new Set<string>(currentPerms);
       }
+      for (const perm of sidebarPerms) permissionSet.add(perm);
 
       const permissionsArray = Array.from(permissionSet);
       await prisma.role.updateMany({
@@ -150,9 +182,36 @@ export const configService = {
         data: { permissions: permissionsArray },
       });
       // Audit 2026-05-04 fix (api-supporting M11): rbac plugin caches role
-      // permissions for 5s; invalidate so the new feature-toggle config
-      // takes effect on the very next request rather than waiting up to 5s.
+      // permissions for 5s; invalidate so the new config takes effect on the
+      // very next request rather than waiting up to 5s.
       invalidateRolePermsCache(role);
+    }
+
+    // Link the Quality Notifications (QNN) report. Unlike the other reports it
+    // has NO feature permission — visibility is governed by its own config
+    // `qnn-notifications.visibleRoles`, which ALSO gates the backend QNN data
+    // route (canSeeQnn). So granting a permission can't reveal it; the role must
+    // be in that list. When a Sidebar save enables the QNN report for a role,
+    // add the role to visibleRoles so the report (and its data) are reachable —
+    // matching the sidebar↔permission link for every other report. Additive:
+    // disabling the menu hides it via the allow-list but does not remove the
+    // role here (mirrors the no-revoke permission behaviour above).
+    if (data.sidebarItems !== undefined && role !== 'SUPER_ADMIN') {
+      const effectiveSidebar = data.sidebarItems ?? [];
+      if (effectiveSidebar.includes('quality-notifications')) {
+        const row = await configRepository.getSystemConfig('qnn-notifications');
+        const val = (row?.configValue as Record<string, unknown> | null) ?? {};
+        const roles = Array.isArray(val.visibleRoles) ? (val.visibleRoles as string[]) : ['ADMIN'];
+        if (!roles.includes(role)) {
+          await configRepository.upsertSystemConfig(
+            'qnn-notifications',
+            { ...val, visibleRoles: [...roles, role] },
+            (row?.configType as string) ?? 'notification',
+            row?.requiresReauth ?? false,
+            ctx.userId,
+          );
+        }
+      }
     }
 
     await auditLog({

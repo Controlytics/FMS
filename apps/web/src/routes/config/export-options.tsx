@@ -25,7 +25,7 @@ const FMT_CLS: Record<string, string> = {
 export function ExportOptionsPage() {
   const { toast } = useToast();
   const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/export-options');
-  const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
+  const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const [draft, setDraft] = useState<Matrix>({});
   const [saving, setSaving] = useState(false);

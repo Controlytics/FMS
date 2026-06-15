@@ -18,7 +18,7 @@ type TabletConfig = Record<string, string[]>;
 export function TabletAccessConfigPage() {
   const { toast } = useToast();
   const { data: config, isLoading } = useSWR('/api/config/tablet-access');
-  const { data: rolesData } = useSWR('/api/roles');
+  const { data: rolesData } = useSWR('/api/roles', { revalidateOnMount: true, dedupingInterval: 0 });
   const [localConfig, setLocalConfig] = useState<TabletConfig>({});
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

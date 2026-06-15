@@ -18,7 +18,7 @@ export function ReplacementScheduleFiltersPage() {
   const { toast } = useToast();
   const { data: pmData, mutate: mutatePm } = useSWR<Matrix>('/api/config/pm-schedule-filters');
   const { data: repData, mutate: mutateRep } = useSWR<Matrix>('/api/config/replacement-schedule-filters');
-  const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
+  const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const [pmDraft, setPmDraft] = useState<Matrix>({});
   const [repDraft, setRepDraft] = useState<Matrix>({});

@@ -21,7 +21,7 @@ const LABEL_CLS: Record<string, string> = {
 export function ReportSignatoriesPage() {
   const { toast } = useToast();
   const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/report-signatories');
-  const { data: rolesData } = useSWR<Role[]>('/api/roles/active');
+  const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const [draft, setDraft] = useState<Matrix>({});
   const [saving, setSaving] = useState(false);
