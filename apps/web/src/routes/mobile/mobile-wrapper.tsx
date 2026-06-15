@@ -389,10 +389,6 @@ export function MobileWrapperPage() {
   // capped at qtyRemaining). Additive to the scan box above it.
   const [replTaskSelected, setReplTaskSelected] = useState<Set<string>>(new Set());
   const [replTaskSearch, setReplTaskSearch] = useState('');
-  // When the AHU has filters that don't match the task's micron/size, they're
-  // hidden by default but reachable via a "show all" toggle (no filter is ever
-  // silently unreachable). Reset to matched-only each time a task is opened.
-  const [replTaskShowAll, setReplTaskShowAll] = useState(false);
   const replBatchResultRef = useRef<{ done: number; failed: string[] } | null>(null);
 
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
@@ -2935,7 +2931,7 @@ export function MobileWrapperPage() {
               ) : (
                 <div className="space-y-2">
                   {replDueTasks.map((t: any) => (
-                    <button key={t.id} onClick={() => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); setReplTaskShowAll(false); }}
+                    <button key={t.id} onClick={() => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); }}
                       className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50">
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-[14px] font-semibold text-slate-900 truncate">{t.ahuName}</div>
@@ -2948,36 +2944,14 @@ export function MobileWrapperPage() {
                 </div>
               )
             ) : (() => {
-              // ── Pick-from-list candidates: active filters directly under this
-              // task's AHU, matched against the task's micron + size. If none
-              // match (filter attributes blank/mismatched), fall back to ALL
-              // active filters under the AHU so the operator can still pick.
-              const norm = (v: unknown) => {
-                const s = String(v ?? '').trim().toLowerCase();
-                return !s || s === '[object object]' || s === 'na' || s === '-' ? '' : s;
-              };
-              const taskMicron = norm(activeReplTask.filterMicron);
-              const taskSize = norm(activeReplTask.filterSize);
+              // ── Pick-from-list candidates: ALL active filters directly under
+              // this task's AHU. Per user (2026-06-15): do NOT filter by the
+              // task's micron/size — the operator replaces whatever physical
+              // filters sit in the AHU, and the recorded micron/size attributes
+              // are inconsistent/blank. Name search narrows the list.
               const ahuFilters = (allFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId);
-              // Exclude a filter only on a genuine CONFLICT — a blank attribute on
-              // the filter (very common: micron/size often unset) must NOT disqualify
-              // it, otherwise a filter with the right micron but no recorded size is
-              // wrongly dropped and the whole list falls back to "showing all".
-              const matched = ahuFilters.filter((f: any) => {
-                const fMicron = norm(f.attributes?.micronSize);
-                const fSize = norm(f.attributes?.filterSize);
-                const micronOk = !taskMicron || !fMicron || fMicron === taskMicron;
-                const sizeOk = !taskSize || !fSize || fSize === taskSize;
-                return micronOk && sizeOk;
-              });
-              const usingFallback = matched.length === 0 && ahuFilters.length > 0;
-              // Partial match: some filters match the task spec, some don't.
-              // Default to matched-only, but expose the hidden ones via toggle.
-              const hiddenCount = ahuFilters.length - matched.length;
-              const showingAll = usingFallback || replTaskShowAll;
-              const baseList = showingAll ? ahuFilters : matched;
               const q = replTaskSearch.trim().toLowerCase();
-              const candidates = (q ? baseList.filter((f: any) => (f.name ?? '').toLowerCase().includes(q)) : baseList)
+              const candidates = (q ? ahuFilters.filter((f: any) => (f.name ?? '').toLowerCase().includes(q)) : ahuFilters)
                 .slice().sort((a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? '')));
               const remaining = activeReplTask.qtyRemaining ?? activeReplTask.qty ?? 0;
               const atCap = replTaskSelected.size >= remaining;
@@ -3014,24 +2988,6 @@ export function MobileWrapperPage() {
                     </label>
                     <span className="text-[10.5px] text-slate-400">select up to {remaining}</span>
                   </div>
-                  {usingFallback && (
-                    <div className="text-[10.5px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                      No filters in this AHU match micron {naText(activeReplTask.filterMicron)} · size {naText(activeReplTask.filterSize)} — showing all {ahuFilters.length} active filter(s) instead.
-                    </div>
-                  )}
-                  {!usingFallback && hiddenCount > 0 && (
-                    <div className="text-[10.5px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
-                      <span>
-                        {showingAll
-                          ? `Showing all ${ahuFilters.length} active filter(s) — ${matched.length} match micron ${naText(activeReplTask.filterMicron)} · size ${naText(activeReplTask.filterSize)}.`
-                          : `${hiddenCount} filter(s) don't match micron ${naText(activeReplTask.filterMicron)} · size ${naText(activeReplTask.filterSize)} and are hidden.`}
-                      </span>
-                      <button onClick={() => setReplTaskShowAll(v => !v)}
-                        className="shrink-0 text-amber-700 font-semibold underline underline-offset-2 active:text-amber-900">
-                        {showingAll ? 'Show matching only' : `Show all ${ahuFilters.length}`}
-                      </button>
-                    </div>
-                  )}
                   <input type="text" value={replTaskSearch} onChange={e => setReplTaskSearch(e.target.value)}
                     placeholder="Search by filter name…"
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
