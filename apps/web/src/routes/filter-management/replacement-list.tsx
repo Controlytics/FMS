@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
+import { useReportLabels } from '@/hooks/use-report-labels';
 import { ReplacementSchedulePage } from './replacement-schedule';
 
 export function ReplacementListPage() {
@@ -59,10 +60,17 @@ export function ReplacementListPage() {
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-  // ─── Reports (PDF + Excel). Both cover the full filtered set (all pages),
-  // sharing one head/rows builder so the two exports never drift. ───
+  // ─── Reports (PDF + Excel). Column headers + title come from the admin
+  // report-labels config (key 'replacement-list'); both formats share one
+  // head/rows builder so they never drift, and cover the full filtered set. ───
+  const { labelsFor } = useReportLabels();
+  const reportL = labelsFor('replacement-list');
+  const REPORT_COLS = ['sNo', 'oldFilter', 'newFilter', 'replacedOn', 'performedBy', 'remarks'];
+  const reportHead = REPORT_COLS.map(k => reportL.columns[k]);
+  const reportSubtitle = reportL.subtitle || `Total: ${filtered.length} replacement${filtered.length === 1 ? '' : 's'}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`;
+  const canExport = isSuperAdmin || perms.includes('REPLACEMENT_LIST_EXPORT');
+
   const [exporting, setExporting] = useState(false);
-  const REPORT_HEAD = ['S.No', 'Old Filter ID', 'New Filter ID', 'Replaced On', 'Performed By', 'Remarks'];
   const reportRows = (): string[][] => filtered.map((r: any, i: number) => [
     String(i + 1),
     r.oldFilterName ?? '-',
@@ -78,12 +86,12 @@ export function ReplacementListPage() {
     try {
       const report = await createReport({
         reportKey: 'replacement-list',
-        title: 'Filter Replacement List',
-        subtitle: `Total: ${filtered.length} replacement${filtered.length === 1 ? '' : 's'}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`,
+        title: reportL.title,
+        subtitle: reportSubtitle,
         orientation: 'landscape',
         formatDateTime: (d: string) => formatDate(d),
       });
-      report.addTable({ head: REPORT_HEAD, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
+      report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
       report.save('replacement-list.pdf');
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
@@ -95,7 +103,7 @@ export function ReplacementListPage() {
   const downloadExcel = () => {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No replacements to include'); return; }
     try {
-      exportToExcel({ filename: 'replacement-list', sheetName: 'Replacements', head: REPORT_HEAD, rows: reportRows() });
+      exportToExcel({ filename: 'replacement-list', sheetName: 'Replacements', head: reportHead, rows: reportRows() });
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the Excel file');
     }
@@ -167,6 +175,7 @@ export function ReplacementListPage() {
             className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none transition-all"
           />
         </div>
+        {canExport && (
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <button
             onClick={downloadExcel}
@@ -195,6 +204,7 @@ export function ReplacementListPage() {
             {exporting ? 'Generating…' : 'Download Report'}
           </button>
         </div>
+        )}
       </div>
 
       {/* ─── Table / States ─── */}

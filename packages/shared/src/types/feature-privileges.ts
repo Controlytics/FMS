@@ -69,6 +69,8 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'filters.create', label: 'Create Filters', category: 'Filters Page Controls', icon: 'plus' },
   { id: 'filters.edit', label: 'Edit Filters', category: 'Filters Page Controls', icon: 'edit' },
   { id: 'filters.delete', label: 'Delete Filters', category: 'Filters Page Controls', icon: 'trash' },
+  { id: 'retirement_list.export', label: 'Export Retirement List Report (PDF / Excel)', category: 'Filters Page Controls', icon: 'download' },
+  { id: 'replacement_list.export', label: 'Export Replacement List Report (PDF / Excel)', category: 'Filters Page Controls', icon: 'download' },
   { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', category: 'Filters Page Controls', icon: 'plus' },
   { id: 'filters.hierarchy_edit', label: 'Edit Block / Area / AHU', category: 'Filters Page Controls', icon: 'edit' },
   { id: 'filters.hierarchy_delete', label: 'Delete Block / Area / AHU', category: 'Filters Page Controls', icon: 'trash' },
@@ -258,6 +260,8 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'filters.bulk_upload': ['FILTER_BULK_UPLOAD', 'ASSET_CREATE'],
   'filters.retire': ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
   'filters.replace': ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
+  'retirement_list.export': ['RETIREMENT_LIST_EXPORT'],
+  'replacement_list.export': ['REPLACEMENT_LIST_EXPORT'],
   'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ'],
   'filters.hierarchy_create': ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
   // 2026-06-11: filter + hierarchy CRUD — the instance/hierarchy routes accept

@@ -131,6 +131,32 @@ export const REPORT_DEFS: ReportDef[] = [
     ],
   },
   {
+    key: 'replacement-list',
+    name: 'Replacement List',
+    defaultTitle: 'Filter Replacement List',
+    columns: [
+      { key: 'sNo', default: 'S.No' },
+      { key: 'oldFilter', default: 'Old Filter ID' },
+      { key: 'newFilter', default: 'New Filter ID' },
+      { key: 'replacedOn', default: 'Replaced On' },
+      { key: 'performedBy', default: 'Performed By' },
+      { key: 'remarks', default: 'Remarks' },
+    ],
+  },
+  {
+    key: 'retirement-list',
+    name: 'Retirement List',
+    defaultTitle: 'Filter Retirement List',
+    columns: [
+      { key: 'sNo', default: 'S.No' },
+      { key: 'filter', default: 'Filter' },
+      { key: 'set', default: 'Set' },
+      { key: 'retiredOn', default: 'Retired On' },
+      { key: 'retiredBy', default: 'Retired By' },
+      { key: 'remarks', default: 'Remarks' },
+    ],
+  },
+  {
     key: 'quality-notifications',
     name: 'Quality Notifications (QNN)',
     defaultTitle: 'Quality Notifications',
