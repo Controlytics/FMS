@@ -20,6 +20,7 @@ export function ContactAdminPage() {
   const [error, setError] = useState('');
 
   // Type-specific fields
+  const [newUserId, setNewUserId] = useState(''); // CREATE_USER: requested login ID for the new account
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
   const [email, setEmail] = useState('');
@@ -78,12 +79,14 @@ export function ContactAdminPage() {
     setLookupError('');
     setModifyField('');
     setNewValue('');
+    setNewUserId('');
   }, [requestType]);
 
   // When requester identity is cleared (Employee ID changed after verify), reset the form below
   useEffect(() => {
     if (!requesterUser) {
       setRequestType('');
+      setNewUserId('');
       setFullName('');
       setDepartment('');
       setEmail('');
@@ -150,7 +153,7 @@ export function ContactAdminPage() {
   const buildRequestData = () => {
     switch (requestType) {
       case 'CREATE_USER':
-        return { fullName, department, email, requestedRole };
+        return { username: newUserId.trim(), fullName, department, email, requestedRole };
       case 'MODIFY_USER':
         return { username: lookupUser?.username ?? username, modifyField, newValue };
       case 'UNLOCK':
@@ -169,7 +172,7 @@ export function ContactAdminPage() {
     if (!requesterUser) return false;
     switch (requestType) {
       case 'CREATE_USER':
-        return fullName.trim() && email.trim() && requestedRole;
+        return newUserId.trim().length >= 6 && fullName.trim() && email.trim() && requestedRole;
       case 'MODIFY_USER':
         return !!lookupUser && !!modifyField && newValue.trim() !== '' && newValue !== currentFieldValue(modifyField);
       case 'UNLOCK':
@@ -186,6 +189,8 @@ export function ContactAdminPage() {
     if (!requesterUser) missing.push('Your Employee ID (verify required)');
     if (!requestType) missing.push('Request Type');
     if (requestType === 'CREATE_USER') {
+      if (!newUserId.trim()) missing.push('User ID');
+      else if (newUserId.trim().length < 6) missing.push('User ID (min 6 characters)');
       if (!fullName.trim()) missing.push('Full Name');
       if (!email.trim()) missing.push('Email');
       if (!requestedRole) missing.push('Requested Role');
@@ -357,6 +362,13 @@ export function ContactAdminPage() {
           {requestType === 'CREATE_USER' && (
             <div className="space-y-3 p-4 rounded-lg bg-blue-50 border border-blue-200">
               <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">New User Details</p>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">User ID <span className="text-red-500">*</span></label>
+                <input type="text" value={newUserId} onChange={e => setNewUserId(e.target.value)}
+                  placeholder="e.g. jdoe01" autoComplete="off"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                <p className="mt-1 text-xs text-slate-500">Login ID for the new account (minimum 6 characters).</p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Full Name <span className="text-red-500">*</span></label>
                 <input type="text" value={fullName} onChange={e => setFullName(e.target.value)}

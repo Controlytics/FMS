@@ -126,7 +126,7 @@ export function AdminRequestsPage() {
     const fields: [string, string][] = [];
     switch (req.requestType) {
       case 'CREATE_USER':
-        fields.push(['Full Name', rd.fullName], ['Email', rd.email], ['Department', rd.department || '-'], ['Requested Role', rd.requestedRole]);
+        fields.push(['User ID', rd.username || '(auto-generated)'], ['Full Name', rd.fullName], ['Email', rd.email], ['Department', rd.department || '-'], ['Requested Role', rd.requestedRole]);
         break;
       case 'MODIFY_USER':
         fields.push(['Username', rd.username], ['Modify Field', rd.modifyField], ['New Value', rd.newValue]);

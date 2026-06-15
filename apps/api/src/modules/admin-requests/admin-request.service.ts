@@ -146,7 +146,21 @@ async function executeApproval(
       if (!email) throw new ValidationError('Request is missing email');
       if (!requestedRole) throw new ValidationError('Request is missing requested role');
 
-      const username = await generateUniqueUsername(email);
+      // Username: prefer the requester-supplied User ID (collected on the
+      // contact-admin form). Legacy requests submitted before that field
+      // existed have no `username` → fall back to an email-derived handle.
+      const requestedUsername = String(data.username ?? '').trim();
+      let username: string;
+      if (requestedUsername) {
+        if (requestedUsername.length < 6 || requestedUsername.length > 50) {
+          throw new ValidationError('Requested User ID must be 6–50 characters');
+        }
+        const existing = await userRepository.findByUsername(requestedUsername);
+        if (existing) throw new ValidationError(`User ID "${requestedUsername}" is already taken`);
+        username = requestedUsername;
+      } else {
+        username = await generateUniqueUsername(email);
+      }
       const temporaryPassword = generateTempPassword();
 
       await userService.create(
