@@ -31,6 +31,21 @@ const naText = (v: unknown): string => {
   return !s || s === '[object Object]' ? 'NA' : s;
 };
 
+// Humanize a filter attribute key for display (micronSize → Micron, etc.).
+const ATTR_LABELS: Record<string, string> = {
+  micronSize: 'Micron', filterSize: 'Dimensions', filterType: 'Type', ahuType: 'AHU Type',
+  manufacturer: 'Make', model: 'Model', serialNumber: 'Serial', installDate: 'Installed',
+  lastCleaningDate: 'Last Cleaned', filterClass: 'Class', efficiency: 'Efficiency',
+};
+const prettyAttrKey = (k: string): string =>
+  ATTR_LABELS[k] ?? k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()).trim();
+// Non-empty scalar attribute entries of a filter, for the "all details" display.
+const filterDetailPairs = (f: any): Array<[string, string]> =>
+  Object.entries(f?.attributes ?? {})
+    .filter(([, v]) => v != null && typeof v !== 'object' && String(v).trim() !== '' && String(v) !== '[object Object]')
+    .slice(0, 10)
+    .map(([k, v]) => [prettyAttrKey(k), String(v)] as [string, string]);
+
 // Build identifier->filter map from identifiers list
 // Cleaning-stage filter-event types — mirrors the server's
 // CLEANING_STAGE_EVENT_TYPES (hierarchy.service.ts). "Last Cleaned" tracks the
@@ -48,6 +63,15 @@ const CYCLE_STATUS_UI: Record<string, { badge: string; label: string }> = {
   REPLACED: { badge: 'bg-purple-50 text-purple-700 border-purple-200', label: 'Replaced' },
 };
 const cycleStatusUi = (cyc: any) => CYCLE_STATUS_UI[effectiveCycleStatus(cyc)] ?? CYCLE_STATUS_UI.IN_PROGRESS;
+
+// Replacement-task status chip (computedStatus from /tasks).
+const REPL_STATUS_META: Record<string, { label: string; cls: string }> = {
+  DUE:         { label: 'Due',         cls: 'text-rose-700 bg-rose-50 border-rose-200' },
+  IN_PROGRESS: { label: 'In Progress', cls: 'text-amber-700 bg-amber-50 border-amber-200' },
+  PENDING:     { label: 'Upcoming',    cls: 'text-slate-600 bg-slate-100 border-slate-200' },
+  MISSED:      { label: 'Overdue',     cls: 'text-red-700 bg-red-50 border-red-200' },
+  COMPLETED:   { label: 'Completed',   cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+};
 
 // Latest cleaning-stage event time for a filter across the given cycles (each
 // cycle carries `events` when fetched with includeEvents=true).
@@ -374,8 +398,14 @@ export function MobileWrapperPage() {
   const [replaceScanError, setReplaceScanError] = useState('');
 
   // ── Replacement Schedule tasks (separate tile → own page, online-only) ──
-  const { data: replDueData, mutate: mutateReplDue } = useSWR(online ? '/api/replacement-schedules/due' : null, { refreshInterval: 30000 });
-  const replDueTasks = ((replDueData as any)?.data ?? []) as any[];
+  // /tasks returns EVERY approved entry with live AHU-filter progress (a task
+  // covers ALL filters under its AHU). Split into Pending (still needs replacing)
+  // and Completed for the two tabs on the page.
+  const { data: replDueData, mutate: mutateReplDue } = useSWR(online ? '/api/replacement-schedules/tasks' : null, { refreshInterval: 30000 });
+  const replAllTasks = ((replDueData as any)?.data ?? []) as any[];
+  const replDueTasks = replAllTasks.filter((t: any) => t.computedStatus !== 'COMPLETED');
+  const replCompletedTasks = replAllTasks.filter((t: any) => t.computedStatus === 'COMPLETED');
+  const [replTaskTab, setReplTaskTab] = useState<'pending' | 'completed'>('pending');
   // 2026-06-04 (per user): Replacement Tasks are open to ANY role on the tablet
   // — operators run scheduled replacements from the tablet and shouldn't need a
   // special permission. (Web view/upload stays role-gated; the execute still
@@ -2926,30 +2956,57 @@ export function MobileWrapperPage() {
             <h2 className="font-display text-[20px] font-semibold text-slate-900">Replacement Tasks</h2>
 
             {!activeReplTask ? (
-              replDueTasks.length === 0 ? (
-                <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-500">No replacement tasks due right now.</div>
-              ) : (
-                <div className="space-y-2">
-                  {replDueTasks.map((t: any) => (
-                    <button key={t.id} onClick={() => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); }}
-                      className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-display text-[14px] font-semibold text-slate-900 truncate">{t.ahuName}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">micron {naText(t.filterMicron)} · dimensions {naText(t.filterSize)}</div>
-                        <div className="text-[10.5px] text-slate-400 mt-0.5">due by {t.windowEnd ? new Date(t.windowEnd).toLocaleDateString() : '—'}</div>
-                      </div>
-                      <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-full px-2.5 py-1 shrink-0">{t.qtyRemaining} of {t.qty} left</span>
+              <>
+                {/* Pending / Completed tabs */}
+                <div className="flex gap-2">
+                  {(['pending', 'completed'] as const).map((tab) => (
+                    <button key={tab} onClick={() => setReplTaskTab(tab)}
+                      className={`flex-1 py-2 rounded-xl text-[12px] font-semibold border transition-colors ${replTaskTab === tab ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-600 border-slate-200 active:bg-slate-50'}`}>
+                      {tab === 'pending' ? `Pending (${replDueTasks.length})` : `Completed (${replCompletedTasks.length})`}
                     </button>
                   ))}
                 </div>
-              )
+                {(() => {
+                  const list = replTaskTab === 'pending' ? replDueTasks : replCompletedTasks;
+                  if (list.length === 0) {
+                    return <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-sm text-slate-500">{replTaskTab === 'pending' ? 'No pending replacement tasks.' : 'No completed replacement tasks yet.'}</div>;
+                  }
+                  return (
+                    <div className="space-y-2">
+                      {list.map((t: any) => {
+                        const meta = REPL_STATUS_META[t.computedStatus] ?? REPL_STATUS_META.PENDING;
+                        const isCompleted = t.computedStatus === 'COMPLETED';
+                        return (
+                          <button key={t.id} disabled={isCompleted}
+                            onClick={isCompleted ? undefined : () => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); }}
+                            className={`tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between ${isCompleted ? 'opacity-90' : 'active:bg-slate-50'}`}>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <div className="font-display text-[14px] font-semibold text-slate-900 truncate">{t.ahuName}</div>
+                                <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full border shrink-0 ${meta.cls}`}>{meta.label}</span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-0.5">micron {naText(t.filterMicron)} · dimensions {naText(t.filterSize)}</div>
+                              <div className="text-[10.5px] text-slate-400 mt-0.5">{isCompleted ? 'scheduled' : 'due by'} {t.windowEnd ? new Date(t.windowEnd).toLocaleDateString() : '—'}</div>
+                            </div>
+                            <span className={`text-[11px] font-bold rounded-full px-2.5 py-1 shrink-0 border ${isCompleted ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-600 bg-rose-50 border-rose-200'}`}>
+                              {isCompleted ? `${t.replaced}/${t.total} done` : `${t.qtyRemaining} of ${t.qty} left`}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </>
             ) : (() => {
-              // ── Pick-from-list candidates: ALL active filters directly under
-              // this task's AHU. Per user (2026-06-15): do NOT filter by the
-              // task's micron/size — the operator replaces whatever physical
-              // filters sit in the AHU, and the recorded micron/size attributes
-              // are inconsistent/blank. Name search narrows the list.
-              const ahuFilters = (allFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId);
+              // ── Pick-from-list candidates: active filters under this task's AHU
+              // that haven't been replaced yet for THIS task. Per user (2026-06-15):
+              // the task covers the WHOLE AHU (no micron/size filter), and a filter
+              // already swapped under this task (its replacement id is in
+              // replacedNewFilterIds) drops off the list — what's left is exactly the
+              // "still to replace" set. Name search narrows further.
+              const replacedSet = new Set<string>(activeReplTask.replacedNewFilterIds ?? []);
+              const ahuFilters = (allFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId && !replacedSet.has(f.id));
               const q = replTaskSearch.trim().toLowerCase();
               const candidates = (q ? ahuFilters.filter((f: any) => (f.name ?? '').toLowerCase().includes(q)) : ahuFilters)
                 .slice().sort((a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? '')));
@@ -2968,8 +3025,11 @@ export function MobileWrapperPage() {
                 </button>
                 <div className="bg-white border border-slate-200 rounded-2xl p-4">
                   <div className="font-display text-[15px] font-semibold text-slate-900">{activeReplTask.ahuName}</div>
-                  <div className="text-[12px] text-slate-500 mt-0.5">micron {naText(activeReplTask.filterMicron)} · dimensions {naText(activeReplTask.filterSize)}</div>
-                  <div className="text-[12px] text-rose-600 font-medium mt-1">{remaining} of {activeReplTask.qty} still to replace</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">scheduled spec: micron {naText(activeReplTask.filterMicron)} · dimensions {naText(activeReplTask.filterSize)}</div>
+                  <div className="text-[12px] text-rose-600 font-medium mt-1">{remaining} of {activeReplTask.total ?? activeReplTask.qty} filters still to replace</div>
+                  {activeReplTask.replaced > 0 && (
+                    <div className="text-[11px] text-emerald-600 font-medium mt-0.5">{activeReplTask.replaced} already replaced for this task</div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-[10px] uppercase tracking-[0.15em] text-rose-600 font-semibold mb-1.5">Scan filter to replace</label>
@@ -3014,9 +3074,11 @@ export function MobileWrapperPage() {
                             </span>
                             <div className="min-w-0 flex-1">
                               <div className="font-display text-[13px] font-semibold text-slate-900 truncate leading-tight">{f.name}</div>
-                              <div className="text-[10.5px] text-slate-400 mt-0.5 truncate">
-                                micron {naText(f.attributes?.micronSize)} · size {naText(f.attributes?.filterSize)}
-                                {firstTag ? <> · tag <span className="font-mono-tab text-slate-600">{firstTag}</span></> : ' · no tag'}
+                              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+                                {filterDetailPairs(f).map(([label, val]) => (
+                                  <div key={label} className="truncate"><span className="text-slate-400">{label}:</span> {val}</div>
+                                ))}
+                                <div className="truncate"><span className="text-slate-400">Tag:</span> {firstTag ? <span className="font-mono-tab text-slate-600">{firstTag}</span> : 'none'}</div>
                               </div>
                             </div>
                           </button>

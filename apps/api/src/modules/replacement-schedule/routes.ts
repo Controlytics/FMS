@@ -3,7 +3,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildReplacementScheduleTemplate } from './template.service.js';
-import { processUpload, listSchedules, listDueEntries, executeReplacement } from './service.js';
+import { processUpload, listSchedules, listDueEntries, listTaskEntries, executeReplacement } from './service.js';
 import * as wf from './workflow.js';
 import { exportEntriesXlsx } from './export.js';
 
@@ -155,6 +155,17 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
     schema: { tags: ['Replacement Schedule'], summary: 'List currently-due replacement entries (any role)', response: { 200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } } }, ...errorResponses } },
   }, async () => {
     const data = await listDueEntries();
+    return { data };
+  });
+
+  // ALL approved entries (every status) with live AHU-filter progress — drives
+  // the tablet Replacement Tasks page (Pending / Completed tabs + full details).
+  // Same open-to-any-role auth as /due (2026-06-15): operators run scheduled
+  // replacements from the tablet; the execute still requires REPLACE_FILTER reauth.
+  app.get('/tasks', {
+    schema: { tags: ['Replacement Schedule'], summary: 'List all replacement task entries with AHU progress (any role)', response: { 200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } } }, ...errorResponses } },
+  }, async () => {
+    const data = await listTaskEntries();
     return { data };
   });
 
