@@ -104,7 +104,14 @@ class ApiClient {
             }
           }
         }
-        throw new Error(err.message ?? 'Invalid credentials');
+        // Attach status + code so callers (and the SWR onError 401-suppressor
+        // in swr-config.ts) can recognise this as an auth failure. Without
+        // these, a 401 like "Missing token" (e.g. an ungated SWR firing before
+        // login) leaked through onError as a visible "Load Error" toast.
+        const authError = new Error(err.message ?? 'Invalid credentials');
+        (authError as any).status = 401;
+        (authError as any).code = err.error;
+        throw authError;
       }
       const error = new Error(err.message ?? err.error ?? `Request failed: ${res.status}`);
       (error as any).status = res.status;
