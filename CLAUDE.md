@@ -13,8 +13,7 @@ apps/api/         — Fastify backend (TypeScript, port 3000)
 apps/web/         — React SPA (Vite, port 5175 dev)
 apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
-packages/shared/  — Permissions (107), privileges (90), reauth (96), sidebar items (26), zod schemas
-packages/db/      — Prisma client + TimescaleDB pool + telemetry batcher
+packages/shared/  — Permissions (108), privileges (98), reauth (100), sidebar items (26), zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs (current)
 old/              — Archived superseded docs and tasks
@@ -24,17 +23,17 @@ future/           — Forward-looking design notes
 ## Local Dev Environment (Windows)
 The app runs ONLY on local Windows for development. There is no live EC2 / Linux production environment to push to.
 
-- Node.js 20+, PostgreSQL 18 + TimescaleDB, Mosquitto 2.0
+- Node.js 20+, PostgreSQL 18
 - **No Redis dependency.** Phase 2 of windows-friendly-rewrite moved the job
   queue to graphile-worker on Postgres. Phase 4 (2026-05-01) retired Redis
   for pub/sub too — WebSocket events, RPC correlation, pipeline tracing, and
   debug recorder all run through an in-process EventEmitter bus
   (`apps/api/src/lib/internal-bus.ts`) and a Map-based TTL cache
   (`apps/api/src/lib/rpc-cache.ts`). `ioredis` is no longer in package.json.
-- Mosquitto optional unless testing MQTT ingest. Install via `scripts/install-mosquitto.ps1`
-  from an elevated PowerShell — registers a Windows service and rewrites the deployed
-  conf with absolute paths + file logging (the SCM-managed broker has CWD=System32 and
-  no stdout, so the dev-mode source conf would silently exit).
+- **No TimescaleDB or MQTT dependency** (removed 2026-06-11..2026-06-17 — see
+  Phase 7 below). `digilog_tsdb` database dropped, `packages/db` workspace
+  deleted, `mqtt` + `aedes` + `@types/pg` deps uninstalled, Mosquitto Windows
+  service removed. 47 transitive npm packages dropped with the cleanup.
 - Convenience: `start-digilog.bat` / `stop-digilog.bat`
 - API runs via `tsx watch` in dev (no PM2 locally), Vite serves frontend
 - See `LOCAL_SETUP_WINDOWS.md` and `DEPLOY-WINDOWS.md` for full details
@@ -54,7 +53,7 @@ cd apps/web && npx vite --host
 cd apps/web && npx vite build
 
 # Shared packages
-npx nx build shared && npx nx build db && npx nx build queue
+npx nx build shared && npx nx build queue
 
 # APK
 cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
@@ -68,7 +67,6 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - App: http://localhost:5175 (Vite dev)
 - API: https://localhost:3000 — `API_HTTPS=true` in `apps/api/.env` (mkcert certs at `certs/server.{key,crt}` rooted by `certs/rootCA.pem`)
 - Swagger: https://localhost:3000/docs
-- Mosquitto: tcp://localhost:1883 (no web dashboard; dynsec configured via `POST /api/internal/mqtt/refresh-acl`)
 
 ### TLS notes
 - **APK requires HTTPS** — `apps/web/.env.production` pins `VITE_API_URL=https://192.168.1.22:3000`; plain HTTP causes Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate).
@@ -76,18 +74,18 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
 
-## System Stats (current — 2026-05-17, verified post rule-chain + alarm tear-out)
-- **Backend:** **35** API modules under `apps/api/src/modules/`, 200+ endpoints (verified `ls` 2026-06-06; `qr-code` removed 2026-06-06)
-- **Database:** **68 Prisma models, 21 enums**; TimescaleDB with **6** hypertables. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar; Step 4 (2026-05-02) replaced `FilterProfile.applicableTemplates` JSONB array with the `FilterProfileApplicableTemplate` join table (cascade FKs to AssetTemplate). Audit C3 (2026-05-04) added `audit_trail.previous_checksum` + `chain_position BIGSERIAL` for tamper-evident hash chain. **2026-05-17 dropped 5 models** (`RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Alarm`) plus `asset_templates.{default_rule_chain_id, alarm_rules}` columns and `notification_logs.{rule_chain_id, alarm_id}` columns.
-- **Permissions:** **97** constants, **79** feature privileges, **93** reauth actions, **22** sidebar items. The 2026-05-17 tear-out removed 7 perms (`RULE_CHAIN_*` × 4 + `ALARM_*` × 3), 7 privileges, 5 reauth actions (`ACKNOWLEDGE_ALARM`, `CLEAR_ALARM`, `CREATE/UPDATE/DELETE_RULE_CHAIN`), and 2 sidebar items (`alarms`, `rule-chains`). Audit-action and audit-template registry entries for both subsystems are **retained** per 21 CFR §11 (no longer emitted; inspector contract preserved).
-- **Config:** **27 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **26** corresponding pages (template-kinds added in Step 1; `alarm-columns` removed 2026-05-17)
+## System Stats (current — 2026-06-17, verified post data-ingestion + TimescaleDB removal)
+- **Backend:** **35** API modules under `apps/api/src/modules/`, 200+ endpoints (verified `ls` 2026-06-17). 2026-06-11..2026-06-17 dropped 4 modules (`data-ingestion`, `uns`, `connectivity`, `queries`) and re-added `debug-traces` (now reads from `audit_trail` instead of dropped `ts_pipeline_traces`).
+- **Database:** **69 Prisma models, 25 enums**; **TimescaleDB DROPPED entirely** (was 6 hypertables — `ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`). Only `digilog_db` (Prisma) + `digilog_test_db` remain. **2026-06-11..2026-06-17 dropped 6 models** (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`) and 33 rows of dead ingestion config. TemplateKind is a lookup table (admin-editable since Step 1); not an enum. Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar; Step 4 (2026-05-02) replaced `FilterProfile.applicableTemplates` JSONB array with the `FilterProfileApplicableTemplate` join table. Audit C3 (2026-05-04) added `audit_trail.previous_checksum` + `chain_position BIGSERIAL` for tamper-evident hash chain. **2026-05-17 dropped 5 models** (`RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Alarm`).
+- **Permissions:** **108** constants, **98** feature privileges, **100** reauth actions, **26** sidebar items. The 2026-06-11..2026-06-17 tear-out removed 2 perms (`UNS_VIEW`, `UNS_MANAGE`), 2 privileges (`uns.view`, `uns.manage`), 6 reauth actions (`MANAGE_DEVICE_CREDENTIAL`, `OVERRIDE_UNS_PATH`, `DELETE_UNS_MAPPING`, `UPDATE_UNS_CONFIG`, `UPDATE_RETENTION_POLICY`, `EXECUTE_RETENTION`), and 2 reauth categories (`UNS`, `Retention`). Audit-action and audit-template registry entries for old subsystems (UNS, RETENTION, DEVICE_CREDENTIAL, RULE_CHAIN, ALARM) are **retained** per 21 CFR §11 (no longer emitted; inspector contract preserved).
+- **Config:** **34 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **30** corresponding pages (`uns.def` + `retention.def` removed 2026-06-17 with the ingestion tear-out)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** 22 route folders/files, ~83 pages, **14** custom hooks, **15** lib modules
-- **Queue backend:** graphile-worker (Postgres-backed); 3 queues (ingestion, notification, maintenance)
+- **Frontend:** **84 Routes** in `main.tsx`, **25** custom hooks, **32** lib modules
+- **Queue backend:** graphile-worker (Postgres-backed); 3 worker tasks (`notification`, `pm_overdue_check`, `session_sweep`)
 - **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
 ## Important Notes
-- TimescaleDB is `digilog_tsdb`, NOT `digilog_db` (PG models live in `digilog_db`)
+- Only one database now: `digilog_db` (Prisma). TimescaleDB (`digilog_tsdb`) was dropped 2026-06-11 with the data-ingestion tear-out.
 - Input sanitization strips HTML on all text fields (`apps/api/src/lib/sanitize.ts`)
 - Capacitor APK uses **HTTPS** baked at build via `VITE_API_URL` (cert install required on tablet)
 - Light theme only — `bg-white`, `bg-slate-50`, `border-slate-200`, gradient dialog headers OK
@@ -111,12 +109,33 @@ RFID Scanner Android app (Reader_Usb.jar SDK), web RFID keyboard guard, offline 
 ### Phase 6 — Subsystem Reduction (2026-05-17)
 **Rule chain + alarm tear-out.** Deleted both subsystems wholesale: 5 Prisma models, 22 source files (`apps/api/src/modules/rule-chain/`), 12 web files (`apps/web/src/routes/{rule-chains,alarms}/`, `config/alarm-columns.tsx`), 7 perms / 7 privileges / 5 reauth actions / 2 sidebar items, 6 role permission arrays + 11 alarm field-IDs + 5 `rule_engine.*` configs + 7 help articles from seed, and stale runtime rows from `roles` / `role_configs` / `system_config`. Telemetry ingest pipeline lost Stages 7 + 8 (rule-chain execution + alarm dispatch); the cleaning-cycle pipeline is unrelated and survives. **Retained**: `audit-actions.ts` + `audit-templates.ts` entries for both subsystems (21 CFR §11 inspector contracts — no longer emitted, still rendered for historic rows). Hash chain unaffected; only 4 historic `audit_trail` JSON-detail UUIDs become orphans (accepted per user "hard delete" decision). Plan + execution: `tasks/REMOVE-RULECHAIN-ALARM-PLAN.md`. Pre-removal git tag: `pre-rulechain-alarm-drop`.
 
+### Phase 7 — Data-Ingestion + TimescaleDB Removal (2026-06-11..2026-06-17)
+**Complete tear-out of the dormant ingestion layer.** Pre-removal verification confirmed 5 of 6 hypertables were always empty and only 234 debug-trace rows in `ts_pipeline_traces` — the whole subsystem was carrying weight without serving traffic. Removed in 10 phases:
+- **Phase 1** — 2 frontend route files (`config/uns.tsx`, `config/retention.tsx`) + their config cards + Route entries
+- **Phase 2** — 55 backend files: `modules/{data-ingestion,uns,connectivity,queries}/`, `transport/`, `workers/ingestion.worker.ts`, `workers/maintenance-retention.ts`
+- **Phase 3** — Wire-up cleanup: deleted `lib/operation-tracer.ts` + `workers/maintenance.worker.ts` + 6 other touchpoints (app.ts hooks, instance.service auto-provision block, deployment-check TSDB/MQTT checks, audit.ts dynamic import)
+- **Phase 4** — Dropped 6 Prisma models (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`) — 33 rows of dead `ingestion_system_config` data dropped via `prisma db push --accept-data-loss`
+- **Phase 5** — `DROP DATABASE digilog_tsdb` — all 6 hypertables gone
+- **Phase 6** — Deleted `packages/db/` workspace; uninstalled `@digilog/db`, `mqtt`, `aedes`, `@types/pg` from `apps/api/package.json`; migrated `/api/health` to local `lib/prisma.js`; stubbed `dashboards/routes.ts` timeseries_chart widget + `reports/data-sources/telemetry-source.ts`; `npm install` removed **47 transitive packages**
+- **Phase 7** — Cleaned `apps/api/.env` (TSDB_*, MQTT_*, EMQX_*, UNS_ROOT_PREFIX gone); deleted dead `lib/uns-path.ts`; uninstalled Mosquitto Windows service
+- **Phase 8** — Fixed `e2e/test-helper.ts` (was importing 2 deleted route modules → broken until fixed); fixed `instance.service.test.ts` Prisma-client mock; deleted 2 orphan test files (`workers/__tests__/ingestion.worker.test.ts`, `e2e/connectivity.test.ts`)
+- **Phase 9** — Deleted 2 dead config defs (`uns.def.ts`, `retention.def.ts`); removed 2 perms / 2 privileges / 6 reauth actions / 2 reauth categories from `packages/shared`; stripped DB rows in `roles.permissions` (1 row updated) + `system_config['action-reauth']` (5 stale keys removed)
+- **Phase 10** — Doc sync (this update)
+
+**Section 14 (Debug Traces repurpose)** — landed 2026-06-12 as commit `8619d24`: `/api/debug/traces` repointed onto `audit_trail` so the existing Debug Traces UI keeps working (each audited action → single-stage SUCCESS PipelineTrace). 9.8k records render. Limits: only successes (no error codes / durations).
+
+**What survived**: cleaning-cycle pipeline, PM workflows, audit trail (hash chain unaffected), reports, dashboards (timeseries_chart returns `[]` cleanly), offline sync, RFID, all 35 active modules. Reports module's `{{ts.<slot>.<key>}}` template tags return `{value: null, error: "Telemetry data source has been removed."}` instead of crashing.
+
+**Retained per 21 CFR §11**: `audit-actions.ts` registry entries for `UNS_*`, `RETENTION_*`, `DEVICE_CREDENTIAL_REGENERATED` — historic audit rows still render correctly in inspector UI even though new code never emits these.
+
+Pre-removal git tag: `pre-ingestion-removal` (commit `ed88400`). Phases 1-6 landed as commit `a95f6eb` on `RFID` (82 files, -16736 LoC). Runbook: `~/Downloads/DigiLog-Data-Ingestion-Removal-Plan.docx`.
+
 ### Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
 Reports module A–F complete (visual template designer + puppeteer-core/Edge / @napi-rs/canvas / Handlebars PDF engine + digital signatures — Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to eliminate the bundled Chromium download and the node-gyp/MSVC dependency), offline overhaul (TTL cache, idempotency keys, tombstones, LRU, JWT refresh, server-side `stageLookup`, Capacitor Network plugin + SW hook), RFID SDK plugin in DigiLog APK (`Reader_Usb.jar` via `RfidPlugin.java`), Filter Data Management console mirroring 10 user-facing pages, DRY_IN two-step flow with persisted countdown panel, dynamic backup/restore covering all 64 tables, bloat audit 12/14 resolved, EC2/PM2 production assets removed (local-Windows-only), decision-tape proposal for future client/server pipeline drift elimination. Full architectural detail in `PHASE_5_RECENT_WORK.md`.
 
-**Phase 5 verification harness** (Apr 29–30, 2026) — closes the verification gap left by Phases 1–4:
-- **5.1** — `tests/integration/windows-server-stack.test.ts` (gated by `INTEGRATION_TEST=1`): in-process aedes MQTT broker + Fastify boot + 100 telemetry publishes → `ts_telemetry`, graphile-worker enqueue → handler fires, puppeteer-core PDF render → `%PDF-` magic bytes (commits `a51628d` + reviewer-fix `24620c0`).
-- **5.2** — `scripts/verify-windows-deployment.ps1`: operator-facing 4-check smoke (health endpoint, Mosquitto :1883, graphile-worker schema via psql, real PDF render via login → reports/generate). PS 5.1 + 7+ compatible (commits `b4ad539` + reviewer-fix `ad07280`).
+**Phase 5 verification harness** (Apr 29–30, 2026) — closed the verification gap left by Phases 1–4:
+- **5.1** — `tests/integration/windows-server-stack.test.ts` originally exercised aedes MQTT broker + 100 telemetry publishes → `ts_telemetry` → graphile-worker → puppeteer-core PDF render. **MQTT/TSDB portion stale post-Phase-7** (aedes uninstalled, ts_telemetry table dropped). Remaining graphile-worker + PDF assertions still valid.
+- **5.2** — `scripts/verify-windows-deployment.ps1`: operator-facing smoke check (health endpoint, graphile-worker schema via psql, real PDF render via login → reports/generate). **Mosquitto :1883 check stale post-Phase-7** (service uninstalled). PS 5.1 + 7+ compatible.
 
 ## Key API Endpoints (filter operations)
 ```

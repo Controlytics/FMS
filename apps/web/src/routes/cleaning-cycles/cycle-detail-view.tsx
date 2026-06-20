@@ -78,7 +78,12 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
     .map((e: any) => e.toState);
 
   const eff = effectiveCycleStatus(cycle);
-  const stBadge = CYCLE_STATUS_BADGE[eff] ?? { cls: 'bg-red-50 text-red-700 border border-red-200', label: eff };
+  // A manual status update isn't a cycle — render it through this same view
+  // (info card + stage bar + event timeline) but badge it "Manual Update"
+  // instead of a cycle status.
+  const stBadge = cycle._manual
+    ? { cls: 'bg-orange-50 text-orange-700 border border-orange-200', label: 'Manual Update' }
+    : (CYCLE_STATUS_BADGE[eff] ?? { cls: 'bg-red-50 text-red-700 border border-red-200', label: eff });
   // Stages configured in this cycle's profile (from getCycleById); stages NOT in
   // it render as "NA" in the stage bar.
   const profileStages: string[] = cycle.profileStages ?? [];
@@ -231,8 +236,11 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
           // "Checklist Responses" section below, not dumped as raw JSON.
           // `offlinePerformedAt` is internal bookkeeping — the formatted submit
           // time is already shown in the event header (performedAt).
+          // Approval events carry internal bookkeeping (kind / approvalId UUID /
+          // attemptSeq) + the stageKey; the stage is surfaced as a clean badge
+          // below, the rest is noise the reader doesn't need.
           const displayAttrs = Object.entries(attrs).filter(
-            ([k]) => !['cleaningReasonKey', 'cleaningReasonLabel', 'instrumentReadings', 'sequenceNumber', 'answers', 'afterStage', 'action', 'dryerDurationMinutes', 'dryerStartedAt', 'clientOpId', 'checklists', 'offlinePerformedAt'].includes(k)
+            ([k]) => !['cleaningReasonKey', 'cleaningReasonLabel', 'instrumentReadings', 'sequenceNumber', 'answers', 'afterStage', 'action', 'dryerDurationMinutes', 'dryerStartedAt', 'clientOpId', 'checklists', 'offlinePerformedAt', 'kind', 'stageKey', 'approvalId', 'attemptSeq'].includes(k)
           );
           const enrichedAnswers: { questionId: string; question: string; answer: any }[] = event.enrichedAnswers ?? [];
 
@@ -308,6 +316,17 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
                         Started: {formatDateTime(attrs.dryerStartedAt)}
                       </span>
                     )}
+                  </div>
+                )}
+
+                {/* Stage interlock approval — show the approved stage cleanly,
+                    not the raw approvalId / attemptSeq / kind (internal). */}
+                {event.eventType === 'APPROVAL_GRANTED' && attrs.stageKey && (
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs text-slate-400">Approved stage:</span>
+                    <span className="px-2.5 py-0.5 text-xs font-medium rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200">
+                      {STAGE_LABELS[attrs.stageKey] ?? String(attrs.stageKey).replace(/_/g, ' ')}
+                    </span>
                   </div>
                 )}
 

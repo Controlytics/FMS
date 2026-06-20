@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef } from 'react';
+import { Fragment, useState, useEffect, useRef, useMemo } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
@@ -266,9 +266,28 @@ export function MobileWrapperPage() {
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
   const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 60000 });
 
-  // My Tasks + Approvals
+  // My Tasks filters (mirror the desktop My Tasks page). Time period drives the
+  // server query (/due?from=&to=); search / block / area / status filter client-side.
+  const [taskSearch, setTaskSearch] = useState('');
+  const [taskBlock, setTaskBlock] = useState('');   // block id
+  const [taskArea, setTaskArea] = useState('');     // area id
+  const [taskFrom, setTaskFrom] = useState('');
+  const [taskTo, setTaskTo] = useState('');
+  const [taskStatus, setTaskStatus] = useState<'all' | 'pending' | 'completed' | 'overdue'>('all');
+  const [taskFiltersOpen, setTaskFiltersOpen] = useState(false);
+
+  // My Tasks + Approvals. The /due key carries the from/to period so the server
+  // returns tasks for the selected window (empty = "due now + overdue").
+  const dueKey = (() => {
+    if (!online) return null;
+    const qs = new URLSearchParams();
+    if (taskFrom) qs.set('from', taskFrom);
+    if (taskTo) qs.set('to', taskTo);
+    const s = qs.toString();
+    return `/api/pm-schedules/due${s ? `?${s}` : ''}`;
+  })();
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
-    useSWR(online ? '/api/pm-schedules/due' : null, { refreshInterval: view === 'my-tasks' ? 30000 : 120000 });
+    useSWR(dueKey, { refreshInterval: view === 'my-tasks' ? 30000 : 120000 });
 
   // Notifications (overdue deviations etc.) — bell badge + center view.
   const { data: notifData, mutate: mutateNotifs } =
@@ -427,7 +446,9 @@ export function MobileWrapperPage() {
 
   // Cache live SWR data for offline fallback
   useEffect(() => { if (instancesData?.data) cacheFilterData(instancesData.data); }, [instancesData]);
-  useEffect(() => { if (dueTasksData) cache('due-tasks', dueTasksData); }, [dueTasksData]);
+  // Only snapshot the unfiltered "due now" view for offline use — caching a
+  // period-filtered result would make the offline My Tasks show the wrong set.
+  useEffect(() => { if (dueTasksData && !taskFrom && !taskTo) cache('due-tasks', dueTasksData); }, [dueTasksData, taskFrom, taskTo]);
   useEffect(() => { if (approvalsData?.data) cache('approvals', approvalsData.data); }, [approvalsData]);
 
   // Load cached data for offline use
@@ -449,6 +470,58 @@ export function MobileWrapperPage() {
 
   const approvals: any[] = (online ? approvalsData?.data : null) ?? offlineApprovals;
   const tasksSource = (online ? dueTasksData : null) ?? offlineTasks;
+
+  // ── My Tasks filtering (mirrors desktop my-tasks/index.tsx) ──
+  const allDueTasks = (tasksSource?.tasks ?? []) as any[];
+  const allOverdueTasks = (tasksSource?.overdue ?? []) as any[];
+
+  // Block / Area dropdown options derived from the current task set (works
+  // offline — no extra API calls). Areas cascade from the selected block.
+  const taskBlockOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of [...allDueTasks, ...allOverdueTasks]) if (t.blockId) m.set(t.blockId, t.blockName ?? t.blockId);
+    return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [tasksSource]);
+  const taskAreaOptions = useMemo(() => {
+    const m = new Map<string, { name: string; blockId: string | null }>();
+    for (const t of [...allDueTasks, ...allOverdueTasks]) if (t.areaId) m.set(t.areaId, { name: t.areaName ?? t.areaId, blockId: t.blockId ?? null });
+    return [...m.entries()]
+      .map(([id, v]) => ({ id, name: v.name, blockId: v.blockId }))
+      .filter(a => !taskBlock || a.blockId === taskBlock)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [tasksSource, taskBlock]);
+
+  const taskMatchesFilters = (t: any) => {
+    const q = taskSearch.trim().toLowerCase();
+    if (q && !((t.ahuName ?? '').toLowerCase().includes(q)
+      || (t.blockName ?? '').toLowerCase().includes(q)
+      || (t.areaName ?? '').toLowerCase().includes(q))) return false;
+    if (taskBlock && t.blockId !== taskBlock) return false;
+    if (taskArea && t.areaId !== taskArea) return false;
+    return true;
+  };
+
+  // Status tab: All shows everything; Pending = pending + in-progress;
+  // Completed = complete; Overdue = the separate overdue array (its own tab).
+  const visibleDueTasks = allDueTasks.filter(t => {
+    if (!taskMatchesFilters(t)) return false;
+    if (taskStatus === 'pending') return t.overallStatus === 'pending' || t.overallStatus === 'in_progress';
+    if (taskStatus === 'completed') return t.overallStatus === 'complete';
+    if (taskStatus === 'overdue') return false;
+    return true; // 'all'
+  });
+  const visibleOverdueTasks = allOverdueTasks.filter(t =>
+    taskMatchesFilters(t) && (taskStatus === 'all' || taskStatus === 'overdue'));
+
+  // Per-category counts for the toggle badges (respect search/block/area filters).
+  const taskCounts = {
+    all: allDueTasks.filter(taskMatchesFilters).length + allOverdueTasks.filter(taskMatchesFilters).length,
+    pending: allDueTasks.filter(t => taskMatchesFilters(t) && (t.overallStatus === 'pending' || t.overallStatus === 'in_progress')).length,
+    completed: allDueTasks.filter(t => taskMatchesFilters(t) && t.overallStatus === 'complete').length,
+    overdue: allOverdueTasks.filter(taskMatchesFilters).length,
+  };
+  const taskFiltersActive = !!(taskSearch || taskBlock || taskArea || taskFrom || taskTo || taskStatus !== 'all');
+  const clearTaskFilters = () => { setTaskSearch(''); setTaskBlock(''); setTaskArea(''); setTaskFrom(''); setTaskTo(''); setTaskStatus('all'); };
 
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
@@ -1191,13 +1264,6 @@ export function MobileWrapperPage() {
             return true;
           });
           const cascadeActive = statusBlockId !== 'all' || statusAreaId !== 'all' || statusAhuId !== 'all' || statusFilterId !== 'all';
-          const formatDate = (iso: string) => {
-            try {
-              const d = new Date(iso);
-              return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) +
-                ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-            } catch { return '—'; }
-          };
           return (
           <div className="p-4 space-y-4">
             {/* 2026-05-26: header row — title + Scan RFID quick action.
@@ -1357,7 +1423,7 @@ export function MobileWrapperPage() {
                           AHU: <span className="text-slate-700">{ahu?.name ?? '—'}</span>
                         </div>
                         <div className="text-[11px] text-slate-500 mt-0.5">
-                          Last Cleaned: <span className="text-slate-700">{lastCleaned ? formatDate(lastCleaned) : '—'}</span>
+                          Last Cleaned: <span className="text-slate-700">{lastCleaned ? formatDateTime(lastCleaned) : '—'}</span>
                         </div>
                       </div>
                       <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap ${stageInfo ? `${stageInfo.bg} ${stageInfo.text} ${stageInfo.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
@@ -1380,8 +1446,105 @@ export function MobileWrapperPage() {
           <div className="p-4 space-y-4">
             <div>
               <h2 className="text-lg font-bold text-slate-800">My Tasks</h2>
-              <p className="text-xs text-slate-500 mt-0.5">AHUs currently due for cleaning based on PM schedules</p>
+              <p className="text-xs text-slate-500 mt-0.5">AHUs due for cleaning per PM schedules — filter by period, block, area or status</p>
             </div>
+
+            {(online || tasksSource) && (
+              <div className="space-y-2">
+                {/* Status category toggle */}
+                <div className="grid grid-cols-4 gap-1.5">
+                  {([
+                    ['all', 'All', taskCounts.all],
+                    ['pending', 'Pending', taskCounts.pending],
+                    ['completed', 'Completed', taskCounts.completed],
+                    ['overdue', 'Overdue', taskCounts.overdue],
+                  ] as const).map(([key, label, count]) => {
+                    const active = taskStatus === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setTaskStatus(key)}
+                        className={`flex flex-col items-center justify-center py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                          active
+                            ? (key === 'overdue' ? 'bg-rose-600 text-white border-rose-600' : 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white border-transparent')
+                            : 'bg-white text-slate-600 border-slate-200'
+                        }`}
+                      >
+                        <span>{label}</span>
+                        <span className={`mt-0.5 text-[10px] ${active ? 'text-white/80' : 'text-slate-400'}`}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Search + collapsible-filters toggle */}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={taskSearch}
+                      onChange={e => setTaskSearch(e.target.value)}
+                      placeholder="Search AHU, block or area…"
+                      className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setTaskFiltersOpen(o => !o)}
+                    className={`px-3 rounded-xl border text-sm font-semibold flex items-center gap-1 ${taskFiltersActive ? 'border-cyan-300 text-cyan-700 bg-cyan-50' : 'border-slate-200 text-slate-600 bg-white'}`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h18M6 8h12M10 12h4M11 16h2" />
+                    </svg>
+                    Filters
+                  </button>
+                </div>
+
+                {/* Collapsible: time period + block + area + clear */}
+                {taskFiltersOpen && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">From</label>
+                        <input type="date" disabled={!online} value={taskFrom} onChange={e => setTaskFrom(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:border-cyan-400 disabled:opacity-50" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">To</label>
+                        <input type="date" disabled={!online} value={taskTo} onChange={e => setTaskTo(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:border-cyan-400 disabled:opacity-50" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Block</label>
+                        <select value={taskBlock} onChange={e => { setTaskBlock(e.target.value); setTaskArea(''); }}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:border-cyan-400">
+                          <option value="">All blocks</option>
+                          {taskBlockOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Area</label>
+                        <select value={taskArea} onChange={e => setTaskArea(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:border-cyan-400">
+                          <option value="">All areas</option>
+                          {taskAreaOptions.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    {!online && <p className="text-[10px] text-slate-400">Date period needs an internet connection.</p>}
+                    {taskFiltersActive && (
+                      <button onClick={clearTaskFilters} className="w-full py-2 rounded-lg text-xs font-semibold text-slate-500 border border-slate-200 hover:bg-slate-50">
+                        Clear all filters
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {!online && (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
@@ -1397,20 +1560,20 @@ export function MobileWrapperPage() {
               </div>
             )}
 
-            {!dueTasksLoading && (!tasksSource?.tasks?.length && !tasksSource?.overdue?.length) && (
+            {!dueTasksLoading && visibleDueTasks.length === 0 && visibleOverdueTasks.length === 0 && (
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                 <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
                 <div className="p-10 text-center">
                   <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-teal-50 to-cyan-50 flex items-center justify-center">
                     <span className="text-3xl">{'\u{1F3AF}'}</span>
                   </div>
-                  <div className="text-sm font-semibold text-slate-700">Nothing due right now</div>
-                  <div className="text-xs text-slate-400 mt-1">Tasks appear when a schedule window opens</div>
+                  <div className="text-sm font-semibold text-slate-700">{taskFiltersActive ? 'No matching tasks' : 'Nothing due right now'}</div>
+                  <div className="text-xs text-slate-400 mt-1">{taskFiltersActive ? 'Try adjusting or clearing the filters' : 'Tasks appear when a schedule window opens'}</div>
                 </div>
               </div>
             )}
 
-            {(tasksSource?.tasks ?? []).map((task: any) => {
+            {visibleDueTasks.map((task: any) => {
               const expanded = expandedTasks.has(task.entryId);
               const statusColor =
                 task.overallStatus === 'complete' ? { bar: 'from-emerald-400 to-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500' }
@@ -1488,13 +1651,13 @@ export function MobileWrapperPage() {
               );
             })}
 
-            {(tasksSource?.overdue ?? []).length > 0 && (
+            {visibleOverdueTasks.length > 0 && (
               <div className="space-y-3 pt-2">
                 <div className="flex items-center gap-2">
                   <span className="text-rose-600 text-sm">{'\u26A0'}</span>
                   <h3 className="text-sm font-bold text-slate-800">Overdue</h3>
                 </div>
-                {((tasksSource?.overdue ?? []) as any[]).map((task: any) => (
+                {(visibleOverdueTasks as any[]).map((task: any) => (
                   <div key={task.entryId} className="bg-white border border-rose-200 rounded-2xl overflow-hidden shadow-sm">
                     <div className="h-1.5 bg-gradient-to-r from-rose-400 to-rose-500" />
                     <div className="p-4">
@@ -2149,11 +2312,7 @@ export function MobileWrapperPage() {
             : null;
           const rfidSelStage = rfidSelFilter ? STAGES.find((s) => s.key === rfidSelFilter.currentLifecycleState) : null;
           const rfidSelSet = rfidSelFilter?.filterSet ? `Set ${String(rfidSelFilter.filterSet).replace('SET_', '')}` : 'NA';
-          const rfidSelDate = (iso: string | null) => {
-            if (!iso) return 'NA';
-            try { return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
-            catch { return 'NA'; }
-          };
+          const rfidSelDate = (iso: string | null) => (iso ? (formatDate(iso) || 'NA') : 'NA');
           const rfidSelDetails: Array<[string, string]> = [
             ['Block', naText(rfidSelBlock?.name)],
             ['Area', naText(rfidSelArea?.name)],
@@ -2473,11 +2632,7 @@ export function MobileWrapperPage() {
             : null;
           const repSelStage = repSelFilter ? STAGES.find((s) => s.key === repSelFilter.currentLifecycleState) : null;
           const repSelSet = repSelFilter?.filterSet ? `Set ${String(repSelFilter.filterSet).replace('SET_', '')}` : 'NA';
-          const repSelDate = (iso: string | null) => {
-            if (!iso) return 'NA';
-            try { return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
-            catch { return 'NA'; }
-          };
+          const repSelDate = (iso: string | null) => (iso ? (formatDate(iso) || 'NA') : 'NA');
           const repSelDetails: Array<[string, string]> = [
             ['Block', naText(repSelBlock?.name)],
             ['Area', naText(repSelArea?.name)],
@@ -2986,7 +3141,7 @@ export function MobileWrapperPage() {
                                 <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full border shrink-0 ${meta.cls}`}>{meta.label}</span>
                               </div>
                               <div className="text-[11px] text-slate-500 mt-0.5">micron {naText(t.filterMicron)} · dimensions {naText(t.filterSize)}</div>
-                              <div className="text-[10.5px] text-slate-400 mt-0.5">{isCompleted ? 'scheduled' : 'due by'} {t.windowEnd ? new Date(t.windowEnd).toLocaleDateString() : '—'}</div>
+                              <div className="text-[10.5px] text-slate-400 mt-0.5">{isCompleted ? 'scheduled' : 'due by'} {t.windowEnd ? formatDate(t.windowEnd) : '—'}</div>
                             </div>
                             <span className={`text-[11px] font-bold rounded-full px-2.5 py-1 shrink-0 border ${isCompleted ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-600 bg-rose-50 border-rose-200'}`}>
                               {isCompleted ? `${t.replaced}/${t.total} done` : `${t.qtyRemaining} of ${t.qty} left`}

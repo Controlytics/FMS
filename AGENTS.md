@@ -28,7 +28,7 @@ admin-requests, assets (templates, instances, identifiers, relationships), audit
 ### Backend (apps/api — Fastify + TypeScript)
 - Route handlers must validate input with Zod schemas
 - Services should use proper error handling with Fastify error codes
-- Database queries via Prisma ORM only (TimescaleDB = digilog_tsdb via pg pool)
+- Database queries via Prisma ORM only against `digilog_db` (TimescaleDB / `digilog_tsdb` was dropped 2026-06-11 with the data-ingestion tear-out — see CHANGELOG Phase 7)
 - Check tenant isolation: multi-tenant queries must filter by orgId/tenantId
 - graphile-worker jobs must handle failures gracefully (Phase 2 of windows-friendly-rewrite swapped from BullMQ + Redis to Postgres-backed queue)
 - Filter operations must enforce checklist completion before stage advance

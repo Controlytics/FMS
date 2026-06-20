@@ -11,8 +11,6 @@ import roleRoutes from '../modules/roles/routes.js';
 import assetRoutes from '../modules/assets/index.js';
 import notificationRoutes from '../modules/notifications/routes.js';
 import backupRoutes from '../modules/backup/routes.js';
-import connectivityRoutes from '../modules/connectivity/routes.js';
-import unsRoutes from '../modules/uns/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { AppError } from '../lib/errors.js';
@@ -70,8 +68,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(assetRoutes, { prefix: '/api/assets' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
   await app.register(backupRoutes, { prefix: '/api/backup' });
-  await app.register(connectivityRoutes, { prefix: '/api/connectivity' });
-  await app.register(unsRoutes, { prefix: '/api/uns' });
   await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
 
   await app.ready();

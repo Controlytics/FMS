@@ -398,10 +398,26 @@ export class FilterOperationsService {
     const allAssets = allAssetsRaw.map(a => ({ id: a.id, name: a.name, filterSet: a.filterDetails?.filterSet ?? null }));
     const assetMap = new Map(allAssets.map(a => [a.id, a]));
 
-    // Resolve performedBy UUIDs to user display names
-    const allPerformerIds = [...new Set(
-      data.flatMap((c: any) => (c.events ?? []).map((e: any) => e.performedBy).filter(Boolean)),
-    )] as string[];
+    // Resolve each cycle's terminal-event performer (CYCLE_COMPLETED /
+    // CYCLE_TERMINATED) so the lifecycle report can show "completed by whom"
+    // without having to include every event in the payload.
+    const cycleIds = data.map((c: any) => c.id);
+    const terminalEvents = cycleIds.length > 0 ? await prisma.filterEvent.findMany({
+      where: { cycleId: { in: cycleIds }, eventType: { in: ['CYCLE_COMPLETED', 'CYCLE_TERMINATED'] } },
+      select: { cycleId: true, performedBy: true, performedAt: true },
+      orderBy: { performedAt: 'asc' },
+    }) : [];
+    const terminalPerformerByCycle = new Map<string, string>();
+    for (const ev of terminalEvents) {
+      if (ev.cycleId && ev.performedBy) terminalPerformerByCycle.set(ev.cycleId, ev.performedBy); // last terminal wins
+    }
+
+    // Resolve performedBy UUIDs to user display names (event performers when
+    // includeEvents, plus every cycle's terminal-event performer).
+    const allPerformerIds = [...new Set([
+      ...data.flatMap((c: any) => (c.events ?? []).map((e: any) => e.performedBy).filter(Boolean)),
+      ...terminalPerformerByCycle.values(),
+    ])] as string[];
     const performers = allPerformerIds.length > 0 ? await prisma.user.findMany({
       where: { id: { in: allPerformerIds } },
       select: { id: true, username: true, fullName: true },
@@ -426,6 +442,10 @@ export class FilterOperationsService {
       filterSet: assetMap.get(c.filterId)?.filterSet ?? null,
       cleaningAreaName: c.cleaningAreaId ? (assetMap.get(c.cleaningAreaId)?.name ?? null) : null,
       profileStages: c.profileId ? (profileStageMap.get(c.profileId) ?? []) : [],
+      // Who closed the cycle (fullName for desktop, username for mobile). Null
+      // for still-IN_PROGRESS cycles (no terminal event yet).
+      completedByName: (() => { const p = terminalPerformerByCycle.get(c.id); return p ? (userMap.get(p)?.fullName ?? null) : null; })(),
+      completedByUsername: (() => { const p = terminalPerformerByCycle.get(c.id); return p ? (userMap.get(p)?.username ?? null) : null; })(),
       ...((c as any).events ? {
         events: (c as any).events.map((e: any) => {
           const u = e.performedBy ? userMap.get(e.performedBy) : null;

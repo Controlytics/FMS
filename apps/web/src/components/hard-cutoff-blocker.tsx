@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getHardCutoffMs, isHardCutoffExceeded, subscribeToHardCutoff } from '@/lib/hard-cutoff';
 import { getLastServerContact } from '@/lib/server-contact';
 import { HARD_CUTOFF_REEVAL_INTERVAL_MS } from '@/lib/timing-constants';
+import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 
 /**
  * W4: read-only blocker overlay.
@@ -27,6 +28,7 @@ import { HARD_CUTOFF_REEVAL_INTERVAL_MS } from '@/lib/timing-constants';
 export function HardCutoffBlocker() {
   const [exceeded, setExceeded] = useState<boolean>(() => isHardCutoffExceeded());
   const [retrying, setRetrying] = useState(false);
+  const { formatDateTime } = useDatetimeFormat();
 
   useEffect(() => {
     const unsub = subscribeToHardCutoff(setExceeded);
@@ -106,7 +108,7 @@ export function HardCutoffBlocker() {
             {lastContact && (
               <div className="bg-slate-50 rounded-xl p-3 text-xs">
                 <div className="text-slate-500">Last successful server contact:</div>
-                <div className="font-semibold text-slate-800 mt-0.5">{lastContact.toLocaleString()}</div>
+                <div className="font-semibold text-slate-800 mt-0.5">{formatDateTime(lastContact)}</div>
               </div>
             )}
           </div>

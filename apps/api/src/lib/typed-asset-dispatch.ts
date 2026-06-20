@@ -50,7 +50,7 @@ export interface CommonAssetData {
   status?: string;
   attributes?: Record<string, unknown>;
   customAttributes?: Record<string, unknown>;
-  unsPath?: string | null;
+  
   isActive?: boolean;
   createdBy?: string | null;
   updatedBy?: string | null;

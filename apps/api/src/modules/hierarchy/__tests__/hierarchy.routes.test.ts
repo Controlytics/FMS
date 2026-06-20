@@ -88,7 +88,7 @@ describe('hierarchy routes', () => {
       status: 'Active',
       attributes: {},
       customAttributes: {},
-      unsPath: null,
+      
       isActive: true,
       createdAt: now,
       updatedAt: now,

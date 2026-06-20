@@ -5,6 +5,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { sendNotification } from './delivery.service.js';
 import { resolveTemplate } from './template-engine.js';
+import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
 
 interface DispatchEvent {
   eventType: string;
@@ -23,6 +24,14 @@ const cooldownMap = new Map<string, number>();
 export async function dispatchNotification(event: DispatchEvent): Promise<void> {
   // [Dispatcher] event received
   const { eventType, context, variables, forceRuleId } = event;
+
+  // Normalize the `timestamp` variable (callers pass UTC ISO) to the configured
+  // timezone/format — IST by default — so every rendered email/SMS/in-app shows
+  // local time, not raw UTC. Leaves non-parseable pre-formatted values untouched.
+  if (variables.timestamp) {
+    const formatted = await formatConfiguredDateTime(variables.timestamp);
+    if (formatted) variables.timestamp = formatted;
+  }
 
   // Build eventLabel, summary, and dynamic details HTML based on event type
   const EVENT_LABELS: Record<string, string> = {

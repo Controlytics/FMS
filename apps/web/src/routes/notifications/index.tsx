@@ -88,7 +88,10 @@ const typeIcons: Record<string, React.ReactNode> = {
 
 export function NotificationsPage() {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN' || (user?.permissions?.includes('NOTIFICATION_DELETE') ?? false);
+  // Notification delete is restricted to SUPER_ADMIN only (per 2026-06-15
+  // request), regardless of NOTIFICATION_DELETE. This flag only gates the
+  // delete controls below (single + bulk).
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const { formatDate: fmtDate } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);

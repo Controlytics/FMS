@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma.js';
 import { emailChannel } from './channels/email-channel.js';
 import { smsChannel } from './channels/sms-channel.js';
 import { resolveTemplate } from './template-engine.js';
+import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
 import type { NotificationPayload, DeliveryResult, NotificationChannel } from './types.js';
 
 const channels: Record<string, NotificationChannel> = {
@@ -171,13 +172,15 @@ export async function sendTestNotification(
   channelName: 'EMAIL' | 'SMS',
   recipient: string,
 ): Promise<DeliveryResult> {
+  // Timestamp honours the Date/Time config (IST by default), not UTC.
+  const ts = await formatConfiguredDateTime(new Date());
   return sendNotification({
     channel: channelName,
     recipient,
     subject: 'DigiLog Test Notification',
     message: channelName === 'EMAIL'
-      ? '<p>This is a <strong>test notification</strong> from DigiLog.</p><p>If you received this email, your email notification settings are configured correctly.</p><p>Timestamp: ' + new Date().toISOString() + '</p>'
-      : `DigiLog Test: Your SMS notification is configured correctly. Timestamp: ${new Date().toISOString()}`,
+      ? `<p>This is a <strong>test notification</strong> from DigiLog.</p><p>If you received this email, your email notification settings are configured correctly.</p><p>Timestamp: ${ts}</p>`
+      : `DigiLog Test: Your SMS notification is configured correctly. Timestamp: ${ts}`,
     triggeredBy: 'manual',
     metadata: { test: true },
   });

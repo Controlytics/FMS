@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { formatConfiguredDate } from '../../lib/format-datetime.js';
 import type { RequestContext } from '../../types/context.js';
 import { resolveAllTags } from './variable-resolver.js';
 import { buildHtml } from './renderers/html-builder.js';
@@ -77,7 +78,7 @@ export class ReportService {
     // 2. Resolve user for meta resolution
     const user = await prisma.user.findUnique({ where: { id: ctx.userSub } });
 
-    const reportName = input.name || `${template.name} - ${new Date().toLocaleDateString()}`;
+    const reportName = input.name || `${template.name} - ${await formatConfiguredDate(new Date())}`;
 
     // 3. Build resolution context
     const resCtx: ResolutionContext = {

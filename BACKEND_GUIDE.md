@@ -1,8 +1,10 @@
 # DigiLog — Backend Guide
 
+> ⚠️ **2026-06-17 — Sections below mentioning `data-ingestion` / `uns` / `connectivity` / `queries` / `transport/` / Mosquitto / MQTT / TimescaleDB / `packages/db` / `@digilog/db` are HISTORICAL.** Those subsystems were removed in Phase 7 (2026-06-11..2026-06-17). Current module count: **35**. See root `CLAUDE.md` Phase 7 snapshot + `apps/api/CLAUDE.md` for the current module list + `CHANGELOG.md` for the tear-out details.
+
 ## Overview
 
-Fastify 5 backend with TypeScript, **36 API modules** (org-admin + tenant-admin removed in MT removal 2026-04-30), ~398 endpoints across 59 route files. Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. Production launch is currently `node dist/app.js` in the foreground (Phase 4 of windows-friendly-rewrite retired PM2; an NSSM stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher). EC2 is no longer in scope.
+Fastify 5 backend with TypeScript, **35 API modules** (verified `ls` 2026-06-17 — see `apps/api/CLAUDE.md`). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. Production launch is currently `node dist/app.js` in the foreground (Phase 4 of windows-friendly-rewrite retired PM2; an NSSM stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher). EC2 is no longer in scope.
 
 **Entry point:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npx tsx watch src/app.ts` (port 3000)

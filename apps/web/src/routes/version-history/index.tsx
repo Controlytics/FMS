@@ -18,6 +18,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
+import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 
 export type EntityKind = 'cleaning-profile' | 'filter-profile' | 'checklist-profile' | 'equipment-group';
 
@@ -317,6 +318,7 @@ function VersionTimelineRow({
   onPickVersion: (v: number) => void;
 }) {
   const [showDiff, setShowDiff] = useState(false);
+  const { formatDateTime } = useDatetimeFormat();
   const canCompare = versionNumber > 1; // nothing to compare v1 against — there's no v0.
 
   return (
@@ -332,7 +334,7 @@ function VersionTimelineRow({
             {changeNotes && <span className="text-xs text-slate-500">— {changeNotes}</span>}
           </div>
           <div className="text-xs text-slate-400 mt-1">
-            {createdAt && <>Archived {new Date(createdAt).toLocaleString()}</>}
+            {createdAt && <>Archived {formatDateTime(createdAt)}</>}
             {createdBy && <> · by {createdBy.slice(0, 8)}…</>}
           </div>
         </button>

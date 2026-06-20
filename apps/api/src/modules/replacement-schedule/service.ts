@@ -119,6 +119,41 @@ async function buildAhuNameMap(): Promise<Map<string, string[]>> {
   return map;
 }
 
+// Normalize a micron value for comparison (trim + lowercase).
+function normMicron(s: unknown): string {
+  return stripHtml(String(s ?? '')).trim().toLowerCase();
+}
+// Normalize a free-text filter dimension so 610X510X25 / 200*400*600 / 200×400×600
+// all compare equal: lowercase, drop whitespace, unify X/x/*/× separators to 'x'.
+function normDim(s: unknown): string {
+  return stripHtml(String(s ?? '')).trim().toLowerCase().replace(/\s+/g, '').replace(/[x×*]/g, 'x');
+}
+
+interface AhuFilterIndex { total: number; microns: Set<string>; combos: Map<string, number>; }
+
+// Index every active (non-retired) filter per AHU: which micron sizes exist, and
+// how many filters per (micron, dimension) combo. Drives the upload validation —
+// a scheduled row is only accepted if a real filter under that AHU matches.
+async function buildAhuFilterIndex(): Promise<Map<string, AhuFilterIndex>> {
+  const filters = await prisma.filter.findMany({
+    where: { isActive: true, status: { notIn: ['Retired', 'Replaced'] } },
+    select: { ahuId: true, attributes: true },
+  });
+  const idx = new Map<string, AhuFilterIndex>();
+  for (const f of filters as Array<{ ahuId: string | null; attributes: any }>) {
+    if (!f.ahuId) continue;
+    const attrs = (f.attributes ?? {}) as Record<string, any>;
+    const m = normMicron(attrs.micronSize);
+    const d = normDim(attrs.filterSize);
+    let e = idx.get(f.ahuId);
+    if (!e) { e = { total: 0, microns: new Set<string>(), combos: new Map<string, number>() }; idx.set(f.ahuId, e); }
+    e.total++;
+    if (m) e.microns.add(m);
+    if (m && d) { const k = `${m}|${d}`; e.combos.set(k, (e.combos.get(k) ?? 0) + 1); }
+  }
+  return idx;
+}
+
 export async function processUpload(
   buffer: Buffer,
   fileName: string | undefined,
@@ -133,6 +168,7 @@ export async function processUpload(
 
   const defaultTolerance = await loadDefaultToleranceDays();
   const ahuMap = await buildAhuNameMap();
+  const ahuFilterIdx = await buildAhuFilterIndex();
   const today = todayUtcDateOnly();
 
   const results: UploadOutcome['results'] = [];
@@ -182,6 +218,31 @@ export async function processUpload(
       else tolerance = t;
     }
 
+    // Filter Micron + Dimensions are required — they're validated against the
+    // AHU's actual filters below.
+    if (!micron) rowErrs.push({ row: r.rowNumber, column: 'Filter Micron', value: '', error: 'Filter Micron is required' });
+    if (!size) rowErrs.push({ row: r.rowNumber, column: 'Filter Dimensions', value: '', error: 'Filter Dimensions is required' });
+
+    // Cascade validation against the live filter list (2026-06-15 request):
+    // AHU → has filters → micron exists → (micron, dimension) exists → qty available.
+    // Only runs when the AHU resolved and micron/size/qty are present (otherwise the
+    // field-level errors above already fire).
+    if (ahuId && micron && size && Number.isInteger(qtyN) && qtyN >= 1) {
+      const idx = ahuFilterIdx.get(ahuId);
+      const m = normMicron(micron);
+      const d = normDim(size);
+      if (!idx || idx.total === 0) {
+        rowErrs.push({ row: r.rowNumber, column: 'AHU Name', value: ahuNameRaw, error: `AHU "${ahuNameRaw}" has no filters to replace` });
+      } else if (!idx.microns.has(m)) {
+        rowErrs.push({ row: r.rowNumber, column: 'Filter Micron', value: micron, error: `Micron "${micron}" not found in AHU "${ahuNameRaw}"` });
+      } else if (!idx.combos.has(`${m}|${d}`)) {
+        rowErrs.push({ row: r.rowNumber, column: 'Filter Dimensions', value: size, error: `Dimensions "${size}" (micron ${micron}) not found in AHU "${ahuNameRaw}"` });
+      } else {
+        const avail = idx.combos.get(`${m}|${d}`) ?? 0;
+        if (qtyN !== avail) rowErrs.push({ row: r.rowNumber, column: 'Qty', value: r.qty, error: `Qty ${qtyN} must equal the ${avail} filter(s) with micron ${micron} and dimensions ${size} in AHU "${ahuNameRaw}"` });
+      }
+    }
+
     if (rowErrs.length > 0) { for (const e of rowErrs) results.push({ status: 'error', ...e }); continue; }
 
     const slNoN = Number(r.slNo);
@@ -216,9 +277,12 @@ export async function processUpload(
   const approvalStatus = wf.workflowEnabled ? 'PENDING_REVIEW' as const : 'APPROVED' as const;
 
   const schedule = await prisma.$transaction(async (tx) => {
-    // Hard-replace: a new upload supersedes the prior replacement schedule(s).
-    // Deleting the schedule cascades its entries + executions.
-    await tx.replacementSchedule.deleteMany({});
+    // Append (2026-06-15, user request): a new upload ADDS to the existing
+    // replacement schedule(s) rather than superseding them. Each upload creates
+    // its own schedule row (preserving fileName / uploadedBy / date per batch);
+    // prior schedules and their entries/executions are left untouched, so the
+    // list, due, and tasks views show old + new together. Re-uploading the same
+    // file will create duplicate rows — that's expected for plain append.
     const sch = await tx.replacementSchedule.create({
       data: { fileName: fileName ?? null, status: 'ACTIVE', uploadedBy: ctx.userSub, uploadedByName: ctx.userId },
     });

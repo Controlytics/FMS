@@ -50,9 +50,7 @@ export const PERMISSIONS = {
   DASHBOARD_VIEW: 'DASHBOARD_VIEW',
   DASHBOARD_ASSIGN: 'DASHBOARD_ASSIGN',
 
-  // UNS
-  UNS_VIEW: 'UNS_VIEW',
-  UNS_MANAGE: 'UNS_MANAGE',
+  // (UNS_VIEW + UNS_MANAGE removed with data-ingestion removal.)
 
   // Checklist
   CHECKLIST_SUBMIT: 'CHECKLIST_SUBMIT',

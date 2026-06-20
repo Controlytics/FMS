@@ -310,7 +310,6 @@ function checkEnvironment(): SubCheck[] {
   // Required env vars (Phase 4: REDIS_HOST removed — Redis retired)
   const required: Array<{ key: string; warn?: boolean }> = [
     { key: 'DATABASE_URL' },
-    { key: 'TSDB_HOST' },
     { key: 'API_PORT', warn: true },
   ];
 

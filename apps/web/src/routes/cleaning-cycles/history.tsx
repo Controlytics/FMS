@@ -12,6 +12,7 @@ import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { STATUS_LABELS } from '../filter-management/filter-list/constants';
+import { CycleDetailView } from './cycle-detail-view';
 import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
 // Stage/dryer logic + column order live in a shared module so this list and the
 // Filter Lifecycle Report (filter-lifecycle.tsx) can never drift. See that file
@@ -63,6 +64,9 @@ export function CleaningCycleHistoryPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [downloading, setDownloading] = useState(false);
+  // Manual status update opened in the detail dialog (manual rows have no cycle
+  // page to navigate to, so View opens an in-place summary instead).
+  const [manualView, setManualView] = useState<any | null>(null);
 
   // A-01 Wave 5 (2026-05-29): migrated off /api/assets/instances +
   // /api/assets/templates to /api/hierarchy/filters (typed-table read).
@@ -300,7 +304,12 @@ export function CleaningCycleHistoryPage() {
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap border ${mInfo.color}`}>{mInfo.label}</span>
                       </td>
-                      <td className="px-4 py-3" />
+                      <td className="px-4 py-3">
+                        <button onClick={() => setManualView(c)}
+                          className="text-[12px] font-semibold text-cyan-600 hover:text-cyan-700 px-3 py-1.5 rounded-lg hover:bg-cyan-50 transition-colors opacity-60 group-hover:opacity-100">
+                          View
+                        </button>
+                      </td>
                     </tr>
                   );
                 }
@@ -407,6 +416,50 @@ export function CleaningCycleHistoryPage() {
           />
         </div>
       )}
+
+      {/* Manual status update — shown through the SAME detail view as a cleaning
+          cycle (info card + stage bar + event timeline), built from the row's
+          data since a manual update has no cycle row to fetch. */}
+      {manualView && (() => {
+        const m = manualView;
+        const pseudoCycle = {
+          _manual: true,
+          id: m.id,
+          filterName: m.filterName ?? null,
+          filterSet: m.filterSet ?? null,
+          ahuName: m.ahuName ?? null,
+          cleaningReasonKey: m.attributes?.cleaningReasonKey ?? null,
+          cleaningReasonLabel: m.attributes?.cleaningReasonLabel ?? null,
+          cleaningAreaName: null,
+          profileStages: m.profileStages ?? [],
+          startedAt: m.performedAt,
+          completedAt: m.toState === 'CLEANING_CYCLE_COMPLETED' ? m.performedAt : null,
+          status: 'COMPLETED',
+          events: [{
+            id: m.id,
+            eventType: 'STATE_TRANSITION',
+            fromState: m.fromState ?? null,
+            toState: m.toState ?? null,
+            performedAt: m.performedAt,
+            performedByName: m.performedByName ?? m.performedByUsername ?? null,
+            remarks: m.remarks ?? null,
+            attributes: { ...(m.attributes ?? {}), manual: true },
+          }],
+        };
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-50 flex flex-col">
+            <div className="px-6 pt-6 pb-4 shrink-0">
+              <button onClick={() => setManualView(null)} className="text-slate-500 hover:text-slate-700 text-sm flex items-center gap-1.5 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                Back to History
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 pb-6">
+              <CycleDetailView cycle={pseudoCycle} />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

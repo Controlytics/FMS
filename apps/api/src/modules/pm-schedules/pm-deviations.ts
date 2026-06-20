@@ -25,6 +25,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { formatConfiguredDate } from '../../lib/format-datetime.js';
 import { checkPmEnabled } from './pm-shared.js';
 
 const DAY = 86400000;
@@ -123,7 +124,7 @@ async function notifyOverdue(dev: any, ahu: CountedAhu, roles: string[], now: Da
   const title = `AHU ${ahu.ahuName} cleaning overdue`;
   const message =
     `${ahu.ahuName} filters are overdue by ${overdueDays} day(s) — ${ahu.filters.length} filter(s) pending. ` +
-    `Please complete cleaning. Scheduled ${dev.scheduledDate.toISOString().slice(0, 10)}.`;
+    `Please complete cleaning. Scheduled ${await formatConfiguredDate(dev.scheduledDate)}.`;
   const metadata = {
     deviationId: dev.id, deviationNumber: dev.deviationNumber, kind: 'PM_OVERDUE',
     ahuId: ahu.ahuId, ahuName: ahu.ahuName, pmScheduleEntryId: dev.pmScheduleEntryId,

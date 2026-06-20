@@ -57,9 +57,9 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 
 | File | Purpose |
 |---|---|
-| `permissions.ts` | **106** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — 4 ORG_* perms removed in MT removal; `VERSION_HISTORY_VIEW` added 2026-05-02 |
-| `feature-privileges.ts` | **96** feature privileges + `FEATURE_TO_PERMISSION_MAP` (21 categories) — 2 org.* privileges removed in MT removal; `version_history.view` added 2026-05-02; **2026-06-11** added Filter Profiles (5), filter+hierarchy CRUD (5: filters.create/edit/delete + hierarchy_edit/delete), Backup & Restore (2), and merged the stray "PM Page Controls" category into "PM Schedules" (was rendering as a duplicate PM section on the Roles & Access page) |
-| `reauth-actions.ts` | **87** reauth actions across 16 categories (added `UPDATE_PROFILE` for H1 + `RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS` for C2 on 2026-05-04, then `APPROVE_ADMIN_REQUEST` for M1 + `UPDATE_FILTER_LIFECYCLE` for M2 on 2026-05-04 — both audit-trail correctness fixes from `tasks/AUDIT-2026-05-04-linkage-review.md`. CREATE_USER and UPDATE_ASSET are still valid actions used elsewhere — M1/M2 are renames for the affected routes only) |
+| `permissions.ts` | **108** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — `UNS_VIEW`/`UNS_MANAGE` removed 2026-06-17 with data-ingestion tear-out |
+| `feature-privileges.ts` | **98** feature privileges + `FEATURE_TO_PERMISSION_MAP` — `uns.view`/`uns.manage` removed 2026-06-17 with data-ingestion tear-out |
+| `reauth-actions.ts` | **100** reauth actions. **2026-06-17 removed 6 actions** (`MANAGE_DEVICE_CREDENTIAL`, `OVERRIDE_UNS_PATH`, `DELETE_UNS_MAPPING`, `UPDATE_UNS_CONFIG`, `UPDATE_RETENTION_POLICY`, `EXECUTE_RETENTION`) and 2 categories (`UNS`, `Retention`) with data-ingestion tear-out |
 | `roles.ts` | Role constants + hierarchy + display labels |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
 | `sidebar-items.ts` | **24** sidebar items (Organizations entry removed in MT removal; `version-history` added 2026-05-02; **2026-06-11** added `rfid-track-record` + `quality-notifications` — real Reports-group nav items that were missing from this configurable list, so editing a role's sidebar config silently dropped them. `reports-group` is a derived container and intentionally NOT a configurable item.) |
@@ -86,7 +86,7 @@ Plus `index.ts` (barrel).
 > Stray file: `config.ts.patch` exists in this folder — clean up.
 
 ## Notes
-- Prisma schema has **68 models, 21 enums** in `apps/api/prisma/schema.prisma` (rule-chain + alarm tear-out 2026-05-17 dropped 5 models; Wave 1 typed-hierarchy migration 2026-05-17 added 4 sidecar tables Block/Area/AHU/Filter; Step 6 — 2026-05-01 — added `FilterDetails` 1:1 sidecar holding the filter-specific cycle state; Phase A.3 — 2026-05-01 — added `FilterProfileVersion` sidecar; Phase A.4 — 2026-05-02 — added `EquipmentGroupVersion` sidecar; Step 4 — 2026-05-02 — replaced `FilterProfile.applicableTemplates` JSONB array with `FilterProfileApplicableTemplate` join table; 2026-05-20 dropped 4 unused alarm/rule-chain values from NotificationType + NotificationEventType)
+- Prisma schema has **69 models, 25 enums** in `apps/api/prisma/schema.prisma` (verified 2026-06-17). Recent changes: rule-chain + alarm tear-out 2026-05-17 dropped 5 models; data-ingestion tear-out 2026-06-11..2026-06-17 dropped 6 models (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`); Wave 1 typed-hierarchy migration added 4 sidecar tables Block/Area/AHU/Filter; Step 6 added `FilterDetails` 1:1 sidecar; Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar.
 - Phase 2 types (filter operations, cleaning profiles) are still co-located in API modules (not yet extracted)
 - 78+ field IDs across all modules (including filter management fields)
 

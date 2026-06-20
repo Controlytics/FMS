@@ -1,8 +1,10 @@
 # DigiLog — 21 CFR Part 11 Compliant Digital Logbook
 
-DigiLog is an IoT data logging platform designed for regulated industries that need **21 CFR Part 11** compliance. It combines real-time data ingestion, a visual rule-chain engine, alarm management, electronic-signature checklists, and a full **Digital Filter Management System (FMS)** for pharmaceutical cleanroom HEPA filter lifecycle tracking.
+DigiLog is a **21 CFR Part 11** compliant **Digital Filter Management System (FMS)** for pharmaceutical cleanroom HEPA filter lifecycle tracking: filter cleaning cycles, preventive maintenance, equipment status, electronic-signature checklists, and tamper-proof audit trails.
 
 The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite SPA, a Capacitor Android wrapper for tablets, and a native Kotlin RFID scanner companion app.
+
+> ⚠️ **2026-06-17 — Sections below referencing IoT data ingestion / MQTT / TimescaleDB / rule-chain engine / alarm management are HISTORICAL.** The data-ingestion subsystem was removed in Phase 7 (2026-06-11..2026-06-17) and the rule-chain + alarm subsystem in 2026-05-17. See root `CLAUDE.md` System Stats + `CHANGELOG.md` Phase 7 entry for what's current.
 
 ---
 

@@ -14,6 +14,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
 
 export interface PmWorkflowConfig {
   workflowEnabled: boolean;
@@ -94,7 +95,10 @@ export async function generateQnn(
   const qnn = `QN-${year}-${String(seq).padStart(6, '0')}`;
   const subject = opts.subject ?? 'PM Schedule';
   const who = ctx.userId ?? 'unknown';
-  const when = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const nowDate = new Date();
+  const whenIso = nowDate.toISOString();
+  // Human-facing timestamp honours the Date/Time config (IST by default), not UTC.
+  const when = await formatConfiguredDateTime(nowDate);
 
   await prisma.qualityNotification.create({
     data: {
@@ -121,7 +125,7 @@ export async function generateQnn(
     opts.ahuName ? `AHU: ${opts.ahuName}` : null,
     opts.message ? `Details: ${opts.message}` : null,
     `By: ${who}${ctx.userRole ? ` (${ctx.userRole})` : ''}`,
-    `On: ${when} UTC`,
+    `On: ${when}`,
   ].filter(Boolean).join('\n');
   try {
     await createNotification({
@@ -129,7 +133,7 @@ export async function generateQnn(
       title: `${qnn} · ${subject} ${ACTION_LABEL[action] ?? action} · by ${who}`,
       message: detail.slice(0, 1000),
       forRole: forRole || undefined,
-      metadata: { qnn, action, subject, pmScheduleEntryId: opts.pmScheduleEntryId ?? null, scheduleId: opts.scheduleId ?? null, ahuName: opts.ahuName ?? null, performedBy: ctx.userSub ?? null, performedByName: ctx.userId ?? null, performedByRole: ctx.userRole ?? null, at: when },
+      metadata: { qnn, action, subject, pmScheduleEntryId: opts.pmScheduleEntryId ?? null, scheduleId: opts.scheduleId ?? null, ahuName: opts.ahuName ?? null, performedBy: ctx.userSub ?? null, performedByName: ctx.userId ?? null, performedByRole: ctx.userRole ?? null, at: whenIso },
       createdBy: ctx.userId ?? undefined,
     });
   } catch { /* QNN is recorded even if the notification emit fails */ }

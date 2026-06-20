@@ -56,6 +56,32 @@ function AhuFiltersRow({ ahuId, identMap }: { ahuId: string; identMap: Map<strin
   );
 }
 
+// Group rows by AHU → Micron for the merged (rowspan) table layout. Sorts a
+// copy by AHU → Micron → Filter Dimensions → date, then tags each row with its
+// first-of-group flags + span counts. Used by both the schedule table and the
+// upload preview so they render identically.
+const byAhuMicronDim = (a: any, b: any) =>
+  String(a.ahuName ?? '').localeCompare(String(b.ahuName ?? ''))
+  || String(a.filterMicron ?? '').localeCompare(String(b.filterMicron ?? ''), undefined, { numeric: true })
+  || String(a.filterSize ?? '').localeCompare(String(b.filterSize ?? ''), undefined, { numeric: true })
+  || String(a.scheduleDate ?? '').localeCompare(String(b.scheduleDate ?? ''));
+
+function buildMergeGroups(list: any[]) {
+  let ahuOrdinal = 0; // running 1-based AHU number (merged S.No, one per AHU)
+  return list.map((e: any, i: number) => {
+    const prev = list[i - 1];
+    const firstOfAhu = i === 0 || prev.ahuName !== e.ahuName;
+    const lastOfAhu = i === list.length - 1 || list[i + 1].ahuName !== e.ahuName;
+    const firstOfMicron = firstOfAhu || prev.filterMicron !== e.filterMicron;
+    if (firstOfAhu) ahuOrdinal++;
+    let ahuSpan = 0;
+    if (firstOfAhu) for (let j = i; j < list.length && list[j].ahuName === e.ahuName; j++) ahuSpan++;
+    let micronSpan = 0;
+    if (firstOfMicron) for (let j = i; j < list.length && list[j].ahuName === e.ahuName && list[j].filterMicron === e.filterMicron; j++) micronSpan++;
+    return { e, firstOfAhu, lastOfAhu, firstOfMicron, ahuSpan, micronSpan, ahuOrdinal };
+  });
+}
+
 // Status chip colours (execution lifecycle)
 const STATUS_CHIP: Record<string, string> = {
   PENDING: 'bg-slate-100 text-slate-500 border-slate-200',
@@ -96,10 +122,20 @@ export function ReplacementSchedulePage() {
   // Flatten ALL uploads into one combined list (no per-file separation).
   const allEntries = schedules
     .flatMap((s: any) => (s.entries ?? []).map((e: any) => ({ ...e, _uploadedByName: s.uploadedByName, _createdAt: s.createdAt })))
-    .sort((a: any, b: any) => new Date(a.scheduleDate).getTime() - new Date(b.scheduleDate).getTime());
+    // Grouped order: AHU → Micron → Filter Dimensions → date, so the merged
+    // AHU / Micron cells below are built from contiguous rows.
+    .sort((a: any, b: any) =>
+      String(a.ahuName ?? '').localeCompare(String(b.ahuName ?? ''))
+      || String(a.filterMicron ?? '').localeCompare(String(b.filterMicron ?? ''), undefined, { numeric: true })
+      || String(a.filterSize ?? '').localeCompare(String(b.filterSize ?? ''), undefined, { numeric: true })
+      || new Date(a.scheduleDate).getTime() - new Date(b.scheduleDate).getTime());
   const totalPages = Math.max(1, Math.ceil(allEntries.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const pageEntries = allEntries.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  // Per-page merge metadata (AHU / Micron rowspans). pageEntries is already
+  // sorted in AHU → Micron → dimensions order, so buildMergeGroups just tags it.
+  const groupedRows = buildMergeGroups(pageEntries);
 
   // ─── Workflow actions (reuse the PM workflow config; reauth-gated) ───
   const reviewApprove = (id: string) => {
@@ -239,6 +275,8 @@ export function ReplacementSchedulePage() {
   };
 
   const errorRows = results.filter((r: any) => r.status === 'error');
+  // Upload preview, grouped/merged the same way as the saved schedule table.
+  const previewGroups = buildMergeGroups([...rows].sort(byAhuMicronDim));
 
   return (
     <div className="py-6 space-y-6 -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4">
@@ -283,41 +321,45 @@ export function ReplacementSchedulePage() {
             {schedules[0] && <div className="text-[11px] text-slate-400">last upload by {schedules[0].uploadedByName ?? '—'} · {formatDate(schedules[0].createdAt)}</div>}
           </div>
           <div className="overflow-auto max-h-[calc(100vh-22rem)]">
-            <table className="w-full">
+            <table className="w-full border-collapse">
               <thead className="sticky top-0 z-10">
-                <tr className="bg-slate-50 border-b border-slate-200 [&>th]:bg-slate-50 [&>th]:whitespace-nowrap [&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:uppercase [&>th]:tracking-wider">
+                <tr className="bg-slate-50 [&>th]:bg-slate-100 [&>th]:border [&>th]:border-slate-300 [&>th]:whitespace-nowrap [&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
                   <th className="w-12 text-center">S.No</th>
-                  <th>AHU</th>
-                  <th>Micron</th>
+                  <th>AHU Name</th>
+                  <th className="text-center">Filter Micron</th>
                   <th>Filter Dimensions</th>
                   <th className="text-center">Qty</th>
-                  <th className="text-center">Replaced</th>
                   <th>Schedule Date</th>
-                  <th>Window (± days)</th>
+                  <th className="text-center">Tolerance Days</th>
                   <th>Status</th>
                   <th>Approval</th>
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {pageEntries.map((e: any, idx: number) => (
+              <tbody>
+                {groupedRows.map(({ e, firstOfAhu, lastOfAhu, firstOfMicron, ahuSpan, micronSpan, ahuOrdinal }: any) => (
                   <Fragment key={e.id}>
-                  <tr className="[&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/50">
-                    <td className="text-center text-slate-400">{(safePage - 1) * pageSize + idx + 1}</td>
-                    <td className="font-medium text-slate-800 max-w-[200px]" title={e.ahuName}>
-                      {filtersEnabled && e.ahuId ? (
-                        <button onClick={() => toggleExpand(e.id)} className="inline-flex items-center gap-1.5 hover:text-teal-600 transition-colors max-w-full">
-                          <svg className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${expanded.has(e.id) ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                          <span className="truncate">{e.ahuName}</span>
-                        </button>
-                      ) : <span className="truncate block">{e.ahuName}</span>}
-                    </td>
-                    <td className="text-slate-500">{naText(e.filterMicron)}</td>
-                    <td className="text-slate-500 max-w-[140px] truncate" title={naText(e.filterSize)}>{naText(e.filterSize)}</td>
+                  <tr className="[&>td]:border [&>td]:border-slate-200 [&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/40">
+                    {firstOfAhu && (
+                      <td rowSpan={ahuSpan} className="text-center text-slate-500 font-medium align-top bg-slate-50/50">{ahuOrdinal}</td>
+                    )}
+                    {firstOfAhu && (
+                      <td rowSpan={ahuSpan} className="font-medium text-slate-800 max-w-[200px] align-top bg-slate-50/50 border-l-2 border-teal-100" title={e.ahuName}>
+                        {filtersEnabled && e.ahuId ? (
+                          <button onClick={() => toggleExpand(e.ahuId)} className="inline-flex items-center gap-1.5 hover:text-teal-600 transition-colors max-w-full">
+                            <svg className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${expanded.has(e.ahuId) ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                            <span className="truncate">{e.ahuName}</span>
+                          </button>
+                        ) : <span className="truncate block">{e.ahuName}</span>}
+                      </td>
+                    )}
+                    {firstOfMicron && (
+                      <td rowSpan={micronSpan} className="text-center text-slate-700 font-medium align-top bg-slate-50/30">{naText(e.filterMicron)}</td>
+                    )}
+                    <td className="text-slate-600 max-w-[160px] truncate" title={naText(e.filterSize)}>{naText(e.filterSize)}</td>
                     <td className="text-center text-slate-700">{e.qty}</td>
-                    <td className="text-center text-slate-700">{e.qtyReplaced}</td>
                     <td className="text-slate-600">{formatDate(e.scheduleDate)}</td>
-                    <td className="text-slate-500">{formatDate(e.windowStart)} → {formatDate(e.windowEnd)} <span className="text-slate-400">(±{e.toleranceDays})</span></td>
+                    <td className="text-center text-slate-600">{e.toleranceDays}</td>
                     <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${STATUS_CHIP[e.computedStatus] ?? STATUS_CHIP.PENDING}`}>{(e.computedStatus ?? 'PENDING').replace(/_/g, ' ')}</span></td>
                     <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${(APPROVAL_CHIP[e.approvalStatus] ?? APPROVAL_CHIP.APPROVED).cls}`}>{(APPROVAL_CHIP[e.approvalStatus] ?? APPROVAL_CHIP.APPROVED).label}</span></td>
                     <td className="text-right">
@@ -340,9 +382,9 @@ export function ReplacementSchedulePage() {
                       </div>
                     </td>
                   </tr>
-                  {filtersEnabled && expanded.has(e.id) && e.ahuId && (
+                  {filtersEnabled && lastOfAhu && expanded.has(e.ahuId) && e.ahuId && (
                     <tr>
-                      <td colSpan={11} className="p-0">
+                      <td colSpan={10} className="p-0">
                         <AhuFiltersRow ahuId={e.ahuId} identMap={identMap} />
                       </td>
                     </tr>
@@ -389,14 +431,17 @@ export function ReplacementSchedulePage() {
                       : <span className="text-rose-700 font-medium">{errorRows.length} error(s) found — fix and re-upload (nothing is saved until all rows are valid).</span>}
                   </div>
                   <div className="border border-slate-200 rounded-lg overflow-auto max-h-[40vh]">
-                    <table className="w-full text-[12px]">
-                      <thead className="sticky top-0 bg-slate-50"><tr className="[&>th]:px-2 [&>th]:py-1.5 [&>th]:text-left [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:whitespace-nowrap">
-                        <th>AHU</th><th>Micron</th><th>Filter Dimensions</th><th>Qty</th><th>Date</th><th>Tol.</th>
+                    <table className="w-full text-[12px] border-collapse">
+                      <thead className="sticky top-0 bg-slate-50"><tr className="[&>th]:bg-slate-100 [&>th]:border [&>th]:border-slate-300 [&>th]:px-2 [&>th]:py-1.5 [&>th]:text-left [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:whitespace-nowrap">
+                        <th className="text-center">S.No</th><th>AHU Name</th><th className="text-center">Filter Micron</th><th>Filter Dimensions</th><th>Qty</th><th>Schedule Date</th><th className="text-center">Tolerance Days</th>
                       </tr></thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {rows.map((r: any, i: number) => (
-                          <tr key={i} className="[&>td]:px-2 [&>td]:py-1.5 [&>td]:whitespace-nowrap">
-                            <td>{r.ahuName}</td><td>{r.filterMicron}</td><td>{r.filterSize}</td><td>{r.qty}</td><td>{r.scheduleDate}</td><td>{r.toleranceDays}</td>
+                      <tbody>
+                        {previewGroups.map(({ e: r, firstOfAhu, firstOfMicron, ahuSpan, micronSpan, ahuOrdinal }: any, i: number) => (
+                          <tr key={i} className="[&>td]:border [&>td]:border-slate-200 [&>td]:px-2 [&>td]:py-1.5 [&>td]:whitespace-nowrap">
+                            {firstOfAhu && <td rowSpan={ahuSpan} className="text-center text-slate-500 font-medium align-top bg-slate-50/50">{ahuOrdinal}</td>}
+                            {firstOfAhu && <td rowSpan={ahuSpan} className="font-medium text-slate-800 align-top bg-slate-50/50 border-l-2 border-teal-100">{r.ahuName}</td>}
+                            {firstOfMicron && <td rowSpan={micronSpan} className="text-center text-slate-700 font-medium align-top bg-slate-50/30">{r.filterMicron}</td>}
+                            <td>{r.filterSize}</td><td>{r.qty}</td><td>{r.scheduleDate}</td><td className="text-center">{r.toleranceDays}</td>
                           </tr>
                         ))}
                       </tbody>

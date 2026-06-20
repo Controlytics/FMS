@@ -75,9 +75,7 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.DASHBOARD_MANAGE]: { label: 'Manage Dashboards', category: 'Dashboards' },
   [PERMISSIONS.DASHBOARD_VIEW]: { label: 'View Dashboards', category: 'Dashboards' },
   [PERMISSIONS.DASHBOARD_ASSIGN]: { label: 'Assign Dashboards', category: 'Dashboards' },
-  // UNS
-  [PERMISSIONS.UNS_VIEW]: { label: 'View UNS Config', category: 'UNS' },
-  [PERMISSIONS.UNS_MANAGE]: { label: 'Manage UNS Config', category: 'UNS' },
+  // (UNS_VIEW / UNS_MANAGE labels removed with data-ingestion removal.)
   // Checklist
   [PERMISSIONS.CHECKLIST_SUBMIT]: { label: 'Submit Checklists', category: 'Filter Management' },
   // Debug

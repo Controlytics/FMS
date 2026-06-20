@@ -324,6 +324,7 @@ function MiniBreakdown({ title, items, color, emptyText = 'No data', onItemClick
 // Drill-down modal — lists the actual filters behind a breakdown row (Set /
 // Status / Type / Micron). Lazy-fetches the filter list only when opened.
 function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value: string; title: string }; onClose: () => void }) {
+  const { formatDate } = useDatetimeFormat();
   const { data, isLoading } = useSWR<any>('/api/assets/instances?limit=500');
   const all = useMemo(() => (data?.data ?? []) as any[], [data]);
   const nameById = useMemo(() => new Map(all.map((i: any) => [i.id, i.name])), [all]);
@@ -336,7 +337,7 @@ function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value
       default: return false;
     }
   }), [all, drill]);
-  const fmt = (iso: string | null) => { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return '—'; } };
+  const fmt = (iso: string | null) => (iso ? (formatDate(iso) || '—') : '—');
   const setLabel = (s: string | null) => s === 'SET_A' ? 'Set A' : s === 'SET_B' ? 'Set B' : '—';
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4" onClick={onClose}>

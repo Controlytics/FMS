@@ -1,5 +1,7 @@
 # DigiLog — Project Architecture
 
+> ⚠️ **2026-06-17 — Architecture diagrams + sections below referencing TimescaleDB / Mosquitto / MQTT / data-ingestion pipeline / UNS / transport layer / packages/db are HISTORICAL.** Those subsystems were removed in Phase 7 (2026-06-11..2026-06-17). Current architecture: Fastify API + PostgreSQL 18 (Prisma, single database, no TSDB extension) + graphile-worker queue + React SPA + Capacitor APK + RFID scanner. See root `CLAUDE.md` Phase 7 snapshot + `CHANGELOG.md` for current stack.
+
 ## System Architecture
 
 ```

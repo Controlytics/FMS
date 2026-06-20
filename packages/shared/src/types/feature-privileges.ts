@@ -128,9 +128,7 @@ export const FEATURE_PRIVILEGES: FeaturePrivilege[] = [
   { id: 'equipment_groups.edit', label: 'Edit Equipment Groups', category: 'Equipment Group Controls', icon: 'edit' },
   { id: 'equipment_groups.delete', label: 'Delete Equipment Groups', category: 'Equipment Group Controls', icon: 'trash' },
 
-  // UNS
-  { id: 'uns.view', label: 'View UNS', category: 'UNS', icon: 'network' },
-  { id: 'uns.manage', label: 'Manage UNS', category: 'UNS', icon: 'network' },
+  // (uns.view / uns.manage privileges removed with data-ingestion removal.)
 
   // Admin Requests
   { id: 'admin_requests.view', label: 'Review Admin Requests', category: 'User Management', icon: 'inbox' },
@@ -322,9 +320,7 @@ export const FEATURE_TO_PERMISSION_MAP: Record<string, string[]> = {
   'pm.edit_entry': ['PM_EDIT_ENTRY', 'PM_UPDATE', 'PM_READ'],
   'pm.resubmit': ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
 
-  // UNS
-  'uns.view': ['UNS_VIEW'],
-  'uns.manage': ['UNS_MANAGE'],
+  // (uns.* mappings removed with data-ingestion removal.)
 
   // Admin Requests (2026-05-04 — fix C4 privilege escalation)
   'admin_requests.view': ['ADMIN_REQUEST_REVIEW'],

@@ -48,22 +48,15 @@ const {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
       assetIdentifier: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-      deviceCredential: {
-        create: vi.fn().mockResolvedValue({ id: 'cred-1' }),
-        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-      },
-      connectivityStatus: {
-        create: vi.fn().mockResolvedValue({}),
-        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-      },
-      unsMapping: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      // deviceCredential / connectivityStatus / unsMapping / dataStream models
+      // removed with data-ingestion removal — no longer in Prisma client.
       qrCode: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       latestTelemetry: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-      dataStream: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     };
+    type Tx = typeof tx;
     return {
       ...tx,
-      $transaction: vi.fn().mockImplementation(async (cb: (tx: typeof tx) => unknown) => cb(tx)),
+      $transaction: vi.fn().mockImplementation(async (cb: (txArg: typeof tx) => unknown) => cb(tx)),
     };
   })(),
 }));
@@ -193,10 +186,11 @@ describe('instanceService', () => {
 
       // Service runs everything via prisma.$transaction(tx) using direct tx
       // table calls (not the repository). Verify the assetInstance soft-delete
-      // updateMany covers all three IDs and clears unsPath.
+      // updateMany covers all three IDs (unsPath cleared by Phase 7 column drop).
+
       expect(mockPrisma.assetInstance.updateMany).toHaveBeenCalledWith({
         where: { id: { in: ['i1', 'child-1', 'child-2'] } },
-        data: { isActive: false, unsPath: null, updatedBy: 'admin' },
+        data: { isActive: false, updatedBy: 'admin' },
       });
       // ...and the FK-dependent rows are deleted with the same id set.
       expect(mockPrisma.assetRelationship.deleteMany).toHaveBeenCalledWith({

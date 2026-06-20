@@ -391,7 +391,12 @@ export const instanceService = {
     // sequence rule. Only enforced when the filter resolves to a profile.
     const stageRules = await getFilterStageRules(id);
     if (stageRules.hasProfile && classifyMove(stageRules, newState) === 'SKIP') {
-      throw new ValidationError(INVALID_STAGE_MOVE_MESSAGE);
+      // Tell the operator which stages this filter CAN move to next so a bulk
+      // update doesn't just fail opaquely. Forward stage(s) from the profile
+      // sequence + completion are the valid targets from here.
+      const humanize = (s: string) => s.split('_').map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+      const allowed = [...stageRules.immediateNext, 'CLEANING_CYCLE_COMPLETED'].map(humanize);
+      throw new ValidationError(`${INVALID_STAGE_MOVE_MESSAGE} Allowed next for this filter: ${allowed.join(', ')}.`);
     }
 
     // P3 (2026-06-03): does this move start/restart a cleaning cycle? A BACKWARD
@@ -552,7 +557,7 @@ export const instanceService = {
 
     // All deletes in one atomic transaction
     await prisma.$transaction(async (tx) => {
-      await tx.assetInstance.updateMany({ where: { id: { in: allIds } }, data: { isActive: false, unsPath: null, updatedBy: ctx.userId } });
+      await tx.assetInstance.updateMany({ where: { id: { in: allIds } }, data: { isActive: false, updatedBy: ctx.userId } });
       await tx.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: allIds } }, { targetAssetId: { in: allIds } }] } });
       await tx.assetIdentifier.deleteMany({ where: { assetId: { in: allIds } } });
       // deviceCredential / connectivityStatus / unsMapping / dataStream cascades

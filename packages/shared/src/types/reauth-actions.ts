@@ -28,8 +28,7 @@ export const REAUTH_ACTIONS = {
   // Audit 2026-06-08: PUT /api/config/users/:userId can grant per-user PERMISSION
   // overrides (privilege escalation) — dedicated reauth key + unambiguous audit.
   UPDATE_USER_CONFIG: { label: 'Update User Config', category: 'Configuration' },
-  // Audit 2026-06-08: minting/revoking a device ingest credential is a high-trust op.
-  MANAGE_DEVICE_CREDENTIAL: { label: 'Manage Device Credential', category: 'Configuration' },
+  // (MANAGE_DEVICE_CREDENTIAL removed with data-ingestion removal — DeviceCredential model dropped.)
   // C6 (review 2026-05-04): the action-reauth save itself was a privilege
   // escalation — anyone with CONFIG_UPDATE could PUT /api/config/action-reauth
   // without challenge, including disabling reauth on DELETE_USER then deleting
@@ -72,14 +71,11 @@ export const REAUTH_ACTIONS = {
   UPDATE_CHECKLIST_PROFILE: { label: 'Update Checklist Profile', category: 'Checklist' },
   DELETE_CHECKLIST_PROFILE: { label: 'Delete Checklist Profile', category: 'Checklist' },
   SUBMIT_CHECKLIST_WITH_SIGNATURE: { label: 'Submit Checklist with Signature', category: 'Checklist' },
-  OVERRIDE_UNS_PATH: { label: 'Override UNS Path', category: 'UNS' },
-  DELETE_UNS_MAPPING: { label: 'Delete UNS Mapping', category: 'UNS' },
-  UPDATE_UNS_CONFIG: { label: 'Update UNS Config', category: 'UNS' },
+  // (OVERRIDE_UNS_PATH / DELETE_UNS_MAPPING / UPDATE_UNS_CONFIG removed with data-ingestion removal.)
   CREATE_HELP_ARTICLE: { label: 'Create Help Article', category: 'Help' },
   UPDATE_HELP_ARTICLE: { label: 'Update Help Article', category: 'Help' },
   DELETE_HELP_ARTICLE: { label: 'Delete Help Article', category: 'Help' },
-  UPDATE_RETENTION_POLICY: { label: 'Update Retention Policy', category: 'Retention' },
-  EXECUTE_RETENTION: { label: 'Execute Retention', category: 'Retention' },
+  // (UPDATE_RETENTION_POLICY / EXECUTE_RETENTION removed with data-ingestion removal.)
   // Audit deletion (audit 2026-05-04 fix #5 — web-routes review H4):
   // 21 CFR Part 11 § 11.10(e) requires audit-trail records be "secure".
   // Deletion is NOT allowed — it broke the hash chain at the deletion point.
@@ -205,9 +201,8 @@ export const REAUTH_ACTION_CATEGORIES = [
   'Backup',
   'Asset Management',
   'Checklist',
-  'UNS',
+  // ('UNS' + 'Retention' categories removed with data-ingestion removal.)
   'Help',
-  'Retention',
   'Filter Management',
   'Cleaning Profiles',
   'Filter Profiles',

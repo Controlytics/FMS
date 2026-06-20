@@ -17,9 +17,9 @@ node apps/api/dist/app.js
 - Source: `apps/api/src/`
 - Compiled: `apps/api/dist/`
 - Entry: `apps/api/src/app.ts`
-- Prisma schema: `apps/api/prisma/schema.prisma` (68 models, 21 enums) — Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar (snapshot-then-bump); **Phase A.4 (2026-05-02)** added the `EquipmentGroupVersion` sidecar (composite snapshot of group + 3 instruments together); **Step 4 (2026-05-02)** dropped `FilterProfile.applicableTemplates Json` and replaced it with the `FilterProfileApplicableTemplate` join table (cascade FKs both directions; AssetTemplate delete blocked with 409 IN_USE if any FilterProfile binds it); **2026-05-17 dropped 5 models** (`RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Alarm`) plus `asset_templates.{default_rule_chain_id, alarm_rules}` + `notification_logs.{rule_chain_id, alarm_id}` columns — see `tasks/REMOVE-RULECHAIN-ALARM-PLAN.md`.
-- Config definitions: `apps/api/src/modules/config/defs/` (30 files)
-- Route modules: `apps/api/src/modules/` (**35 modules**, verified `ls` 2026-06-06 — `org-admin`/`tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17; **`qr-code` deleted 2026-06-06** — was a non-functional placeholder, no UI consumer. NOTE: the prose list below has pre-existing drift — it names `entity-assignments`/`template-kinds` which are no longer standalone dirs and omits `hierarchy`/`replacement-schedule`/`sync`/`block-change-requests`; reconcile in a dedicated doc pass.)
+- Prisma schema: `apps/api/prisma/schema.prisma` (**69 models, 25 enums** — verified 2026-06-17). Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar; **Phase A.4 (2026-05-02)** added the `EquipmentGroupVersion` sidecar; **Step 4 (2026-05-02)** replaced `FilterProfile.applicableTemplates Json` with the `FilterProfileApplicableTemplate` join table; **2026-05-17 dropped 5 models** (`RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Alarm`); **2026-06-11..2026-06-17 dropped 6 models** (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`) with the data-ingestion tear-out.
+- Config definitions: `apps/api/src/modules/config/defs/` (**34 files** — `uns.def` + `retention.def` removed 2026-06-17)
+- Route modules: `apps/api/src/modules/` (**35 modules**, verified `ls` 2026-06-17 — `org-admin`/`tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17; `qr-code` deleted 2026-06-06; **`data-ingestion`, `uns`, `connectivity`, `queries` deleted 2026-06-11..2026-06-17** with the ingestion tear-out; `debug-traces` re-added 2026-06-12 reading from `audit_trail` instead of dropped `ts_pipeline_traces`)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
 
 ## Architecture
@@ -30,12 +30,15 @@ node apps/api/dist/app.js
 - JWT auth with 30-min refresh, session management, re-auth for sensitive ops
 - Permission-based RBAC via `requirePermission()` on all protected routes
 
-## 35 API Modules
-admin-requests, assets (templates/instances/relationships/identifiers), audit, auth, backup, checklist-profiles, cleaning-profiles, config (27 auto-discovered definitions), connectivity, dashboards, data-ingestion (11-file pipeline), deployment-check, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery (email/SMS/Telegram/Slack), notification-rules, notifications, pm-schedules, queries (telemetry/retention/export), report-templates, reports, roles, super-admin, system-health, uns, uploads, user-groups, users — plus block-change-requests / admin-requests under their own modules. (`org-admin` and `tenant-admin` removed 2026-04-30 with MT removal; `rule-chain` removed 2026-05-17 with alarm tear-out; **`qr-code` removed 2026-06-06** — non-functional placeholder, no UI consumer.) NOTE: list still drifts from `ls` (omits `hierarchy`/`replacement-schedule`/`sync`; names `template-kinds`/`entity-assignments` which aren't standalone dirs) — pending a dedicated reconciliation pass.
+## 35 API Modules (verified `ls` 2026-06-17)
+admin-requests, assets, audit, auth, backup, block-change-requests, checklist-profiles, cleaning-profiles, config (34 auto-discovered definitions), dashboards, debug-traces, deployment-check, equipment-groups, filter-operations, filter-profiles, guest, help, hierarchy, ldap, notification-delivery, notification-rules, notifications, pm-schedules, replacement-schedule, report-reviews, report-templates, reports, roles, stage-approvals, super-admin, sync, system-health, uploads, user-groups, users.
+
+**Removed in 2026 cleanups**: `org-admin` + `tenant-admin` (MT removal, 2026-04-30), `rule-chain` (alarm tear-out, 2026-05-17), `qr-code` (placeholder, 2026-06-06), **`data-ingestion` + `uns` + `connectivity` + `queries` (ingestion tear-out, 2026-06-11..2026-06-17)**.
 
 ## Databases
-- **digilog_db** (PostgreSQL 18 via Prisma) — application data (68 models, 21 enums)
-- **digilog_tsdb** (TimescaleDB via pg pool) — time-series data (7 hypertables)
+- **digilog_db** (PostgreSQL 18 via Prisma) — application data (**69 models, 25 enums**)
+- ~~`digilog_tsdb`~~ — **DROPPED 2026-06-11** with the data-ingestion tear-out. All 6 hypertables removed (`ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`).
+- `digilog_test_db` — used by vitest test fixture
 
 ## Key Libs (`apps/api/src/lib/`)
 - `audit.ts` — SHA-256 hash-chained audit logger
@@ -113,9 +116,10 @@ parallelism) but reliable. Until each test file owns its own login
 fixture, this is the right default.
 
 ## Environment
-- API_PORT=3000, TSDB_DATABASE=digilog_tsdb
-- Mosquitto: localhost:1883 (MQTT). No dashboard port — dynsec is regenerated by `POST /api/internal/mqtt/refresh-acl` and reloaded via `Restart-Service mosquitto`. Install via `scripts/install-mosquitto.ps1` (elevated). Phase 1 of windows-friendly-rewrite swapped from EMQX.
-- PostgreSQL: localhost:5432 (also hosts the graphile-worker job queue)
+- API_PORT=3000
+- PostgreSQL: localhost:5432 (only database now — also hosts the graphile-worker job queue)
+- ~~Mosquitto~~ — removed 2026-06-17 with data-ingestion tear-out (service uninstalled + `mqtt`/`aedes` deps gone)
+- ~~TimescaleDB~~ — `digilog_tsdb` database dropped 2026-06-11
 
 ## Phase 2: Digital Filter Management System
 

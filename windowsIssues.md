@@ -46,15 +46,17 @@ Cold-start render also dropped from ~34 s (bundled puppeteer first launch) to ~1
 
 `renderChart` public signature is unchanged (input config + resolved-series Map → base64 PNG data URL). 4-test smoke covers line / bar / pie + a PNG-signature byte assertion. Suite went from 464 ms (chartjs-node-canvas) to 151 ms.
 
-### 3. EMQX MQTT broker — ✅ RESOLVED
+### 3. EMQX / Mosquitto MQTT broker — ✅ REMOVED ENTIRELY (2026-06-17)
 
-**Resolved by:** `feature/phase1-mosquitto-rewrite` (commits `510f903..7d33dbf`, merged into `windows_dep` via the integration branch). Plus follow-up: `0ecc151 fix(mosquitto): make install script produce a service-bootable conf` (2026-04-29).
+**Superseded by Phase 7 ingestion tear-out.** The entire MQTT subsystem (EMQX → Mosquitto migration in Phase 1, then Mosquitto retained as the broker) is GONE as of 2026-06-11..2026-06-17:
+- `apps/api/src/transport/` deleted (mqtt-client.ts, mosquitto-acl-generator.ts, mosquitto-refresh-routes.ts, etc.)
+- `apps/api/src/modules/{data-ingestion,uns,connectivity,queries}/` all deleted
+- `mqtt` + `aedes` npm deps uninstalled from `apps/api/package.json` (47 transitive packages dropped)
+- Mosquitto Windows service uninstalled (`sc.exe delete mosquitto`); port 1883 freed
+- `MQTT_ENABLED`, `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`, `EMQX_ADMIN_PASSWORD` removed from `apps/api/.env`
+- `scripts/install-mosquitto.ps1` is now historical-only — do NOT run it
 
-**Files now:** `apps/api/src/transport/mqtt-client.ts` selects creds based on `USE_MOSQUITTO`; `mosquitto-acl-generator.ts` + `mosquitto-refresh-routes.ts` produce/regenerate dynsec; `scripts/install-mosquitto.ps1` performs the silent install.
-
-The install script's path-rewrite step is the load-bearing fix discovered during the live Windows Server e2e on 2026-04-29: the SCM-managed Mosquitto service runs with `CWD = System32` and no stdout, so the source `mosquitto.windows.conf` (which uses `./data/`, `./dynamic-security.json`, `log_dest stdout` for dev-foreground use) silently exited the broker on every launch. The install script now rewrites the deployed copy at `C:\Program Files\mosquitto\mosquitto.conf` to use absolute install-dir paths and `log_dest file <InstallDir>/mosquitto.log`. Source conf keeps the relative + stdout values so the dev-mode `mosquitto -c mosquitto.windows.conf` still works from the repo's `mosquitto/` directory.
-
-End-to-end verified live: device `mosquitto_pub` → Mosquitto service → API admin subscriber → graphile-worker `ingestion` task → `ts_pipeline_traces` row in `digilog_tsdb`. No EMQX dependency anywhere; `docker-compose.yml` swap to `eclipse-mosquitto:2.0` shipped in Phase 1.
+This Windows-hostility problem is permanently resolved: there's no broker to install, no service to manage, no dynsec to regenerate. See `CHANGELOG.md` "Data-ingestion + TimescaleDB removal" entry and root `CLAUDE.md` Phase 7 snapshot for full scope.
 
 ### 4. Bash shell scripts
 
@@ -109,11 +111,15 @@ Why this kills the issue entirely:
 - `addJob()` runs in the caller's PG transaction, so jobs don't fire if the business txn rolls back (a feature BullMQ never offered).
 - Single Postgres backup covers the queue too; no separate Memurai persistence story.
 
-Live-verified: graphile-worker schema auto-bootstraps on first connect, cron task `dlq_check` and `connectivity_check` fire every minute, `ingestion` task processes the live MQTT round-trip (see §3 above).
+Live-verified: graphile-worker schema auto-bootstraps on first connect. The original verification path (`dlq_check`/`connectivity_check`/`ingestion` tasks against MQTT) is gone with the Phase 7 tear-out — surviving graphile-worker tasks are `notification`, `pm_overdue_check`, `session_sweep`.
 
 **Phase 4 (2026-05-01) update — RESOLUTION COMPLETE:** non-queue pub/sub (WebSocket events, RPC correlation, pipeline tracer, debug recorder) moved in-process via `apps/api/src/lib/internal-bus.ts` (EventEmitter wrapper) and `apps/api/src/lib/rpc-cache.ts` (Map TTL cache). `ioredis` dependency removed from `apps/api/package.json`. **No Redis-protocol service of any kind is needed.** Memurai install instructions struck from this doc + setup docs. Why in-process beats PG `LISTEN/NOTIFY` here: single-Node-process deployment + 10ns vs 5-20ms latency + zero new infra. Same `bus.emit / bus.on` interface can be backed by a PG LISTEN/NOTIFY adapter the day multi-process scale-out becomes a real requirement; until then, the simpler implementation is correct.
 
-### 8. PostgreSQL 18 + TimescaleDB extension
+### 8. PostgreSQL 18 + ~~TimescaleDB extension~~ (TSDB removed 2026-06-11)
+
+**TimescaleDB no longer used.** `digilog_tsdb` database dropped 2026-06-11 with the data-ingestion tear-out. Only `digilog_db` (Prisma) + `digilog_test_db` (vitest) remain. The Windows-hostility concerns below applied to TimescaleDB and are now moot — vanilla PG 18 is sufficient.
+
+#### Historical caveats (TimescaleDB era — kept for context)
 
 **Files:** `apps/api/prisma/schema.prisma` (68 models, 21 enums), `init-tsdb.sql`, `tsdb-migration/init-hypertables.sql`, `apps/api/prisma/sql/extensions.sql`
 
@@ -259,7 +265,7 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 - ESLint, Vitest, TypeScript — pure JS
 - `jose` (JWT), `ldapts` (LDAP), `nodemailer` — pure JS
 - PostgreSQL 18 itself (now also hosts the graphile-worker queue schema)
-- `mqtt` npm package (the **client**, talking to whatever broker — Mosquitto 2.0 in the current shipping install)
+- ~~`mqtt` npm package~~ — uninstalled 2026-06-17 with data-ingestion tear-out
 - HTTPS via mkcert (after the cert-import step in §6)
 - Windows Service registration via NSSM (stopgap until Phase 5 ships a managed-service launcher)
 - ~~Memurai (Redis substitute, paid)~~ — RETIRED in Phase 4 (2026-05-01); pub/sub now in-process
@@ -275,9 +281,9 @@ For a **Windows Server production deployment**, the realistic stance is:
 |---|---|---|
 | Fastify API | ✅ keep | Compiled JS via NSSM service |
 | React SPA | ✅ keep | Built artifact, served by Fastify static or IIS |
-| PostgreSQL 18 + TimescaleDB | ✅ keep | Pin patch version exactly. Also hosts the graphile-worker job queue. |
+| PostgreSQL 18 (vanilla, no TimescaleDB) | ✅ keep | Also hosts the graphile-worker job queue. TimescaleDB dropped 2026-06-11 with data-ingestion tear-out. |
 | ~~Memurai~~ | ✅ fully removed | Phase 2: queue → graphile-worker on Postgres. Phase 4 (2026-05-01): pub/sub → in-process EventEmitter bus. `ioredis` dependency dropped. **No Redis service required at all.** |
-| MQTT broker | ✅ Mosquitto (Windows-native) | Phase 1: Mosquitto 2.0 silent install via `scripts/install-mosquitto.ps1`. EMQX gone. |
+| ~~MQTT broker~~ | ✅ fully removed (2026-06-17) | Mosquitto Windows service uninstalled; `mqtt`/`aedes` npm deps gone. No broker needed at all. |
 | Reports module (PDF + charts) | ✅ Edge + @napi-rs/canvas | Phase 3: puppeteer-core drives preinstalled Edge; @napi-rs/canvas ships prebuilt N-API. No bundled Chromium, no MSVC, no node-gyp. |
 | APK builds | ❌ off-server | Build on dev machine, copy artifact |
 | Native RFID hardware | ❌ off-server | Tablet + USB reader on operator floor |
@@ -290,14 +296,14 @@ For a **Windows Server production deployment**, the realistic stance is:
 1. **Before deployment:** read this top-to-bottom, audit each 🔴 item against your target environment
 2. **During `install-on-target.ps1` development:** every 🟡 mitigation should be enforced or documented in the script
 3. **When adding a new dependency to `apps/api/package.json` or `apps/web/package.json`:** check whether it has native bindings or external runtime requirements; add an entry to this document if Windows-hostile
-4. **When upgrading PG / Node / Mosquitto:** verify the Windows builds are still in lockstep before upgrading dev environments
+4. **When upgrading PG / Node:** verify the Windows builds are still in lockstep before upgrading dev environments
 
 ## Phase 5 status footnote (2026-04-29)
 
 Phase 5 of the windows-friendly-rewrite did **not** close any of the 18 issue entries directly — Phase 1 (EMQX), Phase 2 (Memurai), Phase 3 (Puppeteer + chartjs-node-canvas), and Phase 4 (Nginx + PM2) had already resolved the four 🔴 hard blockers and reduced the 🟡 surface for §14. What Phase 5 delivers is the **verification gap** that prior phases left open:
 
-- `tests/integration/windows-server-stack.test.ts` (`INTEGRATION_TEST=1`-gated) exercises the post-Phase-1+2+3 stack end-to-end — Mosquitto round-trip → graphile-worker pickup → TimescaleDB hypertable insert → reports/generate → PDF magic bytes — so future regressions surface in CI rather than during a live customer install.
-- `scripts/verify-windows-deployment.ps1` (Phase 5.2) gives an operator a one-shot smoke-check that hits the same path on a deployed box, so the receipts in this doc can be re-validated after every install or upgrade.
+- `tests/integration/windows-server-stack.test.ts` originally exercised Mosquitto round-trip → graphile-worker pickup → TimescaleDB hypertable insert → PDF magic bytes. **MQTT/TSDB portions stale post Phase-7 ingestion removal**; graphile-worker + PDF parts still valid.
+- `scripts/verify-windows-deployment.ps1` (Phase 5.2) gives an operator a one-shot smoke-check on a deployed box. **Mosquitto :1883 check stale post Phase-7** (service uninstalled).
 
 The two remaining open items — a managed Windows-service launcher (replaces the NSSM stopgap in `DEPLOY-WINDOWS.md` § 7) and end-to-end install-script proof on a fresh box — remain Phase 5+ work.
 

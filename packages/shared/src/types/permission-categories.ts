@@ -54,8 +54,6 @@ export const PERMISSION_CATEGORIES: Record<string, PermissionItem[]> = {
     { key: PERMISSIONS.CHECKLIST_SUBMIT, label: 'Submit Checklists' },
   ],
   'Advanced': [
-    { key: PERMISSIONS.UNS_VIEW, label: 'View UNS' },
-    { key: PERMISSIONS.UNS_MANAGE, label: 'Manage UNS' },
     { key: PERMISSIONS.READ_DEBUG_TRACE, label: 'View Debug Traces' },
     { key: PERMISSIONS.MANAGE_DEBUG_TRACE, label: 'Manage Debug Traces' },
   ],

@@ -73,6 +73,30 @@ async function fetchAllCycleSummaries(filterId: string, fromIso: string, toIso: 
   return all;
 }
 
+/** GET all manual status changes for one filter (cycleId=null STATE_TRANSITIONs).
+ *  These don't belong to a cleaning cycle, so the report shows them in their own
+ *  section — otherwise a manually-moved filter looks like it has no history. */
+async function fetchManualChanges(filterId: string, fromIso: string, toIso: string): Promise<any[]> {
+  const all: any[] = [];
+  let page = 1;
+  const limit = 100;
+  while (page <= 100) {
+    const u = new URLSearchParams({ filterId, page: String(page), limit: String(limit) });
+    if (fromIso) u.set('from', fromIso);
+    if (toIso) u.set('to', toIso);
+    const res: any = await api.get(`/api/filters/manual-status-changes?${u.toString()}`);
+    const batch: any[] = res?.data ?? [];
+    all.push(...batch);
+    const total: number = res?.total ?? all.length;
+    if (batch.length === 0 || all.length >= total) break;
+    page++;
+  }
+  return all;
+}
+
+const humanizeState = (s: string | null | undefined) =>
+  s ? s.split('_').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ') : 'To Be Cleaned';
+
 /** Bounded-concurrency map that preserves input order in the output. */
 async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>, onProgress?: (done: number) => void): Promise<R[]> {
   const results = new Array<R>(items.length);
@@ -118,14 +142,16 @@ function LifecycleEventRow({ ev, formatDateTime }: { ev: LifecycleEvent; formatD
  * Q&A text, AHU name, pinned versions — the list endpoint does not) and renders
  * it with the same <CycleDetailView> used by the View detail page.
  */
-function CycleAccordionItem({ summary, index, formatDateTime }: {
+function CycleAccordionItem({ summary, index, formatDateTime, fallback }: {
   summary: any; index: number; formatDateTime: (s: string) => string;
+  fallback?: { replacedBy?: string | null; retiredBy?: string | null };
 }) {
   const [open, setOpen] = useState(false);
   const { data: detail } = useSWR(open ? `/api/filters/cycles/${summary.id}` : null);
   const eff = effectiveCycleStatus(summary);
   const sc = STATUS_CONFIG[eff];
   const title = summary.cycleCode ?? summary.cleaningReasonLabel ?? summary.cleaningReasonKey ?? 'Cycle';
+  const info = cycleEndInfo(summary, formatDateTime, fallback);
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
@@ -134,8 +160,10 @@ function CycleAccordionItem({ summary, index, formatDateTime }: {
         <span className="text-[13px] font-bold text-slate-400 tabular-nums w-8 shrink-0">#{index + 1}</span>
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-semibold text-slate-800 truncate">{title}</div>
-          <div className="text-[11px] text-slate-400 tabular-nums">
-            {formatDateTime(summary.startedAt)}{summary.completedAt ? ` → ${formatDateTime(summary.completedAt)}` : ''}
+          <div className="text-[11px] text-slate-400 space-y-0.5 mt-0.5">
+            <div><span className="text-slate-500 font-medium">Cycle Start time:</span> <span className="tabular-nums">{formatDateTime(summary.startedAt)}</span></div>
+            <div><span className="text-slate-500 font-medium">{info.endLabel}:</span> <span className="tabular-nums">{info.endTimeText}</span></div>
+            {info.by && <div><span className="text-slate-500 font-medium">{info.byLabel}:</span> {info.by}</div>}
           </div>
         </div>
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap ${sc?.bg ?? 'bg-slate-50'} ${sc?.text ?? 'text-slate-600'} border ${sc?.border ?? 'border-slate-200'}`}>
@@ -162,15 +190,102 @@ function CycleAccordionItem({ summary, index, formatDateTime }: {
 }
 
 /**
+ * Status-aware end-of-cycle labels for the report. A COMPLETED cycle shows
+ * "Cycle Completed time" / "Completed by"; a TERMINATED / RETIRED / REPLACED
+ * cycle shows "Cycle Terminated time" / "Terminated by" (using terminatedAt,
+ * falling back to completedAt for legacy rows that only stamped completedAt).
+ * The performer is the operator login id (username) per operator request — null
+ * when the cycle was terminated outside the normal flow (DB-direct / legacy)
+ * and no terminator was ever recorded.
+ */
+function cycleEndInfo(
+  summary: any,
+  formatDateTime: (s: string) => string,
+  fallback?: { replacedBy?: string | null; retiredBy?: string | null },
+) {
+  const eff = effectiveCycleStatus(summary);
+  const ended = eff !== 'COMPLETED' && eff !== 'IN_PROGRESS';
+  const endTime = ended ? (summary.terminatedAt ?? summary.completedAt) : summary.completedAt;
+  // A cycle ended by retire/replace has no CYCLE_TERMINATED event — the operator
+  // is recorded on the FILTER_REPLACED / FILTER_RETIRED audit instead. Fall back
+  // to that (login id) so "Terminated by" isn't blank for those cycles.
+  let by = (summary.completedByUsername as string | null) ?? null;
+  if (!by && ended && fallback) {
+    if (eff === 'REPLACED') by = fallback.replacedBy ?? null;
+    else if (eff === 'RETIRED') by = fallback.retiredBy ?? null;
+  }
+  return {
+    endLabel: ended ? 'Cycle Terminated time' : 'Cycle Completed time',
+    byLabel: ended ? 'Terminated by' : 'Completed by',
+    endTimeText: endTime ? formatDateTime(endTime) : '—',
+    by,
+  };
+}
+
+/**
+ * Compact, non-expandable cycle row used for broad scopes (block / area / AHU).
+ * Shows only the cycle's start → end time and status — no drill-down into the
+ * full per-cycle detail (that's reserved for single-filter scope).
+ */
+function CompactCycleRow({ summary, index, formatDateTime, fallback }: {
+  summary: any; index: number; formatDateTime: (s: string) => string;
+  fallback?: { replacedBy?: string | null; retiredBy?: string | null };
+}) {
+  const eff = effectiveCycleStatus(summary);
+  const sc = STATUS_CONFIG[eff];
+  const title = summary.cycleCode ?? summary.cleaningReasonLabel ?? summary.cleaningReasonKey ?? 'Cycle';
+  const info = cycleEndInfo(summary, formatDateTime, fallback);
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 border border-slate-200 rounded-xl bg-white">
+      <span className="text-[13px] font-bold text-slate-400 tabular-nums w-8 shrink-0">#{index + 1}</span>
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-semibold text-slate-800 truncate">{title}</div>
+        <div className="text-[11px] text-slate-400 space-y-0.5 mt-0.5">
+          <div><span className="text-slate-500 font-medium">Cycle Start time:</span> <span className="tabular-nums">{formatDateTime(summary.startedAt)}</span></div>
+          <div><span className="text-slate-500 font-medium">{info.endLabel}:</span> <span className="tabular-nums">{info.endTimeText}</span></div>
+          {info.by && <div><span className="text-slate-500 font-medium">{info.byLabel}:</span> {info.by}</div>}
+        </div>
+      </div>
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap ${sc?.bg ?? 'bg-slate-50'} ${sc?.text ?? 'text-slate-600'} border ${sc?.border ?? 'border-slate-200'}`}>
+        {eff === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
+        {sc?.label ?? eff}
+      </span>
+    </div>
+  );
+}
+
+/** A manual status update (operator override outside a cleaning cycle). */
+function ManualUpdateRow({ m, formatDateTime }: { m: any; formatDateTime: (s: string) => string }) {
+  return (
+    <div className="rounded-xl border-l-4 border-orange-400 bg-orange-50 px-4 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[13px] font-semibold text-orange-700">
+          {humanizeState(m.fromState)} <span className="opacity-60">→</span> {humanizeState(m.toState)}
+        </span>
+        <span className="text-[11px] tabular-nums text-orange-600/80">{formatDateTime(m.performedAt)}</span>
+      </div>
+      <div className="text-[11px] text-orange-700/80 mt-0.5">
+        Manual update{m.performedByName ? ` by ${m.performedByName}` : ''}{m.remarks ? ` · ${m.remarks}` : ''}
+      </div>
+    </div>
+  );
+}
+
+/**
  * One filter's cycles + lifecycle events in the scope. Lazy: fetches the
  * filter's cycle summaries only when expanded (and refetches when the period
  * changes). For single-filter scope it's open by default.
+ *
+ * `compact` (broad block/area/AHU scope) renders each cycle as a non-expandable
+ * start→end row; otherwise (single filter) each cycle expands to full detail.
  */
-function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, formatDateTime }: {
-  filter: FNode; fromIso: string; toIso: string; defaultOpen: boolean; lifecycle: LifecycleEvent[]; formatDateTime: (s: string) => string;
+function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, formatDateTime, compact, fallback }: {
+  filter: FNode; fromIso: string; toIso: string; defaultOpen: boolean; lifecycle: LifecycleEvent[]; formatDateTime: (s: string) => string; compact: boolean;
+  fallback?: { replacedBy?: string | null; retiredBy?: string | null };
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [cycles, setCycles] = useState<any[]>([]);
+  const [manual, setManual] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -182,8 +297,11 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
       setLoading(true);
       setError(null);
       try {
-        const all = await fetchAllCycleSummaries(filter.id, fromIso, toIso);
-        if (!cancelled) { setCycles(all); setLoaded(true); }
+        const [all, manuals] = await Promise.all([
+          fetchAllCycleSummaries(filter.id, fromIso, toIso),
+          fetchManualChanges(filter.id, fromIso, toIso),
+        ]);
+        if (!cancelled) { setCycles(all); setManual(manuals); setLoaded(true); }
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? 'Failed to load cycles');
       } finally {
@@ -194,6 +312,10 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
   }, [open, filter.id, fromIso, toIso]);
 
   const ordered = useMemo(() => [...cycles].sort(asc), [cycles]);
+  const orderedManual = useMemo(
+    () => [...manual].sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime()),
+    [manual],
+  );
 
   return (
     <div className="border border-slate-200 rounded-xl bg-white">
@@ -207,7 +329,7 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
           </div>
           {filter.filterSet && <span className="text-[10px] font-semibold text-indigo-500">Set {filter.filterSet.replace('SET_', '')}</span>}
         </div>
-        {loaded && <span className="text-[11px] text-slate-400">{ordered.length} cycle(s){lifecycle.length ? ` · ${lifecycle.length} event(s)` : ''}</span>}
+        {loaded && <span className="text-[11px] text-slate-400">{ordered.length} cycle(s){orderedManual.length ? ` · ${orderedManual.length} manual` : ''}{lifecycle.length ? ` · ${lifecycle.length} event(s)` : ''}</span>}
         <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />
         </svg>
@@ -220,13 +342,21 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
             </div>
           ) : error ? (
             <div className="text-[13px] text-red-500 py-4 text-center">{error}</div>
-          ) : (ordered.length === 0 && lifecycle.length === 0) ? (
-            <div className="text-[13px] text-slate-400 py-4 text-center">No cleaning cycles or lifecycle events in this period.</div>
+          ) : (ordered.length === 0 && orderedManual.length === 0 && lifecycle.length === 0) ? (
+            <div className="text-[13px] text-slate-400 py-4 text-center">No cleaning cycles, manual updates or lifecycle events in this period.</div>
           ) : (
             <>
               {ordered.map((c, idx) => (
-                <CycleAccordionItem key={c.id} summary={c} index={idx} formatDateTime={formatDateTime} />
+                compact
+                  ? <CompactCycleRow key={c.id} summary={c} index={idx} formatDateTime={formatDateTime} fallback={fallback} />
+                  : <CycleAccordionItem key={c.id} summary={c} index={idx} formatDateTime={formatDateTime} fallback={fallback} />
               ))}
+              {orderedManual.length > 0 && (
+                <div className="pt-1 space-y-2">
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">Manual Status Updates</div>
+                  {orderedManual.map((m, i) => <ManualUpdateRow key={m.id ?? i} m={m} formatDateTime={formatDateTime} />)}
+                </div>
+              )}
               {lifecycle.length > 0 && (
                 <div className="pt-1 space-y-2">
                   <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">Lifecycle Events</div>
@@ -320,6 +450,10 @@ export function FilterLifecycleReportPage() {
     return [];
   }, [filterId, ahuId, areaId, blockId, filterOptions, allFilters]);
 
+  // Broad scope = block / area / AHU (no explicit Filter picked) → start/end-only
+  // per cycle. An explicit Filter selection keeps the full per-cycle detail.
+  const isSingleFilterScope = !!filterId;
+
   const scopeLabel = useMemo(() => {
     if (filterId) return allFilters.find((f) => f.id === filterId)?.name ?? 'Filter';
     if (ahuId) return `AHU ${allAhus.find((a) => a.id === ahuId)?.name ?? ''}`.trim();
@@ -340,40 +474,52 @@ export function FilterLifecycleReportPage() {
     setProgress(null);
     setDownloadMsg(null);
     try {
-      // 1. Cheap pass: cycle summaries + lifecycle events per filter (period-bounded).
-      const groups: { filter: FNode; summaries: any[]; events: LifecycleEvent[] }[] = [];
+      // 1. Cheap pass: cycle summaries + manual updates + lifecycle events per
+      //    filter (period-bounded).
+      const groups: { filter: FNode; summaries: any[]; manual: any[]; events: LifecycleEvent[] }[] = [];
       for (const f of filtersInScope) {
-        const sums = (await fetchAllCycleSummaries(f.id, fromIso, toIso)).sort(asc);
+        const [sums, manual] = await Promise.all([
+          fetchAllCycleSummaries(f.id, fromIso, toIso).then((s) => s.sort(asc)),
+          fetchManualChanges(f.id, fromIso, toIso),
+        ]);
         const events = buildLifecycle(f.id, retireMap, replByOld, replByNew, fromIso, toIso);
-        if (sums.length || events.length) groups.push({ filter: f, summaries: sums, events });
+        if (sums.length || manual.length || events.length) groups.push({ filter: f, summaries: sums, manual, events });
       }
       const flat = groups.flatMap((g) => g.summaries.map((s) => s.id as string));
       const totalCycles = flat.length;
       const totalEvents = groups.reduce((n, g) => n + g.events.length, 0);
-      if (totalCycles === 0 && totalEvents === 0) { setDownloadMsg('No cleaning cycles or lifecycle events found for this selection and period.'); return null; }
-      if (totalCycles > MAX_CYCLES) {
-        setDownloadMsg(`This selection has ${totalCycles} cycles — too many for a full-detail PDF (limit ${MAX_CYCLES}). Narrow the period or pick a smaller scope (a single AHU or filter).`);
-        return null;
-      }
-      if (totalCycles > WARN_CYCLES && !window.confirm(`This will generate a full-detail report for ${totalCycles} cycles (one section each — a large PDF that may take a minute). Continue?`)) {
-        return null;
+      const totalManual = groups.reduce((n, g) => n + g.manual.length, 0);
+      if (totalCycles === 0 && totalEvents === 0 && totalManual === 0) { setDownloadMsg('No cleaning cycles, manual updates or lifecycle events found for this selection and period.'); return null; }
+
+      // Shared manual-updates table renderer (both PDF branches).
+      const addManualTable = (g: { manual: any[] }) => {
+        if (!g.manual.length) return;
+        report.addSectionTitle('Manual Status Updates');
+        report.addTable({
+          head: ['From', 'To', 'Date & Time', 'By', 'Remarks'],
+          body: g.manual.map((m: any) => [
+            humanizeState(m.fromState), humanizeState(m.toState),
+            m.performedAt ? formatDateTime(m.performedAt) : '-',
+            m.performedByName ?? m.performedByUsername ?? '-',
+            m.remarks ?? '-',
+          ]),
+          columnStyles: { 4: { cellWidth: 55 } },
+        });
+      };
+
+      // The full-detail (single-filter) path renders one heavy section per
+      // cycle, so it's size-guarded. Broad block/area/AHU scope emits a compact
+      // start→end table per filter — cheap, no per-cycle detail fetch, no cap.
+      if (isSingleFilterScope) {
+        if (totalCycles > MAX_CYCLES) {
+          setDownloadMsg(`This filter has ${totalCycles} cycles — too many for a full-detail PDF (limit ${MAX_CYCLES}). Narrow the period.`);
+          return null;
+        }
+        if (totalCycles > WARN_CYCLES && !window.confirm(`This will generate a full-detail report for ${totalCycles} cycles (one section each — a large PDF that may take a minute). Continue?`)) {
+          return null;
+        }
       }
 
-      // 2. Fetch full detail for every cycle with bounded concurrency.
-      let details: any[] = [];
-      if (totalCycles > 0) {
-        setProgress({ done: 0, total: totalCycles });
-        details = await mapWithConcurrency(
-          flat, 6,
-          (cycleId) => api.get<any>(`/api/filters/cycles/${cycleId}`),
-          (done) => setProgress({ done, total: totalCycles }),
-        );
-      }
-      const byId = new Map<string, any>();
-      flat.forEach((id, idx) => byId.set(id, details[idx]));
-
-      // 3. Build the grouped report. Each cycle on its own page; the filter's
-      //    lifecycle events (retire/replace) get their own page after its cycles.
       const report = await createReport({ reportKey: 'cleaning-lifecycle',
         title: `${scopeLabel} — Cleaning Lifecycle Report`,
         subtitle: periodLine,
@@ -381,31 +527,93 @@ export function FilterLifecycleReportPage() {
         formatDateTime,
         legend: [{ abbr: 'S.No', meaning: 'Serial Number' }],
       });
-      let firstBlock = true;
-      for (const g of groups) {
-        let needFilterHeader = true;
-        for (let i = 0; i < g.summaries.length; i++) {
-          const s = g.summaries[i];
-          const detail = byId.get(s.id);
-          if (!detail) continue;
-          if (!firstBlock) report.newPage();
-          firstBlock = false;
-          if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
-          report.addSectionTitle(`Cycle ${i + 1} — ${formatDateTime(s.startedAt)}`);
-          appendCycleDetailToReport(report, detail, { formatDateTime });
+
+      if (isSingleFilterScope) {
+        // 2. Fetch full detail for every cycle with bounded concurrency.
+        let details: any[] = [];
+        if (totalCycles > 0) {
+          setProgress({ done: 0, total: totalCycles });
+          details = await mapWithConcurrency(
+            flat, 6,
+            (cycleId) => api.get<any>(`/api/filters/cycles/${cycleId}`),
+            (done) => setProgress({ done, total: totalCycles }),
+          );
         }
-        if (g.events.length) {
+        const byId = new Map<string, any>();
+        flat.forEach((id, idx) => byId.set(id, details[idx]));
+
+        // 3. Build the grouped report. Each cycle on its own page; the filter's
+        //    lifecycle events (retire/replace) get their own page after its cycles.
+        let firstBlock = true;
+        for (const g of groups) {
+          let needFilterHeader = true;
+          for (let i = 0; i < g.summaries.length; i++) {
+            const s = g.summaries[i];
+            const detail = byId.get(s.id);
+            if (!detail) continue;
+            if (!firstBlock) report.newPage();
+            firstBlock = false;
+            if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
+            report.addSectionTitle(`Cycle ${i + 1} — ${formatDateTime(s.startedAt)}`);
+            appendCycleDetailToReport(report, detail, { formatDateTime });
+          }
+          if (g.events.length) {
+            if (!firstBlock) report.newPage();
+            firstBlock = false;
+            if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
+            report.addSectionTitle('Lifecycle Events (Retirement / Replacement)');
+            report.addTable({
+              head: ['Event', 'Date', 'By', 'Remarks'],
+              body: g.events.map((e) => [e.label, formatDateTime(e.at), e.by ?? '-', e.remarks ?? '-']),
+              columnStyles: { 3: { cellWidth: 60 } },
+            });
+          }
+          if (g.manual.length) {
+            if (!firstBlock) report.newPage();
+            firstBlock = false;
+            if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
+            addManualTable(g);
+          }
+        }
+      } else {
+        // Broad scope: one compact start→end table per filter (+ lifecycle events).
+        let firstBlock = true;
+        for (const g of groups) {
           if (!firstBlock) report.newPage();
           firstBlock = false;
-          if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
-          report.addSectionTitle('Lifecycle Events (Retirement / Replacement)');
-          report.addTable({
-            head: ['Event', 'Date', 'By', 'Remarks'],
-            body: g.events.map((e) => [e.label, formatDateTime(e.at), e.by ?? '-', e.remarks ?? '-']),
-            columnStyles: { 3: { cellWidth: 60 } },
-          });
+          report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`);
+          if (g.summaries.length) {
+            const fb = { replacedBy: replByOld.get(g.filter.id)?.performedBy ?? null, retiredBy: retireMap.get(g.filter.id)?.retiredBy ?? null };
+            report.addTable({
+              // Neutral "End Time" / "By" because a filter's table mixes
+              // completed + terminated cycles; the Status column disambiguates.
+              head: ['S.No', 'Cycle', 'Start Time', 'End Time', 'By', 'Status'],
+              body: g.summaries.map((s, i) => {
+                const eff = effectiveCycleStatus(s);
+                const info = cycleEndInfo(s, formatDateTime, fb);
+                return [
+                  String(i + 1),
+                  s.cycleCode ?? s.cleaningReasonLabel ?? s.cleaningReasonKey ?? '-',
+                  s.startedAt ? formatDateTime(s.startedAt) : '-',
+                  info.endTimeText === '—' ? '-' : info.endTimeText,
+                  info.by ?? '-',
+                  STATUS_CONFIG[eff]?.label ?? eff,
+                ];
+              }),
+            });
+          }
+          if (g.events.length) {
+            report.addSectionTitle('Lifecycle Events (Retirement / Replacement)');
+            report.addTable({
+              head: ['Event', 'Date', 'By', 'Remarks'],
+              body: g.events.map((e) => [e.label, formatDateTime(e.at), e.by ?? '-', e.remarks ?? '-']),
+              columnStyles: { 3: { cellWidth: 60 } },
+            });
+          }
+          addManualTable(g);
         }
       }
+
       if (asSnapshot) return report.getSnapshot();
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       report.save(`lifecycle-${safeScope}.pdf`);
@@ -428,22 +636,39 @@ export function FilterLifecycleReportPage() {
     setDownloading(true);
     setDownloadMsg(null);
     try {
-      const head = ['Filter', 'S.No', 'Cycle', 'Started', 'Completed', 'Status', 'Reason'];
+      const head = ['Filter', 'S.No', 'Cycle', 'Start Time', 'End Time', 'By', 'Status', 'Reason'];
       const rows: string[][] = [];
       for (const f of filtersInScope) {
-        const sums = (await fetchAllCycleSummaries(f.id, fromIso, toIso)).sort(asc);
+        const [sums, manual] = await Promise.all([
+          fetchAllCycleSummaries(f.id, fromIso, toIso).then((s) => s.sort(asc)),
+          fetchManualChanges(f.id, fromIso, toIso),
+        ]);
+        const fb = { replacedBy: replByOld.get(f.id)?.performedBy ?? null, retiredBy: retireMap.get(f.id)?.retiredBy ?? null };
         sums.forEach((s: any, i: number) => {
           const eff = effectiveCycleStatus(s);
+          const info = cycleEndInfo(s, formatDateTime, fb);
           rows.push([
             f.name, String(i + 1), s.cycleCode ?? '-',
             s.startedAt ? formatDateTime(s.startedAt) : '-',
-            s.completedAt ? formatDateTime(s.completedAt) : '-',
+            info.endTimeText === '—' ? '-' : info.endTimeText,
+            info.by ?? '-',
             STATUS_CONFIG[eff]?.label ?? eff,
             s.cleaningReasonLabel ?? s.cleaningReasonKey ?? '-',
           ]);
         });
+        // Manual status updates mapped into the same columns (Cycle = the
+        // From→To change, Start Time = when, Status = "Manual Update").
+        manual.forEach((m: any) => {
+          rows.push([
+            f.name, '', `Manual: ${humanizeState(m.fromState)} → ${humanizeState(m.toState)}`,
+            m.performedAt ? formatDateTime(m.performedAt) : '-', '',
+            m.performedByName ?? m.performedByUsername ?? '-',
+            'Manual Update',
+            m.remarks ?? '-',
+          ]);
+        });
       }
-      if (rows.length === 0) { setDownloadMsg('No cleaning cycles found for this selection and period.'); return; }
+      if (rows.length === 0) { setDownloadMsg('No cleaning cycles or manual updates found for this selection and period.'); return; }
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       exportToExcel({ filename: `lifecycle-${safeScope}`, sheetName: 'Cleaning Cycles', head, rows });
     } catch (e: any) {
@@ -551,7 +776,9 @@ export function FilterLifecycleReportPage() {
                   fromIso={fromIso}
                   toIso={toIso}
                   defaultOpen={singleFilter}
+                  compact={!isSingleFilterScope}
                   lifecycle={buildLifecycle(f.id, retireMap, replByOld, replByNew, fromIso, toIso)}
+                  fallback={{ replacedBy: replByOld.get(f.id)?.performedBy ?? null, retiredBy: retireMap.get(f.id)?.retiredBy ?? null }}
                   formatDateTime={formatDateTime}
                 />
               ))}

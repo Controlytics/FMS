@@ -32,7 +32,7 @@ const commonNodeProps = {
   status: { type: 'string' },
   attributes: { type: 'object', additionalProperties: true },
   customAttributes: { type: 'object', additionalProperties: true },
-  unsPath: { type: ['string', 'null'], nullable: true },
+
   isActive: { type: 'boolean' },
   createdAt: { type: 'string' },
   updatedAt: { type: 'string' },

@@ -353,7 +353,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // Data — always fetch when online, cache for offline
   const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 30000 });
   const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
-  const { data: reasonsData } = useSWR(online ? '/api/filters/reasons' : null);
+  // Always attempt the reasons fetch (not gated on the `online` flag — that
+  // flag is unreliable on Android WebViews and, when it flips false on an
+  // actually-online device, left the cleaning-reason picker empty). Offline the
+  // fetch fails gracefully and we fall back to the cached reasons below.
+  const { data: reasonsData } = useSWR('/api/filters/reasons');
   // refreshInterval so the offline identifier-map cache stays current: a tag
   // reassigned to another filter (here or on admin/web) propagates within ~30s
   // of being online, so a later OFFLINE scan resolves to the right filter
@@ -569,7 +573,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     refreshOfflineData();
   }, [pendingCount]);
 
-  const cleaningReasons = online ? ((reasonsData as any)?.reasons ?? reasonsData ?? []) : offlineReasons;
+  // Prefer freshly-fetched reasons whenever the fetch returned any (regardless
+  // of the flaky `online` flag); fall back to the cached reasons only when the
+  // fetch yielded nothing (genuinely offline).
+  const fetchedReasons = ((reasonsData as any)?.reasons ?? reasonsData ?? []) as any[];
+  const cleaningReasons = fetchedReasons.length > 0 ? fetchedReasons : offlineReasons;
   const templates = (online ? (templatesData?.data ?? []) : offlineTemplates) as any[];
   const instances = online ? ((instancesData?.data ?? []) as any[]) : offlineFilters;
   // Match against every FILTER-kind template, not just one (history.tsx bug

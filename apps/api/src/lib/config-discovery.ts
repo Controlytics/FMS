@@ -27,9 +27,8 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/backup.def.js'),
     import('../modules/config/defs/roles.def.js'),
     import('../modules/config/defs/field-ids.def.js'),
-    import('../modules/config/defs/retention.def.js'),
+    // retention.def + uns.def deleted with data-ingestion removal.
     import('../modules/config/defs/help.def.js'),
-    import('../modules/config/defs/uns.def.js'),
     import('../modules/config/defs/filter-cleaning-reasons.def.js'),
     import('../modules/config/defs/block-change-approval.def.js'),
     import('../modules/config/defs/pm-schedule-settings.def.js'),
@@ -74,7 +73,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
 
 async function cleanupDeadConfigKeys(): Promise<void> {
   const { prisma } = await import('./prisma.js');
-  const deadKeys = ['offline-sync', 'rfid-scanner', 'role-privileges', 'sidebar-config'];
+  const deadKeys = ['offline-sync', 'rfid-scanner', 'role-privileges', 'sidebar-config', 'uns', 'retention'];
   const res = await prisma.systemConfig.deleteMany({ where: { configKey: { in: deadKeys } } });
   if (res.count > 0) {
     console.info(`[config-migration] removed ${res.count} dead config row(s): ${deadKeys.join(', ')}`);

@@ -1,8 +1,10 @@
 # DigiLog — Project Summary
 
+> ⚠️ **2026-06-17 — Sections below mentioning TimescaleDB / MQTT / Mosquitto / data ingestion / `packages/db` are HISTORICAL.** Those subsystems were removed in Phase 7 (2026-06-11..2026-06-17). See root `CLAUDE.md` Phase 7 snapshot + `CHANGELOG.md` for current stack.
+
 ## What is DigiLog?
 
-DigiLog is an IoT data logging platform with **21 CFR Part 11 compliance** designed for industrial filter management in pharmaceutical and manufacturing facilities. It tracks filter cleaning cycles, preventive maintenance, equipment status, and provides complete audit trails with electronic signatures.
+DigiLog is a **21 CFR Part 11 compliant Digital Filter Management System** designed for pharmaceutical and manufacturing facilities. It tracks filter cleaning cycles, preventive maintenance, equipment status, and provides complete audit trails with electronic signatures.
 
 ## Business Purpose
 

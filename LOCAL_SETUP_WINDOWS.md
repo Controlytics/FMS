@@ -2,6 +2,8 @@
 
 **Purpose:** This file contains everything Claude (or a developer) needs to clone, set up, and run the DigiLog application locally on a Windows machine. Follow every step exactly.
 
+> ⚠️ **2026-06-17 — TimescaleDB + Mosquitto no longer required.** The data-ingestion subsystem was removed in Phase 7 of the cleanup. Sections 1.2 (TimescaleDB extension), 1.5 (Mosquitto install), and any `.env` block referencing `TSDB_*` / `MQTT_*` / `EMQX_*` / `UNS_ROOT_PREFIX` are **superseded** — skip them. You only need vanilla PostgreSQL 18 (no TimescaleDB extension), no MQTT broker, no extra env keys for telemetry. See `CHANGELOG.md` Phase 7 entry + root `CLAUDE.md` System Stats for what's current.
+
 ---
 
 ## 1. Prerequisites — Install These First
@@ -11,7 +13,7 @@
 - Verify: `node -v` should show `v20.x.x`
 - npm comes bundled: `npm -v` should show `10.x.x`
 
-### 1.2 PostgreSQL 18 with TimescaleDB
+### 1.2 PostgreSQL 18 ~~with TimescaleDB~~ (TSDB removed 2026-06-17 — skip the TimescaleDB extension steps)
 - Download PostgreSQL 18: https://www.postgresql.org/download/windows/
 - During install: remember the superuser password (e.g. `postgres`)
 - Port: **5432** (default)

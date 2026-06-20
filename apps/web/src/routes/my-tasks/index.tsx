@@ -67,7 +67,7 @@ const FILTER_STATUS_META: Record<FilterRow['status'], { label: string; cls: stri
 
 export function MyTasksPage() {
   const navigate = useNavigate();
-  const { formatDate } = useDatetimeFormat();
+  const { formatDate, formatDateTime } = useDatetimeFormat();
   // Time-period filter (My Tasks). Empty = default "due now + overdue" view.
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -362,6 +362,7 @@ export function MyTasksPage() {
               onToggle={() => toggleExpand(task.entryId)}
               onPerform={() => onPerform(task)}
               formatDate={formatDate}
+              formatDateTime={formatDateTime}
             />
           ))}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
@@ -396,6 +397,7 @@ export function MyTasksPage() {
               onToggle={() => toggleExpand(task.entryId)}
               onPerform={() => onPerform(task)}
               formatDate={formatDate}
+              formatDateTime={formatDateTime}
             />
           ))}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
@@ -458,12 +460,13 @@ export function MyTasksPage() {
 
 // ─── Task Card ───────────────────────────────────────────
 
-function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
+function TaskCard({ task, expanded, onToggle, onPerform, formatDate, formatDateTime }: {
   task: TaskRow;
   expanded: boolean;
   onToggle: () => void;
   onPerform: () => void;
   formatDate: (d: string | Date) => string;
+  formatDateTime: (d: string | Date) => string;
 }) {
   const meta = STATUS_META[task.overallStatus];
   const progressPct = task.totalFilters > 0 ? Math.round((task.cleanedCount / task.totalFilters) * 100) : 0;
@@ -572,7 +575,7 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate }: {
                     <span
                       key={f.filterId}
                       className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-semibold ${fMeta.cls}`}
-                      title={f.lastCycleCompletedAt ? `Last cycle: ${new Date(f.lastCycleCompletedAt).toLocaleString()}` : 'No cycles yet'}
+                      title={f.lastCycleCompletedAt ? `Last cycle: ${formatDateTime(f.lastCycleCompletedAt)}` : 'No cycles yet'}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full ${fMeta.dot}`} />
                       {f.filterName}

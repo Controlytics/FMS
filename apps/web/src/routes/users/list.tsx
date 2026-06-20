@@ -128,7 +128,8 @@ export function UserListPage() {
   };
 
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
-  const canDeleteUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_DELETE') ?? false);
+  // Delete is restricted to SUPER_ADMIN only (per 2026-06-15 request), regardless of USER_DELETE.
+  const canDeleteUsers = isSuperAdmin;
   // 2026-05-26 permission-leak fix (reported on 2026-05-26 audit):
   // the user-table previously rendered Edit, Disable/Enable, and Unlock
   // unconditionally. Anyone who could *see* the Users list could

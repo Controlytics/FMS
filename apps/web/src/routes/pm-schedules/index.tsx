@@ -115,7 +115,8 @@ export function PmScheduleListPage() {
   // (BE supports it with reauth, no FE caller). Surface a delete button
   // per AHU group; backend pm-schedule-crud.ts:138 returns 409 if any
   // execution is IN_PROGRESS, which surfaces as a clean toast.
-  const canDeleteSchedule = isSuperAdmin || perms.includes('PM_DELETE');
+  // PM schedule delete is restricted to SUPER_ADMIN only (per 2026-06-15 request), regardless of PM_DELETE.
+  const canDeleteSchedule = isSuperAdmin;
   // Audit 2026-05-09 fix: BE supports POST /api/pm-schedules with reauth
   // (CREATE_PM_SCHEDULE) but the only path was bulk CSV upload — operators
   // wanting one-off schedules had to hand-build a CSV.

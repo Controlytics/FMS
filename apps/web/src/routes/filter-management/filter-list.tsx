@@ -668,34 +668,71 @@ export function FilterListPage() {
     setPanelSubmitting(false);
   };
 
-  const handleBulkStatusSubmit = () => {
+  const handleBulkStatusSubmit = (extra?: { cleaningReasonKey?: string; cleaningJustification?: string }) => {
     if (!statusPanelState || !statusPanelRemarks.trim() || selectedFilterIds.size === 0) return;
     setStatusPanelSubmitting(true);
     const ids = Array.from(selectedFilterIds);
+    const nameById = new Map(blockFilters.map(f => [f.id, f.name] as const));
     let completed = 0;
     let failed = 0;
+    // Per-filter failures so the operator sees WHICH filters were skipped and
+    // WHY — e.g. the target stage isn't in that filter's cleaning profile
+    // ("Invalid stage movement…"), enforced server-side per filter.
+    let failures: { name: string; message: string }[] = [];
 
     // M2 (audit 2026-05-04): UPDATE_FILTER_LIFECYCLE replaces generic
     // UPDATE_ASSET. Mirrors the single-filter path above.
     reauth.execute(
       'UPDATE_FILTER_LIFECYCLE',
       async (password?: string) => {
+        // Reset on each (re)run so the reauth retry doesn't double-count.
+        completed = 0; failed = 0; failures = [];
         for (const id of ids) {
           try {
-            const body = { lifecycleState: statusPanelState, remarks: statusPanelRemarks.trim() };
+            // Forward the cleaning reason (+ justification) when moving into a
+            // cleaning stage; the server requires it for filters whose move
+            // starts a cycle and ignores it for the rest.
+            const body = {
+              lifecycleState: statusPanelState,
+              remarks: statusPanelRemarks.trim(),
+              ...(extra?.cleaningReasonKey ? { cleaningReasonKey: extra.cleaningReasonKey } : {}),
+              ...(extra?.cleaningJustification ? { cleaningJustification: extra.cleaningJustification } : {}),
+            };
             if (password) {
               await api.patchWithReauth(`/api/assets/instances/${id}/lifecycle-state`, body, password);
             } else {
               await api.patch(`/api/assets/instances/${id}/lifecycle-state`, body);
             }
             completed++;
-          } catch { failed++; }
+          } catch (e: any) {
+            // Reauth errors MUST escape the loop so reauth.execute opens the
+            // password dialog instead of silently counting them as failures
+            // (which made bulk update appear to do nothing). api-client throws
+            // either {error} or {code} shapes — check both.
+            if (e?.error === 'REAUTH_REQUIRED' || e?.code === 'REAUTH_REQUIRED' ||
+                e?.error === 'REAUTH_FAILED' || e?.code === 'REAUTH_FAILED') throw e;
+            failed++;
+            failures.push({ name: nameById.get(id) ?? id, message: e?.message ?? 'Update failed' });
+          }
         }
       },
       {
         onSuccess: () => {
           const label = LIFECYCLE_STATE_OPTIONS.find(o => o.value === statusPanelState)?.label ?? statusPanelState;
-          toast.success('Bulk Status Update', `${completed} filter(s) updated to ${label}${failed ? `, ${failed} failed` : ''}`);
+          // Group skipped filters by reason so the message reads e.g.
+          // "Invalid stage movement… — SA/00, SA/01".
+          const byReason = new Map<string, string[]>();
+          for (const f of failures) { const a = byReason.get(f.message) ?? []; a.push(f.name); byReason.set(f.message, a); }
+          const detail = [...byReason.entries()]
+            .map(([msg, names]) => `• ${msg} — ${names.slice(0, 6).join(', ')}${names.length > 6 ? ` +${names.length - 6} more` : ''}`)
+            .join('\n');
+          if (completed === 0 && failed > 0) {
+            toast.error('Bulk Status Update — none updated', detail);
+          } else if (failed > 0) {
+            toast.error(`Bulk Status Update — ${completed} updated, ${failed} skipped`, detail);
+          } else {
+            toast.success('Bulk Status Update', `${completed} filter(s) updated to ${label}`);
+          }
           closeBulkPanel();
           setSelectedFilterIds(new Set());
           mutate('/api/hierarchy/tree');
@@ -717,6 +754,7 @@ export function FilterListPage() {
     let failed = 0;
     const action = bulkAction === 'replace' ? 'replace' : 'retire';
     const reauthAction = action === 'retire' ? 'RETIRE_FILTER' : 'REPLACE_FILTER';
+    let firstError: string | null = null;
 
     // Wrap the whole loop in ONE reauth.execute so the operator is prompted
     // for a password ONCE, not 50× when retiring/replacing 50 filters. The
@@ -725,6 +763,8 @@ export function FilterListPage() {
     await reauth.execute(
       reauthAction,
       async (password?: string) => {
+        // Reset on each (re)run so the reauth retry doesn't double-count.
+        completed = 0; failed = 0; firstError = null;
         for (const id of ids) {
           try {
             const body = { remarks: panelRemarks.trim() };
@@ -734,15 +774,29 @@ export function FilterListPage() {
               await api.post(`/api/filters/${id}/${action}`, body);
             }
             completed++;
-          } catch { failed++; }
+          } catch (e: any) {
+            // Reauth errors MUST escape so the password dialog opens (see
+            // handleBulkStatusSubmit) instead of being counted as failures.
+            if (e?.error === 'REAUTH_REQUIRED' || e?.code === 'REAUTH_REQUIRED' ||
+                e?.error === 'REAUTH_FAILED' || e?.code === 'REAUTH_FAILED') throw e;
+            failed++;
+            if (!firstError) firstError = e?.message ?? null;
+          }
         }
       },
       {
         onSuccess: () => {
-          toast.success(
-            action === 'retire' ? 'Bulk Retirement' : 'Bulk Replacement',
-            `${completed} filter(s) ${action === 'retire' ? 'retired' : 'replaced'}${failed ? `, ${failed} failed` : ''}`,
-          );
+          if (completed === 0 && failed > 0) {
+            toast.error(
+              action === 'retire' ? 'Bulk Retirement Failed' : 'Bulk Replacement Failed',
+              `${failed} filter(s) failed${firstError ? ` — ${firstError}` : ''}`,
+            );
+          } else {
+            toast.success(
+              action === 'retire' ? 'Bulk Retirement' : 'Bulk Replacement',
+              `${completed} filter(s) ${action === 'retire' ? 'retired' : 'replaced'}${failed ? `, ${failed} failed${firstError ? ` — ${firstError}` : ''}` : ''}`,
+            );
+          }
           closeBulkPanel();
           setSelectedFilterIds(new Set());
           mutate('/api/hierarchy/tree');
@@ -1641,9 +1695,9 @@ export function FilterListPage() {
                             </>
                           )}
                           <td className="px-2 py-2">
-                            <div className="flex items-center gap-2 max-w-[170px]">
-                              <div className={`w-2 h-2 rounded-full shrink-0 ${FILTER_STATE_COLORS[f.currentState ?? ''] ?? 'bg-gray-400'}`} />
-                              <span className="flex-1 min-w-0 truncate text-sm font-medium text-slate-800" title={f.name}>{f.name}</span>
+                            <div className="flex items-start gap-2">
+                              <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${FILTER_STATE_COLORS[f.currentState ?? ''] ?? 'bg-gray-400'}`} />
+                              <span className="min-w-0 break-words text-sm font-medium text-slate-800" title={f.name}>{f.name}</span>
                             </div>
                           </td>
                           <td className="px-2 py-2 text-xs text-slate-500">

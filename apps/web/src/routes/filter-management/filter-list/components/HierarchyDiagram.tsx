@@ -42,10 +42,20 @@ export function FilterDiagNode({ filter: f, identifiersByAsset, onNavigate }: Fi
   );
 }
 
-export function renderChildrenConnector(children: React.ReactNode[], minWidth: number = 150) {
+/**
+ * Connects a parent node to its children as an org-chart bus.
+ *
+ * Each child column is sized to its OWN content (`flex-shrink-0` + horizontal
+ * padding for spacing) — never `flex-1` with a guessed `minWidth`. A deep/wide
+ * subtree therefore widens its own column instead of overflowing and
+ * overlapping its siblings (the old bug). The horizontal bus is drawn as
+ * per-cell top-border segments trimmed to start/end at the first/last child's
+ * centre, so it stays continuous without measuring widths.
+ */
+export function renderChildrenConnector(children: React.ReactNode[], _minWidth: number = 150) {
   if (children.length === 0) return null;
   return (
-    <div className="flex flex-col items-center w-full">
+    <div className="flex flex-col items-center">
       <div className="w-px h-5 bg-slate-300" />
       <svg className="w-3 h-2 text-slate-400 -mt-px" viewBox="0 0 12 8">
         <path d="M0 0 L6 8 L12 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -56,25 +66,25 @@ export function renderChildrenConnector(children: React.ReactNode[], minWidth: n
           {children[0]}
         </div>
       ) : (
-        <div className="flex flex-col items-center w-full">
-          <div className="relative flex justify-center" style={{ minWidth: `${children.length * minWidth}px` }}>
-            <div className="absolute top-0 h-px bg-slate-300" style={{
-              left: `${100 / (children.length * 2)}%`,
-              right: `${100 / (children.length * 2)}%`,
-            }} />
-            <div className="flex justify-center gap-4 w-full">
-              {children.map((child, i) => (
-                <div key={i} className="flex flex-col items-center flex-1" style={{ minWidth: `${minWidth - 20}px` }}>
-                  <div className="w-px h-4 bg-slate-300" />
-                  <svg className="w-3 h-2 text-slate-400 -mt-px" viewBox="0 0 12 8">
-                    <path d="M0 0 L6 8 L12 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  <div className="h-1" />
-                  {child}
-                </div>
-              ))}
-            </div>
-          </div>
+        <div className="flex items-start justify-center">
+          {children.map((child, i) => {
+            const isFirst = i === 0;
+            const isLast = i === children.length - 1;
+            const busPos = isFirst ? 'left-1/2 right-0' : isLast ? 'left-0 right-1/2' : 'left-0 right-0';
+            return (
+              <div key={i} className="relative flex flex-col items-center flex-shrink-0 px-3">
+                {/* Horizontal bus segment (continuous across adjacent cells). */}
+                <div className={`absolute top-0 h-px bg-slate-300 ${busPos}`} />
+                {/* Vertical drop into this child. */}
+                <div className="w-px h-4 bg-slate-300" />
+                <svg className="w-3 h-2 text-slate-400 -mt-px" viewBox="0 0 12 8">
+                  <path d="M0 0 L6 8 L12 0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <div className="h-1" />
+                {child}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

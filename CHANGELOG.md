@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] — Data-ingestion + TimescaleDB removal — Phase 7-10 cleanup wrap (2026-06-17)
+
+Final cleanup wave for the data-ingestion + TimescaleDB tear-out started 2026-06-11 (Phases 1-6 landed as `a95f6eb`, Section 14 Debug Traces repurpose as `8619d24`). Pre-removal git tag: `pre-ingestion-removal`.
+
+- **Phase 7 — Operational hygiene**:
+  - `apps/api/.env` cleaned: removed `TSDB_HOST`, `TSDB_PORT`, `TSDB_DATABASE`, `TSDB_USER`, `TSDB_PASSWORD`, `TSDB_POOL_MAX`, `MQTT_ENABLED`, `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`, `EMQX_ADMIN_PASSWORD`, `UNS_ROOT_PREFIX` (10 dead env keys).
+  - `deployment-check/routes.ts`: removed the `TSDB_HOST` required-env check.
+  - **Deleted** `apps/api/src/lib/uns-path.ts` — `getEntityUnsPath()` helper with zero importers (last consumer `instance.service.ts:22` removed in Phase 3).
+  - **Mosquitto Windows service uninstalled** via elevated `Stop-Service mosquitto; sc.exe delete mosquitto`. Port 1883 freed. The `.exe` files remain at `C:\Program Files\Mosquitto\` — only the service registration is gone.
+- **Phase 8 — Test cleanup**:
+  - Fixed `apps/api/src/e2e/test-helper.ts`: removed broken `import connectivityRoutes from '../modules/connectivity/routes.js'` + `import unsRoutes from '../modules/uns/routes.js'` + their 2 `app.register(...)` calls. **The whole e2e suite was un-compilable until this fix** because every test that calls `buildApp()` re-imports this file.
+  - Fixed `apps/api/src/modules/assets/services/__tests__/instance.service.test.ts`: removed `deviceCredential`/`connectivityStatus`/`unsMapping`/`dataStream` model mocks (Prisma client no longer has them).
+  - **Deleted** `apps/api/src/workers/__tests__/ingestion.worker.test.ts` (worker deleted in Phase 2) and `apps/api/src/e2e/connectivity.test.ts` (16 e2e tests for deleted `/api/connectivity/*` routes).
+- **Phase 9 — Config defs + perms/privileges/reauth cleanup**:
+  - **Deleted** 2 dead config defs: `apps/api/src/modules/config/defs/uns.def.ts` + `retention.def.ts`. Removed their imports from `config-discovery.ts` and added their `configKey`s (`'uns'`, `'retention'`) to the `cleanupDeadConfigKeys` migration so any stale DB rows are auto-removed on next boot.
+  - `packages/shared/src/types/`: removed `UNS_VIEW` + `UNS_MANAGE` from `permissions.ts` and `permission-categories.ts`; removed `uns.view`/`uns.manage` cards + their `FEATURE_TO_PERMISSION_MAP` entries from `feature-privileges.ts`; removed 6 reauth actions from `reauth-actions.ts` (`MANAGE_DEVICE_CREDENTIAL`, `OVERRIDE_UNS_PATH`, `DELETE_UNS_MAPPING`, `UPDATE_UNS_CONFIG`, `UPDATE_RETENTION_POLICY`, `EXECUTE_RETENTION`) and 2 reauth categories (`'UNS'`, `'Retention'`).
+  - `apps/api/prisma/seed.ts`: removed `UNS_VIEW`/`UNS_MANAGE` from SUPER_ADMIN + ADMIN role permission lists.
+  - `apps/api/src/modules/roles/role.service.ts`: removed `UNS_VIEW`/`UNS_MANAGE` permission labels from the role config UI map.
+  - **Live DB cleanup**: stripped `UNS_VIEW`/`UNS_MANAGE` from `roles.permissions` (1 row updated, SUPER_ADMIN went 89 → 87 perms). Stripped 5 dead keys (`EXECUTE_RETENTION`, `OVERRIDE_UNS_PATH`, `UPDATE_UNS_CONFIG`, `DELETE_UNS_MAPPING`, `UPDATE_RETENTION_POLICY`) from the `system_config['action-reauth']` JSONB.
+- **Kept per 21 CFR §11 inspector contract**: `audit-actions.ts` registry entries `UNS_PATH_OVERRIDDEN`, `UNS_CONFIG_UPDATED`, `RETENTION_POLICY_UPDATED`, `RETENTION_EXECUTED`, `DEVICE_CREDENTIAL_REGENERATED`. New code never emits these but historic audit rows still render correctly in the inspector UI.
+- **Phase 10 — Doc sync**: this CHANGELOG entry + System Stats refresh in `CLAUDE.md` / `apps/api/CLAUDE.md` / `packages/shared/CLAUDE.md` + windowsIssues.md Mosquitto section dropped.
+
+**Verification on close**:
+- `tsc --noEmit` clean for both `packages/shared` and `apps/api`.
+- API boot clean: `[config-registry] 34 modules registered` (was 36 — `uns.def` + `retention.def` gone).
+- graphile-worker task names: `notification`, `pm_overdue_check`, `session_sweep` only.
+- All real business endpoints return real data (`/api/health`, `/api/filter-cleaning-profiles`, `/api/assets/templates`, `/api/filters/cycles`, `/api/audit`, etc.). `UNS_VIEW`/`UNS_MANAGE` grep on `/api/roles` response: **0 hits**.
+- All previously-deleted endpoints (`/api/uns`, `/api/connectivity/*`, `/api/queries/telemetry/*`, `/api/retention`, `/api/config/retention`, `/api/export/*`, `/api/data-ingestion/*`) return **404**.
+
 ## [Unreleased] — Remove dead `qr-code` module (Scope A) (2026-06-06)
 
 Removed the non-functional `qr-code` API module. It generated a **placeholder** SVG (a white box with the URL as text — not a scannable QR, because the `qrcode` lib was never installed) and had **zero frontend consumers** (`grep "/api/qr"` in `apps/web` → none). Pre-deletion touchpoint sweep confirmed nothing functional depends on it.

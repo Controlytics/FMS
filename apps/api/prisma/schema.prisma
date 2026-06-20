@@ -451,7 +451,7 @@ model Block {
   status           String   @default("Active") @db.VarChar(50)
   attributes       Json     @default("{}") @db.JsonB
   customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
-  unsPath          String?  @map("uns_path") @db.VarChar(500)
+
   isActive         Boolean  @default(true) @map("is_active")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -476,7 +476,7 @@ model Area {
   status           String   @default("Active") @db.VarChar(50)
   attributes       Json     @default("{}") @db.JsonB
   customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
-  unsPath          String?  @map("uns_path") @db.VarChar(500)
+ 
   isActive         Boolean  @default(true) @map("is_active")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -502,7 +502,7 @@ model Ahu {
   status           String   @default("Active") @db.VarChar(50)
   attributes       Json     @default("{}") @db.JsonB
   customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB
-  unsPath          String?  @map("uns_path") @db.VarChar(500)
+  
   isActive         Boolean  @default(true) @map("is_active")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -529,7 +529,7 @@ model Filter {
   status                String   @default("Active") @db.VarChar(50)
   attributes            Json     @default("{}") @db.JsonB
   customAttributes      Json     @default("{}") @map("custom_attributes") @db.JsonB
-  unsPath               String?  @map("uns_path") @db.VarChar(500)
+  
   isActive              Boolean  @default(true) @map("is_active")
   // 2026-05-25 D-03 fix: the four mirror columns (filterProfileId,
   // currentLifecycleState, currentCycleId, filterSet) lived here as a
@@ -635,7 +635,7 @@ model AssetInstance {
   telemetryConfig  Json     @default("{}") @map("telemetry_config") @db.JsonB // Instance-level telemetry overrides
   customAttributes Json     @default("{}") @map("custom_attributes") @db.JsonB // Extra attributes added at instance level
   parentId         String?  @map("parent_id") @db.Uuid // Primary containment parent (for tree)
-  unsPath          String?  @map("uns_path") @db.VarChar(500) // Computed UNS path
+ 
   isActive         Boolean  @default(true) @map("is_active")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz

@@ -417,7 +417,7 @@ export interface CachedBlock {
   status: string;
   attributes: Record<string, unknown>;
   customAttributes?: Record<string, unknown>;
-  unsPath: string | null;
+  
   isActive: boolean;
 }
 export interface CachedArea extends CachedBlock { blockId: string | null; }

@@ -49,7 +49,7 @@ function ToastEntry({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: st
       <span className="text-base mt-0.5">{VARIANT_ICONS[toast.variant]}</span>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold">{toast.title}</p>
-        {toast.message && <p className="text-xs mt-0.5 opacity-80">{toast.message}</p>}
+        {toast.message && <p className="text-xs mt-0.5 opacity-80 whitespace-pre-line">{toast.message}</p>}
       </div>
       <button
         onClick={() => {
