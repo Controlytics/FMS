@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased] — Cleaning Record: search + block/area/AHU filters; fix Retired/Replaced status pills (2026-06-22)
+
+**Bug — Retired/Replaced (and Terminated) status pills.** The cleaning-record + `/cycles` endpoints' `status` enum was `['IN_PROGRESS','COMPLETED','TERMINATED']`, but the UI pills also send `RETIRED`/`REPLACED` (which are *effective* statuses — a `TERMINATED` cycle whose `terminationReason` is `RETIRED`/`REPLACED`). Those values failed schema validation → **400**. Fix:
+- Expanded both `status` enums to include `RETIRED`, `REPLACED`.
+- `getCycles` now maps effective status → query: `RETIRED`→`status=TERMINATED AND terminationReason='RETIRED'`; `REPLACED`→`='REPLACED'`; `TERMINATED`→`status=TERMINATED AND (terminationReason IS NULL OR NOT IN ('RETIRED','REPLACED'))` (explicit NULL-OR because SQL `NOT IN` drops NULL rows). Verified against the DB: the pills now return 3 / 11 / 24 / 261 / 23 rows respectively. Note: `TERMINATED` is now stricter — it shows only plain-terminated cycles (retired/replaced live under their own pills), where before it lumped all 38 together.
+
+**Feature — search + hierarchy filters on the Cleaning Record page.** Added a filter-name **Search** box (debounced) and cascading **Block → Area → AHU** dropdowns, all resolved **server-side** (the list is paginated). Backend: new `blockId`/`areaId`/`search` params (+ existing `ahuId`) resolve to a set of descendant FILTER ids via a recursive `asset_instances` walk (`resolveScopeFilterIds`) — handles 2- *and* 3-level hierarchies — intersected with a name `ILIKE` for search, then applied as a single `filterId IN (...)` to **both** the cycle and manual-update branches (the old `ahuId` column filter never scoped manual rows). A specific-filter selection still takes precedence. FE cascades via `/api/hierarchy/{blocks,areas,ahus}`; blocks with no Area level fall back to Block-level filtering (AHU dropdown stays disabled until an area exists).
+
+**Verification**: `tsc --noEmit` clean (API + web); status/scope/search SQL validated directly against the DB; API restarted; dist + APK rebuilt.
+
 ## [Unreleased] — Hide "Send for Review" + fix Export menu placement (2026-06-22)
 
 - **Hid "Send for Review" across all report pages.** `SendForReviewButton` (`apps/web/src/components/SendForReviewButton.tsx`) now renders `null` behind a `SEND_FOR_REVIEW_ENABLED = false` flag (workflow code retained for easy re-enable; guard placed after all hooks to respect Rules of Hooks). One change covers all 10 report pages (cleaning record/timeline/lifecycle, PM, audit, deviations, QNN, RFID track record, replacement, filters) and any future page — no per-page edits.

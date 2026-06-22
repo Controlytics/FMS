@@ -44,7 +44,9 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
         properties: {
           filterId: { type: 'string', format: 'uuid' },
           ahuId: { type: 'string', format: 'uuid' },
-          status: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED', 'TERMINATED'] },
+          // RETIRED / REPLACED = effective statuses (TERMINATED + terminationReason),
+          // mapped in getCycles. Accept them so the /cycles route doesn't 400.
+          status: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED', 'TERMINATED', 'RETIRED', 'REPLACED'] },
           cleaningReasonKey: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
@@ -71,8 +73,17 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           filterId: { type: 'string', format: 'uuid' },
+          // Hierarchy scope (cleaning-record filters). blockId/areaId/ahuId all
+          // resolve to the set of descendant FILTER ids via a recursive walk, so
+          // 2- or 3-level hierarchies both work. search = filter-name contains.
+          blockId: { type: 'string', format: 'uuid' },
+          areaId: { type: 'string', format: 'uuid' },
           ahuId: { type: 'string', format: 'uuid' },
-          status: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED', 'TERMINATED'] },
+          search: { type: 'string' },
+          // RETIRED / REPLACED are effective statuses: a TERMINATED cycle whose
+          // terminationReason is RETIRED / REPLACED. Accept them here and map in
+          // getCycles (was missing → the pills 400'd on schema validation).
+          status: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED', 'TERMINATED', 'RETIRED', 'REPLACED'] },
           cleaningReasonKey: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },

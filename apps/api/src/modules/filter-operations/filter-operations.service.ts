@@ -191,6 +191,50 @@ export class FilterOperationsService {
    * the result is cycles-only in that case. Reuses getCycles / getManualStatusChanges
    * (via their `ids` mode) for enrichment of just the current page.
    */
+  /**
+   * Resolve the cleaning-record hierarchy/search filters into a set of FILTER
+   * asset ids. Returns null when no scope filter is active (caller does not
+   * constrain by filterId). Returns [] when a scope is active but matches no
+   * filters (caller should short-circuit to an empty result).
+   *
+   * - block/area/ahu: the most-specific selected node, expanded to ALL of its
+   *   descendant FILTER instances via a recursive walk (handles 2- or 3-level
+   *   hierarchies — Block→Area→AHU→Filter or Block→AHU→Filter). Not restricted to
+   *   active filters, so historical cycles of retired filters still appear.
+   * - search: filter name contains (case-insensitive). Intersected with the
+   *   hierarchy set when both are present.
+   */
+  async resolveScopeFilterIds(query: any): Promise<string[] | null> {
+    const node: string | null = query.ahuId || query.areaId || query.blockId || null;
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    if (!node && !search) return null;
+
+    let scopeIds: string[] | null = null;
+    if (node) {
+      const rows = await prisma.$queryRaw<{ id: string }[]>`
+        WITH RECURSIVE descendants AS (
+          SELECT id, parent_id, template_id FROM asset_instances WHERE parent_id = ${node}::uuid
+          UNION ALL
+          SELECT ai.id, ai.parent_id, ai.template_id FROM asset_instances ai
+          JOIN descendants d ON ai.parent_id = d.id
+        )
+        SELECT d.id::text AS id FROM descendants d
+        JOIN asset_templates t ON t.id = d.template_id
+        WHERE t.template_kind = 'FILTER'`;
+      scopeIds = rows.map((r) => r.id);
+    }
+    if (search) {
+      const like = `%${search}%`;
+      const rows = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT ai.id::text AS id FROM asset_instances ai
+        JOIN asset_templates t ON t.id = ai.template_id
+        WHERE t.template_kind = 'FILTER' AND ai.name ILIKE ${like}`;
+      const nameIds = rows.map((r) => r.id);
+      scopeIds = scopeIds === null ? nameIds : scopeIds.filter((id) => nameIds.includes(id));
+    }
+    return scopeIds ?? [];
+  }
+
   async getCleaningRecord(ctx: RequestContext, query: any) {
     if (query.filterId) await getFilter(query.filterId, ctx);
     const page = query.page ?? 1;
@@ -198,18 +242,31 @@ export class FilterOperationsService {
     const fromD = query.from ? new Date(query.from) : null;
     const toD = query.to ? new Date(query.to) : null;
 
+    // Hierarchy/search scope → set of descendant FILTER ids (null = no scope).
+    // Folds block/area/ahu + name search into ONE filterId constraint applied to
+    // BOTH cycles and manual rows (the old cycleWhere.ahuId column never filtered
+    // manual events). A single `filterId` (specific-filter dropdown) wins.
+    const scopeFilterIds = await this.resolveScopeFilterIds(query);
+    if (scopeFilterIds !== null && scopeFilterIds.length === 0) {
+      return { data: [], total: 0, page, limit, totalPages: 0 };
+    }
+    const filterIdConstraint: any = query.filterId
+      ? query.filterId
+      : (scopeFilterIds !== null ? { in: scopeFilterIds } : undefined);
+
     if (query.status || query.cleaningReasonKey) {
-      const r = await this.getCycles(ctx, query);
+      // ahuId is folded into scopeFilterIds — don't also pass it as the cycle
+      // column filter (would double-filter on two different semantics).
+      const r = await this.getCycles(ctx, { ...query, ahuId: undefined, filterIds: scopeFilterIds ?? undefined });
       return { ...r, data: r.data.map((c: any) => ({ ...c, _kind: 'cycle' })) };
     }
 
     const cycleWhere: any = {};
-    if (query.filterId) cycleWhere.filterId = query.filterId;
-    if (query.ahuId) cycleWhere.ahuId = query.ahuId;
+    if (filterIdConstraint) cycleWhere.filterId = filterIdConstraint;
     if (fromD || toD) { cycleWhere.startedAt = {}; if (fromD) cycleWhere.startedAt.gte = fromD; if (toD) cycleWhere.startedAt.lte = toD; }
 
     const manualWhere: any = { eventType: 'STATE_TRANSITION', cycleId: null, attributes: { path: ['manual'], equals: true } };
-    if (query.filterId) manualWhere.filterId = query.filterId;
+    if (filterIdConstraint) manualWhere.filterId = filterIdConstraint;
     if (fromD || toD) { manualWhere.performedAt = {}; if (fromD) manualWhere.performedAt.gte = fromD; if (toD) manualWhere.performedAt.lte = toD; }
 
     const CAP = 5000; // safety cap on the lightweight merge index
@@ -365,8 +422,19 @@ export class FilterOperationsService {
     const where: any = {};
     if (ids) where.id = { in: ids };
     if (query.filterId) where.filterId = query.filterId;
+    else if (Array.isArray(query.filterIds)) where.filterId = { in: query.filterIds };
     if (query.ahuId) where.ahuId = query.ahuId;
-    if (query.status) where.status = query.status;
+    // Effective-status mapping: RETIRED/REPLACED are TERMINATED cycles carrying a
+    // terminationReason of that value; plain TERMINATED excludes those (the pills
+    // are separate). SQL NOT IN drops NULL rows, so OR-in the null/free-text
+    // terminationReasons explicitly.
+    if (query.status === 'RETIRED') { where.status = 'TERMINATED'; where.terminationReason = 'RETIRED'; }
+    else if (query.status === 'REPLACED') { where.status = 'TERMINATED'; where.terminationReason = 'REPLACED'; }
+    else if (query.status === 'TERMINATED') {
+      where.status = 'TERMINATED';
+      where.OR = [{ terminationReason: null }, { terminationReason: { notIn: ['RETIRED', 'REPLACED'] } }];
+    }
+    else if (query.status) { where.status = query.status; }
     if (query.cleaningReasonKey) where.cleaningReasonKey = query.cleaningReasonKey;
     if (query.from || query.to) {
       where.startedAt = {};

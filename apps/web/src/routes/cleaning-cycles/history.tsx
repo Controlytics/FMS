@@ -63,6 +63,18 @@ export function CleaningCycleHistoryPage() {
   const [selectedFilter, setSelectedFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  // Search (debounced) + cascading Block → Area → AHU hierarchy filters. All
+  // resolved server-side (the list is paginated, so client-side filtering would
+  // only ever see the current page).
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [blockId, setBlockId] = useState('');
+  const [areaId, setAreaId] = useState('');
+  const [ahuId, setAhuId] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [downloading, setDownloading] = useState(false);
   // Manual status update opened in the detail dialog (manual rows have no cycle
   // page to navigate to, so View opens an in-place summary instead).
@@ -75,10 +87,26 @@ export function CleaningCycleHistoryPage() {
   const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/hierarchy/filters?limit=500');
   const filterInstances = (instancesData?.data ?? []).filter((i) => i.status !== 'Retired');
 
+  // Cascading hierarchy options. Areas scope to the chosen block, AHUs to the
+  // chosen area — both server-scoped, so depth variance is handled server-side.
+  // NOTE: blocks laid out Block→AHU (no Area level) return no areas; the operator
+  // filters at Block level there (the backend recursive walk still resolves every
+  // descendant filter), and the AHU dropdown stays disabled until an area exists.
+  const { data: blocksData } = useSWR<PaginatedResponse<any>>('/api/hierarchy/blocks?limit=500');
+  const { data: areasData } = useSWR<PaginatedResponse<any>>(blockId ? `/api/hierarchy/areas?blockId=${blockId}&limit=500` : null);
+  const { data: ahusData } = useSWR<PaginatedResponse<any>>(areaId ? `/api/hierarchy/ahus?areaId=${areaId}&limit=500` : null);
+  const blocks = (blocksData?.data ?? []) as any[];
+  const areas = (areasData?.data ?? []) as any[];
+  const ahus = (ahusData?.data ?? []) as any[];
+
   // Unified record: cleaning cycles + manual status updates, date-sorted + paged.
   const queryParams = new URLSearchParams({ page: String(page), limit: String(perPage) });
   if (status) queryParams.set('status', status);
   if (selectedFilter) queryParams.set('filterId', selectedFilter);
+  if (search) queryParams.set('search', search);
+  if (blockId) queryParams.set('blockId', blockId);
+  if (areaId) queryParams.set('areaId', areaId);
+  if (ahuId) queryParams.set('ahuId', ahuId);
   if (fromDate) queryParams.set('from', new Date(fromDate).toISOString());
   if (toDate) queryParams.set('to', new Date(toDate).toISOString());
 
@@ -198,7 +226,36 @@ export function CleaningCycleHistoryPage() {
 
         {/* Filters */}
         <div className="flex items-end gap-3 flex-wrap mb-3">
-          <div className="min-w-[200px]">
+          <div className="min-w-[180px]">
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Search</label>
+            <input type="text" value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="Filter name…"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500" />
+          </div>
+          <div className="min-w-[150px]">
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Block</label>
+            <select value={blockId} onChange={e => { setBlockId(e.target.value); setAreaId(''); setAhuId(''); setPage(1); }}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500">
+              <option value="">All Blocks</option>
+              {blocks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+          <div className="min-w-[150px]">
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Area</label>
+            <select value={areaId} onChange={e => { setAreaId(e.target.value); setAhuId(''); setPage(1); }} disabled={!blockId}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              <option value="">{blockId ? 'All Areas' : 'Select block'}</option>
+              {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+          <div className="min-w-[150px]">
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">AHU</label>
+            <select value={ahuId} onChange={e => { setAhuId(e.target.value); setPage(1); }} disabled={!areaId}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              <option value="">{areaId ? 'All AHUs' : 'Select area'}</option>
+              {ahus.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
+          </div>
+          <div className="min-w-[180px]">
             <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Filter</label>
             <select value={selectedFilter} onChange={e => { setSelectedFilter(e.target.value); setPage(1); }}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500">
@@ -206,18 +263,21 @@ export function CleaningCycleHistoryPage() {
               {filterInstances.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">From</label>
-            <input type="datetime-local" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1); }}
-              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500" />
+          {/* From + To kept together on one line (grouped as a single wrap unit). */}
+          <div className="flex items-end gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">From</label>
+              <input type="datetime-local" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1); }}
+                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500" />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">To</label>
+              <input type="datetime-local" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1); }}
+                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500" />
+            </div>
           </div>
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">To</label>
-            <input type="datetime-local" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1); }}
-              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500" />
-          </div>
-          {(selectedFilter || fromDate || toDate) && (
-            <button onClick={() => { setSelectedFilter(''); setFromDate(''); setToDate(''); setPage(1); }}
+          {(selectedFilter || fromDate || toDate || searchInput || blockId || areaId || ahuId) && (
+            <button onClick={() => { setSelectedFilter(''); setFromDate(''); setToDate(''); setSearchInput(''); setSearch(''); setBlockId(''); setAreaId(''); setAhuId(''); setPage(1); }}
               className="text-[12px] text-cyan-600 hover:text-cyan-700 font-medium pb-2">Clear all</button>
           )}
         </div>
