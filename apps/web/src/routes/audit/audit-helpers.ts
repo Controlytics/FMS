@@ -163,6 +163,17 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const fromStage = fromStageRaw || 'To Be Cleaned';
   const status = (after.status as string) || (before.status as string) || afterStatus || beforeStatus || '';
 
+  // 2026-06-22 fix: the stage-interlock templates (STAGE_APPROVAL_APPROVED /
+  // _REJECTED) use {stageKey}, {filterName}, {rejectToStateKey}. The audit rows
+  // carry them in afterValue, but they had no substitution here → rendered as
+  // literal "{stageKey}" / "{filterName}". Prettify the stage keys for display
+  // (WASH_OUT → "Wash Out") to match the rest of the cleaning UI.
+  const stageKeyRaw = (after.stageKey as string) || (before.stageKey as string) || '';
+  const stageKey = stageKeyRaw ? titleCase(stageKeyRaw) : '';
+  const rejectToStateKeyRaw = (after.rejectToStateKey as string) || (before.rejectToStateKey as string) || '';
+  const rejectToStateKey = rejectToStateKeyRaw ? titleCase(rejectToStateKeyRaw) : '';
+  const filterName = (after.filterName as string) || (before.filterName as string) || '';
+
   const replacePlaceholders = (tpl: string) =>
     tpl
       .replace(/\{actor\}/g, actor)
@@ -178,7 +189,10 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{reason\}/g, reason)
       .replace(/\{stage\}/g, stage)
       .replace(/\{fromStage\}/g, fromStage)
-      .replace(/\{status\}/g, status);
+      .replace(/\{status\}/g, status)
+      .replace(/\{stageKey\}/g, stageKey)
+      .replace(/\{filterName\}/g, filterName)
+      .replace(/\{rejectToStateKey\}/g, rejectToStateKey);
 
   // Self-action handling: check for _SELF variant
   const selfActions = ['USER_UPDATED', 'PROFILE_UPDATED', 'PASSWORD_CHANGED'];

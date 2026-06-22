@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased] — Audit trail: render stage-approval template placeholders (2026-06-22)
+
+Fixed the audit trail showing literal `{stageKey}` / `{filterName}` instead of values on **Stage Approval Approved/Rejected** rows. The renderer `getAuditSummary()` (`apps/web/src/routes/audit/audit-helpers.ts`) substitutes a fixed allow-list of placeholders, and the stage-interlock templates' `{stageKey}`, `{filterName}`, `{rejectToStateKey}` were never added — so they passed through verbatim (while `{actor}` resolved). Added the three substitutions, prettifying the stage keys via `titleCase` (`WASH_OUT` → "Wash Out"). Render-time fix → **existing** audit rows now display correctly too (the data was always stored in `afterValue`). The reports/PDF module doesn't use this renderer, so no parallel gap. dist + APK rebuilt.
+
 ## [Unreleased] — Cross-block cleaning: add "None" mode (no restriction) (2026-06-22)
 
 Added a third **Cross-Block Mode** alongside CONFIRM and APPROVAL: **`NONE`** — no cross-block check at all. Any filter can be cleaned in any block with nothing shown or asked (no confirm dialog, no approval request, no "recorded offline" notice). Config stays at `CONFIRM` by default, so existing installs are unchanged.
