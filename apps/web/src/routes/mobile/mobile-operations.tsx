@@ -801,7 +801,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // Phase 8.6 part 2: resolve the action tape — server actions[] when
         // TAPE_PARALLEL=true (currently absent in dev), else local compute via
         // the shared executor over loadLocalContextFromCache().
-        const itemActions = await getCurrentActions(item.filterId, cachedState.actions);
+        //
+        // Stage interlock is an ONLINE-only QA gate (commit d8afc02). Offline at
+        // a gated stage (WASH_OUT / DRY_OUT) the cached server tape has the
+        // advance stripped (only TERMINATE_CYCLE left), which would block the
+        // offline op the replay would have exempted — so drop the stale stripped
+        // tape and recompute locally. Online keeps respecting the live stripped
+        // tape. (Same rationale as buildOfflineState above.)
+        const itemGated = !online && !!cachedState.stageLookup?.[currentLifecycle ?? '']?.interlockGated;
+        const itemActions = await getCurrentActions(item.filterId, itemGated ? null : cachedState.actions);
 
         const gate = validateOfflineGate({
           activeStageKey: activeStage.key,
@@ -944,7 +952,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             for (const q of downstream) {
               try {
                 const cs = await getCache<any>(`filter-state-${q.filterId}`) ?? {};
-                const qActions = await getCurrentActions(q.filterId, cs.actions);
+                // Offline interlock exemption (commit d8afc02) — drop the stale
+                // gate-stripped server tape so a gated downstream filter still
+                // recomputes its real (interlock-free) tape locally.
+                const qGated = !online && !!cs.stageLookup?.[cs.currentState ?? '']?.interlockGated;
+                const qActions = await getCurrentActions(q.filterId, qGated ? null : cs.actions);
                 if (!hasActionKind(qActions, 'SUBMIT_CHECKLIST')) continue;
                 const qChecklists = await resolvePendingChecklistDialog(q.filterId, qActions);
                 if (!qChecklists || qChecklists.length === 0) continue;
@@ -1310,6 +1322,20 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         const cycle = cachedState.currentCycle ?? null;
         const hasCycle = cycle ? !!(cycle.status === 'IN_PROGRESS' || cycle.id) : !!cached?.currentCycleId;
 
+        // Stage interlock is an ONLINE-only QA gate (commit d8afc02 — offline
+        // cleaning is interlock-exempt). When the operator was ONLINE at WASH_OUT
+        // / DRY_OUT, the server cached a tape with the leave (advance/bypass)
+        // action stripped — only TERMINATE_CYCLE survives. Carrying that stale
+        // stripped tape into offline mode strands the operator at the gate:
+        // getCurrentActions() trusts a non-empty server tape verbatim, so it
+        // never offers the advance and the offline op the replay would have
+        // exempted can never be queued. Drop the cached server tape at a gated
+        // stage so getCurrentActions() recomputes the (interlock-free) tape
+        // locally and the offline advance is offered again. Non-gated stages are
+        // unaffected; the desktop page already omits `actions` offline for the
+        // same recompute behaviour.
+        const interlockGatedNow = !!cachedState.stageLookup?.[currentLifecycle ?? '']?.interlockGated;
+
         return {
           filterId,
           filterName: cached?.name || filterName,
@@ -1322,7 +1348,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           pmReasonKey: cachedState.pmReasonKey ?? null,
           blockChangeStatus: cachedState.blockChangeStatus ?? null,
           homeBlock: cachedState.homeBlock ?? null,
-          actions: cachedState.actions ?? null,
+          actions: interlockGatedNow ? null : (cachedState.actions ?? null),
         };
       };
 

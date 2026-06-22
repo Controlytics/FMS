@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased] — Stage interlock: offline exemption fix + bulk approve/reject + docs (2026-06-22)
+
+Hardening + UX pass on the cleaning **stage interlock** (the two-point QA gate after WASH_OUT / DRY_OUT; still **OFF by default**). Full reference: `docs/compliance/stage-interlock.md`.
+
+- **Bulk approve/reject on the Stage Approvals page** (`apps/web/src/routes/stage-approvals/index.tsx`): multi-select pending items + "Approve Selected" / "Reject Selected". One reauth password signs the whole batch, but each item still hits the existing per-item `/approve` / `/reject` endpoint, so every approval keeps its own audit signature, filter event, and operator notification. Partial failures are reported per-filter; stale orphans surface as per-item failures.
+- **Offline interlock-stuck fix** (`apps/web/src/routes/mobile/mobile-operations.tsx`, 3 sites): the interlock is online-only (offline cleaning is interlock-exempt — commit `d8afc02`), but the **tablet** was carrying the cached server action tape. When an operator was online at the gate, the server caches a tape with the advance *stripped* (only `TERMINATE_CYCLE` survives); going offline then stranded the operator with no advance. Fix: offline, at an interlock-gated stage, drop the stale stripped tape so `getCurrentActions()` recomputes the interlock-free tape locally. Guarded on `!online` so the live online interlock is untouched. Sites: `buildOfflineState()` + the two `getCurrentActions(...)` calls in `handleSubmitQueue`. The desktop page was already correct (it rebuilds offline state without a tape).
+- **Server stale-orphan guard** (`apps/api/src/modules/stage-approvals/service.ts`, `assertFilterStillAtGate`, wired into `approve()` + `reject()`): the offline fix *opens* a corruption path — an operator can enter the gate online (PENDING created), advance past it offline, and the PENDING orphans. Without a guard, an approver clicking **Reject** later would yank the now-progressed filter back to WASH_IN/DRY_IN and clear dryer state. The guard refuses with `409 APPROVAL_STALE` when the filter is no longer parked at the approval's stage/cycle. Normal online flow passes (filter is still at the gate when its approver acts).
+- **Verification**: `tsc --noEmit` clean for both `apps/web` and `apps/api`; `dist/` rebuilt + `DigiLog-FilterOps.apk` rebuilt; API restarted so the guard is live.
+- **Known open item (deferred — product/compliance decision)**: orphaned PENDING approvals are now *safe* (un-actionable) but still **sit in the approver inbox** as clutter. Proper cleanup (auto-resolve the PENDING on offline replay past the gate) needs a status semantic — add a `CANCELLED`/`SUPERSEDED` enum value (cleanest, needs a migration), reuse a status, or leave them visible-but-blocked.
+
 ## [Unreleased] — Data-ingestion + TimescaleDB removal — Phase 7-10 cleanup wrap (2026-06-17)
 
 Final cleanup wave for the data-ingestion + TimescaleDB tear-out started 2026-06-11 (Phases 1-6 landed as `a95f6eb`, Section 14 Debug Traces repurpose as `8619d24`). Pre-removal git tag: `pre-ingestion-removal`.

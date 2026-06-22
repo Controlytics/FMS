@@ -65,6 +65,37 @@ async function assertDifferentApprover(ctx: RequestContext, requestedBy: string)
   }
 }
 
+/**
+ * Guard against acting on a STALE (orphaned) approval.
+ *
+ * Online, a filter cannot LEAVE a gated stage until its approval is decided, so
+ * when the approver acts the filter is still parked at `row.stageKey` on the
+ * same cycle. But stage interlock is an ONLINE-only gate — offline cleaning is
+ * interlock-exempt (commit d8afc02). An operator who entered the gate online
+ * (or whose PENDING was created by the self-heal on an online poll) can advance
+ * PAST it offline; on replay the leave-gate is skipped and the filter moves on,
+ * leaving this PENDING approval orphaned.
+ *
+ * Acting on such an orphan is unsafe: reject() would yank an already-progressed
+ * filter back to WASH_IN / DRY_IN and clear dryer state mid-cycle. Refuse when
+ * the filter is no longer parked at this approval's gated stage (or has rolled
+ * to a different cycle). The legitimate online flow is unaffected — the filter
+ * is still at the gate when its approver acts, so this passes.
+ */
+async function assertFilterStillAtGate(row: { filterId: string; stageKey: string; cycleId: string | null }) {
+  const fd = await prisma.filterDetails.findUnique({
+    where: { assetInstanceId: row.filterId },
+    select: { currentLifecycleState: true, currentCycleId: true },
+  });
+  if (!fd || fd.currentLifecycleState !== row.stageKey || (row.cycleId && fd.currentCycleId !== row.cycleId)) {
+    throw new AppError(
+      409,
+      'APPROVAL_STALE',
+      'This filter has already moved past the gated stage (it was completed offline). This approval is no longer actionable.',
+    );
+  }
+}
+
 export const stageApprovalService = {
   /** PENDING items the current user can act on (their role, or all for SUPER_ADMIN). */
   async queue(ctx: RequestContext) {
@@ -106,6 +137,8 @@ export const stageApprovalService = {
     if (row.status !== 'PENDING') throw new AppError(400, 'INVALID_STATUS', 'This stage approval is not pending.');
     assertRoleAllowed(ctx, row.approverRole);
     await assertDifferentApprover(ctx, row.requestedBy);
+    // Refuse a stale orphan (filter already advanced past the gate offline).
+    await assertFilterStillAtGate(row);
 
     const cleanRemarks = typeof remarks === 'string' ? remarks.trim() || null : null;
 
@@ -185,6 +218,9 @@ export const stageApprovalService = {
     if (row.status !== 'PENDING') throw new AppError(400, 'INVALID_STATUS', 'This stage approval is not pending.');
     assertRoleAllowed(ctx, row.approverRole);
     await assertDifferentApprover(ctx, row.requestedBy);
+    // Refuse a stale orphan — rejecting after the filter advanced past the gate
+    // offline would yank an already-progressed filter back to WASH_IN / DRY_IN.
+    await assertFilterStillAtGate(row);
 
     // Cycle must still be active — a rejection that re-points lifecycle state at a
     // terminated/completed cycle would corrupt it.
