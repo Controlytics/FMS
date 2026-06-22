@@ -13,6 +13,14 @@ interface User { id: string; username: string; role?: string; fullName?: string;
  * ExportMenu; pass a buildSnapshot() that builds the report and returns
  * report.getSnapshot().
  */
+// 2026-06-22: "Send for Review" is HIDDEN across all report pages per request.
+// The component renders nothing, which also fixes Export-menu placement on pages
+// where it was a bare sibling in a `justify-between` header (the null child drops
+// out of the flex row, so the Export button lands on the right instead of being
+// stranded in the middle). The review-workflow UI below is retained for easy
+// re-enable — flip this flag back to true.
+const SEND_FOR_REVIEW_ENABLED = false;
+
 export function SendForReviewButton({ buildSnapshot, className }: {
   buildSnapshot: () => Promise<ReportSnapshot | null> | ReportSnapshot | null;
   className?: string;
@@ -54,6 +62,10 @@ export function SendForReviewButton({ buildSnapshot, className }: {
       toast.error('Failed', e?.message ?? 'Could not send for review.');
     } finally { setBusy(false); }
   };
+
+  // Hidden per request (see SEND_FOR_REVIEW_ENABLED note above). Placed after all
+  // hooks so hook order stays consistent (Rules of Hooks).
+  if (!SEND_FOR_REVIEW_ENABLED) return null;
 
   return (
     <>

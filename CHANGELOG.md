@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased] — Hide "Send for Review" + fix Export menu placement (2026-06-22)
+
+- **Hid "Send for Review" across all report pages.** `SendForReviewButton` (`apps/web/src/components/SendForReviewButton.tsx`) now renders `null` behind a `SEND_FOR_REVIEW_ENABLED = false` flag (workflow code retained for easy re-enable; guard placed after all hooks to respect Rules of Hooks). One change covers all 10 report pages (cleaning record/timeline/lifecycle, PM, audit, deviations, QNN, RFID track record, replacement, filters) and any future page — no per-page edits.
+- **Fixed Export-menu placement as a side effect.** Several pages laid the header out as `flex justify-between` with Export + Send-for-Review as bare siblings, which stranded the Export button in the *middle* (three flex children). With the null sibling dropping out of the flex row, Export is now the last child → right-aligned. Pages that already wrapped the two in a sub-div are unaffected.
+- **Verification**: web `tsc --noEmit` clean; "Send for Review" text confirmed gone from the built bundle; dist + APK rebuilt.
+- **Not touched**: the Report Reviews inbox page + its sidebar item (existing in-flight reviews still need actioning). Say the word to hide those too.
+
 ## [Unreleased] — Audit trail: render stage-approval template placeholders (2026-06-22)
 
 Fixed the audit trail showing literal `{stageKey}` / `{filterName}` instead of values on **Stage Approval Approved/Rejected** rows. The renderer `getAuditSummary()` (`apps/web/src/routes/audit/audit-helpers.ts`) substitutes a fixed allow-list of placeholders, and the stage-interlock templates' `{stageKey}`, `{filterName}`, `{rejectToStateKey}` were never added — so they passed through verbatim (while `{actor}` resolved). Added the three substitutions, prettifying the stage keys via `titleCase` (`WASH_OUT` → "Wash Out"). Render-time fix → **existing** audit rows now display correctly too (the data was always stored in `afterValue`). The reports/PDF module doesn't use this renderer, so no parallel gap. dist + APK rebuilt.
