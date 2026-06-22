@@ -74,6 +74,10 @@ export async function validateBlockChange(filterId: string, cleaningAreaId: stri
 
   const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
   const mode = await blockChangeService.getMode();
+  // NONE: no cross-block check at all — any filter may be cleaned in any block,
+  // nothing shown or asked. (Cycle-integrity is still enforced separately by
+  // validateAdvanceBlock: a cycle can't span blocks once started.)
+  if (mode === 'NONE') return;
   const targetBlock = await prisma.assetInstance.findUnique({
     where: { id: cleaningAreaId },
     select: { name: true },
@@ -124,6 +128,14 @@ export async function validateAdvanceBlock(
   const cycleBlockId = cycle?.cleaningAreaId ?? null;
   // Same block, or a legacy cycle started with no block bound → allow.
   if (!cycleBlockId || cleaningAreaId === cycleBlockId) return;
+
+  // Cross-block mode NONE = no block restriction ANYWHERE (per user). The
+  // start-time gate (validateBlockChange) already no-ops under NONE; this
+  // mid-cycle guard must too, otherwise an operator who selected a different
+  // block for a later stage hits BLOCK_MISMATCH even though blocks are meant to
+  // be unrestricted. CONFIRM/APPROVAL keep the guard (a cycle can't span blocks).
+  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+  if (await blockChangeService.getMode() === 'NONE') return;
 
   // A cycle is frozen to the block it started in. A stage submitted for a
   // different block is always rejected (the cycle can't move blocks mid-flight).

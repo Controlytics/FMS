@@ -16,10 +16,11 @@ export const blockChangeApprovalDef: ModuleConfigDefinition = {
       key: 'mode',
       type: 'select',
       label: 'Cross-Block Mode',
-      description: 'CONFIRM = operator self-confirms ("Continue with cleaning?") and proceeds. APPROVAL = operator submits a block-change request that an approver must approve before cleaning. Either way, OFFLINE never blocks — it shows an informational notice and proceeds.',
+      description: 'NONE = no cross-block check at all — any filter can be cleaned in any block with nothing shown or asked. CONFIRM = operator self-confirms ("Continue with cleaning?") and proceeds. APPROVAL = operator submits a block-change request that an approver must approve before cleaning. For CONFIRM/APPROVAL, OFFLINE never blocks — it shows an informational notice and proceeds.',
       group: 'Mode',
       default: 'CONFIRM',
       options: [
+        { value: 'NONE', label: 'None (no restriction — clean any block freely)' },
         { value: 'CONFIRM', label: 'Block confirmation (operator self-confirm)' },
         { value: 'APPROVAL', label: 'Block change request (needs approval)' },
       ],

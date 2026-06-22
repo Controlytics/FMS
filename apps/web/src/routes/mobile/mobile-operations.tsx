@@ -381,10 +381,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // need a queued password vs. immediate dialog.
   const { data: myReauthActionsData } = useSWR(online && user ? '/api/config/action-reauth/my-actions' : null);
 
-  // 2026-06-09: cross-block mode (CONFIRM self-confirm | APPROVAL request).
+  // 2026-06-09: cross-block mode (NONE no-check | CONFIRM self-confirm | APPROVAL request).
   const { data: bcCfg } = useSWR<any>(online ? '/api/config/dynamic/block-change-approval' : null);
-  const blockChangeMode: 'CONFIRM' | 'APPROVAL' =
-    (bcCfg?.mode ?? bcCfg?.value?.mode ?? bcCfg?.data?.mode) === 'APPROVAL' ? 'APPROVAL' : 'CONFIRM';
+  const bcModeRaw = (bcCfg?.mode ?? bcCfg?.value?.mode ?? bcCfg?.data?.mode);
+  const blockChangeMode: 'NONE' | 'CONFIRM' | 'APPROVAL' =
+    bcModeRaw === 'NONE' ? 'NONE' : bcModeRaw === 'APPROVAL' ? 'APPROVAL' : 'CONFIRM';
 
   // My Tasks + Approvals — fetch when user opens the view, cache for offline
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
@@ -837,7 +838,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           continue;
         }
         // OFFLINE cross-block: never blocks (per config) — informational notice + proceed.
-        if (!online && cachedState.homeBlock?.id && selectedBlock?.id && cachedState.homeBlock.id !== selectedBlock.id) {
+        // NONE mode shows nothing at all (no check, no notice).
+        if (!online && blockChangeMode !== 'NONE' && cachedState.homeBlock?.id && selectedBlock?.id && cachedState.homeBlock.id !== selectedBlock.id) {
           setSuccess(`Note: ${item.filterName} belongs to ${cachedState.homeBlock.name}, not ${selectedBlock.name}. Recorded offline.`);
         }
 
@@ -1427,7 +1429,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         }
         // OFFLINE cross-block: never blocks (per config). Show an informational
         // notice that the filter belongs to another block and proceed (queues).
-        if (state.homeBlock?.id && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id) {
+        // NONE mode shows nothing at all (no check, no notice).
+        if (blockChangeMode !== 'NONE' && state.homeBlock?.id && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id) {
           setSuccess(`Note: this filter belongs to ${state.homeBlock.name}, not ${selectedBlock.name}. Recorded offline.`);
         }
       }
@@ -1464,8 +1467,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Up-front block verification. If the filter belongs to a different
       // block and there is no standing approval, show the request-block-change
       // popup now and stop.
-      // Offline: if homeBlock is cached and doesn't match selected block, block the operation
-      if (!online && state.homeBlock && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id && state.blockChangeStatus !== 'APPROVED') {
+      // Offline: if homeBlock is cached and doesn't match selected block, block the operation.
+      // NONE mode = no cross-block check at all → never force the prompt. We also
+      // respect a cached 'MATCH' (the server stamps MATCH under NONE even for a
+      // different block), so this works offline even if the config isn't cached.
+      if (!online && blockChangeMode !== 'NONE' && state.blockChangeStatus !== 'MATCH'
+        && state.homeBlock && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id && state.blockChangeStatus !== 'APPROVED') {
         state.blockChangeStatus = 'REQUIRED';
       }
       if (state.blockChangeStatus === 'REQUIRED' && state.homeBlock && selectedBlock?.id) {

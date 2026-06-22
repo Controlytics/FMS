@@ -205,7 +205,7 @@ export async function getCurrentStateImpl(
   //   'APPROVED' = APPROVAL mode, different block, an approval exists → proceed
   // Offline: the FE ignores this and just shows an informational notice (never gates).
   let blockChangeStatus: 'MATCH' | 'CONFIRM' | 'REQUIRED' | 'APPROVED' | null = null;
-  let blockChangeMode: 'CONFIRM' | 'APPROVAL' = 'CONFIRM';
+  let blockChangeMode: 'NONE' | 'CONFIRM' | 'APPROVAL' = 'CONFIRM';
   if (!filter.currentCycleId) {
     const homeBlockRaw = await getFilterHomeBlock(filterId);
     homeBlock = homeBlockRaw ? { id: homeBlockRaw.blockId, name: homeBlockRaw.blockName } : null;
@@ -216,7 +216,13 @@ export async function getCurrentStateImpl(
     } else {
       const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
       blockChangeMode = await blockChangeService.getMode();
-      if (blockChangeMode === 'APPROVAL') {
+      if (blockChangeMode === 'NONE') {
+        // No cross-block check — treat a different block as a clean MATCH so the
+        // FE never prompts (online or via cached state offline). This MATCH also
+        // lets the offline client skip its own block-change force without needing
+        // the config cached on-device.
+        blockChangeStatus = 'MATCH';
+      } else if (blockChangeMode === 'APPROVAL') {
         blockChangeStatus = (await blockChangeService.hasApproval(filterId, cleaningAreaId)) ? 'APPROVED' : 'REQUIRED';
       } else {
         blockChangeStatus = 'CONFIRM';

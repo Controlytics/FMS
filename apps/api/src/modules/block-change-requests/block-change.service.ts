@@ -7,15 +7,19 @@ import { createNotification } from '../notifications/notification.service.js';
 export const blockChangeService = {
   /**
    * Cross-block mode (config `block-change-approval.mode`):
+   *   - 'NONE'     → no cross-block check at all; clean any filter in any block.
    *   - 'CONFIRM'  → operator self-confirm (no approval); the default.
    *   - 'APPROVAL' → formal block-change request that an approver must approve.
-   * Online only — OFFLINE never gates (the FE shows an informational notice and
-   * the server auto-passes offline replays). Defaults to 'CONFIRM' when the
-   * config row/key is absent.
+   * For CONFIRM/APPROVAL: online only — OFFLINE never gates (the FE shows an
+   * informational notice and the server auto-passes offline replays). Defaults
+   * to 'CONFIRM' when the config row/key is absent.
    */
-  async getMode(): Promise<'CONFIRM' | 'APPROVAL'> {
+  async getMode(): Promise<'NONE' | 'CONFIRM' | 'APPROVAL'> {
     const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'block-change-approval' } });
-    return (cfg?.configValue as any)?.mode === 'APPROVAL' ? 'APPROVAL' : 'CONFIRM';
+    const mode = (cfg?.configValue as any)?.mode;
+    if (mode === 'NONE') return 'NONE';
+    if (mode === 'APPROVAL') return 'APPROVAL';
+    return 'CONFIRM';
   },
 
   async create(ctx: RequestContext, data: {

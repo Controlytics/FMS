@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] — Cross-block cleaning: add "None" mode (no restriction) (2026-06-22)
+
+Added a third **Cross-Block Mode** alongside CONFIRM and APPROVAL: **`NONE`** — no cross-block check at all. Any filter can be cleaned in any block with nothing shown or asked (no confirm dialog, no approval request, no "recorded offline" notice). Config stays at `CONFIRM` by default, so existing installs are unchanged.
+
+- **`block-change-approval.def.ts`** — added the `NONE` option to the mode selector (auto-rendered config page).
+- **`block-change.service.ts` `getMode()`** — now returns `'NONE' | 'CONFIRM' | 'APPROVAL'`.
+- **`filter-resolver.ts`** — both block gates now no-op under `NONE`:
+  - `validateBlockChange()` (start-time cross-block gate) returns early.
+  - `validateAdvanceBlock()` (mid-cycle "cycle frozen to its starting block" guard, error `BLOCK_MISMATCH`) returns early too. **This closed a gap**: with only the start gate disabled, an operator who selected a different block for a later stage still hit `BLOCK_MISMATCH` mid-cycle even though blocks were meant to be unrestricted. CONFIRM/APPROVAL keep this guard (a cycle can't span blocks).
+- **`current-state.ts`** — under `NONE`, a different block is stamped `blockChangeStatus = 'MATCH'` so the FE never prompts (online, and offline via the cached current-state — doesn't depend on the config being cached on-device).
+- **`mobile-operations.tsx`** — reads `NONE`; gated the offline-force-prompt (also respects cached `MATCH`) and both passive "recorded offline" notices on `NONE`. Desktop `filter-operations.tsx` needed no change (it only prompts on backend signals, which never fire under `NONE`).
+- **Independent of the stage interlock**: with interlock ON, Wash Out / Dry Out still require approval (online) regardless of block mode — they're separate gates. `validateAdvanceBlock` runs before the interlock leave-gate, which is why a block mismatch surfaced first.
+- **Verification**: `tsc --noEmit` clean (API + web); config registry loaded clean (34 modules); FE `NONE` logic confirmed in the bundle; APK rebuilt.
+
 ## [Unreleased] — Stage interlock: offline exemption fix + bulk approve/reject + docs (2026-06-22)
 
 Hardening + UX pass on the cleaning **stage interlock** (the two-point QA gate after WASH_OUT / DRY_OUT; still **OFF by default**). Full reference: `docs/compliance/stage-interlock.md`.
