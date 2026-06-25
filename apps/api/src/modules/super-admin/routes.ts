@@ -387,7 +387,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const dateFields = ['startedAt', 'completedAt', 'terminatedAt', 'dryerStartedAt'];
     const stringFields = ['status', 'cycleCode', 'cleaningReasonKey', 'cleaningReasonLabel', 'cleaningJustification', 'terminationReason'];
     const numFields = ['sequenceNumber', 'profileVersion', 'dryerDurationMinutes'];
-    const uuidFields = ['filterId', 'ahuId', 'profileId', 'cleaningAreaId', 'equipmentGroupId'];
+    const uuidFields = ['filterId', 'profileId', 'cleaningAreaId', 'equipmentGroupId'];
     for (const f of stringFields) { if (body[f] !== undefined) data[f] = body[f]; }
     for (const f of dateFields) { if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null; }
     for (const f of numFields) { if (body[f] !== undefined) data[f] = body[f] !== null ? Number(body[f]) : null; }

@@ -16,7 +16,6 @@ const baseCycle: CycleSlice = {
   id: 'c1',
   cycleCode: 'CC-1',
   filterId: 'f1',
-  ahuId: null,
   profileId: 'p1',
   profileVersion: 1,
   status: 'IN_PROGRESS',

@@ -132,7 +132,6 @@ function cycleRow(overrides: Partial<{ id: string; profileId: string; profileVer
     id: overrides.id ?? CYCLE_ID,
     cycleCode: 'CC-1',
     filterId: FILTER_ID,
-    ahuId: null,
     profileId: overrides.profileId ?? PROFILE_ID,
     profileVersion: overrides.profileVersion ?? PROFILE_VERSION,
     status: overrides.status ?? 'IN_PROGRESS',

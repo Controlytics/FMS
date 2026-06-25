@@ -105,7 +105,6 @@ function makeFixture(): LocalContext {
     id: 'cycle-1',
     cycleCode: 'C-2026-001',
     filterId: 'filter-1',
-    ahuId: null,
     profileId: profile.id,
     profileVersion: profile.version,
     status: 'IN_PROGRESS',

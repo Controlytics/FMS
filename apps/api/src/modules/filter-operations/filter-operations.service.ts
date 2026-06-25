@@ -244,8 +244,7 @@ export class FilterOperationsService {
 
     // Hierarchy/search scope → set of descendant FILTER ids (null = no scope).
     // Folds block/area/ahu + name search into ONE filterId constraint applied to
-    // BOTH cycles and manual rows (the old cycleWhere.ahuId column never filtered
-    // manual events). A single `filterId` (specific-filter dropdown) wins.
+    // BOTH cycles and manual rows. A single `filterId` (specific-filter dropdown) wins.
     const scopeFilterIds = await this.resolveScopeFilterIds(query);
     if (scopeFilterIds !== null && scopeFilterIds.length === 0) {
       return { data: [], total: 0, page, limit, totalPages: 0 };
@@ -255,9 +254,9 @@ export class FilterOperationsService {
       : (scopeFilterIds !== null ? { in: scopeFilterIds } : undefined);
 
     if (query.status || query.cleaningReasonKey) {
-      // ahuId is folded into scopeFilterIds — don't also pass it as the cycle
-      // column filter (would double-filter on two different semantics).
-      const r = await this.getCycles(ctx, { ...query, ahuId: undefined, filterIds: scopeFilterIds ?? undefined });
+      // Hierarchy scope (block/area/ahu) is already folded into scopeFilterIds,
+      // applied below as the filterIds constraint — getCycles filters on filterId.
+      const r = await this.getCycles(ctx, { ...query, filterIds: scopeFilterIds ?? undefined });
       return { ...r, data: r.data.map((c: any) => ({ ...c, _kind: 'cycle' })) };
     }
 
@@ -423,7 +422,6 @@ export class FilterOperationsService {
     if (ids) where.id = { in: ids };
     if (query.filterId) where.filterId = query.filterId;
     else if (Array.isArray(query.filterIds)) where.filterId = { in: query.filterIds };
-    if (query.ahuId) where.ahuId = query.ahuId;
     // Effective-status mapping: RETIRED/REPLACED are TERMINATED cycles carrying a
     // terminationReason of that value; plain TERMINATED excludes those (the pills
     // are separate). SQL NOT IN drops NULL rows, so OR-in the null/free-text

@@ -90,7 +90,6 @@ function setupBaselineMocks(opts: {
     terminatedAt: null,
     cycleCode: '',
     filterId: FILTER_ID,
-    ahuId: null,
   });
   // Phase 8.5 Commit 3 swap: `assertTapeVersionFresh` reads ctx.events.length,
   // not a count() query. Build a minimal-shape event array of the right length.

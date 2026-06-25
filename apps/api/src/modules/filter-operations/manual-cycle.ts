@@ -92,7 +92,7 @@ export async function startManualCycleTx(tx: any, opts: {
 
   const newCycle = await tx.cleaningCycle.create({
     data: {
-      cycleCode, filterId, ahuId: null,
+      cycleCode, filterId,
       profileId: cleaningProfileId, profileVersion: cp?.version ?? 1,
       checklistVersionPins: {}, sequenceNumber: seq,
       cleaningReasonKey: reason.key, cleaningReasonLabel: reason.name,

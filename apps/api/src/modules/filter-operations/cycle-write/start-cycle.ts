@@ -165,7 +165,7 @@ export async function startCycleImpl(
 
     const newCycle = await tx.cleaningCycle.create({
       data: {
-        cycleCode, filterId, ahuId: null,
+        cycleCode, filterId,
         // Pre-existing latent bug caught during P1 verification (2026-05-02):
         // cleaning_cycles.profile_id FKs to filter_cleaning_profiles.id, NOT
         // filter_profiles.id. resolveFilterProfile() can return either depending

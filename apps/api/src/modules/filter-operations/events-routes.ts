@@ -43,7 +43,6 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           filterId: { type: 'string', format: 'uuid' },
-          ahuId: { type: 'string', format: 'uuid' },
           // RETIRED / REPLACED = effective statuses (TERMINATED + terminationReason),
           // mapped in getCycles. Accept them so the /cycles route doesn't 400.
           status: { type: 'string', enum: ['IN_PROGRESS', 'COMPLETED', 'TERMINATED', 'RETIRED', 'REPLACED'] },

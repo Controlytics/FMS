@@ -84,7 +84,6 @@ function cycle(overrides: Partial<CycleSlice> = {}): CycleSlice {
     id: 'c1',
     cycleCode: 'CC-1',
     filterId: 'f1',
-    ahuId: null,
     profileId: 'p1',
     profileVersion: 2,
     status: 'IN_PROGRESS',

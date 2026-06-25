@@ -1549,7 +1549,6 @@ model CleaningCycle {
   id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   cycleCode             String              @unique @map("cycle_code") @db.VarChar(100)
   filterId              String              @map("filter_id") @db.Uuid
-  ahuId                 String?             @map("ahu_id") @db.Uuid
   profileId             String              @map("profile_id") @db.Uuid
   profileVersion        Int                 @map("profile_version")
   sequenceNumber        Int                 @map("sequence_number")
@@ -1600,7 +1599,6 @@ model CleaningCycle {
   // via apps/api/prisma/sql/invariants.sql after every db push.
 
   @@index([filterId, status])
-  @@index([ahuId, status])
   @@index([status])
   @@index([startedAt])
   @@index([cleaningReasonKey])

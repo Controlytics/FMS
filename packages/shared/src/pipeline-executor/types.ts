@@ -133,7 +133,6 @@ export interface CycleSlice {
   id: string;
   cycleCode: string;
   filterId: string;
-  ahuId: string | null;
   profileId: string;
   profileVersion: number;
   status: string; // 'IN_PROGRESS' | 'COMPLETED' | 'TERMINATED'
