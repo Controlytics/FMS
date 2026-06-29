@@ -103,7 +103,7 @@ export function RfidTrackRecordPage() {
   const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
   return (
-    <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={totalPages}>
+    <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={totalPages} hideFooter>
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-3">

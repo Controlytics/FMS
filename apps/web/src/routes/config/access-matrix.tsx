@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { apiClient, api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -18,6 +18,26 @@ interface Module {
   description: string;
   category: string;
 }
+
+// Modules edited only on the consolidated Role Assignments page — they have no
+// standalone config page and are all SUPER_ADMIN-only, so a per-role access grant
+// here would do nothing. Hidden from the matrix. Keep in sync with
+// roleAssignmentKeys in routes/config/index.tsx.
+const HIDDEN_MODULE_KEYS = new Set([
+  'pm-schedule-approval', 'replacement-schedule-approval', 'qnn-notifications',
+  'guest-cleaning-requests', 'block-change-approval', 'stage-interlock', 'pm-schedule-settings',
+]);
+
+// Modules that have a hardcoded page (no config def → not in the manifest) but
+// should still be grantable per-role here. Injected as synthetic matrix rows.
+const EXTRA_MODULES: Module[] = [
+  {
+    moduleKey: 'filter-data-management',
+    moduleName: 'Filter Data Management',
+    description: 'Edit, delete, or unretire retirement and replacement records (no audit trail)',
+    category: 'filter-management',
+  },
+];
 
 export function AccessMatrixPage() {
   const { toast } = useToast();
@@ -39,11 +59,13 @@ export function AccessMatrixPage() {
     [rolesData],
   );
 
-  // Group modules by category, exclude the access-matrix module itself
+  // Group modules by category, exclude the access-matrix module itself and the
+  // consolidated modules that no longer have a standalone page (see HIDDEN_MODULE_KEYS).
   const modulesByCategory = useMemo(() => {
     const groups = new Map<string, Module[]>();
-    for (const m of (manifest ?? []) as Module[]) {
-      if (m.moduleKey === 'access-matrix') continue;
+    const all = [...((manifest ?? []) as Module[]), ...EXTRA_MODULES];
+    for (const m of all) {
+      if (m.moduleKey === 'access-matrix' || HIDDEN_MODULE_KEYS.has(m.moduleKey)) continue;
       const cat = m.category || 'other';
       if (!groups.has(cat)) groups.set(cat, []);
       groups.get(cat)!.push(m);
@@ -188,8 +210,8 @@ export function AccessMatrixPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {[...modulesByCategory.entries()].map(([category, modules]) => (
-                  <>
-                    <tr key={`cat-${category}`} className="bg-slate-50/50">
+                  <Fragment key={category}>
+                    <tr className="bg-slate-50/50">
                       <td colSpan={roles.length + 2} className="px-5 py-2 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                         {category}
                       </td>
@@ -221,7 +243,7 @@ export function AccessMatrixPage() {
                         </td>
                       </tr>
                     ))}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

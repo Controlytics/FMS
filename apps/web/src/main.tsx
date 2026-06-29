@@ -31,9 +31,8 @@ import { RoleAccessPage } from './routes/config/role-access';
 import { FieldIdsPage } from './routes/config/field-ids';
 import { UserIdConfigPage } from './routes/config/user-id';
 import { AccessMatrixPage } from './routes/config/access-matrix';
-import { ExportOptionsPage } from './routes/config/export-options';
 import { ReplacementScheduleFiltersPage } from './routes/config/replacement-schedule-filters';
-import { ReportSignatoriesPage } from './routes/config/report-signatories';
+const ReportConfigPage = lazy(() => import("./routes/config/report-config").then(m => ({ default: m.ReportConfigPage })));
 import { OfflineCacheConfigPage } from './routes/config/offline-cache';
 import { BackupRestorePage } from './routes/config/backup';
 import { DynamicConfigPage } from './routes/config/dynamic-config';
@@ -79,8 +78,6 @@ const FilterFieldOptionsConfigPage = lazy(() => import("./routes/config/filter-f
 const EquipmentGroupsConfigPage = lazy(() => import("./routes/config/equipment-groups").then(m => ({ default: m.EquipmentGroupsConfigPage })));
 const CleaningProfileAssignmentPage = lazy(() => import('./routes/config/cleaning-profile-assignment').then(m => ({ default: m.CleaningProfileAssignmentPage })));
 const AhuFilterSetConfigPage = lazy(() => import('./routes/config/ahu-filter-set-config').then(m => ({ default: m.AhuFilterSetConfigPage })));
-const ReportSettingsPage = lazy(() => import("./routes/config/report-settings").then(m => ({ default: m.ReportSettingsPage })));
-const ReportLabelsPage = lazy(() => import("./routes/config/report-labels").then(m => ({ default: m.ReportLabelsPage })));
 const PmScheduleListPage = lazy(() => import("./routes/pm-schedules/index").then(m => ({ default: m.PmScheduleListPage })));
 const PmScheduleDetailPage = lazy(() => import("./routes/pm-schedules/detail").then(m => ({ default: m.PmScheduleDetailPage })));
 const MyTasksPage = lazy(() => import("./routes/my-tasks/index").then(m => ({ default: m.MyTasksPage })));
@@ -189,15 +186,12 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Super Admin Settings — SUPER_ADMIN role only */}
             <Route path="/config/branding" element={<RequireRole roles={['SUPER_ADMIN']}><BrandingConfigPage /></RequireRole>} />
-            <Route path="/config/report-settings" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportSettingsPage /></Suspense></RequireRole>} />
-            <Route path="/config/report-labels" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><ReportLabelsPage /></Suspense></RequireRole>} />
+            <Route path="/config/report-config" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><ReportConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/roles" element={<RequireRole permissions={[PERMISSIONS.ROLE_MANAGE]}><RoleAccessPage /></RequireRole>} />
             <Route path="/config/field-ids" element={<RequireRole permissions={[PERMISSIONS.FIELD_ID_UPDATE]}><FieldIdsPage /></RequireRole>} />
             <Route path="/config/user-id" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><UserIdConfigPage /></RequireRole>} />
             <Route path="/config/access-matrix" element={<RequireRole roles={['SUPER_ADMIN']}><AccessMatrixPage /></RequireRole>} />
-            <Route path="/config/export-options" element={<RequireRole roles={['SUPER_ADMIN']}><ExportOptionsPage /></RequireRole>} />
             <Route path="/config/replacement-schedule-filters" element={<RequireRole roles={['SUPER_ADMIN']}><ReplacementScheduleFiltersPage /></RequireRole>} />
-            <Route path="/config/report-signatories" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><ReportSignatoriesPage /></RequireRole>} />
             <Route path="/config/offline-cache" element={<RequireRole roles={['SUPER_ADMIN']}><OfflineCacheConfigPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
             <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />

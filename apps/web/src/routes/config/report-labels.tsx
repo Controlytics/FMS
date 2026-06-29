@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
@@ -58,26 +57,20 @@ export function ReportLabelsPage() {
   const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="relative overflow-hidden rounded-2xl p-6 text-white shadow-2xl" style={{ background: 'linear-gradient(135deg, var(--theme-primary), var(--theme-secondary))' }}>
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <Link to="/config" className="text-white/70 hover:text-white text-sm">← Configuration</Link>
-            <h1 className="text-2xl font-bold mt-1">Report Labels</h1>
-            <p className="text-white/80 text-sm mt-1">Customize report titles, subtitles, and table column headers — applied to both the on-screen view and the PDF. Leave a field blank to keep the built-in label. (Logo &amp; company name are set in Branding.)</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={handleReset} disabled={!canWrite}
-              className="px-4 py-2 rounded-lg text-sm font-semibold bg-white/15 hover:bg-white/25 transition-colors disabled:opacity-50">
-              Reset all to defaults
-            </button>
-            <button onClick={handleSave} disabled={saving || !dirty || !canWrite}
-              title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-              className="px-5 py-2 rounded-lg text-sm font-semibold bg-white text-slate-800 hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-              {saving ? 'Saving…' : 'Save Changes'}
-            </button>
-          </div>
+    <div className="space-y-5">
+      {/* Panel toolbar */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <p className="text-sm text-slate-500 max-w-2xl">Customize report titles, subtitles, and table column headers — applied to both the on-screen view and the PDF. Leave a field blank to keep the built-in label. (Logo &amp; company name are set on the Identity tab / Branding.)</p>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={handleReset} disabled={!canWrite}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors disabled:opacity-50">
+            Reset all
+          </button>
+          <button onClick={handleSave} disabled={saving || !dirty || !canWrite}
+            title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
         </div>
       </div>
 
@@ -116,8 +109,7 @@ export function ReportLabelsPage() {
 
       <div className="flex justify-end">
         <button onClick={handleSave} disabled={saving || !dirty || !canWrite}
-          className="px-6 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: 'var(--theme-primary)' }}>
+          className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>

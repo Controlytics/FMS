@@ -1,5 +1,177 @@
 # Changelog
 
+## [Unreleased] — Report Configuration: add Export tab (2026-06-29)
+
+Added **Export Options** as a fourth tab on the combined Report Configuration page (Identity / Labels / Signatories / **Export**). The Export tab is the existing role × page → PDF/Excel matrix (`export-options` key, converted to a panel). Removed its standalone config card + `/config/export-options` route. **Access:** export-options' SUPER_ADMIN-only restriction lived only at the route level (its endpoints are CONFIG_READ/UPDATE), so the combined `/config/report-config` route was bumped to **SUPER_ADMIN** to preserve that (and to match the card's Super Admin Settings placement). The `export-options` def/endpoints are retained.
+
+**Verification**: web `tsc` clean; `vite build` clean; dist rebuilt. Browser: Report Configuration shows four tabs; Export tab renders the PDF/Excel matrix; `/config` no longer shows a standalone Export Options card; no console errors.
+
+## [Unreleased] — Combine the three report configs into one "Report Configuration" page (2026-06-29)
+
+Merged **Report Page Titles**, **Report Labels**, and **Report Signatories** into a single **Report Configuration** page (`/config/report-config`) with three tabs — **Identity** / **Labels** / **Signatories** — mirroring the Role Assignments consolidation. Backend unchanged: each tab still reads/writes its own config key (`report-page-titles` / `report-labels` / `report-signatories`) and keeps its own Save (no data migration). The three page components were converted to header-less panels (slim toolbar + Save) hosted by the new tabbed shell (`routes/config/report-config.tsx`).
+
+- `config/index.tsx`: the three cards are replaced by one **Report Configuration** card.
+- `main.tsx`: removed `/config/report-page-titles`, `/config/report-labels`, `/config/report-signatories`; added `/config/report-config`.
+- The three defs/endpoints are retained (they back the tabs). Their cards are gone; `customPagePath` is now vestigial (never navigated — `hasCustomPage:true` excludes them from auto-cards). Access matrix still lists the three storage keys (left as-is per scope).
+
+**Verification**: web `tsc` clean; `vite build` clean; dist rebuilt. Browser: `/config/report-config` shows all three tabs, each rendering its editor + Save; `/config` shows a single Report Configuration card (old three gone); no console errors.
+
+## [Unreleased] — RFID Track Record: hide the report footer (2026-06-29)
+
+On the RFID Track Record view the report footer (identity line + "X records / Page X of Y") sat below the page's own pagination ("Showing 1–50 of 427 … Page 1/9") and was unwanted. Added two opt-in props to `ReportPageWrapper`: `hideFooterStats` (drop just the count/page row, keep the identity line) and `hideFooter` (drop the whole footer). RFID Track Record now uses `hideFooter` — no footer below the pagination; the report header (logo + company + application name + title) is unchanged. All other reports (Audit, Filter Traceability, QNN) keep the full footer (both props default false).
+
+**Verification**: web `tsc` clean; `vite build` clean; dist rebuilt. Browser: RFID Track Record shows no identity/count/page footer below the pagination (header identity intact); Audit footer unchanged. No console errors.
+
+## [Unreleased] — PDF reports: fix doubled identity + use configurable Report identity (2026-06-29)
+
+The PDF report header printed `appName + " - Digital Filter Management System"` (a hardcoded suffix in `apps/web/src/lib/pdf-report.ts`), so with `appName = "Filter Management System"` it read "Filter Management System - Digital Filter Management System". Removed the hardcoded suffix — the header now shows just the application name. Also made the PDF identity **configurable** like the on-screen report: `loadBranding()` now layers the **Report Page Titles** company/app overrides on top of Branding (override → Branding), so PDF header (Company name / Application name) and footer (`Company | Application`) match the on-screen report.
+
+**Verification**: web `tsc` clean; `vite build` clean; dist rebuilt. (PDF content isn't browser-inspectable via the harness; change is a localized header-string + identity-source fix, typecheck-verified.)
+
+## [Unreleased] — Report Page Titles: remove the configurable common labels (2026-06-29)
+
+Removed the "Common labels" section (the configurable **performed-by prefix / record-count word / pagination label**) from Report Page Titles. Those three now use fixed defaults in `ReportPageWrapper` (`By:`, `records`, `Page X of Y`). The page is now solely the **Report identity** (company name + application name overrides → Branding fallback). Trimmed `use-report-page-titles.ts` (dropped the labels interface/defaults), updated the def/card/CLAUDE.md descriptions.
+
+**Verification**: web `tsc` clean; `vite build` clean; dist rebuilt. Browser: config page shows only Report identity (no Common labels); Audit report still renders By/records/Page + the company·application identity line in header & footer; no console errors.
+
+## [Unreleased] — Report header/footer identity (logo + company + app name) (2026-06-29)
+
+Added the **logo, company name, and application name** to both the report header **and** footer (`ReportPageWrapper`), configurable via **Report Page Titles**:
+- Header now shows: logo · company name · **application name** (new) · report title · performed-by.
+- Footer now carries a matching identity line: logo · company name · application name, above the record-count / pagination row.
+- Two new override fields on the Report Page Titles config page — **Company name** and **Application name** — stored on the `report-page-titles` config. Blank falls back to the global **Branding** value (shown as the field placeholder), so reports match the app by default but can be overridden per the report surface. The logo always comes from Branding.
+
+`use-report-page-titles.ts` resolves `companyName`/`appName` (override → Branding). No backend change (the config PUT already accepts an open object). 
+
+**Verification**: web `tsc` clean; `vite build` clean; dist rebuilt. Browser: config page shows the Report identity fields with Branding placeholders; the Audit report header renders company + application name, and the footer renders the matching "Company · Application" identity line. No console errors. (No overrides saved — reports show Branding values by default.)
+
+## [Unreleased] — Replace Report Settings with Report Page Titles (2026-06-29)
+
+Removed the **Report Settings** config (show/hide toggles + custom header/footer text + records-per-page + compact mode) and replaced it with **Report Page Titles** — a focused config for the labels that are common to *every* report's on-screen page view (rendered by `ReportPageWrapper`). Report-specific titles stay in **Report Labels**; PDF exports are unaffected.
+
+**New config `report-page-titles`** (category *display*, `requiredRole: null`): three editable labels —
+- `performedByLabel` (header prefix before the viewer's name, default `By:`),
+- `recordsLabel` (footer word after the record count, default `records`),
+- `pageLabel` (footer word before the page number in "Page X of Y", default `Page`).
+
+Blank = built-in default. Backend: `report-page-titles.def.ts` (`hasCustomPage:true`) + `static-routes/report-page-titles.routes.ts` — `GET /report-page-titles/current` (all authenticated users, so report viewers get the labels), `GET` (CONFIG_READ) + `PUT` (CONFIG_UPDATE, audited as `CONFIG_CHANGED`). Frontend: `routes/config/report-page-titles.tsx` (3 fields with live previews) + `hooks/use-report-page-titles.ts`; the config card replaces the Report Settings card.
+
+**Behavior changes from the removal**:
+- `ReportPageWrapper` now **always** renders the header + footer (the per-part show/hide toggles, custom header/footer text, and compact mode are gone).
+- The three report pages that defaulted their page size from `report-settings.recordsPerPage` (Audit, Cleaning Record history, Filter Traceability) now take it from **Pagination Settings** (`usePaginationDefaults().defaultLimit`).
+
+Deleted: `report-settings.def.ts`, `report-settings.routes.ts`, the `/report-settings/current` GET in `config/routes.ts`, `routes/config/report-settings.tsx`, `hooks/use-report-config.ts`, and the main.tsx route/import. The `phase4-perms-themes-reports` e2e was repointed to the new config. Config-def count unchanged (−1/+1 = 34).
+
+**Verification**: API + web `tsc` clean; `vite build` clean; dist rebuilt. Live: `/report-page-titles/current` → 200, `/report-settings/current` → 404, manifest swapped. Browser: config page renders with previews; Audit report chrome shows By/records/Page; edited "records"→"entries" propagated to the report, then reverted to default (net-zero). No console errors.
+
+## [Unreleased] — Configuration Access: make Filter Data Management grantable (2026-06-29)
+
+Filter Data Management is a hardcoded config page (no config def), so it never appeared in the Configuration Access matrix, and its card sat in the SUPER_ADMIN-only section — so it couldn't be delegated. Made it grantable per-role **while keeping the card in the Super Admin Settings section**:
+- **`access-matrix.tsx`**: added an `EXTRA_MODULES` list (injected as synthetic matrix rows for hardcoded pages with no def) containing Filter Data Management, so it now shows under the *filter-management* category with a checkbox per role. The backend `PUT /api/config/access-matrix` already accepts arbitrary module keys (`additionalProperties` schema), so the grant persists with no backend change.
+- **`config/index.tsx`**: Filter Data Management **stays in the Super Admin Settings block** (not moved to the general section). Added `EXPLICIT_GRANT_KEYS` + a `visibleSuperAdminCards` filter so the Super Admin section renders for SUPER_ADMIN (all cards) and for any non-admin role that has been explicitly granted a delegable card — showing **only** that card (e.g. Filter Data Management), never the other SA-only cards (Branding / Roles / Backup / etc.). Fail-closed: a non-admin sees it only when explicitly granted (it edits/deletes filter records with no audit trail). SUPER_ADMIN always retains access; the route still requires `CONFIG_READ`/`CONFIG_UPDATE` (defense in depth).
+
+**Verification**: `tsc --noEmit` clean; `vite build` clean; dist rebuilt. Browser-verified: the matrix lists Filter Data Management; on `/config` the card renders once, in the Super Admin Settings section (not the general section), for SUPER_ADMIN; no console errors.
+
+## [Unreleased] — Configuration Access: hide consolidated modules + fix key warning (2026-06-29)
+
+The Configuration Access matrix (`apps/web/src/routes/config/access-matrix.tsx`) still listed the seven modules that were folded into Role Assignments (pm/replacement workflow, QNN, guest requests, cross-block, stage interlock, pm settings). They have no standalone page and are SUPER_ADMIN-only, so a per-role access grant for them did nothing — dead, misleading rows. Added `HIDDEN_MODULE_KEYS` (kept in sync with `roleAssignmentKeys` in `config/index.tsx`) to exclude them from the matrix. Also fixed a pre-existing React "unique key" console warning — the per-category row group used a keyless `<>` fragment; switched to `<Fragment key={category}>`.
+
+**Verification**: `tsc --noEmit` clean; `vite build` clean; dist rebuilt. Browser-verified: the seven modules no longer appear; legitimate modules (Branding, Report Settings, Schedule AHU Filters, …) remain grouped by category; console is clean (key warning gone).
+
+## [Unreleased] — Admin Requests: UI refresh + accurate status counts (2026-06-29)
+
+Reworked the Admin Requests screen (`apps/web/src/routes/admin-requests/index.tsx`) from a flat table into a more finished console:
+- **Stat / filter cards** (All / Pending / Approved / Rejected) with icons and colored accents replace the plain status pills; clicking a card filters, the active one gets a ring highlight.
+- **Search box** (requester name / employee ID), debounce-free client filter with a clear button.
+- **Richer rows**: requester initial **avatar**, type **icon chip**, and a Review/View affordance with a chevron (label reads "Review" for actionable pending rows).
+- Better empty state — distinguishes "no requests yet" from "no matches" (with a Clear filters action).
+
+**Bug fixed along the way**: the status counts were computed from the server response that was *already* filtered by `?status=`, so selecting a filter zeroed the other buckets. The page now fetches the full list once and filters + counts client-side, so the card counts are always correct. Detail slide-over, re-auth, and the approval-credentials dialog are unchanged.
+
+**Verification**: `tsc --noEmit` clean; `vite build` clean; dist rebuilt. Browser-verified: cards show 7/3/4/0 and stay correct under filtering; Pending filter shows 3 rows; search + slide-over still work; no console errors.
+
+## [Unreleased] — Version History: visual pipeline flow for cleaning-profile compare (2026-06-29)
+
+Replaced the cleaning-profile before/after **tables** with the actual **pipeline flow graph** — the same node-graph the editor shows (START → stages → END with CHECKLIST branches). New read-only `ProfileFlow` SVG renderer in `apps/web/src/routes/version-history/index.tsx` draws the stored node positions + connections with the editor's colors (green START, blue STAGE, purple CHECKLIST, red END) and bezier wiring, scaled to fit via `viewBox`. "Compare with v(n-1)" now shows **Before · v{prev}** and **After · v{curr}** flow graphs side by side (with status + node count). The single-version snapshot view also gained a "Pipeline flow" panel above its detail tables. Stage labels come from the state key (WASH IN, DRY OUT…); checklist nodes show their profile name.
+
+**Verification**: `tsc` clean; `vite build` clean; dist rebuilt. Browser-verified on CWH v12→v13 — Before renders 6 nodes (no checklist), After renders 7 (adds a purple Checklist node), each as a proper connected flow graph instead of text.
+
+## [Unreleased] — Version History: before/after view for cleaning profiles (2026-06-29)
+
+Cleaning-profile version comparison showed every stage/connection as both **Removed** (old id) and **Added** (new id) — because the cleaning-profile editor regenerates all node/connection ids on each save, so the id-keyed field diff is pure noise (the same WASH_IN appears on both sides). Replaced the field-level diff *for cleaning profiles only* with a **before/after view**: "Compare with v(n-1)" now renders the full structured snapshot of both versions side by side (Before · v{prev} | After · v{curr}, stacks on narrow screens) via the existing `CleaningProfileSnapshot` viewer. Checklist profiles and equipment groups keep the humanized field-level diff (their ids are stable). New `VersionCompare` component in `apps/web/src/routes/version-history/index.tsx`.
+
+**Verification**: `tsc` clean; `vite build` clean; dist rebuilt. Browser-verified on CWH v12→v13 — the comparison now shows the whole profile before (6 stages, ARCHIVED) and after (7 stages, ACTIVE) instead of 25+ add/remove lines.
+
+## [Unreleased] — Version History: label structural pipeline nodes in diffs (2026-06-29)
+
+Follow-up to the diff humanization: cleaning-profile diffs showed raw 8-char ids (e.g. `Stages "bde2f506"`) for the pipeline's **START / END / CHECKLIST** nodes, because `labelFor()` only knew `name` / `stateKey` / etc. — and those structural nodes carry none (only real STAGE nodes have a `stateKey` like `WASH_IN`). Added a `nodeType` fallback so they now render as **"Start" / "End" / "Checklist"** before the last-resort id slice. Real stages are unchanged (still show their state key). Connections remain id-labelled (they're edges with only from/to ids — no natural name).
+
+**Verification**: `tsc` clean; diff suite 8/8; `vite build` clean; dist rebuilt. Browser-verified on the CWH v12→v13 diff — "Stages Start / End / Checklist" now read clearly instead of UUIDs.
+
+## [Unreleased] — Version History: drop Filter Profiles tab + human-readable diffs (2026-06-29)
+
+**Removed the "Filter Profiles" tab.** `FilterProfile` has a server-side version sidecar but **no user-facing page** (no route in `main.tsx`, no sidebar item, no `filter-profile-list.tsx`), so the tab pointed at an entity users can't create or manage. Removed `filter-profile` from the `EntityKind` union, the `TABS`/`ENTITY_KINDS` lists, the endpoint switches, `SnapshotBody`, and deleted the `FilterProfileSnapshot` component (`apps/web/src/routes/version-history/index.tsx`). The `FilterProfile` model + `/api/filter-profiles/:id/versions` endpoints are untouched — only the UI tab is gone. The set-style diff branch (`SET_FIELDS`) was filter-profile's only consumer, so it and its two unit tests were removed too.
+
+**Human-readable version diffs.** The compare-versions view previously printed raw field paths and quoted/JSON values (e.g. `alarmOnForwardSkip: "STRICT" → "LENIENT"`). Now:
+- Field paths are humanized — `stages[Wash In].stateKey` → **Stages "Wash In" › State key**; camelCase → sentence case, with a small label map for awkward fields.
+- Values are formatted for people — booleans → **Yes/No**, null/empty → **(none)**, ISO timestamps → locale date, arrays → comma list (object items by name/label/key), no more quotes/JSON noise.
+- Each change shows a clear **Changed / Added / Removed** tag, with the old value muted and the new value emphasized (removed values struck through).
+
+**Verification**: web `tsc --noEmit` clean; the diff unit suite passes (8/8); `vite build` clean; dist rebuilt; `apps/web/CLAUDE.md` B7.1 note synced. Browser-verified: Version History shows only Cleaning Profiles / Checklist Profiles / Equipment Groups; a real v12→v13 diff renders human-readably (e.g. "Changed · Status · ARCHIVED → ACTIVE").
+
+## [Unreleased] — Role Assignments: add PM Schedule Settings section (2026-06-29)
+
+Added a **PM Schedule Settings** section to the Role Assignments page (`apps/web/src/routes/config/role-assignments.tsx`), editing the `pm-schedule-settings` config. An enable switch (master PM on/off); when on, it reveals **default tolerance (days)**, **task visibility** (Everyone / Per-user* / Role-gated* — the latter two flagged not-yet-implemented), **show overdue separately**, and **overdue notification roles** (chips). Renders full-width below Cleaning Stage Interlock.
+
+Per the established pattern, the standalone "PM Schedule Settings" card was removed from `config/index.tsx` and `pm-schedule-settings` added to `roleAssignmentKeys`; the def + dynamic endpoint are retained (Role Assignments reads/writes them). Note: unlike the other Role-Assignments sections this config is mostly *operational* (tolerance/visibility/enable), not purely role-based — moved wholesale at the user's request so PM config lives in one place.
+
+**Verification**: web `tsc --noEmit` clean; `vite build` clean; dist rebuilt. Browser-verified: all seven Role Assignments sections render; the PM card loads its stored values (enabled on, tolerance 3, visibility GLOBAL, show-overdue on) and the enable toggle reveals/hides the detail fields; `/config` no longer shows a standalone PM Schedule Settings card. No console errors.
+
+## [Unreleased] — Role Assignments: Save All only writes changed sections (audit-noise fix) (2026-06-29)
+
+**Bug — Save All audit noise.** The Role Assignments page PUT *every* config key on each save, and the dynamic config PUT writes a `CONFIG_CHANGED` audit row unconditionally — so one click logged up to six audit entries (one per section) even when only one section changed, polluting the 21 CFR audit trail with false "changed" records.
+
+- **Fix** (`apps/web/src/routes/config/role-assignments.tsx`): the page now keeps a `baseline` snapshot of the loaded config and, on save, PUTs **only** the sections whose value actually differs (stable, key-order-insensitive JSON diff via `jsonEqual`). The `dirty` flag is now *derived* from that diff (replacing the sticky boolean), so Save All is disabled unless there's a real change, and toggling a value back to its original disables it again. After a successful save the baseline advances for just the saved keys. Toast reports how many sections were written ("1 section updated").
+- **Verification**: web `tsc --noEmit` clean; `vite build` clean; dist rebuilt. Browser-verified via the network panel: changing one section (QNN) and saving issued exactly **one** PUT (`/api/config/dynamic/qnn-notifications`), not six; Save All disabled itself after the save. Test change reverted + re-saved (again a single PUT) — confirmed the stored config returned to its original value.
+
+## [Unreleased] — Role Assignments: add Cleaning Stage Interlock section (2026-06-29)
+
+Added a **Cleaning Stage Interlock** section to the Role Assignments page (`apps/web/src/routes/config/role-assignments.tsx`), editing the `stage-interlock` config. An enable switch; when on, it reveals **Wash Out approver**, **Dry Out approver** (role selects, blank = "Super Admin only"), and a **Require different approver** toggle (segregation of duties, recommended for 21 CFR Part 11). Renders full-width below the Cross-Block Cleaning section.
+
+Consistent with the prior consolidations, the standalone "Cleaning Stage Interlock" card was removed from `config/index.tsx` and `stage-interlock` added to `roleAssignmentKeys`; the def + dynamic endpoint are retained (Role Assignments reads/writes them). Stage Interlock is now edited in exactly one place.
+
+**Verification**: web `tsc --noEmit` clean; `vite build` clean; dist rebuilt. Browser-verified: all six Role Assignments sections render; the interlock card loads its stored values (enabled on, both approvers = "shift officer", different-approver on) and the enable toggle reveals/hides the approver fields; `/config` no longer shows a standalone Cleaning Stage Interlock card. No console errors.
+
+## [Unreleased] — Role Assignments: add Cross-Block Cleaning section (2026-06-29)
+
+Added a **Cross-Block Cleaning** section to the Role Assignments page (`apps/web/src/routes/config/role-assignments.tsx`) — the page's own card already advertised "block-change" but the section was never built. It edits the `block-change-approval` config: a segmented **mode** control (No restriction / Self-confirm / Needs approval) and, when mode is *Needs approval*, the **approval role**, **auto-expire hours**, and **require reason** controls (the latter three only apply to approval requests, so they're hidden otherwise). Renders full-width below the 2×2 grid.
+
+To avoid re-introducing the duplication just fixed, the standalone "Block Change Approval" card was removed from `config/index.tsx` and `block-change-approval` added to `roleAssignmentKeys`. The def + dynamic `/api/config/dynamic/block-change-approval` endpoint are retained (Role Assignments reads/writes them). Block Change Approval is now edited in exactly one place.
+
+**Verification**: web `tsc --noEmit` clean; `vite build` clean; dist rebuilt. Browser-verified: the card loads its stored values (mode, approval role = QA, auto-expire = 24, require reason on), the mode segmented control reveals/hides the approval fields, dirty + Save All gating work (change discarded without saving), and `/config` no longer shows a standalone Block Change Approval / Cross-Block card. No console errors.
+
+## [Unreleased] — Role Assignments: de-duplicate config cards + redesigned screen (2026-06-29)
+
+**Bug — config modules shown twice.** PM Schedule Workflow, Replacement Schedule Workflow, QNN Notifications, and Guest Cleaning Requests each appeared **twice** in System Configuration: once inside the consolidated **Role Assignments** page, and again as standalone cards (PM via a hardcoded "PM Schedule Approval" card; the other three as auto-discovered "Additional Modules"). Root cause: their config defs are intentionally `hasCustomPage:false` so `dynamic-routes.ts` auto-generates the `/api/config/dynamic/<key>` GET/PUT endpoints that Role Assignments reads/writes — but that same flag also makes `config/index.tsx` render them as standalone cards.
+
+- **Fix** (`apps/web/src/routes/config/index.tsx`): added a `roleAssignmentKeys` exclusion set so the four Role-Assignments-owned keys never render as standalone/Additional-Modules cards, and removed the redundant hardcoded "PM Schedule Approval" card. **Defs are intentionally retained** (deleting them or setting `hasCustomPage:true` would drop the dynamic endpoints and break Role Assignments). The "Additional Modules" section now disappears (its only contents were these duplicates); Role Assignments is the single editing surface. Standalone cards unrelated to Role Assignments (Block Change Approval, Stage Interlock, Offline Cache) are untouched.
+
+**Feature — redesigned Role Assignments screen** (`apps/web/src/routes/config/role-assignments.tsx`). Rebuilt the page as a professional **2-up card grid** (PM | Replacement, then QNN | Guest):
+- Workflow cards render the upload → review → approve sequence as a **numbered, connected stepper** (the order is meaningful) with a switch for the review/approval toggle. Replacement keeps the existing "inherit from PM" behavior (blank = inherit; toggle shows "(inheriting from PM)").
+- Notification cards use **toggle chips** (filled + ✓ when selected) instead of raw checkboxes.
+- Added an **"Unsaved changes"** indicator; **Save All** is disabled until something changes. All four config keys + save-all logic preserved exactly.
+
+**Verification**: web `tsc --noEmit` clean; `vite build` clean; dist rebuilt. Browser-verified on the Vite dev server (admin login): all four dynamic endpoints return 200 (Role Assignments still loads/saves), saved roles bind into the steppers + chips, the dirty indicator + Save All gating work (change discarded without saving), and `/config` shows no duplicate cards and no "Additional Modules" section. No console errors on either page.
+
+## [Unreleased] — Cleaning Record: fix stages showing "Pending" under status/reason filters (2026-06-29)
+
+**Bug — filtered Cleaning Record showed every stage cell as "Pending".** On the **Completed** (and any status pill, or Cleaning-Reason) tab, per-stage cells (Wash In/Out, Dry In/Out, Storage In/Out) rendered "Pending" even for cycles whose stages were complete — while the cycle's **status pill** correctly read "Completed" and the **View** page showed all stages done. The per-stage cells are derived client-side from each cycle's `events` (`getStageInfo()` in `apps/web/src/lib/cleaning-cycle-report.ts`); the status pill comes from `c.status`, so they diverged.
+
+Root cause in `getCleaningRecord` (`apps/api/src/modules/filter-operations/filter-operations.service.ts`): the status/reason-filtered branch (`if (query.status || query.cleaningReasonKey)`) called `getCycles(...)` **without** `includeEvents`, so `c.events` was absent → `getStageInfo` returned `null` → every cell fell through to "Pending". The unfiltered "All" path already passed `includeEvents: 'true'`, and `getCycleById` (the View page) always includes events — which is why only the filtered list misbehaved.
+
+- **Fix**: pass `includeEvents: 'true'` in the status/reason branch so it matches the "All" path. One line; also fixes the Cleaning-Reason filter (shares the branch). No other endpoint affected — `GET /api/filters/cycles` keeps its existing contract (events only on `includeEvents`).
+- **Verification**: DB confirmed completed cycles carry 4–7 `STATE_TRANSITION` events. `GET /api/filters/cleaning-record?status=COMPLETED` now returns `events` populated (e.g. `L5/AHU26/SAG/05` → `[WASH_IN,WASH_OUT,DRY_IN,DRY_OUT,STORAGE_IN,STORAGE_OUT]`, 12 events) where the array was previously absent. `tsx watch` hot-reloaded the change; verified against the running API.
+
 ## [Unreleased] — Cleaning Record: search + block/area/AHU filters; fix Retired/Replaced status pills (2026-06-22)
 
 **Bug — Retired/Replaced (and Terminated) status pills.** The cleaning-record + `/cycles` endpoints' `status` enum was `['IN_PROGRESS','COMPLETED','TERMINATED']`, but the UI pills also send `RETIRED`/`REPLACED` (which are *effective* statuses — a `TERMINATED` cycle whose `terminationReason` is `RETIRED`/`REPLACED`). Those values failed schema validation → **400**. Fix:

@@ -13,12 +13,10 @@
  *   2. Keyed-array item added                    → 'added' diff with context
  *   3. Keyed-array item removed                  → 'removed' diff with context
  *   4. Keyed-array item field change             → recursive 'changed' diff inside item
- *   5. Set-style field add                       → 'added' diff against `field[]`
- *   6. Set-style field remove                    → 'removed' diff against `field[]`
- *   7. Meta fields filtered out                  → empty diff when only meta differs
- *   8. No-change case (deep-equal snapshots)     → empty diff
- *   9. Cross-kind: checklist `questions` keyed-by id
- *   10. Cross-kind: equipment-group `instruments` keyed-by id
+ *   5. Meta fields filtered out                  → empty diff when only meta differs
+ *   6. No-change case (deep-equal snapshots)     → empty diff
+ *   7. Cross-kind: checklist `questions` keyed-by id
+ *   8. Cross-kind: equipment-group `instruments` keyed-by id
  */
 import { describe, it, expect } from 'vitest';
 import { diffSnapshots, type DiffChange } from '../index';
@@ -83,24 +81,6 @@ describe('diffSnapshots() — cleaning-profile', () => {
       expect(c.oldValue).toBe('WASH_IN');
       expect(c.newValue).toBe('WASH_OUT');
     }
-  });
-});
-
-describe('diffSnapshots() — filter-profile (set-style fields)', () => {
-  it('detects a set-style `applicableTemplates` addition', () => {
-    const prev = { name: 'FP-1', applicableTemplates: ['tmpl-A'] };
-    const curr = { name: 'FP-1', applicableTemplates: ['tmpl-A', 'tmpl-B-new'] };
-    const changes = diffSnapshots('filter-profile', prev, curr);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]).toMatchObject({ kind: 'added', path: 'applicableTemplates[]', newValue: 'tmpl-B-new' });
-  });
-
-  it('detects a set-style `allowedBlocks` removal', () => {
-    const prev = { name: 'FP-1', allowedBlocks: ['block-1', 'block-2-removed'] };
-    const curr = { name: 'FP-1', allowedBlocks: ['block-1'] };
-    const changes = diffSnapshots('filter-profile', prev, curr);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]).toMatchObject({ kind: 'removed', path: 'allowedBlocks[]', oldValue: 'block-2-removed' });
   });
 });
 

@@ -1,11 +1,13 @@
 /**
  * Version History — cross-entity audit-history viewer.
  *
- * Surfaces the four versioned-definition histories DigiLog tracks server-side:
+ * Surfaces the three versioned-definition histories DigiLog tracks server-side:
  *   - FilterCleaningProfile lineage (Phase A.2)
- *   - FilterProfile sidecar       (Phase A.3)
  *   - ChecklistProfile sidecar    (Phase A.1)
  *   - EquipmentGroup composite    (Phase A.4)
+ *
+ * (FilterProfile has a server-side version sidecar too, but there is no
+ * user-facing Filter Profiles page, so it is intentionally not shown here.)
  *
  * Gated by the VERSION_HISTORY_VIEW permission. SUPER_ADMIN by default;
  * assignable to other roles via Role Privileges → Audit / Versions.
@@ -20,9 +22,9 @@ import { useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 
-export type EntityKind = 'cleaning-profile' | 'filter-profile' | 'checklist-profile' | 'equipment-group';
+export type EntityKind = 'cleaning-profile' | 'checklist-profile' | 'equipment-group';
 
-const ENTITY_KINDS: EntityKind[] = ['cleaning-profile', 'filter-profile', 'checklist-profile', 'equipment-group'];
+const ENTITY_KINDS: EntityKind[] = ['cleaning-profile', 'checklist-profile', 'equipment-group'];
 function isEntityKind(s: string | null): s is EntityKind {
   return s !== null && (ENTITY_KINDS as string[]).includes(s);
 }
@@ -32,12 +34,6 @@ const TABS: { id: EntityKind; label: string; listEndpoint: string; itemLabel: (i
     id: 'cleaning-profile',
     label: 'Cleaning Profiles',
     listEndpoint: '/api/filter-cleaning-profiles?page=1&limit=200',
-    itemLabel: it => `${it.name ?? '(unnamed)'} · v${it.version ?? '?'}`,
-  },
-  {
-    id: 'filter-profile',
-    label: 'Filter Profiles',
-    listEndpoint: '/api/filter-profiles?page=1&limit=200',
     itemLabel: it => `${it.name ?? '(unnamed)'} · v${it.version ?? '?'}`,
   },
   {
@@ -57,7 +53,6 @@ const TABS: { id: EntityKind; label: string; listEndpoint: string; itemLabel: (i
 function versionsEndpoint(kind: EntityKind, id: string): string {
   switch (kind) {
     case 'cleaning-profile': return `/api/filter-cleaning-profiles/${id}/versions`;
-    case 'filter-profile': return `/api/filter-profiles/${id}/versions`;
     case 'checklist-profile': return `/api/checklist-profiles/${id}/versions`;
     case 'equipment-group': return `/api/equipment-groups/${id}/versions`;
   }
@@ -66,7 +61,6 @@ function versionsEndpoint(kind: EntityKind, id: string): string {
 function snapshotEndpoint(kind: EntityKind, id: string, version: number): string {
   switch (kind) {
     case 'cleaning-profile': return `/api/filter-cleaning-profiles/${id}/versions/${version}`;
-    case 'filter-profile': return `/api/filter-profiles/${id}/versions/${version}`;
     case 'checklist-profile': return `/api/checklist-profiles/${id}/versions/${version}`;
     case 'equipment-group': return `/api/equipment-groups/${id}/versions/${version}`;
   }
@@ -253,7 +247,6 @@ function VersionTimeline({
 
   // Endpoint shapes vary slightly across the four entities:
   //   cleaning-profile (A.2): { lineageId, versions: [...] }
-  //   filter-profile  (A.3): { profileId, currentVersion, versions: [...] }
   //   checklist-profile (A.1): array of versions directly
   //   equipment-group (A.4): { groupId, currentVersion, versions: [...] }
   const versions: any[] = Array.isArray(data) ? data : (data.versions ?? []);
@@ -344,11 +337,16 @@ function VersionTimelineRow({
               onClick={() => setShowDiff(s => !s)}
               className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
             >
-              {showDiff ? 'Hide diff' : `Compare with v${versionNumber - 1}`}
+              {showDiff ? 'Hide comparison' : `Compare with v${versionNumber - 1}`}
             </button>
             {showDiff && (
               <div className="mt-2 pt-2 border-t border-slate-100">
-                <VersionDiff kind={kind} entityId={entityId} curr={versionNumber} prev={versionNumber - 1} />
+                {/* Cleaning-profile saves regenerate every node/connection id, so a
+                    field-level diff is pure noise (same WASH_IN as both removed +
+                    added). Show the whole before/after profile instead. */}
+                {kind === 'cleaning-profile'
+                  ? <VersionCompare kind={kind} entityId={entityId} curr={versionNumber} prev={versionNumber - 1} />
+                  : <VersionDiff kind={kind} entityId={entityId} curr={versionNumber} prev={versionNumber - 1} />}
               </div>
             )}
           </div>
@@ -390,40 +388,135 @@ function VersionDiff({
   );
 }
 
-function DiffLine({ change }: { change: DiffChange }) {
-  const palette = {
-    changed: 'bg-amber-50 border-amber-200 text-amber-900',
-    added: 'bg-emerald-50 border-emerald-200 text-emerald-900',
-    removed: 'bg-rose-50 border-rose-200 text-rose-900',
-  }[change.kind];
-  const symbol = { changed: '~', added: '+', removed: '−' }[change.kind];
+// Before/after viewer — renders the full structured snapshot of both versions
+// side by side (stacks on narrow screens). Used for cleaning profiles, whose
+// per-save id churn makes a field-level diff unreadable.
+function VersionCompare({
+  kind,
+  entityId,
+  curr,
+  prev,
+}: {
+  kind: EntityKind;
+  entityId: string;
+  curr: number;
+  prev: number;
+}) {
+  const { data: prevData, error: prevErr } = useSWR<any>(snapshotEndpoint(kind, entityId, prev));
+  const { data: currData, error: currErr } = useSWR<any>(snapshotEndpoint(kind, entityId, curr));
+
+  if (prevErr || currErr) {
+    return <div className="text-xs text-red-700">Failed to load snapshots: {(prevErr ?? currErr).message}</div>;
+  }
+  if (!prevData || !currData) {
+    return <div className="text-xs text-slate-400">Loading comparison…</div>;
+  }
+  // Cleaning profiles: show the pipeline FLOW before vs after (visual, not text).
+  const flowCol = (tag: string, tint: string, snap: any) => (
+    <div className="min-w-0">
+      <div className="mb-2 flex items-center gap-2">
+        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${tint}`}>{tag}</span>
+        {snap.status && <StatusBadge active={snap.status === 'ACTIVE'} label={snap.status} />}
+        <span className="text-[11px] text-slate-400">{(snap.stages ?? []).length} nodes</span>
+      </div>
+      <ProfileFlow stages={snap.stages ?? []} connections={snap.connections ?? []} />
+    </div>
+  );
   return (
-    <li className={`border rounded-lg px-2 py-1 ${palette}`}>
-      <span className="font-mono text-[10px] mr-2">{symbol}</span>
-      <span className="font-medium">{change.path}</span>
-      {change.kind === 'changed' && (
-        <>
-          : <code className="bg-white/60 px-1 rounded">{formatVal(change.oldValue)}</code>
-          <span className="mx-1">→</span>
-          <code className="bg-white/60 px-1 rounded">{formatVal(change.newValue)}</code>
-        </>
-      )}
-      {change.kind === 'added' && change.newValue !== undefined && (
-        <>: <code className="bg-white/60 px-1 rounded">{formatVal(change.newValue)}</code></>
-      )}
-      {change.kind === 'removed' && change.oldValue !== undefined && (
-        <>: <code className="bg-white/60 px-1 rounded">{formatVal(change.oldValue)}</code></>
-      )}
-      {change.context && <span className="ml-2 text-[10px] opacity-70">({change.context})</span>}
-    </li>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {flowCol(`Before · v${prev}`, 'bg-slate-100 text-slate-600', prevData)}
+      {flowCol(`After · v${curr}`, 'bg-indigo-100 text-indigo-700', currData)}
+    </div>
   );
 }
 
+// Friendly labels for fields whose camelCase split reads awkwardly.
+const FIELD_LABELS: Record<string, string> = {
+  isActive: 'Active', stateKey: 'State key', nodeType: 'Node type', flowMode: 'Flow mode',
+  requiresJustification: 'Requires justification', sortOrder: 'Order', questionType: 'Question type',
+  operatingMin: 'Operating min', operatingMax: 'Operating max', instrumentMin: 'Instrument min',
+  instrumentMax: 'Instrument max', leastCount: 'Least count', maxCleaningCycles: 'Max cleaning cycles',
+  blockRestriction: 'Block restriction', cleaningReasons: 'Cleaning reasons', serialNumber: 'Serial number',
+  alarmOnForwardSkip: 'Alarm on forward skip', alarmOnBackwardJump: 'Alarm on backward jump',
+  alarmOnOutOfSequence: 'Alarm on out-of-sequence',
+};
+
+// "alarmOnForwardSkip" → "Alarm on forward skip"; "state_key" → "State key".
+function humanizeKey(k: string): string {
+  if (FIELD_LABELS[k]) return FIELD_LABELS[k];
+  const words = k
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// "stages[Wash In].stateKey" → "Stages “Wash In” › State key".
+function humanizePath(path: string): string {
+  return path
+    .split('.')
+    .map((seg) => {
+      const m = seg.match(/^([A-Za-z0-9_]+)(?:\[(.*)\])?$/);
+      if (!m) return seg;
+      const base = humanizeKey(m[1]);
+      return m[2] !== undefined ? `${base} “${m[2]}”` : base;
+    })
+    .join(' › ');
+}
+
+// Render any snapshot value as plain, human-readable text.
 function formatVal(v: any): string {
-  if (v === null || v === undefined) return '∅';
-  if (typeof v === 'string') return v.length > 60 ? `"${v.slice(0, 60)}…"` : `"${v}"`;
-  if (typeof v === 'object') return JSON.stringify(v).slice(0, 80);
+  if (v === null || v === undefined || v === '') return '(none)';
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (typeof v === 'number') return String(v);
+  if (typeof v === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}T[\d:.]/.test(v)) {
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) return d.toLocaleString();
+    }
+    return v.length > 80 ? `${v.slice(0, 80)}…` : v;
+  }
+  if (Array.isArray(v)) {
+    return v.length === 0
+      ? '(none)'
+      : v.map((x) => (x && typeof x === 'object' ? (x.name ?? x.label ?? x.key ?? JSON.stringify(x)) : String(x))).join(', ');
+  }
+  if (typeof v === 'object') {
+    const entries = Object.entries(v).filter(([k]) => !META_FIELDS.has(k));
+    if (entries.length === 0) return '(empty)';
+    return entries.map(([k, val]) => `${humanizeKey(k)}: ${typeof val === 'boolean' ? (val ? 'Yes' : 'No') : String(val)}`).join('; ');
+  }
   return String(v);
+}
+
+function DiffLine({ change }: { change: DiffChange }) {
+  const meta = {
+    changed: { box: 'bg-amber-50 border-amber-200', tag: 'Changed', tagColor: 'text-amber-700' },
+    added: { box: 'bg-emerald-50 border-emerald-200', tag: 'Added', tagColor: 'text-emerald-700' },
+    removed: { box: 'bg-rose-50 border-rose-200', tag: 'Removed', tagColor: 'text-rose-700' },
+  }[change.kind];
+  return (
+    <li className={`border rounded-lg px-2.5 py-1.5 ${meta.box}`}>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className={`text-[10px] font-bold uppercase tracking-wide ${meta.tagColor}`}>{meta.tag}</span>
+        <span className="font-semibold text-slate-800">{humanizePath(change.path)}</span>
+      </div>
+      {change.kind === 'changed' && (
+        <div className="mt-1 flex items-center gap-2 flex-wrap">
+          <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500">{formatVal(change.oldValue)}</span>
+          <span className="text-slate-400">→</span>
+          <span className="px-1.5 py-0.5 rounded bg-white border border-slate-300 font-medium text-slate-900">{formatVal(change.newValue)}</span>
+        </div>
+      )}
+      {change.kind === 'added' && change.newValue !== undefined && (
+        <div className="mt-1"><span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-700">{formatVal(change.newValue)}</span></div>
+      )}
+      {change.kind === 'removed' && change.oldValue !== undefined && (
+        <div className="mt-1"><span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500 line-through">{formatVal(change.oldValue)}</span></div>
+      )}
+    </li>
+  );
 }
 
 // ─── Snapshot diff engine ────────────────────────────────────────────────
@@ -441,19 +534,11 @@ const META_FIELDS = new Set([
   'profileId', 'groupId', 'id', 'lineageId',
 ]);
 
-// Per-kind: which arrays should be diffed by-key vs as-set vs treated as scalar.
+// Per-kind: which arrays should be diffed by their item key (vs treated as scalar).
 const KEY_BY: Record<EntityKind, Record<string, string>> = {
   'cleaning-profile': { stages: 'id', connections: 'id', cleaningReasons: 'key' },
-  'filter-profile':   {},
   'checklist-profile': { questions: 'id' },
   'equipment-group':  { instruments: 'id' },
-};
-
-const SET_FIELDS: Record<EntityKind, Set<string>> = {
-  'cleaning-profile': new Set(),
-  'filter-profile':   new Set(['applicableTemplates', 'allowedBlocks']),
-  'checklist-profile': new Set(),
-  'equipment-group':  new Set(),
 };
 
 export function diffSnapshots(kind: EntityKind, prev: any, curr: any): DiffChange[] {
@@ -464,14 +549,6 @@ export function diffSnapshots(kind: EntityKind, prev: any, curr: any): DiffChang
     const a = prev?.[key];
     const b = curr?.[key];
     if (Object.is(a, b)) continue;
-
-    if (SET_FIELDS[kind].has(key) && Array.isArray(a) && Array.isArray(b)) {
-      const aSet = new Set(a as unknown[]);
-      const bSet = new Set(b as unknown[]);
-      for (const item of bSet) if (!aSet.has(item)) out.push({ kind: 'added', path: `${key}[]`, newValue: item });
-      for (const item of aSet) if (!bSet.has(item)) out.push({ kind: 'removed', path: `${key}[]`, oldValue: item });
-      continue;
-    }
 
     const arrayKey = KEY_BY[kind][key];
     if (arrayKey && Array.isArray(a) && Array.isArray(b)) {
@@ -524,8 +601,24 @@ function diffObject(a: any, b: any, prefix: string): DiffChange[] {
   return out;
 }
 
+function titleCase(s: string): string {
+  return s.replace(/[_-]+/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// A human label for a keyed list item. Real stages carry a stateKey (WASH_IN…);
+// the pipeline's structural nodes (START / END / CHECKLIST) have no stateKey or
+// name, so fall back to a readable node-type label ("Start" / "End" / "Checklist")
+// before the last-resort id slice — never show a raw UUID where a name belongs.
 function labelFor(item: any): string {
-  return item?.name ?? item?.description ?? item?.question ?? item?.stateKey ?? item?.key ?? (typeof item?.id === 'string' ? item.id.slice(0, 8) : '?');
+  return (
+    item?.name ??
+    item?.stateKey ??
+    item?.question ??
+    item?.description ??
+    item?.key ??
+    (item?.nodeType ? titleCase(item.nodeType) : undefined) ??
+    (typeof item?.id === 'string' ? `${item.id.slice(0, 8)}…` : '?')
+  );
 }
 
 function summarize(item: any): string {
@@ -587,7 +680,6 @@ function SnapshotModal({
 function SnapshotBody({ kind, data }: { kind: EntityKind; data: any }) {
   switch (kind) {
     case 'cleaning-profile': return <CleaningProfileSnapshot data={data} />;
-    case 'filter-profile': return <FilterProfileSnapshot data={data} />;
     case 'checklist-profile': return <ChecklistProfileSnapshot data={data} />;
     case 'equipment-group': return <EquipmentGroupSnapshot data={data} />;
   }
@@ -610,6 +702,76 @@ function StatusBadge({ active, label }: { active: boolean; label?: string }) {
   );
 }
 
+// ─── Read-only pipeline flow renderer ───────────────────────────────────
+// Mirrors the cleaning-profile editor canvas (same node colors + bezier wiring)
+// but static: draws the stored node positions + connections as an SVG that
+// scales to fit its container. This is the visual "how the flow looks" view.
+const FLOW_NODE_W = 160;
+const FLOW_NODE_H = 64;
+const FLOW_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  START: { bg: '#166534', border: '#22c55e', text: '#bbf7d0' },
+  END: { bg: '#991b1b', border: '#ef4444', text: '#fecaca' },
+  STAGE: { bg: '#1e40af', border: '#3b82f6', text: '#bfdbfe' },
+  CHECKLIST: { bg: '#6b21a8', border: '#a855f7', text: '#e9d5ff' },
+};
+function flowBezier(x1: number, y1: number, x2: number, y2: number): string {
+  const dx = Math.abs(x2 - x1) * 0.5;
+  return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+}
+function flowNodeLabel(n: any): string {
+  if (n.nodeType === 'STAGE' && n.stateKey) return n.stateKey.replace(/_/g, ' ');
+  if (n.nodeType === 'CHECKLIST') return 'Checklist';
+  return titleCase(n.nodeType ?? '');
+}
+
+function ProfileFlow({ stages, connections }: { stages: any[]; connections: any[] }) {
+  const nodes = (stages ?? []).filter((s) => typeof s?.positionX === 'number' && typeof s?.positionY === 'number');
+  if (nodes.length === 0) {
+    return <div className="text-xs text-slate-400 italic py-6 text-center border border-dashed border-slate-200 rounded-xl">No saved flow layout for this version.</div>;
+  }
+  const byId = new Map<string, any>(nodes.map((n) => [n.id, n]));
+  const PAD = 28;
+  const minX = Math.min(...nodes.map((n) => n.positionX)) - PAD;
+  const minY = Math.min(...nodes.map((n) => n.positionY)) - PAD;
+  const maxX = Math.max(...nodes.map((n) => n.positionX + FLOW_NODE_W)) + PAD;
+  const maxY = Math.max(...nodes.map((n) => n.positionY + FLOW_NODE_H)) + PAD;
+  const w = Math.max(1, maxX - minX);
+  const h = Math.max(1, maxY - minY);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+      <svg viewBox={`${minX} ${minY} ${w} ${h}`} width="100%" style={{ height: 'auto', maxHeight: 380, display: 'block' }} preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="vh-flow-arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+            <path d="M0,0 L9,3.5 L0,7 Z" fill="#94a3b8" />
+          </marker>
+        </defs>
+        {(connections ?? []).map((c, i) => {
+          const from = byId.get(c.fromStageId);
+          const to = byId.get(c.toStageId);
+          if (!from || !to) return null;
+          const x1 = from.positionX + FLOW_NODE_W, y1 = from.positionY + FLOW_NODE_H / 2;
+          const x2 = to.positionX, y2 = to.positionY + FLOW_NODE_H / 2;
+          return <path key={c.id ?? i} d={flowBezier(x1, y1, x2, y2)} fill="none" stroke="#94a3b8" strokeWidth={2} markerEnd="url(#vh-flow-arrow)" />;
+        })}
+        {nodes.map((n, i) => {
+          const colors = FLOW_COLORS[n.nodeType] ?? FLOW_COLORS.STAGE;
+          const label = flowNodeLabel(n);
+          const sub = n.nodeType === 'CHECKLIST' ? (n.configuration?.checklistProfileName ?? '') : '';
+          const cx = n.positionX + FLOW_NODE_W / 2;
+          const cy = n.positionY + FLOW_NODE_H / 2;
+          return (
+            <g key={n.id ?? i}>
+              <rect x={n.positionX} y={n.positionY} width={FLOW_NODE_W} height={FLOW_NODE_H} rx={12} fill={colors.bg} stroke={colors.border} strokeWidth={2} />
+              <text x={cx} y={sub ? cy - 2 : cy} textAnchor="middle" dominantBaseline="middle" fill={colors.text} fontSize={14} fontWeight={700}>{label}</text>
+              {sub && <text x={cx} y={cy + 14} textAnchor="middle" dominantBaseline="middle" fill={colors.text} fontSize={10} opacity={0.85}>{sub.length > 22 ? `${sub.slice(0, 22)}…` : sub}</text>}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function CleaningProfileSnapshot({ data }: { data: any }) {
   const stages: any[] = Array.isArray(data.stages) ? data.stages : [];
   const connections: any[] = Array.isArray(data.connections) ? data.connections : [];
@@ -628,6 +790,11 @@ function CleaningProfileSnapshot({ data }: { data: any }) {
           <MetaRow label="Alarm: backward jump" value={String(data.alarmOnBackwardJump ?? false)} />
           <MetaRow label="Alarm: out of sequence" value={String(data.alarmOnOutOfSequence ?? false)} />
         </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Pipeline flow</h5>
+        <ProfileFlow stages={stages} connections={connections} />
       </div>
 
       {reasons.length > 0 && (
@@ -685,50 +852,6 @@ function CleaningProfileSnapshot({ data }: { data: any }) {
           </ul>
         )}
       </div>
-    </div>
-  );
-}
-
-function FilterProfileSnapshot({ data }: { data: any }) {
-  const templates: string[] = Array.isArray(data.applicableTemplates) ? data.applicableTemplates : [];
-  return (
-    <div className="space-y-4">
-      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
-        <h4 className="font-semibold text-slate-800">{data.name ?? '(unnamed)'}</h4>
-        {data.description && <p className="text-sm text-slate-600">{data.description}</p>}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-2">
-          <MetaRow label="Version" value={`v${data.versionNumber ?? '?'}`} />
-          <MetaRow label="Status" value={<StatusBadge active={data.isActive !== false} />} />
-          <MetaRow label="Cleaning profile" value={<code className="text-xs text-slate-500">{(data.cleaningProfileId ?? '').slice(0, 8)}…</code>} />
-          <MetaRow label="Block restriction" value={data.blockRestriction ?? '—'} />
-          <MetaRow label="Max cycles" value={data.maxCleaningCycles ?? 'unlimited'} />
-          <MetaRow label="Default PM" value={data.defaultPmScheduleId ? <code className="text-xs text-slate-500">{data.defaultPmScheduleId.slice(0, 8)}…</code> : null} />
-        </div>
-      </div>
-
-      <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Applicable templates ({templates.length})</h5>
-        {templates.length === 0 ? (
-          <p className="text-sm text-slate-400">No template restrictions — applies to all.</p>
-        ) : (
-          <ul className="text-sm space-y-1">
-            {templates.map(id => (
-              <li key={id}><code className="text-xs text-slate-500">{id}</code></li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {data.allowedBlocks && Array.isArray(data.allowedBlocks) && data.allowedBlocks.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Allowed blocks ({data.allowedBlocks.length})</h5>
-          <ul className="text-sm space-y-1">
-            {data.allowedBlocks.map((b: string) => (
-              <li key={b}><code className="text-xs text-slate-500">{b}</code></li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

@@ -21,7 +21,7 @@ import { tabletAccessRoutes } from './static-routes/tablet-access.routes.js';
 import { accessMatrixRoutes } from './static-routes/access-matrix.routes.js';
 import { rolesConfigRoutes } from './static-routes/roles.routes.js';
 import { cleaningProfileAssignmentRoutes } from './static-routes/cleaning-profile-assignment.routes.js';
-import { reportSettingsRoutes } from './static-routes/report-settings.routes.js';
+import { reportPageTitlesRoutes } from './static-routes/report-page-titles.routes.js';
 import { reportLabelsRoutes } from './static-routes/report-labels.routes.js';
 import { offlineCacheRoutes } from './static-routes/offline-cache.routes.js';
 import { exportOptionsRoutes } from './static-routes/export-options.routes.js';
@@ -53,7 +53,7 @@ export default async function configRoutes(app: FastifyInstance) {
   await reportSignatoriesRoutes(app);
   await rolesConfigRoutes(app);
   await cleaningProfileAssignmentRoutes(app);
-  await reportSettingsRoutes(app);
+  await reportPageTitlesRoutes(app);
   await reportLabelsRoutes(app);
   await offlineCacheRoutes(app);
 
@@ -152,18 +152,6 @@ export default async function configRoutes(app: FastifyInstance) {
     },
   }, async () => {
     return configService.getConfig('password-policy', passwordPolicySchema);
-  });
-
-  app.get('/report-settings/current', {
-    schema: {
-      tags: ['Config'],
-      summary: 'Get current report settings',
-      description: 'Retrieve report layout settings (header, footer, records per page). Available to all authenticated users.',
-      response: { 200: { type: 'object', additionalProperties: true } },
-    },
-  }, async () => {
-    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'report-settings' } });
-    return row?.configValue ?? {};
   });
 
   app.get('/pagination/current', {

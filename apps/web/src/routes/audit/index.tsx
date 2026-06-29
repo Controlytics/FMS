@@ -3,8 +3,7 @@ import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { usePaginationConfig } from '@/hooks/use-pagination-config';
-import { useReportConfig } from '@/hooks/use-report-config';
+import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { apiClient, api } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
@@ -29,8 +28,7 @@ export function AuditTrailPage() {
   const { user } = useAuth();
   const reauth = useReauth();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
-  const paginationOptions = usePaginationConfig();
-  const { config: reportConfig } = useReportConfig();
+  const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const { labelsFor } = useReportLabels();
   const auditL = labelsFor('audit-trail');
   const auditHead = AUDIT_COLS.map((k) => auditL.columns[k]);
@@ -44,7 +42,7 @@ export function AuditTrailPage() {
   // something. Bypass for SUPER_ADMIN per project convention.
   const canExport = isSuperAdmin || perms.includes('AUDIT_EXPORT');
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(reportConfig.recordsPerPage);
+  const [perPage, setPerPage] = useState(defaultLimit);
 
   // Fetch configurable audit text templates (cached for 5 min)
   const { data: templatesData } = useSWR<Record<string, string>>('/api/config/audit-templates/current', {

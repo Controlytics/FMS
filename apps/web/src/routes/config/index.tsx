@@ -74,18 +74,6 @@ const superAdminCards = [
     shadowColor: 'shadow-indigo-500/25',
   },
   {
-    title: 'Export Options',
-    description: 'Choose which export formats (PDF / Excel) each role can use on each page',
-    href: '/config/export-options',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
-      </svg>
-    ),
-    gradient: 'from-rose-500 to-orange-600',
-    shadowColor: 'shadow-rose-500/25',
-  },
-  {
     title: 'Schedule AHU Filters',
     description: 'Per role, allow expanding an AHU to see its filters — set independently for the PM Schedule and Replacement Schedule pages',
     href: '/config/replacement-schedule-filters',
@@ -111,9 +99,9 @@ const superAdminCards = [
     shadowColor: 'shadow-cyan-500/25',
   },
   {
-    title: 'Report Settings',
-    description: 'Configure report headers, footers, layout, and records per page',
-    href: '/config/report-settings',
+    title: 'Report Configuration',
+    description: 'Identity, per-report labels & columns, per-role signatories, and export (PDF/Excel) access — all in one place',
+    href: '/config/report-config',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -121,30 +109,6 @@ const superAdminCards = [
     ),
     gradient: 'from-indigo-500 to-purple-600',
     shadowColor: 'shadow-indigo-500/25',
-  },
-  {
-    title: 'Report Signatories',
-    description: 'Per report and role, choose the signature label (Printed By / Reviewed By / Approved By) shown with the User ID',
-    href: '/config/report-signatories',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-      </svg>
-    ),
-    gradient: 'from-indigo-500 to-purple-600',
-    shadowColor: 'shadow-indigo-500/25',
-  },
-  {
-    title: 'Report Labels',
-    description: 'Customize report titles, subtitles, and table column headers (view + PDF)',
-    href: '/config/report-labels',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 14h18m-9-7v14M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
-      </svg>
-    ),
-    gradient: 'from-teal-500 to-emerald-600',
-    shadowColor: 'shadow-teal-500/25',
   },
   {
     title: 'Tablet App Access',
@@ -317,18 +281,9 @@ const superAdminCards = [
     gradient: 'from-cyan-500 to-blue-600',
     shadowColor: 'shadow-cyan-500/25',
   },
-  {
-    title: 'PM Schedule Settings',
-    description: 'Configure default tolerance, task visibility, and overdue display settings',
-    href: '/config/dynamic/pm-schedule-settings',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
-    gradient: 'from-teal-500 to-emerald-600',
-    shadowColor: 'shadow-teal-500/25',
-  },
+  // PM Schedule Settings is edited on the consolidated Role Assignments page
+  // (Section "PM Schedule Settings"). The old standalone card was a duplicate
+  // and has been removed — see roleAssignmentKeys in ConfigIndexPage.
   {
     title: 'Role Assignments',
     description: 'All role assignments in one place — PM workflow, block-change, QNN visibility, guest requests',
@@ -341,42 +296,10 @@ const superAdminCards = [
     gradient: 'from-cyan-500 to-blue-600',
     shadowColor: 'shadow-cyan-500/25',
   },
-  {
-    title: 'PM Schedule Approval',
-    description: 'Configure which role can approve PM schedule uploads and edits',
-    href: '/config/dynamic/pm-schedule-approval',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-      </svg>
-    ),
-    gradient: 'from-emerald-500 to-green-600',
-    shadowColor: 'shadow-emerald-500/25',
-  },
-  {
-    title: 'Block Change Approval',
-    description: 'Configure which role can approve cross-block filter cleaning requests',
-    href: '/config/dynamic/block-change-approval',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-      </svg>
-    ),
-    gradient: 'from-orange-500 to-red-600',
-    shadowColor: 'shadow-orange-500/25',
-  },
-  {
-    title: 'Cleaning Stage Interlock',
-    description: 'Require a QA approval signature after Wash Out and Dry Out before a filter can continue cleaning',
-    href: '/config/dynamic/stage-interlock',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-      </svg>
-    ),
-    gradient: 'from-cyan-500 to-blue-600',
-    shadowColor: 'shadow-cyan-500/25',
-  },
+  // PM Schedule Approval, Block Change Approval (Cross-Block Cleaning), and
+  // Cleaning Stage Interlock are all edited on the consolidated Role Assignments
+  // page. Their old standalone cards were duplicates and have been removed — see
+  // roleAssignmentKeys in ConfigIndexPage.
   {
     title: 'Offline Cache & Lockout',
     description: 'Cache staleness window + hard-cutoff read-only lockout after losing server contact',
@@ -412,11 +335,15 @@ export function ConfigIndexPage() {
   );
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  // Sensitive modules that must be EXPLICITLY granted — when unconfigured they
+  // are hidden from non-admins (fail-closed), unlike the default-allow modules.
+  // Filter Data Management edits/deletes filter records with no audit trail.
+  const EXPLICIT_GRANT_KEYS = new Set(['filter-data-management']);
   const canAccessModule = (moduleKey: string | undefined) => {
     if (!moduleKey) return true;
     if (isSuperAdmin) return true;
     const assigned = accessMatrix?.[moduleKey];
-    if (!assigned) return true; // unconfigured → default allow
+    if (!assigned) return !EXPLICIT_GRANT_KEYS.has(moduleKey); // unconfigured → allow, except fail-closed keys
     return user?.role ? assigned.includes(user.role) : false;
   };
 
@@ -429,13 +356,38 @@ export function ConfigIndexPage() {
     [...configCards, ...superAdminCards].map(c => cardModuleKey(c.href)),
   );
 
+  // These keys are edited on the consolidated Role Assignments page
+  // (/config/role-assignments), so they must NOT also appear as standalone
+  // "Additional Modules" cards. Their defs are retained (with hasCustomPage:false)
+  // ONLY so dynamic-routes.ts auto-generates their /api/config/dynamic/<key>
+  // GET/PUT endpoints, which Role Assignments reads/writes — setting
+  // hasCustomPage:true would drop those routes and break that page.
+  const roleAssignmentKeys = new Set([
+    'pm-schedule-approval', 'replacement-schedule-approval',
+    'qnn-notifications', 'guest-cleaning-requests', 'block-change-approval',
+    'stage-interlock', 'pm-schedule-settings',
+  ]);
+
   // Group manifest entries by category
   const dynamicModules = (manifest ?? [])
     .filter(m => !m.hasCustomPage)
     .filter(m => !hardcodedModuleKeys.has(m.moduleKey))
+    .filter(m => !roleAssignmentKeys.has(m.moduleKey))
     .filter(m => canAccessModule(m.moduleKey));
 
   const visibleConfigCards = configCards.filter(c => canAccessModule(cardModuleKey(c.href)));
+
+  // Super Admin Settings cards. SUPER_ADMIN sees all; a non-admin sees ONLY the
+  // cards explicitly granted to them in Configuration Access AND marked
+  // delegable (EXPLICIT_GRANT_KEYS) — so e.g. Filter Data Management can be
+  // delegated without exposing Branding / Roles / Backup / etc. The section
+  // header still renders for any role that has at least one card here.
+  const visibleSuperAdminCards = isSuperAdmin
+    ? superAdminCards
+    : superAdminCards.filter(c => {
+        const k = cardModuleKey(c.href);
+        return EXPLICIT_GRANT_KEYS.has(k) && (accessMatrix?.[k] ?? []).includes(user?.role ?? '');
+      });
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -505,7 +457,7 @@ export function ConfigIndexPage() {
       </div>
 
       {/* Super Admin Settings */}
-      {user?.role === 'SUPER_ADMIN' && (
+      {(isSuperAdmin || visibleSuperAdminCards.length > 0) && (
         <div className="bg-white rounded-2xl border-2 border-red-100 shadow-xl shadow-red-200/30 overflow-hidden">
           <div className="px-6 py-4 border-b border-red-100 bg-gradient-to-r from-red-50 to-pink-50">
             <div className="flex items-center gap-3">
@@ -527,7 +479,7 @@ export function ConfigIndexPage() {
           </div>
           <div className="p-6">
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {superAdminCards.map((card) => (
+              {visibleSuperAdminCards.map((card) => (
                 <Link key={card.href} to={card.href}>
                   <div className={`group relative overflow-hidden rounded-2xl border-2 border-slate-200 bg-white p-5 transition-all duration-300 hover:border-red-200 hover:shadow-xl ${card.shadowColor}`}>
                     {/* Background gradient on hover */}

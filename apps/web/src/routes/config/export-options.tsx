@@ -57,17 +57,14 @@ export function ExportOptionsPage() {
   };
 
   return (
-    <div className="p-6 max-w-[1100px] mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-5">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Export Options</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Choose which export formats each role can use on each page. Unset cells default to
-            <span className="font-semibold text-emerald-700"> Both</span>. SUPER_ADMIN always has both.
-          </p>
-        </div>
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm text-slate-500 max-w-2xl">
+          Choose which export formats each role can use on each page. Unset cells default to
+          <span className="font-semibold text-emerald-700"> Both</span>. SUPER_ADMIN always has both.
+        </p>
         <button onClick={save} disabled={saving}
-          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-rose-500 to-orange-600 shadow-sm disabled:opacity-50">
+          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>

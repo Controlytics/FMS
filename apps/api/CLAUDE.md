@@ -201,8 +201,8 @@ See `CHANGELOG.md` for full details.
 > Note: a separate "Phase 4" appears in the windows-friendly-rewrite plan (tooling cleanup of `install-on-target.ps1` + `package-for-production.ps1`). The two are unrelated.
 
 **New Config Definitions:**
-- `report-settings.def.ts` — Report header/footer/layout configuration
-- Public endpoint: `GET /api/config/report-settings/current`
+- `report-page-titles.def.ts` — report identity (company name + application name) shown in every report header + footer (blank → Branding). **Replaced `report-settings.def.ts` on 2026-06-29** (the old show/hide-toggle + layout config was removed; report-page page size now comes from Pagination Settings). The configurable common labels were also removed 2026-06-29 — the chrome uses fixed defaults.
+- Public endpoint: `GET /api/config/report-page-titles/current` (all authenticated users)
 - Public endpoint: `GET /api/config/password-policy/current`
 
 **Permissions Updates (snapshot at release; current totals are higher — see live counts in root `CLAUDE.md`):**

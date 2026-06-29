@@ -6,7 +6,7 @@
  *
  *   1. Feature toggle permissions (FILTER_OPERATE on /api/filters/*)
  *   2. Theme / branding config (GET /api/config/branding) — public read
- *   3. Report settings config (GET /api/config/report-settings/current)
+ *   3. Report page titles config (GET /api/config/report-page-titles/current)
  *   4. Report generation (POST /api/reports/generate) — covered by integration
  *      harness, smoke-tested at the routing layer here.
  *
@@ -218,56 +218,40 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
   });
 
   // ===========================================================================
-  // 3. Report settings — GET (public to authenticated users)
+  // 3. Report page titles — GET (public to authenticated users)
+  //    (Replaced the former "Report Settings" config on 2026-06-29.)
   // ===========================================================================
-  describe('GET /api/config/report-settings/current', () => {
-    it('returns 200 with the report settings object (or empty defaults)', async () => {
+  describe('GET /api/config/report-page-titles/current', () => {
+    it('returns 200 with the report page titles object (or empty defaults)', async () => {
       const res = await app.inject({
         method: 'GET',
-        url: '/api/config/report-settings/current',
+        url: '/api/config/report-page-titles/current',
         headers: { authorization: `Bearer ${operatorToken}` },
       });
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
-      // Per routes.ts:152-154, this returns row?.configValue ?? {}. Schema
-      // is open (additionalProperties: true). Just verify the response shape.
+      // Returns row?.configValue ?? {} with an open schema. Either an empty {}
+      // or a populated object is valid — the GET-current endpoint exists and
+      // is readable by any authenticated user so the report chrome can render.
       expect(body).toBeTypeOf('object');
       expect(body).not.toBeNull();
-      // If the config row exists it likely carries header/footer/layout fields
-      // (per use-report-config.ts schema). Either an empty {} or a populated
-      // object is valid here — the GET-current endpoint exists and responds.
     });
 
-    // PUT round-trip — exercises the static route added in
-    // static-routes/report-settings.routes.ts that fixes the FE 404 bug.
-    // FE submits to /api/config/dynamic/report-settings; that path is now
-    // owned by reportSettingsRoutes (config/routes.ts registration list)
-    // because dynamic-routes.ts skips defs with hasCustomPage:true. The
-    // round-trip writes via PUT then re-reads via the public GET-current
-    // endpoint to confirm the systemConfig row was persisted.
-    it('PUT /api/config/dynamic/report-settings persists the payload (round-trip)', async () => {
+    // PUT round-trip — writes via the CONFIG_UPDATE-gated PUT, then re-reads via
+    // the public GET-current endpoint to confirm the systemConfig row persisted.
+    it('PUT /api/config/report-page-titles persists the payload (round-trip)', async () => {
       const adminToken = await loginAs(app);
 
       const payload = {
-        showHeader: false,
-        showLogo: false,
-        showCompanyName: true,
-        showReportTitle: true,
-        showDateTime: false,
-        showGeneratedBy: false,
-        customHeaderText: `phase4-test-${Date.now()}`,
-        showFooter: true,
-        showPageNumbers: false,
-        showTotalRecords: true,
-        customFooterText: 'phase4-footer',
-        recordsPerPage: 50,
-        compactMode: true,
+        performedByLabel: `By(${Date.now()}):`,
+        recordsLabel: 'entries',
+        pageLabel: 'Sheet',
       };
 
       const putRes = await app.inject({
         method: 'PUT',
-        url: '/api/config/dynamic/report-settings',
+        url: '/api/config/report-page-titles',
         headers: { authorization: `Bearer ${adminToken}` },
         payload,
       });
@@ -275,11 +259,9 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
       const putBody = JSON.parse(putRes.body);
       expect(putBody.success).toBe(true);
 
-      // Re-read via the existing public GET-current endpoint and verify the
-      // payload round-tripped intact.
       const getRes = await app.inject({
         method: 'GET',
-        url: '/api/config/report-settings/current',
+        url: '/api/config/report-page-titles/current',
         headers: { authorization: `Bearer ${adminToken}` },
       });
       expect(getRes.statusCode).toBe(200);
@@ -312,11 +294,11 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
   });
 
   // ===========================================================================
-  // 5. Config manifest discovery — confirms report-settings + branding are
-  // registered (Phase 4 introduced both)
+  // 5. Config manifest discovery — confirms report-page-titles + branding are
+  // registered
   // ===========================================================================
   describe('GET /api/config/registry/manifest', () => {
-    it('lists report-settings and branding modules for SUPER_ADMIN', async () => {
+    it('lists report-page-titles and branding modules for SUPER_ADMIN', async () => {
       // The manifest endpoint requires authentication (uses req.user.role).
       // Use the existing admin login to fetch the full manifest.
       const adminToken = await loginAs(app);
@@ -332,7 +314,7 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
       // SUPER_ADMIN sees all registered modules.
       expect(Array.isArray(body)).toBe(true);
       const keys = body.map((m: { moduleKey: string }) => m.moduleKey);
-      expect(keys).toContain('report-settings');
+      expect(keys).toContain('report-page-titles');
       expect(keys).toContain('branding');
     });
   });

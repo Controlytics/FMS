@@ -2,11 +2,10 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
-import { useReportConfig } from '@/hooks/use-report-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { Pagination } from '@/components/ui/pagination';
-import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import type { CleaningCycle, FilterEvent, PaginatedResponse } from '../../types/filter';
 
 const TRACE_COLS = ['code', 'reason', 'status', 'started', 'completed', 'seq'];
@@ -14,14 +13,13 @@ const TRACE_COLS = ['code', 'reason', 'status', 'started', 'completed', 'seq'];
 export function FilterTraceabilityPage() {
   const { id } = useParams<{ id: string }>();
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
-  const { config: reportConfig } = useReportConfig();
   const { labelsFor } = useReportLabels();
   const L = labelsFor('filter-traceability');
   const traceHead = TRACE_COLS.map((k) => L.columns[k]);
-  const paginationOptions = usePaginationConfig();
+  const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const [tab, setTab] = useState<'events' | 'cycles' | 'deviations'>('events');
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(reportConfig.recordsPerPage);
+  const [perPage, setPerPage] = useState(defaultLimit);
 
   const { data: filterState } = useSWR(id ? `/api/filters/${id}/current-state` : null);
   const { data: events } = useSWR<PaginatedResponse<FilterEvent>>(tab === 'events' && id ? `/api/filters/events?filterId=${id}&page=${page}&limit=${perPage}` : null);

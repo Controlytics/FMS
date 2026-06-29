@@ -35,8 +35,10 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
   so `npm run test` from root picks it up alongside api / shared / integration.
 - First suite (B7.1, 2026-05-02): `routes/version-history/__tests__/diff.test.ts`
   covers the `diffSnapshots()` engine in `routes/version-history/index.tsx` —
-  10 cases across scalar / keyed-array / set-style / meta-filter / no-change
-  branches, all four EntityKinds.
+  8 cases across scalar / keyed-array / meta-filter / no-change branches across
+  the three shown EntityKinds (cleaning-profile / checklist-profile /
+  equipment-group). The `filter-profile` tab + its set-style diff branch were
+  removed 2026-06-29 (no user-facing Filter Profiles page existed).
 
 ## Key Paths
 - Source: `apps/web/src/`
@@ -141,11 +143,12 @@ See `CHANGELOG.md` for full details.
 - 7 pages have `isSuperAdmin || perms.includes()` pattern
 - Feature toggles: Filters Page Controls, Checklist/Cleaning Profile/Equipment Group/PM Page Controls
 
-**Report Settings:**
-- `hooks/use-report-config.ts` — fetches report layout settings
-- `components/report-page-wrapper.tsx` — wraps report tables with header/footer
-- Applied to: Audit Trail, Cleaning Cycle History, Filter Traceability
-- Config page: `routes/config/report-settings.tsx`
+**Report Configuration** — one page (`routes/config/report-config.tsx`, `/config/report-config`) combining three tabs, each an independent editor with its own config key + Save (consolidated 2026-06-29, replacing three standalone pages; "Report Settings" was removed earlier the same day):
+- **Identity** tab (`routes/config/report-page-titles.tsx`, key `report-page-titles`) — company + application name shown in every report header + footer; `hooks/use-report-page-titles.ts` resolves override → Branding. The former configurable common labels were removed; the chrome uses fixed defaults (`By:` / `records` / `Page X of Y`).
+- **Labels** tab (`routes/config/report-labels.tsx`, key `report-labels`) — per-report title / subtitle / column headers (view + PDF).
+- **Signatories** tab (`routes/config/report-signatories.tsx`, key `report-signatories`) — per-report × role signature label.
+- `components/report-page-wrapper.tsx` — shared on-screen report chrome (header always shown; footer suppressible via `hideFooter` / `hideFooterStats`). Applied to: Audit Trail, Filter Traceability, Quality Notifications, RFID Track Record (RFID hides the footer).
+- Report-page default page size comes from Pagination Settings (`usePaginationDefaults().defaultLimit`).
 
 **Reauth Fixes:**
 - Added `useReauth` + `ReauthDialog` to checklists (list + detail) and cleaning profiles (list + editor)

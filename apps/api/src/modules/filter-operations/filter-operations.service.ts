@@ -256,7 +256,11 @@ export class FilterOperationsService {
     if (query.status || query.cleaningReasonKey) {
       // Hierarchy scope (block/area/ahu) is already folded into scopeFilterIds,
       // applied below as the filterIds constraint — getCycles filters on filterId.
-      const r = await this.getCycles(ctx, { ...query, filterIds: scopeFilterIds ?? undefined });
+      // includeEvents: the cleaning-record table renders per-stage timestamps
+      // from each cycle's events (getStageInfo). The "All" path already requests
+      // events (line ~287); this status/reason-filtered branch must too, or every
+      // stage cell falls through to "Pending" even for COMPLETED cycles.
+      const r = await this.getCycles(ctx, { ...query, filterIds: scopeFilterIds ?? undefined, includeEvents: 'true' });
       return { ...r, data: r.data.map((c: any) => ({ ...c, _kind: 'cycle' })) };
     }
 

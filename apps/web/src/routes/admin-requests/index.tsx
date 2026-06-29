@@ -22,6 +22,28 @@ const STATUS_CFG: Record<string, { label: string; bg: string; text: string; bord
   REJECTED: { label: 'Rejected', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-400' },
 };
 
+// Full static class strings (no interpolation) so Tailwind's scanner keeps them.
+const STAT_ACCENTS: Record<string, { iconBg: string; ring: string }> = {
+  cyan: { iconBg: 'bg-cyan-50 text-cyan-600', ring: 'border-cyan-300 ring-2 ring-cyan-100' },
+  amber: { iconBg: 'bg-amber-50 text-amber-600', ring: 'border-amber-300 ring-2 ring-amber-100' },
+  emerald: { iconBg: 'bg-emerald-50 text-emerald-600', ring: 'border-emerald-300 ring-2 ring-emerald-100' },
+  rose: { iconBg: 'bg-rose-50 text-rose-600', ring: 'border-rose-300 ring-2 ring-rose-100' },
+};
+
+const ICON = {
+  inbox: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 5a2 2 0 01-1.8 1.1H8.3a2 2 0 01-1.8-1.1L4 13m16 0h-4.5l-1 2h-5l-1-2H4" /></svg>,
+  clock: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+  check: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+  x: <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+};
+
+const STAT_CARDS: { key: string; countKey: 'all' | 'PENDING' | 'APPROVED' | 'REJECTED'; label: string; accent: string; icon: React.ReactNode }[] = [
+  { key: '', countKey: 'all', label: 'All Requests', accent: 'cyan', icon: ICON.inbox },
+  { key: 'PENDING', countKey: 'PENDING', label: 'Pending', accent: 'amber', icon: ICON.clock },
+  { key: 'APPROVED', countKey: 'APPROVED', label: 'Approved', accent: 'emerald', icon: ICON.check },
+  { key: 'REJECTED', countKey: 'REJECTED', label: 'Rejected', accent: 'rose', icon: ICON.x },
+];
+
 export function AdminRequestsPage() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -33,21 +55,34 @@ export function AdminRequestsPage() {
   const { toast } = useToast();
   const reauth = useReauth();
   const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [adminRemarks, setAdminRemarks] = useState('');
   const [processing, setProcessing] = useState(false);
   const [approvalResult, setApprovalResult] = useState<{ username?: string; temporaryPassword?: string; message?: string; requestType?: string } | null>(null);
   const [copied, setCopied] = useState<string>('');
 
-  const queryParam = statusFilter ? `?status=${statusFilter}` : '';
-  const { data, isLoading } = useSWR(`/api/admin-requests${queryParam}`, { refreshInterval: 15000 });
-  const requests = data?.data ?? [];
-  const pendingCount = data?.pendingCount ?? 0;
+  // Fetch the full set once and filter client-side. Server-side ?status= would
+  // zero out the other buckets, making the status counts wrong while a filter
+  // is active — so counts + filtering both run off the same full list here.
+  const { data, isLoading } = useSWR('/api/admin-requests', { refreshInterval: 15000 });
+  const allRequests: any[] = data?.data ?? [];
+  const counts = {
+    all: allRequests.length,
+    PENDING: allRequests.filter((r) => r.status === 'PENDING').length,
+    APPROVED: allRequests.filter((r) => r.status === 'APPROVED').length,
+    REJECTED: allRequests.filter((r) => r.status === 'REJECTED').length,
+  };
+  const pendingCount = counts.PENDING;
+  const q = search.trim().toLowerCase();
+  const requests = allRequests.filter((r) =>
+    (!statusFilter || r.status === statusFilter) &&
+    (!q || (r.requesterName ?? '').toLowerCase().includes(q) || (r.requesterEmployeeId ?? '').toLowerCase().includes(q)));
 
-  // Pagination — slice the rendered rows; status-pill counts stay on `requests`.
+  // Pagination — slice the filtered rows.
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  useEffect(() => { setPage(1); }, [statusFilter]);
+  useEffect(() => { setPage(1); }, [statusFilter, search]);
   const totalPages = Math.max(1, Math.ceil(requests.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const pagedRequests = requests.slice((safePage - 1) * pageSize, safePage * pageSize);
@@ -93,7 +128,7 @@ export function AdminRequestsPage() {
           setSelectedRequest(null);
           setAdminRemarks('');
           setProcessing(false);
-          mutate(`/api/admin-requests${queryParam}`);
+          mutate('/api/admin-requests');
         },
         onError: (err: any) => {
           toast.error('Action Failed', err.message ?? 'Something went wrong');
@@ -153,8 +188,8 @@ export function AdminRequestsPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
-        <div className="flex items-center justify-between mb-4">
+      <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0 space-y-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -170,28 +205,40 @@ export function AdminRequestsPage() {
               </p>
             </div>
           </div>
+
+          {/* Search */}
+          <div className="relative w-full sm:w-72">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+            </svg>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search requester or ID…"
+              className="w-full pl-9 pr-8 py-2 text-[13px] border border-slate-200 rounded-lg bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-400"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
+            )}
+          </div>
         </div>
 
-        {/* Status pills */}
-        <div className="flex gap-2">
-          {[
-            { key: '', label: 'All', count: requests.length },
-            ...Object.entries(STATUS_CFG).map(([key, cfg]) => ({
-              key,
-              label: cfg.label,
-              count: requests.filter((r: any) => r.status === key).length,
-              dot: cfg.dot,
-            })),
-          ].map(s => (
-            <button key={s.key} onClick={() => setStatusFilter(s.key)}
-              className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-all flex items-center gap-1.5 ${
-                statusFilter === s.key ? 'bg-cyan-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-              }`}>
-              {'dot' in s && s.dot && <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === s.key ? 'bg-white' : s.dot}`} />}
-              {s.label}
-              {s.count > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusFilter === s.key ? 'bg-white/20' : 'bg-slate-200'}`}>{s.count}</span>}
-            </button>
-          ))}
+        {/* Stat / filter cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {STAT_CARDS.map((c) => {
+            const active = statusFilter === c.key;
+            const a = STAT_ACCENTS[c.accent];
+            return (
+              <button key={c.key} onClick={() => setStatusFilter(c.key)}
+                className={`flex items-center gap-3 p-3.5 rounded-xl border bg-white text-left transition-all ${active ? `${a.ring} shadow-sm` : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'}`}>
+                <span className={`grid place-items-center w-10 h-10 rounded-lg shrink-0 ${a.iconBg}`}>{c.icon}</span>
+                <div className="min-w-0">
+                  <div className="text-xl font-bold text-slate-800 tabular-nums leading-none">{counts[c.countKey]}</div>
+                  <div className="text-[12px] text-slate-500 mt-1 truncate">{c.label}</div>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -207,8 +254,19 @@ export function AdminRequestsPage() {
             <svg className="w-14 h-14 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-            <span className="text-slate-400 font-medium text-[14px]">No requests found</span>
-            <span className="text-[13px] text-slate-300">Requests will appear when users submit them</span>
+            {allRequests.length === 0 ? (
+              <>
+                <span className="text-slate-400 font-medium text-[14px]">No requests found</span>
+                <span className="text-[13px] text-slate-300">Requests will appear when users submit them</span>
+              </>
+            ) : (
+              <>
+                <span className="text-slate-400 font-medium text-[14px]">No matching requests</span>
+                <span className="text-[13px] text-slate-300">Try a different filter or search term</span>
+                <button onClick={() => { setStatusFilter(''); setSearch(''); }}
+                  className="mt-1 text-[12px] font-semibold text-cyan-600 hover:text-cyan-700">Clear filters</button>
+              </>
+            )}
           </div>
         ) : (
           <table className="w-full">
@@ -229,11 +287,19 @@ export function AdminRequestsPage() {
                   <tr key={req.id} className={`hover:bg-cyan-50/30 transition-colors group cursor-pointer ${isPending ? 'bg-amber-50/20' : ''}`}
                     onClick={() => { setSelectedRequest(req); setAdminRemarks(''); setProcessing(false); }}>
                     <td className="px-5 py-3.5">
-                      <div className="text-[13px] font-semibold text-slate-800">{req.requesterName}</div>
-                      {req.requesterEmployeeId && <div className="text-[11px] text-slate-400 mt-0.5">{req.requesterEmployeeId}</div>}
+                      <div className="flex items-center gap-3">
+                        <span className="grid place-items-center w-9 h-9 rounded-full bg-cyan-100 text-cyan-700 font-bold text-[13px] shrink-0">
+                          {(req.requesterName ?? '?')[0].toUpperCase()}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-semibold text-slate-800 truncate">{req.requesterName}</div>
+                          {req.requesterEmployeeId && <div className="text-[11px] text-slate-400">{req.requesterEmployeeId}</div>}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-5 py-3.5">
                       <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${tc.bg} ${tc.text} ${tc.border}`}>
+                        <span className="grid place-items-center w-4 h-4 rounded-full bg-white/70 text-[10px] leading-none">{tc.icon}</span>
                         {tc.label}
                       </span>
                     </td>
@@ -245,9 +311,10 @@ export function AdminRequestsPage() {
                     </td>
                     <td className="px-5 py-3.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
                     <td className="px-5 py-3.5 text-[12px] text-slate-400">{timeAgo(req.requestedAt)}</td>
-                    <td className="px-5 py-3.5">
-                      <span className="text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
-                        View
+                    <td className="px-5 py-3.5 text-right">
+                      <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
+                        {isPending && canApprove ? 'Review' : 'View'}
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       </span>
                     </td>
                   </tr>

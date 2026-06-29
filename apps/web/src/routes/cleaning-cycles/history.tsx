@@ -4,7 +4,6 @@ import useSWR from 'swr';
 import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationDefaults } from '../../hooks/use-pagination-config';
-import { useReportConfig } from '@/hooks/use-report-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
@@ -45,17 +44,17 @@ export function CleaningCycleHistoryPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const canExportPdf = isSuperAdmin || perms.includes('REPORT_EXPORT') || perms.includes('REPORT_GENERATE');
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
-  const { config: reportConfig } = useReportConfig();
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(reportConfig.recordsPerPage);
+  const [perPage, setPerPage] = useState(defaultLimit);
   const [perPageSynced, setPerPageSynced] = useState(false);
+  // Sync the page size to the Pagination Settings default once it loads (SWR).
   useEffect(() => {
-    if (!perPageSynced && defaultLimit && defaultLimit !== reportConfig.recordsPerPage) {
+    if (!perPageSynced && defaultLimit) {
       setPerPage(defaultLimit);
       setPerPageSynced(true);
       setPage(1);
     }
-  }, [defaultLimit, perPageSynced, reportConfig.recordsPerPage]);
+  }, [defaultLimit, perPageSynced]);
   const [status, setStatus] = useState('');
   // 2026-06-09: cleaning cycles + manual status updates are now MERGED into one
   // date-sorted list via /api/filters/cleaning-record. Manual rows are tagged

@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { apiClient } from './api-client';
 
 // Brand colors
 const COLORS = {
@@ -49,13 +50,22 @@ async function loadLogo(): Promise<{ data: string; w: number; h: number } | null
 }
 
 async function loadBranding(): Promise<{ companyName: string; appName: string }> {
+  let companyName = 'Controlytics AI Pvt Ltd';
+  let appName = 'DigiLog';
+  // Base identity from Branding (public endpoint).
   try {
-    const res = await fetch('/api/config/branding');
-    const data = await res.json();
-    return { companyName: data?.companyName || 'Controlytics AI Pvt Ltd', appName: data?.appName || 'DigiLog' };
-  } catch {
-    return { companyName: 'Controlytics AI Pvt Ltd', appName: 'DigiLog' };
-  }
+    const data = await fetch('/api/config/branding').then((r) => r.json());
+    if (data?.companyName) companyName = data.companyName;
+    if (data?.appName) appName = data.appName;
+  } catch { /* keep defaults */ }
+  // Report Page Titles overrides take precedence when set, so the PDF identity
+  // matches the on-screen report (override → Branding). Authed endpoint.
+  try {
+    const ov = await apiClient.get<{ companyName?: string; appName?: string }>('/api/config/report-page-titles/current');
+    if (ov?.companyName?.trim()) companyName = ov.companyName.trim();
+    if (ov?.appName?.trim()) appName = ov.appName.trim();
+  } catch { /* keep branding values */ }
+  return { companyName, appName };
 }
 
 /** Current user's User ID (username) + role, for the report footer stamp. The
@@ -174,7 +184,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   doc.setFontSize(13); doc.setTextColor(...COLORS.primary);
   doc.text(branding.companyName, logoEndX, y + 5);
   doc.setFontSize(7.5); doc.setTextColor(...COLORS.muted);
-  doc.text(branding.appName + ' - Digital Filter Management System', logoEndX, y + 10);
+  doc.text(branding.appName, logoEndX, y + 10);
 
   y += maxLogoH + 4;
 
