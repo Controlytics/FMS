@@ -120,7 +120,7 @@ git checkout DigitalFMS
 npm install
 
 # Build shared packages
-npx nx build shared && npx nx build db && npx nx build queue
+npm run build -w @digilog/shared && npm run build -w @digilog/queue
 
 # Initialize databases
 createdb digilog_db

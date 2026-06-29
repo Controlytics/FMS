@@ -118,7 +118,7 @@ When adding a **feature toggle** (a granular privilege like "Download PM Templat
 1. Add the permission constant to `packages/shared/src/types/permissions.ts`.
 2. Add the feature privilege to `packages/shared/src/types/feature-privileges.ts`.
 3. Update `FEATURE_TO_PERMISSION_MAP` with **both** the frontend visibility permission and the backend route permission.
-4. Rebuild shared: `npx nx build shared`.
+4. Rebuild shared: `npm run build -w @digilog/shared`.
 5. Update the consuming frontend component's visibility check.
 6. Update the backend route's `preHandler` permission check.
 7. Update the sidebar if the feature creates a new nav entry (both sidebar files — don't auto-sync).

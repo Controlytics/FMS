@@ -5,13 +5,13 @@ Shared TypeScript types, Zod schemas, and constants used by both API and Web app
 
 ## Build
 ```bash
-npx nx build shared
+npm run build -w @digilog/shared
 # or: cd packages/shared && npx tsc
 ```
 
 **Important:** After any changes to the shared package, rebuild it before testing API or Web:
 ```bash
-npx nx build shared
+npm run build -w @digilog/shared
 ```
 
 ## Key Exports

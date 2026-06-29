@@ -19,7 +19,6 @@
     "apps/api": { "entry": ["src/app.ts!"], "project": "src/**/*.ts" },
     "apps/web": { "entry": ["src/main.tsx!", "index.html"], "project": "src/**/*.{ts,tsx}" },
     "packages/shared": { "entry": ["src/index.ts!"], "project": "src/**/*.ts" },
-    "packages/db": { "entry": ["src/index.ts!"], "project": "src/**/*.ts" },
     "packages/queue": { "entry": ["src/index.ts!"], "project": "src/**/*.ts" }
   }
 }

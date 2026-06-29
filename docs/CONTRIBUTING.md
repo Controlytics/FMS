@@ -81,7 +81,7 @@ When adding a new config def, you must update **all twelve** of these in the sam
 9. `packages/shared/src/types/reauth-actions.ts` — reauth if applicable
 10. `apps/api/prisma/seed.ts` — seed default config row
 11. `apps/api/src/plugins/auth.ts` — `PUBLIC_GET_PATHS` if endpoint is public
-12. Rebuild shared: `npx nx build shared`
+12. Rebuild shared: `npm run build -w @digilog/shared`
 
 Plus: write an e2e test, append to `CHANGELOG.md`, and update count claims in CLAUDE.md System Stats.
 

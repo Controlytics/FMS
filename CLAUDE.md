@@ -53,7 +53,7 @@ cd apps/web && npx vite --host
 cd apps/web && npx vite build
 
 # Shared packages
-npx nx build shared && npx nx build queue
+npm run build -w @digilog/shared && npm run build -w @digilog/queue
 
 # APK
 cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
