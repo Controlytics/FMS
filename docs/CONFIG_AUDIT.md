@@ -87,16 +87,14 @@ These are the highest-value findings: 100% provable, fully actionable, no extern
 - **Fix:** replace all live-doc `npx nx build <pkg>` with the turbo/npm equivalent.
 - **Severity:** Medium — these are *active operator instructions* in `CLAUDE.md` and package docs; following them fails.
 
-### A-3. Build-time API URL is inconsistent across three sources AND not covered by the TLS cert
+### A-3. Build-time API URL is inconsistent across docs — but the live cert DOES cover it
 
-- **File:** `apps/web/.env.production:1` → `VITE_API_URL= "https://10.162.206.32:3000"`
-- **Three different IPs are in play:**
-  - `.env.production`: **10.162.206.32**
-  - `CLAUDE.md:72`, `OFFLINE_SYNC_ARCHITECTURE.md`, `APPLICATION_REPORT.md:330`: **192.168.1.22**
-  - your network IP-change runbook memory: static **192.168.1.55** (2026-06-25)
-- **Cert mismatch (functional risk):** `certs/ssl.conf` SAN list is `192.168.1.22, 10.11.230.146, 10.247.103.32, 10.111.165.32` (+ localhost/127.0.0.1/::1). **`grep -c '10.162.206.32' certs/ssl.conf` → 0.** An APK built with `VITE_API_URL=https://10.162.206.32:3000` will hit the API over TLS on an IP the server cert does **not** cover → "Trust anchor"/cert-name TLS failure on the tablet (this matches the failure mode in your `reference_apk_trusts_mkcert_root` memory). Note the supposed *current* static IP (192.168.1.55) is **also** absent from the SAN list.
-- **Fix:** decide the actual current server IP, then make all three agree: set `.env.production`, add the IP to `certs/ssl.conf` `[alt_names]`, regenerate the mkcert server cert (per your IP-change runbook), and rebuild the APK. I have **not** picked an IP for you — that's an environment fact only you hold.
-- **Severity:** High *if* an APK is built from this file as-is (silent login failure on tablet). Harmless for browser dev (which proxies to `localhost`).
+> **CORRECTION (2026-06-29):** An earlier draft of this finding claimed the TLS cert did **not** cover the API URL and flagged a High-severity APK TLS-failure risk. That was based on grepping `certs/ssl.conf` (a stale *template*) instead of the actually-served `certs/server.crt`. **The claim was wrong.** `openssl x509 -in certs/server.crt -ext subjectAltName` shows the live cert's SAN list includes `192.168.1.53`, `192.168.1.55`, `192.168.1.22`, `10.162.206.32` (and more). The functional risk does **not** exist. The real, much smaller finding is template drift (below).
+
+- **Current state (✅ verified):** `apps/web/.env.production` set to `https://192.168.1.53:3000` (the confirmed current IP); live `server.crt` SAN already includes `192.168.1.53`; `rootCA.pem` unchanged so tablet trust persists. An APK rebuilt from this env file will connect over TLS without error.
+- **Doc inconsistency (Low):** prose still names older IPs in several places — `CLAUDE.md:72` / `OFFLINE_SYNC_ARCHITECTURE.md` / `APPLICATION_REPORT.md:330` say `192.168.1.22`. Cosmetic; update opportunistically.
+- **Template drift (Low):** `certs/ssl.conf` and `certs/server.ext` list only the *old* SANs (`192.168.1.22, 10.11.230.146, 10.247.103.32, ...`) and are out of sync with the live `server.crt`. They are not consulted unless someone re-signs the cert using them — at which point the current IPs (incl. `.53`/`.55`) would be silently dropped. **Recommend:** sync `server.ext`/`ssl.conf` `[alt_names]` to match the live cert's SAN list so a future regen doesn't lose coverage.
+- **Severity:** Low (was incorrectly High). No functional TLS risk for current IPs.
 
 ### A-4. `.env.production` value formatting (style nit — NOT a bug)
 
@@ -204,10 +202,10 @@ Each claim below was confirmed by a sub-agent against an official source. The UR
 | 3 | Renamed configs | Turbo `pipeline`→`tasks` (**already done** ✅); Turbo schema host `turbo.build`→`turborepo.dev` (**C-3**, cosmetic). |
 | 4 | Newly available configs | None required for current versions. On upgrade: Prisma `prisma.config.ts`, Vitest `projects`. |
 | 5 | Missing recommended configs | **No `engines.node` field in any `package.json`** (✅ REPO-VERIFIED). Defensible to add one: Vite 8 / plugin-react 6 / ESLint 10 all now floor at Node 20.19+/22.12+, and `CLAUDE.md` already assumes Node 20+. An `"engines": { "node": ">=20.19" }` in root `package.json` makes that contract explicit and lets npm warn on mismatch. Otherwise: `apps/web/eslint.config.js` intentionally minimal (documented); `packages/queue` has no vitest config (documented as intentional). |
-| 6 | Incorrect values | **A-2** (`npx nx build` — wrong tool); **A-3** (`VITE_API_URL` IP not in cert SAN). |
+| 6 | Incorrect values | **A-2** (`npx nx build` — wrong tool). (A-3's "IP not in cert SAN" was corrected — the live cert covers it; only template drift remains.) |
 | 7 | Invalid sections | **A-1** (`knip.json` `packages/db` block). |
 | 8 | Breaking changes | All in **Part C** (Vite 8 manualChunks, tailwind-merge 3, Prisma 7, zod 4, nodemailer 9). None affect the *current* pinned versions — they are upgrade-time concerns. |
-| 9 | Compatibility issues | **A-3** (APK↔cert TLS). Plugin majors confirmed Fastify-5 safe (**C-1**). |
+| 9 | Compatibility issues | None functional — live `server.crt` covers current IPs incl. `192.168.1.53` (A-3 corrected). Plugin majors confirmed Fastify-5 safe (**C-1**). |
 | 10 | Performance | Vite 8 (Rolldown) is the only material build-perf lever — gated behind the manualChunks migration (**C-2**). No quick wins missing in current config. |
 | 11 | Security | `apps/api/.env.example` already documents strong defaults (JWT ≥32 chars, 1h TTL, `TRUST_PROXY` off by default, TLS on). **Cert hygiene OK:** `git ls-files certs/` tracks only the public `server.crt` — **`server.key` is NOT tracked** (✅ REPO-VERIFIED), so no private key is committed. nodemailer 9's default cert validation (**C-1**) would be a security *improvement* on upgrade. No insecure setting found. |
 | 12 | Best practice | tsconfig/eslint-flat/vite/vitest configs are current and idiomatic for their pinned majors. Primary debt is **doc drift (Part A)**, not config quality. |
@@ -223,12 +221,7 @@ Each claim below was confirmed by a sub-agent against an official source. The UR
    ```diff
    -    "packages/db": { "entry": ["src/index.ts!"], "project": "src/**/*.ts" },
    ```
-2. **`apps/web/.env.production`** — normalize formatting **and reconcile the IP** (pick the real current server IP; example uses placeholder):
-   ```diff
-   -VITE_API_URL= "https://10.162.206.32:3000"
-   +VITE_API_URL=https://<CURRENT_SERVER_IP>:3000
-   ```
-   …and add `<CURRENT_SERVER_IP>` to `certs/ssl.conf` `[alt_names]`, then regenerate the mkcert server cert + rebuild APK (per your IP-change runbook).
+2. **`apps/web/.env.production`** — ✅ **DONE** (2026-06-29): normalized formatting and set to the confirmed current IP `https://192.168.1.53:3000`. Live `server.crt` already covers `.53`, so **no cert regen needed**; rebuild the web bundle + APK only if the tablet must target the new IP. (Optional hygiene: sync `certs/server.ext` + `certs/ssl.conf` `[alt_names]` to the live cert's SAN list so a future re-sign doesn't drop current IPs.)
 3. **`turbo.json`** — optional canonical schema host:
    ```diff
    -  "$schema": "https://turbo.build/schema.json",
@@ -257,4 +250,5 @@ Each claim below was confirmed by a sub-agent against an official source. The UR
 - [x] Drift findings proven by `ls`/`grep`/`node`, not asserted.
 - [x] No findings manufactured to fill empty template sections.
 - [x] Migration patch proposed, not applied.
-- [ ] **Open / needs you:** the actual current server IP (A-3); Android toolchain currency (Part D); whether to proceed with any Tier-2 upgrade.
+- [x] **A-3 corrected** (2026-06-29): live `server.crt` SAN verified via `openssl` — covers current IP `192.168.1.53`; `.env.production` set; no cert regen needed.
+- [ ] **Open / needs you:** Android toolchain currency (Part D); whether to rebuild the APK for the new IP; whether to proceed with any Tier-2 upgrade.
