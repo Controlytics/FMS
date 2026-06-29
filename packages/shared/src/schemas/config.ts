@@ -5,7 +5,7 @@ export const brandingConfigSchema = z.object({
   appName: z.string().min(1).max(50).default('DigiLog'),
   appTagline: z.string().max(100).default('21 CFR Part 11 Compliant Digital Logbook'),
   logoText: z.string().min(1).max(5).default('DL'),
-  logoUrl: z.string().max(500000).default(''), // URL or data URI for logo image (large for base64)
+  logoUrl: z.string().max(3000000).default(''), // URL or data URI for logo image; ~3M chars ≈ a 2MB base64 image (raised from 500k 2026-06-29)
 
   // Company Info
   companyName: z.string().min(1).max(100).default('Controlytics AI Pvt Ltd'),

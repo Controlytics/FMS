@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { brandingConfigSchema, type BrandingConfig } from '@digilog/shared';
@@ -50,23 +50,24 @@ export function BrandingConfigPage() {
       return;
     }
 
-    // Validate file size (max 500KB)
-    if (file.size > 500 * 1024) {
-      setError('Logo image must be less than 500KB');
+    // Validate file size (max 2MB; stored as base64 in branding config)
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Logo image must be less than 2MB');
       return;
     }
 
     // Convert to base64 data URI
     const reader = new FileReader();
     reader.onloadend = () => {
-      setValue('logoUrl', reader.result as string);
+      // shouldDirty so the Save button (disabled unless dirty) enables after upload.
+      setValue('logoUrl', reader.result as string, { shouldDirty: true });
       setError('');
     };
     reader.readAsDataURL(file);
   };
 
   const handleRemoveLogo = () => {
-    setValue('logoUrl', '');
+    setValue('logoUrl', '', { shouldDirty: true });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -92,36 +93,6 @@ export function BrandingConfigPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Enhanced Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-500 via-purple-600 to-fuchsia-600 p-6 text-white shadow-2xl">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
-        <div className="relative flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              to="/config"
-              className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </Link>
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm shadow-lg">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold">Branding Configuration</h1>
-                  <p className="text-violet-100/80 text-sm">Customize appearance, logo, colors, and company information</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Two Column Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -118,42 +117,8 @@ export function FieldIdsPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Enhanced Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-700 p-6 text-white shadow-2xl">
-        <div className="relative flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link to="/config" className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </Link>
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm shadow-lg">
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold">Field ID Names</h1>
-                  <p className="text-cyan-100/80 text-sm">Configure display names for system field identifiers across all modules</p>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="px-4 py-2 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10">
-              <p className="text-xs text-cyan-100 uppercase tracking-wider">Modules</p>
-              <p className="text-2xl font-bold">{modules.length}</p>
-            </div>
-            <div className="px-4 py-2 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10">
-              <p className="text-xs text-cyan-100 uppercase tracking-wider">Total Fields</p>
-              <p className="text-2xl font-bold">{fields?.length || 0}</p>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-5">
+      <p className="text-sm text-slate-500 max-w-2xl">Configure display names for system field identifiers across all modules ({modules.length} modules · {fields?.length || 0} fields). Edit a field and Save it inline.</p>
 
       {/* Error Display */}
       {error && (

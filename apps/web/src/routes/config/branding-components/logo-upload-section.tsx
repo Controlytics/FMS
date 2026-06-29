@@ -102,7 +102,7 @@ export function LogoUploadSection({
               )}
             </div>
             <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2">
-              PNG, JPG, SVG. Max size: 500KB. If no logo, text will be displayed.
+              PNG, JPG, SVG. Max size: 2MB. If no logo, text will be displayed.
             </p>
             <Input type="hidden" {...register('logoUrl')} />
           </div>

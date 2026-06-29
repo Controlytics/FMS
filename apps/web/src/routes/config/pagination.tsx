@@ -95,18 +95,8 @@ export function PaginationConfigPage() {
   const sorted = [...options].sort((a, b) => a - b);
 
   return (
-    <div className="space-y-6 max-w-2xl animate-fade-in">
-      <div className="flex items-center gap-4">
-        <div className="p-3 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-lg shadow-sky-500/25">
-          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Pagination Settings</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Configure records per page options for all list views</p>
-        </div>
-      </div>
+    <div className="space-y-5 max-w-2xl">
+      <p className="text-sm text-slate-500">Configure records per page options for all list views.</p>
 
       <Card>
         <CardHeader>

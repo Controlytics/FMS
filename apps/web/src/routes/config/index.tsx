@@ -87,16 +87,16 @@ const superAdminCards = [
     shadowColor: 'shadow-teal-500/25',
   },
   {
-    title: 'Dashboard Cards',
-    description: 'Configure which dashboard cards are visible per role',
-    href: '/config/dashboard-cards',
+    title: 'Branding & Dashboard',
+    description: 'Logo, colors, themes, company & app name — plus which dashboard cards each role sees',
+    href: '/config/appearance',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zm10-2a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1h-4a1 1 0 01-1-1v-5z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
       </svg>
     ),
-    gradient: 'from-cyan-500 to-blue-600',
-    shadowColor: 'shadow-cyan-500/25',
+    gradient: 'from-violet-500 to-fuchsia-600',
+    shadowColor: 'shadow-violet-500/25',
   },
   {
     title: 'Report Configuration',
@@ -135,52 +135,16 @@ const superAdminCards = [
     shadowColor: 'shadow-violet-500/25',
   },
   {
-    title: 'Branding',
-    description: 'Customize logo, colors, company name & version',
-    href: '/config/branding',
+    title: 'Display Settings',
+    description: 'Field display names, audit-trail wording, and list page sizes — all in one place',
+    href: '/config/display-settings',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-      </svg>
-    ),
-    gradient: 'from-rose-500 to-red-600',
-    shadowColor: 'shadow-rose-500/25',
-  },
-  {
-    title: 'Field ID Names',
-    description: 'Configure field display names globally',
-    href: '/config/field-ids',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h16M4 18h10" />
       </svg>
     ),
     gradient: 'from-cyan-500 to-blue-600',
     shadowColor: 'shadow-cyan-500/25',
-  },
-  {
-    title: 'Audit Text Templates',
-    description: 'Customize audit trail description text per action',
-    href: '/config/audit-templates',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-      </svg>
-    ),
-    gradient: 'from-indigo-500 to-blue-600',
-    shadowColor: 'shadow-indigo-500/25',
-  },
-  {
-    title: 'Pagination Settings',
-    description: 'Configure records per page options for all list views',
-    href: '/config/pagination',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-      </svg>
-    ),
-    gradient: 'from-sky-500 to-blue-600',
-    shadowColor: 'shadow-sky-500/25',
   },
 
   {

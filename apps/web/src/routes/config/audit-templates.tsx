@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react';
 import useSWR from 'swr';
-import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +9,6 @@ import { AUDIT_TEMPLATE_DEFAULTS, AUDIT_TEMPLATE_CATEGORIES } from '@digilog/sha
 import type { AuditTemplateDefinition } from '@digilog/shared';
 
 export function AuditTemplatesConfigPage() {
-  const navigate = useNavigate();
   const { data: saved, mutate } = useSWR<Record<string, string>>('/api/config/audit-templates');
   const [templates, setTemplates] = useState<Record<string, string> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -132,29 +130,12 @@ export function AuditTemplatesConfigPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/config')} className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-            <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg">
-            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Audit Text Templates</h1>
-            <p className="text-sm text-slate-500">Customize how audit trail actions are described</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={handleResetAll}>
-            Reset All to Defaults
-          </Button>
+    <div className="space-y-5">
+      {/* Panel toolbar */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <p className="text-sm text-slate-500 max-w-2xl">Customize how audit trail actions are described.</p>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" onClick={handleResetAll}>Reset All</Button>
           <Button onClick={handleSave} disabled={saving || !hasChanges}>
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>

@@ -26,9 +26,9 @@ import { ResetRequestsPage } from './routes/users/reset-requests';
 import { ConfigIndexPage } from './routes/config/index';
 import { PasswordPolicyPage } from './routes/config/password-policy';
 import { DatetimeConfigPage } from './routes/config/datetime';
-import { BrandingConfigPage } from './routes/config/branding';
+const AppearanceConfigPage = lazy(() => import("./routes/config/appearance").then(m => ({ default: m.AppearanceConfigPage })));
 import { RoleAccessPage } from './routes/config/role-access';
-import { FieldIdsPage } from './routes/config/field-ids';
+const DisplaySettingsPage = lazy(() => import("./routes/config/display-settings").then(m => ({ default: m.DisplaySettingsPage })));
 import { UserIdConfigPage } from './routes/config/user-id';
 import { AccessMatrixPage } from './routes/config/access-matrix';
 import { ReplacementScheduleFiltersPage } from './routes/config/replacement-schedule-filters';
@@ -37,9 +37,6 @@ import { OfflineCacheConfigPage } from './routes/config/offline-cache';
 import { BackupRestorePage } from './routes/config/backup';
 import { DynamicConfigPage } from './routes/config/dynamic-config';
 import { ActionReauthPage } from './routes/config/action-reauth';
-import { AuditTemplatesConfigPage } from './routes/config/audit-templates';
-import { PaginationConfigPage } from './routes/config/pagination';
-import DashboardCardsConfig from './routes/config/dashboard-cards';
 import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
 import { ToastProvider } from './components/toast-provider';
@@ -185,18 +182,15 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/backup" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><BackupRestorePage /></RequireRole>} />
 
             {/* Super Admin Settings — SUPER_ADMIN role only */}
-            <Route path="/config/branding" element={<RequireRole roles={['SUPER_ADMIN']}><BrandingConfigPage /></RequireRole>} />
+            <Route path="/config/appearance" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><AppearanceConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/report-config" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><ReportConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/roles" element={<RequireRole permissions={[PERMISSIONS.ROLE_MANAGE]}><RoleAccessPage /></RequireRole>} />
-            <Route path="/config/field-ids" element={<RequireRole permissions={[PERMISSIONS.FIELD_ID_UPDATE]}><FieldIdsPage /></RequireRole>} />
+            <Route path="/config/display-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><DisplaySettingsPage /></Suspense></RequireRole>} />
             <Route path="/config/user-id" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><UserIdConfigPage /></RequireRole>} />
             <Route path="/config/access-matrix" element={<RequireRole roles={['SUPER_ADMIN']}><AccessMatrixPage /></RequireRole>} />
             <Route path="/config/replacement-schedule-filters" element={<RequireRole roles={['SUPER_ADMIN']}><ReplacementScheduleFiltersPage /></RequireRole>} />
             <Route path="/config/offline-cache" element={<RequireRole roles={['SUPER_ADMIN']}><OfflineCacheConfigPage /></RequireRole>} />
             <Route path="/config/action-reauth" element={<RequireRole roles={['SUPER_ADMIN']}><ActionReauthPage /></RequireRole>} />
-            <Route path="/config/audit-templates" element={<RequireRole roles={['SUPER_ADMIN']}><AuditTemplatesConfigPage /></RequireRole>} />
-            <Route path="/config/pagination" element={<RequireRole roles={['SUPER_ADMIN']}><PaginationConfigPage /></RequireRole>} />
-            <Route path="/config/dashboard-cards" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><DashboardCardsConfig /></RequireRole>} />
             <Route path="/config/email-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><EmailSettingsPage /></Suspense></RequireRole>} />
             <Route path="/config/sms-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><SmsSettingsPage /></Suspense></RequireRole>} />
             <Route path="/config/notification-rules" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationRulesPage /></Suspense></RequireRole>} />

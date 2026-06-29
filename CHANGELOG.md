@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — Combine Field IDs + Audit Text + Pagination into "Display Settings" (2026-06-29)
+
+Merged **Field ID Names**, **Audit Text Templates**, and **Pagination Settings** into one **Display Settings** page (`/config/display-settings`, SUPER_ADMIN) with three tabs (Field IDs / Audit Text / Pagination) — same pattern as the other consolidations. Each tab keeps its own config key (`field-ids` / `audit-templates` / `pagination`) + Save; the three page components were converted to header-less panels. Config index: three cards → one "Display Settings" card. Routes `/config/field-ids`, `/config/audit-templates`, `/config/pagination` removed; `/config/display-settings` added. **Access:** Field IDs previously used `FIELD_ID_UPDATE`; the combined page is SUPER_ADMIN-only (chosen) — a non-SA FIELD_ID_UPDATE role loses the Field IDs UI (its card was already SA-section-only). Defs/endpoints retained.
+
+**Verification**: web `tsc` clean (removed now-unused `Link`/`useNavigate` imports); `vite build` clean; dist rebuilt. Browser: all three tabs render; `/config` shows one Display Settings card (old three gone); no console errors.
+
+## [Unreleased] — Branding: raise logo size limit to 2MB (2026-06-29)
+
+A 571KB logo couldn't be uploaded because of two size caps (both below it):
+- **Client**: `handleLogoUpload` rejected files > 500KB → raised to **2MB** (`branding.tsx`); helper text updated (`logo-upload-section.tsx`).
+- **Schema**: `brandingConfigSchema.logoUrl` was `z.string().max(500000)` chars — a 571KB image as base64 is ~780k chars, so the save was rejected by validation (client form + server). Raised to **3,000,000** chars (≈ a 2MB base64 image) in `packages/shared/src/schemas/config.ts`; shared package rebuilt.
+
+Backend `bodyLimit` is already 10MB, so no server-limit change needed. **Requires an API restart** to load the recompiled shared schema (zod schema is bound at startup).
+
+**Verification**: api + web `tsc` clean; `vite build` clean; dist + shared rebuilt. Unit-checked the rebuilt schema: a ~571KB-image base64 (780k chars) now validates, while >3M chars is still rejected.
+
+## [Unreleased] — Combine Branding + Dashboard Cards; fix logo-upload Save gating (2026-06-29)
+
+**Combine** — merged Branding and Dashboard Cards into one **Branding & Dashboard** page (`/config/appearance`, SUPER_ADMIN) with two tabs (Branding / Dashboard Cards), same pattern as Report Configuration: each tab keeps its own config key (`branding` / `dashboard-cards`) + Save; the two page components were converted to header-less panels. Config index: the two cards → one "Branding & Dashboard" card. Routes `/config/branding` + `/config/dashboard-cards` removed; `/config/appearance` added. **Access:** Dashboard Cards previously allowed ADMIN; the combined page is SUPER_ADMIN-only (Branding's level) — ADMIN can no longer edit dashboard cards (chosen). The `branding` def/endpoints retained.
+
+**Bug fix — logo upload couldn't be saved.** In the Branding editor, `handleLogoUpload`/`handleRemoveLogo` called `setValue('logoUrl', …)` without `{ shouldDirty: true }`, but Save is `disabled={!isDirty || isSubmitting}`. So picking a logo updated the preview but never enabled Save → the upload couldn't be persisted. Added `shouldDirty: true` to both calls (pre-existing bug, not caused by the combine).
+
+**Verification**: web `tsc` clean; `vite build` clean; dist rebuilt. Browser: both tabs render with working Save; `/config` shows one Branding & Dashboard card; uploading a test logo now enables Save and shows the preview (not saved over real branding). No console errors.
+
 ## [Unreleased] — Report Configuration: add Export tab (2026-06-29)
 
 Added **Export Options** as a fourth tab on the combined Report Configuration page (Identity / Labels / Signatories / **Export**). The Export tab is the existing role × page → PDF/Excel matrix (`export-options` key, converted to a panel). Removed its standalone config card + `/config/export-options` route. **Access:** export-options' SUPER_ADMIN-only restriction lived only at the route level (its endpoints are CONFIG_READ/UPDATE), so the combined `/config/report-config` route was bumped to **SUPER_ADMIN** to preserve that (and to match the card's Super Admin Settings placement). The `export-options` def/endpoints are retained.
