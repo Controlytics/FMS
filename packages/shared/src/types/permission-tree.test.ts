@@ -62,16 +62,18 @@ describe('deriveFeatureToPermissionMap parity (Task 1.3)', () => {
   });
 });
 
-// Task 1.4 — BLOCKED (expected to FAIL).
-// The SIDEBAR_PRIVILEGE_MAP oracle places the same FP id in multiple sections
-// (e.g. assets.view in filter-list, filter-retirements, rfid-track-record,
-// filter-replacements; filters.operate in filter-list AND filter-operations).
-// The well-formedness constraint (unique node ids) prevents the tree from
-// representing this many-to-many relationship, so the derivation cannot
-// reproduce the oracle. The test is recorded here to document the gap.
-describe('deriveSidebarPrivilegeMap parity (Task 1.4) — BLOCKED', () => {
-  it('reproduces SIDEBAR_PRIVILEGE_MAP exactly [EXPECTED FAIL — structural contradiction]', () => {
-    expect(deriveSidebarPrivilegeMap()).toEqual(SIDEBAR_PRIVILEGE_MAP);
+describe('deriveSidebarPrivilegeMap (Task 1.4)', () => {
+  it('reproduces SIDEBAR_PRIVILEGE_MAP (per-section, privilegeIds as sets)', () => {
+    const derived = deriveSidebarPrivilegeMap();
+    const oracle = SIDEBAR_PRIVILEGE_MAP;
+    expect(derived.map(s => s.sidebarId).sort())
+      .toEqual(oracle.map(s => s.sidebarId).sort());
+    for (const o of oracle) {
+      const d = derived.find(s => s.sidebarId === o.sidebarId);
+      expect(d, `missing section ${o.sidebarId}`).toBeTruthy();
+      expect([...d!.privilegeIds].sort(), `privilegeIds ${o.sidebarId}`)
+        .toEqual([...o.privilegeIds].sort());
+    }
   });
 });
 

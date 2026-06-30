@@ -45,6 +45,12 @@ export interface SidebarGroup {
   label: string;
   icon: string;
   description: string;
+  /**
+   * Visibility privilege ids that gate this sidebar item's display.
+   * Populated verbatim from SIDEBAR_PRIVILEGE_MAP (the oracle).
+   * Many-to-many: the same privilege id may appear in multiple groups.
+   */
+  visibilityPrivilegeIds: string[];
   nodes: PermissionNode[];
 }
 
@@ -53,6 +59,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'dashboard', label: 'Dashboard', icon: '🏠',
     description: 'Main dashboard view',
+    visibilityPrivilegeIds: [],
     nodes: [
       { id: 'dashboard.view', label: 'View Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'View',
         icon: 'layout', category: 'Dashboards', permissions: ['DASHBOARD_VIEW'], enforce: 'b' },
@@ -68,6 +75,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Users ----
   {
     sidebarId: 'users', label: 'Users', icon: '👥', description: 'User management',
+    visibilityPrivilegeIds: ['users.view', 'users.create', 'users.edit', 'users.delete', 'users.reset_password', 'users.unlock', 'users.enable_disable'],
     nodes: [
       { id: 'users.view', label: 'View Users', sidebarId: 'users', page: 'Users', action: 'View',
         icon: 'user', category: 'User Management', permissions: ['USER_READ'], enforce: 'a' },
@@ -91,6 +99,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'admin-requests', label: 'Admin Requests', icon: '📋',
     description: 'Review and process user requests',
+    visibilityPrivilegeIds: ['admin_requests.view'],
     nodes: [
       { id: 'admin_requests.view', label: 'Review Admin Requests', sidebarId: 'admin-requests', page: 'Admin Requests', action: 'View',
         icon: 'inbox', category: 'User Management', permissions: ['ADMIN_REQUEST_REVIEW'], enforce: 'a' },
@@ -105,6 +114,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Configuration ----
   {
     sidebarId: 'configuration', label: 'Configuration', icon: '⚙️', description: 'System settings',
+    visibilityPrivilegeIds: ['config.view', 'config.edit'],
     nodes: [
       { id: 'config.view', label: 'View Configuration', sidebarId: 'configuration', page: 'Configuration', action: 'View',
         icon: 'settings', category: 'System', permissions: ['CONFIG_READ'], enforce: 'a' },
@@ -144,6 +154,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Notifications ----
   {
     sidebarId: 'notifications', label: 'Notifications', icon: '🔔', description: 'Notification center',
+    visibilityPrivilegeIds: ['notifications.view', 'notifications.manage', 'notifications.delete'],
     nodes: [
       { id: 'notifications.view', label: 'View Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'View',
         icon: 'bell', category: 'System', permissions: ['NOTIFICATION_VIEW'], enforce: 'a' },
@@ -161,6 +172,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Audit Trail ----
   {
     sidebarId: 'audit', label: 'Audit Trail', icon: '📝', description: 'Activity logs',
+    visibilityPrivilegeIds: ['audit.view', 'audit.export'],
     nodes: [
       { id: 'audit.view', label: 'View Audit Trail', sidebarId: 'audit', page: 'Audit', action: 'View',
         icon: 'clipboard', category: 'System', permissions: ['AUDIT_READ'], enforce: 'a' },
@@ -189,6 +201,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- System Health ----
   {
     sidebarId: 'system-health', label: 'System Health', icon: '📊', description: 'System health monitoring',
+    visibilityPrivilegeIds: [],
     nodes: [
       { id: 'system_health.view', label: 'View System Health', sidebarId: 'system-health', page: 'System Health', action: 'View',
         icon: 'activity', category: 'System', permissions: [], enforce: 'b' },
@@ -198,6 +211,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Debug Traces ----
   {
     sidebarId: 'debug-traces', label: 'Debug Traces', icon: '🐛', description: 'Pipeline debug traces',
+    visibilityPrivilegeIds: ['debug.view', 'debug.manage'],
     nodes: [
       { id: 'debug.view', label: 'View Debug Traces', sidebarId: 'debug-traces', page: 'Debug Traces', action: 'View',
         icon: 'terminal', category: 'Debug Traces', permissions: ['READ_DEBUG_TRACE'], enforce: 'a' },
@@ -209,6 +223,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Filter List ----
   {
     sidebarId: 'filter-list', label: 'Filters', icon: '🔍', description: 'Filter inventory by block',
+    visibilityPrivilegeIds: ['assets.view', 'filters.operate', 'filters.events', 'assets.identifiers.create', 'assets.identifiers.delete', 'filters.bulk_upload', 'filters.retire', 'filters.replace', 'filters.status_update', 'filters.hierarchy_create', 'filters.rfid_manage'],
     nodes: [
       // Asset / Filter viewing
       { id: 'assets.view', label: 'View Assets', sidebarId: 'filter-list', page: 'Filters', action: 'View',
@@ -270,6 +285,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Filter Retirements ----
   {
     sidebarId: 'filter-retirements', label: 'Retirement List', icon: '🚫', description: 'Retired filter inventory',
+    visibilityPrivilegeIds: ['assets.view'],
     nodes: [
       { id: 'retirement_list.export', label: 'Export Retirement List Report (PDF / Excel)', sidebarId: 'filter-retirements', page: 'Retirement List', action: 'Export',
         icon: 'download', category: 'Filters Page Controls', permissions: ['RETIREMENT_LIST_EXPORT'], enforce: 'c' },
@@ -282,6 +298,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'rfid-track-record', label: 'RFID Track Record', icon: '📡',
     description: 'RFID assign / remove lifecycle history',
+    visibilityPrivilegeIds: ['assets.view', 'filters.rfid_manage'],
     nodes: [
       { id: 'rfid_track.view', label: 'View RFID Track Record', sidebarId: 'rfid-track-record', page: 'RFID Track Record', action: 'View',
         icon: 'radio', category: 'RFID & Identifiers', permissions: ['FILTER_RFID_MANAGE', 'ASSET_VIEW'], enforce: 'b' },
@@ -294,6 +311,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'filter-replacements', label: 'Replacement List', icon: '🔄',
     description: 'Filter replacement history + schedule (List | Schedule tabs)',
+    visibilityPrivilegeIds: ['assets.view', 'replacement_schedule.view', 'replacement_schedule.upload', 'replacement_schedule.review', 'replacement_schedule.approve'],
     nodes: [
       { id: 'replacement_list.export', label: 'Export Replacement List Report (PDF / Excel)', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Export',
         icon: 'download', category: 'Filters Page Controls', permissions: ['REPLACEMENT_LIST_EXPORT'], enforce: 'c' },
@@ -316,6 +334,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'filter-operations', label: 'Filter Operations', icon: '🔧',
     description: 'Filter cleaning operations',
+    visibilityPrivilegeIds: ['filters.operate', 'filters.bypass', 'filters.events', 'checklists.submit'],
     nodes: [
       { id: 'filters.operate', label: 'Operate Filters (Start/Advance Cycles)', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'Operate',
         icon: 'filter', category: 'Filter Management', permissions: ['FILTER_OPERATE', 'ASSET_READ'], enforce: 'a' },
@@ -346,6 +365,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'cleaning-cycles', label: 'Filter Cleaning Record', icon: '🔄',
     description: 'Cleaning cycle history and timeline',
+    visibilityPrivilegeIds: ['cycles.view'],
     nodes: [
       { id: 'cycles.view', label: 'View Cleaning Cycles', sidebarId: 'cleaning-cycles', page: 'Filter Cleaning Record', action: 'View',
         icon: 'refresh', category: 'Cleaning Cycles', permissions: ['CYCLE_READ'], enforce: 'a' },
@@ -358,6 +378,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'filter-lifecycle-report', label: 'Filter Lifecycle Report', icon: '📊',
     description: 'Per-filter cleaning lifecycle, cycle by cycle',
+    visibilityPrivilegeIds: ['cycles.view'],
     nodes: [
       // Report templates + instances placed here (no dedicated sidebar entry in oracle)
       { id: 'report_templates.view', label: 'View Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'View',
@@ -392,6 +413,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Checklists ----
   {
     sidebarId: 'checklists', label: 'Checklists', icon: '📋', description: 'Checklist profile management',
+    visibilityPrivilegeIds: ['checklists.create', 'checklists.edit', 'checklists.delete', 'checklists.toggle', 'checklists.submit'],
     nodes: [
       { id: 'checklists.submit', label: 'Submit Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Submit',
         icon: 'clipboard-check', category: 'Checklists', permissions: ['CHECKLIST_SUBMIT'], enforce: 'a' },
@@ -419,6 +441,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'cleaning-profiles', label: 'Cleaning Profiles', icon: '🧹',
     description: 'Cleaning pipeline profile management',
+    visibilityPrivilegeIds: ['cleaning_profiles.view', 'cleaning_profiles.create', 'cleaning_profiles.edit', 'cleaning_profiles.delete'],
     nodes: [
       { id: 'cleaning_profiles.view', label: 'View Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'View',
         icon: 'eye', category: 'Cleaning Profiles', permissions: ['FCP_READ'], enforce: 'a' },
@@ -455,6 +478,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'equipment-groups', label: 'Equipment Groups', icon: '⚙️',
     description: 'Equipment group configuration',
+    visibilityPrivilegeIds: ['equipment_groups.view', 'equipment_groups.create', 'equipment_groups.edit', 'equipment_groups.delete'],
     nodes: [
       { id: 'equipment_groups.view', label: 'View Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'View',
         icon: 'eye', category: 'Equipment Group Controls', permissions: ['EG_VIEW', 'ASSET_READ'], enforce: 'a' },
@@ -477,6 +501,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'pm-schedules', label: 'PM Schedules', icon: '📅',
     description: 'Preventive maintenance scheduling',
+    visibilityPrivilegeIds: ['pm.view', 'pm.create', 'pm.edit', 'pm.delete', 'pm.approve'],
     nodes: [
       { id: 'pm.view', label: 'View PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'View',
         icon: 'eye', category: 'PM Schedules', permissions: ['PM_READ'], enforce: 'a' },
@@ -519,6 +544,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'my-tasks', label: 'My Tasks', icon: '🎯',
     description: 'Filters due for cleaning based on PM schedules',
+    visibilityPrivilegeIds: ['pm.view', 'pm.execute'],
     nodes: [
       { id: 'my_tasks.view', label: 'View My PM Tasks', sidebarId: 'my-tasks', page: 'My Tasks', action: 'View',
         icon: 'eye', category: 'PM Schedules', permissions: ['PM_READ'], enforce: 'a' },
@@ -534,6 +560,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'deviations', label: 'Deviations', icon: '⚠',
     description: 'Overdue PM cleaning deviations + audit trail',
+    visibilityPrivilegeIds: ['pm.view', 'pm.approve'],
     nodes: [
       { id: 'deviations.view', label: 'View Deviations', sidebarId: 'deviations', page: 'Deviations', action: 'View',
         icon: 'alert-triangle', category: 'PM Schedules', permissions: ['PM_READ'], enforce: 'b' },
@@ -546,6 +573,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'approvals', label: 'Approvals', icon: '✅',
     description: 'Block change approval requests',
+    visibilityPrivilegeIds: ['block_change.request', 'block_change.approve'],
     nodes: [
       { id: 'block_change.view', label: 'View Block Change Requests', sidebarId: 'approvals', page: 'Approvals', action: 'View',
         icon: 'eye', category: 'Filter Management', permissions: ['BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE'], enforce: 'a' },
@@ -564,6 +592,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'stage-approvals', label: 'Stage Approvals', icon: '🛡️',
     description: 'Approve cleaning stages (Wash Out / Dry Out) at the QA interlock',
+    visibilityPrivilegeIds: ['stage_approvals.view', 'stage_approvals.decide'],
     nodes: [
       { id: 'stage_approvals.view', label: 'View Stage Approvals', sidebarId: 'stage-approvals', page: 'Stage Approvals', action: 'View',
         icon: 'shield', category: 'Filter Management', permissions: ['STAGE_APPROVAL_VIEW'], enforce: 'a' },
@@ -582,6 +611,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'version-history', label: 'Version History', icon: '🕰️',
     description: 'Audit history of versioned definitions (cleaning profiles, filter profiles, checklist profiles, equipment groups)',
+    visibilityPrivilegeIds: ['version_history.view'],
     nodes: [
       { id: 'version_history.view', label: 'View Version History', sidebarId: 'version-history', page: 'Version History', action: 'View',
         icon: 'history', category: 'Audit / Versions', permissions: ['VERSION_HISTORY_VIEW'], enforce: 'a' },
@@ -630,15 +660,15 @@ export function deriveFeatureToPermissionMap(
 
 /**
  * Task 1.4 — Reproduces SIDEBAR_PRIVILEGE_MAP from the tree.
- * NOTE: This derivation is BLOCKED (see unit-A-report.md) because the oracle
- * requires some FP ids to appear in multiple sidebar sections, which is
- * incompatible with the uniqueness constraint. The function is included for
- * API completeness; the parity test will fail by design.
+ *
+ * Returns one SidebarSection per group, using the group's explicit
+ * visibilityPrivilegeIds (populated verbatim from the oracle at build time).
+ * Icon and description are sourced from the matching oracle section to avoid
+ * emoji-byte encoding drift.
  */
 export function deriveSidebarPrivilegeMap(
   tree: SidebarGroup[] = PERMISSION_TREE,
 ): SidebarSection[] {
-  const fpIds = new Set(FEATURE_PRIVILEGES.map(fp => fp.id));
   const oracleById = new Map(SIDEBAR_PRIVILEGE_MAP.map(s => [s.sidebarId, s]));
   return tree.map(g => {
     const o = oracleById.get(g.sidebarId);
@@ -647,7 +677,7 @@ export function deriveSidebarPrivilegeMap(
       label: g.label,
       icon: o?.icon ?? g.icon,
       description: o?.description ?? g.description,
-      privilegeIds: g.nodes.map(n => n.id).filter(id => fpIds.has(id)),
+      privilegeIds: [...g.visibilityPrivilegeIds],
     };
   });
 }

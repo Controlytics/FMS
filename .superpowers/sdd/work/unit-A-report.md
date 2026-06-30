@@ -6,7 +6,7 @@
 
 ---
 
-## Status: DONE (1 task BLOCKED)
+## Status: DONE (all tasks complete)
 
 | Task | Status | Notes |
 |------|--------|-------|
@@ -14,14 +14,14 @@
 | 1.1 — PERMISSION_TREE + well-formedness | DONE | 24 groups, 98 FP nodes + enforced-only nodes; 5 well-formedness tests PASS |
 | 1.2 — deriveFeaturePrivileges parity | DONE | Test + fix (oracle-ordered iteration); PASS |
 | 1.3 — deriveFeatureToPermissionMap parity | DONE | Test; PASS (implementation was already correct in 1.1) |
-| 1.4 — deriveSidebarPrivilegeMap parity | BLOCKED | Test committed with EXPECTED FAIL label — see below |
+| 1.4 — deriveSidebarPrivilegeMap parity | DONE | Redesigned with visibilityPrivilegeIds per-group; test passes — see Task 1.4 fix section |
 | 1.5 — resolveNodePermissions | DONE | 3 tests; PASS |
 
 ---
 
 ## Test Summary
 
-**11 tests total. 10 passed, 1 intentionally-failing BLOCKED test.**
+**11 tests total. All 11 passed.**
 
 ```
 PERMISSION_TREE well-formedness > has unique node ids                              ✓
@@ -31,7 +31,7 @@ PERMISSION_TREE well-formedness > every reauthAction (when set) exists in REAUTH
 PERMISSION_TREE well-formedness > every node has a valid enforce tag               ✓
 deriveFeaturePrivileges parity (Task 1.2) > reproduces FEATURE_PRIVILEGES exactly  ✓
 deriveFeatureToPermissionMap parity (Task 1.3) > reproduces FEATURE_TO_PERMISSION_MAP exactly ✓
-deriveSidebarPrivilegeMap parity (Task 1.4) > [EXPECTED FAIL — structural contradiction] ✗ BLOCKED
+deriveSidebarPrivilegeMap (Task 1.4) > reproduces SIDEBAR_PRIVILEGE_MAP (per-section, privilegeIds as sets) ✓
 resolveNodePermissions (Task 1.5) > returns permissions for a known FP node        ✓
 resolveNodePermissions (Task 1.5) > returns [] for an unknown node id              ✓
 resolveNodePermissions (Task 1.5) > returns [] for an enforced-only node           ✓
@@ -132,3 +132,20 @@ privilege-escalation via delete-without-read). NOT BLOCKED; test passes.
 | `packages/shared/src/types/permission-tree.ts` | NEW — interfaces, PERMISSION_TREE, 4 derive functions |
 | `packages/shared/src/types/permission-tree.test.ts` | NEW — 11 tests across Tasks 1.1–1.5 |
 | `packages/shared/src/index.ts` | Added barrel exports for tree + derive functions |
+
+---
+
+## Task 1.4 fix (2026-06-30)
+
+**Commit:** (see below — appended after commit)
+
+**Root cause (confirmed):** `SIDEBAR_PRIVILEGE_MAP` is a many-to-many visibility map — the same privilege id (e.g. `assets.view`) appears in multiple sidebar sections. Derivation from node-group ownership cannot reproduce this, because each node belongs to exactly one group (uniqueness invariant). The prior implementation tried to derive it from the FP node set of each group, which gave wrong (node-local) ids rather than the oracle's visibility ids.
+
+**Fix design:** Added `visibilityPrivilegeIds: string[]` to the `SidebarGroup` interface. Each of the 24 groups in `PERMISSION_TREE` has this field populated verbatim from the corresponding `SIDEBAR_PRIVILEGE_MAP` entry (same array contents, exactly). `deriveSidebarPrivilegeMap` now reads `g.visibilityPrivilegeIds` instead of deriving from node membership. Icon/description are still sourced from the oracle section to avoid emoji-byte encoding drift.
+
+**Verification:**
+- `npm run build -w @digilog/shared` → clean compile (no TS errors; all 24 groups populate the new required field)
+- `npm test -w @digilog/shared -- permission-tree.test` → **11 tests, 11 passed** (was 10 pass / 1 fail)
+- Unique-node-ids well-formedness test continues to pass (no duplicate nodes added)
+
+**Every group has visibilityPrivilegeIds:** confirmed — 24 groups, each with the field. Counts: 12 groups have non-empty arrays, 2 groups (dashboard, system-health) have `[]` matching the oracle.
