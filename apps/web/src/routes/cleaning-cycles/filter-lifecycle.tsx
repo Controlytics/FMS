@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
-import { useAuth } from '../../hooks/use-auth';
+import { useCan } from '../../hooks/use-can';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { api } from '../../lib/api-client';
 import { createReport } from '../../lib/pdf-report';
@@ -373,10 +373,9 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
 
 export function FilterLifecycleReportPage() {
   const { formatDateTime, formatDate } = useDatetimeFormat();
-  const { user } = useAuth();
-  const perms = (user?.permissions as string[] | undefined) ?? [];
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canExportPdf = isSuperAdmin || perms.includes('REPORT_EXPORT') || perms.includes('REPORT_GENERATE');
+  // Phase 5C: lifecycle.export gate = ['REPORT_EXPORT','REPORT_GENERATE'] — SAME as old check.
+  const can = useCan();
+  const canExportPdf = can('lifecycle.export');
 
   // Hierarchy dropdown sources.
   const { data: blocksData } = useSWR<{ data: HNode[] }>('/api/hierarchy/blocks?limit=500');
