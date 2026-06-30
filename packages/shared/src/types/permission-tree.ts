@@ -1,0 +1,660 @@
+/**
+ * PERMISSION_TREE — the single sidebar-anchored permission catalog.
+ *
+ * Source of truth: tasks/RBAC-SIDEBAR-REDESIGN-ANALYSIS.md §2.
+ * Every node whose id exists in FEATURE_PRIVILEGES/FEATURE_TO_PERMISSION_MAP
+ * has its label/category/icon and permissions array copied verbatim from those
+ * oracles so that deriveFeaturePrivileges() and deriveFeatureToPermissionMap()
+ * reproduce them exactly (verified by parity tests 1.2 and 1.3).
+ *
+ * Phase 1: additive, zero behavior change. Legacy exports are left untouched.
+ */
+
+import type { Permission } from './permissions.js';
+import type { ReauthAction } from './reauth-actions.js';
+import type { FeaturePrivilege } from './feature-privileges.js';
+import type { SidebarSection } from './sidebar-privilege-map.js';
+import { FEATURE_PRIVILEGES, FEATURE_TO_PERMISSION_MAP } from './feature-privileges.js';
+import { SIDEBAR_PRIVILEGE_MAP } from './sidebar-privilege-map.js';
+
+export interface PermissionNode {
+  /** Canonical dotted id, e.g. 'users.delete'. Matches a FEATURE_PRIVILEGES id where one exists. */
+  id: string;
+  /** Human label shown in the admin tree, e.g. 'Delete Users'. */
+  label: string;
+  /** Owning sidebar item id, e.g. 'users'. */
+  sidebarId: string;
+  /** Page label for grouping, e.g. 'Users'. */
+  page: string;
+  /** Action verb, e.g. 'Delete'. */
+  action: string;
+  /** Icon token (reuse FEATURE_PRIVILEGES icons). */
+  icon: string;
+  /** Admin-UI category (reuse FEATURE_PRIVILEGES categories so derivation matches). */
+  category: string;
+  /** Enforced uppercase PERMISSIONS this node grants. Verbatim from FEATURE_TO_PERMISSION_MAP. */
+  permissions: Permission[];
+  /** Cross-linked step-up action, if any (orthogonal axis). */
+  reauthAction?: ReauthAction;
+  /** Enforceability: a=enforceable today, b=needs new narrow gate, c=cosmetic-only. */
+  enforce: 'a' | 'b' | 'c';
+}
+
+export interface SidebarGroup {
+  sidebarId: string;
+  label: string;
+  icon: string;
+  description: string;
+  nodes: PermissionNode[];
+}
+
+export const PERMISSION_TREE: SidebarGroup[] = [
+  // ---- Dashboard ----
+  {
+    sidebarId: 'dashboard', label: 'Dashboard', icon: '🏠',
+    description: 'Main dashboard view',
+    nodes: [
+      { id: 'dashboard.view', label: 'View Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'View',
+        icon: 'layout', category: 'Dashboards', permissions: ['DASHBOARD_VIEW'], enforce: 'b' },
+      { id: 'dashboard.create', label: 'Create Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'Create',
+        icon: 'plus', category: 'Dashboards', permissions: ['DASHBOARD_CREATE', 'DASHBOARD_VIEW'], enforce: 'b' },
+      { id: 'dashboard.manage', label: 'Manage Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'Manage',
+        icon: 'settings', category: 'Dashboards', permissions: ['DASHBOARD_MANAGE', 'DASHBOARD_VIEW'], enforce: 'c' },
+      { id: 'dashboard.assign', label: 'Assign Dashboards', sidebarId: 'dashboard', page: 'Dashboard', action: 'Assign',
+        icon: 'link', category: 'Dashboards', permissions: ['DASHBOARD_ASSIGN', 'DASHBOARD_VIEW'], enforce: 'b' },
+    ],
+  },
+
+  // ---- Users ----
+  {
+    sidebarId: 'users', label: 'Users', icon: '👥', description: 'User management',
+    nodes: [
+      { id: 'users.view', label: 'View Users', sidebarId: 'users', page: 'Users', action: 'View',
+        icon: 'user', category: 'User Management', permissions: ['USER_READ'], enforce: 'a' },
+      { id: 'users.create', label: 'Create Users', sidebarId: 'users', page: 'Users', action: 'Add',
+        icon: 'user-plus', category: 'User Management', permissions: ['USER_CREATE', 'USER_READ'], enforce: 'a' },
+      { id: 'users.edit', label: 'Edit Users', sidebarId: 'users', page: 'Users', action: 'Edit',
+        icon: 'user-edit', category: 'User Management', permissions: ['USER_UPDATE', 'USER_READ'], enforce: 'a' },
+      { id: 'users.delete', label: 'Delete Users', sidebarId: 'users', page: 'Users', action: 'Delete',
+        icon: 'user-minus', category: 'User Management', permissions: ['USER_DELETE', 'USER_READ'],
+        reauthAction: 'DELETE_USER', enforce: 'b' },
+      { id: 'users.enable_disable', label: 'Enable/Disable Accounts', sidebarId: 'users', page: 'Users', action: 'Enable/Disable',
+        icon: 'toggle', category: 'User Management', permissions: ['USER_ENABLE_DISABLE', 'USER_READ'], enforce: 'a' },
+      { id: 'users.unlock', label: 'Unlock Accounts', sidebarId: 'users', page: 'Users', action: 'Unlock',
+        icon: 'unlock', category: 'User Management', permissions: ['USER_UNLOCK', 'USER_READ'], enforce: 'a' },
+      { id: 'users.reset_password', label: 'Reset Passwords', sidebarId: 'users', page: 'Users', action: 'Reset Password',
+        icon: 'key', category: 'User Management', permissions: ['USER_RESET_PASSWORD', 'USER_READ'], enforce: 'a' },
+    ],
+  },
+
+  // ---- Admin Requests ----
+  {
+    sidebarId: 'admin-requests', label: 'Admin Requests', icon: '📋',
+    description: 'Review and process user requests',
+    nodes: [
+      { id: 'admin_requests.view', label: 'Review Admin Requests', sidebarId: 'admin-requests', page: 'Admin Requests', action: 'View',
+        icon: 'inbox', category: 'User Management', permissions: ['ADMIN_REQUEST_REVIEW'], enforce: 'a' },
+      { id: 'admin_requests.approve', label: 'Approve Admin Requests', sidebarId: 'admin-requests', page: 'Admin Requests', action: 'Approve',
+        icon: 'check-circle', category: 'User Management', permissions: ['ADMIN_REQUEST_REVIEW'],
+        reauthAction: 'APPROVE_ADMIN_REQUEST', enforce: 'a' },
+      { id: 'admin_requests.reject', label: 'Reject Admin Requests', sidebarId: 'admin-requests', page: 'Admin Requests', action: 'Reject',
+        icon: 'x-circle', category: 'User Management', permissions: ['ADMIN_REQUEST_REVIEW'], enforce: 'a' },
+    ],
+  },
+
+  // ---- Configuration ----
+  {
+    sidebarId: 'configuration', label: 'Configuration', icon: '⚙️', description: 'System settings',
+    nodes: [
+      { id: 'config.view', label: 'View Configuration', sidebarId: 'configuration', page: 'Configuration', action: 'View',
+        icon: 'settings', category: 'System', permissions: ['CONFIG_READ'], enforce: 'a' },
+      { id: 'config.edit', label: 'Edit Configuration', sidebarId: 'configuration', page: 'Configuration', action: 'Edit',
+        icon: 'settings-edit', category: 'System', permissions: ['CONFIG_UPDATE', 'CONFIG_READ'], enforce: 'a' },
+      { id: 'config.field_ids', label: 'Update Field Labels', sidebarId: 'configuration', page: 'Configuration', action: 'Edit Field Labels',
+        icon: 'tag', category: 'System', permissions: ['FIELD_ID_UPDATE', 'CONFIG_READ'], enforce: 'a' },
+      { id: 'roles.manage', label: 'Manage Roles', sidebarId: 'configuration', page: 'Roles & Access', action: 'Manage',
+        icon: 'shield', category: 'System', permissions: ['ROLE_MANAGE'], enforce: 'a' },
+      { id: 'backup.export', label: 'Export / Download Backups', sidebarId: 'configuration', page: 'Backup & Restore', action: 'Export',
+        icon: 'download', category: 'Backup & Restore', permissions: ['BACKUP_EXPORT'],
+        reauthAction: 'EXPORT_BACKUP', enforce: 'a' },
+      { id: 'backup.restore', label: 'Restore from Backup', sidebarId: 'configuration', page: 'Backup & Restore', action: 'Restore',
+        icon: 'upload', category: 'Backup & Restore', permissions: ['BACKUP_RESTORE'],
+        reauthAction: 'RESTORE_BACKUP', enforce: 'a' },
+      // Enforced-only: fine-grained role-management actions (analysis §2.4)
+      { id: 'roles.view', label: 'View Roles', sidebarId: 'configuration', page: 'Roles & Access', action: 'View',
+        icon: 'shield', category: 'System', permissions: ['ROLE_MANAGE'], enforce: 'a' },
+      { id: 'roles.create', label: 'Create Role', sidebarId: 'configuration', page: 'Roles & Access', action: 'Create',
+        icon: 'plus', category: 'System', permissions: ['ROLE_MANAGE'],
+        reauthAction: 'CREATE_ROLE', enforce: 'a' },
+      { id: 'roles.edit', label: 'Edit Role', sidebarId: 'configuration', page: 'Roles & Access', action: 'Edit',
+        icon: 'edit', category: 'System', permissions: ['ROLE_MANAGE'],
+        reauthAction: 'UPDATE_ROLE', enforce: 'a' },
+      { id: 'roles.delete', label: 'Delete Role', sidebarId: 'configuration', page: 'Roles & Access', action: 'Delete',
+        icon: 'trash', category: 'System', permissions: ['ROLE_MANAGE'],
+        reauthAction: 'DELETE_ROLE', enforce: 'a' },
+      { id: 'roles.assign_permissions', label: 'Assign Permissions to Role', sidebarId: 'configuration', page: 'Roles & Access', action: 'Assign Permissions',
+        icon: 'key', category: 'System', permissions: ['CONFIG_UPDATE'], enforce: 'b' },
+      { id: 'roles.configure_sidebar', label: 'Configure Role Sidebar', sidebarId: 'configuration', page: 'Roles & Access', action: 'Configure Sidebar',
+        icon: 'layout', category: 'System', permissions: ['CONFIG_UPDATE'], enforce: 'b' },
+      { id: 'roles.configure_reauth', label: 'Configure Role Re-auth', sidebarId: 'configuration', page: 'Roles & Access', action: 'Configure Re-auth',
+        icon: 'lock', category: 'System', permissions: ['CONFIG_UPDATE'], enforce: 'b' },
+    ],
+  },
+
+  // ---- Notifications ----
+  {
+    sidebarId: 'notifications', label: 'Notifications', icon: '🔔', description: 'Notification center',
+    nodes: [
+      { id: 'notifications.view', label: 'View Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'View',
+        icon: 'bell', category: 'System', permissions: ['NOTIFICATION_VIEW'], enforce: 'a' },
+      { id: 'notifications.manage', label: 'Manage Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'Manage',
+        icon: 'bell', category: 'System',
+        permissions: ['NOTIFICATION_MANAGE', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_VIEW'],
+        enforce: 'a' },
+      { id: 'notifications.delete', label: 'Delete Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'Delete',
+        icon: 'bell', category: 'System', permissions: ['NOTIFICATION_DELETE'], enforce: 'a' },
+      { id: 'notifications.mark', label: 'Mark Notifications Read/Unread', sidebarId: 'notifications', page: 'Notifications', action: 'Mark Read',
+        icon: 'check', category: 'System', permissions: ['NOTIFICATION_UPDATE'], enforce: 'c' },
+    ],
+  },
+
+  // ---- Audit Trail ----
+  {
+    sidebarId: 'audit', label: 'Audit Trail', icon: '📝', description: 'Activity logs',
+    nodes: [
+      { id: 'audit.view', label: 'View Audit Trail', sidebarId: 'audit', page: 'Audit', action: 'View',
+        icon: 'clipboard', category: 'System', permissions: ['AUDIT_READ'], enforce: 'a' },
+      { id: 'audit.export', label: 'Export Audit Trail', sidebarId: 'audit', page: 'Audit', action: 'Export',
+        icon: 'clipboard', category: 'System', permissions: ['AUDIT_EXPORT', 'AUDIT_READ'], enforce: 'a' },
+      // Enforced-only: audit administration
+      { id: 'audit.redact', label: 'Redact Audit Record', sidebarId: 'audit', page: 'Audit', action: 'Redact',
+        icon: 'slash', category: 'System', permissions: [],
+        reauthAction: 'REDACT_AUDIT_RECORD', enforce: 'a' },
+      { id: 'audit.verify_chain', label: 'Verify Hash Chain', sidebarId: 'audit', page: 'Audit', action: 'Verify Chain',
+        icon: 'shield', category: 'System', permissions: [], enforce: 'a' },
+      // Enforced-only: report review workflow (folded here; no separate sidebar entry in oracle)
+      { id: 'report_reviews.view', label: 'View Report Reviews', sidebarId: 'audit', page: 'Report Reviews', action: 'View',
+        icon: 'eye', category: 'Reports', permissions: ['REPORT_REVIEW', 'REPORT_APPROVE'], enforce: 'b' },
+      { id: 'report_reviews.review', label: 'Review Report', sidebarId: 'audit', page: 'Report Reviews', action: 'Review',
+        icon: 'clipboard-check', category: 'Reports', permissions: ['REPORT_REVIEW'],
+        reauthAction: 'REVIEW_REPORT', enforce: 'a' },
+      { id: 'report_reviews.approve', label: 'Approve Report', sidebarId: 'audit', page: 'Report Reviews', action: 'Approve',
+        icon: 'check-circle', category: 'Reports', permissions: ['REPORT_APPROVE'],
+        reauthAction: 'APPROVE_REPORT', enforce: 'a' },
+      { id: 'report_reviews.reject', label: 'Reject Report', sidebarId: 'audit', page: 'Report Reviews', action: 'Reject',
+        icon: 'x-circle', category: 'Reports', permissions: ['REPORT_APPROVE'], enforce: 'a' },
+    ],
+  },
+
+  // ---- System Health ----
+  {
+    sidebarId: 'system-health', label: 'System Health', icon: '📊', description: 'System health monitoring',
+    nodes: [
+      { id: 'system_health.view', label: 'View System Health', sidebarId: 'system-health', page: 'System Health', action: 'View',
+        icon: 'activity', category: 'System', permissions: [], enforce: 'b' },
+    ],
+  },
+
+  // ---- Debug Traces ----
+  {
+    sidebarId: 'debug-traces', label: 'Debug Traces', icon: '🐛', description: 'Pipeline debug traces',
+    nodes: [
+      { id: 'debug.view', label: 'View Debug Traces', sidebarId: 'debug-traces', page: 'Debug Traces', action: 'View',
+        icon: 'terminal', category: 'Debug Traces', permissions: ['READ_DEBUG_TRACE'], enforce: 'a' },
+      { id: 'debug.manage', label: 'Manage Debug Traces', sidebarId: 'debug-traces', page: 'Debug Traces', action: 'Manage',
+        icon: 'terminal', category: 'Debug Traces', permissions: ['MANAGE_DEBUG_TRACE'], enforce: 'a' },
+    ],
+  },
+
+  // ---- Filter List ----
+  {
+    sidebarId: 'filter-list', label: 'Filters', icon: '🔍', description: 'Filter inventory by block',
+    nodes: [
+      // Asset / Filter viewing
+      { id: 'assets.view', label: 'View Assets', sidebarId: 'filter-list', page: 'Filters', action: 'View',
+        icon: 'eye', category: 'Asset Management', permissions: ['ASSET_VIEW', 'ASSET_READ'], enforce: 'b' },
+      { id: 'assets.create', label: 'Create Assets', sidebarId: 'filter-list', page: 'Filters', action: 'Create Asset',
+        icon: 'plus', category: 'Asset Management', permissions: ['ASSET_CREATE', 'ASSET_VIEW', 'ASSET_READ'],
+        reauthAction: 'CREATE_ASSET', enforce: 'b' },
+      { id: 'assets.edit', label: 'Edit Assets', sidebarId: 'filter-list', page: 'Filters', action: 'Edit Asset',
+        icon: 'edit', category: 'Asset Management', permissions: ['ASSET_UPDATE', 'ASSET_VIEW', 'ASSET_READ'],
+        reauthAction: 'UPDATE_ASSET', enforce: 'b' },
+      { id: 'assets.delete', label: 'Delete Assets', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Asset',
+        icon: 'trash', category: 'Asset Management', permissions: ['ASSET_DELETE', 'ASSET_VIEW', 'ASSET_READ'],
+        reauthAction: 'DELETE_ASSET', enforce: 'b' },
+      { id: 'assets.relationships.create', label: 'Create Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Create Relationship',
+        icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_CREATE', 'ASSET_VIEW'], enforce: 'a' },
+      { id: 'assets.relationships.delete', label: 'Delete Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Relationship',
+        icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_DELETE', 'ASSET_VIEW'], enforce: 'a' },
+      { id: 'assets.identifiers.create', label: 'Assign RFID Tags / Create Identifiers', sidebarId: 'filter-list', page: 'Filters', action: 'Assign RFID',
+        icon: 'wifi', category: 'RFID & Identifiers', permissions: ['ASSET_IDENTIFIER_CREATE', 'ASSET_VIEW'],
+        reauthAction: 'CREATE_ASSET_IDENTIFIER', enforce: 'a' },
+      { id: 'assets.identifiers.delete', label: 'Unassign RFID Tags / Delete Identifiers', sidebarId: 'filter-list', page: 'Filters', action: 'Unassign RFID',
+        icon: 'wifi', category: 'RFID & Identifiers', permissions: ['ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW'],
+        reauthAction: 'DELETE_ASSET_IDENTIFIER', enforce: 'a' },
+      // Filter-specific page controls
+      { id: 'filters.bulk_upload', label: 'Bulk Upload Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Bulk Upload',
+        icon: 'upload', category: 'Filters Page Controls', permissions: ['FILTER_BULK_UPLOAD', 'ASSET_CREATE'],
+        reauthAction: 'BULK_UPLOAD_FILTERS', enforce: 'a' },
+      { id: 'filters.retire', label: 'Retire Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Retire',
+        icon: 'archive', category: 'Filters Page Controls', permissions: ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
+        reauthAction: 'RETIRE_FILTER', enforce: 'a' },
+      { id: 'filters.replace', label: 'Replace Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Replace',
+        icon: 'refresh', category: 'Filters Page Controls', permissions: ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
+        reauthAction: 'REPLACE_FILTER', enforce: 'a' },
+      { id: 'filters.status_update', label: 'Update Filter Status', sidebarId: 'filter-list', page: 'Filters', action: 'Update Status',
+        icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ'],
+        reauthAction: 'UPDATE_FILTER_LIFECYCLE', enforce: 'a' },
+      { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Create Hierarchy',
+        icon: 'plus', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE', 'ASSET_READ'], enforce: 'a' },
+      { id: 'filters.create', label: 'Create Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Create',
+        icon: 'plus', category: 'Filters Page Controls', permissions: ['FILTER_CREATE', 'ASSET_READ'],
+        reauthAction: 'CREATE_FILTER', enforce: 'a' },
+      { id: 'filters.edit', label: 'Edit Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Edit',
+        icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_EDIT', 'ASSET_READ'],
+        reauthAction: 'EDIT_FILTER', enforce: 'a' },
+      { id: 'filters.delete', label: 'Delete Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Delete',
+        icon: 'trash', category: 'Filters Page Controls', permissions: ['FILTER_DELETE', 'ASSET_READ'],
+        reauthAction: 'DELETE_FILTER', enforce: 'a' },
+      { id: 'filters.hierarchy_edit', label: 'Edit Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Edit Hierarchy',
+        icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_EDIT', 'ASSET_READ'],
+        reauthAction: 'EDIT_HIERARCHY_NODE', enforce: 'a' },
+      { id: 'filters.hierarchy_delete', label: 'Delete Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Hierarchy',
+        icon: 'trash', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
+        reauthAction: 'DELETE_HIERARCHY_NODE', enforce: 'a' },
+      { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', sidebarId: 'filter-list', page: 'Filters', action: 'Manage RFID',
+        icon: 'wifi', category: 'Filters Page Controls', permissions: ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_READ'], enforce: 'a' },
+    ],
+  },
+
+  // ---- Filter Retirements ----
+  {
+    sidebarId: 'filter-retirements', label: 'Retirement List', icon: '🚫', description: 'Retired filter inventory',
+    nodes: [
+      { id: 'retirement_list.export', label: 'Export Retirement List Report (PDF / Excel)', sidebarId: 'filter-retirements', page: 'Retirement List', action: 'Export',
+        icon: 'download', category: 'Filters Page Controls', permissions: ['RETIREMENT_LIST_EXPORT'], enforce: 'c' },
+      { id: 'retirement.view', label: 'View Retired Filters', sidebarId: 'filter-retirements', page: 'Retirement List', action: 'View',
+        icon: 'eye', category: 'Asset Management', permissions: ['ASSET_VIEW', 'ASSET_READ'], enforce: 'b' },
+    ],
+  },
+
+  // ---- RFID Track Record ----
+  {
+    sidebarId: 'rfid-track-record', label: 'RFID Track Record', icon: '📡',
+    description: 'RFID assign / remove lifecycle history',
+    nodes: [
+      { id: 'rfid_track.view', label: 'View RFID Track Record', sidebarId: 'rfid-track-record', page: 'RFID Track Record', action: 'View',
+        icon: 'radio', category: 'RFID & Identifiers', permissions: ['FILTER_RFID_MANAGE', 'ASSET_VIEW'], enforce: 'b' },
+      { id: 'rfid_track.export', label: 'Export RFID Track Record', sidebarId: 'rfid-track-record', page: 'RFID Track Record', action: 'Export',
+        icon: 'download', category: 'RFID & Identifiers', permissions: [], enforce: 'c' },
+    ],
+  },
+
+  // ---- Filter Replacements ----
+  {
+    sidebarId: 'filter-replacements', label: 'Replacement List', icon: '🔄',
+    description: 'Filter replacement history + schedule (List | Schedule tabs)',
+    nodes: [
+      { id: 'replacement_list.export', label: 'Export Replacement List Report (PDF / Excel)', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Export',
+        icon: 'download', category: 'Filters Page Controls', permissions: ['REPLACEMENT_LIST_EXPORT'], enforce: 'c' },
+      { id: 'replacement_schedule.view', label: 'View Replacement Schedule', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'View Schedule',
+        icon: 'calendar', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'], enforce: 'a' },
+      { id: 'replacement_schedule.upload', label: 'Upload Replacement Schedule', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Upload',
+        icon: 'upload', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_UPLOAD'], enforce: 'a' },
+      { id: 'replacement_schedule.review', label: 'Review Replacement Schedule', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Review',
+        icon: 'clipboard-check', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_VIEW'],
+        reauthAction: 'REVIEW_REPLACEMENT_SCHEDULE', enforce: 'a' },
+      { id: 'replacement_schedule.approve', label: 'Approve Replacement Schedule', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Approve',
+        icon: 'check-circle', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_APPROVE', 'REPLACEMENT_SCHEDULE_VIEW'],
+        reauthAction: 'APPROVE_REPLACEMENT_SCHEDULE', enforce: 'a' },
+      { id: 'replacement.view', label: 'View Replacement History', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'View',
+        icon: 'eye', category: 'Asset Management', permissions: ['ASSET_VIEW', 'ASSET_READ'], enforce: 'b' },
+    ],
+  },
+
+  // ---- Filter Operations ----
+  {
+    sidebarId: 'filter-operations', label: 'Filter Operations', icon: '🔧',
+    description: 'Filter cleaning operations',
+    nodes: [
+      { id: 'filters.operate', label: 'Operate Filters (Start/Advance Cycles)', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'Operate',
+        icon: 'filter', category: 'Filter Management', permissions: ['FILTER_OPERATE', 'ASSET_READ'], enforce: 'a' },
+      { id: 'filters.bypass', label: 'Bypass Filter Stages (Deviation)', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'Bypass',
+        icon: 'alert-circle', category: 'Filter Management', permissions: ['FILTER_BYPASS', 'ASSET_READ'], enforce: 'a' },
+      { id: 'filters.events', label: 'View Filter Events', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'View Events',
+        icon: 'list', category: 'Filter Management', permissions: ['EVENT_READ', 'ASSET_READ'], enforce: 'a' },
+      // Enforced-only: granular cycle actions (analysis §2.1)
+      { id: 'operations.start', label: 'Start Cleaning Cycle', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'Start Cycle',
+        icon: 'play', category: 'Filter Management', permissions: ['FILTER_OPERATE'],
+        reauthAction: 'START_CLEANING_CYCLE', enforce: 'a' },
+      { id: 'operations.advance', label: 'Advance Filter Stage', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'Advance Stage',
+        icon: 'chevron-right', category: 'Filter Management', permissions: ['FILTER_OPERATE'],
+        reauthAction: 'ADVANCE_FILTER_STAGE', enforce: 'a' },
+      { id: 'operations.submit_checklist', label: 'Submit Checklist (with Signature)', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'Submit Checklist',
+        icon: 'clipboard-check', category: 'Filter Management', permissions: ['FILTER_OPERATE', 'CHECKLIST_SUBMIT'],
+        reauthAction: 'SUBMIT_CHECKLIST_WITH_SIGNATURE', enforce: 'a' },
+      { id: 'operations.bypass', label: 'Bypass Stage (Deviation)', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'Bypass Stage',
+        icon: 'alert-triangle', category: 'Filter Management', permissions: ['FILTER_BYPASS'],
+        reauthAction: 'BYPASS_FILTER_STAGE', enforce: 'a' },
+      { id: 'operations.terminate', label: 'Terminate Cleaning Cycle', sidebarId: 'filter-operations', page: 'Filter Operations', action: 'Terminate',
+        icon: 'x', category: 'Filter Management', permissions: ['FILTER_BYPASS'],
+        reauthAction: 'TERMINATE_CLEANING_CYCLE', enforce: 'b' },
+    ],
+  },
+
+  // ---- Cleaning Cycles (Filter Cleaning Record) ----
+  {
+    sidebarId: 'cleaning-cycles', label: 'Filter Cleaning Record', icon: '🔄',
+    description: 'Cleaning cycle history and timeline',
+    nodes: [
+      { id: 'cycles.view', label: 'View Cleaning Cycles', sidebarId: 'cleaning-cycles', page: 'Filter Cleaning Record', action: 'View',
+        icon: 'refresh', category: 'Cleaning Cycles', permissions: ['CYCLE_READ'], enforce: 'a' },
+      { id: 'cleaning_record.export', label: 'Export Cleaning Record', sidebarId: 'cleaning-cycles', page: 'Filter Cleaning Record', action: 'Export',
+        icon: 'download', category: 'Cleaning Cycles', permissions: [], enforce: 'c' },
+    ],
+  },
+
+  // ---- Filter Lifecycle Report ----
+  {
+    sidebarId: 'filter-lifecycle-report', label: 'Filter Lifecycle Report', icon: '📊',
+    description: 'Per-filter cleaning lifecycle, cycle by cycle',
+    nodes: [
+      // Report templates + instances placed here (no dedicated sidebar entry in oracle)
+      { id: 'report_templates.view', label: 'View Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'View',
+        icon: 'file-text', category: 'Reports', permissions: ['REPORT_TEMPLATE_READ'], enforce: 'a' },
+      { id: 'report_templates.create', label: 'Create Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'Create',
+        icon: 'plus', category: 'Reports', permissions: ['REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_READ'],
+        reauthAction: 'CREATE_REPORT_TEMPLATE', enforce: 'a' },
+      { id: 'report_templates.edit', label: 'Edit Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'Edit',
+        icon: 'edit', category: 'Reports', permissions: ['REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_READ'],
+        reauthAction: 'UPDATE_REPORT_TEMPLATE', enforce: 'a' },
+      { id: 'report_templates.delete', label: 'Delete Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'Delete',
+        icon: 'trash', category: 'Reports', permissions: ['REPORT_TEMPLATE_DELETE', 'REPORT_TEMPLATE_READ'],
+        reauthAction: 'DELETE_REPORT_TEMPLATE', enforce: 'a' },
+      { id: 'reports.generate', label: 'Generate Reports', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'Generate',
+        icon: 'play', category: 'Reports', permissions: ['REPORT_GENERATE', 'REPORT_VIEW'],
+        reauthAction: 'GENERATE_REPORT', enforce: 'a' },
+      { id: 'reports.view', label: 'View Generated Reports', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'View',
+        icon: 'eye', category: 'Reports', permissions: ['REPORT_VIEW'], enforce: 'a' },
+      { id: 'reports.sign', label: 'Sign Reports', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'Sign',
+        icon: 'pen-tool', category: 'Reports', permissions: ['REPORT_SIGN', 'REPORT_VIEW'],
+        reauthAction: 'SIGN_REPORT', enforce: 'a' },
+      { id: 'reports.delete', label: 'Delete Reports', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'Delete',
+        icon: 'trash', category: 'Reports', permissions: ['REPORT_DELETE', 'REPORT_VIEW'],
+        reauthAction: 'DELETE_REPORT', enforce: 'a' },
+      { id: 'reports.export', label: 'Export Report PDFs', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'Export',
+        icon: 'download', category: 'Reports', permissions: ['REPORT_EXPORT', 'REPORT_VIEW'], enforce: 'a' },
+      { id: 'lifecycle.export', label: 'Export Filter Lifecycle Report', sidebarId: 'filter-lifecycle-report', page: 'Filter Lifecycle Report', action: 'Export',
+        icon: 'download', category: 'Reports', permissions: [], enforce: 'c' },
+    ],
+  },
+
+  // ---- Checklists ----
+  {
+    sidebarId: 'checklists', label: 'Checklists', icon: '📋', description: 'Checklist profile management',
+    nodes: [
+      { id: 'checklists.submit', label: 'Submit Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Submit',
+        icon: 'clipboard-check', category: 'Checklists', permissions: ['CHECKLIST_SUBMIT'], enforce: 'a' },
+      { id: 'checklists.create', label: 'Create Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Create',
+        icon: 'plus', category: 'Checklist Page Controls', permissions: ['CHECKLIST_CREATE', 'FCP_CREATE'],
+        reauthAction: 'CREATE_CHECKLIST_PROFILE', enforce: 'a' },
+      { id: 'checklists.edit', label: 'Edit Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Edit',
+        icon: 'edit', category: 'Checklist Page Controls', permissions: ['CHECKLIST_EDIT', 'FCP_UPDATE'],
+        reauthAction: 'UPDATE_CHECKLIST_PROFILE', enforce: 'a' },
+      { id: 'checklists.delete', label: 'Delete Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Delete',
+        icon: 'trash', category: 'Checklist Page Controls', permissions: ['CHECKLIST_DELETE', 'FCP_DELETE'],
+        reauthAction: 'DELETE_CHECKLIST_PROFILE', enforce: 'a' },
+      { id: 'checklists.toggle', label: 'Enable / Disable Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Enable/Disable',
+        icon: 'toggle', category: 'Checklist Page Controls', permissions: ['CHECKLIST_TOGGLE', 'FCP_UPDATE'], enforce: 'a' },
+      // Enforced-only: checklist administration
+      { id: 'checklists.view', label: 'View Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'View',
+        icon: 'eye', category: 'Checklist Page Controls', permissions: ['FCP_READ'], enforce: 'a' },
+      { id: 'checklists.manage_questions', label: 'Manage Checklist Questions', sidebarId: 'checklists', page: 'Checklists', action: 'Manage Questions',
+        icon: 'list', category: 'Checklist Page Controls', permissions: ['FCP_UPDATE'],
+        reauthAction: 'UPDATE_CHECKLIST_PROFILE', enforce: 'a' },
+    ],
+  },
+
+  // ---- Cleaning Profiles ----
+  {
+    sidebarId: 'cleaning-profiles', label: 'Cleaning Profiles', icon: '🧹',
+    description: 'Cleaning pipeline profile management',
+    nodes: [
+      { id: 'cleaning_profiles.view', label: 'View Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'View',
+        icon: 'eye', category: 'Cleaning Profiles', permissions: ['FCP_READ'], enforce: 'a' },
+      { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Create',
+        icon: 'plus', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_CREATE', 'FCP_CREATE', 'FCP_READ'],
+        reauthAction: 'CREATE_CLEANING_PROFILE', enforce: 'a' },
+      { id: 'cleaning_profiles.edit', label: 'Edit Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Edit',
+        icon: 'edit', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_EDIT', 'FCP_UPDATE', 'FCP_READ'],
+        reauthAction: 'UPDATE_CLEANING_PROFILE', enforce: 'a' },
+      { id: 'cleaning_profiles.delete', label: 'Delete Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Delete',
+        icon: 'trash', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
+        reauthAction: 'DELETE_CLEANING_PROFILE', enforce: 'a' },
+      { id: 'cleaning_profiles.toggle', label: 'Enable / Disable Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Enable/Disable',
+        icon: 'toggle', category: 'Cleaning Profile Page Controls', permissions: ['CP_TOGGLE', 'FCP_UPDATE', 'FCP_READ'], enforce: 'a' },
+      // Filter Profiles (no standalone sidebar entry — folded under cleaning-profiles)
+      { id: 'filter_profiles.view', label: 'View Filter Profiles', sidebarId: 'cleaning-profiles', page: 'Filter Profiles', action: 'View',
+        icon: 'eye', category: 'Filter Profiles', permissions: ['FP_READ'], enforce: 'a' },
+      { id: 'filter_profiles.create', label: 'Create Filter Profiles', sidebarId: 'cleaning-profiles', page: 'Filter Profiles', action: 'Create',
+        icon: 'plus', category: 'Filter Profiles', permissions: ['FP_CREATE', 'FP_READ'],
+        reauthAction: 'CREATE_FILTER_PROFILE', enforce: 'a' },
+      { id: 'filter_profiles.edit', label: 'Edit Filter Profiles', sidebarId: 'cleaning-profiles', page: 'Filter Profiles', action: 'Edit',
+        icon: 'edit', category: 'Filter Profiles', permissions: ['FP_UPDATE', 'FP_READ'],
+        reauthAction: 'UPDATE_FILTER_PROFILE', enforce: 'a' },
+      { id: 'filter_profiles.delete', label: 'Delete Filter Profiles', sidebarId: 'cleaning-profiles', page: 'Filter Profiles', action: 'Delete',
+        icon: 'trash', category: 'Filter Profiles', permissions: ['FP_DELETE', 'FP_READ'],
+        reauthAction: 'DELETE_FILTER_PROFILE', enforce: 'a' },
+      { id: 'filter_profiles.assign', label: 'Assign Filter Profiles to Filters', sidebarId: 'cleaning-profiles', page: 'Filter Profiles', action: 'Assign',
+        icon: 'link', category: 'Filter Profiles', permissions: ['FP_ASSIGN', 'FP_READ'],
+        reauthAction: 'ASSIGN_FILTER_PROFILE', enforce: 'a' },
+    ],
+  },
+
+  // ---- Equipment Groups ----
+  {
+    sidebarId: 'equipment-groups', label: 'Equipment Groups', icon: '⚙️',
+    description: 'Equipment group configuration',
+    nodes: [
+      { id: 'equipment_groups.view', label: 'View Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'View',
+        icon: 'eye', category: 'Equipment Group Controls', permissions: ['EG_VIEW', 'ASSET_READ'], enforce: 'a' },
+      { id: 'equipment_groups.create', label: 'Create Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Create',
+        icon: 'plus', category: 'Equipment Group Controls', permissions: ['EG_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
+        reauthAction: 'CREATE_EQUIPMENT_GROUP', enforce: 'a' },
+      { id: 'equipment_groups.edit', label: 'Edit Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Edit',
+        icon: 'edit', category: 'Equipment Group Controls', permissions: ['EG_EDIT', 'ASSET_UPDATE', 'ASSET_READ'],
+        reauthAction: 'UPDATE_EQUIPMENT_GROUP', enforce: 'a' },
+      { id: 'equipment_groups.delete', label: 'Delete Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Delete',
+        icon: 'trash', category: 'Equipment Group Controls', permissions: ['EG_DELETE', 'ASSET_DELETE', 'ASSET_READ'],
+        reauthAction: 'DELETE_EQUIPMENT_GROUP', enforce: 'a' },
+      { id: 'equipment_groups.toggle', label: 'Enable / Disable Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Enable/Disable',
+        icon: 'toggle', category: 'Equipment Group Controls', permissions: ['EG_EDIT', 'ASSET_UPDATE'],
+        reauthAction: 'UPDATE_EQUIPMENT_GROUP', enforce: 'a' },
+    ],
+  },
+
+  // ---- PM Schedules ----
+  {
+    sidebarId: 'pm-schedules', label: 'PM Schedules', icon: '📅',
+    description: 'Preventive maintenance scheduling',
+    nodes: [
+      { id: 'pm.view', label: 'View PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'View',
+        icon: 'eye', category: 'PM Schedules', permissions: ['PM_READ'], enforce: 'a' },
+      { id: 'pm.create', label: 'Create PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Create',
+        icon: 'plus', category: 'PM Schedules', permissions: ['PM_CREATE', 'PM_READ'],
+        reauthAction: 'CREATE_PM_SCHEDULE', enforce: 'a' },
+      { id: 'pm.edit', label: 'Edit PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Edit',
+        icon: 'edit', category: 'PM Schedules', permissions: ['PM_UPDATE', 'PM_READ'],
+        reauthAction: 'UPDATE_PM_SCHEDULE', enforce: 'a' },
+      { id: 'pm.delete', label: 'Delete PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Delete',
+        icon: 'trash', category: 'PM Schedules', permissions: ['PM_DELETE', 'PM_READ'],
+        reauthAction: 'DELETE_PM_SCHEDULE', enforce: 'a' },
+      { id: 'pm.execute', label: 'Execute PM Tasks', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Execute',
+        icon: 'play', category: 'PM Schedules', permissions: ['PM_EXECUTE', 'PM_READ'],
+        reauthAction: 'START_PM_TASK', enforce: 'a' },
+      { id: 'pm.approve', label: 'Approve PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Approve',
+        icon: 'check-circle', category: 'PM Schedules', permissions: ['PM_APPROVE', 'PM_READ'],
+        reauthAction: 'APPROVE_PM_SCHEDULE', enforce: 'a' },
+      { id: 'pm.review', label: 'Review PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Review',
+        icon: 'clipboard-check', category: 'PM Schedules', permissions: ['PM_REVIEW', 'PM_READ'],
+        reauthAction: 'REVIEW_PM_SCHEDULE', enforce: 'a' },
+      { id: 'pm.download_template', label: 'Download PM Template', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Download Template',
+        icon: 'download', category: 'PM Schedules', permissions: ['PM_DOWNLOAD_TEMPLATE', 'PM_READ'], enforce: 'a' },
+      { id: 'pm.upload', label: 'Upload PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Upload',
+        icon: 'upload', category: 'PM Schedules', permissions: ['PM_UPLOAD', 'PM_CREATE', 'PM_READ'],
+        reauthAction: 'UPLOAD_PM_SCHEDULES', enforce: 'a' },
+      { id: 'pm.edit_entry', label: 'Edit PM Entries', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Edit Entry',
+        icon: 'edit', category: 'PM Schedules', permissions: ['PM_EDIT_ENTRY', 'PM_UPDATE', 'PM_READ'],
+        reauthAction: 'EDIT_PM_SCHEDULE', enforce: 'a' },
+      { id: 'pm.resubmit', label: 'Resubmit Rejected Entries', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Resubmit',
+        icon: 'refresh', category: 'PM Schedules', permissions: ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
+        reauthAction: 'RESUBMIT_PM_ENTRY', enforce: 'a' },
+      { id: 'pm.reject', label: 'Reject PM Schedule', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Reject',
+        icon: 'x-circle', category: 'PM Schedules', permissions: ['PM_APPROVE', 'PM_READ'],
+        reauthAction: 'REJECT_PM_SCHEDULE', enforce: 'a' },
+    ],
+  },
+
+  // ---- My Tasks ----
+  {
+    sidebarId: 'my-tasks', label: 'My Tasks', icon: '🎯',
+    description: 'Filters due for cleaning based on PM schedules',
+    nodes: [
+      { id: 'my_tasks.view', label: 'View My PM Tasks', sidebarId: 'my-tasks', page: 'My Tasks', action: 'View',
+        icon: 'eye', category: 'PM Schedules', permissions: ['PM_READ'], enforce: 'a' },
+      { id: 'my_tasks.perform', label: 'Perform PM Task', sidebarId: 'my-tasks', page: 'My Tasks', action: 'Perform',
+        icon: 'play', category: 'PM Schedules', permissions: ['PM_EXECUTE', 'PM_READ'], enforce: 'a' },
+      { id: 'my_tasks.acknowledge', label: 'Acknowledge Overdue PM Task', sidebarId: 'my-tasks', page: 'My Tasks', action: 'Acknowledge',
+        icon: 'check', category: 'PM Schedules', permissions: ['PM_READ'],
+        reauthAction: 'ACKNOWLEDGE_PM_OVERDUE', enforce: 'a' },
+    ],
+  },
+
+  // ---- Deviations ----
+  {
+    sidebarId: 'deviations', label: 'Deviations', icon: '⚠',
+    description: 'Overdue PM cleaning deviations + audit trail',
+    nodes: [
+      { id: 'deviations.view', label: 'View Deviations', sidebarId: 'deviations', page: 'Deviations', action: 'View',
+        icon: 'alert-triangle', category: 'PM Schedules', permissions: ['PM_READ'], enforce: 'b' },
+      { id: 'deviations.export', label: 'Export Deviations Report', sidebarId: 'deviations', page: 'Deviations', action: 'Export',
+        icon: 'download', category: 'PM Schedules', permissions: [], enforce: 'c' },
+    ],
+  },
+
+  // ---- Approvals (Block Change) ----
+  {
+    sidebarId: 'approvals', label: 'Approvals', icon: '✅',
+    description: 'Block change approval requests',
+    nodes: [
+      { id: 'block_change.view', label: 'View Block Change Requests', sidebarId: 'approvals', page: 'Approvals', action: 'View',
+        icon: 'eye', category: 'Filter Management', permissions: ['BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE'], enforce: 'a' },
+      { id: 'block_change.request', label: 'Request Block Change', sidebarId: 'approvals', page: 'Approvals', action: 'Request',
+        icon: 'refresh', category: 'Filter Management', permissions: ['BLOCK_CHANGE_REQUEST'], enforce: 'a' },
+      { id: 'block_change.approve', label: 'Approve Block Change', sidebarId: 'approvals', page: 'Approvals', action: 'Approve',
+        icon: 'check-circle', category: 'Filter Management', permissions: ['BLOCK_CHANGE_APPROVE'],
+        reauthAction: 'APPROVE_BLOCK_CHANGE', enforce: 'a' },
+      { id: 'block_change.reject', label: 'Reject Block Change', sidebarId: 'approvals', page: 'Approvals', action: 'Reject',
+        icon: 'x-circle', category: 'Filter Management', permissions: ['BLOCK_CHANGE_APPROVE'],
+        reauthAction: 'REJECT_BLOCK_CHANGE', enforce: 'a' },
+    ],
+  },
+
+  // ---- Stage Approvals ----
+  {
+    sidebarId: 'stage-approvals', label: 'Stage Approvals', icon: '🛡️',
+    description: 'Approve cleaning stages (Wash Out / Dry Out) at the QA interlock',
+    nodes: [
+      { id: 'stage_approvals.view', label: 'View Stage Approvals', sidebarId: 'stage-approvals', page: 'Stage Approvals', action: 'View',
+        icon: 'shield', category: 'Filter Management', permissions: ['STAGE_APPROVAL_VIEW'], enforce: 'a' },
+      { id: 'stage_approvals.decide', label: 'Approve/Reject Cleaning Stages', sidebarId: 'stage-approvals', page: 'Stage Approvals', action: 'Decide',
+        icon: 'shield-check', category: 'Filter Management', permissions: ['STAGE_APPROVAL_DECIDE'], enforce: 'a' },
+      { id: 'stage_approvals.approve', label: 'Approve Cleaning Stage', sidebarId: 'stage-approvals', page: 'Stage Approvals', action: 'Approve',
+        icon: 'check-circle', category: 'Filter Management', permissions: ['STAGE_APPROVAL_DECIDE'],
+        reauthAction: 'APPROVE_CLEANING_STAGE', enforce: 'a' },
+      { id: 'stage_approvals.reject', label: 'Reject Cleaning Stage', sidebarId: 'stage-approvals', page: 'Stage Approvals', action: 'Reject',
+        icon: 'x-circle', category: 'Filter Management', permissions: ['STAGE_APPROVAL_DECIDE'],
+        reauthAction: 'REJECT_CLEANING_STAGE', enforce: 'a' },
+    ],
+  },
+
+  // ---- Version History ----
+  {
+    sidebarId: 'version-history', label: 'Version History', icon: '🕰️',
+    description: 'Audit history of versioned definitions (cleaning profiles, filter profiles, checklist profiles, equipment groups)',
+    nodes: [
+      { id: 'version_history.view', label: 'View Version History', sidebarId: 'version-history', page: 'Version History', action: 'View',
+        icon: 'history', category: 'Audit / Versions', permissions: ['VERSION_HISTORY_VIEW'], enforce: 'a' },
+    ],
+  },
+];
+
+// ─── Derive Functions ────────────────────────────────────────────────────────
+// Added in Tasks 1.2–1.4. They reproduce the legacy oracle structures from the
+// tree so parity tests can assert zero drift.
+
+/**
+ * Task 1.2 — Reproduces FEATURE_PRIVILEGES from the tree.
+ * Returns one FeaturePrivilege per node whose id exists in FEATURE_PRIVILEGES.
+ */
+export function deriveFeaturePrivileges(tree: SidebarGroup[] = PERMISSION_TREE): FeaturePrivilege[] {
+  const fpIds = new Set(FEATURE_PRIVILEGES.map(fp => fp.id));
+  return tree
+    .flatMap(g => g.nodes)
+    .filter(n => fpIds.has(n.id))
+    .map(n => ({ id: n.id, label: n.label, category: n.category, icon: n.icon }));
+}
+
+/**
+ * Task 1.3 — Reproduces FEATURE_TO_PERMISSION_MAP from the tree.
+ * Returns { [nodeId]: permissions[] } for each node whose id is in the map.
+ */
+export function deriveFeatureToPermissionMap(
+  tree: SidebarGroup[] = PERMISSION_TREE,
+): Record<string, string[]> {
+  const mapped = new Set(Object.keys(FEATURE_TO_PERMISSION_MAP));
+  const out: Record<string, string[]> = {};
+  for (const node of tree.flatMap(g => g.nodes)) {
+    if (mapped.has(node.id)) out[node.id] = [...node.permissions];
+  }
+  return out;
+}
+
+/**
+ * Task 1.4 — Reproduces SIDEBAR_PRIVILEGE_MAP from the tree.
+ * NOTE: This derivation is BLOCKED (see unit-A-report.md) because the oracle
+ * requires some FP ids to appear in multiple sidebar sections, which is
+ * incompatible with the uniqueness constraint. The function is included for
+ * API completeness; the parity test will fail by design.
+ */
+export function deriveSidebarPrivilegeMap(
+  tree: SidebarGroup[] = PERMISSION_TREE,
+): SidebarSection[] {
+  const fpIds = new Set(FEATURE_PRIVILEGES.map(fp => fp.id));
+  const oracleById = new Map(SIDEBAR_PRIVILEGE_MAP.map(s => [s.sidebarId, s]));
+  return tree.map(g => {
+    const o = oracleById.get(g.sidebarId);
+    return {
+      sidebarId: g.sidebarId,
+      label: g.label,
+      icon: o?.icon ?? g.icon,
+      description: o?.description ?? g.description,
+      privilegeIds: g.nodes.map(n => n.id).filter(id => fpIds.has(id)),
+    };
+  });
+}
+
+/**
+ * Task 1.5 — Resolve enforced permissions for a tree node by id.
+ * Returns [] for unknown ids (default-deny). Used by useCan() hook.
+ */
+export function resolveNodePermissions(
+  nodeId: string,
+  tree: SidebarGroup[] = PERMISSION_TREE,
+): string[] {
+  for (const g of tree) {
+    const n = g.nodes.find(x => x.id === nodeId);
+    if (n) return [...n.permissions];
+  }
+  return [];
+}
