@@ -60,22 +60,24 @@ describe('useCan()', () => {
   });
 
   // ── OR-gate: user holds ONE of the required perms ─────────────────────────
-  it('grants checklists.create when user holds FCP_CREATE (first of OR-pair)', () => {
-    setupUser('QA', ['FCP_CREATE']);
+  // cleaning_profiles.toggle has a real OR-gate ['FCP_UPDATE','CP_PAGE_EDIT'] (the toggle
+  // theater-fix). (checklists.create was narrowed to single-perm [CHECKLIST_CREATE] in 5C.)
+  it('grants an OR-gated action when user holds the first perm (FCP_UPDATE)', () => {
+    setupUser('QA', ['FCP_UPDATE']);
     const { result } = renderHook(() => useCan());
-    expect(result.current('checklists.create')).toBe(true);
+    expect(result.current('cleaning_profiles.toggle')).toBe(true);
   });
 
-  it('grants checklists.create when user holds CHECKLIST_CREATE (second of OR-pair)', () => {
-    setupUser('QA', ['CHECKLIST_CREATE']);
+  it('grants an OR-gated action when user holds the second perm (CP_PAGE_EDIT)', () => {
+    setupUser('QA', ['CP_PAGE_EDIT']);
     const { result } = renderHook(() => useCan());
-    expect(result.current('checklists.create')).toBe(true);
+    expect(result.current('cleaning_profiles.toggle')).toBe(true);
   });
 
-  it('denies checklists.create when user holds neither FCP_CREATE nor CHECKLIST_CREATE', () => {
+  it('denies an OR-gated action when user holds neither perm', () => {
     setupUser('OPERATOR', ['FILTER_OPERATE', 'CYCLE_READ']);
     const { result } = renderHook(() => useCan());
-    expect(result.current('checklists.create')).toBe(false);
+    expect(result.current('cleaning_profiles.toggle')).toBe(false);
   });
 
   // ── SA-only: holding the GRANT-SET perm does NOT grant the action ──────────
