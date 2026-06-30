@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
-import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
@@ -59,13 +59,14 @@ const STAGE_CONFIG: Record<string, { bg: string; text: string; border: string; i
 
 export function EquipmentGroupsConfigPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  // Phase 5C: button gating via useCan(<node>) — resolves from PERMISSION_TREE gate,
+  // which matches the real backend enforcement (no drift).
+  const can = useCan();
   const reauth = useReauth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const perms = user?.permissions ?? [];
-  const canCreate = isSuperAdmin || perms.includes('EG_CREATE');
-  const canEdit = isSuperAdmin || perms.includes('EG_EDIT');
-  const canDelete = isSuperAdmin || perms.includes('EG_DELETE');
+  const canCreate = can('equipment_groups.create'); // gate: ['EG_CREATE'] — SAME as old EG_CREATE check
+  const canEdit = can('equipment_groups.edit');     // gate: ['EG_EDIT'] — SAME as old EG_EDIT check (Edit button)
+  const canToggle = can('equipment_groups.toggle'); // gate: ['EG_EDIT'] — SAME as old EG_EDIT check (Enable/Disable button; separate for clarity)
+  const canDelete = can('equipment_groups.delete'); // gate: ['EG_DELETE'] — SAME as old EG_DELETE check
   // A-01 wave 5: migrated from /api/assets/templates + /api/assets/instances to the
   // typed hierarchy endpoint. /api/hierarchy/blocks returns only block-kind rows —
   // no templateKind heuristic or join needed. Equipment instances are not fetched
@@ -396,7 +397,7 @@ export function EquipmentGroupsConfigPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {canEdit && (
+                {canToggle && (
                   <button onClick={() => handleToggleActive(g)} title={g.isActive ? 'Disable this group' : 'Enable this group'}
                     className="flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-xl transition-colors text-slate-600 bg-slate-50 hover:bg-slate-100">
                     <span className={`relative w-9 h-5 rounded-full transition-colors ${g.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}>
