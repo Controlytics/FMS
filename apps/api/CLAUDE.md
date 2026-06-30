@@ -40,6 +40,22 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
 - ~~`digilog_tsdb`~~ — **DROPPED 2026-06-11** with the data-ingestion tear-out. All 6 hypertables removed (`ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`).
 - `digilog_test_db` — used by vitest test fixture
 
+## Database Migrations — READ BEFORE ANY SCHEMA CHANGE
+
+**The schema is migration-driven (since commit `5141131`, 2026-06-25). `prisma db push` and `prisma migrate dev` auto-generation are FORBIDDEN against any populated DB — they can silently drop customer audit data (21 CFR §11).** Full rationale + the customer-install/upgrade design: `tasks/EXE-PACKAGING-PLAN.md` §2.
+
+- **Baseline = a `pg_dump`, never regenerate it.** `prisma/migrations/00000000000000_baseline/migration.sql` is a full schema dump that includes triggers, functions, manual sequences (`deviation_number_seq`, `qnn_seq`, `audit_trail_chain_position_seq`) and a partial unique index that `schema.prisma` **cannot** express. Regenerating it from the datamodel would silently delete those. Prior incremental history is archived in `prisma/migrations_archive_20260624/`; raw objects live in `prisma/sql/{extensions,invariants}.sql`.
+- **Applying schema** (fresh install or upgrade): extensions first, then `migrate deploy`.
+  1. `CREATE EXTENSION IF NOT EXISTS ltree; CREATE EXTENSION IF NOT EXISTS pgcrypto;` (i.e. apply `prisma/sql/extensions.sql`) — **required**; the baseline uses these but doesn't create them, so `migrate deploy` fails on a bare DB without it.
+  2. `npx prisma migrate deploy` (root: `npm run db:migrate`).
+  3. Seed with `INITIAL_ADMIN_PASSWORD` set (the seed throws without it). The seed is all `upsert` and never overwrites the admin password → upgrade-safe.
+- **Authoring a NEW migration** (the auto-gen `migrate dev` flow is unreliable here because the pg_dump baseline always reads as "drift" vs the datamodel):
+  1. Edit `schema.prisma`.
+  2. `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --script` → review, strip the out-of-band noise (triggers/functions/sequences managed in `prisma/sql/*`).
+  3. Hand-author the reviewed SQL into `prisma/migrations/<UTC-timestamp>_<name>/migration.sql` (pattern: see archived `20260530_filter_reverse_mirror`). Keep `prisma/sql/*` in sync for any new raw objects.
+  4. `npm run db:verify-migrations` — the drift guard: builds a scratch DB from migrations and asserts it diffs empty against your dev DB. **Must PASS before commit.**
+  5. `npx prisma migrate resolve --applied <name>` on existing populated DBs (dev/test) so they don't re-run it.
+
 ## Key Libs (`apps/api/src/lib/`)
 - `audit.ts` — SHA-256 hash-chained audit logger
 - `sanitize.ts` — HTML stripping on all text inputs
