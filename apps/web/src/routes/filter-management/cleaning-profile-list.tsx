@@ -3,7 +3,7 @@ import useSWR, { mutate } from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient, api } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Pagination } from '@/components/ui/pagination';
@@ -19,13 +19,17 @@ const FLOW_COLORS: Record<string, { bg: string; text: string }> = {
 export function CleaningProfileListPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const perms = user?.permissions ?? [];
-  const canCreate = isSuperAdmin || perms.includes('CP_PAGE_CREATE');
-  const canUpdate = isSuperAdmin || perms.includes('CP_PAGE_EDIT');
-  const canDelete = isSuperAdmin || perms.includes('CP_PAGE_DELETE');
-  const canToggle = isSuperAdmin || perms.includes('CP_TOGGLE');
+  // Phase 5C: button gating via useCan(<node>) — resolves from PERMISSION_TREE gate,
+  // which matches the real backend enforcement (no drift).
+  const can = useCan();
+  const canCreate = can('cleaning_profiles.create'); // gate: ['CP_PAGE_CREATE'] — SAME as old CP_PAGE_CREATE check
+  const canUpdate = can('cleaning_profiles.edit');   // gate: ['CP_PAGE_EDIT'] — SAME as old CP_PAGE_EDIT check
+  const canDelete = can('cleaning_profiles.delete'); // gate: ['CP_PAGE_DELETE'] — SAME as old CP_PAGE_DELETE check
+  // THEATER-FIX: old gate was CP_TOGGLE (a standalone theater perm never wired to a
+  // real backend route). Node 'cleaning_profiles.toggle' gate is ['FCP_UPDATE','CP_PAGE_EDIT']
+  // — the real backend enforcement. Users holding CP_TOGGLE alone lose the toggle button;
+  // users holding CP_PAGE_EDIT (which implies FCP_UPDATE rights) retain it.
+  const canToggle = can('cleaning_profiles.toggle');
   const reauth = useReauth();
   const paginationOptions = usePaginationConfig();
   const [status, setStatus] = useState('ACTIVE');
