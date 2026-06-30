@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
+import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { api } from '@/lib/api-client';
 import { Pagination } from '@/components/ui/pagination';
@@ -67,6 +68,7 @@ const FILTER_STATUS_META: Record<FilterRow['status'], { label: string; cls: stri
 
 export function MyTasksPage() {
   const navigate = useNavigate();
+  const can = useCan();
   const { formatDate, formatDateTime } = useDatetimeFormat();
   // Time-period filter (My Tasks). Empty = default "due now + overdue" view.
   const [from, setFrom] = useState('');
@@ -445,11 +447,15 @@ export function MyTasksPage() {
             <div className="px-6 py-4 bg-slate-50 flex justify-end gap-2">
               <button onClick={closeAck} disabled={ackSubmitting}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40">Cancel</button>
-              <button onClick={handleAckConfirm} disabled={ackSubmitting || !ackPassword.trim()}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 inline-flex items-center gap-2">
-                {ackSubmitting && <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-                Confirm &amp; Continue
-              </button>
+              {/* Phase 5C: Confirm gated on my_tasks.acknowledge (gate: PM_READ).
+                  Previously UNGATED; correction toward backend PM_READ gate. */}
+              {can('my_tasks.acknowledge') && (
+                <button onClick={handleAckConfirm} disabled={ackSubmitting || !ackPassword.trim()}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 inline-flex items-center gap-2">
+                  {ackSubmitting && <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+                  Confirm &amp; Continue
+                </button>
+              )}
             </div>
           </div>
         </div>
