@@ -24,7 +24,10 @@ export async function actionReauthRoutes(app: FastifyInstance) {
 
   // PUT update config
   app.put('/action-reauth', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    // M6 (2026-06-30): the reauth policy is security-meta administration → ROLE_MANAGE,
+    // not generic CONFIG_UPDATE. Standalone /config/action-reauth page is SUPER_ADMIN-only
+    // (bypasses), Re-auth tab lives in the ROLE_MANAGE-gated Roles & Access page.
+    preHandler: [app.requirePermission('ROLE_MANAGE')],
     schema: {
       tags: ['Config'],
       summary: 'Update action re-authentication configuration',

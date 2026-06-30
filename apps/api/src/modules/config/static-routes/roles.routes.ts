@@ -58,7 +58,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
   });
 
   app.put('/roles/:role', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')], // M6 (2026-06-30): editing role/user permission+sidebar config is role admin, not generic config
     schema: {
       tags: ['Config'],
       summary: 'Update role configuration',
@@ -131,7 +131,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
   });
 
   app.put('/users/:userId', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requirePermission('ROLE_MANAGE')], // M6 (2026-06-30): editing role/user permission+sidebar config is role admin, not generic config
     schema: {
       tags: ['Config'],
       summary: 'Update user-specific configuration',
