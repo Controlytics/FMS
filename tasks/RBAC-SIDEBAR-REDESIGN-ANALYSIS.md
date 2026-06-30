@@ -354,6 +354,20 @@ Roles & Access                  (/config/roles)
 | S7 | **`GET /api/config/branding` ungated; help list/`:key` ungated; `/tablet-access/my-features`, `/access-matrix/my-modules`, `/api/roles/active` ungated** | various | Minor info disclosure |
 | S8 | **`useExportOptions` is fail-open** | `use-export-options.ts:6-16` | Unknown role/surface → both export formats shown |
 
+#### Phase 2 closure status (2026-06-30)
+| Gap | Status | Note |
+|---|---|---|
+| S1 | ✅ **CLOSED** | default-DENY (`can-access-module.ts`, 7 unit tests) + `access-matrix` seed for ADMIN (`seed.ts`). Commits `cdc2fe8`+`78a8482`. |
+| S2 | ⚪ **NOT A GAP** (verified) | `/quality-notifications` already 403s server-side via `canSeeQnn`; client self-guards. No dedicated permission exists; FE guard would be cosmetic + risk drift. Left as-is. |
+| S3 | 🟡 **MOOT / logged** | `/checklist/:entityId` is a DEAD page (submit endpoint `POST /api/data/checklist` removed in Phase 7; orphaned). Guarding it is pointless. Logged in `tasks/todo.md` for remove-vs-rebuild decision. |
+| S4 | ✅ **CLOSED** | 3 GETs gated `REPORT_REVIEW_SUBMIT\|REPORT_REVIEW\|REPORT_APPROVE`. Commit `293796b`. |
+| S5 | ✅ **CLOSED** | single-delete gated `NOTIFICATION_DELETE` (matches bulk; UI already admin-only). Commit `15f9939`. |
+| S6 | ⚪ **NOT A GAP** (verified) | Dashboard `/` must stay all-authenticated (landing + catch-all redirect target). Gating any permission would lock minimal roles out. |
+| S7 | ⚪ **MOSTLY INTENTIONAL** | `branding` + `roles/active` truly public (login theming / pre-auth contact-admin); `tablet-access/my-features` + `access-matrix/my-modules` self-scoped (consumed at login gate). **Only help GETs were a real exposure** → ✅ CLOSED with `CONFIG_READ` (commit `6bd2b9c`). |
+| S8 | ⚪ **NOT A SECURITY CONTROL** | `useExportOptions` fail-open is a UI affordance; real export enforcement (if wanted) belongs on backend export endpoints (most are client-side PDF, no endpoint). Documented, no change. |
+
+> **Runtime verification owed** (Phase 2 changes are behavior-affecting): curl 403/200 with an unauthorized vs authorized token for the gated endpoints, and a fresh-install seed run confirming ADMIN keeps the 4 config cards. The current dev DB is unaffected (its `access-matrix` row was already populated). FE/BE mismatches M1–M6 below remain for Phase 3.
+
 ### 3.2 FE/BE mismatches (button hidden but API reachable — MEDIUM)
 
 | # | Action | FE gate | BE gate | Effect |

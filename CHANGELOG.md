@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] — Sidebar RBAC — Phase 2 (close security gaps) (2026-06-30)
+
+Closed the genuine, safe authorization gaps from the analysis (`tasks/RBAC-SIDEBAR-REDESIGN-ANALYSIS.md` §3.1):
+- **S1** — config card visibility (`canAccessModule`) flipped from fail-OPEN to **default-DENY**: an unconfigured config module is now hidden from non-SUPER_ADMIN instead of visible to all. Predicate extracted to a pure, unit-tested `apps/web/src/routes/config/can-access-module.ts` (7 tests). Paired with an `access-matrix` **seed** (create-only) granting ADMIN the 4 general config cards, so a fresh install does not lock ADMIN out (`apps/api/prisma/seed.ts`).
+- **S4** — `GET /api/report-reviews/{queue,/,:id}` now require `REPORT_REVIEW_SUBMIT | REPORT_REVIEW | REPORT_APPROVE` (previously any authenticated user could read the review queue/snapshots by URL). Matches the page route guard.
+- **S5** — `DELETE /api/notifications/:id` now requires `NOTIFICATION_DELETE`, matching bulk-delete (was reauth-only; a user blocked from bulk could delete one-by-one). UI already restricted delete to admins.
+- **S2-help** — `GET /api/help` + `/api/help/:key` now require `CONFIG_READ` (only the SUPER_ADMIN help-manager page consumes them).
+
+**Reclassified as intentional (NOT gaps), verified 2026-06-30** — left untouched: `GET /api/config/branding` + `GET /api/roles/active` (truly public for login theming / pre-auth contact-admin), Dashboard `/` (all-authenticated landing + catch-all), `/quality-notifications` (already 403s server-side via `canSeeQnn`), tablet `my-features`/`my-modules` (self-scoped, consumed at login gate). Export `useExportOptions` fail-open is a UI affordance, not a security control.
+
+**Discovered (logged, not fixed)** — the standalone `/checklist/:entityId` page (`routes/checklist-form/`) submits to `POST /api/data/checklist`, deleted in the Phase 7 ingestion tear-out → silently broken at submit. Orphaned (no inbound links; QR-code entry module also deleted). Separate from the live cleaning-profile/in-cycle checklist flow (`/api/filters/:id/submit-checklist`), which is unaffected. Logged in `tasks/todo.md` for a future decision (remove vs. rebuild standalone checklists on a relational table). Task 2.3 (route guard on that page) is therefore moot.
+
+Out of scope (later phases): FE/BE permission mismatches M1–M6 (Phase 3), per-page View granularity (Phase 4), the tree-driven admin UI + `useCan()` (Phase 5). Plan: `docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-2.md`.
+
 ## [Unreleased] — Sidebar RBAC — Phase 1 (catalog foundation) (2026-06-30)
 
 Added a single `PERMISSION_TREE` catalog (`packages/shared/src/types/permission-tree.ts`) that anchors every sidebar group → page → action in one place. Pure derive functions (`deriveFeaturePrivileges`, `deriveFeatureToPermissionMap`, `deriveSidebarPrivilegeMap`) reproduce `FEATURE_PRIVILEGES`, `FEATURE_TO_PERMISSION_MAP`, and `SIDEBAR_PRIVILEGE_MAP` exactly; parity is locked by `permission-tree.test.ts` (11 tests). A CFR invariant test (`apps/api/src/__tests__/role-effective-permissions.test.ts`, 7 tests) proves every seed role's effective permissions are bit-identical before and after the catalog is introduced. Reconciled the `roles.ts` ↔ `seed.ts` hierarchy mismatch; extracted `defaultRoles` to a pure `apps/api/prisma/default-roles.ts` helper. Added a route-guard coverage lock (`apps/web/src/__tests__/route-guard-coverage.test.ts`, 1 test) documenting 2 open routes for Phase 2. Zero behavior change — the uppercase `PERMISSIONS` vocabulary stays the enforced runtime contract. `useCan()` hook deferred to Phase 5. References: `tasks/RBAC-SIDEBAR-REDESIGN-ANALYSIS.md` + `docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-1.md`.

@@ -1642,3 +1642,31 @@ names should be configurable in Configurations."
 ### Phases
 - [x] R1 — config def + route + page + hook + defaults registry. DONE+verified.
 - [x] R2 — wire each report's title + columns through useReportLabels (view + PDF).
+
+---
+
+## Known bug — dead standalone checklist page (logged 2026-06-30, RBAC Phase 2)
+
+`/checklist/:entityId` (`apps/web/src/routes/checklist-form/`) is **silently broken at submit**:
+it POSTs to `POST /api/data/checklist`, which was deleted in the Phase 7 data-ingestion
+tear-out (commit `a95f6eb`) along with its `ts_checklist_responses` backing table (dropped
+with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
+
+- **Orphaned:** no inbound links anywhere in `apps/web/src`; the `qr-code` deep-link module
+  that was its only entry point was also deleted (2026-06-06).
+- **NOT the checklists you use:** cleaning-profile / in-cycle checklists go through the live
+  `POST /api/filters/:id/submit-checklist` (`FILTER_OPERATE`) — a completely separate path,
+  unaffected. The `/checklists` profiles-admin page is also live.
+- **Decision deferred** (user, 2026-06-30): leave it logged for now, do not delete.
+  - **Option A — remove:** delete `routes/checklist-form/`, its lazy import + `<Route>` in
+    `main.tsx`, the `KNOWN_OPEN` entry in `route-guard-coverage.test.ts`, the stale docstring
+    in `apps/api/src/e2e/checklist-submission.test.ts:9`, and the stale "Key Features" line in
+    `apps/web/CLAUDE.md`. (Resolves RBAC gap S3 — guarding a dead page is moot.)
+  - **Option B — rebuild:** if standalone per-entity checklists are wanted, build a NEW
+    relational table + endpoint (the timeseries path is permanently gone) and re-point the page.
+
+### Audit log
+- 2026-06-30 — RBAC Phase 2 complete: closed S1 (config default-DENY + seed), S4 (report-reviews
+  GETs), S5 (notifications single-delete), S2-help (help GETs). Reclassified S2/S6/S7/S8 as
+  intentional/non-gaps with evidence. Discovered + logged the dead checklist page (above). Docs
+  synced (CHANGELOG, analysis §3.1 status table). Plan: docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-2.md.
