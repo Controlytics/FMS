@@ -89,8 +89,21 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - Input sanitization strips HTML on all text fields (`apps/api/src/lib/sanitize.ts`)
 - Capacitor APK uses **HTTPS** baked at build via `VITE_API_URL` (cert install required on tablet)
 - Light theme only — `bg-white`, `bg-slate-50`, `border-slate-200`, gradient dialog headers OK
-- SUPER_ADMIN bypasses frontend permission checks (`isSuperAdmin || perms.includes(...)`)
-- Feature toggles need BOTH frontend visibility perm AND backend route perm in `FEATURE_TO_PERMISSION_MAP`
+- **Sidebar RBAC redesign (2026-06-30, branch RFID):** `packages/shared/src/types/permission-tree.ts`
+  (`PERMISSION_TREE`) is the **single source of truth** — a Sidebar→Page→Action catalog. Each node
+  carries `permissions` (grant-expansion set = the role-config toggle), `gate` (the *discriminating*
+  backend permission `useCan()` checks — `[]` = SUPER_ADMIN-only), `reauthAction`, `enforce` (a/b/c),
+  `configurable` (is it a role-toggle), and per-group `visibilityPrivilegeIds`. `FEATURE_PRIVILEGES`,
+  `FEATURE_PRIVILEGE_CATEGORIES`, `FEATURE_TO_PERMISSION_MAP`, and `SIDEBAR_PRIVILEGE_MAP` are now
+  **derived** from the tree (hand-maintained originals retired; frozen-snapshot test locks zero drift).
+- SUPER_ADMIN bypasses frontend permission checks. **Button gating uses the `useCan('<node-id>')` hook**
+  (`apps/web/src/hooks/use-can.ts`, ~19 pages) which gates on the node's `gate`; sidebar visibility uses
+  `isSidebarItemVisible()` over the tree. The older inline `isSuperAdmin || perms.includes(...)` pattern
+  remains only for non-button logic (PM workflow-role checks, data-layer queries). Grant set ≠ gate:
+  never OR over `permissions`/`resolveNodePermissions` as an auth check (it includes read deps).
+- Feature toggles need BOTH frontend visibility perm AND backend route perm — encoded in each tree node;
+  `FEATURE_TO_PERMISSION_MAP` (derived) still drives the backend role→permissions expansion (`config.service.ts`).
+- RBAC redesign analysis + phase plans: `tasks/RBAC-SIDEBAR-REDESIGN-ANALYSIS.md`, `docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-{1..5}.md`. Phases 1–3 + 5 done; Phase 4 (per-page View) optional/not executed.
 - New config defs must be imported in `config-discovery.ts` AND registered as a card in `config/index.tsx`
 - Approval/decision flows require remarks; filter cleaning stage remarks stay optional
 - Cycle `profile_id` is locked at start — reassigning a block's profile does NOT migrate in-progress cycles

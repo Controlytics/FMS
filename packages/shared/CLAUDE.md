@@ -58,13 +58,13 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 | File | Purpose |
 |---|---|
 | `permissions.ts` | **108** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — `UNS_VIEW`/`UNS_MANAGE` removed 2026-06-17 with data-ingestion tear-out |
-| `feature-privileges.ts` | **98** feature privileges + `FEATURE_TO_PERMISSION_MAP` — `uns.view`/`uns.manage` removed 2026-06-17 with data-ingestion tear-out |
+| `feature-privileges.ts` | **98** feature privileges + `FEATURE_TO_PERMISSION_MAP`. **Phase 5E (2026-06-30): both now DERIVED from `PERMISSION_TREE`** (over the 98 `configurable:true` nodes); hand-maintained arrays retired; frozen-snapshot test locks zero drift. `uns.*` removed 2026-06-17. |
 | `reauth-actions.ts` | **100** reauth actions. **2026-06-17 removed 6 actions** (`MANAGE_DEVICE_CREDENTIAL`, `OVERRIDE_UNS_PATH`, `DELETE_UNS_MAPPING`, `UPDATE_UNS_CONFIG`, `UPDATE_RETENTION_POLICY`, `EXECUTE_RETENTION`) and 2 categories (`UNS`, `Retention`) with data-ingestion tear-out |
 | `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` extracted to `apps/api/prisma/default-roles.ts` (Phase 1 reconciliation) |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
 | `permission-tree.ts` | **Single sidebar-anchored permission catalog (Sidebar→Page→Action); derives `FEATURE_PRIVILEGES` / `FEATURE_TO_PERMISSION_MAP` / `SIDEBAR_PRIVILEGE_MAP`; source of truth from Phase 1 onward** — added 2026-06-30. **Phase 5A (2026-06-30):** `PermissionNode` gained `gate: Permission[]` (discriminating backend perm, NOT grant-expansion) + optional `gateRoles?: string[]`. Helpers: `resolveNodeGate(nodeId)` / `resolveNodeGateRoles(nodeId)` — both return `[]` for unknown ids. `useCan()` hook in `apps/web/src/hooks/use-can.ts` consumes these. |
 | `sidebar-items.ts` | **24** sidebar items (Organizations entry removed in MT removal; `version-history` added 2026-05-02; **2026-06-11** added `rfid-track-record` + `quality-notifications` — real Reports-group nav items that were missing from this configurable list, so editing a role's sidebar config silently dropped them. `reports-group` is a derived container and intentionally NOT a configurable item.) |
-| `sidebar-privilege-map.ts` | Sidebar item → privilege binding |
+| `sidebar-privilege-map.ts` | Sidebar item → privilege binding. **Phase 5E: now DERIVED** from `PERMISSION_TREE` group `visibilityPrivilegeIds` (`deriveSidebarPrivilegeMap()`); hand-maintained array retired. `getPrivilegesForSection` kept. |
 | `audit-actions.ts` | Audit action constants for `AuditTrail.action` |
 | `audit-templates.ts` | Templates that hide UUIDs in audit UI (e.g. `"<RequestType> — <Name> (<EmployeeID>)"`) |
 | `action-tape.ts` | Action-tape discriminated union (7 action variants: ADVANCE_TO_STAGE / SUBMIT_CHECKLIST / SUBMIT_DRYER_READINGS / SET_DRYER_DURATION / BYPASS_STAGE / TERMINATE_CYCLE / COMPLETE_CYCLE) — lifted from filter-operations module in Phase 5 (Step 8.1) |

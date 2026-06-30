@@ -1676,3 +1676,8 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   M2 retire/replace drop FILTER_OPERATE, M3/M4/M5 deletes→SUPER_ADMIN, M6 role-config→ROLE_MANAGE) +
   removed vestigial *_DELETE from ADMIN seed. Review: 0 test regressions, legit access preserved. Runtime
   curl verification owed. Plan: docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-3.md.
+- 2026-06-30 — RBAC Phase 6 (doc sync only): updated root CLAUDE.md (PERMISSION_TREE single-source,
+  useCan hook, gate≠grant-set, derived maps) + packages/shared/CLAUDE.md (feature-privileges/
+  sidebar-privilege-map now derived). DASHBOARD_* deliberately LEFT inert (configurable FP family
+  gating a UI-less endpoint; removal = disproportionate CFR change for marginal tidiness — user decision).
+  Core RBAC redesign (Phases 1-3 + 5) COMPLETE. Owed: runtime curl 403/200 verification (P2/P3/P5C).
