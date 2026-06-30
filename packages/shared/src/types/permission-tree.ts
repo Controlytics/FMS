@@ -13,9 +13,10 @@
  *   (what requirePermission/requireAnyPermission actually checks) — NOT the
  *   grant-expansion set in `permissions[]`. resolveNodeGate() and
  *   resolveNodeGateRoles() helper functions added.
- * Phase 5E: added `configurable?: boolean` to PermissionNode. The 98 nodes
+ * Phase 5E: added `configurable?: boolean` to PermissionNode. The nodes
  *   that appear in FEATURE_PRIVILEGES/FEATURE_TO_PERMISSION_MAP are flagged
  *   `configurable: true`; all others omit the flag (treated as false).
+ *   Count: 96 (was 99 — assets.create/edit/delete de-duplicated to enforced-only 2026-06-30).
  *   The three derive functions now select/sort by this flag instead of
  *   importing from the legacy hand-maintained files (which now derive from
  *   this tree). PERMISSION_TREE is the single source of truth.
@@ -70,7 +71,7 @@ export interface PermissionNode {
   /**
    * Phase 5E — marks this node as a configurable feature privilege.
    * When true, this node participates in FEATURE_PRIVILEGES / FEATURE_TO_PERMISSION_MAP
-   * derivation. Exactly 98 nodes carry this flag.
+   * derivation. 96 nodes carry this flag (2026-06-30: assets.create/edit/delete dropped).
    * Absent (undefined) means false — node is enforced-only, not user-configurable.
    */
   configurable?: boolean;
@@ -310,18 +311,30 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'assets.view', label: 'View Assets', sidebarId: 'filter-list', page: 'Filters', action: 'View',
         icon: 'eye', category: 'Asset Management', permissions: ['ASSET_VIEW', 'ASSET_READ'], enforce: 'b',
         gate: ['ASSET_VIEW'], configurable: true },
+      // 2026-06-30: assets.create/edit/delete are DE-DUPLICATED out of the role-config
+      // picker (configurable dropped → enforced-only). They were generic-asset toggles
+      // that duplicated the filter-specific Create/Edit/Delete Filters + Block/Area/AHU
+      // toggles — same capability under different names, because the backend create/edit/
+      // delete endpoints accept ASSET_* OR FILTER_*/FILTER_HIERARCHY_* (requireAnyPermission).
+      // The ASSET_CREATE/UPDATE/DELETE *perms* are intentionally KEPT (still granted in
+      // default roles + live DB, still accepted as backend alternates) and still appear in
+      // the grant-expansion of filters.hierarchy_create / filters.bulk_upload /
+      // filters.status_update / equipment_groups.* — so config.service's allMappedPerms set
+      // is unchanged and role rebuilds behave identically. Nodes retained for gate/reauth
+      // resolution; only their picker visibility is removed. See
+      // tasks/ASSET-FILTER-PERM-CONSOLIDATION-PLAN.md.
       { id: 'assets.create', label: 'Create Assets', sidebarId: 'filter-list', page: 'Filters', action: 'Create Asset',
         icon: 'plus', category: 'Asset Management', permissions: ['ASSET_CREATE', 'ASSET_VIEW', 'ASSET_READ'],
         reauthAction: 'CREATE_ASSET', enforce: 'b',
-        gate: ['ASSET_CREATE', 'FILTER_CREATE', 'FILTER_HIERARCHY_CREATE'], configurable: true },
+        gate: ['ASSET_CREATE', 'FILTER_CREATE', 'FILTER_HIERARCHY_CREATE'] },
       { id: 'assets.edit', label: 'Edit Assets', sidebarId: 'filter-list', page: 'Filters', action: 'Edit Asset',
         icon: 'edit', category: 'Asset Management', permissions: ['ASSET_UPDATE', 'ASSET_VIEW', 'ASSET_READ'],
         reauthAction: 'UPDATE_ASSET', enforce: 'b',
-        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'], configurable: true },
+        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
       { id: 'assets.delete', label: 'Delete Assets', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Asset',
         icon: 'trash', category: 'Asset Management', permissions: ['ASSET_DELETE', 'ASSET_VIEW', 'ASSET_READ'],
         reauthAction: 'DELETE_ASSET', enforce: 'b',
-        gate: ['ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE'], configurable: true },
+        gate: ['ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE'] },
       { id: 'assets.relationships.create', label: 'Create Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Create Relationship',
         icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_CREATE', 'ASSET_VIEW'], enforce: 'a',
         // ASSET_RELATIONSHIP_CREATE is a grant perm only; backend enforces via PUT instance (parentId change) → ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT
@@ -812,7 +825,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
 const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'users.create', 'users.view', 'users.edit', 'users.delete', 'users.enable_disable', 'users.unlock', 'users.reset_password',
   'config.view', 'config.edit', 'config.field_ids', 'roles.manage', 'notifications.view', 'notifications.manage', 'notifications.delete', 'audit.view', 'audit.export',
-  'assets.view', 'assets.create', 'assets.edit', 'assets.delete',
+  'assets.view', // assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 (not configurable)
   'assets.relationships.create', 'assets.relationships.delete',
   'assets.identifiers.create', 'assets.identifiers.delete',
   'dashboard.view', 'dashboard.create', 'dashboard.manage', 'dashboard.assign',

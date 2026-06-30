@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — Filters/Assets permission toggle de-duplication (2026-06-30)
+
+**Problem (user report):** on the Filters page the role-config picker showed two parallel write
+vocabularies for the same capability — *Asset Management* (`Create/Edit/Delete Assets` →
+`ASSET_CREATE/UPDATE/DELETE`) and *Filters Page Controls* (`Create/Edit/Delete Filters` +
+`Block/Area/AHU` → `FILTER_*`/`FILTER_HIERARCHY_*`). Because the polymorphic backend create/edit/
+delete endpoints accept *either* via `requireAnyPermission(...)`, these are the same power under
+different names.
+
+**Fix (conservative, no migration):** `assets.create`/`assets.edit`/`assets.delete` PERMISSION_TREE
+nodes made **enforced-only** (`configurable` dropped) so they no longer appear as separate toggles in
+the picker; the filter-specific Create/Edit/Delete (Filters + Block/Area/AHU) toggles are now the single
+clear control. `FEATURE_PRIVILEGES` 99→96. The `ASSET_CREATE/UPDATE/DELETE` **permission constants are
+KEPT** — still granted in default roles + live DB, still accepted as backend alternates — and still appear
+in the grant-expansion of `filters.hierarchy_create`/`filters.bulk_upload`/`filters.status_update`/
+`equipment_groups.*`, so `config.service` `allMappedPerms` is unchanged and **role rebuilds behave
+identically** (no role loses access, no DB migration). Frozen snapshot + count assertions updated
+(legacy-maps-derived 8/8, permission-tree 21/21, web coverage 8/8, api+web typecheck clean).
+
+**Investigation receipts + the deeper full-removal option:** `tasks/ASSET-FILTER-PERM-CONSOLIDATION-PLAN.md`
+(complete consumer map of the 3 asset-write perms; the only sole-gate is the FE-unused
+`PATCH /instances/:id/status`). Full removal was scoped but deferred — it would change MAINTENANCE/SUPERVISOR
+effective access and need a role-translation decision + live-DB migration.
+
 ## [Unreleased] — Sidebar RBAC — Phase 5D + 5E (admin tree UI + single-source consolidation) (2026-06-30)
 
 **5D — Roles & Access permissions picker → Sidebar/Page/Action tree.** Replaced the flat

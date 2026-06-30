@@ -31,7 +31,7 @@ interface SidebarSectionSnapshot {
   privilegeIds: string[];
 }
 
-// ─── FEATURE_PRIVILEGES snapshot (98 entries, original order) ────────────────
+// ─── FEATURE_PRIVILEGES snapshot (96 entries, original order) ────────────────
 
 export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   // User Management
@@ -55,10 +55,8 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'clipboard' },
 
   // Asset Management
+  // (assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 — removed from picker)
   { id: 'assets.view', label: 'View Assets', category: 'Asset Management', icon: 'eye' },
-  { id: 'assets.create', label: 'Create Assets', category: 'Asset Management', icon: 'plus' },
-  { id: 'assets.edit', label: 'Edit Assets', category: 'Asset Management', icon: 'edit' },
-  { id: 'assets.delete', label: 'Delete Assets', category: 'Asset Management', icon: 'trash' },
 
   // Asset Relationships
   { id: 'assets.relationships.create', label: 'Create Relationships', category: 'Asset Relationships', icon: 'link' },
@@ -200,10 +198,8 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],
 
   // Asset Management
+  // (assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 — removed from picker)
   'assets.view': ['ASSET_VIEW', 'ASSET_READ'],
-  'assets.create': ['ASSET_CREATE', 'ASSET_VIEW', 'ASSET_READ'],
-  'assets.edit': ['ASSET_UPDATE', 'ASSET_VIEW', 'ASSET_READ'],
-  'assets.delete': ['ASSET_DELETE', 'ASSET_VIEW', 'ASSET_READ'],
 
   // Asset Relationships
   'assets.relationships.create': ['ASSET_RELATIONSHIP_CREATE', 'ASSET_VIEW'],
