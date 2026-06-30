@@ -103,7 +103,9 @@ describe('PermissionNode.gate (Phase 5A)', () => {
   });
 
   it('known OR-gated action lists both perms', () => {
-    expect(resolveNodeGate('checklists.create').sort()).toEqual(['CHECKLIST_CREATE', 'FCP_CREATE'].sort());
+    // cleaning_profiles.toggle keeps the real backend OR-gate (theater-fix in 5C).
+    // (checklists.create was narrowed to per-action [CHECKLIST_CREATE] in 5C — no longer an OR example.)
+    expect(resolveNodeGate('cleaning_profiles.toggle').sort()).toEqual(['CP_PAGE_EDIT', 'FCP_UPDATE'].sort());
   });
 
   it('resolveNodeGate returns [] for an unknown node id', () => {

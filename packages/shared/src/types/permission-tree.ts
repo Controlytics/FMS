@@ -545,7 +545,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'checklists.create', label: 'Create Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Create',
         icon: 'plus', category: 'Checklist Page Controls', permissions: ['CHECKLIST_CREATE', 'FCP_CREATE'],
         reauthAction: 'CREATE_CHECKLIST_PROFILE', enforce: 'a',
-        gate: ['FCP_CREATE', 'CHECKLIST_CREATE'] },
+        gate: ['CHECKLIST_CREATE'] }, // 5C: per-action UI intent (old canCreate=CHECKLIST_CREATE)
       { id: 'checklists.edit', label: 'Edit Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Edit',
         icon: 'edit', category: 'Checklist Page Controls', permissions: ['CHECKLIST_EDIT', 'FCP_UPDATE'],
         reauthAction: 'UPDATE_CHECKLIST_PROFILE', enforce: 'a',
@@ -553,7 +553,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'checklists.delete', label: 'Delete Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Delete',
         icon: 'trash', category: 'Checklist Page Controls', permissions: ['CHECKLIST_DELETE', 'FCP_DELETE'],
         reauthAction: 'DELETE_CHECKLIST_PROFILE', enforce: 'a',
-        gate: ['FCP_DELETE', 'CHECKLIST_DELETE'] },
+        gate: ['CHECKLIST_DELETE'] }, // 5C: per-action UI intent (old canDelete=CHECKLIST_DELETE)
       { id: 'checklists.toggle', label: 'Enable / Disable Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Enable/Disable',
         icon: 'toggle', category: 'Checklist Page Controls', permissions: ['CHECKLIST_TOGGLE', 'FCP_UPDATE'], enforce: 'a',
         gate: ['FCP_UPDATE', 'CHECKLIST_EDIT'] },
@@ -580,15 +580,15 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Create',
         icon: 'plus', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_CREATE', 'FCP_CREATE', 'FCP_READ'],
         reauthAction: 'CREATE_CLEANING_PROFILE', enforce: 'a',
-        gate: ['FCP_CREATE', 'CP_PAGE_CREATE'] },
+        gate: ['CP_PAGE_CREATE'] }, // 5C: per-action UI intent (old canCreate=CP_PAGE_CREATE)
       { id: 'cleaning_profiles.edit', label: 'Edit Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Edit',
         icon: 'edit', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_EDIT', 'FCP_UPDATE', 'FCP_READ'],
         reauthAction: 'UPDATE_CLEANING_PROFILE', enforce: 'a',
-        gate: ['FCP_UPDATE', 'CP_PAGE_EDIT'] },
+        gate: ['CP_PAGE_EDIT'] }, // 5C: per-action UI intent (old canUpdate=CP_PAGE_EDIT)
       { id: 'cleaning_profiles.delete', label: 'Delete Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Delete',
         icon: 'trash', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
         reauthAction: 'DELETE_CLEANING_PROFILE', enforce: 'a',
-        gate: ['FCP_DELETE', 'CP_PAGE_DELETE'] },
+        gate: ['CP_PAGE_DELETE'] }, // 5C: per-action UI intent (old canDelete=CP_PAGE_DELETE)
       { id: 'cleaning_profiles.toggle', label: 'Enable / Disable Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Enable/Disable',
         icon: 'toggle', category: 'Cleaning Profile Page Controls', permissions: ['CP_TOGGLE', 'FCP_UPDATE', 'FCP_READ'], enforce: 'a',
         gate: ['FCP_UPDATE', 'CP_PAGE_EDIT'] },
@@ -627,19 +627,19 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'equipment_groups.create', label: 'Create Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Create',
         icon: 'plus', category: 'Equipment Group Controls', permissions: ['EG_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
         reauthAction: 'CREATE_EQUIPMENT_GROUP', enforce: 'a',
-        gate: ['ASSET_CREATE', 'EG_CREATE'] },
+        gate: ['EG_CREATE'] }, // 5C: per-action UI intent (old canCreate=EG_CREATE)
       { id: 'equipment_groups.edit', label: 'Edit Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Edit',
         icon: 'edit', category: 'Equipment Group Controls', permissions: ['EG_EDIT', 'ASSET_UPDATE', 'ASSET_READ'],
         reauthAction: 'UPDATE_EQUIPMENT_GROUP', enforce: 'a',
-        gate: ['ASSET_UPDATE', 'EG_EDIT'] },
+        gate: ['EG_EDIT'] }, // 5C: per-action UI intent (old canEdit=EG_EDIT; covers edit + enable/disable)
       { id: 'equipment_groups.delete', label: 'Delete Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Delete',
         icon: 'trash', category: 'Equipment Group Controls', permissions: ['EG_DELETE', 'ASSET_DELETE', 'ASSET_READ'],
         reauthAction: 'DELETE_EQUIPMENT_GROUP', enforce: 'a',
-        gate: ['ASSET_DELETE', 'EG_DELETE'] },
+        gate: ['EG_DELETE'] }, // 5C: per-action UI intent (old canDelete=EG_DELETE)
       { id: 'equipment_groups.toggle', label: 'Enable / Disable Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Enable/Disable',
         icon: 'toggle', category: 'Equipment Group Controls', permissions: ['EG_EDIT', 'ASSET_UPDATE'],
         reauthAction: 'UPDATE_EQUIPMENT_GROUP', enforce: 'a',
-        gate: ['ASSET_UPDATE', 'EG_EDIT'] },
+        gate: ['EG_EDIT'] }, // 5C: per-action UI intent (old canEdit=EG_EDIT; covers edit + enable/disable)
     ],
   },
 
