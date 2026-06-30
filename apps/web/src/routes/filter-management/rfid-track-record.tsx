@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import useSWR from 'swr';
+import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
@@ -25,6 +26,7 @@ type Resp = { data: TrackRow[]; total: number; page: number; limit: number; tota
 const PER_PAGE = 50;
 
 export function RfidTrackRecordPage() {
+  const can = useCan();
   const { formatDateTime } = useDatetimeFormat();
   const { labelsFor } = useReportLabels();
   const L = labelsFor('rfid-track-record');
@@ -113,8 +115,13 @@ export function RfidTrackRecordPage() {
             </div>
             {total > 0 && (
               <>
-                <ExportMenu surface="rfid-track-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+                {/* Phase 5C: Export gated on rfid_track.export (gate: ASSET_VIEW + FILTER_RFID_MANAGE).
+                    Effectively-same as page-view gate — no user visible for this page without both. */}
+                {can('rfid_track.export') && (
+                  <ExportMenu surface="rfid-track-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+                )}
+                {/* SendForReviewButton is globally disabled — left ungated. */}
                 <SendForReviewButton buildSnapshot={buildRfidSnapshot}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
               </>
