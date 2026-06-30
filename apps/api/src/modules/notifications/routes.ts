@@ -150,7 +150,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
 
   // POST /api/notifications/bulk-delete — delete multiple (SUPER_ADMIN only)
   app.post('/bulk-delete', {
-    preHandler: [app.requirePermission('NOTIFICATION_DELETE')],
+    preHandler: [app.requireSuperAdmin()], // M5 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was NOTIFICATION_DELETE
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       tags: ['Notifications'],
@@ -244,7 +244,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     // S5 fix (2026-06-30): single delete now requires NOTIFICATION_DELETE, matching
     // bulk-delete. Previously only reauth-gated, so a user blocked from bulk could
     // still delete one-by-one. FE already restricts both delete buttons to admins.
-    preHandler: [app.requirePermission('NOTIFICATION_DELETE')],
+    preHandler: [app.requireSuperAdmin()], // M5 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was NOTIFICATION_DELETE
     schema: {
       tags: ['Notifications'],
       summary: 'Delete a notification',
