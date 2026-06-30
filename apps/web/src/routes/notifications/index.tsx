@@ -7,7 +7,7 @@ import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
 import { api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -87,11 +87,7 @@ const typeIcons: Record<string, React.ReactNode> = {
 };
 
 export function NotificationsPage() {
-  const { user } = useAuth();
-  // Notification delete is restricted to SUPER_ADMIN only (per 2026-06-15
-  // request), regardless of NOTIFICATION_DELETE. This flag only gates the
-  // delete controls below (single + bulk).
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const can = useCan();
   const { formatDate: fmtDate } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
@@ -283,7 +279,7 @@ export function NotificationsPage() {
             </p>
           </div>
         </div>
-        {data?.unreadCount > 0 && (
+        {data?.unreadCount > 0 && can('notifications.mark') && (
           <Button
             onClick={markAllAsRead}
             variant="outline"
@@ -312,19 +308,23 @@ export function NotificationsPage() {
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={bulkMarkRead} className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Mark Read
-            </Button>
-            <Button variant="outline" size="sm" onClick={bulkMarkUnread} className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              Mark Unread
-            </Button>
-            {isSuperAdmin && (
+            {can('notifications.mark') && (
+              <Button variant="outline" size="sm" onClick={bulkMarkRead} className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Mark Read
+              </Button>
+            )}
+            {can('notifications.mark') && (
+              <Button variant="outline" size="sm" onClick={bulkMarkUnread} className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Mark Unread
+              </Button>
+            )}
+            {can('notifications.delete') && (
               <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-red-700 border-red-200 hover:bg-red-50">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -529,7 +529,7 @@ export function NotificationsPage() {
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     <span className="text-xs text-slate-400">{formatDate(notification.createdAt)}</span>
                     <div className="flex items-center gap-1">
-                      {!notification.isRead ? (
+                      {can('notifications.mark') && (!notification.isRead ? (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -547,8 +547,8 @@ export function NotificationsPage() {
                         >
                           Mark Unread
                         </Button>
-                      )}
-                      {isSuperAdmin && (
+                      ))}
+                      {can('notifications.delete') && (
                         <Button
                           variant="ghost"
                           size="sm"
