@@ -3,7 +3,7 @@ import useSWR, { mutate } from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Pagination } from '@/components/ui/pagination';
@@ -19,12 +19,16 @@ const TYPE_COLORS: Record<string, { bg: string; text: string; icon: string }> = 
 export function ChecklistProfileListPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const perms = user?.permissions ?? [];
-  const canCreate = isSuperAdmin || perms.includes('CHECKLIST_CREATE');
-  const canDelete = isSuperAdmin || perms.includes('CHECKLIST_DELETE');
-  const canToggle = isSuperAdmin || perms.includes('CHECKLIST_TOGGLE');
+  // Phase 5C: button gating via useCan(<node>) — resolves from PERMISSION_TREE gate,
+  // which matches the real backend enforcement (no drift).
+  const can = useCan();
+  const canCreate = can('checklists.create'); // gate: ['CHECKLIST_CREATE'] — SAME as old CHECKLIST_CREATE check
+  const canDelete = can('checklists.delete'); // gate: ['CHECKLIST_DELETE'] — SAME as old CHECKLIST_DELETE check
+  // THEATER-FIX: old gate was CHECKLIST_TOGGLE (standalone theater perm never wired to a
+  // real backend route). Node 'checklists.toggle' gate is ['FCP_UPDATE','CHECKLIST_EDIT']
+  // — the real backend enforcement. Users holding only CHECKLIST_TOGGLE lose the toggle
+  // button; users with CHECKLIST_EDIT (which implies FCP_UPDATE rights) retain it.
+  const canToggle = can('checklists.toggle');
   const reauth = useReauth();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
