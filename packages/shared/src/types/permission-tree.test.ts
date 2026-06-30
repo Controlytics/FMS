@@ -117,6 +117,24 @@ describe('PermissionNode.gate (Phase 5A)', () => {
   it('system_health.view has gateRoles containing ADMIN', () => {
     expect(resolveNodeGateRoles('system_health.view')).toContain('ADMIN');
   });
+
+  it('checklists.submit gate is FILTER_OPERATE (not the theater perm CHECKLIST_SUBMIT)', () => {
+    // Route POST /api/filters/:id/submit-checklist enforces FILTER_OPERATE.
+    // CHECKLIST_SUBMIT is a grant-only perm with no backend enforcement.
+    expect(resolveNodeGate('checklists.submit')).toEqual(['FILTER_OPERATE']);
+  });
+
+  it('assets.relationships.create gate mirrors the PUT-instance route (ASSET_UPDATE / FILTER_EDIT / FILTER_HIERARCHY_EDIT)', () => {
+    // ASSET_RELATIONSHIP_CREATE is a grant-only perm; relationship creation happens
+    // via PUT /api/assets/:id (parentId change) enforced by ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT.
+    expect(resolveNodeGate('assets.relationships.create').sort())
+      .toEqual(['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'].sort());
+  });
+
+  it('assets.relationships.delete gate mirrors the PUT-instance route (same as create)', () => {
+    expect(resolveNodeGate('assets.relationships.delete').sort())
+      .toEqual(['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'].sort());
+  });
 });
 
 // Task 1.5 — resolveNodePermissions

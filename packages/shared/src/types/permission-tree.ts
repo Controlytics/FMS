@@ -310,10 +310,12 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         gate: ['ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE'] },
       { id: 'assets.relationships.create', label: 'Create Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Create Relationship',
         icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_CREATE', 'ASSET_VIEW'], enforce: 'a',
-        gate: ['ASSET_RELATIONSHIP_CREATE'] },
+        // ASSET_RELATIONSHIP_CREATE is a grant perm only; backend enforces via PUT instance (parentId change) → ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT
+        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
       { id: 'assets.relationships.delete', label: 'Delete Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Relationship',
         icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_DELETE', 'ASSET_VIEW'], enforce: 'a',
-        gate: ['ASSET_RELATIONSHIP_DELETE'] },
+        // ASSET_RELATIONSHIP_DELETE is a grant perm only; backend enforces via PUT instance (parentId clear) → ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT
+        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
       { id: 'assets.identifiers.create', label: 'Assign RFID Tags / Create Identifiers', sidebarId: 'filter-list', page: 'Filters', action: 'Assign RFID',
         icon: 'wifi', category: 'RFID & Identifiers', permissions: ['ASSET_IDENTIFIER_CREATE', 'ASSET_VIEW'],
         reauthAction: 'CREATE_ASSET_IDENTIFIER', enforce: 'a',
@@ -533,7 +535,8 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     nodes: [
       { id: 'checklists.submit', label: 'Submit Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Submit',
         icon: 'clipboard-check', category: 'Checklists', permissions: ['CHECKLIST_SUBMIT'], enforce: 'a',
-        gate: ['CHECKLIST_SUBMIT'] },
+        // CHECKLIST_SUBMIT is a grant perm only; the actual POST /api/filters/:id/submit-checklist enforces FILTER_OPERATE
+        gate: ['FILTER_OPERATE'] },
       { id: 'checklists.create', label: 'Create Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Create',
         icon: 'plus', category: 'Checklist Page Controls', permissions: ['CHECKLIST_CREATE', 'FCP_CREATE'],
         reauthAction: 'CREATE_CHECKLIST_PROFILE', enforce: 'a',
