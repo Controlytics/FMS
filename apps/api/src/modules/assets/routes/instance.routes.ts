@@ -558,7 +558,9 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
   // 12b. PATCH /instances/:id/lifecycle-state — Manual lifecycle state update
   app.patch('/instances/:id/lifecycle-state', {
-    preHandler: [app.requirePermission('ASSET_UPDATE')],
+    // M1 fix (2026-06-30): enforce FILTER_STATUS_UPDATE (the perm the UI gates on),
+    // not the broader ASSET_UPDATE. Closes the ASSET_UPDATE-only API bypass.
+    preHandler: [app.requirePermission('FILTER_STATUS_UPDATE')],
     schema: {
       tags: ['Entities'],
       summary: 'Manually update filter lifecycle state',
