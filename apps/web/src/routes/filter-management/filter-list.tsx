@@ -5,7 +5,7 @@ import { FILTER_STATE_COLORS } from '@/lib/filter-constants';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
-import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { api } from '@/lib/api-client';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
@@ -62,21 +62,18 @@ export function FilterListPage() {
   const { formatDate, formatDateTime } = useDatetimeFormat();
   const { toast } = useToast();
   const reauth = useReauth();
-  const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const perms = user?.permissions ?? [];
-  const hasPerm = (p: string) => isSuperAdmin || perms.includes(p);
-  const canCreate = hasPerm('FILTER_HIERARCHY_CREATE');
-  const canBulkUpload = hasPerm('FILTER_BULK_UPLOAD');
-  const canCreateFilter = hasPerm('FILTER_CREATE') || hasPerm('ASSET_CREATE');
-  const canEditFilter = hasPerm('FILTER_EDIT') || hasPerm('ASSET_UPDATE');
-  const canDeleteFilter = hasPerm('FILTER_DELETE') || hasPerm('ASSET_DELETE');
-  const canEditHierarchy = hasPerm('FILTER_HIERARCHY_EDIT') || hasPerm('ASSET_UPDATE');
-  const canDeleteHierarchy = hasPerm('FILTER_HIERARCHY_DELETE') || hasPerm('ASSET_DELETE');
-  const canRetire = hasPerm('FILTER_RETIRE');
-  const canReplace = hasPerm('FILTER_REPLACE');
-  const canStatusUpdate = hasPerm('FILTER_STATUS_UPDATE');
-  const canRfid = hasPerm('FILTER_RFID_MANAGE');
+  const can = useCan();
+  const canCreate = can('filters.hierarchy_create');
+  const canBulkUpload = can('filters.bulk_upload');
+  const canCreateFilter = can('filters.create');
+  const canEditFilter = can('filters.edit');
+  const canDeleteFilter = can('filters.delete');
+  const canEditHierarchy = can('filters.hierarchy_edit');
+  const canDeleteHierarchy = can('filters.hierarchy_delete');
+  const canRetire = can('filters.retire');
+  const canReplace = can('filters.replace');
+  const canStatusUpdate = can('filters.status_update');
+  const canRfid = can('filters.rfid_manage');
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   const [panelFilter, setPanelFilter] = useState<FilterRef | null>(null);
   const [panelAction, setPanelAction] = useState<'retire' | 'replace'>('retire');
@@ -1449,7 +1446,7 @@ export function FilterListPage() {
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                         </button>
                       )}
-                      {hasPerm('ASSET_DELETE') && (
+                      {can('filters.hierarchy_delete') && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeleteBlockDialog({ id: block.id, name: block.name }); }}
                           className="w-7 h-7 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
