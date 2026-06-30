@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased] — Sidebar RBAC — Phase 5A (gate field + useCan hook) (2026-06-30)
+
+Extended the `PERMISSION_TREE` catalog and added the `useCan()` authorization hook (additive, no page wiring):
+- **`PermissionNode.gate: Permission[]`** — discriminating backend permission set added to every node (91+ nodes populated). Differs from `permissions[]` (grant-expansion). Conventions: `requirePermission('X')` → `gate:['X']`; `requireAnyPermission('A','B')` → `gate:['A','B']`; `requireSuperAdmin()` / SA-only → `gate:[]`; role-gated → `gate:[]`+`gateRoles:['ADMIN']`; cosmetic → gate=page VIEW perm. Phase-3 delta overrides applied: `users.delete`/`pm.delete`/`notifications.delete`/`audit.redact`/`audit.verify_chain` → `gate:[]`; role-config endpoints → `gate:['ROLE_MANAGE']`; `filters.status_update` → `gate:['FILTER_STATUS_UPDATE']`; `report_reviews.view` → `gate:['REPORT_REVIEW_SUBMIT','REPORT_REVIEW','REPORT_APPROVE']`.
+- **`PermissionNode.gateRoles?: string[]`** — role-level bypass list (only `system_health.view` → `['ADMIN']` currently).
+- **`resolveNodeGate(nodeId)`** / **`resolveNodeGateRoles(nodeId)`** — new helpers exported from `@digilog/shared`. Both return `[]` for unknown ids.
+- **`useCan()`** (`apps/web/src/hooks/use-can.ts`) — returns a stable `(nodeId) => boolean` callback. Decision: SA bypass → gateRoles bypass → empty gate = deny → OR over gate vs user perms. Corrects the Phase-1 regression where using `permissions[]` (grant-expansion) would have incorrectly authorized read-only users for destructive actions.
+- **TDD**: 7 gate tests in `permission-tree.test.ts` confirmed failing before implementation, all pass after. 13 `use-can` tests confirmed module-not-found before implementation, all pass after. Total: 333 shared tests pass (1 pre-existing `assets.test.ts` failure unrelated).
+- No page wiring — additive only (Phases 5B–5E will wire pages).
+
 ## [Unreleased] — Sidebar RBAC — Phase 3 (fix FE/BE mismatches) (2026-06-30)
 
 Aligned backend authorization gates to the stricter UI intent (user decision: more-restrictive wins), closing API bypasses where a hidden button was still reachable by direct API. Analysis §3.2 (M1–M6):
