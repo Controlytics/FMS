@@ -6,8 +6,9 @@ import { auditLog } from '../../lib/audit.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 
 export default async function helpRoutes(app: FastifyInstance) {
-  // GET /api/help — List help articles (all authenticated users)
+  // GET /api/help — List help articles (CONFIG_READ; only the SUPER_ADMIN help-manager page consumes it)
   app.get('/', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Help'],
       summary: 'List help articles',
@@ -74,8 +75,9 @@ export default async function helpRoutes(app: FastifyInstance) {
     return articles;
   });
 
-  // GET /api/help/:key — Get article by context key (all authenticated users)
+  // GET /api/help/:key — Get article by context key (CONFIG_READ; SUPER_ADMIN help-manager page only)
   app.get('/:key', {
+    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Help'],
       summary: 'Get help article by key',
