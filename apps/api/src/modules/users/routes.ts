@@ -76,14 +76,14 @@ export default async function userRoutes(app: FastifyInstance) {
     return userService.getStats(req.user.role);
   });
 
-  // POST /api/users/bulk-delete — Requires USER_DELETE permission
+  // POST /api/users/bulk-delete — Requires SUPER_ADMIN
   app.post('/bulk-delete', {
     preHandler: [app.requireSuperAdmin()], // M3 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was USER_DELETE
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       tags: ['Users'],
       summary: 'Bulk delete users',
-      description: 'Permanently delete multiple users and all related data. Requires USER_DELETE permission.',
+      description: 'Permanently delete multiple users and all related data. Requires SUPER_ADMIN.',
       body: {
         type: 'object',
         required: ['userIds'],
@@ -301,13 +301,13 @@ export default async function userRoutes(app: FastifyInstance) {
     return userService.update(id, parsed.data, buildContext(req));
   });
 
-  // DELETE /api/users/:id — Requires USER_DELETE permission
+  // DELETE /api/users/:id — Requires SUPER_ADMIN
   app.delete('/:id', {
     preHandler: [app.requireSuperAdmin()], // M3 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was USER_DELETE
     schema: {
       tags: ['Users'],
       summary: 'Delete user',
-      description: 'Permanently delete a user and all related data. Requires USER_DELETE permission.',
+      description: 'Permanently delete a user and all related data. Requires SUPER_ADMIN.',
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },

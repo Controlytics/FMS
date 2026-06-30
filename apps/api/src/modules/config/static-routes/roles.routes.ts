@@ -62,7 +62,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Config'],
       summary: 'Update role configuration',
-      description: 'Update sidebar items, home widgets, and permissions for a specific role. Requires CONFIG_UPDATE permission.',
+      description: 'Update sidebar items, home widgets, and permissions for a specific role. Requires ROLE_MANAGE permission.',
       params: {
         type: 'object',
         required: ['role'],

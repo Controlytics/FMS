@@ -155,7 +155,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notifications'],
       summary: 'Delete selected notifications',
-      description: 'Permanently delete multiple notifications by their IDs. Requires NOTIFICATION_DELETE permission.',
+      description: 'Permanently delete multiple notifications by their IDs. Requires SUPER_ADMIN.',
       body: {
         type: 'object',
         required: ['ids'],
@@ -241,10 +241,10 @@ export default async function notificationRoutes(app: FastifyInstance) {
 
   // DELETE /api/notifications/:id — delete notification
   app.delete('/:id', {
-    // S5 fix (2026-06-30): single delete now requires NOTIFICATION_DELETE, matching
-    // bulk-delete. Previously only reauth-gated, so a user blocked from bulk could
-    // still delete one-by-one. FE already restricts both delete buttons to admins.
-    preHandler: [app.requireSuperAdmin()], // M5 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was NOTIFICATION_DELETE
+    // M5 (2026-06-30): single + bulk delete are SUPER_ADMIN-only, matching the UI (delete
+    // buttons are admin-only). Supersedes the Phase 2 S5 NOTIFICATION_DELETE gate. Reauth
+    // (DELETE_NOTIFICATION) still applies. Read/mark-read stay ungated (per-user scoped).
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Notifications'],
       summary: 'Delete a notification',
