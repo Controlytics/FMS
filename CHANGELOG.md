@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — Sidebar RBAC — Phase 5B + 5C (catalog drives sidebar + buttons) (2026-06-30)
+
+**5B — Sidebar reads the tree.** `sidebar.tsx` visibility now resolves from `PERMISSION_TREE`
+(`visibilityPrivilegeIds` + `resolveNodePermissions`) via a pure `isSidebarItemVisible()` helper,
+replacing the `SIDEBAR_PRIVILEGE_MAP` + `FEATURE_TO_PERMISSION_MAP` lookup. Behavior-identical —
+locked by `sidebar-visibility.test.ts` (152 cases: every item × representative role perm sets → new === legacy).
+
+**5C — ~19 pages' button gating → `useCan(<node>)`.** Replaced ad-hoc `isSuperAdmin || perms.includes()`
+checks with the centralized `useCan()` hook so each button shows iff the backend allows: Users, Filters,
+Notifications, Audit, Approvals, Admin Requests, Stage Approvals, Report Reviews, RFID Track Record,
+Deviations, My Tasks, Retirement/Replacement Lists, Cleaning Record, Lifecycle Report, Cleaning Profiles,
+Checklists, Equipment Groups, PM Schedules. Mostly behavior-identical; the deliberate **corrections**:
+- Previously-ungated buttons now gated (Users Create/Reset-Requests; Stage Approvals + Report Reviews Approve/Reject; My Tasks/Deviations export).
+- **Theater fixes:** Cleaning Profiles & Checklists enable/disable toggles now gate on the *real* backend perm (`FCP_UPDATE|*_EDIT`) instead of the no-op `CP_TOGGLE`/`CHECKLIST_TOGGLE`.
+
+**Gate-correctness fixes surfaced during 5C** (in `permission-tree.ts`): export nodes gate on the dedicated
+export perm (not page-view, which would loosen); create/edit/delete on filters/cleaning-profiles/checklists/
+equipment-groups/pm narrowed to per-action UI intent (not the shared-endpoint union — "keep UI narrow",
+user decision mirroring Phase 3); `report_reviews.reject` accepts both REPORT_REVIEW and REPORT_APPROVE.
+PM Schedules' review/approve flags intentionally KEEP their workflow-ROLE logic (useCan can't express
+"role === configured approver role"). Verification: web `tsc` clean; 166 web RBAC tests (use-can/sidebar-visibility/
+route-guard) + 21 tree tests pass. **Runtime curl 403/200 verification still owed.** Plan: `docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-5.md`.
+
 ## [Unreleased] — Sidebar RBAC — Phase 5A (gate field + useCan hook) (2026-06-30)
 
 Extended the `PERMISSION_TREE` catalog and added the `useCan()` authorization hook (additive, no page wiring):
