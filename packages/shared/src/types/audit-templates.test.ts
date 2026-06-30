@@ -13,8 +13,8 @@ import {
 describe('AUDIT_TEMPLATE_CATEGORIES', () => {
   // Mirror src/types/audit-templates.ts. Update both when adding a new
   // top-level audit category.
-  it('has 12 categories', () => {
-    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(12);
+  it('has 13 categories', () => {
+    expect(AUDIT_TEMPLATE_CATEGORIES).toHaveLength(13);
   });
 
   it('contains all expected categories', () => {
@@ -26,6 +26,7 @@ describe('AUDIT_TEMPLATE_CATEGORIES', () => {
       'Backup',
       'Data & Approvals',
       'Entity Management',
+      'Filter Management',
       'Filter Operations',
       'Cleaning Profiles',
       'Filter Profiles',
@@ -102,11 +103,21 @@ describe('AUDIT_TEMPLATE_DEFAULTS', () => {
       'ASSET_TEMPLATE_CREATED', 'ASSET_TEMPLATE_UPDATED', 'ASSET_TEMPLATE_DELETED', 'ASSET_TEMPLATE_VERSION_CREATED',
       'ASSET_CREATED', 'ASSET_UPDATED', 'ASSET_STATUS_CHANGED', 'ASSET_DELETED',
       'ASSET_RELATIONSHIP_CREATED', 'ASSET_RELATIONSHIP_DELETED',
-      'ASSET_IDENTIFIER_CREATED', 'ASSET_IDENTIFIER_DELETED',
     ];
     for (const action of entityActions) {
       expect(AUDIT_TEMPLATE_DEFAULTS[action], `missing ${action}`).toBeDefined();
       expect(AUDIT_TEMPLATE_DEFAULTS[action].category).toBe('Entity Management');
+    }
+  });
+
+  it('contains Filter Management actions (identifier assign/remove)', () => {
+    // ASSET_IDENTIFIER_* were recategorized Entity Management → Filter Management
+    // (2026-06-29) so the Display Settings audit-text page surfaces them; the
+    // 'Filter Management' category was added to AUDIT_TEMPLATE_CATEGORIES then.
+    const filterActions = ['ASSET_IDENTIFIER_CREATED', 'ASSET_IDENTIFIER_DELETED'];
+    for (const action of filterActions) {
+      expect(AUDIT_TEMPLATE_DEFAULTS[action], `missing ${action}`).toBeDefined();
+      expect(AUDIT_TEMPLATE_DEFAULTS[action].category).toBe('Filter Management');
     }
   });
 
