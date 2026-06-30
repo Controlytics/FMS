@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
@@ -26,21 +27,15 @@ const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'descri
 
 export function AuditTrailPage() {
   const { user } = useAuth();
+  const can = useCan();
   const reauth = useReauth();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const { labelsFor } = useReportLabels();
   const auditL = labelsFor('audit-trail');
   const auditHead = AUDIT_COLS.map((k) => auditL.columns[k]);
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const perms = user?.permissions ?? [];
-  // AUDIT_EXPORT was previously a no-op FE flag (server-side PDF generation
-  // doesn't exist — see audit/routes.ts; the export is jsPDF in the browser).
-  // The button itself was unguarded, so any user reaching this page (gated on
-  // AUDIT_READ) could PDF the data regardless of the `audit.export` toggle.
-  // Hide the button when the toggle is off so the FE flag actually does
-  // something. Bypass for SUPER_ADMIN per project convention.
-  const canExport = isSuperAdmin || perms.includes('AUDIT_EXPORT');
+  // audit.export gate: ['AUDIT_EXPORT'] → SUPER_ADMIN || AUDIT_EXPORT (same as prior check).
+  const canExport = can('audit.export');
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(defaultLimit);
 
@@ -280,8 +275,8 @@ export function AuditTrailPage() {
         clearFilters={clearFilters}
       />
 
-      {/* SUPER_ADMIN Selection Toolbar */}
-      {isSuperAdmin && isSomeSelected && (
+      {/* Redact-capable Selection Toolbar (audit.redact gate: [] → SUPER_ADMIN-only) */}
+      {can('audit.redact') && isSomeSelected && (
         <div className="bg-white rounded-2xl border-2 border-red-200 shadow-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-red-100">
@@ -313,7 +308,7 @@ export function AuditTrailPage() {
         <AuditTable
           data={data}
           isLoading={isLoading}
-          isSuperAdmin={isSuperAdmin}
+          isSuperAdmin={can('audit.redact')}
           selectedIds={selectedIds}
           toggleSelect={toggleSelect}
           toggleSelectAll={toggleSelectAll}
@@ -350,7 +345,7 @@ export function AuditTrailPage() {
       <AuditDetailModal
         selectedRecord={selectedRecord}
         onClose={() => setSelectedRecord(null)}
-        isSuperAdmin={isSuperAdmin}
+        isSuperAdmin={can('audit.redact')}
         formatDateTime={formatDateTime}
         getAuditSummary={getAuditSummary}
         getAuditStatus={getAuditStatus}
