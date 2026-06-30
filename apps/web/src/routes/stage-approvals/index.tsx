@@ -4,6 +4,7 @@ import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useCan } from '@/hooks/use-can';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { prettyStage, detailRows, type StageApprovalSummary } from '@/lib/stage-approval';
 
@@ -18,6 +19,11 @@ export function StageApprovalsPage() {
   const { toast } = useToast();
   const reauth = useReauth();
   const { formatDate } = useDatetimeFormat();
+  // Phase 5C: button gating via useCan(). Both approve and reject share the
+  // STAGE_APPROVAL_DECIDE backend permission (separate tree nodes for audit
+  // granularity). A STAGE_APPROVAL_VIEW-only user previously saw Approve/Reject
+  // buttons that 403'd on submit — they are now hidden (UNGATED → gated correction).
+  const can = useCan();
   const [tab, setTab] = useState<'queue' | 'all'>('queue');
 
   const { data: queueData, mutate: mutateQueue } = useSWR<{ data: StageApprovalSummary[] }>('/api/stage-approvals/queue', { refreshInterval: 30000 });
@@ -148,8 +154,12 @@ export function StageApprovalsPage() {
       <div className="flex items-center gap-2 justify-end">
         {inQueue ? (
           <>
-            <button onClick={() => openDlg(r, 'approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Verify & Approve</button>
-            <button onClick={() => openDlg(r, 'reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject</button>
+            {can('stage_approvals.approve') && (
+              <button onClick={() => openDlg(r, 'approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Verify & Approve</button>
+            )}
+            {can('stage_approvals.reject') && (
+              <button onClick={() => openDlg(r, 'reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject</button>
+            )}
           </>
         ) : null}
       </div>
@@ -182,8 +192,12 @@ export function StageApprovalsPage() {
           </label>
           {bulkCount > 0 && (
             <div className="flex items-center gap-2 sm:ml-auto">
-              <button onClick={() => openBulk('approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Approve Selected ({bulkCount})</button>
-              <button onClick={() => openBulk('reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject Selected ({bulkCount})</button>
+              {can('stage_approvals.approve') && (
+                <button onClick={() => openBulk('approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Approve Selected ({bulkCount})</button>
+              )}
+              {can('stage_approvals.reject') && (
+                <button onClick={() => openBulk('reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject Selected ({bulkCount})</button>
+              )}
               <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-500 hover:bg-slate-100">Clear</button>
             </div>
           )}
