@@ -10,8 +10,11 @@ import {
 } from './permission-tree.js';
 import { PERMISSIONS } from './permissions.js';
 import { REAUTH_ACTIONS } from './reauth-actions.js';
-import { FEATURE_PRIVILEGES, FEATURE_TO_PERMISSION_MAP } from './feature-privileges.js';
-import { SIDEBAR_PRIVILEGE_MAP } from './sidebar-privilege-map.js';
+import {
+  FEATURE_PRIVILEGES_SNAPSHOT,
+  FEATURE_TO_PERMISSION_MAP_SNAPSHOT,
+  SIDEBAR_PRIVILEGE_MAP_SNAPSHOT,
+} from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('PERMISSION_TREE well-formedness', () => {
   const allNodes = PERMISSION_TREE.flatMap(g => g.nodes);
@@ -53,21 +56,21 @@ describe('PERMISSION_TREE well-formedness', () => {
 });
 
 describe('deriveFeaturePrivileges parity (Task 1.2)', () => {
-  it('reproduces FEATURE_PRIVILEGES exactly (same entries, same order)', () => {
-    expect(deriveFeaturePrivileges()).toEqual(FEATURE_PRIVILEGES);
+  it('reproduces FEATURE_PRIVILEGES exactly (same entries, same order) — compared against frozen snapshot', () => {
+    expect(deriveFeaturePrivileges()).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 });
 
 describe('deriveFeatureToPermissionMap parity (Task 1.3)', () => {
-  it('reproduces FEATURE_TO_PERMISSION_MAP exactly', () => {
-    expect(deriveFeatureToPermissionMap()).toEqual(FEATURE_TO_PERMISSION_MAP);
+  it('reproduces FEATURE_TO_PERMISSION_MAP exactly — compared against frozen snapshot', () => {
+    expect(deriveFeatureToPermissionMap()).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 });
 
 describe('deriveSidebarPrivilegeMap (Task 1.4)', () => {
-  it('reproduces SIDEBAR_PRIVILEGE_MAP (per-section, privilegeIds as sets)', () => {
+  it('reproduces SIDEBAR_PRIVILEGE_MAP (per-section, privilegeIds as sets) — compared against frozen snapshot', () => {
     const derived = deriveSidebarPrivilegeMap();
-    const oracle = SIDEBAR_PRIVILEGE_MAP;
+    const oracle = SIDEBAR_PRIVILEGE_MAP_SNAPSHOT;
     expect(derived.map(s => s.sidebarId).sort())
       .toEqual(oracle.map(s => s.sidebarId).sort());
     for (const o of oracle) {
