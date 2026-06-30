@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
 import { useFieldLabels } from '@/hooks/use-field-labels';
@@ -127,20 +128,20 @@ export function UserListPage() {
     });
   };
 
-  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
-  // Delete is restricted to SUPER_ADMIN only (per 2026-06-15 request), regardless of USER_DELETE.
-  const canDeleteUsers = isSuperAdmin;
-  // 2026-05-26 permission-leak fix (reported on 2026-05-26 audit):
-  // the user-table previously rendered Edit, Disable/Enable, and Unlock
-  // unconditionally. Anyone who could *see* the Users list could
-  // disable other accounts. Each action now has its own gate; the
-  // backend routes are also reauth-gated for these mutations (see
-  // apps/api/src/modules/users/routes.ts) so even a direct API hit
-  // requires the matching permission. SUPER_ADMIN bypass mirrors the
-  // wider convention used across the rest of the FE.
-  const canEditUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_UPDATE') ?? false);
-  const canDisableUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_ENABLE_DISABLE') ?? false);
-  const canUnlockUsers = isSuperAdmin || (currentUser?.permissions?.includes('USER_UNLOCK') ?? false);
+  // Phase 5C: button gating resolves from the PERMISSION_TREE via useCan(<node>). Each
+  // node's `gate` is the REAL backend permission, so FE visibility now matches backend
+  // enforcement (no drift). Behavior vs the prior checks:
+  //  - users.delete   → gate [] (SUPER_ADMIN-only, Phase 3 M3) — same as the old isSuperAdmin gate
+  //  - users.edit / enable_disable / unlock → gate [USER_UPDATE]/[USER_ENABLE_DISABLE]/[USER_UNLOCK]
+  //    — same as the old isSuperAdmin||perms.includes() checks
+  //  - users.create   → gate [USER_CREATE] — NEW: the Create button was previously ungated
+  //    (analysis §3.1 gap); it now correctly hides from users without USER_CREATE.
+  const can = useCan();
+  const canDeleteUsers = can('users.delete');
+  const canEditUsers = can('users.edit');
+  const canDisableUsers = can('users.enable_disable');
+  const canUnlockUsers = can('users.unlock');
+  const canCreateUsers = can('users.create');
 
   // Get filtered user list for display
   const displayedUsers = data?.data ?? [];
@@ -253,6 +254,7 @@ export function UserListPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {can('users.reset_password') && (
           <Link to="/users/reset-requests">
             <Button variant="outline" className="gap-2 relative border-amber-200 text-amber-700 hover:bg-amber-50">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -266,6 +268,8 @@ export function UserListPage() {
               )}
             </Button>
           </Link>
+          )}
+          {canCreateUsers && (
           <Link to="/users/create">
             <Button className="gap-2 shadow-lg text-white hover:opacity-90" style={{ backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -274,6 +278,7 @@ export function UserListPage() {
               Create User
             </Button>
           </Link>
+          )}
         </div>
       </div>
 
