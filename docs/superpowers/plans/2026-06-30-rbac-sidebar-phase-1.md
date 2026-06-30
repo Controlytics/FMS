@@ -416,16 +416,31 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 1.4: Derive `SIDEBAR_PRIVILEGE_MAP` from the tree and prove equality
+### Task 1.4: Derive `SIDEBAR_PRIVILEGE_MAP` from group visibility metadata and prove equality
+
+> **REVISED 2026-06-30 (design correction).** The original task assumed each
+> node lives in exactly one sidebar group, so `privilegeIds` could be derived
+> from node-group membership. That is FALSE: `SIDEBAR_PRIVILEGE_MAP` is a
+> **many-to-many visibility map** — `assets.view` gates 4 sidebar items,
+> `pm.view` gates 3, etc. — and several sections list FEWER privilege ids than
+> the page actually owns (e.g. `filter-list` omits create/edit/delete from its
+> *visibility* set). Visibility is therefore separate data from action
+> ownership. Fix: each `SidebarGroup` carries an explicit
+> `visibilityPrivilegeIds: string[]` field (copied verbatim from the oracle),
+> and `deriveSidebarPrivilegeMap` reads that field. This keeps the whole catalog
+> in one file (single-source) and makes parity exact. In Phase 5, sidebar
+> rendering switches to read `visibilityPrivilegeIds` from the tree and the
+> standalone `sidebar-privilege-map.ts` is retired.
 
 **Files:**
-- Modify: `packages/shared/src/types/permission-tree.ts` (add `deriveSidebarPrivilegeMap`)
+- Modify: `packages/shared/src/types/permission-tree.ts` (add `visibilityPrivilegeIds` to `SidebarGroup`; add `deriveSidebarPrivilegeMap`)
 - Modify: `packages/shared/src/types/permission-tree.test.ts`
 
 **Interfaces:**
-- Produces: `function deriveSidebarPrivilegeMap(tree?: SidebarGroup[]): SidebarSection[]` — `{sidebarId,label,icon,description,privilegeIds}` per group, where `privilegeIds` = the group's node ids that exist in `FEATURE_PRIVILEGES`.
+- `SidebarGroup` gains `visibilityPrivilegeIds: string[]` — the privilege ids that make this sidebar item visible (verbatim from `SIDEBAR_PRIVILEGE_MAP[sidebarId].privilegeIds`).
+- Produces: `function deriveSidebarPrivilegeMap(tree?: SidebarGroup[]): SidebarSection[]` — `{sidebarId,label,icon,description,privilegeIds: group.visibilityPrivilegeIds}` per group.
 
-**Context:** `SIDEBAR_PRIVILEGE_MAP` (`sidebar-privilege-map.ts`) is the oracle. Note its `privilegeIds` arrays use a specific ordering and only include feature-privilege ids (not raw enforced-only nodes). The derivation must reproduce each section's id, label, icon, description and the **set** of privilegeIds.
+**Context:** `SIDEBAR_PRIVILEGE_MAP` (`sidebar-privilege-map.ts`) is the oracle. Populate each group's `visibilityPrivilegeIds` from the matching oracle section, then read it back. The parity test asserts exact reproduction (sidebarId set + per-section privilegeIds as sets). `icon`/`description` are sourced from the oracle in the derive to avoid emoji-byte drift.
 
 - [ ] **Step 1: Write the failing equality test**
 
@@ -660,11 +675,24 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 1.7: `useCan()` frontend hook
+### Task 1.7: `useCan()` frontend hook — DEFERRED TO PHASE 5 (2026-06-30)
 
-**Files:**
-- Create: `apps/web/src/hooks/use-can.ts`
-- Test: `apps/web/src/hooks/use-can.test.ts`
+> **REMOVED FROM PHASE 1.** Building this correctly requires a per-node **gate**
+> permission set (what a user must hold to perform the action), which is the
+> backend `requireAnyPermission(...)` set — NOT the node's `permissions` grant
+> set (too broad: includes read dependencies like `USER_READ`, so ORing over it
+> grants every write to anyone with view access — a privilege escalation) and
+> NOT `permissions[0]` (too narrow: breaks legit OR gates like
+> `checklists.create → FCP_CREATE | CHECKLIST_CREATE`). That gate data is
+> produced/corrected in Phases 2–3 (the FE/BE mismatch fixes M1–M6). The hook is
+> also unused until Phase 5 wires pages to it. **Phase 5 plan must:** add
+> `gate: Permission[]` to `PermissionNode` (sourced from each action's real
+> backend gate in the analysis §2 "APIs → backend gate" column), implement
+> `useCan` to OR over `gate`, and assert the real case — a `USER_READ`-only user
+> is DENIED `users.delete` — as a passing test. An initial Phase-1 attempt was
+> reverted (commit 7d2ef3b) for shipping the grant-set OR semantics.
+
+_(original Task 1.7 content removed)_
 
 **Interfaces:**
 - Consumes: `useAuth()` (`apps/web/src/hooks/use-auth.ts`) for `{ role, permissions }`; `resolveNodePermissions` from `@digilog/shared`.
@@ -832,7 +860,7 @@ Expected: shared + api suites PASS (subtract the pre-existing failures noted in 
 
 - [ ] **Step 2: Update docs**
 
-- `CHANGELOG.md`: add an entry under the current date — "Sidebar RBAC Phase 1: added `PERMISSION_TREE` catalog + `useCan()` hook (additive, zero behavior change; parity-tested against FEATURE_PRIVILEGES / FEATURE_TO_PERMISSION_MAP / SIDEBAR_PRIVILEGE_MAP)."
+- `CHANGELOG.md`: add an entry under the current date — "Sidebar RBAC Phase 1: added `PERMISSION_TREE` catalog (additive, zero behavior change; parity-tested against FEATURE_PRIVILEGES / FEATURE_TO_PERMISSION_MAP / SIDEBAR_PRIVILEGE_MAP via derive functions) + CFR role-invariant test + route-guard coverage lock. (`useCan()` deferred to Phase 5 — needs a per-node gate set from backend gates.)"
 - `packages/shared/CLAUDE.md`: add `permission-tree.ts` to the Live Type Inventory table (now 11 type files) with purpose "single sidebar-anchored permission catalog; derives the 3 legacy permission structures."
 - `tasks/todo.md`: log the doc work per CLAUDE.md doc-sync rule.
 
@@ -859,9 +887,11 @@ depends on the final tree shape produced here):
 - **Phase 3 plan** — fix FE/BE mismatches M1–M6 (incl. the `CONFIG_UPDATE` role-editing
   escalation).
 - **Phase 4 plan** — optional per-page View granularity (new narrow read gates).
-- **Phase 5 plan** — switch sidebar/route/config-card/button gating + the Roles & Access
-  admin UI onto the tree; refactor pages to `useCan()`; replace the legacy exports with
-  the derived ones.
+- **Phase 5 plan** — add `gate: Permission[]` to `PermissionNode` (from backend gates);
+  build `useCan()` over `gate` (deferred from Phase 1, see Task 1.7); switch
+  sidebar/route/config-card/button gating + the Roles & Access admin UI onto the tree;
+  refactor pages to `useCan()`; retire the standalone `sidebar-privilege-map.ts` (resolves
+  Unit A finding I1) and replace the legacy exports with the derived ones.
 - **Phase 6 plan** — retire/wire dead `DASHBOARD_*`; final doc + memory + count sync.
 
 ---
