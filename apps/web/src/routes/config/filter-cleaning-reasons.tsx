@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
@@ -17,7 +16,6 @@ export function CleaningReasonsConfigPage() {
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
-  const navigate = useNavigate();
   const { data: config } = useSWR('/api/config/dynamic/filter-cleaning-reasons');
   const [reasons, setReasons] = useState<CleaningReason[]>([]);
   const [editing, setEditing] = useState<CleaningReason | null>(null);
@@ -109,30 +107,11 @@ export function CleaningReasonsConfigPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={() => navigate('/config')}
-          className="p-2 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:border-slate-300 transition-colors shadow-sm"
-          title="Back to Config"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div className="flex items-center gap-3 flex-1">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Cleaning Reasons</h1>
-            <p className="text-sm text-slate-500">Configure the reasons available when starting a cleaning cycle</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
+    <div className="space-y-5">
+      {/* Panel toolbar */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <p className="text-sm text-slate-500 max-w-xl">Configure the reasons available when starting a cleaning cycle.</p>
+        <div className="flex gap-2 shrink-0">
           <button onClick={openAdd} disabled={!canWrite}
             title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
             className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm font-medium text-sm">

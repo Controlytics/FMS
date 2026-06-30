@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -40,7 +39,6 @@ const MODE_OPTIONS: { value: AssignmentMode; label: string; description: string 
 ];
 
 export function CleaningProfileAssignmentPage() {
-  const navigate = useNavigate();
   const { toast } = useToast();
 
   const { data: configData } = useSWR<AssignmentConfig>('/api/config/cleaning-profile-assignment');
@@ -327,30 +325,17 @@ export function CleaningProfileAssignmentPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate('/config')}
-              className="p-2 rounded-lg hover:bg-slate-200 text-slate-600 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-800">Cleaning Profile Assignment</h1>
-              <p className="text-sm text-slate-500 mt-0.5">Configure how cleaning profiles are automatically assigned to filters</p>
-            </div>
-          </div>
+    <div className="space-y-5">
+      <div className="space-y-6">
+        {/* Panel toolbar */}
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-slate-500 max-w-2xl">Configure how cleaning profiles are automatically assigned to filters.</p>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm transition-colors shadow-sm"
+            className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {saving ? 'Saving...' : 'Save Configuration'}
+            {saving ? 'Saving…' : 'Save Configuration'}
           </button>
         </div>
 

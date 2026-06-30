@@ -88,7 +88,7 @@ Plus `index.ts` (barrel).
 ## Notes
 - Prisma schema has **69 models, 25 enums** in `apps/api/prisma/schema.prisma` (verified 2026-06-17). Recent changes: rule-chain + alarm tear-out 2026-05-17 dropped 5 models; data-ingestion tear-out 2026-06-11..2026-06-17 dropped 6 models (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`); Wave 1 typed-hierarchy migration added 4 sidecar tables Block/Area/AHU/Filter; Step 6 added `FilterDetails` 1:1 sidecar; Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar.
 - Phase 2 types (filter operations, cleaning profiles) are still co-located in API modules (not yet extracted)
-- 78+ field IDs across all modules (including filter management fields)
+- 64 field IDs across 12 modules (stale Alarms ×11 + Telemetry ×3 removed 2026-06-29 with the torn-out subsystems — seed + DB)
 
 ---
 

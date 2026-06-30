@@ -70,10 +70,8 @@ const CleaningProfileListPage = lazy(() => import("./routes/filter-management/cl
 const CleaningCycleHistoryPage = lazy(() => import("./routes/cleaning-cycles/history").then(m => ({ default: m.CleaningCycleHistoryPage })));
 const CleaningCycleTimelinePage = lazy(() => import("./routes/cleaning-cycles/timeline").then(m => ({ default: m.CleaningCycleTimelinePage })));
 const FilterLifecycleReportPage = lazy(() => import("./routes/cleaning-cycles/filter-lifecycle").then(m => ({ default: m.FilterLifecycleReportPage })));
-const CleaningReasonsConfigPage = lazy(() => import("./routes/config/filter-cleaning-reasons").then(m => ({ default: m.CleaningReasonsConfigPage })));
-const FilterFieldOptionsConfigPage = lazy(() => import("./routes/config/filter-field-options").then(m => ({ default: m.FilterFieldOptionsConfigPage })));
 const EquipmentGroupsConfigPage = lazy(() => import("./routes/config/equipment-groups").then(m => ({ default: m.EquipmentGroupsConfigPage })));
-const CleaningProfileAssignmentPage = lazy(() => import('./routes/config/cleaning-profile-assignment').then(m => ({ default: m.CleaningProfileAssignmentPage })));
+const FilterSetupPage = lazy(() => import('./routes/config/filter-setup').then(m => ({ default: m.FilterSetupPage })));
 const AhuFilterSetConfigPage = lazy(() => import('./routes/config/ahu-filter-set-config').then(m => ({ default: m.AhuFilterSetConfigPage })));
 const PmScheduleListPage = lazy(() => import("./routes/pm-schedules/index").then(m => ({ default: m.PmScheduleListPage })));
 const PmScheduleDetailPage = lazy(() => import("./routes/pm-schedules/detail").then(m => ({ default: m.PmScheduleDetailPage })));
@@ -240,10 +238,8 @@ createRoot(document.getElementById('root')!).render(
                 captured by the /cleaning-cycles/:id timeline route. Dropdowns also
                 need ASSET_VIEW for the /hierarchy/* endpoints. */}
             <Route path="/filter-lifecycle-report" element={<RequireRole permissions={[PERMISSIONS.CYCLE_READ]}><Suspense fallback={<LazyFallback />}><FilterLifecycleReportPage /></Suspense></RequireRole>} />
-            <Route path="/config/filter-cleaning-reasons" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><CleaningReasonsConfigPage /></Suspense></RequireRole>} />
-            <Route path="/config/filter-field-options" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><FilterFieldOptionsConfigPage /></Suspense></RequireRole>} />
+            <Route path="/config/filter-setup" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><FilterSetupPage /></Suspense></RequireRole>} />
             <Route path="/config/equipment-groups" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.EG_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><EquipmentGroupsConfigPage /></Suspense></RequireRole>} />
-            <Route path="/config/cleaning-profile-assignment" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.FP_READ, PERMISSIONS.FP_ASSIGN, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><CleaningProfileAssignmentPage /></Suspense></RequireRole>} />
             <Route path="/config/ahu-filter-set-config" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuFilterSetConfigPage /></Suspense></RequireRole>} />
             <Route path="/pm-schedules" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_CREATE, PERMISSIONS.PM_UPDATE, PERMISSIONS.PM_DELETE, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><PmScheduleListPage /></Suspense></RequireRole>} />
             <Route path="/pm-schedules/:entityId" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_CREATE, PERMISSIONS.PM_UPDATE, PERMISSIONS.PM_DELETE, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><PmScheduleDetailPage /></Suspense></RequireRole>} />

@@ -382,10 +382,8 @@ async function main() {
     { fieldId: 'FLD_NOTIF_004', defaultName: 'Priority', displayName: 'Priority', module: 'Notifications', description: 'Rule priority order' },
     { fieldId: 'FLD_NOTIF_005', defaultName: 'Status', displayName: 'Status', module: 'Notifications', description: 'Active or inactive' },
     { fieldId: 'FLD_NOTIF_006', defaultName: 'Cooldown', displayName: 'Cooldown', module: 'Notifications', description: 'Cooldown period in minutes' },
-    // Telemetry
-    { fieldId: 'FLD_TELEM_001', defaultName: 'Key', displayName: 'Key', module: 'Telemetry', description: 'Telemetry data key' },
-    { fieldId: 'FLD_TELEM_002', defaultName: 'Value', displayName: 'Value', module: 'Telemetry', description: 'Telemetry data value' },
-    { fieldId: 'FLD_TELEM_003', defaultName: 'Timestamp', displayName: 'Timestamp', module: 'Telemetry', description: 'Data collection timestamp' },
+    // (Telemetry + Alarms field IDs removed 2026-06-29 — those subsystems were
+    //  torn out; the seed must not recreate them. Stale DB rows deleted too.)
     // Attributes
     { fieldId: 'FLD_ATTR_001', defaultName: 'Key', displayName: 'Key', module: 'Attributes', description: 'Attribute key name' },
     { fieldId: 'FLD_ATTR_002', defaultName: 'Value', displayName: 'Value', module: 'Attributes', description: 'Attribute value' },

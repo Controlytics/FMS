@@ -13,6 +13,7 @@ export const AUDIT_TEMPLATE_CATEGORIES = [
   'Backup',
   'Data & Approvals',
   'Entity Management',
+  'Filter Management',
   'Filter Operations',
   'Cleaning Profiles',
   'Filter Profiles',

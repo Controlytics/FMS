@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] — Combine filter configs into one "Filter Setup" page (2026-06-29)
+
+Merged **Cleaning Profile Assignment**, **Filter Cleaning Reasons**, and **Filter Field Options** into one **Filter Setup** page (`/config/filter-setup`, SUPER_ADMIN) with three tabs (Profile Assignment / Cleaning Reasons / Field Options) — same pattern as the other consolidations. Each tab keeps its own config/endpoint + Save; the three page components were converted to header-less panels (and their now-unused `useNavigate` back-buttons removed). Config index: three cards → one "Filter Setup" card. Routes `/config/cleaning-profile-assignment`, `/config/filter-cleaning-reasons`, `/config/filter-field-options` removed; `/config/filter-setup` added. `filter-cleaning-reasons` + `filter-field-options` (hasCustomPage:false defs) added to `roleAssignmentKeys` so they don't auto-appear as "Additional Modules" cards now that their standalone cards are gone. **Access:** Cleaning Profile Assignment previously had a broad guard (CONFIG_READ/FP_READ/FP_ASSIGN/VERSION_HISTORY_VIEW); the combined page is SUPER_ADMIN-only (chosen). Defs/endpoints retained.
+
+**Verification**: web `tsc` clean; `vite build` clean; dist rebuilt. Browser: all three tabs render; `/config` shows one Filter Setup card (old three gone, no Additional Modules leak); no console errors.
+
+## [Unreleased] — Display Settings: prune stale field IDs + surface hidden audit templates (2026-06-29)
+
+Currency audit of the three Display Settings tabs:
+- **Field IDs** — removed **14 stale rows** for torn-out subsystems: **Alarms ×11** (orphaned from an old seed — already absent from `seed.ts`) and **Telemetry ×3** (still in `seed.ts`). Dropped Telemetry from `prisma/seed.ts` and deleted both modules' rows from the live DB (`field_id_config`). The tab now lists 12 modules / 64 fields (was 78).
+- **Audit Text** — fixed 2 *current* templates being invisible: `ASSET_IDENTIFIER_CREATED` / `ASSET_IDENTIFIER_DELETED` use category `'Filter Management'`, which was missing from `AUDIT_TEMPLATE_CATEGORIES` (the page iterates that list). Added the category; shared rebuilt. The `ALARM_*` templates are intentionally retained (21 CFR — render historic audit rows), so they stay.
+- **Pagination** — already current (numeric settings); no change.
+
+**Verification**: shared rebuilt; api + web `tsc` clean; `vite build` clean. Browser: Field IDs shows 64 fields with no Alarms/Telemetry; Audit Text now shows the Filter Management category with the Identifier templates; no console errors. `packages/shared/CLAUDE.md` field-id count synced (78→64).
+
 ## [Unreleased] — Combine Field IDs + Audit Text + Pagination into "Display Settings" (2026-06-29)
 
 Merged **Field ID Names**, **Audit Text Templates**, and **Pagination Settings** into one **Display Settings** page (`/config/display-settings`, SUPER_ADMIN) with three tabs (Field IDs / Audit Text / Pagination) — same pattern as the other consolidations. Each tab keeps its own config key (`field-ids` / `audit-templates` / `pagination`) + Save; the three page components were converted to header-less panels. Config index: three cards → one "Display Settings" card. Routes `/config/field-ids`, `/config/audit-templates`, `/config/pagination` removed; `/config/display-settings` added. **Access:** Field IDs previously used `FIELD_ID_UPDATE`; the combined page is SUPER_ADMIN-only (chosen) — a non-SA FIELD_ID_UPDATE role loses the Field IDs UI (its card was already SA-section-only). Defs/endpoints retained.

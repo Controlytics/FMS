@@ -210,40 +210,16 @@ const superAdminCards = [
     shadowColor: 'shadow-red-500/25',
   },
   {
-    title: "Cleaning Profile Assignment",
-    description: "Configure how cleaning profiles are automatically assigned to filters",
-    href: "/config/cleaning-profile-assignment",
+    title: 'Filter Setup',
+    description: 'Cleaning-profile assignment rules, cleaning reasons, and filter add/edit dropdown options',
+    href: '/config/filter-setup',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-      </svg>
-    ),
-    gradient: "from-teal-500 to-cyan-600",
-    shadowColor: "shadow-teal-500/25",
-  },
-  {
-    title: 'Filter Cleaning Reasons',
-    description: 'Configure cleaning reason codes and justification requirements',
-    href: '/config/filter-cleaning-reasons',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.879a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
       </svg>
     ),
     gradient: 'from-amber-500 to-orange-600',
     shadowColor: 'shadow-amber-500/25',
-  },
-  {
-    title: 'Filter Field Options',
-    description: 'Manage AHU Type, Filter Type, and Micron Size dropdown values',
-    href: '/config/filter-field-options',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h7" />
-      </svg>
-    ),
-    gradient: 'from-cyan-500 to-blue-600',
-    shadowColor: 'shadow-cyan-500/25',
   },
   // PM Schedule Settings is edited on the consolidated Role Assignments page
   // (Section "PM Schedule Settings"). The old standalone card was a duplicate
@@ -330,6 +306,9 @@ export function ConfigIndexPage() {
     'pm-schedule-approval', 'replacement-schedule-approval',
     'qnn-notifications', 'guest-cleaning-requests', 'block-change-approval',
     'stage-interlock', 'pm-schedule-settings',
+    // Hosted in the consolidated "Filter Setup" page (hasCustomPage:false defs,
+    // so they'd otherwise auto-render here once their standalone cards were removed).
+    'filter-cleaning-reasons', 'filter-field-options',
   ]);
 
   // Group manifest entries by category

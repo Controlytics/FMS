@@ -218,11 +218,5 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
 
 /** Generate the CSV template string shown to users. */
 export function getTemplateCsv(): string {
-  return [
-    'ahu_name,scheduled_date,tolerance_days',
-    '# Dates accepted: YYYY-MM-DD or DD-MM-YYYY. Tolerance blank = default from config.',
-    '# Example rows — delete these lines before uploading:',
-    'AHU-01,2026-04-15,',
-    'AHU-02,20-04-2026,5',
-  ].join('\n') + '\n';
+  return 'ahu_name,scheduled_date,tolerance_days\n';
 }
