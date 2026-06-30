@@ -209,6 +209,29 @@ async function main() {
     },
   });
 
+  // Configuration Access matrix — { [moduleKey]: roleNames[] }.
+  // Phase 2 (gap S1) flipped config-card visibility to DEFAULT-DENY: a module with no
+  // matrix entry is hidden from non-SUPER_ADMIN roles. Without this seed, a fresh install
+  // has an empty matrix, so ADMIN (the only non-SA role reaching /config) would lose the
+  // four general config cards. Grant ADMIN those cards it has always seen. SUPER_ADMIN
+  // bypasses the matrix entirely. create-only (update:{}) so a re-seed never clobbers a
+  // SUPER_ADMIN's configured grants (e.g. delegations to SUPERVISOR/QA/custom roles).
+  await prisma.systemConfig.upsert({
+    where: { configKey: 'access-matrix' },
+    update: {}, // never overwrite a SUPER_ADMIN's configured matrix on re-seed
+    create: {
+      configKey: 'access-matrix',
+      configValue: {
+        'password-policy': ['ADMIN'],
+        'datetime': ['ADMIN'],
+        'backup': ['ADMIN'],
+        'user-id': ['ADMIN'],
+      },
+      configType: 'security',
+      requiresReauth: false,
+    },
+  });
+
   // 4. Field ID configurations
   const fieldIds = [
     // User Management
