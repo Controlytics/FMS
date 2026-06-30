@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
@@ -11,9 +11,7 @@ import { useReportLabels } from '@/hooks/use-report-labels';
 export function RetirementListPage() {
   const { formatDate } = useDatetimeFormat();
   const { toast } = useToast();
-  const { user } = useAuth();
-  const perms = user?.permissions ?? [];
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const can = useCan();
   const { data, isLoading } = useSWR('/api/filters/retirements', { refreshInterval: 30000 });
 
   const [search, setSearch] = useState('');
@@ -65,7 +63,8 @@ export function RetirementListPage() {
   const REPORT_COLS = ['sNo', 'filter', 'set', 'retiredOn', 'retiredBy', 'remarks'];
   const reportHead = REPORT_COLS.map(k => reportL.columns[k]);
   const reportSubtitle = reportL.subtitle || `Total: ${filtered.length} retired filter${filtered.length === 1 ? '' : 's'}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`;
-  const canExport = isSuperAdmin || perms.includes('RETIREMENT_LIST_EXPORT');
+  // Phase 5C: retirement_list.export gate = ['RETIREMENT_LIST_EXPORT'] — SAME as old isSuperAdmin||RETIREMENT_LIST_EXPORT.
+  const canExport = can('retirement_list.export');
 
   const [exporting, setExporting] = useState(false);
   const setLabel = (s: string | null | undefined) => s === 'SET_A' ? 'Set A' : s === 'SET_B' ? 'Set B' : (s ?? '-');
