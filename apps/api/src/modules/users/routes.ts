@@ -78,7 +78,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // POST /api/users/bulk-delete — Requires USER_DELETE permission
   app.post('/bulk-delete', {
-    preHandler: [app.requirePermission('USER_DELETE')],
+    preHandler: [app.requireSuperAdmin()], // M3 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was USER_DELETE
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       tags: ['Users'],
@@ -303,7 +303,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
   // DELETE /api/users/:id — Requires USER_DELETE permission
   app.delete('/:id', {
-    preHandler: [app.requirePermission('USER_DELETE')],
+    preHandler: [app.requireSuperAdmin()], // M3 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was USER_DELETE
     schema: {
       tags: ['Users'],
       summary: 'Delete user',
