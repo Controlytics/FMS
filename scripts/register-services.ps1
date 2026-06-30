@@ -112,3 +112,4 @@ Do-Cmd "start $ApiService" 'sc.exe' @('start', $ApiService)
 
 Write-Host "`nServices registered. Both set to auto-start on boot." -ForegroundColor Green
 Write-Host "Verify: Get-Service $DbService, $ApiService" -ForegroundColor Gray
+exit 0  # explicit so callers reading $LASTEXITCODE see success (PS scripts don't set it otherwise)

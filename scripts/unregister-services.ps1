@@ -45,3 +45,4 @@ if (Test-Path $apiExe) {
 Do-Cmd "unregister $DbService (PostgreSQL)" $pgctl @('unregister','-N',$DbService) -IgnoreFail
 
 Write-Host "`nServices removed. Data directory left intact (uninstaller handles it)." -ForegroundColor Green
+exit 0

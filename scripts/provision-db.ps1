@@ -119,3 +119,4 @@ finally {
     & $pgctl -D $DataDir stop -m fast | Out-Null
   }
 }
+exit 0  # explicit success so callers reading $LASTEXITCODE are not misled by stale codes
