@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
+import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { downloadReview, type ReviewSummary } from '@/lib/report-review';
@@ -22,6 +23,7 @@ interface Role { name: string; displayName: string; }
 export function ReportReviewsPage() {
   const { toast } = useToast();
   const reauth = useReauth();
+  const can = useCan();
   const { formatDate } = useDatetimeFormat();
   const [tab, setTab] = useState<'queue' | 'all'>('queue');
 
@@ -75,39 +77,55 @@ export function ReportReviewsPage() {
     catch (e: any) { toast.error('Download failed', e?.message ?? 'Could not build PDF'); }
   };
 
-  const Row = ({ r, inQueue }: { r: ReviewSummary; inQueue: boolean }) => (
-    <div className="grid grid-cols-[1.6fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 hover:bg-slate-50/50">
-      <div>
-        <div className="text-[14px] font-medium text-slate-800">{r.title}</div>
-        <div className="text-[11px] text-slate-400">{r.reportType}{r.subtitle ? ` · ${r.subtitle}` : ''}</div>
+  const Row = ({ r, inQueue }: { r: ReviewSummary; inQueue: boolean }) => {
+    // Phase 5C gating: Reject routes through the SAME endpoint as the primary action
+    // (/review for REVIEW-stage, /approve for approval-stage), so both buttons share
+    // the same stage-dependent gate. The report_reviews.reject tree node (gate
+    // ['REPORT_APPROVE']) is NOT used directly — it doesn't model the review-stage
+    // reject case and would silently strip Reject from REPORT_REVIEW-only users.
+    const canAct = r.stage === 'REVIEW'
+      ? can('report_reviews.review')   // /review endpoint — requires REPORT_REVIEW
+      : can('report_reviews.approve'); // /approve endpoint — requires REPORT_APPROVE
+    return (
+      <div className="grid grid-cols-[1.6fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 hover:bg-slate-50/50">
+        <div>
+          <div className="text-[14px] font-medium text-slate-800">{r.title}</div>
+          <div className="text-[11px] text-slate-400">{r.reportType}{r.subtitle ? ` · ${r.subtitle}` : ''}</div>
+        </div>
+        <div className="text-[12px] text-slate-600">
+          <div>By: <span className="font-mono">{r.generatedByName}</span></div>
+          {r.reviewedByName && <div>Reviewed: <span className="font-mono">{r.reviewedByName}</span></div>}
+          {r.approvedByName && <div>Approved: <span className="font-mono">{r.approvedByName}</span></div>}
+        </div>
+        <div>
+          <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_CHIP[r.status] ?? 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+            {inQueue && r.stage ? (r.stage === 'REVIEW' ? 'Review now' : 'Approve now') : (STATUS_LABEL[r.status] ?? r.status)}
+          </span>
+          {r.status === 'REJECTED' && (r.reviewRemarks || r.approvalRemarks) && (
+            <div className="text-[11px] text-rose-500 mt-1">{r.approvalRemarks || r.reviewRemarks}</div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 justify-end">
+          {inQueue ? (
+            <>
+              {canAct && (
+                <button onClick={() => openDlg(r, 'approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">
+                  {r.stage === 'REVIEW' ? 'Review' : 'Approve'}
+                </button>
+              )}
+              {canAct && (
+                <button onClick={() => openDlg(r, 'reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject</button>
+              )}
+            </>
+          ) : (
+            can('report_reviews.view') && (
+              <button onClick={() => download(r)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50">Download PDF</button>
+            )
+          )}
+        </div>
       </div>
-      <div className="text-[12px] text-slate-600">
-        <div>By: <span className="font-mono">{r.generatedByName}</span></div>
-        {r.reviewedByName && <div>Reviewed: <span className="font-mono">{r.reviewedByName}</span></div>}
-        {r.approvedByName && <div>Approved: <span className="font-mono">{r.approvedByName}</span></div>}
-      </div>
-      <div>
-        <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_CHIP[r.status] ?? 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-          {inQueue && r.stage ? (r.stage === 'REVIEW' ? 'Review now' : 'Approve now') : (STATUS_LABEL[r.status] ?? r.status)}
-        </span>
-        {r.status === 'REJECTED' && (r.reviewRemarks || r.approvalRemarks) && (
-          <div className="text-[11px] text-rose-500 mt-1">{r.approvalRemarks || r.reviewRemarks}</div>
-        )}
-      </div>
-      <div className="flex items-center gap-2 justify-end">
-        {inQueue ? (
-          <>
-            <button onClick={() => openDlg(r, 'approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">
-              {r.stage === 'REVIEW' ? 'Review' : 'Approve'}
-            </button>
-            <button onClick={() => openDlg(r, 'reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject</button>
-          </>
-        ) : (
-          <button onClick={() => download(r)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50">Download PDF</button>
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
   const list = tab === 'queue' ? queue : all;
 
