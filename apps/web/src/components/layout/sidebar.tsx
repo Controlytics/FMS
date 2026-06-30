@@ -4,7 +4,7 @@ import useSWR from 'swr';
 import { cn } from '@/lib/cn';
 import { useBranding } from '@/hooks/use-branding';
 import { useAuth } from '@/hooks/use-auth';
-import { SIDEBAR_PRIVILEGE_MAP, FEATURE_TO_PERMISSION_MAP } from '@digilog/shared';
+import { isSidebarItemVisible } from './sidebar-visibility';
 
 interface SidebarProps {
   userRole: string;
@@ -249,22 +249,12 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
   const { data: config } = useSWR('/api/config/my-config');
   const { data: qnnVis } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
-  // Check if a sidebar item is allowed by user's permissions
-  const hasPermissionForItem = (itemId: string): boolean => {
-    const userPerms = user?.permissions ?? [];
-    if (userPerms.length === 0) return false;
-
-    const section = SIDEBAR_PRIVILEGE_MAP.find(s => s.sidebarId === itemId);
-    if (!section || section.privilegeIds.length === 0) return true; // no privileges required = always visible
-
-    // User needs at least one of the section's privileges
-    return section.privilegeIds.some(privId => {
-      const requiredPerms = FEATURE_TO_PERMISSION_MAP[privId];
-      if (!requiredPerms) return false;
-      // User has this privilege if they have at least one of its mapped permissions
-      return requiredPerms.some(p => userPerms.includes(p));
-    });
-  };
+  // Check if a sidebar item is allowed by user's permissions.
+  // Phase 5B: resolves from PERMISSION_TREE (visibilityPrivilegeIds) via the pure
+  // isSidebarItemVisible helper — behavior-identical to the prior SIDEBAR_PRIVILEGE_MAP
+  // + FEATURE_TO_PERMISSION_MAP lookup (proven by sidebar-visibility.test.ts).
+  const hasPermissionForItem = (itemId: string): boolean =>
+    isSidebarItemVisible(itemId, user?.permissions ?? []);
 
   // Filter items based on configuration AND permissions
   const filteredItems = allNavItems.filter((item) => {
