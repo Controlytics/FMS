@@ -328,7 +328,9 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'filters.bulk_upload', label: 'Bulk Upload Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Bulk Upload',
         icon: 'upload', category: 'Filters Page Controls', permissions: ['FILTER_BULK_UPLOAD', 'ASSET_CREATE'],
         reauthAction: 'BULK_UPLOAD_FILTERS', enforce: 'a',
-        gate: ['ASSET_CREATE', 'FILTER_BULK_UPLOAD'] },
+        // 5C: per-action UI intent (old FE gated bulk-upload on FILTER_BULK_UPLOAD only).
+        // Shared create endpoint also accepts ASSET_CREATE — residual API-looseness, not UI.
+        gate: ['FILTER_BULK_UPLOAD'] },
       { id: 'filters.retire', label: 'Retire Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Retire',
         icon: 'archive', category: 'Filters Page Controls', permissions: ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
         reauthAction: 'RETIRE_FILTER', enforce: 'a',
@@ -343,27 +345,28 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         gate: ['FILTER_STATUS_UPDATE'] },
       { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Create Hierarchy',
         icon: 'plus', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE', 'ASSET_READ'], enforce: 'a',
-        gate: ['ASSET_CREATE', 'FILTER_CREATE', 'FILTER_HIERARCHY_CREATE'] },
+        // 5C: per-action UI intent (old FE gated block/area/AHU create on FILTER_HIERARCHY_CREATE).
+        gate: ['FILTER_HIERARCHY_CREATE'] },
       { id: 'filters.create', label: 'Create Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Create',
         icon: 'plus', category: 'Filters Page Controls', permissions: ['FILTER_CREATE', 'ASSET_READ'],
         reauthAction: 'CREATE_FILTER', enforce: 'a',
-        gate: ['ASSET_CREATE', 'FILTER_CREATE', 'FILTER_HIERARCHY_CREATE'] },
+        gate: ['FILTER_CREATE', 'ASSET_CREATE'] }, // 5C: per-action UI intent (old canCreateFilter)
       { id: 'filters.edit', label: 'Edit Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Edit',
         icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_EDIT', 'ASSET_READ'],
         reauthAction: 'EDIT_FILTER', enforce: 'a',
-        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
+        gate: ['FILTER_EDIT', 'ASSET_UPDATE'] }, // 5C: per-action UI intent (old canEditFilter)
       { id: 'filters.delete', label: 'Delete Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Delete',
         icon: 'trash', category: 'Filters Page Controls', permissions: ['FILTER_DELETE', 'ASSET_READ'],
         reauthAction: 'DELETE_FILTER', enforce: 'a',
-        gate: ['ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE'] },
+        gate: ['FILTER_DELETE', 'ASSET_DELETE'] }, // 5C: per-action UI intent (old canDeleteFilter)
       { id: 'filters.hierarchy_edit', label: 'Edit Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Edit Hierarchy',
         icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_EDIT', 'ASSET_READ'],
         reauthAction: 'EDIT_HIERARCHY_NODE', enforce: 'a',
-        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
+        gate: ['FILTER_HIERARCHY_EDIT', 'ASSET_UPDATE'] }, // 5C: per-action UI intent (old canEditHierarchy)
       { id: 'filters.hierarchy_delete', label: 'Delete Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Hierarchy',
         icon: 'trash', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
         reauthAction: 'DELETE_HIERARCHY_NODE', enforce: 'a',
-        gate: ['ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE'] },
+        gate: ['FILTER_HIERARCHY_DELETE', 'ASSET_DELETE'] }, // 5C: per-action UI intent (old canDeleteHierarchy)
       { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', sidebarId: 'filter-list', page: 'Filters', action: 'Manage RFID',
         icon: 'wifi', category: 'Filters Page Controls', permissions: ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_READ'], enforce: 'a',
         gate: ['FILTER_RFID_MANAGE'] },
