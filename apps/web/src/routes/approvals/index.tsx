@@ -2,6 +2,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { useAuth } from '../../hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
+import { useCan } from '@/hooks/use-can';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -17,6 +18,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 export function ApprovalsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const can = useCan();
   // Audit 2026-05-04 follow-up: approve/reject flow extracted to a shared
   // hook so this page and mobile-wrapper.tsx don't drift again.
   const { process: processBlockChange, reauth } = useBlockChangeApproval();
@@ -187,8 +189,8 @@ export function ApprovalsPage() {
                       </div>
                     </div>
 
-                    {/* Actions for approver */}
-                    {isApprover && r.status === 'PENDING' && (
+                    {/* Actions for approver — both nodes share gate ['BLOCK_CHANGE_APPROVE'] */}
+                    {can('block_change.approve') && r.status === 'PENDING' && (
                       <div className="flex items-center gap-2 ml-4 shrink-0">
                         <input
                           className="w-48 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 outline-none"
