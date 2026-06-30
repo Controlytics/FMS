@@ -57,8 +57,8 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 
 | File | Purpose |
 |---|---|
-| `permissions.ts` | **108** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — `UNS_VIEW`/`UNS_MANAGE` removed 2026-06-17 with data-ingestion tear-out |
-| `feature-privileges.ts` | **98** feature privileges + `FEATURE_TO_PERMISSION_MAP`. **Phase 5E (2026-06-30): both now DERIVED from `PERMISSION_TREE`** (over the 98 `configurable:true` nodes); hand-maintained arrays retired; frozen-snapshot test locks zero drift. `uns.*` removed 2026-06-17. |
+| `permissions.ts` | **110** permission constants (PERMISSIONS enum + ALL_PERMISSIONS list) — `UNS_VIEW`/`UNS_MANAGE` removed 2026-06-17; `ADMIN_REQUEST_APPROVE`/`ADMIN_REQUEST_REJECT` added 2026-06-30 (Admin Requests review/approve/reject split) |
+| `feature-privileges.ts` | **100** feature privileges + `FEATURE_TO_PERMISSION_MAP`. **Phase 5E (2026-06-30): both now DERIVED from `PERMISSION_TREE`** (over the `configurable:true` nodes); hand-maintained arrays retired; frozen-snapshot test locks zero drift. `uns.*` removed 2026-06-17; `admin_requests.approve`/`.reject` added 2026-06-30. |
 | `reauth-actions.ts` | **100** reauth actions. **2026-06-17 removed 6 actions** (`MANAGE_DEVICE_CREDENTIAL`, `OVERRIDE_UNS_PATH`, `DELETE_UNS_MAPPING`, `UPDATE_UNS_CONFIG`, `UPDATE_RETENTION_POLICY`, `EXECUTE_RETENTION`) and 2 categories (`UNS`, `Retention`) with data-ingestion tear-out |
 | `roles.ts` | Role constants + hierarchy + display labels; `defaultRoles` extracted to `apps/api/prisma/default-roles.ts` (Phase 1 reconciliation) |
 | `permission-categories.ts` | Permission grouping for the role-access UI |
