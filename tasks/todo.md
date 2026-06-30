@@ -1670,3 +1670,7 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   GETs), S5 (notifications single-delete), S2-help (help GETs). Reclassified S2/S6/S7/S8 as
   intentional/non-gaps with evidence. Discovered + logged the dead checklist page (above). Docs
   synced (CHANGELOG, analysis §3.1 status table). Plan: docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-2.md.
+- 2026-06-30 — RBAC Phase 3 complete: tightened backend gates to match UI (M1 status→FILTER_STATUS_UPDATE,
+  M2 retire/replace drop FILTER_OPERATE, M3/M4/M5 deletes→SUPER_ADMIN, M6 role-config→ROLE_MANAGE) +
+  removed vestigial *_DELETE from ADMIN seed. Review: 0 test regressions, legit access preserved. Runtime
+  curl verification owed. Plan: docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-3.md.

@@ -379,6 +379,19 @@ Roles & Access                  (/config/roles)
 | M5 | Notifications delete | SUPER_ADMIN only | bulk=`NOTIFICATION_DELETE` | `NOTIFICATION_DELETE` holder blocked in UI |
 | M6 | Roles Permissions/Sidebar/Re-auth tabs | none (dirty only) | `CONFIG_UPDATE` | `CONFIG_UPDATE`-without-`ROLE_MANAGE` can edit role permissions (escalation) |
 
+#### Phase 3 closure status (2026-06-30) — direction: TIGHTEN backend (user decision)
+| # | Status | Resolution |
+|---|---|---|
+| M1 | ✅ **CLOSED** | PATCH lifecycle-state → `FILTER_STATUS_UPDATE` (was ASSET_UPDATE). Commit `3968ec3`. |
+| M2 | ✅ **CLOSED** | retire/replace → `FILTER_RETIRE`/`FILTER_REPLACE` (dropped FILTER_OPERATE fallback). Commit `648c054`. |
+| M3 | ✅ **CLOSED** | user delete + bulk → `requireSuperAdmin()`. Commit `cf3a24e`. |
+| M4 | ✅ **CLOSED** | PM delete → `requireSuperAdmin()`. Commit `44f27ec`. |
+| M5 | ✅ **CLOSED** | notification delete + bulk → `requireSuperAdmin()` (supersedes Phase 2 S5). Commit `b00a07f`. |
+| M6 | ✅ **CLOSED** | role/user/reauth config edits → `ROLE_MANAGE` (was CONFIG_UPDATE). Commit `7237a90`. FE already behind ROLE_MANAGE/SA route guards. |
+| — | ✅ | Vestigial `USER_DELETE`/`PM_DELETE`/`NOTIFICATION_DELETE` removed from ADMIN seed (`259b963`); SUPER_ADMIN retains. |
+
+> **Review:** 0 test regressions (all tests hitting these endpoints use SUPER_ADMIN tokens, which bypass), legitimate UI access preserved — changes remove only API-only bypass from roles that never had the button. **Runtime curl 403/200 verification owed.** Phase 4 (per-page View granularity) + Phase 5 (tree UI + `useCan()`) + Phase 6 (cleanup) remain.
+
 ### 3.3 Theater (frontend gate with no real backend control — MEDIUM)
 
 | # | Permission | Why theater | Resolution |

@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] — Sidebar RBAC — Phase 3 (fix FE/BE mismatches) (2026-06-30)
+
+Aligned backend authorization gates to the stricter UI intent (user decision: more-restrictive wins), closing API bypasses where a hidden button was still reachable by direct API. Analysis §3.2 (M1–M6):
+- **M1** — `PATCH /api/assets/instances/:id/lifecycle-state` now requires `FILTER_STATUS_UPDATE` (was `ASSET_UPDATE`) — the permission the UI gates the Status-Update button on. Closes the `ASSET_UPDATE`-only API bypass (e.g. MAINTENANCE).
+- **M2** — `POST /api/filters/:id/{retire,replace}` now require `FILTER_RETIRE`/`FILTER_REPLACE` (dropped the `FILTER_OPERATE` fallback) — operate-only roles can no longer retire/replace via API.
+- **M3/M4/M5** — `DELETE` (+ bulk) for users / PM schedules / notifications now require **`requireSuperAdmin()`** (were `USER_DELETE`/`PM_DELETE`/`NOTIFICATION_DELETE`), matching the SUPER_ADMIN-only UI. Supersedes the Phase 2 S5 `NOTIFICATION_DELETE` gate.
+- **M6** — `PUT /api/config/{roles/:name,users/:userId,action-reauth}` now require `ROLE_MANAGE` (were `CONFIG_UPDATE`) — closes a privilege-escalation surface (a `CONFIG_UPDATE`-only role could edit role permissions / sidebar / reauth policy). FE surfaces already sit behind ROLE_MANAGE/SUPER_ADMIN route guards.
+- **Seed honesty** — removed the now-vestigial `USER_DELETE`/`PM_DELETE`/`NOTIFICATION_DELETE` from ADMIN in `apps/api/prisma/default-roles.ts` (SUPER_ADMIN keeps them; it bypasses regardless). CFR invariant test still 7/7.
+
+Independent review: **0 test regressions** (every test hitting the changed endpoints uses a SUPER_ADMIN token, which bypasses), legitimate access preserved (changes only remove API-only bypass from roles that never had the UI button). **Runtime curl 403/200 verification owed** (no low-priv creds; dev server live). Plan: `docs/superpowers/plans/2026-06-30-rbac-sidebar-phase-3.md`.
+
 ## [Unreleased] — Sidebar RBAC — Phase 2 (close security gaps) (2026-06-30)
 
 Closed the genuine, safe authorization gaps from the analysis (`tasks/RBAC-SIDEBAR-REDESIGN-ANALYSIS.md` §3.1):
