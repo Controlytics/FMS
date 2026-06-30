@@ -117,11 +117,11 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 2. GET / — List all requests (admin only)
   app.get('/', {
-    preHandler: [app.requirePermission('ADMIN_REQUEST_REVIEW')],
+    preHandler: [app.requireAnyPermission('ADMIN_REQUEST_APPROVE', 'ADMIN_REQUEST_REJECT')],
     schema: {
       tags: ['Admin Requests'],
       summary: 'List admin requests',
-      description: 'List all admin requests. Requires ADMIN_REQUEST_REVIEW permission.',
+      description: 'List all admin requests. Requires ADMIN_REQUEST_APPROVE or ADMIN_REQUEST_REJECT.',
       querystring: {
         type: 'object',
         properties: {
@@ -150,7 +150,7 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 3. GET /pending-count — Count pending requests (admin only)
   app.get('/pending-count', {
-    preHandler: [app.requirePermission('ADMIN_REQUEST_REVIEW')],
+    preHandler: [app.requireAnyPermission('ADMIN_REQUEST_APPROVE', 'ADMIN_REQUEST_REJECT')],
     schema: {
       tags: ['Admin Requests'],
       summary: 'Count pending admin requests',

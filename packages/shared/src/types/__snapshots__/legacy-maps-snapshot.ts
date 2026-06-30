@@ -147,8 +147,7 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   { id: 'equipment_groups.edit', label: 'Edit Equipment Groups', category: 'Equipment Group Controls', icon: 'edit' },
   { id: 'equipment_groups.delete', label: 'Delete Equipment Groups', category: 'Equipment Group Controls', icon: 'trash' },
 
-  // Admin Requests
-  { id: 'admin_requests.view', label: 'Review Admin Requests', category: 'User Management', icon: 'inbox' },
+  // Admin Requests (2026-06-30: no view/review level — 2 action perms only)
   { id: 'admin_requests.approve', label: 'Approve Admin Requests', category: 'User Management', icon: 'check-circle' },
   { id: 'admin_requests.reject', label: 'Reject Admin Requests', category: 'User Management', icon: 'x-circle' },
 
@@ -295,10 +294,9 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'pm.edit_entry': ['PM_EDIT_ENTRY', 'PM_UPDATE', 'PM_READ'],
   'pm.resubmit': ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
 
-  // Admin Requests
-  'admin_requests.view': ['ADMIN_REQUEST_REVIEW'],
-  'admin_requests.approve': ['ADMIN_REQUEST_APPROVE', 'ADMIN_REQUEST_REVIEW'],
-  'admin_requests.reject': ['ADMIN_REQUEST_REJECT', 'ADMIN_REQUEST_REVIEW'],
+  // Admin Requests (2026-06-30: 2 action perms only)
+  'admin_requests.approve': ['ADMIN_REQUEST_APPROVE'],
+  'admin_requests.reject': ['ADMIN_REQUEST_REJECT'],
 
   // Debug Traces
   'debug.view': ['READ_DEBUG_TRACE'],
@@ -351,7 +349,8 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     icon: "\u{1F4CB}",
     description: "Review and process user requests",
     privilegeIds: [
-      "admin_requests.view",
+      "admin_requests.approve",
+      "admin_requests.reject",
     ],
   },
   {

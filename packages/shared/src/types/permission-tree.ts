@@ -146,19 +146,17 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'admin-requests', label: 'Admin Requests', icon: '📋',
     description: 'Review and process user requests',
-    visibilityPrivilegeIds: ['admin_requests.view'],
+    // 2026-06-30: 2 action perms only (no view/review level). Menu visible if either; the
+    // sidebar item does NOT auto-grant (see config.service primaryPermsForSidebarItem special-case)
+    // so APPROVE/REJECT stay independently revocable.
+    visibilityPrivilegeIds: ['admin_requests.approve', 'admin_requests.reject'],
     nodes: [
-      { id: 'admin_requests.view', label: 'Review Admin Requests', sidebarId: 'admin-requests', page: 'Admin Requests', action: 'View',
-        icon: 'inbox', category: 'User Management', permissions: ['ADMIN_REQUEST_REVIEW'], enforce: 'a',
-        gate: ['ADMIN_REQUEST_REVIEW'], configurable: true },
       { id: 'admin_requests.approve', label: 'Approve Admin Requests', sidebarId: 'admin-requests', page: 'Admin Requests', action: 'Approve',
-        // 2026-06-30: distinct ADMIN_REQUEST_APPROVE gate. Grant set also includes REVIEW
-        // (you must be able to view a request to approve it). configurable → its own role toggle.
-        icon: 'check-circle', category: 'User Management', permissions: ['ADMIN_REQUEST_APPROVE', 'ADMIN_REQUEST_REVIEW'],
+        icon: 'check-circle', category: 'User Management', permissions: ['ADMIN_REQUEST_APPROVE'],
         reauthAction: 'APPROVE_ADMIN_REQUEST', enforce: 'a',
         gate: ['ADMIN_REQUEST_APPROVE'], configurable: true },
       { id: 'admin_requests.reject', label: 'Reject Admin Requests', sidebarId: 'admin-requests', page: 'Admin Requests', action: 'Reject',
-        icon: 'x-circle', category: 'User Management', permissions: ['ADMIN_REQUEST_REJECT', 'ADMIN_REQUEST_REVIEW'],
+        icon: 'x-circle', category: 'User Management', permissions: ['ADMIN_REQUEST_REJECT'],
         reauthAction: 'APPROVE_ADMIN_REQUEST', enforce: 'a',
         gate: ['ADMIN_REQUEST_REJECT'], configurable: true },
     ],
@@ -832,7 +830,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'cycles.view',
   'pm.view', 'pm.create', 'pm.edit', 'pm.delete', 'pm.execute', 'pm.approve', 'pm.review', 'pm.download_template', 'pm.upload', 'pm.edit_entry', 'pm.resubmit',
   'equipment_groups.view', 'equipment_groups.create', 'equipment_groups.edit', 'equipment_groups.delete',
-  'admin_requests.view', 'admin_requests.approve', 'admin_requests.reject',
+  'admin_requests.approve', 'admin_requests.reject',
   'debug.view', 'debug.manage',
   'report_templates.view', 'report_templates.create', 'report_templates.edit', 'report_templates.delete',
   'reports.generate', 'reports.view', 'reports.sign', 'reports.delete', 'reports.export',

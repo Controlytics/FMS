@@ -18,11 +18,11 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (100 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (99 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (100 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (99 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
@@ -40,18 +40,18 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 100', () => {
-    // 100 = original 98 + admin_requests.approve + admin_requests.reject (2026-06-30 granular split)
+  it('configurable node count is exactly 99', () => {
+    // 99 = original 98 minus admin_requests.view (removed) plus admin_requests.approve + .reject (2026-06-30)
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(100);
+    expect(count).toBe(99);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 100 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(100);
+  it('FEATURE_PRIVILEGES has exactly 99 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(99);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 100 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(100);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 99 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(99);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 24 sections', () => {

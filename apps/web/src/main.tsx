@@ -249,7 +249,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
             <Route path="/report-reviews" element={<RequireRole permissions={[PERMISSIONS.REPORT_REVIEW_SUBMIT, PERMISSIONS.REPORT_REVIEW, PERMISSIONS.REPORT_APPROVE]}><ReportReviewsPage /></RequireRole>} />
             <Route path="/stage-approvals" element={<RequireRole permissions={[PERMISSIONS.STAGE_APPROVAL_VIEW, PERMISSIONS.STAGE_APPROVAL_DECIDE]}><StageApprovalsPage /></RequireRole>} />
-            <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_REVIEW, PERMISSIONS.ADMIN_REQUEST_APPROVE, PERMISSIONS.ADMIN_REQUEST_REJECT]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
+            <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_APPROVE, PERMISSIONS.ADMIN_REQUEST_REJECT]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
 
             {/* Report Templates + Generated Reports removed from the application (2026-06-08). */}
 

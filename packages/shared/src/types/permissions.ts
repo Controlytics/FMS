@@ -175,14 +175,10 @@ export const PERMISSIONS = {
   STAGE_APPROVAL_VIEW: 'STAGE_APPROVAL_VIEW',     // see the stage approval inbox
   STAGE_APPROVAL_DECIDE: 'STAGE_APPROVAL_DECIDE', // approve/reject a cleaning stage
 
-  // Admin Requests (2026-05-04 — review C4): own permission so the
-  // 'admin_requests.view' privilege does NOT need USER_CREATE. Earlier
-  // mapping was a privilege escalation — granting "review admin requests"
-  // also handed the user the ability to create users.
-  ADMIN_REQUEST_REVIEW: 'ADMIN_REQUEST_REVIEW',
-  // 2026-06-30: split approve/reject into distinct perms so a role can be granted
-  // review (view details) without approve/reject, and approve/reject independently.
-  // ADMIN_REQUEST_REVIEW stays the page/list/details (view) level + the sidebar primary.
+  // Admin Requests (2026-06-30): two distinct action permissions, no separate review/view
+  // level. The page + request details are visible to anyone holding APPROVE or REJECT.
+  // (The former single ADMIN_REQUEST_REVIEW perm was removed — it gated everything AND was
+  // the sidebar primary, so it could never be revoked while the menu was enabled.)
   ADMIN_REQUEST_APPROVE: 'ADMIN_REQUEST_APPROVE',
   ADMIN_REQUEST_REJECT: 'ADMIN_REQUEST_REJECT',
 

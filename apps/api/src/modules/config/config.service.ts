@@ -35,6 +35,11 @@ function reverseMapPermissions(rolePermissions: string[]): Record<string, boolea
  * system-health) — those are always visible regardless of permissions.
  */
 function primaryPermsForSidebarItem(sidebarId: string): string[] {
+  // 2026-06-30: admin-requests has NO view-only/primary perm — its only perms are the ACTION
+  // perms (ADMIN_REQUEST_APPROVE / ADMIN_REQUEST_REJECT). Auto-granting an action perm on
+  // menu-enable would make it un-revokable (the "unselect doesn't take effect" bug). So
+  // admin-requests opts OUT of sidebar auto-grant; APPROVE/REJECT are granted explicitly per role.
+  if (sidebarId === 'admin-requests') return [];
   const section = SIDEBAR_PRIVILEGE_MAP.find(s => s.sidebarId === sidebarId);
   if (!section || section.privilegeIds.length === 0) return [];
   return FEATURE_TO_PERMISSION_MAP[section.privilegeIds[0]] ?? [];
