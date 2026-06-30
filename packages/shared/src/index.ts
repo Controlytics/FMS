@@ -20,6 +20,15 @@ export type { SidebarItem } from './types/sidebar-items.js';
 export { SIDEBAR_PRIVILEGE_MAP, getPrivilegesForSection } from './types/sidebar-privilege-map.js';
 export type { SidebarSection } from './types/sidebar-privilege-map.js';
 
+export {
+  PERMISSION_TREE,
+  deriveFeaturePrivileges,
+  deriveFeatureToPermissionMap,
+  deriveSidebarPrivilegeMap,
+  resolveNodePermissions,
+} from './types/permission-tree.js';
+export type { PermissionNode, SidebarGroup } from './types/permission-tree.js';
+
 export { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from './types/reauth-actions.js';
 export type { ReauthAction, ReauthActionCategory } from './types/reauth-actions.js';
 
