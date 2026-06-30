@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import useSWR, { mutate } from 'swr';
-import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -45,12 +45,9 @@ const STAT_CARDS: { key: string; countKey: 'all' | 'PENDING' | 'APPROVED' | 'REJ
 ];
 
 export function AdminRequestsPage() {
-  const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const perms = user?.permissions ?? [];
-  // Audit 2026-05-04 fix (web-routes review M-tier + shared C4): align with
-  // backend rename — admin-requests routes now require ADMIN_REQUEST_REVIEW.
-  const canApprove = isSuperAdmin || perms.includes('ADMIN_REQUEST_REVIEW');
+  const can = useCan();
+  const canApprove = can('admin_requests.approve');
+  const canReject = can('admin_requests.reject');
   const { formatDateTime } = useDatetimeFormat();
   const { toast } = useToast();
   const reauth = useReauth();
@@ -313,7 +310,7 @@ export function AdminRequestsPage() {
                     <td className="px-5 py-3.5 text-[12px] text-slate-400">{timeAgo(req.requestedAt)}</td>
                     <td className="px-5 py-3.5 text-right">
                       <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
-                        {isPending && canApprove ? 'Review' : 'View'}
+                        {isPending && (canApprove || canReject) ? 'Review' : 'View'}
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       </span>
                     </td>
@@ -437,7 +434,7 @@ export function AdminRequestsPage() {
               )}
 
               {/* Admin response textarea */}
-              {canApprove && selectedRequest.status === 'PENDING' && (
+              {(canApprove || canReject) && selectedRequest.status === 'PENDING' && (
                 <div>
                   <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Your Response <span className="text-red-500">*</span></h4>
                   <textarea
@@ -452,16 +449,20 @@ export function AdminRequestsPage() {
             </div>
 
             {/* Footer actions */}
-            {canApprove && selectedRequest.status === 'PENDING' && (
+            {(canApprove || canReject) && selectedRequest.status === 'PENDING' && (
               <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center gap-3">
-                <button onClick={() => handleProcess('reject')} disabled={processing}
-                  className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 shadow-sm">
-                  {processing ? 'Processing...' : 'Reject'}
-                </button>
-                <button onClick={() => handleProcess('approve')} disabled={processing}
-                  className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm">
-                  {processing ? 'Processing...' : 'Approve'}
-                </button>
+                {canReject && (
+                  <button onClick={() => handleProcess('reject')} disabled={processing}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 shadow-sm">
+                    {processing ? 'Processing...' : 'Reject'}
+                  </button>
+                )}
+                {canApprove && (
+                  <button onClick={() => handleProcess('approve')} disabled={processing}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm">
+                    {processing ? 'Processing...' : 'Approve'}
+                  </button>
+                )}
               </div>
             )}
           </div>
