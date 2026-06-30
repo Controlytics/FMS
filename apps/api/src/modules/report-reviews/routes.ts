@@ -32,6 +32,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
 
   // My actionable queue (items assigned to me / my role at their current stage).
   app.get('/queue', {
+    preHandler: [app.requireAnyPermission('REPORT_REVIEW_SUBMIT', 'REPORT_REVIEW', 'REPORT_APPROVE')],
     schema: { tags: ['Report Reviews'], summary: 'Reports awaiting my review or approval' },
   }, async (req) => {
     const ctx = buildContext(req);
@@ -40,6 +41,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
 
   // Broader list — ?status=APPROVED for the archive, ?mine=true for what I submitted.
   app.get('/', {
+    preHandler: [app.requireAnyPermission('REPORT_REVIEW_SUBMIT', 'REPORT_REVIEW', 'REPORT_APPROVE')],
     schema: {
       tags: ['Report Reviews'], summary: 'List report reviews',
       querystring: { type: 'object', properties: { status: { type: 'string' }, mine: { type: 'string' } } },
@@ -52,6 +54,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
 
   // Full record incl. the data snapshot — used for preview + (re)download.
   app.get('/:id', {
+    preHandler: [app.requireAnyPermission('REPORT_REVIEW_SUBMIT', 'REPORT_REVIEW', 'REPORT_APPROVE')],
     schema: { tags: ['Report Reviews'], summary: 'Get a report review (with snapshot)' },
   }, async (req) => {
     const { id } = req.params as { id: string };
