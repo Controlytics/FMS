@@ -257,8 +257,10 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         reauthAction: 'APPROVE_REPORT', enforce: 'a',
         gate: ['REPORT_APPROVE'] },
       { id: 'report_reviews.reject', label: 'Reject Report', sidebarId: 'audit', page: 'Report Reviews', action: 'Reject',
-        icon: 'x-circle', category: 'Reports', permissions: ['REPORT_APPROVE'], enforce: 'a',
-        gate: ['REPORT_APPROVE'] },
+        icon: 'x-circle', category: 'Reports', permissions: ['REPORT_REVIEW', 'REPORT_APPROVE'], enforce: 'a',
+        // 5C fix: reject is valid in BOTH stages — REVIEW-stage reject runs under REPORT_REVIEW
+        // (POST /review action:reject), APPROVAL-stage under REPORT_APPROVE (POST /approve).
+        gate: ['REPORT_REVIEW', 'REPORT_APPROVE'] },
     ],
   },
 
