@@ -2,6 +2,7 @@ import React, { useRef, useState, useMemo } from 'react';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
+import { useCan } from '../../hooks/use-can';
 import { useReauth } from '../../hooks/use-reauth';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -97,12 +98,17 @@ export function PmScheduleListPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   // Permission flags
+  // Phase 5C: simple per-action gates resolve from the PERMISSION_TREE via useCan(<node>)
+  // (node gates narrowed to the per-action UI perm). isSuperAdmin/perms are RETAINED below
+  // because the review/approve flags use config-driven workflow-ROLE logic that useCan cannot
+  // express (gate on role === configured approver/reviewer role, not a static permission).
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const perms = user?.permissions ?? [];
-  const canDownload = isSuperAdmin || perms.includes('PM_DOWNLOAD_TEMPLATE');
-  const canUpload = isSuperAdmin || perms.includes('PM_UPLOAD');
-  const canEditEntry = isSuperAdmin || perms.includes('PM_EDIT_ENTRY');
-  const canResubmit = isSuperAdmin || perms.includes('PM_RESUBMIT');
+  const can = useCan();
+  const canDownload = can('pm.download_template');
+  const canUpload = can('pm.upload');
+  const canEditEntry = can('pm.edit_entry');
+  const canResubmit = can('pm.resubmit');
   // 3-step workflow config. When the workflow is ON, the backend gates review/approve
   // strictly by the configured ROLE (assertPmRole), so the FE must too — otherwise a
   // user with the PM_APPROVE permission but not the approver role sees an Approve
@@ -115,12 +121,12 @@ export function PmScheduleListPage() {
   // (BE supports it with reauth, no FE caller). Surface a delete button
   // per AHU group; backend pm-schedule-crud.ts:138 returns 409 if any
   // execution is IN_PROGRESS, which surfaces as a clean toast.
-  // PM schedule delete is restricted to SUPER_ADMIN only (per 2026-06-15 request), regardless of PM_DELETE.
-  const canDeleteSchedule = isSuperAdmin;
+  // PM schedule delete is SUPER_ADMIN-only (pm.delete gate is [] post-Phase-3 M4) — useCan SA-bypass.
+  const canDeleteSchedule = can('pm.delete');
   // Audit 2026-05-09 fix: BE supports POST /api/pm-schedules with reauth
   // (CREATE_PM_SCHEDULE) but the only path was bulk CSV upload — operators
   // wanting one-off schedules had to hand-build a CSV.
-  const canCreateSchedule = isSuperAdmin || perms.includes('PM_CREATE');
+  const canCreateSchedule = can('pm.create');
 
   // Table state
   const [statusFilter, setStatusFilter] = useState('ALL');

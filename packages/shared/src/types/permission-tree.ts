@@ -678,19 +678,19 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         gate: ['PM_REVIEW'] },
       { id: 'pm.download_template', label: 'Download PM Template', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Download Template',
         icon: 'download', category: 'PM Schedules', permissions: ['PM_DOWNLOAD_TEMPLATE', 'PM_READ'], enforce: 'a',
-        gate: ['PM_READ', 'PM_DOWNLOAD_TEMPLATE'] },
+        gate: ['PM_DOWNLOAD_TEMPLATE'] }, // 5C: per-action UI intent (old canDownload=PM_DOWNLOAD_TEMPLATE)
       { id: 'pm.upload', label: 'Upload PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Upload',
         icon: 'upload', category: 'PM Schedules', permissions: ['PM_UPLOAD', 'PM_CREATE', 'PM_READ'],
         reauthAction: 'UPLOAD_PM_SCHEDULES', enforce: 'a',
-        gate: ['PM_CREATE', 'PM_UPLOAD'] },
+        gate: ['PM_UPLOAD'] }, // 5C: per-action UI intent (old canUpload=PM_UPLOAD)
       { id: 'pm.edit_entry', label: 'Edit PM Entries', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Edit Entry',
         icon: 'edit', category: 'PM Schedules', permissions: ['PM_EDIT_ENTRY', 'PM_UPDATE', 'PM_READ'],
         reauthAction: 'EDIT_PM_SCHEDULE', enforce: 'a',
-        gate: ['PM_UPDATE', 'PM_EDIT_ENTRY'] },
+        gate: ['PM_EDIT_ENTRY'] }, // 5C: per-action UI intent (old canEditEntry=PM_EDIT_ENTRY)
       { id: 'pm.resubmit', label: 'Resubmit Rejected Entries', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Resubmit',
         icon: 'refresh', category: 'PM Schedules', permissions: ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
         reauthAction: 'RESUBMIT_PM_ENTRY', enforce: 'a',
-        gate: ['PM_CREATE', 'PM_RESUBMIT'] },
+        gate: ['PM_RESUBMIT'] }, // 5C: per-action UI intent (old canResubmit=PM_RESUBMIT)
       { id: 'pm.reject', label: 'Reject PM Schedule', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Reject',
         icon: 'x-circle', category: 'PM Schedules', permissions: ['PM_APPROVE', 'PM_READ'],
         reauthAction: 'REJECT_PM_SCHEDULE', enforce: 'a',
