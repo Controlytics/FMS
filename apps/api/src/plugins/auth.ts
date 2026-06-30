@@ -176,6 +176,22 @@ async function authPlugin(app: FastifyInstance) {
     // Paths that are public only for GET requests
     if (req.method === 'GET' && PUBLIC_GET_PATHS.some((p) => req.url.startsWith(p))) return;
 
+    // M1 (SERVE_WEB): when the API also serves the built web UI, static assets
+    // and SPA navigations must load WITHOUT a token — the login page itself is
+    // served by this process. Allow GET/HEAD for any path that is not a server
+    // surface (/api, /uploads, /docs). The SPA's own data calls hit /api/* and
+    // still go through full auth below; protected uploads + Swagger are excluded
+    // so this never widens their existing access rules. See EXE-PACKAGING §5.
+    if (
+      process.env.SERVE_WEB === 'true' &&
+      (req.method === 'GET' || req.method === 'HEAD') &&
+      !req.url.startsWith('/api') &&
+      !req.url.startsWith('/uploads') &&
+      !req.url.startsWith('/docs')
+    ) {
+      return;
+    }
+
     // POST /api/admin-requests — public submit (but GET/other methods require auth)
     if (req.method === 'POST' && req.url === '/api/admin-requests') return;
 

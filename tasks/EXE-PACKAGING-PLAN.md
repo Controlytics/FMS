@@ -168,12 +168,13 @@ Run on the dev machine to create the `Setup.exe`. Encapsulate as `scripts/build-
 - Add a `setNotFoundHandler` that, for non-`/api` GET requests, returns `index.html` (client-side routing fallback for React Router).
 - Guard it behind an env flag (e.g. `SERVE_WEB=true`) so dev behavior is unchanged.
 
-**Touch points to verify after this change:**
-- `/api/*` routes still match first (don't get swallowed by the SPA fallback).
-- `/uploads/*` still served.
-- `/docs` (Swagger) still served.
-- WebSocket upgrade path (`@fastify/websocket`) unaffected.
-- CORS: with same-origin serving, the UI no longer needs cross-origin to `:3000` — but keep `ALLOWED_ORIGINS` correct for the APK.
+**Touch points — verified during M1 (2026-06-30):**
+- ✅ `/api/*` routes still match first; unknown `/api/*` returns JSON (not HTML) — API contract preserved.
+- ✅ `/uploads/*` still served (uploads static keeps `decorateReply:false`; the web static instance owns `sendFile`).
+- ✅ `/docs` (Swagger) still served in dev, still **gated 401 in production** — the SERVE_WEB auth bypass deliberately excludes `/docs`.
+- ✅ WebSocket path unaffected.
+- 🔧 **Auth-hook gap fixed (the real touch point):** `plugins/auth.ts` has a global `onRequest` that 401s everything not in a public allowlist — so static assets + the login page itself were blocked. Added a narrow bypass: when `SERVE_WEB=true`, GET/HEAD requests that are **not** `/api`, `/uploads`, or `/docs` pass as public (the SPA's own `/api/*` data calls still go through full auth). This does not widen protected-uploads or Swagger access.
+- CORS: with same-origin serving the UI no longer needs cross-origin; keep `ALLOWED_ORIGINS` correct for the APK (the installer sets it).
 
 ---
 
@@ -256,7 +257,7 @@ MAINTENANCE_CRONTAB_PATH=...\runtime\queue\crontab.txt   # if path differs from 
 
 | # | Milestone | Deliverable | Risk |
 |---|-----------|-------------|------|
-| **M1** | **Backend-serves-UI bundle** (§5) | `node dist/app.js` serves the full app from one process against local Postgres; no Vite. A `scripts/build-bundle.ps1`. | Low — foundation for everything |
+| **M1** | **Backend-serves-UI bundle** (§5) | ✅ **DONE (2026-06-30).** `SERVE_WEB=true node dist/app.js` serves the full SPA + API from one process (verified compiled, NODE_ENV=production, real login round-trip). Added `scripts/build-bundle.ps1`. Fixed the auth-hook gap (static assets/SPA were 401'd). | Low — foundation for everything |
 | **M2** | **Portable runtime staging** (§4) | A `runtime/` folder that runs on a machine with **no global Node**, using bundled `node.exe`. Native modules verified loading. | Medium — native ABI / Prisma engine |
 | **M3** | **Bundled Postgres provisioning** (§7 steps 4–9) | Scripts that initdb + provision + migrate + seed a private PG on 5433. | Medium |
 | **M4** | **Windows services** | WinSW/nssm wrappers; both services auto-start; survive reboot. | Low–Medium |

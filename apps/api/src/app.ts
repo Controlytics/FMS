@@ -346,6 +346,57 @@ await app.register(hierarchyRoutes, { prefix: '/api/hierarchy' });
 await app.register((await import('./modules/reports/routes.js')).default, { prefix: '/api/reports' });
 
 
+// ─── M1: serve the built web UI from the API (single-process bundle) ─────────
+// Behind SERVE_WEB so the normal dev loop (Vite on :5175) is unaffected. When
+// enabled, the API serves apps/web/dist at '/', with an SPA fallback to
+// index.html for client-side (React Router) routes. This is what the packaged
+// Setup.exe uses at runtime — no Vite, one `node dist/app.js` process.
+// Override the build location with WEB_DIST_DIR (the installer stages it under
+// the program dir). See tasks/EXE-PACKAGING-PLAN.md §5.
+if (process.env.SERVE_WEB === 'true') {
+  const webDir = process.env.WEB_DIST_DIR
+    ? path.resolve(process.env.WEB_DIST_DIR)
+    : path.resolve(__dirname, '../../web/dist');
+
+  if (!fs.existsSync(path.join(webDir, 'index.html'))) {
+    app.log.warn(
+      `SERVE_WEB=true but no web build found at ${webDir} ` +
+      `(run 'vite build' or set WEB_DIST_DIR). The UI will not be served.`,
+    );
+  } else {
+    // Second @fastify/static instance — this one OWNS reply.sendFile (the
+    // uploads instance above set decorateReply:false precisely so this can).
+    await app.register(fastifyStatic, {
+      root: webDir,
+      prefix: '/',
+      wildcard: false,       // serve real files; unmatched paths fall to notFound
+      index: ['index.html'],
+    });
+
+    // SPA fallback: a GET that didn't match an API/docs/uploads/health route and
+    // isn't a real static file returns index.html so React Router can resolve
+    // the client-side path. Anything else gets a clean JSON 404 (API contract
+    // preserved — unknown /api routes must NOT receive HTML).
+    app.setNotFoundHandler((req, reply) => {
+      const isServerRoute =
+        req.url.startsWith('/api') ||
+        req.url.startsWith('/uploads') ||
+        req.url.startsWith('/docs') ||
+        req.url.startsWith('/health');
+      const wantsHtml = (req.headers.accept ?? '').includes('text/html');
+      if (req.method === 'GET' && !isServerRoute && wantsHtml) {
+        return reply.sendFile('index.html');
+      }
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: `Route ${req.method}:${req.url} not found`,
+      });
+    });
+
+    app.log.info(`SERVE_WEB enabled — serving web UI from ${webDir}`);
+  }
+}
+
 // Start
 const port = parseInt(process.env.PORT ?? '3000', 10);
 try {
