@@ -239,8 +239,12 @@ export default async function notificationRoutes(app: FastifyInstance) {
     return notificationService.markUnread(id, req.user.role, req.user.username);
   });
 
-  // DELETE /api/notifications/:id — delete notification (per-user dismiss)
+  // DELETE /api/notifications/:id — delete notification
   app.delete('/:id', {
+    // S5 fix (2026-06-30): single delete now requires NOTIFICATION_DELETE, matching
+    // bulk-delete. Previously only reauth-gated, so a user blocked from bulk could
+    // still delete one-by-one. FE already restricts both delete buttons to admins.
+    preHandler: [app.requirePermission('NOTIFICATION_DELETE')],
     schema: {
       tags: ['Notifications'],
       summary: 'Delete a notification',
