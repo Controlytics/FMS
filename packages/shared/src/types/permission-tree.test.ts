@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { PERMISSION_TREE } from './permission-tree.js';
+import { PERMISSION_TREE, deriveFeaturePrivileges, deriveFeatureToPermissionMap } from './permission-tree.js';
 import { PERMISSIONS } from './permissions.js';
 import { REAUTH_ACTIONS } from './reauth-actions.js';
+import { FEATURE_PRIVILEGES, FEATURE_TO_PERMISSION_MAP } from './feature-privileges.js';
 
 describe('PERMISSION_TREE well-formedness', () => {
   const allNodes = PERMISSION_TREE.flatMap(g => g.nodes);
@@ -39,5 +40,17 @@ describe('PERMISSION_TREE well-formedness', () => {
     for (const n of allNodes) {
       expect(['a', 'b', 'c']).toContain(n.enforce);
     }
+  });
+});
+
+describe('deriveFeaturePrivileges parity (Task 1.2)', () => {
+  it('reproduces FEATURE_PRIVILEGES exactly (same entries, same order)', () => {
+    expect(deriveFeaturePrivileges()).toEqual(FEATURE_PRIVILEGES);
+  });
+});
+
+describe('deriveFeatureToPermissionMap parity (Task 1.3)', () => {
+  it('reproduces FEATURE_TO_PERMISSION_MAP exactly', () => {
+    expect(deriveFeatureToPermissionMap()).toEqual(FEATURE_TO_PERMISSION_MAP);
   });
 });

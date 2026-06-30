@@ -595,14 +595,22 @@ export const PERMISSION_TREE: SidebarGroup[] = [
 
 /**
  * Task 1.2 — Reproduces FEATURE_PRIVILEGES from the tree.
- * Returns one FeaturePrivilege per node whose id exists in FEATURE_PRIVILEGES.
+ *
+ * Iterates in FEATURE_PRIVILEGES oracle order (so array equality holds in the
+ * parity test). For each oracle entry, looks up the matching node in the tree
+ * and returns {id, label, category, icon} from the tree node. Entries whose id
+ * does not appear in the tree are omitted (a parity-test miss surfaces the gap).
  */
 export function deriveFeaturePrivileges(tree: SidebarGroup[] = PERMISSION_TREE): FeaturePrivilege[] {
-  const fpIds = new Set(FEATURE_PRIVILEGES.map(fp => fp.id));
-  return tree
-    .flatMap(g => g.nodes)
-    .filter(n => fpIds.has(n.id))
-    .map(n => ({ id: n.id, label: n.label, category: n.category, icon: n.icon }));
+  const nodeById = new Map(
+    tree.flatMap(g => g.nodes).map(n => [n.id, n]),
+  );
+  const result: FeaturePrivilege[] = [];
+  for (const fp of FEATURE_PRIVILEGES) {
+    const n = nodeById.get(fp.id);
+    if (n) result.push({ id: n.id, label: n.label, category: n.category, icon: n.icon });
+  }
+  return result;
 }
 
 /**
