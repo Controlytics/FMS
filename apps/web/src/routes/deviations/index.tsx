@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import useSWR from 'swr';
+import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Pagination } from '@/components/ui/pagination';
 import { apiClient } from '@/lib/api-client';
@@ -73,6 +74,7 @@ function daysLabel(n: number | null | undefined): string {
 }
 
 export function DeviationsPage() {
+  const can = useCan();
   const { formatDate, formatDateTime } = useDatetimeFormat();
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(1);
@@ -211,8 +213,12 @@ export function DeviationsPage() {
             <label className="text-[11px] font-medium text-slate-400">To</label>
             <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setDownloadMsg(''); }}
               className="border border-slate-200 rounded-lg px-2 py-1 text-[12px] text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none" />
-            <ExportMenu surface="deviations" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm shadow-rose-600/20 disabled:opacity-50" />
+            {/* Phase 5C: Export gated on deviations.export (gate: PM_READ).
+                Previously UNGATED (fail-open); now correctly hidden from users without PM_READ. */}
+            {can('deviations.export') && (
+              <ExportMenu surface="deviations" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm shadow-rose-600/20 disabled:opacity-50" />
+            )}
             <SendForReviewButton buildSnapshot={buildDeviationsSnapshot}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
           </div>
