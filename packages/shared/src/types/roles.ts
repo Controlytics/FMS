@@ -32,10 +32,10 @@ export interface RoleData {
 export const DEFAULT_ROLE_HIERARCHY: Record<string, number> = {
   SUPER_ADMIN: 6,
   ADMIN: 5,
-  SUPERVISOR: 3,
-  MAINTENANCE: 2,
-  OPERATOR: 1,
-  VIEWER: 0,
+  SUPERVISOR: 4,
+  MAINTENANCE: 3,
+  OPERATOR: 2,
+  VIEWER: 1,
 };
 
 // Keep ROLE_HIERARCHY export for backward compatibility
