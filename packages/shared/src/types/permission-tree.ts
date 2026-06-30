@@ -683,8 +683,15 @@ export function deriveSidebarPrivilegeMap(
 }
 
 /**
- * Task 1.5 — Resolve enforced permissions for a tree node by id.
- * Returns [] for unknown ids (default-deny). Used by useCan() hook.
+ * Task 1.5 — Resolve the GRANT-expansion permissions for a tree node by id
+ * (i.e. the permissions enabling this node's toggle grants a role — same set
+ * as FEATURE_TO_PERMISSION_MAP). Returns [] for unknown ids.
+ *
+ * NOTE: this is the grant set, NOT an authorization gate. Do not OR over it to
+ * decide "can the user perform this action" — it includes read dependencies
+ * (e.g. USER_READ) that must not authorize writes. The Phase 5 useCan() hook
+ * will gate on a separate per-node `gate` set sourced from backend
+ * requireAnyPermission(...) sets, not on this grant expansion.
  */
 export function resolveNodePermissions(
   nodeId: string,
