@@ -137,7 +137,7 @@ privilege-escalation via delete-without-read). NOT BLOCKED; test passes.
 
 ## Task 1.4 fix (2026-06-30)
 
-**Commit:** (see below — appended after commit)
+**Commit:** `9981464`
 
 **Root cause (confirmed):** `SIDEBAR_PRIVILEGE_MAP` is a many-to-many visibility map — the same privilege id (e.g. `assets.view`) appears in multiple sidebar sections. Derivation from node-group ownership cannot reproduce this, because each node belongs to exactly one group (uniqueness invariant). The prior implementation tried to derive it from the FP node set of each group, which gave wrong (node-local) ids rather than the oracle's visibility ids.
 
