@@ -675,7 +675,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   });
 
   app.delete('/:id', {
-    preHandler: [app.requirePermission('PM_DELETE')],
+    preHandler: [app.requireSuperAdmin()], // M4 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was PM_DELETE
     schema: {
       tags: ['PM Schedules'],
       summary: 'Delete PM schedule',
