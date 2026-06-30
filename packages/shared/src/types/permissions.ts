@@ -180,6 +180,11 @@ export const PERMISSIONS = {
   // mapping was a privilege escalation — granting "review admin requests"
   // also handed the user the ability to create users.
   ADMIN_REQUEST_REVIEW: 'ADMIN_REQUEST_REVIEW',
+  // 2026-06-30: split approve/reject into distinct perms so a role can be granted
+  // review (view details) without approve/reject, and approve/reject independently.
+  // ADMIN_REQUEST_REVIEW stays the page/list/details (view) level + the sidebar primary.
+  ADMIN_REQUEST_APPROVE: 'ADMIN_REQUEST_APPROVE',
+  ADMIN_REQUEST_REJECT: 'ADMIN_REQUEST_REJECT',
 
   // Version History (2026-05-02): cross-entity audit-history viewer for the
   // four versioned entities (CleaningProfile lineage, FilterProfile sidecar,

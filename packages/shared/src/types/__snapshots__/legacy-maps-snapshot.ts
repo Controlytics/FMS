@@ -149,6 +149,8 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
 
   // Admin Requests
   { id: 'admin_requests.view', label: 'Review Admin Requests', category: 'User Management', icon: 'inbox' },
+  { id: 'admin_requests.approve', label: 'Approve Admin Requests', category: 'User Management', icon: 'check-circle' },
+  { id: 'admin_requests.reject', label: 'Reject Admin Requests', category: 'User Management', icon: 'x-circle' },
 
   // Debug Traces
   { id: 'debug.view', label: 'View Debug Traces', category: 'Debug Traces', icon: 'terminal' },
@@ -295,6 +297,8 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
 
   // Admin Requests
   'admin_requests.view': ['ADMIN_REQUEST_REVIEW'],
+  'admin_requests.approve': ['ADMIN_REQUEST_APPROVE', 'ADMIN_REQUEST_REVIEW'],
+  'admin_requests.reject': ['ADMIN_REQUEST_REJECT', 'ADMIN_REQUEST_REVIEW'],
 
   // Debug Traces
   'debug.view': ['READ_DEBUG_TRACE'],

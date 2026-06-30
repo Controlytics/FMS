@@ -154,7 +154,9 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.REPORT_EXPORT]: { label: 'Export Reports', category: 'Reports' },
   // Audit C3 — version history viewer + admin-request review (this branch)
   [PERMISSIONS.VERSION_HISTORY_VIEW]: { label: 'View Version History', category: 'Audit' },
-  [PERMISSIONS.ADMIN_REQUEST_REVIEW]: { label: 'Review Admin Requests', category: 'User Management' },
+  [PERMISSIONS.ADMIN_REQUEST_REVIEW]: { label: 'Review Admin Requests (view details)', category: 'User Management' },
+  [PERMISSIONS.ADMIN_REQUEST_APPROVE]: { label: 'Approve Admin Requests', category: 'User Management' },
+  [PERMISSIONS.ADMIN_REQUEST_REJECT]: { label: 'Reject Admin Requests', category: 'User Management' },
 };
 
 // Derive ALL_PERMISSIONS from the shared PERMISSIONS constant (single source of truth)

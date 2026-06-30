@@ -310,7 +310,7 @@ export function AdminRequestsPage() {
                     <td className="px-5 py-3.5 text-[12px] text-slate-400">{timeAgo(req.requestedAt)}</td>
                     <td className="px-5 py-3.5 text-right">
                       <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
-                        {isPending && (canApprove || canReject) ? 'Review' : 'View'}
+                        {isPending ? 'Review' : 'View'}
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       </span>
                     </td>

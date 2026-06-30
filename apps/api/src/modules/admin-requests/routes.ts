@@ -168,7 +168,15 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 4. POST /:id/process — Approve or reject a request (admin only, reauth)
   app.post('/:id/process', {
-    preHandler: [app.requirePermission('ADMIN_REQUEST_REVIEW')],
+    // 2026-06-30: body-aware gate — approve action requires ADMIN_REQUEST_APPROVE,
+    // reject requires ADMIN_REQUEST_REJECT (distinct from the REVIEW/view level).
+    // req.body is parsed+validated before preHandler runs; requirePermission 403s
+    // (and halts the chain) if the user lacks the action's perm. SUPER_ADMIN bypasses.
+    preHandler: [async (req, reply) => {
+      const action = (req.body as { action?: string } | undefined)?.action;
+      const perm = action === 'reject' ? 'ADMIN_REQUEST_REJECT' : 'ADMIN_REQUEST_APPROVE';
+      await app.requirePermission(perm)(req, reply);
+    }],
     schema: {
       tags: ['Admin Requests'],
       summary: 'Process (approve/reject) an admin request',
