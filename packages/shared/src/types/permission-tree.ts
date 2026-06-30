@@ -234,8 +234,8 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'clipboard', category: 'System', permissions: ['AUDIT_READ'], enforce: 'a',
         gate: ['AUDIT_READ'] },
       { id: 'audit.export', label: 'Export Audit Trail', sidebarId: 'audit', page: 'Audit', action: 'Export',
-        icon: 'clipboard', category: 'System', permissions: ['AUDIT_EXPORT', 'AUDIT_READ'], enforce: 'a',
-        gate: ['AUDIT_READ'] },
+        icon: 'clipboard', category: 'System', permissions: ['AUDIT_EXPORT', 'AUDIT_READ'], enforce: 'c',
+        gate: ['AUDIT_EXPORT'] }, // 5C fix: gate on the dedicated export perm (UI gates on AUDIT_EXPORT); page-view perm would loosen export to any audit viewer
       // Enforced-only: audit administration
       { id: 'audit.redact', label: 'Redact Audit Record', sidebarId: 'audit', page: 'Audit', action: 'Redact',
         icon: 'slash', category: 'System', permissions: [],
@@ -377,7 +377,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     nodes: [
       { id: 'retirement_list.export', label: 'Export Retirement List Report (PDF / Excel)', sidebarId: 'filter-retirements', page: 'Retirement List', action: 'Export',
         icon: 'download', category: 'Filters Page Controls', permissions: ['RETIREMENT_LIST_EXPORT'], enforce: 'c',
-        gate: ['ASSET_READ'] },
+        gate: ['RETIREMENT_LIST_EXPORT'] }, // 5C fix: UI gates on RETIREMENT_LIST_EXPORT; page-view perm would loosen
       { id: 'retirement.view', label: 'View Retired Filters', sidebarId: 'filter-retirements', page: 'Retirement List', action: 'View',
         icon: 'eye', category: 'Asset Management', permissions: ['ASSET_VIEW', 'ASSET_READ'], enforce: 'b',
         gate: ['ASSET_READ'] },
@@ -407,7 +407,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     nodes: [
       { id: 'replacement_list.export', label: 'Export Replacement List Report (PDF / Excel)', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Export',
         icon: 'download', category: 'Filters Page Controls', permissions: ['REPLACEMENT_LIST_EXPORT'], enforce: 'c',
-        gate: ['ASSET_READ'] },
+        gate: ['REPLACEMENT_LIST_EXPORT'] }, // 5C fix: UI gates on REPLACEMENT_LIST_EXPORT; page-view perm would loosen
       { id: 'replacement_schedule.view', label: 'View Replacement Schedule', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'View Schedule',
         icon: 'calendar', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'], enforce: 'a',
         gate: ['REPLACEMENT_SCHEDULE_VIEW'] },
@@ -478,7 +478,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         gate: ['CYCLE_READ'] },
       { id: 'cleaning_record.export', label: 'Export Cleaning Record', sidebarId: 'cleaning-cycles', page: 'Filter Cleaning Record', action: 'Export',
         icon: 'download', category: 'Cleaning Cycles', permissions: [], enforce: 'c',
-        gate: ['CYCLE_READ'] },
+        gate: ['REPORT_EXPORT', 'REPORT_GENERATE'] }, // 5C fix: UI canExportPdf gates on REPORT_EXPORT||REPORT_GENERATE; CYCLE_READ would loosen
     ],
   },
 
@@ -524,7 +524,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         gate: ['REPORT_EXPORT'] },
       { id: 'lifecycle.export', label: 'Export Filter Lifecycle Report', sidebarId: 'filter-lifecycle-report', page: 'Filter Lifecycle Report', action: 'Export',
         icon: 'download', category: 'Reports', permissions: [], enforce: 'c',
-        gate: ['CYCLE_READ'] },
+        gate: ['REPORT_EXPORT', 'REPORT_GENERATE'] }, // 5C fix: UI canExportPdf gates on REPORT_EXPORT||REPORT_GENERATE; CYCLE_READ would loosen
     ],
   },
 
