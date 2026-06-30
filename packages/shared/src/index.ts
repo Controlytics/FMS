@@ -26,6 +26,8 @@ export {
   deriveFeatureToPermissionMap,
   deriveSidebarPrivilegeMap,
   resolveNodePermissions,
+  resolveNodeGate,
+  resolveNodeGateRoles,
 } from './types/permission-tree.js';
 export type { PermissionNode, SidebarGroup } from './types/permission-tree.js';
 

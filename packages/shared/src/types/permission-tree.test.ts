@@ -5,6 +5,8 @@ import {
   deriveFeatureToPermissionMap,
   deriveSidebarPrivilegeMap,
   resolveNodePermissions,
+  resolveNodeGate,
+  resolveNodeGateRoles,
 } from './permission-tree.js';
 import { PERMISSIONS } from './permissions.js';
 import { REAUTH_ACTIONS } from './reauth-actions.js';
@@ -74,6 +76,46 @@ describe('deriveSidebarPrivilegeMap (Task 1.4)', () => {
       expect([...d!.privilegeIds].sort(), `privilegeIds ${o.sidebarId}`)
         .toEqual([...o.privilegeIds].sort());
     }
+  });
+});
+
+// Task 5A.1 — PermissionNode.gate (discriminating backend permission set)
+describe('PermissionNode.gate (Phase 5A)', () => {
+  const nodes = PERMISSION_TREE.flatMap(g => g.nodes);
+
+  it('every gate entry is a valid PERMISSIONS constant', () => {
+    const valid = new Set(Object.values(PERMISSIONS));
+    for (const n of nodes) {
+      for (const p of n.gate) {
+        expect(valid.has(p as any), `${n.id} → ${p}`).toBe(true);
+      }
+    }
+  });
+
+  it('every node has gate as an array', () => {
+    for (const n of nodes) expect(Array.isArray(n.gate), n.id).toBe(true);
+  });
+
+  it('known SUPER_ADMIN-only actions have empty gate', () => {
+    for (const id of ['users.delete', 'pm.delete', 'notifications.delete', 'audit.redact']) {
+      expect(resolveNodeGate(id), id).toEqual([]);
+    }
+  });
+
+  it('known OR-gated action lists both perms', () => {
+    expect(resolveNodeGate('checklists.create').sort()).toEqual(['CHECKLIST_CREATE', 'FCP_CREATE'].sort());
+  });
+
+  it('resolveNodeGate returns [] for an unknown node id', () => {
+    expect(resolveNodeGate('nope.nope')).toEqual([]);
+  });
+
+  it('resolveNodeGateRoles returns [] for unknown node id', () => {
+    expect(resolveNodeGateRoles('nope.nope')).toEqual([]);
+  });
+
+  it('system_health.view has gateRoles containing ADMIN', () => {
+    expect(resolveNodeGateRoles('system_health.view')).toContain('ADMIN');
   });
 });
 
