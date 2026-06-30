@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '@/lib/pdf-report';
@@ -15,7 +16,9 @@ export function ReplacementListPage() {
   const { user } = useAuth();
   const perms = user?.permissions ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const can = useCan();
   // Show the Schedule tab only to users who can see/manage the schedule.
+  // Left as prefix-based check (out of scope for Phase 5C — no single node covers this).
   const canSchedule = isSuperAdmin || perms.some(p => p.startsWith('REPLACEMENT_SCHEDULE_'));
   const [view, setView] = useState<'list' | 'schedule'>('list');
   const { data, isLoading } = useSWR('/api/filters/replacements', { refreshInterval: 30000 });
@@ -68,7 +71,8 @@ export function ReplacementListPage() {
   const REPORT_COLS = ['sNo', 'oldFilter', 'newFilter', 'replacedOn', 'performedBy', 'remarks'];
   const reportHead = REPORT_COLS.map(k => reportL.columns[k]);
   const reportSubtitle = reportL.subtitle || `Total: ${filtered.length} replacement${filtered.length === 1 ? '' : 's'}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`;
-  const canExport = isSuperAdmin || perms.includes('REPLACEMENT_LIST_EXPORT');
+  // Phase 5C: replacement_list.export gate = ['REPLACEMENT_LIST_EXPORT'] — SAME as old isSuperAdmin||REPLACEMENT_LIST_EXPORT.
+  const canExport = can('replacement_list.export');
 
   const [exporting, setExporting] = useState(false);
   const reportRows = (): string[][] => filtered.map((r: any, i: number) => [
