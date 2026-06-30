@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased] — Sidebar RBAC — Phase 5D + 5E (admin tree UI + single-source consolidation) (2026-06-30)
+
+**5D — Roles & Access permissions picker → Sidebar/Page/Action tree.** Replaced the flat
+category checkbox list in `roles-components/permissions-tab.tsx` with a hierarchical tree built
+from `PERMISSION_TREE`: per-sidebar-group Enable All / Disable All, page sub-headers, and a
+`🔒 re-auth` badge on actions that carry a step-up `reauthAction` (cross-linking the two axes).
+A pure `permission-tree-grouping.ts` helper + coverage test prove **all 98 FEATURE_PRIVILEGES ids
+are covered** (no togglable permission dropped). Load/save contract unchanged (`{featureId:bool}`
+→ `PUT /api/config/roles/:name`).
+
+**5E — Retire the hand-maintained legacy maps (the single-source consolidation).** `FEATURE_PRIVILEGES`,
+`FEATURE_PRIVILEGE_CATEGORIES`, `FEATURE_TO_PERMISSION_MAP`, and `SIDEBAR_PRIVILEGE_MAP` are now
+**derived from `PERMISSION_TREE`** (via a `configurable: true` flag on exactly the 98 role-configurable
+nodes); the hand-authored originals are deleted. Gated by a **frozen-snapshot invariant**
+(`__snapshots__/legacy-maps-snapshot.ts` + `legacy-maps-derived.test.ts`) proving the derived values
+EXACTLY equal the former originals — zero behavior change to the CFR backend role-expansion
+(`config.service.ts`) or anything else. No circular dependency (`permission-tree.ts` value-imports
+nothing from the legacy files; type-only imports erased at runtime). Resolves Phase-1 finding I1
+(double-maintenance). Verified: shared build clean, 29 tree/snapshot tests + 330 shared tests pass
+(1 pre-existing unrelated `assets.test.ts` failure), api + web tsc clean.
+
+**Phase 5 complete:** the `PERMISSION_TREE` catalog is now the single source of truth driving sidebar
+visibility (5B), button gating via `useCan()` (5C), the Roles & Access admin UI (5D), and the derived
+legacy maps (5E). **Runtime curl 403/200 verification still owed** across Phases 2/3/5C.
+
 ## [Unreleased] — Sidebar RBAC — Phase 5B + 5C (catalog drives sidebar + buttons) (2026-06-30)
 
 **5B — Sidebar reads the tree.** `sidebar.tsx` visibility now resolves from `PERMISSION_TREE`
