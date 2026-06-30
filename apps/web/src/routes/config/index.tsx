@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { useAuth } from '@/hooks/use-auth';
 import { Badge } from '@/components/ui/badge';
 import { SuperAdminApiAccessCard } from '@/components/super-admin-api-access';
+import { canAccessConfigModule } from './can-access-module';
 
 const configCards = [
   {
@@ -275,17 +276,14 @@ export function ConfigIndexPage() {
   );
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  // Sensitive modules that must be EXPLICITLY granted — when unconfigured they
-  // are hidden from non-admins (fail-closed), unlike the default-allow modules.
-  // Filter Data Management edits/deletes filter records with no audit trail.
+  // Modules that may be DELEGATED to a non-admin via Configuration Access (shown in
+  // the Super Admin Settings section to a granted role). Filter Data Management edits/
+  // deletes filter records, so it's the one card admins can hand off explicitly.
   const EXPLICIT_GRANT_KEYS = new Set(['filter-data-management']);
-  const canAccessModule = (moduleKey: string | undefined) => {
-    if (!moduleKey) return true;
-    if (isSuperAdmin) return true;
-    const assigned = accessMatrix?.[moduleKey];
-    if (!assigned) return !EXPLICIT_GRANT_KEYS.has(moduleKey); // unconfigured → allow, except fail-closed keys
-    return user?.role ? assigned.includes(user.role) : false;
-  };
+  // DEFAULT-DENY (Phase 2, gap S1): unconfigured modules are hidden from non-superadmins.
+  // Was fail-OPEN — see can-access-module.ts. Card visibility only; endpoints gate server-side.
+  const canAccessModule = (moduleKey: string | undefined) =>
+    canAccessConfigModule(moduleKey, { isSuperAdmin, role: user?.role, accessMatrix });
 
   // Module key for a hardcoded card is the last segment of its href
   //   '/config/user-id' → 'user-id'
