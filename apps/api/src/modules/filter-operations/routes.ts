@@ -432,7 +432,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
 
   // ── Retire a filter ──
   app.post('/:id/retire', {
-    preHandler: [app.requireAnyPermission('FILTER_OPERATE', 'FILTER_RETIRE')],
+    // M2 fix (2026-06-30): drop FILTER_OPERATE fallback — require FILTER_RETIRE (the
+    // perm the UI gates on) so operate-only roles can't retire via API bypass.
+    preHandler: [app.requirePermission('FILTER_RETIRE')],
     schema: {
       tags: ['Filter Operations'],
       summary: 'Retire a filter permanently',
@@ -461,7 +463,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
 
   // ── Replace a filter ──
   app.post('/:id/replace', {
-    preHandler: [app.requireAnyPermission('FILTER_OPERATE', 'FILTER_REPLACE')],
+    // M2 fix (2026-06-30): drop FILTER_OPERATE fallback — require FILTER_REPLACE.
+    preHandler: [app.requirePermission('FILTER_REPLACE')],
     schema: {
       tags: ['Filter Operations'],
       summary: 'Replace a filter (retire old + create new)',
