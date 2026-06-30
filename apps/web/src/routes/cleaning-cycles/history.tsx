@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
-import { useAuth } from '../../hooks/use-auth';
+import { useCan } from '../../hooks/use-can';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationDefaults } from '../../hooks/use-pagination-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
@@ -37,12 +37,9 @@ export function CleaningCycleHistoryPage() {
   const msuL = labelsFor('manual-status-updates');
   const ccHead = CC_COLS.map((k) => ccL.columns[k]);
   const msuHead = MSU_COLS.map((k) => msuL.columns[k]);
-  // 2026-05-26 audit fix (PA-CLEANUP-1): gate PDF export on
-  // REPORT_EXPORT — pre-fix any CYCLE_READ user could PDF the history.
-  const { user } = useAuth();
-  const perms = (user?.permissions as string[] | undefined) ?? [];
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canExportPdf = isSuperAdmin || perms.includes('REPORT_EXPORT') || perms.includes('REPORT_GENERATE');
+  // Phase 5C: cleaning_record.export gate = ['REPORT_EXPORT','REPORT_GENERATE'] — SAME as old check.
+  const can = useCan();
+  const canExportPdf = can('cleaning_record.export');
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(defaultLimit);
