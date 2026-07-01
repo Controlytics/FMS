@@ -31,7 +31,7 @@ interface SidebarSectionSnapshot {
   privilegeIds: string[];
 }
 
-// ─── FEATURE_PRIVILEGES snapshot (89 entries, original order) ────────────────
+// ─── FEATURE_PRIVILEGES snapshot (88 entries, original order) ────────────────
 
 export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   // User Management
@@ -49,7 +49,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   { id: 'config.field_ids', label: 'Update Field Labels', category: 'System', icon: 'tag' },
   { id: 'roles.manage', label: 'Manage Roles', category: 'System', icon: 'shield' },
   { id: 'notifications.view', label: 'View Notifications', category: 'System', icon: 'bell' },
-  { id: 'notifications.manage', label: 'Manage Notifications', category: 'System', icon: 'bell' },
   { id: 'notifications.delete', label: 'Delete Notifications', category: 'System', icon: 'bell' },
   { id: 'audit.view', label: 'View Audit Trail', category: 'System', icon: 'clipboard' },
   { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'clipboard' },
@@ -182,7 +181,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'config.field_ids': ['FIELD_ID_UPDATE', 'CONFIG_READ'],
   'roles.manage': ['ROLE_MANAGE'],
   'notifications.view': ['NOTIFICATION_VIEW'],
-  'notifications.manage': ['NOTIFICATION_MANAGE', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_VIEW'],
   'notifications.delete': ['NOTIFICATION_DELETE'],
   'audit.view': ['AUDIT_READ'],
   'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],

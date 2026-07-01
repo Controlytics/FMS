@@ -100,7 +100,9 @@ describe('PermissionNode.gate (Phase 5A)', () => {
   });
 
   it('known SUPER_ADMIN-only actions have empty gate', () => {
-    for (const id of ['users.delete', 'pm.delete', 'notifications.delete', 'audit.redact']) {
+    // notifications.delete was SA-only until 2026-07-01; it is now a real grantable perm
+    // (gate ['NOTIFICATION_DELETE']), so it is no longer in this list.
+    for (const id of ['users.delete', 'pm.delete', 'audit.redact']) {
       expect(resolveNodeGate(id), id).toEqual([]);
     }
   });

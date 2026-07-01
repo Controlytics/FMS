@@ -226,14 +226,18 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         // user-scoped/auth-only; delete is SUPER_ADMIN-only). This toggle is visibility-only (gates the sidebar item).
         icon: 'bell', category: 'System', permissions: ['NOTIFICATION_VIEW'], enforce: 'c',
         gate: ['NOTIFICATION_VIEW'], configurable: true },
+      // 2026-07-01: notifications.manage removed from the picker (enforced-only) per user request.
+      // NOTIFICATION_MANAGE is enforced by no route (notification endpoints are user-scoped/auth-only).
       { id: 'notifications.manage', label: 'Manage Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'Manage',
         icon: 'bell', category: 'System',
         permissions: ['NOTIFICATION_MANAGE', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_VIEW'],
-        enforce: 'c', // 2026-07-01: NOTIFICATION_MANAGE enforced by NO route (endpoints user-scoped/auth-only); visibility-only
-        gate: ['NOTIFICATION_MANAGE'], configurable: true },
+        enforce: 'c',
+        gate: ['NOTIFICATION_MANAGE'] },
+      // 2026-07-01: NOTIFICATION_DELETE is now a real grantable perm (was SUPER_ADMIN-only). gate = ['NOTIFICATION_DELETE']
+      // so enabling this toggle actually shows the delete button; backend delete routes now requirePermission('NOTIFICATION_DELETE').
       { id: 'notifications.delete', label: 'Delete Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'Delete',
         icon: 'bell', category: 'System', permissions: ['NOTIFICATION_DELETE'], enforce: 'a',
-        gate: [], configurable: true },
+        gate: ['NOTIFICATION_DELETE'], configurable: true },
       { id: 'notifications.mark', label: 'Mark Notifications Read/Unread', sidebarId: 'notifications', page: 'Notifications', action: 'Mark Read',
         icon: 'check', category: 'System', permissions: ['NOTIFICATION_UPDATE'], enforce: 'c',
         gate: ['NOTIFICATION_VIEW'] },
@@ -840,7 +844,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
  */
 const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'users.create', 'users.view', 'users.edit', 'users.delete', 'users.enable_disable', 'users.unlock', 'users.reset_password',
-  'config.view', 'config.edit', 'config.field_ids', 'roles.manage', 'notifications.view', 'notifications.manage', 'notifications.delete', 'audit.view', 'audit.export',
+  'config.view', 'config.edit', 'config.field_ids', 'roles.manage', 'notifications.view', 'notifications.delete', 'audit.view', 'audit.export', // notifications.manage removed from picker 2026-07-01
   'assets.view', // assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 (not configurable)
   // assets.relationships.create/delete + assets.identifiers.create/delete de-duplicated to
   // enforced-only 2026-07-01 (RFID covered by filters.rfid_manage; relationships via edit gate).

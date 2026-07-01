@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] — Notifications picker: remove Manage, make Delete a real permission (2026-07-01)
+
+Per user request, two changes to Roles & Access → Notifications:
+
+- **Removed "Manage Notifications"** (`notifications.manage`) from the picker (enforced-only).
+  `NOTIFICATION_MANAGE` is enforced by no route (notification endpoints are user-scoped/auth-only).
+- **Made "Delete Notifications" actually work.** It was inert: `notifications.delete` had gate `[]`
+  (SUPER_ADMIN-only), so `can('notifications.delete')` was false for any non-SA role even after enabling
+  the toggle → the delete button never appeared; the backend delete routes also used `requireSuperAdmin()`.
+  Now the node gates on `['NOTIFICATION_DELETE']`, and the backend `bulk-delete` + `DELETE /:id` routes use
+  `requirePermission('NOTIFICATION_DELETE')`. So **enabling the "Delete Notifications" toggle now shows the
+  delete option** (per-row + "Delete Selected"), and only when the permission is granted. SUPER_ADMIN still
+  bypasses; reauth (`DELETE_NOTIFICATION`) still applies. Reverses the 2026-06-30 M5 "delete = SA-only" decision.
+
+Feature-privileges **89 → 88**; frozen snapshot + count assertions + the SA-only-nodes test updated;
+27/27 RBAC tests pass; shared/api/web typecheck clean.
+
 ## [Unreleased] — Filters picker: remove RFID toggle, add Export (PDF/Excel) toggle (2026-07-01)
 
 Per user request, swapped two toggles in the Roles & Access → Filters permissions:

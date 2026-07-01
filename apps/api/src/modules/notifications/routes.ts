@@ -148,9 +148,9 @@ export default async function notificationRoutes(app: FastifyInstance) {
     return notificationService.bulkUnread(ids, req.user.role, req.user.username);
   });
 
-  // POST /api/notifications/bulk-delete — delete multiple (SUPER_ADMIN only)
+  // POST /api/notifications/bulk-delete — delete multiple (requires NOTIFICATION_DELETE)
   app.post('/bulk-delete', {
-    preHandler: [app.requireSuperAdmin()], // M5 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was NOTIFICATION_DELETE
+    preHandler: [app.requirePermission('NOTIFICATION_DELETE')], // 2026-07-01: delete is a grantable perm again (SUPER_ADMIN still bypasses)
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       tags: ['Notifications'],
@@ -241,10 +241,10 @@ export default async function notificationRoutes(app: FastifyInstance) {
 
   // DELETE /api/notifications/:id — delete notification
   app.delete('/:id', {
-    // M5 (2026-06-30): single + bulk delete are SUPER_ADMIN-only, matching the UI (delete
-    // buttons are admin-only). Supersedes the Phase 2 S5 NOTIFICATION_DELETE gate. Reauth
-    // (DELETE_NOTIFICATION) still applies. Read/mark-read stay ungated (per-user scoped).
-    preHandler: [app.requireSuperAdmin()],
+    // 2026-07-01: single + bulk delete require NOTIFICATION_DELETE (grantable via the
+    // "Delete Notifications" toggle; SUPER_ADMIN bypasses). Reauth (DELETE_NOTIFICATION)
+    // still applies. Read/mark-read stay ungated (per-user scoped).
+    preHandler: [app.requirePermission('NOTIFICATION_DELETE')],
     schema: {
       tags: ['Notifications'],
       summary: 'Delete a notification',
