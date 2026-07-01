@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] — Setup.exe packaging M8: tablet HTTPS-on-LAN + runtime server URL (2026-07-01)
+
+**Context:** M8 of the customer `Setup.exe` effort (`tasks/EXE-PACKAGING-PLAN.md` §13) — the
+desktop install now also serves the Android tablet over the LAN. Three parts shipped; one
+gate deferred (needs a real Android device on a LAN).
+
+**1. Client — runtime server-URL resolver + first-launch screen.**
+New `apps/web/src/lib/api-base.ts` exports `getApiBase()` (localStorage `digilog.serverUrl`
+→ `window.__API_BASE__` → `VITE_API_URL` → `''`); wired into all ~8 base-URL read sites and
+the boot init in `main.tsx`. New native-only "Server Address" setup screen
+(`apps/web/src/routes/mobile/server-config.tsx`) appears on first APK launch when no server
+URL is stored; validates the entered URL against `/api/health` before persisting. A "Change
+server address" link is shown on the login page for native builds. Desktop (non-Capacitor)
+skips the screen and falls back to `''` (same-origin). `apps/web/.env.production`
+`VITE_API_URL` blanked and force-tracked via a `.gitignore` negation so it ships as-is.
+
+**2. Server — HTTPS cert generation at install.**
+`scripts/install.ps1` now generates a rootCA + server cert (SAN = LAN IP + `localhost` +
+`127.0.0.1`) into `C:\ProgramData\DigiLog\certs` via the bundled openssl from the PG18 zip.
+Sets `API_HTTPS=true`, `TLS_KEY_PATH`, `TLS_CERT_PATH`, and `https://` `ALLOWED_ORIGINS` in
+`digilog.env`. Imports `rootCA.pem` into `LocalMachine\Root` so the PC's own browser trusts
+the cert. Health check updated to `https://localhost:3000/api/health`. `installer/DigiLog.iss`
+updated: shortcut URL changed to `https://localhost:3000`; new "Install tablet certificate"
+Start-menu helper pointing at `C:\ProgramData\DigiLog\certs\rootCA.pem`.
+
+**3. APK — trust operator-installed CAs.**
+`apps/android/.../res/xml/network_security_config.xml` now includes `<certificates
+src="user" />` alongside the existing `src="system"` and `@raw/rootca`. This means the APK
+trusts any CA the operator installs on the tablet (Settings → Security → Install certificate)
+— enabling one APK for all customers rather than a per-site rebuild.
+
+**Deferred gate (cannot verify in dev):** the full tablet round-trip — real Android device on
+a LAN, operator installs `rootCA.pem`, APK first-launch server-address entry (`https://<IP>:3000`),
+Connect (health check), login over HTTPS. Documented in `tasks/M7-CLEAN-VM-ACCEPTANCE-RUNBOOK.md`
+§7.
+
 ## [Unreleased] — Setup.exe packaging M7: code-signing scaffold + acceptance runbook (2026-07-01)
 
 **Signing scaffold** (`scripts/build-installer.ps1`): optional `-Sign` step — `-CertPath`(PFX)

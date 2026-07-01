@@ -305,7 +305,7 @@ orchestrator, and you cannot overwrite a running exe. Solution:
 | **M0** | **Migration discipline** (§2.0–2.3) | ✅ **DONE (2026-06-30).** Verified prior conversion (acceptance gate empty-diff); fixed the broken fresh-install seed; built+tested the drift guard (`scripts/verify-migrations.ps1`, `npm run db:verify-migrations`, PASS); documented the forward-authoring workflow in `apps/api/CLAUDE.md`; fixed the `db:migrate` footgun (`migrate dev`→`migrate deploy`). **Only leftover:** wire the drift guard into CI (needs a Postgres-equipped runner). | — |
 | **M6** | **Upgrade + uninstall safety** (§8) | ✅ **DONE (2026-07-01).** (1) **Uploads-dir ship-blocker fixed** (§9.6b — `lib/uploads-dir.ts` + 4 sites honor `UPLOAD_DIR`; report-PDF cwd-relative bug fixed). (2) **Customer-runnable schema apply** — `prisma` CLI moved to runtime `dependencies` (keeps CLI + `@prisma/engines` schema engine after `npm ci --omit=dev`); seed precompiled to `prisma/seed.mjs` (esbuild, in `build-bundle.ps1`) since `tsx` is pruned; **proven end-to-end on a scratch DB with only `node`** (no npx/tsx): `node …/prisma/build/index.js migrate deploy` (70 tables) + `node prisma/seed.mjs` (roles/superadmin/33 help/invariants). This also repaired the M3 `provision-db.ps1`, which used the now-unavailable `npx`. (3) **Shared `apply-schema.ps1`** (migrate+seed, node-only w/ npx/tsx dev fallback) used by BOTH fresh + upgrade so they can't drift. (4) **`upgrade.ps1`** — validate prior install → ensure DB up → stop API → **pg_dump backup (FATAL on failure)** → apply-schema (throwaway admin pw; upsert preserves password) → restart API → health; preserves `digilog.env` secrets; manual rollback documented. (5) **`DigiLog.iss`** — detects upgrade (env file present), skips admin page, stops `DigiLogAPI` in `PrepareToInstall()` before the file copy; **`pgsql` copied `onlyifdoesntexist`** so the DB stays up for the live backup and postgres.exe never locks the copy. (6) **Uninstall** already preserves `ProgramData` (verified). **DEFERRED GATES (build/customer machine only, same class as M5):** ISCC compile, an actual admin test-install, and a real clean-room `npm ci --omit=dev` + bundled-node run of migrate/seed. | **High** — data-loss surface |
 | **M7** | **Code signing + clean-VM acceptance test** | ✅ **DONE (2026-07-01), minus the signed artifact (needs a cert).** (1) **Signing scaffold** in `build-installer.ps1` — optional `-Sign` with `-CertPath`(PFX)`/-CertPassword` or `-CertSubject` (store cert) + RFC3161 `-TimestampUrl`; locates `signtool.exe` from the newest Windows SDK; **no-op + explicit "UNSIGNED" warning when `-Sign` omitted**, fails hard if requested-but-unresolvable (no silently-unsigned "signed" build). signtool locator verified on this machine (SDK 10.0.26100). (2) **Clean-VM acceptance runbook** — `tasks/M7-CLEAN-VM-ACCEPTANCE-RUNBOOK.md`: fresh VM -> install -> services auto-start -> login -> data-in-ProgramData -> reboot -> upgrade-preserves-data+secrets -> uninstall-preserves-ProgramData, with SmartScreen-warnings-are-expected called out. **User decision (2026-07-01): scaffold now, sign later** (no cert purchased yet) — so the shipped exe stays unsigned until a cert is bought and `-Sign` is used. **DEFERRED:** the actual signed build (procure OV/EV Authenticode cert) + running the runbook on a real VM (both need a build/VM machine). | Low (mostly procurement) |
-| **M8** | **Tablet HTTPS-on-LAN + APK server-address** (reopens §9.1) | **User decision (2026-07-01): the desktop install MUST also serve the Android tablet over the LAN** -> the "localhost HTTP only" simplification is off; the product needs HTTPS reachable on the LAN + a way for the tablet to find the server. See §13 for the scoped design + the open (a)/(b) client-side decision. **NOT STARTED.** | **High** — cert lifecycle + the APK's baked-IP problem |
+| **M8** | **Tablet HTTPS-on-LAN + APK server-address** (reopens §9.1) | ✅ **DONE (2026-07-01), minus the device-validation gate (needs real Android hardware on a LAN).** Three shipped parts: **(1) Client** — `apps/web/src/lib/api-base.ts` `getApiBase()` resolver (localStorage `digilog.serverUrl` → `window.__API_BASE__` → `VITE_API_URL` → `''`); wired into all ~8 base-URL read sites + boot init in `main.tsx`; native-only first-launch "Server Address" screen (`routes/mobile/server-config.tsx`) with `/api/health` validation; native gating + "Change server address" login link; `apps/web/.env.production` `VITE_API_URL` blanked + force-tracked via `.gitignore` negation. **(2) Server** — `install.ps1` generates a rootCA + server cert (SAN = LAN IP + localhost) into `C:\ProgramData\DigiLog\certs` via bundled openssl; sets `API_HTTPS=true`, `TLS_KEY_PATH`, `TLS_CERT_PATH`, `https` `ALLOWED_ORIGINS`; imports rootCA into `LocalMachine\Root`; health-check updated to `https://`. `DigiLog.iss` updated: https shortcut URL + "Install tablet certificate" Start-menu helper. **(3) APK** — `network_security_config.xml` now trusts `src="user"` (operator-installed CAs), keeping `src="system"` + `@raw/rootca`. **DEFERRED gate (cannot verify in dev):** full tablet round-trip — real Android device on a LAN + operator installs `rootCA.pem` + APK first-launch server-address entry + Connect (health check) + login over HTTPS. See §7 of the acceptance runbook. | **High** — device validation deferred |
 
 **Recommended first action:** do **M0** (migration discipline) and **M1** (backend-serves-UI bundle) — both are foundational. M0 is the one that makes customer upgrades safe and removes the `db push` risk for good; M1 proves the single-process model end-to-end. Neither requires installer tooling, so they're the right place to start.
 
@@ -320,8 +320,7 @@ orchestrator, and you cannot overwrite a running exe. Solution:
 - ✅ **§9.1 — the desktop install MUST also serve the Android tablet over the LAN.** — user, 2026-07-01. This turns on HTTPS-on-LAN (M8, §13). The "localhost HTTP only" simplification is retired.
 - ✅ **§9.3 — code signing: scaffold now, sign later.** — user, 2026-07-01. No cert purchased yet; `build-installer.ps1 -Sign` is wired and ready. Shipped builds stay unsigned (SmartScreen/AV warnings) until a cert is bought.
 
-**Still needed from you before M8 execution:**
-1. **§13 (a)/(b) — how does the tablet find the server?** Per-customer APK rebuild + static IP (a), or a runtime-configurable server-address screen in the app (b). This gates the tablet client work (see §13).
+**All M8 decisions resolved and implemented.** Option (b) — runtime-configurable server-address screen — was chosen and shipped; see §13 for the full design + the deferred device-validation gate.
 
 ---
 
@@ -333,34 +332,29 @@ orchestrator, and you cannot overwrite a running exe. Solution:
 
 ---
 
-## 13. M8 — Tablet HTTPS-on-LAN + APK server-address (scoped, NOT started)
+## 13. M8 — Tablet HTTPS-on-LAN + APK server-address (DONE — device validation deferred)
 
 **Why this exists:** the user chose (2026-07-01) that the desktop install must **also**
 serve the Android tablet/APK over the LAN. The Capacitor WebView `fetch()` rejects
 self-signed certs and plain HTTP causes a Capacitor TLS parse error on login, so the
 server must present HTTPS with a cert the tablet trusts, on the customer's LAN IP.
 
-### 13.0 ⚠️ Blocking finding (2026-07-01) — the APK's trust model forces an APK change
+### 13.0 ✅ Trust model resolved — APK change shipped (2026-07-01)
 
-`apps/android/.../res/xml/network_security_config.xml` trusts **only** `src="system"`
-(OS-shipped CAs) + `@raw/rootca` (a **specific mkcert CA baked into the APK**, which does
-NOT match the repo's `certs/rootCA.pem`). There is **no `<certificates src="user" />`**, so
-since Android 7 the tablet will **not trust a CA the operator installs**. Therefore the
-"generate a CA at install → operator installs it on the tablet" flow (§13.1) **cannot work
-with the current APK** — the APK is where trust is decided. Two trust models:
+`apps/android/.../res/xml/network_security_config.xml` originally trusted **only** `src="system"`
+(OS-shipped CAs) + `@raw/rootca` (a specific mkcert CA baked into the APK), with no
+`<certificates src="user" />`. Since Android 7, the tablet would **not** have trusted a CA the
+operator installs — blocking the "generate CA at install → operator installs it" flow in §13.1.
 
-- **Trust model A (chosen — pairs with runtime-URL (b)):** add `<certificates src="user" />`
-  to `network_security_config.xml`, rebuild the APK once. Then the server generates a CA at
-  install, the operator installs `rootCA.pem` on the tablet, and it's trusted. **One APK for
-  all customers.** Requires: the APK change + `cert install on tablet` step in the operator
-  runbook + `TLS_CERT_PATH` env (done, app.ts).
-- **Trust model B (rejected — the per-customer path):** bake each customer's server CA into
-  `@raw/rootca` and rebuild+re-sign the APK per site. No tablet-side CA install, but a
-  per-customer APK — the option-(a) operational cost.
+**Resolved: Trust model A was implemented.** `network_security_config.xml` now includes
+`<certificates src="user" />` alongside `src="system"` and `@raw/rootca`. The APK is rebuilt
+once; the operator installs `rootCA.pem` on the tablet (Settings → Security → Install
+certificate) and it is trusted. One APK for all customers. The per-customer per-APK-rebuild
+approach (Trust model B) was rejected.
 
-**Net:** M8 requires **both** a server-side install change AND an APK change (network-security
-config + the runtime-URL feature §13.2). It cannot be shipped as installer-only work, and its
-validation needs a real Android device + LAN (cannot be verified in this dev environment).
+**Remaining validation gate:** the full round-trip (real Android device + LAN + operator CA
+install + APK server-address entry + login over HTTPS) cannot be verified in this dev
+environment — it is the M8 deferred gate, documented in runbook §7.
 
 ### 13.1 Server side (needs the §13.0 Trust-model-A APK change to actually be trusted)
 
@@ -388,21 +382,20 @@ validation needs a real Android device + LAN (cannot be verified in this dev env
 6. **Static-IP prerequisite (document loudly):** DHCP renumbering breaks the cert SAN (and,
    in option (a), the APK). Require a DHCP reservation / static LAN IP for the server PC.
 
-### 13.2 Client side — OPEN DECISION (a) vs (b)
+### 13.2 Client side — ✅ Option (b) chosen and DONE
 
-The APK bakes `VITE_API_URL=https://<IP>:3000` at `vite build`; it is a **compile-time
-constant in 6+ `apps/web/src/lib/*` files with no runtime override**. So one distributable
-APK cannot reach an arbitrary customer's PC. Two ways forward:
+**Decision (user, 2026-07-01):** option (b) — runtime-configurable server URL — was chosen
+and implemented. `apps/web/.env.production` `VITE_API_URL` is now blank (force-tracked via
+`.gitignore` negation). At runtime, `apps/web/src/lib/api-base.ts` `getApiBase()` resolves
+the base URL as: localStorage `digilog.serverUrl` → `window.__API_BASE__` → `VITE_API_URL`
+→ `''` (same-origin desktop fallback). Wired into all ~8 base-URL read sites + boot init in
+`main.tsx`.
 
-- **(a) Per-customer APK rebuild + static IP.** Bake the customer's PC IP, require a DHCP
-  reservation, rebuild + re-sign the APK per site. Technically cheap, operationally heavy;
-  every IP change re-breaks the cert SAN **and** the APK. Acceptable for a single near-term
-  customer.
-- **(b) Runtime-configurable server URL.** First-launch "server address" screen, persisted;
-  one APK for all customers. This is the real product answer but a genuine **new app
-  feature** (replace the compile-time `VITE_API_URL` with a stored runtime base URL +
-  validation + a settings screen), not a packaging step.
+**First-launch server-address screen** (`apps/web/src/routes/mobile/server-config.tsx`): on
+native (Capacitor), if no `digilog.serverUrl` is stored, the APK routes to this screen
+before login. The operator enters `https://<LAN-IP>:3000`; the screen validates it against
+`/api/health` and persists on success. A "Change server address" link is also available from
+the login page. Desktop (non-Capacitor) skips the screen entirely.
 
-**Recommendation:** (b) is the shippable long-term answer; (a) is the fast path if there is
-only one customer near-term. **This deserves a brainstorm once chosen** — it touches the
-api-client, connectivity poll, offline base-URL, and PDF fetch paths.
+**One APK for all customers** — no per-site rebuild. Per-customer APK rebuild (option a) was
+rejected as operationally heavy (every IP change re-breaks both the cert SAN and the APK).
