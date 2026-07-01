@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] — Permissions-picker redundancy audit: de-dup toggles + re-tag notifications (2026-07-01)
+
+Audited all 92 configurable picker toggles (gate vs. actual backend enforcement). Findings + fixes:
+
+**A — 3 redundant toggles → enforced-only** (feature privileges **92 → 89**; perms + nodes kept):
+- `checklists.toggle` — **identical gate** to `checklists.edit` (`FCP_UPDATE`+`CHECKLIST_EDIT`); `CHECKLIST_TOGGLE` is only a read-alternate.
+- `cleaning_profiles.toggle` — gate is a superset of `cleaning_profiles.edit`; anyone who can edit satisfies it.
+- `checklists.submit` — **same `FILTER_OPERATE` gate** as `filters.operate`; `CHECKLIST_SUBMIT` is enforced in 0 routes (submitting a checklist is part of operating).
+
+**B — 2 mislabeled toggles re-tagged `enforce:'a' → 'c'`:**
+- `notifications.view` / `notifications.manage` — `NOTIFICATION_VIEW`/`NOTIFICATION_MANAGE` are enforced by **no route** (the notification endpoints are user-scoped/auth-only; delete is SUPER_ADMIN-only). They remain configurable (they gate the Notifications sidebar item) but are honestly tagged visibility-only.
+
+Kept `visibilityPrivilegeIds`/`SIDEBAR_PRIVILEGE_MAP` untouched → **zero sidebar-visibility change**. Verified NOT
+redundant: Dashboards (real UI + `DASHBOARD_VIEW/CREATE` enforced), filters create/edit/delete + hierarchy family
+(distinct entities), reports, PM, users. Frozen snapshot + count assertions updated (92→89); **27/27 RBAC tests pass**;
+shared/api/web typecheck clean.
+
 ## [Unreleased] — Remove vestigial ASSET_RELATIONSHIP_* permission constants (2026-07-01)
 
 Follow-up to the toggle de-dup: fully removed the two `ASSET_RELATIONSHIP_CREATE` /

@@ -18,11 +18,11 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (92 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (89 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (92 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (89 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
@@ -40,22 +40,22 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 92', () => {
-    // 92 = 96 minus assets.relationships.create/delete + assets.identifiers.create/delete
-    // (de-duplicated to enforced-only 2026-07-01: RFID covered by filters.rfid_manage;
-    // relationships are grant-only perms never gated — real gate is the edit permission).
-    // 96 was: 99 minus assets.create/edit/delete (de-duplicated 2026-06-30). 99 was:
-    // original 98 minus admin_requests.view plus admin_requests.approve + .reject.
+  it('configurable node count is exactly 89', () => {
+    // 89 = 92 minus checklists.submit + checklists.toggle + cleaning_profiles.toggle
+    // (de-duplicated to enforced-only 2026-07-01: submit ~= filters.operate (same FILTER_OPERATE
+    // gate); the two .toggle nodes duplicate their .edit siblings' gate).
+    // 92 was: 96 minus assets.relationships.create/delete + assets.identifiers.create/delete
+    // (de-dup 2026-07-01). 96 was: 99 minus assets.create/edit/delete (de-dup 2026-06-30).
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(92);
+    expect(count).toBe(89);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 92 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(92);
+  it('FEATURE_PRIVILEGES has exactly 89 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(89);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 92 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(92);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 89 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(89);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 24 sections', () => {

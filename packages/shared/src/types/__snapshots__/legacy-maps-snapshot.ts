@@ -31,7 +31,7 @@ interface SidebarSectionSnapshot {
   privilegeIds: string[];
 }
 
-// ─── FEATURE_PRIVILEGES snapshot (92 entries, original order) ────────────────
+// ─── FEATURE_PRIVILEGES snapshot (89 entries, original order) ────────────────
 
 export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   // User Management
@@ -65,12 +65,10 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   { id: 'dashboard.manage', label: 'Manage Dashboards', category: 'Dashboards', icon: 'settings' },
   { id: 'dashboard.assign', label: 'Assign Dashboards', category: 'Dashboards', icon: 'link' },
 
-  // Checklists
-  { id: 'checklists.submit', label: 'Submit Checklists', category: 'Checklists', icon: 'clipboard-check' },
+  // Checklist Page Controls (checklists.submit + .toggle made enforced-only 2026-07-01)
   { id: 'checklists.create', label: 'Create Checklist Profiles', category: 'Checklist Page Controls', icon: 'plus' },
   { id: 'checklists.edit', label: 'Edit Checklist Profiles', category: 'Checklist Page Controls', icon: 'edit' },
   { id: 'checklists.delete', label: 'Delete Checklist Profiles', category: 'Checklist Page Controls', icon: 'trash' },
-  { id: 'checklists.toggle', label: 'Enable / Disable Checklists', category: 'Checklist Page Controls', icon: 'toggle' },
 
   // Filter Management
   { id: 'filters.operate', label: 'Operate Filters (Start/Advance Cycles)', category: 'Filter Management', icon: 'filter' },
@@ -107,7 +105,6 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'plus' },
   { id: 'cleaning_profiles.edit', label: 'Edit Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'edit' },
   { id: 'cleaning_profiles.delete', label: 'Delete Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'trash' },
-  { id: 'cleaning_profiles.toggle', label: 'Enable / Disable Cleaning Profiles', category: 'Cleaning Profile Page Controls', icon: 'toggle' },
 
   // Filter Profiles
   { id: 'filter_profiles.view', label: 'View Filter Profiles', category: 'Filter Profiles', icon: 'eye' },
@@ -201,12 +198,10 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'dashboard.manage': ['DASHBOARD_MANAGE', 'DASHBOARD_VIEW'],
   'dashboard.assign': ['DASHBOARD_ASSIGN', 'DASHBOARD_VIEW'],
 
-  // Checklists
-  'checklists.submit': ['CHECKLIST_SUBMIT'],
+  // Checklist Page Controls (checklists.submit + .toggle enforced-only 2026-07-01)
   'checklists.create': ['CHECKLIST_CREATE', 'FCP_CREATE'],
   'checklists.edit': ['CHECKLIST_EDIT', 'FCP_UPDATE'],
   'checklists.delete': ['CHECKLIST_DELETE', 'FCP_DELETE'],
-  'checklists.toggle': ['CHECKLIST_TOGGLE', 'FCP_UPDATE'],
 
   // Filter Management
   'filters.operate': ['FILTER_OPERATE', 'ASSET_READ'],
@@ -245,7 +240,6 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'cleaning_profiles.create': ['CP_PAGE_CREATE', 'FCP_CREATE', 'FCP_READ'],
   'cleaning_profiles.edit': ['CP_PAGE_EDIT', 'FCP_UPDATE', 'FCP_READ'],
   'cleaning_profiles.delete': ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
-  'cleaning_profiles.toggle': ['CP_TOGGLE', 'FCP_UPDATE', 'FCP_READ'],
 
   // Filter Profiles
   'filter_profiles.view': ['FP_READ'],

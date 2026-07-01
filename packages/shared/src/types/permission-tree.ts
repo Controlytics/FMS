@@ -222,12 +222,14 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     visibilityPrivilegeIds: ['notifications.view', 'notifications.manage', 'notifications.delete'],
     nodes: [
       { id: 'notifications.view', label: 'View Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'View',
-        icon: 'bell', category: 'System', permissions: ['NOTIFICATION_VIEW'], enforce: 'a',
+        // 2026-07-01: enforce 'a'->'c' — NOTIFICATION_VIEW is enforced by NO route (notification endpoints are
+        // user-scoped/auth-only; delete is SUPER_ADMIN-only). This toggle is visibility-only (gates the sidebar item).
+        icon: 'bell', category: 'System', permissions: ['NOTIFICATION_VIEW'], enforce: 'c',
         gate: ['NOTIFICATION_VIEW'], configurable: true },
       { id: 'notifications.manage', label: 'Manage Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'Manage',
         icon: 'bell', category: 'System',
         permissions: ['NOTIFICATION_MANAGE', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_VIEW'],
-        enforce: 'a',
+        enforce: 'c', // 2026-07-01: NOTIFICATION_MANAGE enforced by NO route (endpoints user-scoped/auth-only); visibility-only
         gate: ['NOTIFICATION_MANAGE'], configurable: true },
       { id: 'notifications.delete', label: 'Delete Notifications', sidebarId: 'notifications', page: 'Notifications', action: 'Delete',
         icon: 'bell', category: 'System', permissions: ['NOTIFICATION_DELETE'], enforce: 'a',
@@ -565,8 +567,9 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     nodes: [
       { id: 'checklists.submit', label: 'Submit Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Submit',
         icon: 'clipboard-check', category: 'Checklists', permissions: ['CHECKLIST_SUBMIT'], enforce: 'a',
-        // CHECKLIST_SUBMIT is a grant perm only; the actual POST /api/filters/:id/submit-checklist enforces FILTER_OPERATE
-        gate: ['FILTER_OPERATE'], configurable: true },
+        // CHECKLIST_SUBMIT is a grant perm only; POST /api/filters/:id/submit-checklist enforces FILTER_OPERATE.
+        // 2026-07-01: made enforced-only (dropped from picker) — redundant with filters.operate (same gate).
+        gate: ['FILTER_OPERATE'] },
       { id: 'checklists.create', label: 'Create Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Create',
         icon: 'plus', category: 'Checklist Page Controls', permissions: ['CHECKLIST_CREATE', 'FCP_CREATE'],
         reauthAction: 'CREATE_CHECKLIST_PROFILE', enforce: 'a',
@@ -579,9 +582,10 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'trash', category: 'Checklist Page Controls', permissions: ['CHECKLIST_DELETE', 'FCP_DELETE'],
         reauthAction: 'DELETE_CHECKLIST_PROFILE', enforce: 'a',
         gate: ['CHECKLIST_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDelete=CHECKLIST_DELETE)
+      // 2026-07-01: made enforced-only — identical gate to checklists.edit (redundant picker toggle; CHECKLIST_TOGGLE is only a read-alternate).
       { id: 'checklists.toggle', label: 'Enable / Disable Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Enable/Disable',
         icon: 'toggle', category: 'Checklist Page Controls', permissions: ['CHECKLIST_TOGGLE', 'FCP_UPDATE'], enforce: 'a',
-        gate: ['FCP_UPDATE', 'CHECKLIST_EDIT'], configurable: true },
+        gate: ['FCP_UPDATE', 'CHECKLIST_EDIT'] },
       // Enforced-only: checklist administration
       { id: 'checklists.view', label: 'View Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'View',
         icon: 'eye', category: 'Checklist Page Controls', permissions: ['FCP_READ'], enforce: 'a',
@@ -614,9 +618,10 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'trash', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
         reauthAction: 'DELETE_CLEANING_PROFILE', enforce: 'a',
         gate: ['CP_PAGE_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDelete=CP_PAGE_DELETE)
+      // 2026-07-01: made enforced-only — redundant with cleaning_profiles.edit (edit gate covers it; CP_TOGGLE is only a read-alternate).
       { id: 'cleaning_profiles.toggle', label: 'Enable / Disable Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Enable/Disable',
         icon: 'toggle', category: 'Cleaning Profile Page Controls', permissions: ['CP_TOGGLE', 'FCP_UPDATE', 'FCP_READ'], enforce: 'a',
-        gate: ['FCP_UPDATE', 'CP_PAGE_EDIT'], configurable: true },
+        gate: ['FCP_UPDATE', 'CP_PAGE_EDIT'] },
       // Filter Profiles (no standalone sidebar entry — folded under cleaning-profiles)
       { id: 'filter_profiles.view', label: 'View Filter Profiles', sidebarId: 'cleaning-profiles', page: 'Filter Profiles', action: 'View',
         icon: 'eye', category: 'Filter Profiles', permissions: ['FP_READ'], enforce: 'a',
@@ -829,7 +834,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   // assets.relationships.create/delete + assets.identifiers.create/delete de-duplicated to
   // enforced-only 2026-07-01 (RFID covered by filters.rfid_manage; relationships via edit gate).
   'dashboard.view', 'dashboard.create', 'dashboard.manage', 'dashboard.assign',
-  'checklists.submit', 'checklists.create', 'checklists.edit', 'checklists.delete', 'checklists.toggle',
+  'checklists.create', 'checklists.edit', 'checklists.delete', // checklists.submit + .toggle enforced-only 2026-07-01
   'filters.operate', 'filters.bypass', 'filters.events',
   'filters.bulk_upload', 'filters.retire', 'filters.replace', 'filters.status_update',
   'filters.create', 'filters.edit', 'filters.delete',
@@ -838,7 +843,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'replacement_schedule.view', 'replacement_schedule.upload', 'replacement_schedule.review', 'replacement_schedule.approve',
   'block_change.request', 'block_change.approve',
   'stage_approvals.view', 'stage_approvals.decide',
-  'cleaning_profiles.view', 'cleaning_profiles.create', 'cleaning_profiles.edit', 'cleaning_profiles.delete', 'cleaning_profiles.toggle',
+  'cleaning_profiles.view', 'cleaning_profiles.create', 'cleaning_profiles.edit', 'cleaning_profiles.delete', // .toggle enforced-only 2026-07-01
   'filter_profiles.view', 'filter_profiles.create', 'filter_profiles.edit', 'filter_profiles.delete', 'filter_profiles.assign',
   'cycles.view',
   'pm.view', 'pm.create', 'pm.edit', 'pm.delete', 'pm.execute', 'pm.approve', 'pm.review', 'pm.download_template', 'pm.upload', 'pm.edit_entry', 'pm.resubmit',
