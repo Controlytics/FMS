@@ -14,11 +14,12 @@
 | D1 | How filters "park" at the final stage | **Require a final checklist** | Interlock enforces only in the `submit-checklist` completion path; `advance.ts` auto-complete is untouched. Small, low-risk. |
 | D2 | Offline strictness for Interlock | **Best-effort (online-only)** | Gate runs only when `!isOfflineReplay`; synced offline completions pass through unblocked (no sync-queue poisoning). Documented gap. |
 | D3 | Which filters count as "belonging to the AHU" | **All active filters** | `isActive && status != 'Retired'` child filters of the AHU, **ignoring** `pmFilterSetMode`. |
-| D4 | Batch scoping (recommended default, overridable) | Only filters **currently in a cleaning cycle** must be at final | Idle / never-started / already-completed filters do not block. Matches the spec example. |
+| D4 | Batch scoping | **Every active filter must reach final — idle / never-started filters DO block** (revised 2026-07-01 per user) | The whole AHU must be cleaned to final before any filter submits. A never-started filter holds the AHU until it is cleaned. |
 | D5 | Config UI (default) | **Dropdown** (`select`) | Reuses the auto-generated dynamic config renderer; radio would require a custom page. |
 | D6 | Admin force-complete (`instance.service.ts:487`) | **Ungated** | Intentional admin override bypasses the batch rule. |
+| D7 | Cycle-id handling (per user) | **State is interpreted against the filter's current cycle id** | Uses the `CLEANING_CYCLE_COMPLETED` marker (set on completion, reset when a *different* new cycle starts) so stale completions from a different cycle id are not counted. |
 
-D4 and D5 are defaults chosen in the user's absence and may be revised at spec review.
+D5 is a default chosen in the user's absence and may be revised at spec review.
 
 ---
 
@@ -46,12 +47,18 @@ Both use the same graph predicate `findReachable(node.id).hasEndNext && reachabl
 ### 1.3 "Final stage" is dynamic, never hardcoded
 Per profile, the final STAGE node `S` is the one where `findReachable(S.id, nodes, edges).hasEndNext === true && .reachableStages.length === 0`. Cleaning profiles vary in stage count and stage keys; the check always derives the final stage from the cycle's **pinned** profile version (`cleaning_cycles.profileId` + `profileVersion`), so mixed profiles within one AHU each resolve their own final stage. No stage-name constants anywhere.
 
-### 1.4 "Reached final stage" — precise definition
-A sibling filter **has reached its final stage** iff either:
-- (a) it has an **active** cleaning cycle (`FilterDetails.currentCycleId != null`) **and** `FilterDetails.currentLifecycleState === finalStageKey(its pinned profile)`, or
-- (b) it has **no** active cycle (`currentCycleId == null`) — i.e. already completed/terminated or idle (treated as non-blocking per D4).
+### 1.4 "Reached final stage" — precise definition (revised per D4 + D7)
+A counted filter **has reached its final stage** iff **exactly one** of:
+- (a) it has an **active** cycle (`FilterDetails.currentCycleId != null`) **and** `FilterDetails.currentLifecycleState === finalStageKey(its active cycle's pinned profile)` — *parked at final*; or
+- (b) it has **no** active cycle (`currentCycleId == null`) **and** `currentLifecycleState === 'CLEANING_CYCLE_COMPLETED'` — *completed this cycle*.
 
-The Interlock gate **blocks** when any counted sibling has an **active** cycle that is **not** parked at its final stage.
+Everything else **blocks**, including:
+- **never-started / idle** filters (`currentCycleId == null` and state is `null` or an initial/non-completed value) — per D4 they hold the AHU;
+- **mid-cleaning** filters (active cycle, not at final);
+- **terminated** filters (`terminate-cycle` clears both fields → state ≠ `CLEANING_CYCLE_COMPLETED` → must be re-cleaned);
+- filters that **completed then started a different new cycle** (the new `start-cycle` resets `currentLifecycleState`, so the stale completion no longer counts — D7).
+
+The Interlock gate **blocks the submission** when **any** counted filter of the AHU has not reached final by this definition. Rationale (D7): the check reads state strictly against `currentCycleId`; the `CLEANING_CYCLE_COMPLETED` marker is set on completion (`advance.ts:471`, `submit-checklist.ts:226`) and reset when a *different* cycle starts, so "different cycle id" states are automatically excluded — no separate round/batch id is needed. The predicate uses only two `FilterDetails` columns (plus the active cycle's pinned profile to resolve `finalStageKey`), so it needs no extra cycle-status query for completed filters.
 
 ### 1.5 Worked example (matches the spec)
 AHU-01, profile `Stage1→Stage2→Stage3→FinalStage→[Checklist]→END`. Filters 1/2/6 parked at FinalStage (checklist pending); 3/7/10 at Stage3; 4/8 at Stage2; 5/9 at Stage1.
@@ -168,16 +175,24 @@ export async function assertAhuInterlockSatisfied(params: {
   const ahuId = await resolveAhuId(params.filterId); // parentId (robust templateKind walk fallback)
   if (!ahuId) return;
 
+  // D4: ALL counted filters (all active, non-retired) must have reached final —
+  // including idle/never-started ones. The submitting filter itself is excluded.
   const siblings = await loadAhuActiveFilters(ahuId);
-  const active = siblings.filter(s => s.id !== params.filterId && s.currentCycleId);
-  if (!active.length) return;
+  const others = siblings.filter(s => s.id !== params.filterId);
+  if (!others.length) return;                     // single-filter AHU
 
-  // Batch-resolve final stage per distinct pinned profile version.
-  const finalStageByProfile = await buildFinalStageMap(active);
-  const pending = active.filter(s => {
-    const finalKey = finalStageByProfile.get(`${s.cycleProfileId}@${s.cycleProfileVersion}`);
-    return !finalKey || s.currentLifecycleState !== finalKey;   // not parked at its final stage
-  });
+  // Only filters with an ACTIVE cycle need their pinned profile's final stage.
+  const active = others.filter(s => s.currentCycleId);
+  const finalStageByProfile = await buildFinalStageMap(active); // ≤ k distinct profile versions
+
+  const reached = (s) => {
+    if (s.currentCycleId) {                        // parked at final?
+      const finalKey = finalStageByProfile.get(`${s.cycleProfileId}@${s.cycleProfileVersion}`);
+      return !!finalKey && s.currentLifecycleState === finalKey;
+    }
+    return s.currentLifecycleState === 'CLEANING_CYCLE_COMPLETED'; // completed this cycle (D7)
+  };
+  const pending = others.filter(s => !reached(s));  // never-started/idle/mid/terminated all land here
   if (pending.length) {
     throw new HttpError(422, 'AHU_INTERLOCK_PENDING', {
       message: 'All filters belonging to this AHU must reach their final cleaning stage before submission.',
@@ -309,10 +324,12 @@ Operator      Tablet/Web            API (submit-checklist)     ahu-completion-ga
 | **AHU with a single filter** | Only sibling is itself; `active` list empty → gate passes. Submits normally. |
 | **Disabled filters** | No per-filter "disabled" flag exists; `pmFilterSetMode DISABLED` is per-AHU and per D3 is **ignored** here. An AHU marked DISABLED for PM still gates for cleaning. (Flag at review if DISABLED AHUs should be exempt.) |
 | **Retired filters** | Excluded by `status != 'Retired'`. |
-| **Replacement filters** | Replacement retires the old filter (→ excluded) and creates a new active one (→ counted only once it has an active cycle; idle new filter doesn't block per D4). |
-| **Newly onboarded filter** | Active but with no cleaning cycle → `currentCycleId == null` → non-blocking (D4). Does **not** freeze the AHU. |
-| **Different profiles in one AHU** | Final stage resolved per pinned profile version; mixed profiles handled. |
-| **Missing cleaning profile** | Filter cannot start a cycle (`start-cycle` rejects `NO_PROFILE`) → no active cycle → non-blocking. |
+| **Replacement filters** | Replacement retires the old filter (→ excluded) and creates a new **active** one. Per D4 the new filter **blocks** until it is cleaned to final (state ≠ `CLEANING_CYCLE_COMPLETED`). Operationally: a replaced filter must be cleaned before the AHU batch can submit. |
+| **Newly onboarded filter** | Active, no cycle, state not `CLEANING_CYCLE_COMPLETED` → **blocks** (D4). A brand-new filter holds the AHU until cleaned. **This is the sharpest consequence of D4 — surface it in the pending list with stage label "Not started".** |
+| **Different profiles in one AHU** | Final stage resolved per pinned profile version; mixed profiles handled. Completed filters need no profile lookup (marker-only). |
+| **Missing cleaning profile** | Filter cannot start a cycle (`start-cycle` rejects `NO_PROFILE`) and can never reach `CLEANING_CYCLE_COMPLETED` → per D4 it would **block the AHU permanently**. **Mitigation:** exclude filters with **no assigned cleaning profile** from the counted set (they are un-cleanable), and surface them in the admin warning. Confirm at review. |
+| **Terminated filter** | `terminate-cycle` clears both `FilterDetails` fields → state ≠ `CLEANING_CYCLE_COMPLETED` → **blocks** until re-cleaned (D7). |
+| **Completed then re-started (different cycle id)** | New `start-cycle` resets `currentLifecycleState` → stale completion no longer counts → re-evaluated against the new cycle (D7). |
 | **Non-terminal-checklist profile (Interlock)** | Completes via `advance` auto-complete → **not gated** (D1 limitation, §11.1). Warned to admin. |
 | **Deleted filters** | Soft-deleted/inactive excluded by `isActive`. |
 | **Concurrent submissions (two operators)** | Each submit runs the gate under its own `submit-checklist` tx with the existing `SELECT … FOR UPDATE` filter lock; the last-to-satisfy wins. Two filters both parked at final can both pass legitimately (both siblings are at final). No double-complete (cycle-scoped idempotency + status recheck). |
@@ -394,7 +411,8 @@ Interlock enforces **only** on cleaning profiles that end with a checklist. Prof
 ---
 
 ## Open items for spec review
-1. **D4 batch-scoping** — confirm idle/never-started filters should *not* block (recommended), vs. the stricter "every filter, even un-started, must have completed a cycle."
+1. **No-profile filters** — confirm filters with **no assigned cleaning profile** are excluded from the counted set (they can never reach `CLEANING_CYCLE_COMPLETED`, so including them would block the AHU permanently). Recommended: exclude + list in the admin warning.
 2. **D5 UI** — dropdown (default) vs. radio (needs custom page).
 3. **DISABLED AHUs** — should a `pmFilterSetMode = DISABLED` AHU be exempt from this cleaning gate? (Currently no, per D3.)
 4. Whether blocked submissions need an explicit audit record (§13).
+5. **Terminated filters** — confirm a terminated cycle should block until re-cleaned (current design), vs. treating terminated as "done".
