@@ -335,19 +335,14 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'trash', category: 'Asset Management', permissions: ['ASSET_DELETE', 'ASSET_VIEW', 'ASSET_READ'],
         reauthAction: 'DELETE_ASSET', enforce: 'b',
         gate: ['ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE'] },
-      // 2026-07-01: relationships + identifiers (RFID) toggles DE-DUPLICATED to enforced-only
-      // (configurable dropped). Relationships' ASSET_RELATIONSHIP_* are grant-only perms never
-      // used as a route gate (real gate = ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT on PUT
-      // instance). RFID assign/unassign is fully covered by the single filters.rfid_manage toggle
-      // (both identifier endpoints accept FILTER_RFID_MANAGE via requireAnyPermission). Nodes are
-      // retained for gate/reauth resolution; only their picker visibility is removed. Perm
-      // constants KEPT. See CHANGELOG 2026-07-01.
-      { id: 'assets.relationships.create', label: 'Create Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Create Relationship',
-        icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_CREATE', 'ASSET_VIEW'], enforce: 'a',
-        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
-      { id: 'assets.relationships.delete', label: 'Delete Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Relationship',
-        icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_DELETE', 'ASSET_VIEW'], enforce: 'a',
-        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
+      // 2026-07-01: RFID identifier toggles (assets.identifiers.create/delete) DE-DUPLICATED to
+      // enforced-only — RFID assign/unassign is fully covered by the single filters.rfid_manage
+      // toggle (both identifier endpoints accept FILTER_RFID_MANAGE via requireAnyPermission).
+      // Perm constants KEPT (ASSET_IDENTIFIER_* are real route gates).
+      // assets.relationships.create/delete nodes + the ASSET_RELATIONSHIP_CREATE/DELETE perm
+      // constants were REMOVED ENTIRELY 2026-07-01 — those were grant-only perms never used as a
+      // route gate; the relationship write capability IS the edit gate (ASSET_UPDATE/FILTER_EDIT/
+      // FILTER_HIERARCHY_EDIT on PUT-instance, i.e. the assets.edit node).
       { id: 'assets.identifiers.create', label: 'Assign RFID Tags / Create Identifiers', sidebarId: 'filter-list', page: 'Filters', action: 'Assign RFID',
         icon: 'wifi', category: 'RFID & Identifiers', permissions: ['ASSET_IDENTIFIER_CREATE', 'ASSET_VIEW'],
         reauthAction: 'CREATE_ASSET_IDENTIFIER', enforce: 'a',

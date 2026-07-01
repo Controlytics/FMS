@@ -36,10 +36,6 @@ export const PERMISSION_CATEGORIES: Record<string, PermissionItem[]> = {
     { key: PERMISSIONS.ASSET_UPDATE, label: 'Edit Assets' },
     { key: PERMISSIONS.ASSET_DELETE, label: 'Delete Assets' },
   ],
-  'Asset Relationships': [
-    { key: PERMISSIONS.ASSET_RELATIONSHIP_CREATE, label: 'Create Relationships' },
-    { key: PERMISSIONS.ASSET_RELATIONSHIP_DELETE, label: 'Delete Relationships' },
-  ],
   'Asset Identifiers': [
     { key: PERMISSIONS.ASSET_IDENTIFIER_CREATE, label: 'Create Identifiers' },
     { key: PERMISSIONS.ASSET_IDENTIFIER_DELETE, label: 'Delete Identifiers' },

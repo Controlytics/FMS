@@ -64,9 +64,6 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.ASSET_CREATE]: { label: 'Create Assets', category: 'Assets' },
   [PERMISSIONS.ASSET_UPDATE]: { label: 'Update Assets', category: 'Assets' },
   [PERMISSIONS.ASSET_DELETE]: { label: 'Delete Assets', category: 'Assets' },
-  // Asset Relationships
-  [PERMISSIONS.ASSET_RELATIONSHIP_CREATE]: { label: 'Create Relationships', category: 'Asset Relationships' },
-  [PERMISSIONS.ASSET_RELATIONSHIP_DELETE]: { label: 'Delete Relationships', category: 'Asset Relationships' },
   // Asset Identifiers
   [PERMISSIONS.ASSET_IDENTIFIER_CREATE]: { label: 'Assign RFID Tags / Create Identifiers', category: 'RFID & Identifiers' },
   [PERMISSIONS.ASSET_IDENTIFIER_DELETE]: { label: 'Unassign RFID Tags / Delete Identifiers', category: 'RFID & Identifiers' },

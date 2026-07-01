@@ -129,17 +129,8 @@ describe('PermissionNode.gate (Phase 5A)', () => {
     expect(resolveNodeGate('checklists.submit')).toEqual(['FILTER_OPERATE']);
   });
 
-  it('assets.relationships.create gate mirrors the PUT-instance route (ASSET_UPDATE / FILTER_EDIT / FILTER_HIERARCHY_EDIT)', () => {
-    // ASSET_RELATIONSHIP_CREATE is a grant-only perm; relationship creation happens
-    // via PUT /api/assets/:id (parentId change) enforced by ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT.
-    expect(resolveNodeGate('assets.relationships.create').sort())
-      .toEqual(['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'].sort());
-  });
-
-  it('assets.relationships.delete gate mirrors the PUT-instance route (same as create)', () => {
-    expect(resolveNodeGate('assets.relationships.delete').sort())
-      .toEqual(['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'].sort());
-  });
+  // assets.relationships.create/delete nodes were REMOVED 2026-07-01 (vestigial — the perm
+  // was grant-only, never a gate; relationship writes go through the assets.edit gate).
 });
 
 // Task 1.5 — resolveNodePermissions

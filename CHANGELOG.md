@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] — Remove vestigial ASSET_RELATIONSHIP_* permission constants (2026-07-01)
+
+Follow-up to the toggle de-dup: fully removed the two `ASSET_RELATIONSHIP_CREATE` /
+`ASSET_RELATIONSHIP_DELETE` **permission constants** (PERMISSIONS **109 → 107**) — they were
+grant-only perms **never used as a route gate** (relationship writes go through the PUT-instance
+`parentId` change, gated by `ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT`, i.e. the `assets.edit`
+node). Removed from: `permissions.ts`; the (already enforced-only) `assets.relationships.create/delete`
+PERMISSION_TREE nodes **deleted entirely**; `permission-categories.ts` ("Asset Relationships" category
+gone); `role.service.ts` label map; `default-roles.ts` (2 roles); the frozen-snapshot oracle was already
+clean; and the two `resolveNodeGate` relationship tests removed. Also stripped the orphaned strings from
+the live-DB `roles.permissions` (only SUPER_ADMIN had them — and SA bypasses checks anyway). No effective
+access change (the edit gate still covers relationship writes). 27/27 RBAC tests pass; shared/api/web
+typecheck clean.
+
 ## [Unreleased] — Roles & Access: de-dup RFID/Relationship toggles + rename View Filters (2026-07-01)
 
 Cleaned up redundant toggles in the **Roles & Access → Permissions** picker (feature
