@@ -562,8 +562,8 @@ export const instanceService = {
       await tx.assetIdentifier.deleteMany({ where: { assetId: { in: allIds } } });
       // deviceCredential / connectivityStatus / unsMapping / dataStream cascades
       // removed with data-ingestion removal — tables no longer exist.
-      await tx.qrCode.deleteMany({ where: { entityId: { in: allIds } } });
-      await tx.latestTelemetry.deleteMany({ where: { entityId: { in: allIds } } });
+      // qrCode / latestTelemetry cascades removed 2026-07-01 — both orphaned
+      // tables dropped (QR module gone 2026-06-06; telemetry pipeline gone Phase 7).
     });
 
     await auditLog({

@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] — Drop orphaned qr_codes + latest_telemetry tables (2026-07-01)
+
+Removed two dead tables surfaced by a schema audit: **`QrCode`/`qr_codes`** and
+**`LatestTelemetry`/`latest_telemetry`** (Prisma models **69 → 67**; 25 enums unchanged).
+Both had **0 rows and no foreign keys**. The systems that populated them were already gone
+— the QR-code module was deleted 2026-06-06, and the telemetry ingestion pipeline was torn
+out in Phase 7 (2026-06-11..17) — but the models + tables + a few stale references lingered.
+
+Removed: the two model blocks in `schema.prisma`; the cascade `deleteMany` calls in
+`assets/services/instance.service.ts` (+ their test mocks); and the `prisma.latestTelemetry.findMany`
+read in `dashboards/routes.ts` (the `value_card`/`gauge`/`status_indicator` widgets now return
+`[]` like the already-stubbed `timeseries_chart`). Hand-authored migration
+`20260701071802_drop_qrcode_latesttelemetry` (DROP TABLE IF EXISTS, per the no-`db push`
+discipline); applied to dev + test DBs; **drift guard PASS** (scratch-from-migrations diffs empty
+vs dev). Backup/restore is dynamic (no hardcoded table list) so it adapts automatically.
+
 ## [Unreleased] — Setup.exe packaging M8: tablet HTTPS-on-LAN + runtime server URL (2026-07-01)
 
 **Context:** M8 of the customer `Setup.exe` effort (`tasks/EXE-PACKAGING-PLAN.md` §13) — the

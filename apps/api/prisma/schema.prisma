@@ -824,21 +824,6 @@ model ElectronicSignature {
   @@map("electronic_signatures")
 }
 
-// Latest Telemetry (cache for current values)
-model LatestTelemetry {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entityId    String   @map("entity_id") @db.Uuid
-  key         String   @db.VarChar(200)
-  valueNum    Float?   @map("value_num")
-  valueStr    String?  @map("value_str")
-  valueBool   Boolean? @map("value_bool")
-  valueJson   Json?    @map("value_json") @db.JsonB
-  lastUpdated DateTime @map("last_updated") @db.Timestamptz
-
-  @@unique([entityId, key])
-  @@map("latest_telemetry")
-}
-
 // (UnsMapping + ConnectivityStatus models removed with data-ingestion removal.)
 
 // QR Codes (per entity)
@@ -1222,19 +1207,6 @@ model QualityNotification {
   @@index([scheduleId])
   @@index([createdAt(sort: Desc)])
   @@map("quality_notifications")
-}
-
-model QrCode {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  entityId     String   @unique @map("entity_id") @db.Uuid
-  qrData       String   @map("qr_data") // URL only -- NO tokens
-  imagePath    String   @map("image_path")
-  svgData      String?  @map("svg_data") @db.Text
-  size         String   @default("MEDIUM") @db.VarChar(10)
-  includeLabel Boolean  @default(true) @map("include_label")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
-  @@map("qr_codes")
 }
 
 model PmExecution {

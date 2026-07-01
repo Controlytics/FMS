@@ -50,8 +50,7 @@ const {
       assetIdentifier: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       // deviceCredential / connectivityStatus / unsMapping / dataStream models
       // removed with data-ingestion removal — no longer in Prisma client.
-      qrCode: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-      latestTelemetry: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      // qrCode / latestTelemetry models dropped 2026-07-01 (orphaned tables).
     };
     type Tx = typeof tx;
     return {

@@ -442,20 +442,12 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     switch (widget.widgetType) {
       case 'value_card':
       case 'gauge':
-      case 'status_indicator': {
-        // Latest telemetry values
-        const latest = await prisma.latestTelemetry.findMany({
-          where: {
-            entityId: { in: entityIds },
-            ...(telemetryKeys.length > 0 ? { key: { in: telemetryKeys } } : {}),
-          },
-        });
-        return { widgetId, widgetType: widget.widgetType, data: latest };
-      }
-
+      case 'status_indicator':
       case 'timeseries_chart': {
-        // Telemetry source removed with data-ingestion removal — widget now returns empty.
-        return { widgetId, widgetType: 'timeseries_chart', data: [] };
+        // Telemetry source removed with data-ingestion removal (Phase 7); the
+        // latest_telemetry cache table was dropped 2026-07-01. These widgets now
+        // return empty.
+        return { widgetId, widgetType: widget.widgetType, data: [] };
       }
 
       case 'entity_table': {
