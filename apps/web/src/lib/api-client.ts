@@ -1,8 +1,7 @@
 // NOTE: Prefer importing as `apiClient` using @/ alias across all files
 import { markServerContactFromResponse } from './server-contact';
 import { isHardCutoffExceeded } from './hard-cutoff';
-
-const BASE_URL = import.meta.env.VITE_API_URL ?? '';
+import { getApiBase } from './api-base';
 
 // W4: methods that are refused before they hit the network when the
 // hard-cutoff lockout has fired. GET stays allowed so SWR polling can keep
@@ -44,7 +43,7 @@ class ApiClient {
     if (options.body) {
       headers['Content-Type'] = 'application/json';
     }
-    const res = await fetch(`${BASE_URL}${url}`, {
+    const res = await fetch(`${getApiBase()}${url}`, {
       ...options,
       headers: {
         ...headers,

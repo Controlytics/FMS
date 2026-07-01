@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { getPhotoUrl, API_BASE } from '../../lib/url-utils';
+import { getPhotoUrl } from '../../lib/url-utils';
+import { getApiBase } from '@/lib/api-base';
 
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: 'bg-gradient-to-r from-red-500 to-pink-500 text-white border-0',
@@ -110,7 +111,7 @@ export function ProfilePage() {
       formDataUpload.append('file', file);
 
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`${API_BASE}/api/uploads/photo`, {
+      const response = await fetch(`${getApiBase()}/api/uploads/photo`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useBranding } from '@/hooks/use-branding';
+import { getApiBase } from '@/lib/api-base';
 
 // Public (unauthenticated) page reached from the login "Guest" button. Collects a
 // filter cleaning request and posts it to the public /api/guest/cleaning-request,
@@ -25,7 +26,7 @@ export function GuestRequestPage() {
   const allFilled = FIELDS.every((f) => form[f.key].trim().length > 0);
   const set = (k: FieldKey, v: string) => setForm((p) => ({ ...p, [k]: v }));
 
-  const base = (window as any).__API_BASE__ ?? (import.meta as any).env?.VITE_API_URL ?? '';
+  const base = getApiBase();
 
   const submit = async () => {
     if (!allFilled || submitting) return;

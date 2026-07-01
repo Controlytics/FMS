@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { apiClient } from './api-client';
+import { getApiBase } from './api-base';
 
 // Brand colors
 const COLORS = {
@@ -72,7 +73,7 @@ async function loadBranding(): Promise<{ companyName: string; appName: string }>
  *  role decides which signature LABEL is used (config → Report Signatories). */
 async function loadCurrentUser(): Promise<{ username: string | null; role: string | null }> {
   try {
-    const base = (import.meta as any).env?.VITE_API_URL ?? '';
+    const base = getApiBase();
     const token = sessionStorage.getItem('access_token');
     const res = await fetch(`${base}/api/auth/me`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
     if (!res.ok) return { username: null, role: null };
@@ -89,7 +90,7 @@ type SignatoryMap = Record<string, Record<string, string>>; // roleName -> repor
  *  ID. Keyed role -> reportKey. Null on failure → footer falls back to "Printed By". */
 async function loadSignatories(): Promise<SignatoryMap | null> {
   try {
-    const base = (import.meta as any).env?.VITE_API_URL ?? '';
+    const base = getApiBase();
     const token = sessionStorage.getItem('access_token');
     const res = await fetch(`${base}/api/config/report-signatories/resolved`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
     if (!res.ok) return null;

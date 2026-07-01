@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
 import { useBranding } from '../../hooks/use-branding';
+import { getApiBase } from '../../lib/api-base';
 
 // 2026-05-21: raw fetch() calls below must hit the API host directly, not the
 // Capacitor SPA origin. On the tablet the WebView serves from
@@ -12,7 +13,6 @@ import { useBranding } from '../../hooks/use-branding';
 // allowlist forbids it. Prepending VITE_API_URL routes the fetch through
 // the LAN/local API instead. apiClient does this already; raw fetches must
 // match its behaviour.
-const API_BASE: string = import.meta.env.VITE_API_URL ?? '';
 
 export function MobileLoginPage() {
   const navigate = useNavigate();
@@ -38,7 +38,7 @@ export function MobileLoginPage() {
     // sailed past the allowlist. Now any failure to read the allowlist
     // blocks login; operator must retry when network is healthier.
     try {
-      const res = await fetch(`${API_BASE}/api/config/tablet-access/my-features`, {
+      const res = await fetch(`${getApiBase()}/api/config/tablet-access/my-features`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return { allowed: false };
@@ -117,7 +117,7 @@ export function MobileLoginPage() {
       const access = await checkTabletAccess(res.token);
       if (!access.allowed) {
         // Discard the freshly-issued token so the wrapper can't log us back in
-        try { await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
+        try { await fetch(`${getApiBase()}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
         sessionStorage.removeItem('access_token');
         localStorage.removeItem('access_token_backup');
         setError("You don't have access to log in on the tablet.");
@@ -156,7 +156,7 @@ export function MobileLoginPage() {
             });
             const access = await checkTabletAccess(res.token);
             if (!access.allowed) {
-              try { await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
+              try { await fetch(`${getApiBase()}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
               sessionStorage.removeItem('access_token');
               localStorage.removeItem('access_token_backup');
               setError("You don't have access to log in on the tablet.");

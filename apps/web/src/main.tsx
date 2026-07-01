@@ -41,6 +41,7 @@ import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
 import { ToastProvider } from './components/toast-provider';
 import './app.css';
+import { initApiBaseFromStorage } from './lib/api-base';
 
 // Lazy-loaded heavy pages (code-split into separate chunks).
 // FilterOperationsPage + AuditTrailPage added 2026-05-20 (May 16 H18 fix).
@@ -113,6 +114,10 @@ function LazyFallback() {
     </div>
   );
 }
+
+// Mirror any persisted server URL into window.__API_BASE__ BEFORE any API call
+// or the Capacitor redirect runs, so every module resolves the same base.
+initApiBaseFromStorage();
 
 // Auto-redirect to mobile UI when running inside Capacitor APK.
 // 2026-05-21: also allow /change-password through — tablet temp-password

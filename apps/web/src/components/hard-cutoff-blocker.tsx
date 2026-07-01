@@ -3,6 +3,7 @@ import { getHardCutoffMs, isHardCutoffExceeded, subscribeToHardCutoff } from '@/
 import { getLastServerContact } from '@/lib/server-contact';
 import { HARD_CUTOFF_REEVAL_INTERVAL_MS } from '@/lib/timing-constants';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { getApiBase } from '@/lib/api-base';
 
 /**
  * W4: read-only blocker overlay.
@@ -59,7 +60,7 @@ export function HardCutoffBlocker() {
       // Best-effort probe via the same engine the connectivity layer uses.
       // A successful response marks contact (in connectivity.ts), which
       // fires the subscribe listener, which flips exceeded to false.
-      const baseUrl = (import.meta as any).env?.VITE_API_URL ?? '';
+      const baseUrl = getApiBase();
       await fetch(`${baseUrl}/api/health`, { method: 'GET' });
       // The probe itself didn't mark contact (that's done by the engine's
       // own probeServer) — but a deliberate apiClient GET would. Trigger

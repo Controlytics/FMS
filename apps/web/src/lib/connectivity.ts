@@ -18,6 +18,7 @@ import {
   CONNECTIVITY_PROBE_TIMEOUT_MS,
   CONNECTIVITY_POLL_INTERVAL_MS,
 } from './timing-constants';
+import { getApiBase } from './api-base';
 
 let cachedOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 const listeners = new Set<(online: boolean) => void>();
@@ -48,7 +49,7 @@ export function onConnectivityChange(cb: (online: boolean) => void): () => void 
  * and by the visibilitychange handler.
  */
 async function probeServer(): Promise<boolean> {
-  const baseUrl = (import.meta as any).env?.VITE_API_URL ?? '';
+  const baseUrl = getApiBase();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CONNECTIVITY_PROBE_TIMEOUT_MS);
   try {
