@@ -74,22 +74,20 @@ describe('Audit Trail endpoints', () => {
   });
 
   // ── Delete single audit record ───────────────────────────────────────
-  // NOTE: Audit delete requires the audit_trail_no_delete PostgreSQL trigger
-  // which is created manually on production. Tests handle both scenarios:
-  // 200 (trigger exists) and 500 (trigger missing in local/test DB).
+  // Physical hard-delete (AUDIT_DELETE), re-added 2026-07-01. The endpoint
+  // itself disables the audit_trail_no_delete immutability trigger for the
+  // scope of its transaction (query pg_trigger → DISABLE → delete → ENABLE),
+  // so a DB with the trigger present (baseline/test) still deletes cleanly.
+  // A `reason` (>= 5 chars) is REQUIRED by the body schema. NOTE: these tests
+  // physically delete rows, breaking the hash chain in the test DB by design.
 
   describe('DELETE /api/audit/:id', () => {
-    it('deletes a single audit record (or 500 if trigger missing)', async () => {
+    it('deletes a single audit record', async () => {
       const list = await fetchAuditRecords(10);
       if (list.data.length === 0) return;
 
       const targetId = list.data[list.data.length - 1].id;
-      const res = await authDelete(app, `/api/audit/${targetId}`, adminToken, ADMIN_PASSWORD);
-
-      if (res.statusCode === 500) {
-        // Trigger audit_trail_no_delete not installed in test DB — acceptable
-        return;
-      }
+      const res = await authDelete(app, `/api/audit/${targetId}`, adminToken, ADMIN_PASSWORD, { reason: 'e2e hard-delete test' });
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
@@ -100,25 +98,28 @@ describe('Audit Trail endpoints', () => {
     });
 
     it('returns 404 for a non-existent audit record', async () => {
-      const res = await authDelete(app, '/api/audit/00000000-0000-0000-0000-000000000000', adminToken, ADMIN_PASSWORD);
+      const res = await authDelete(app, '/api/audit/00000000-0000-0000-0000-000000000000', adminToken, ADMIN_PASSWORD, { reason: 'e2e non-existent probe' });
       expect(res.statusCode).toBe(404);
+    });
+
+    it('rejects a missing reason (schema requires reason)', async () => {
+      const list = await fetchAuditRecords(10);
+      if (list.data.length === 0) return;
+      const targetId = list.data[list.data.length - 1].id;
+      const res = await authDelete(app, `/api/audit/${targetId}`, adminToken, ADMIN_PASSWORD);
+      expect(res.statusCode).toBe(400);
     });
   });
 
   // ── Bulk delete audit records ──────────────────────────────────────
 
   describe('POST /api/audit/bulk-delete', () => {
-    it('deletes multiple audit records (or 500 if trigger missing)', async () => {
+    it('deletes multiple audit records', async () => {
       const list = await fetchAuditRecords(10);
       if (list.data.length < 2) return;
 
       const ids = list.data.slice(-2).map((r) => r.id);
-      const res = await authPost(app, '/api/audit/bulk-delete', adminToken, { ids }, ADMIN_PASSWORD);
-
-      if (res.statusCode === 500) {
-        // Trigger audit_trail_no_delete not installed in test DB — acceptable
-        return;
-      }
+      const res = await authPost(app, '/api/audit/bulk-delete', adminToken, { ids, reason: 'e2e bulk hard-delete' }, ADMIN_PASSWORD);
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
@@ -132,23 +133,19 @@ describe('Audit Trail endpoints', () => {
       }
     });
 
-    it('returns count 0 when none of the IDs exist (or 500 if trigger missing)', async () => {
+    it('returns 404 when none of the IDs exist', async () => {
       // ids must be UUID strings (auditTrail.id is uuid). Numeric ids
       // cause the Fastify schema validator to 400 before the route runs.
       const res = await authPost(
         app,
         '/api/audit/bulk-delete',
         adminToken,
-        { ids: ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002'] },
+        { ids: ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002'], reason: 'e2e no-match probe' },
         ADMIN_PASSWORD,
       );
 
-      if (res.statusCode === 500) return;
-
-      expect(res.statusCode).toBe(200);
-      const body = JSON.parse(res.body);
-      expect(body.success).toBe(true);
-      expect(body.count).toBe(0);
+      // No matching rows → NO_MATCHING_RECORDS
+      expect(res.statusCode).toBe(404);
     });
 
     it('rejects an empty ids array', async () => {
@@ -156,7 +153,7 @@ describe('Audit Trail endpoints', () => {
         app,
         '/api/audit/bulk-delete',
         adminToken,
-        { ids: [] },
+        { ids: [], reason: 'e2e empty probe' },
         ADMIN_PASSWORD,
       );
       // Schema requires minItems: 1 — Fastify should return 400

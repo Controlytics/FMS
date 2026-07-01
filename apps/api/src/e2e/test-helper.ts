@@ -221,6 +221,7 @@ export async function authDelete(
   url: string,
   token: string,
   reauthPassword?: string,
+  payload?: unknown,
 ) {
   const headers: Record<string, string> = { authorization: `Bearer ${token}` };
   if (reauthPassword) {
@@ -230,6 +231,8 @@ export async function authDelete(
     method: 'DELETE',
     url,
     headers,
+    // Some DELETE routes carry a body (e.g. audit delete requires a `reason`).
+    ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}),
   });
 }
 

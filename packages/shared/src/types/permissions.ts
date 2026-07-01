@@ -18,6 +18,11 @@ export const PERMISSIONS = {
   // Audit
   AUDIT_READ: 'AUDIT_READ',
   AUDIT_EXPORT: 'AUDIT_EXPORT',
+  // 2026-07-01: physical hard-delete of audit rows (grantable via the "Delete Audit
+  // Record" picker toggle). WARNING: deletion breaks the tamper-evident hash chain —
+  // see apps/api/src/modules/audit/routes.ts. Re-added at explicit operator request
+  // after the 2026-05 removal (REDACT is the chain-preserving alternative).
+  AUDIT_DELETE: 'AUDIT_DELETE',
 
   // Filter Events
   EVENT_READ: 'EVENT_READ',

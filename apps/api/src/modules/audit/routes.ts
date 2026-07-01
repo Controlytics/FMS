@@ -463,6 +463,135 @@ export default async function auditRoutes(app: FastifyInstance) {
     return { success: true, count: result, redactedAt: now.toISOString() };
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // PHYSICAL HARD-DELETE (AUDIT_DELETE) — re-added 2026-07-01 at explicit
+  // operator request. This is the endpoint that was REMOVED in 2026-05 (see
+  // the redact block above) precisely because physical deletion BREAKS the
+  // tamper-evident hash chain: it leaves a chain_position gap and orphans the
+  // next row's previous_checksum, so GET /api/audit/verify-chain reports the
+  // downstream chain INVALID, permanently. REDACT (POST /:id/redact) is the
+  // 21 CFR §11.10(e)-compliant alternative that preserves the chain.
+  //
+  // We do NOT teach verify-chain / verifyAuditChecksum to tolerate authorized
+  // deletions — the breakage stays loud and visible on purpose. A meta-audit
+  // row (AUDIT_RECORD_DELETED) records who deleted what + why BEFORE the target
+  // row is destroyed, so the deletion itself is never silent.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // DELETE /api/audit/:id — physically delete a single audit record (AUDIT_DELETE).
+  app.delete('/:id', {
+    preHandler: [app.requirePermission('AUDIT_DELETE')],
+    schema: {
+      tags: ['Audit'],
+      summary: 'Permanently delete an audit record',
+      description: 'PHYSICALLY delete a single audit trail record. Requires AUDIT_DELETE (SUPER_ADMIN bypasses) + reauth. WARNING: breaks the tamper-evident hash chain — verify-chain will report the downstream chain invalid. Prefer POST /:id/redact, which preserves the chain.',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', description: 'Audit record ID' } },
+      },
+      body: {
+        type: 'object',
+        required: ['reason'],
+        properties: { reason: { type: 'string', minLength: 5, maxLength: 500 } },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('DELETE_AUDIT_RECORD', req, reply);
+    if (!ok) return;
+    const { id } = req.params as { id: string };
+    const { reason } = req.body as { reason: string };
+
+    const record = await prisma.auditTrail.findUnique({ where: { id } });
+    if (!record) return reply.code(404).send({ error: 'Audit record not found' });
+
+    await prisma.$transaction(async (tx) => {
+      // Meta-audit FIRST (same tx) so the deletion is recorded even though the
+      // target row is about to vanish. Skeleton only — mirrors the redact meta.
+      await auditLog({
+        userId: req.user.sub, userRole: req.user.role,
+        action: 'AUDIT_RECORD_DELETED',
+        targetType: 'audit_trail', targetId: id,
+        beforeValue: { id: record.id, action: record.action, timestamp: record.timestamp, userId: record.userId, targetType: record.targetType, targetId: record.targetId },
+        reason,
+        signatureMeaning: `Audit record ${id} PHYSICALLY DELETED; hash chain broken at this position`,
+        ipAddress: req.ip, sessionId: req.user.sessionId,
+      }, tx);
+      // The audit_trail_no_delete trigger blocks physical deletes. Disable it for
+      // the scope of this tx (ALTER TABLE takes an ACCESS EXCLUSIVE lock, so no
+      // other connection can slip an unguarded delete through the window), then
+      // re-enable. Query first so a DB without the trigger still deletes cleanly.
+      const triggers = await tx.$queryRawUnsafe<Array<{ tgname: string }>>(
+        `SELECT tgname FROM pg_trigger WHERE tgrelid = '"audit_trail"'::regclass AND tgname = 'audit_trail_no_delete'`,
+      );
+      for (const t of triggers) await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" DISABLE TRIGGER "${t.tgname}"`);
+      await tx.auditTrail.delete({ where: { id } });
+      for (const t of triggers) await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" ENABLE TRIGGER "${t.tgname}"`);
+    });
+
+    return { success: true };
+  });
+
+  // POST /api/audit/bulk-delete — physically delete multiple audit records (AUDIT_DELETE).
+  app.post('/bulk-delete', {
+    preHandler: [app.requirePermission('AUDIT_DELETE')],
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    schema: {
+      tags: ['Audit'],
+      summary: 'Permanently delete selected audit records',
+      description: 'PHYSICALLY delete multiple audit trail records by ID. Requires AUDIT_DELETE (SUPER_ADMIN bypasses) + reauth. WARNING: breaks the tamper-evident hash chain — verify-chain will report the downstream chain invalid. Prefer POST /bulk-redact.',
+      body: {
+        type: 'object',
+        required: ['ids', 'reason'],
+        properties: {
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 1000 },
+          reason: { type: 'string', minLength: 5, maxLength: 500 },
+        },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' }, count: { type: 'integer' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('BULK_DELETE_AUDIT_RECORDS', req, reply);
+    if (!ok) return;
+    const { ids, reason } = req.body as { ids: string[]; reason: string };
+
+    const records = await prisma.auditTrail.findMany({ where: { id: { in: ids } } });
+    if (records.length === 0) return reply.code(404).send({ error: 'NO_MATCHING_RECORDS', message: 'No matching audit records' });
+    const matchedIds = records.map((r) => r.id);
+
+    const result = await prisma.$transaction(async (tx) => {
+      await auditLog({
+        userId: req.user.sub, userRole: req.user.role,
+        action: 'AUDIT_RECORDS_BULK_DELETED',
+        targetType: 'audit_trail', targetId: matchedIds.join(','),
+        beforeValue: { recordCount: records.length, records: records.map((r) => ({
+          id: r.id, action: r.action, timestamp: r.timestamp, userId: r.userId,
+          targetType: r.targetType, targetId: r.targetId,
+        })) },
+        reason,
+        signatureMeaning: `${records.length} audit records PHYSICALLY DELETED; hash chain broken`,
+        ipAddress: req.ip, sessionId: req.user.sessionId,
+      }, tx);
+      // Disable the immutability trigger for this tx (see single-delete above).
+      const triggers = await tx.$queryRawUnsafe<Array<{ tgname: string }>>(
+        `SELECT tgname FROM pg_trigger WHERE tgrelid = '"audit_trail"'::regclass AND tgname = 'audit_trail_no_delete'`,
+      );
+      for (const t of triggers) await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" DISABLE TRIGGER "${t.tgname}"`);
+      const del = await tx.auditTrail.deleteMany({ where: { id: { in: matchedIds } } });
+      for (const t of triggers) await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" ENABLE TRIGGER "${t.tgname}"`);
+      return del.count;
+    });
+
+    return { success: true, count: result };
+  });
+
   // GET /api/audit/verify-chain — audit 2026-05-04 fix C3.
   //
   // Walks the audit chain in chain_position order and reports any per-row

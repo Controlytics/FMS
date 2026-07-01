@@ -155,11 +155,13 @@ class ApiClient {
   // failing with "Unsupported Media Type". Sending an empty JSON body forces
   // Fastify's JSON parser to handle it; routes that don't read req.body see
   // an empty object and ignore it.
-  delete<T>(url: string) {
+  delete<T>(url: string, body?: unknown) {
     return this.request<T>(url, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      // Defaults to {} (see the Android Content-Type quirk above); callers that
+      // need to pass data (e.g. a required `reason`) supply it explicitly.
+      body: JSON.stringify(body ?? {}),
     });
   }
 
@@ -178,8 +180,8 @@ class ApiClient {
     }
     return this.request<T>(url, opts);
   }
-  deleteWithReauth<T>(url: string, password: string) {
-    return this.withReauth<T>('DELETE', url, password);
+  deleteWithReauth<T>(url: string, password: string, body?: unknown) {
+    return this.withReauth<T>('DELETE', url, password, body);
   }
   postWithReauth<T>(url: string, body: unknown, password: string) {
     return this.withReauth<T>('POST', url, password, body);

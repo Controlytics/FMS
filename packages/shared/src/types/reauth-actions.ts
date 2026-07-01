@@ -84,6 +84,11 @@ export const REAUTH_ACTIONS = {
   // operator's intent. Delta-audit 2026-05-20 §C1 / May 16 §1.2 fix.
   REDACT_AUDIT_RECORD: { label: 'Redact Audit Record', category: 'Configuration' },
   BULK_REDACT_AUDIT_RECORDS: { label: 'Bulk Redact Audit Records', category: 'Configuration' },
+  // 2026-07-01: physical hard-delete of audit rows (breaks the hash chain — see
+  // modules/audit/routes.ts). Distinct keys from redact so the reauth policy can
+  // differ, and the surviving meta-audit row records single vs bulk intent.
+  DELETE_AUDIT_RECORD: { label: 'Delete Audit Record', category: 'Configuration' },
+  BULK_DELETE_AUDIT_RECORDS: { label: 'Bulk Delete Audit Records', category: 'Configuration' },
   // 2026-05-26 audit fix (PA-REAUTH-4): notification bulk-delete is
   // destructive (irreversible, no recycle bin) and was missing reauth.
   // Single-delete uses the same key — same blast radius per row.

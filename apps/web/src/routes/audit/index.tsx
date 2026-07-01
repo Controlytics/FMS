@@ -36,6 +36,13 @@ export function AuditTrailPage() {
   const auditHead = AUDIT_COLS.map((k) => auditL.columns[k]);
   // audit.export gate: ['AUDIT_EXPORT'] → SUPER_ADMIN || AUDIT_EXPORT (same as prior check).
   const canExport = can('audit.export');
+  // Destructive affordances. Redact (audit.redact) preserves the hash chain and is
+  // SUPER_ADMIN-only (gate []). Hard-delete (audit.delete) physically removes the row
+  // and BREAKS the chain — a grantable picker toggle (gate ['AUDIT_DELETE']). Either
+  // one unlocks the selection column + row actions.
+  const canRedact = can('audit.redact');
+  const canHardDelete = can('audit.delete');
+  const canDestroy = canRedact || canHardDelete;
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(defaultLimit);
 
@@ -55,6 +62,8 @@ export function AuditTrailPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showHardDeleteConfirm, setShowHardDeleteConfirm] = useState(false);
+  const [hardDeleting, setHardDeleting] = useState(false);
   const [sortBy, setSortBy] = useState<'timestamp' | 'action' | 'userId' | 'userRole'>('timestamp');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -158,6 +167,59 @@ export function AuditTrailPage() {
         onError: (err: any) => {
           console.error('Failed to bulk redact audit records:', err);
           setDeleting(false);
+        },
+      },
+    );
+  };
+
+  // PHYSICAL hard-delete (audit.delete). Unlike redact, this removes the row and
+  // BREAKS the hash chain — verify-chain will report the trail invalid downstream.
+  // Requires a reason (>= 5 chars) + reauth (DELETE_AUDIT_RECORD).
+  const hardDeleteSingleAudit = (id: string) => {
+    const reason = window.prompt('This PERMANENTLY deletes the record and breaks the tamper-evident hash chain.\nReason for deletion (min 5 characters):');
+    if (!reason || reason.trim().length < 5) return;
+    reauth.execute(
+      'DELETE_AUDIT_RECORD',
+      async (password?: string) => {
+        const body = { reason: reason.trim() };
+        if (password) await api.deleteWithReauth(`/api/audit/${id}`, password, body);
+        else await apiClient.delete(`/api/audit/${id}`, body);
+      },
+      {
+        onSuccess: () => {
+          setSelectedIds(prev => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          mutate();
+        },
+        onError: (err: any) => console.error('Failed to delete audit record:', err),
+      },
+    );
+  };
+
+  const bulkHardDeleteAudit = () => {
+    const reason = window.prompt(`This PERMANENTLY deletes ${selectedIds.size} record(s) and breaks the tamper-evident hash chain.\nReason for deletion (min 5 characters):`);
+    if (!reason || reason.trim().length < 5) return;
+    setHardDeleting(true);
+    reauth.execute(
+      'BULK_DELETE_AUDIT_RECORDS',
+      async (password?: string) => {
+        const body = { ids: Array.from(selectedIds), reason: reason.trim() };
+        if (password) await api.postWithReauth('/api/audit/bulk-delete', body, password);
+        else await apiClient.post('/api/audit/bulk-delete', body);
+      },
+      {
+        onSuccess: () => {
+          setSelectedIds(new Set());
+          setShowHardDeleteConfirm(false);
+          mutate();
+          setHardDeleting(false);
+        },
+        onError: (err: any) => {
+          console.error('Failed to bulk delete audit records:', err);
+          setHardDeleting(false);
         },
       },
     );
@@ -275,8 +337,10 @@ export function AuditTrailPage() {
         clearFilters={clearFilters}
       />
 
-      {/* Redact-capable Selection Toolbar (audit.redact gate: [] → SUPER_ADMIN-only) */}
-      {can('audit.redact') && isSomeSelected && (
+      {/* Destructive Selection Toolbar. Redact (audit.redact, SA-only) preserves the
+          hash chain; Delete Permanently (audit.delete) physically removes rows + breaks
+          the chain. Shown when the user can do EITHER. */}
+      {canDestroy && isSomeSelected && (
         <div className="bg-white rounded-2xl border-2 border-red-200 shadow-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-red-100">
@@ -289,12 +353,24 @@ export function AuditTrailPage() {
               Clear Selection
             </button>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-red-700 border-red-200 hover:bg-red-50">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            Delete Selected
-          </Button>
+          <div className="flex items-center gap-2">
+            {canRedact && (
+              <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                </svg>
+                Redact Selected
+              </Button>
+            )}
+            {canHardDelete && (
+              <Button variant="outline" size="sm" onClick={() => setShowHardDeleteConfirm(true)} className="gap-1.5 text-red-700 border-red-200 hover:bg-red-50">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete Permanently
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -308,7 +384,10 @@ export function AuditTrailPage() {
         <AuditTable
           data={data}
           isLoading={isLoading}
-          isSuperAdmin={can('audit.redact')}
+          isSuperAdmin={canDestroy}
+          canRedact={canRedact}
+          canHardDelete={canHardDelete}
+          onHardDeleteRecord={hardDeleteSingleAudit}
           selectedIds={selectedIds}
           toggleSelect={toggleSelect}
           toggleSelectAll={toggleSelectAll}
@@ -354,13 +433,24 @@ export function AuditTrailPage() {
         ROLE_COLORS={ROLE_COLORS}
       />
 
-      {/* Bulk Delete Confirmation Dialog */}
+      {/* Bulk Redact Confirmation Dialog (chain-preserving) */}
       <AuditDeleteDialog
         open={showDeleteConfirm}
         selectedCount={selectedIds.size}
         deleting={deleting}
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={bulkRedactAudit}
+        mode="redact"
+      />
+
+      {/* Bulk Hard-Delete Confirmation Dialog (physical — breaks the chain) */}
+      <AuditDeleteDialog
+        open={showHardDeleteConfirm}
+        selectedCount={selectedIds.size}
+        deleting={hardDeleting}
+        onClose={() => setShowHardDeleteConfirm(false)}
+        onConfirm={bulkHardDeleteAudit}
+        mode="delete"
       />
 
       <ReauthDialog
@@ -370,7 +460,7 @@ export function AuditTrailPage() {
         isVerifying={reauth.isVerifying}
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
-        onCancel={() => { reauth.cancel(); setDeleting(false); }}
+        onCancel={() => { reauth.cancel(); setDeleting(false); setHardDeleting(false); }}
         actionLabel="Delete Audit Record"
       />
     </div>

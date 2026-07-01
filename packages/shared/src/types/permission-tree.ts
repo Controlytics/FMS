@@ -260,6 +260,14 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'slash', category: 'System', permissions: [],
         reauthAction: 'REDACT_AUDIT_RECORD', enforce: 'a',
         gate: [] },
+      // 2026-07-01: PHYSICAL hard-delete (grantable picker toggle). WARNING: unlike
+      // redact, deletion BREAKS the tamper-evident hash chain — verify-chain reports
+      // the downstream chain invalid, permanently. Grant-set includes AUDIT_READ (must
+      // see the page to delete). gate = the discriminating AUDIT_DELETE backend perm.
+      { id: 'audit.delete', label: 'Delete Audit Record (permanent)', sidebarId: 'audit', page: 'Audit', action: 'Delete',
+        icon: 'trash', category: 'System', permissions: ['AUDIT_DELETE', 'AUDIT_READ'],
+        reauthAction: 'DELETE_AUDIT_RECORD', enforce: 'a',
+        gate: ['AUDIT_DELETE'], configurable: true },
       { id: 'audit.verify_chain', label: 'Verify Hash Chain', sidebarId: 'audit', page: 'Audit', action: 'Verify Chain',
         icon: 'shield', category: 'System', permissions: [], enforce: 'a',
         gate: [] },
@@ -844,7 +852,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
  */
 const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'users.create', 'users.view', 'users.edit', 'users.delete', 'users.enable_disable', 'users.unlock', 'users.reset_password',
-  'config.view', 'config.edit', 'config.field_ids', 'roles.manage', 'notifications.view', 'notifications.delete', 'audit.view', 'audit.export', // notifications.manage removed from picker 2026-07-01
+  'config.view', 'config.edit', 'config.field_ids', 'roles.manage', 'notifications.view', 'notifications.delete', 'audit.view', 'audit.export', 'audit.delete', // notifications.manage removed from picker 2026-07-01; audit.delete added 2026-07-01
   'assets.view', // assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 (not configurable)
   // assets.relationships.create/delete + assets.identifiers.create/delete de-duplicated to
   // enforced-only 2026-07-01 (RFID covered by filters.rfid_manage; relationships via edit gate).

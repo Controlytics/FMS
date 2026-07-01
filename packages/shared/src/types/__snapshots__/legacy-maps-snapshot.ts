@@ -31,7 +31,7 @@ interface SidebarSectionSnapshot {
   privilegeIds: string[];
 }
 
-// ─── FEATURE_PRIVILEGES snapshot (88 entries, original order) ────────────────
+// ─── FEATURE_PRIVILEGES snapshot (89 entries, original order) ────────────────
 
 export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   // User Management
@@ -52,6 +52,7 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   { id: 'notifications.delete', label: 'Delete Notifications', category: 'System', icon: 'bell' },
   { id: 'audit.view', label: 'View Audit Trail', category: 'System', icon: 'clipboard' },
   { id: 'audit.export', label: 'Export Audit Trail', category: 'System', icon: 'clipboard' },
+  { id: 'audit.delete', label: 'Delete Audit Record (permanent)', category: 'System', icon: 'trash' },
 
   // Asset Management
   // (assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 — removed from picker)
@@ -184,6 +185,7 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'notifications.delete': ['NOTIFICATION_DELETE'],
   'audit.view': ['AUDIT_READ'],
   'audit.export': ['AUDIT_EXPORT', 'AUDIT_READ'],
+  'audit.delete': ['AUDIT_DELETE', 'AUDIT_READ'],
 
   // Asset Management
   // (assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 — removed from picker)

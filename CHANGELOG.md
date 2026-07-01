@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased] — Audit Trail: physical hard-delete permission (⚠ compliance-affecting) (2026-07-01)
+
+Per explicit operator request (confirmed after being warned twice about the 21 CFR §11
+consequences), re-added the **physical hard-delete** of audit records that was torn out
+in 2026-05 and replaced with redact.
+
+- **New `AUDIT_DELETE` permission** (constants 108 → 109) + **`audit.delete` picker toggle**
+  ("Delete Audit Record (permanent)", gate `['AUDIT_DELETE']`, grant-set `[AUDIT_DELETE, AUDIT_READ]`,
+  feature-privileges 88 → 89). Off by default — no role is granted it; enable per role in
+  Roles & Access. SUPER_ADMIN bypasses the gate.
+- **New reauth actions** `DELETE_AUDIT_RECORD` + `BULK_DELETE_AUDIT_RECORDS` (100 → 102).
+- **Backend** `DELETE /api/audit/:id` + `POST /api/audit/bulk-delete` (audit/routes.ts): require
+  `AUDIT_DELETE` + reauth + a `reason` (≥5 chars). Each disables the `audit_trail_no_delete`
+  immutability trigger for the scope of its transaction (query `pg_trigger` → `ALTER TABLE …
+  DISABLE/ENABLE TRIGGER`; the ACCESS-EXCLUSIVE lock closes any concurrency window), and writes
+  a meta-audit row (`AUDIT_RECORD_DELETED` / `AUDIT_RECORDS_BULK_DELETED`) capturing who/what/why
+  **before** the target row is destroyed.
+- **⚠ WARNING — this breaks the tamper-evident hash chain.** Physical deletion leaves a
+  `chain_position` gap and orphans the next row's `previous_checksum`, so `GET /api/audit/verify-chain`
+  reports the downstream chain **invalid, permanently**. `verify-chain` / `verifyAuditChecksum` were
+  deliberately **not** taught to tolerate authorized deletions — the breakage stays loud and visible.
+  **REDACT (`POST /:id/redact`) remains the recommended, chain-preserving path** (masks the payload,
+  keeps the record + chain intact).
+- **Frontend** (audit page): a distinct **"Delete Permanently"** affordance gated on
+  `can('audit.delete')`, shown alongside the existing (now amber, clearly-labeled) **"Redact"**
+  gated on `can('audit.redact')` (SUPER_ADMIN-only). The shared confirm dialog is now mode-aware
+  (redact vs delete wording). `apiClient.delete` / `deleteWithReauth` gained an optional body so the
+  required `reason` reaches the backend.
+
+Verified: 27/27 RBAC frozen-snapshot tests, 15/15 audit + audit-chain e2e tests (endpoint deletes
+against the real trigger; chain-breaking deletions don't cascade into verify tests); shared/api/web
+typecheck clean.
+
 ## [Unreleased] — Notifications picker: remove Manage, make Delete a real permission (2026-07-01)
 
 Per user request, two changes to Roles & Access → Notifications:
