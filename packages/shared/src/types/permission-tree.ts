@@ -383,23 +383,23 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'filters.create', label: 'Create Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Create',
         icon: 'plus', category: 'Filters Page Controls', permissions: ['FILTER_CREATE', 'ASSET_READ'],
         reauthAction: 'CREATE_FILTER', enforce: 'a',
-        gate: ['FILTER_CREATE', 'ASSET_CREATE'], configurable: true }, // 5C: per-action UI intent (old canCreateFilter)
+        gate: ['FILTER_CREATE'], configurable: true }, // 2026-07-01: dropped ASSET_CREATE alt so broad asset perms don't unlock "create filters"
       { id: 'filters.edit', label: 'Edit Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Edit',
         icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_EDIT', 'ASSET_READ'],
         reauthAction: 'EDIT_FILTER', enforce: 'a',
-        gate: ['FILTER_EDIT', 'ASSET_UPDATE'], configurable: true }, // 5C: per-action UI intent (old canEditFilter)
+        gate: ['FILTER_EDIT'], configurable: true }, // 2026-07-01: dropped ASSET_UPDATE alt so broad asset perms (e.g. via Update Filter Status) don't unlock "edit filters"
       { id: 'filters.delete', label: 'Delete Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Delete',
         icon: 'trash', category: 'Filters Page Controls', permissions: ['FILTER_DELETE', 'ASSET_READ'],
         reauthAction: 'DELETE_FILTER', enforce: 'a',
-        gate: ['FILTER_DELETE', 'ASSET_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDeleteFilter)
+        gate: ['FILTER_DELETE'], configurable: true }, // 2026-07-01: dropped ASSET_DELETE alt
       { id: 'filters.hierarchy_edit', label: 'Edit Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Edit Hierarchy',
         icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_EDIT', 'ASSET_READ'],
         reauthAction: 'EDIT_HIERARCHY_NODE', enforce: 'a',
-        gate: ['FILTER_HIERARCHY_EDIT', 'ASSET_UPDATE'], configurable: true }, // 5C: per-action UI intent (old canEditHierarchy)
+        gate: ['FILTER_HIERARCHY_EDIT'], configurable: true }, // 2026-07-01: dropped ASSET_UPDATE alt so broad asset perms don't unlock "edit block/area/AHU"
       { id: 'filters.hierarchy_delete', label: 'Delete Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Hierarchy',
         icon: 'trash', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
         reauthAction: 'DELETE_HIERARCHY_NODE', enforce: 'a',
-        gate: ['FILTER_HIERARCHY_DELETE', 'ASSET_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDeleteHierarchy)
+        gate: ['FILTER_HIERARCHY_DELETE'], configurable: true }, // 2026-07-01: dropped ASSET_DELETE alt
       { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', sidebarId: 'filter-list', page: 'Filters', action: 'Manage RFID',
         icon: 'wifi', category: 'Filters Page Controls', permissions: ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_READ'], enforce: 'a',
         gate: ['FILTER_RFID_MANAGE'], configurable: true },

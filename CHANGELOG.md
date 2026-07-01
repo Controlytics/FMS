@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — Filters edit/create/delete gate on the specific FILTER_* perm, not broad ASSET_* (2026-07-01)
+
+Follow-up to the ASSET_* over-grant fix. The grant-set change stopped *new* grants of `ASSET_UPDATE`
+via "Update Filter Status", but **existing roles that already held `ASSET_UPDATE` still showed edit
+everywhere** — because the edit/create/delete controls gate via `can('filters.edit')` etc. whose gates
+accepted the broad `ASSET_*` as an alternate (`FILTER_EDIT` **or** `ASSET_UPDATE`).
+
+Fixed by tightening the 5 gates to the specific perm only:
+`filters.edit → [FILTER_EDIT]`, `filters.hierarchy_edit → [FILTER_HIERARCHY_EDIT]`,
+`filters.create → [FILTER_CREATE]`, `filters.delete → [FILTER_DELETE]`,
+`filters.hierarchy_delete → [FILTER_HIERARCHY_DELETE]` (dropped the `ASSET_UPDATE`/`ASSET_CREATE`/`ASSET_DELETE`
+alternates). Now the edit/create/delete controls appear **only** when the role has the specific "Edit Filters" /
+"Edit Block/Area/AHU" toggle — a role with only "Update Filter Status" (or only the broad `ASSET_UPDATE`) sees
+just the manual status-update feature, no edit. Verified: status-only role → status feature only; broad
+`ASSET_UPDATE` → nothing unlocked; `FILTER_EDIT` → edit shows.
+
+**Role sync:** the live-DB `ADMIN` row was stale (relied on `ASSET_UPDATE`; its default-roles definition already
+lists the `FILTER_*` perms) — added `FILTER_EDIT/DELETE/HIERARCHY_CREATE/EDIT/DELETE` to live ADMIN so it keeps
+edit. Custom roles that got edit only via the broad `ASSET_UPDATE` (e.g. MANAGER) now need the "Edit Filters"
+toggle enabled — that's the intended model (edit is granted by the Edit toggle, not by broad/legacy perms).
+Backend edit endpoints still accept `ASSET_UPDATE` via `requireAnyPermission` (UI is fixed; tightening the API
+is a separate follow-up). No gate tests to update; 27/27 RBAC tests pass; shared/api/web typecheck clean.
+
 ## [Unreleased] — Fix ASSET_* over-grant leaking edit/create across the Filters page (2026-07-01)
 
 **Bug (user report):** enabling **Update Filter Status** for a role also made **every edit control on
