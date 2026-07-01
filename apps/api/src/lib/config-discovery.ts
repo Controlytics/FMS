@@ -46,6 +46,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/export-options.def.js'),
     import('../modules/config/defs/replacement-schedule-filters.def.js'),
     import('../modules/config/defs/stage-interlock.def.js'),
+    import('../modules/config/defs/ahu-completion-process.def.js'),
     // ─── Add new module configs below this line ───
   ]);
 
