@@ -323,9 +323,10 @@ MOSQUITTO_REFRESH_TOKEN=random-hex-token
 # MOSQUITTO_DYNSEC_PATH=C:/Program Files/mosquitto/dynamic-security.json
 
 # Phase 4 (2026-05-01): Redis fully retired. Pub/sub moved to an in-process
-# EventEmitter bus (apps/api/src/lib/internal-bus.ts); RPC correlation moved
-# to a Map-based TTL cache (apps/api/src/lib/rpc-cache.ts). REDIS_* env vars
-# are no longer read by anything.
+# EventEmitter bus (apps/api/src/lib/internal-bus.ts). REDIS_* env vars
+# are no longer read by anything. (The device-RPC correlation cache
+# lib/rpc-cache.ts was removed 2026-07-01 as dead code after the Phase 7
+# data-ingestion/MQTT tear-out removed its only consumer.)
 
 # JWT
 JWT_SECRET=random-64-char-string

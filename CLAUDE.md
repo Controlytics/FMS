@@ -26,10 +26,12 @@ The app runs ONLY on local Windows for development. There is no live EC2 / Linux
 - Node.js 20+, PostgreSQL 18
 - **No Redis dependency.** Phase 2 of windows-friendly-rewrite moved the job
   queue to graphile-worker on Postgres. Phase 4 (2026-05-01) retired Redis
-  for pub/sub too — WebSocket events, RPC correlation, pipeline tracing, and
-  debug recorder all run through an in-process EventEmitter bus
-  (`apps/api/src/lib/internal-bus.ts`) and a Map-based TTL cache
-  (`apps/api/src/lib/rpc-cache.ts`). `ioredis` is no longer in package.json.
+  for pub/sub too — WebSocket events, pipeline tracing, and debug recorder
+  all run through an in-process EventEmitter bus
+  (`apps/api/src/lib/internal-bus.ts`). `ioredis` is no longer in package.json.
+  (The device-RPC correlation cache `lib/rpc-cache.ts` was removed 2026-07-01
+  as dead code — its only consumer, the data-ingestion MQTT RPC handler, went
+  in the Phase 7 tear-out.)
 - **No TimescaleDB or MQTT dependency** (removed 2026-06-11..2026-06-17 — see
   Phase 7 below). `digilog_tsdb` database dropped, `packages/db` workspace
   deleted, `mqtt` + `aedes` + `@types/pg` deps uninstalled, Mosquitto Windows

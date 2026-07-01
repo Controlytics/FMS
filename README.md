@@ -101,7 +101,7 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 | Time-series DB | TimescaleDB extension on PG 18 |
 | MQTT broker | Mosquitto 2.0 (Windows-native service, port 1883) |
 | Job queue | graphile-worker on PostgreSQL (LISTEN/NOTIFY + SKIP LOCKED + advisory locks) |
-| Pub/sub (non-queue) | In-process EventEmitter bus (`apps/api/src/lib/internal-bus.ts`) + Map-based RPC TTL cache (`apps/api/src/lib/rpc-cache.ts`). Phase 4 retired Redis. |
+| Pub/sub (non-queue) | In-process EventEmitter bus (`apps/api/src/lib/internal-bus.ts`). Phase 4 retired Redis. |
 | PDF + charts | puppeteer-core + Microsoft Edge + @napi-rs/canvas (no bundled Chromium, no node-gyp) |
 | Mobile | Capacitor Android APK + native Kotlin RFID app |
 | Reverse proxy | Optional / customer-choice (no longer bundled — Fastify on `:3000` direct is the default; see `DEPLOY-WINDOWS.md` § 7 for the NSSM stopgap until Phase 5 ships a managed-service launcher) |

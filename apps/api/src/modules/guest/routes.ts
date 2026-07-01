@@ -5,7 +5,7 @@ import { createNotification } from '../notifications/notification.service.js';
 import { auditLog } from '../../lib/audit.js';
 
 // Lightweight in-memory per-IP throttle for the PUBLIC guest endpoint (no
-// @fastify/rate-limit dependency — same in-process style as rpc-cache). Sliding
+// @fastify/rate-limit dependency — same in-process style as reauth-check). Sliding
 // window: at most MAX_PER_WINDOW requests per IP per WINDOW_MS. Bounded memory.
 const WINDOW_MS = 60 * 1000; // 1 minute
 const MAX_PER_WINDOW = 5;

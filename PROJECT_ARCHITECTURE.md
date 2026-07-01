@@ -57,10 +57,11 @@
 > EMQX → Mosquitto 2.0 (Phase 1); BullMQ on Redis/Memurai → graphile-worker
 > on PostgreSQL (Phase 2); Puppeteer (bundled Chromium) + chartjs-node-canvas
 > → puppeteer-core + Edge + @napi-rs/canvas (Phase 3). **Phase 4 (2026-05-01):
-> Redis fully retired** — non-queue pub/sub (WebSocket events, RPC correlation,
+> Redis fully retired** — non-queue pub/sub (WebSocket events,
 > pipeline tracer, debug recorder) moved to in-process EventEmitter bus
-> (`apps/api/src/lib/internal-bus.ts`) + Map-based TTL cache for RPC
-> (`apps/api/src/lib/rpc-cache.ts`). `ioredis` dependency removed.
+> (`apps/api/src/lib/internal-bus.ts`). `ioredis` dependency removed. (The
+> device-RPC correlation cache `lib/rpc-cache.ts` was removed 2026-07-01 as
+> dead code after the Phase 7 data-ingestion/MQTT tear-out.)
 
 ## Monorepo Package Architecture
 
@@ -438,7 +439,7 @@ Phase 4 of the windows-friendly-rewrite removed Redis from the codebase entirely
 | Former Redis use | Replacement |
 |---|---|
 | Pub/sub (WebSocket events `ws:events`) | In-process EventEmitter bus (`apps/api/src/lib/internal-bus.ts`) |
-| RPC correlation (device commands) | In-process Map TTL cache (`apps/api/src/lib/rpc-cache.ts`) |
+| RPC correlation (device commands) | Removed with the data-ingestion/MQTT tear-out (Phase 7, 2026-06-11..06-17); the `lib/rpc-cache.ts` orphan was deleted 2026-07-01 |
 | Pipeline tracer / debug recorder | Same EventEmitter bus, different channels |
 | Re-auth token cache (10s TTL) | In-memory `Map` in `apps/api/src/lib/reauth-check.ts` |
 | Rule chain graph cache | In-memory cache in rule-chain compiler |
