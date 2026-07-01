@@ -103,6 +103,7 @@ const HierarchyPreviewPage = lazy(() => import('./routes/hierarchy-preview/index
 const MobileWrapperPage = lazy(() => import("./routes/mobile/mobile-wrapper").then(m => ({ default: m.MobileWrapperPage })));
 const MobileLoginPage = lazy(() => import("./routes/mobile/mobile-login").then(m => ({ default: m.MobileLoginPage })));
 const MobileForgotPasswordPage = lazy(() => import("./routes/mobile/mobile-forgot-password").then(m => ({ default: m.MobileForgotPasswordPage })));
+const ServerConfigPage = lazy(() => import('./routes/mobile/server-config'));
 
 function LazyFallback() {
   return (
@@ -156,6 +157,7 @@ createRoot(document.getElementById('root')!).render(
           {/* Mobile routes — standalone, no sidebar */}
           <Route path="/m/login" element={<Suspense fallback={<LazyFallback />}><MobileLoginPage /></Suspense>} />
           <Route path="/m/forgot-password" element={<Suspense fallback={<LazyFallback />}><MobileForgotPasswordPage /></Suspense>} />
+          <Route path="/m/server-config" element={<Suspense fallback={<LazyFallback />}><ServerConfigPage /></Suspense>} />
           <Route path="/m" element={<Suspense fallback={<LazyFallback />}><MobileWrapperPage /></Suspense>} />
 
           {/* Public routes */}
