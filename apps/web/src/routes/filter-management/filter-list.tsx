@@ -74,6 +74,7 @@ export function FilterListPage() {
   const canReplace = can('filters.replace');
   const canStatusUpdate = can('filters.status_update');
   const canRfid = can('filters.rfid_manage');
+  const canExport = can('filters.export');
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   const [panelFilter, setPanelFilter] = useState<FilterRef | null>(null);
   const [panelAction, setPanelAction] = useState<'retire' | 'replace'>('retire');
@@ -1545,8 +1546,8 @@ export function FilterListPage() {
             <div className="flex items-center gap-2">
               {blockFilters.length > 0 && (
                 <>
-                  <ExportMenu surface="filters" onExportPdf={exportFiltersPdf} onExportExcel={exportFiltersExcel}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all" />
+                  {canExport && <ExportMenu surface="filters" onExportPdf={exportFiltersPdf} onExportExcel={exportFiltersExcel}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all" />}
                   <SendForReviewButton buildSnapshot={buildFiltersSnapshot}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all" />
                 </>

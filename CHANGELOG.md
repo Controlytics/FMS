@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] — Filters picker: remove RFID toggle, add Export (PDF/Excel) toggle (2026-07-01)
+
+Per user request, swapped two toggles in the Roles & Access → Filters permissions:
+
+- **Removed "Assign / Unassign RFID Tags"** (`filters.rfid_manage`) from the picker — made enforced-only.
+  No practical impact: `FILTER_RFID_MANAGE` was held only by SUPER_ADMIN (who bypasses `can()` anyway),
+  so nobody was using the toggle to grant RFID. The RFID button still gates on `FILTER_RFID_MANAGE`.
+- **Added "Export Filter List (PDF / Excel)"** (`filters.export` → new `FILTER_LIST_EXPORT` constant,
+  `enforce:'c'`) that hides/unhides the Filters-page Export menu. Gated `<ExportMenu>` in `filter-list.tsx`
+  on `can('filters.export')`. Mirrors `retirement_list.export`: **off by default** (the export menu was
+  previously always visible; now SUPER_ADMIN still sees it via bypass, and admins enable the toggle per role
+  to unhide it for others).
+
+Permission constants **107 → 108**; feature-privileges unchanged at **89** (−1 RFID, +1 Export). Frozen
+snapshot + map updated; 27/27 RBAC tests pass; shared/api/web typecheck clean.
+
 ## [Unreleased] — Filters edit/create/delete gate on the specific FILTER_* perm, not broad ASSET_* (2026-07-01)
 
 Follow-up to the ASSET_* over-grant fix. The grant-set change stopped *new* grants of `ASSET_UPDATE`

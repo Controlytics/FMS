@@ -400,9 +400,16 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'trash', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
         reauthAction: 'DELETE_HIERARCHY_NODE', enforce: 'a',
         gate: ['FILTER_HIERARCHY_DELETE'], configurable: true }, // 2026-07-01: dropped ASSET_DELETE alt
+      // 2026-07-01: filters.rfid_manage made enforced-only (removed from the role-config picker per user request).
+      // RFID assign/unassign still gated on FILTER_RFID_MANAGE (SUPER_ADMIN + roles granted it explicitly).
       { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', sidebarId: 'filter-list', page: 'Filters', action: 'Manage RFID',
         icon: 'wifi', category: 'Filters Page Controls', permissions: ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_READ'], enforce: 'a',
-        gate: ['FILTER_RFID_MANAGE'], configurable: true },
+        gate: ['FILTER_RFID_MANAGE'] },
+      // 2026-07-01: hide/unhide the Filters-page Export (PDF/Excel) menu. enforce:'c' = frontend-only gate
+      // (export happens client-side; no backend route). Mirrors retirement_list.export.
+      { id: 'filters.export', label: 'Export Filter List (PDF / Excel)', sidebarId: 'filter-list', page: 'Filters', action: 'Export',
+        icon: 'download', category: 'Filters Page Controls', permissions: ['FILTER_LIST_EXPORT'], enforce: 'c',
+        gate: ['FILTER_LIST_EXPORT'], configurable: true },
     ],
   },
 
@@ -843,7 +850,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'filters.bulk_upload', 'filters.retire', 'filters.replace', 'filters.status_update',
   'filters.create', 'filters.edit', 'filters.delete',
   'retirement_list.export', 'replacement_list.export',
-  'filters.hierarchy_create', 'filters.hierarchy_edit', 'filters.hierarchy_delete', 'filters.rfid_manage',
+  'filters.hierarchy_create', 'filters.hierarchy_edit', 'filters.hierarchy_delete', 'filters.export', // rfid_manage removed from picker (enforced-only), export added — 2026-07-01
   'replacement_schedule.view', 'replacement_schedule.upload', 'replacement_schedule.review', 'replacement_schedule.approve',
   'block_change.request', 'block_change.approve',
   'stage_approvals.view', 'stage_approvals.decide',
