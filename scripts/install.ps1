@@ -84,6 +84,8 @@ $caPem  = Join-Path $certDir 'rootCA.pem'
 
 if (Test-Path $srvCrt) {
   Write-Host "==> Reusing existing certs in $certDir (upgrade-safe)" -ForegroundColor Cyan
+} elseif ($DryRun) {
+  Write-Host "[dry-run] openssl generate rootCA + server cert (SAN: localhost,127.0.0.1,$lanIp) in $certDir" -ForegroundColor Yellow
 } elseif (-not (Test-Path $openssl)) {
   Write-Host "FATAL: openssl.exe not found at $openssl (needed for HTTPS-on-LAN)." -ForegroundColor Red; exit 1
 } else {
@@ -100,19 +102,19 @@ DNS.1 = localhost
 IP.1 = 127.0.0.1
 IP.2 = $lanIp
 "@
-  if ($DryRun) {
-    Write-Host "[dry-run] openssl generate rootCA + server cert (SAN: localhost,127.0.0.1,$lanIp) in $certDir" -ForegroundColor Yellow
-  } else {
-    & $openssl genrsa -out $caKey 2048
-    & $openssl req -x509 -new -nodes -key $caKey -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out $caPem
-    & $openssl genrsa -out $srvKey 2048
-    & $openssl req -new -key $srvKey -subj "/CN=$lanIp" -out (Join-Path $certDir 'server.csr')
-    & $openssl x509 -req -in (Join-Path $certDir 'server.csr') -CA $caPem -CAkey $caKey -CAcreateserial -days 3650 -sha256 -extfile $ext -out $srvCrt
-    if (-not (Test-Path $srvCrt)) { Write-Host "FATAL: server cert generation failed." -ForegroundColor Red; exit 1 }
-    # Trust the CA on the SERVER so the PC browser does not warn under HTTPS.
-    Import-Certificate -FilePath $caPem -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
-    Write-Host "==> Generated HTTPS certs (SAN includes $lanIp); rootCA.pem = $caPem" -ForegroundColor Cyan
-  }
+  & $openssl genrsa -out $caKey 2048
+  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (CA) failed." -ForegroundColor Red; exit 1 }
+  & $openssl req -x509 -new -nodes -key $caKey -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out $caPem
+  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl CA cert failed." -ForegroundColor Red; exit 1 }
+  & $openssl genrsa -out $srvKey 2048
+  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (server) failed." -ForegroundColor Red; exit 1 }
+  & $openssl req -new -key $srvKey -subj "/CN=$lanIp" -out (Join-Path $certDir 'server.csr')
+  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl server CSR failed." -ForegroundColor Red; exit 1 }
+  & $openssl x509 -req -in (Join-Path $certDir 'server.csr') -CA $caPem -CAkey $caKey -CAcreateserial -days 3650 -sha256 -extfile $ext -out $srvCrt
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $srvCrt)) { Write-Host "FATAL: server cert generation failed." -ForegroundColor Red; exit 1 }
+  # Trust the CA on the SERVER so the PC browser does not warn under HTTPS.
+  Import-Certificate -FilePath $caPem -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+  Write-Host "==> Generated HTTPS certs (SAN includes $lanIp); rootCA.pem = $caPem" -ForegroundColor Cyan
 }
 
 # 2. Secrets + env file. Reuse if present (idempotent); never regenerate.
@@ -191,7 +193,7 @@ if (-not $DryRun) {
     try { $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
     Start-Sleep -Seconds 1
   }
-  if ($ok) { Write-Host "`nDigiLog is running. Open http://localhost:$ApiPort  (login: superadmin)" -ForegroundColor Green }
+  if ($ok) { Write-Host "`nDigiLog is running. Open https://localhost:$ApiPort  (login: superadmin)" -ForegroundColor Green }
   else { Write-Host "`nWARN: API did not report healthy within 30s. Check $logDir." -ForegroundColor Yellow; exit 1 }
 }
 
