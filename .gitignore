@@ -35,6 +35,10 @@ logs/
 
 # Sensitive files - NEVER track
 .env.production
+# apps/web/.env.production is intentionally tracked: it holds ONLY VITE_API_URL,
+# a PUBLIC build-time value baked into client JS (never a secret). Blank = the
+# APK prompts for the server address at runtime (M8). Other .env.production stay ignored.
+!apps/web/.env.production
 .env.staging
 .env.*.local
 CREDENTIALS.md
