@@ -142,7 +142,7 @@ TLS_CERT_PATH=$srvCrt
 SERVE_WEB=true
 WEB_DIST_DIR=$webDist
 UPLOAD_DIR=$uploadDir
-ALLOWED_ORIGINS=https://localhost:$ApiPort,https://${lanIp}:$ApiPort
+ALLOWED_ORIGINS=https://localhost:$ApiPort,https://${lanIp}:$ApiPort,https://localhost,capacitor://localhost,http://localhost
 "@
   if ($DryRun) { Write-Host "[dry-run] write $envFile (secrets generated, app-db password random)" -ForegroundColor Yellow }
   else { Set-Content -Path $envFile -Value $envBody -Encoding ascii; Write-Host "==> Wrote $envFile (secrets generated)" -ForegroundColor Cyan }
