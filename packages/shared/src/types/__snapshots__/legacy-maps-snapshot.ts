@@ -209,13 +209,13 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'filters.events': ['EVENT_READ', 'ASSET_READ'],
 
   // Filters Page Controls
-  'filters.bulk_upload': ['FILTER_BULK_UPLOAD', 'ASSET_CREATE'],
+  'filters.bulk_upload': ['FILTER_BULK_UPLOAD'],
   'filters.retire': ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
   'filters.replace': ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
   'retirement_list.export': ['RETIREMENT_LIST_EXPORT'],
   'replacement_list.export': ['REPLACEMENT_LIST_EXPORT'],
-  'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ'],
-  'filters.hierarchy_create': ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
+  'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_READ'],
+  'filters.hierarchy_create': ['FILTER_HIERARCHY_CREATE', 'ASSET_READ'],
   'filters.create': ['FILTER_CREATE', 'ASSET_READ'],
   'filters.edit': ['FILTER_EDIT', 'ASSET_READ'],
   'filters.delete': ['FILTER_DELETE', 'ASSET_READ'],
@@ -250,9 +250,9 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
 
   // Equipment Groups
   'equipment_groups.view': ['EG_VIEW', 'ASSET_READ'],
-  'equipment_groups.create': ['EG_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
-  'equipment_groups.edit': ['EG_EDIT', 'ASSET_UPDATE', 'ASSET_READ'],
-  'equipment_groups.delete': ['EG_DELETE', 'ASSET_DELETE', 'ASSET_READ'],
+  'equipment_groups.create': ['EG_CREATE', 'ASSET_READ'],
+  'equipment_groups.edit': ['EG_EDIT', 'ASSET_READ'],
+  'equipment_groups.delete': ['EG_DELETE', 'ASSET_READ'],
 
   // Cleaning Cycles
   'cycles.view': ['CYCLE_READ'],

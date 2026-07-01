@@ -318,13 +318,17 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       // that duplicated the filter-specific Create/Edit/Delete Filters + Block/Area/AHU
       // toggles — same capability under different names, because the backend create/edit/
       // delete endpoints accept ASSET_* OR FILTER_*/FILTER_HIERARCHY_* (requireAnyPermission).
-      // The ASSET_CREATE/UPDATE/DELETE *perms* are intentionally KEPT (still granted in
-      // default roles + live DB, still accepted as backend alternates) and still appear in
-      // the grant-expansion of filters.hierarchy_create / filters.bulk_upload /
-      // filters.status_update / equipment_groups.* — so config.service's allMappedPerms set
-      // is unchanged and role rebuilds behave identically. Nodes retained for gate/reauth
-      // resolution; only their picker visibility is removed. See
-      // tasks/ASSET-FILTER-PERM-CONSOLIDATION-PLAN.md.
+      // The ASSET_CREATE/UPDATE/DELETE *perms* are KEPT as constants (still granted in
+      // default roles + live DB, still accepted as backend alternates via requireAnyPermission).
+      // **2026-07-01 UPDATE:** ASSET_* was REMOVED from the grant-expansion of
+      // filters.hierarchy_create / filters.bulk_upload / filters.status_update /
+      // equipment_groups.* — it was a broad over-grant that leaked edit/create/delete across
+      // the Filters page via useCan (e.g. granting "Update Filter Status" handed out ASSET_UPDATE,
+      // which satisfies the filters.edit / hierarchy_edit gates). ASSET_* now appears in NO
+      // configurable grant-set, so it has LEFT allMappedPerms and is manual-managed (edit/create
+      // is granted via the FILTER_* toggles). Existing roles' ASSET_* is preserved on re-save.
+      // Nodes retained for gate/reauth resolution; only their picker visibility is removed.
+      // See tasks/ASSET-FILTER-PERM-CONSOLIDATION-PLAN.md + CHANGELOG 2026-07-01.
       { id: 'assets.create', label: 'Create Assets', sidebarId: 'filter-list', page: 'Filters', action: 'Create Asset',
         icon: 'plus', category: 'Asset Management', permissions: ['ASSET_CREATE', 'ASSET_VIEW', 'ASSET_READ'],
         reauthAction: 'CREATE_ASSET', enforce: 'b',
@@ -355,7 +359,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         gate: ['ASSET_IDENTIFIER_DELETE', 'FILTER_RFID_MANAGE'] },
       // Filter-specific page controls
       { id: 'filters.bulk_upload', label: 'Bulk Upload Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Bulk Upload',
-        icon: 'upload', category: 'Filters Page Controls', permissions: ['FILTER_BULK_UPLOAD', 'ASSET_CREATE'],
+        icon: 'upload', category: 'Filters Page Controls', permissions: ['FILTER_BULK_UPLOAD'], // 2026-07-01: dropped ASSET_CREATE over-grant (leaked "create filters" via useCan; endpoint gates on FILTER_BULK_UPLOAD)
         reauthAction: 'BULK_UPLOAD_FILTERS', enforce: 'a',
         // 5C: per-action UI intent (old FE gated bulk-upload on FILTER_BULK_UPLOAD only).
         // Shared create endpoint also accepts ASSET_CREATE — residual API-looseness, not UI.
@@ -369,11 +373,11 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         reauthAction: 'REPLACE_FILTER', enforce: 'a',
         gate: ['FILTER_REPLACE'], configurable: true },
       { id: 'filters.status_update', label: 'Update Filter Status', sidebarId: 'filter-list', page: 'Filters', action: 'Update Status',
-        icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ'],
+        icon: 'edit', category: 'Filters Page Controls', permissions: ['FILTER_STATUS_UPDATE', 'ASSET_READ'], // 2026-07-01: dropped ASSET_UPDATE over-grant (leaked edit-everywhere via useCan; endpoint gates on FILTER_STATUS_UPDATE)
         reauthAction: 'UPDATE_FILTER_LIFECYCLE', enforce: 'a',
         gate: ['FILTER_STATUS_UPDATE'], configurable: true },
       { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', sidebarId: 'filter-list', page: 'Filters', action: 'Create Hierarchy',
-        icon: 'plus', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE', 'ASSET_READ'], enforce: 'a',
+        icon: 'plus', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_CREATE', 'ASSET_READ'], enforce: 'a', // 2026-07-01: dropped ASSET_CREATE over-grant
         // 5C: per-action UI intent (old FE gated block/area/AHU create on FILTER_HIERARCHY_CREATE).
         gate: ['FILTER_HIERARCHY_CREATE'], configurable: true },
       { id: 'filters.create', label: 'Create Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Create',
@@ -655,15 +659,15 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'eye', category: 'Equipment Group Controls', permissions: ['EG_VIEW', 'ASSET_READ'], enforce: 'a',
         gate: ['ASSET_READ', 'EG_VIEW', 'VERSION_HISTORY_VIEW'], configurable: true },
       { id: 'equipment_groups.create', label: 'Create Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Create',
-        icon: 'plus', category: 'Equipment Group Controls', permissions: ['EG_CREATE', 'ASSET_CREATE', 'ASSET_READ'],
+        icon: 'plus', category: 'Equipment Group Controls', permissions: ['EG_CREATE', 'ASSET_READ'], // 2026-07-01: dropped ASSET_CREATE over-grant
         reauthAction: 'CREATE_EQUIPMENT_GROUP', enforce: 'a',
         gate: ['EG_CREATE'], configurable: true }, // 5C: per-action UI intent (old canCreate=EG_CREATE)
       { id: 'equipment_groups.edit', label: 'Edit Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Edit',
-        icon: 'edit', category: 'Equipment Group Controls', permissions: ['EG_EDIT', 'ASSET_UPDATE', 'ASSET_READ'],
+        icon: 'edit', category: 'Equipment Group Controls', permissions: ['EG_EDIT', 'ASSET_READ'], // 2026-07-01: dropped ASSET_UPDATE over-grant (leaked filter edit via useCan)
         reauthAction: 'UPDATE_EQUIPMENT_GROUP', enforce: 'a',
         gate: ['EG_EDIT'], configurable: true }, // 5C: per-action UI intent (old canEdit=EG_EDIT; covers edit + enable/disable)
       { id: 'equipment_groups.delete', label: 'Delete Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Delete',
-        icon: 'trash', category: 'Equipment Group Controls', permissions: ['EG_DELETE', 'ASSET_DELETE', 'ASSET_READ'],
+        icon: 'trash', category: 'Equipment Group Controls', permissions: ['EG_DELETE', 'ASSET_READ'], // 2026-07-01: dropped ASSET_DELETE over-grant
         reauthAction: 'DELETE_EQUIPMENT_GROUP', enforce: 'a',
         gate: ['EG_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDelete=EG_DELETE)
       { id: 'equipment_groups.toggle', label: 'Enable / Disable Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Enable/Disable',

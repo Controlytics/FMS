@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — Fix ASSET_* over-grant leaking edit/create across the Filters page (2026-07-01)
+
+**Bug (user report):** enabling **Update Filter Status** for a role also made **every edit control on
+the Filters page appear**. Root cause: `filters.status_update`'s grant-set was
+`['FILTER_STATUS_UPDATE', 'ASSET_UPDATE', 'ASSET_READ']` — it handed out `ASSET_UPDATE`, and the page
+gates edit via `can('filters.edit')` (gate `FILTER_EDIT` **or** `ASSET_UPDATE`) and
+`can('filters.hierarchy_edit')` (gate `FILTER_HIERARCHY_EDIT` **or** `ASSET_UPDATE`). So the broad
+`ASSET_UPDATE` satisfied the edit gates. Real escalation, not just cosmetic — the edit endpoints also
+accept `ASSET_UPDATE`. The status-update endpoint itself only needs `FILTER_STATUS_UPDATE`.
+
+**Fix (whole pattern — 6 toggles):** removed the broad `ASSET_CREATE/UPDATE/DELETE` over-grants from
+the grant-sets of `filters.status_update` (`ASSET_UPDATE`), `filters.bulk_upload` + `filters.hierarchy_create`
++ `equipment_groups.create` (`ASSET_CREATE`), `equipment_groups.edit` (`ASSET_UPDATE`), and
+`equipment_groups.delete` (`ASSET_DELETE`). Each keeps its specific perm (`FILTER_*`/`EG_*`) + `ASSET_READ`.
+
+**Consequence:** `ASSET_*` now appears in **no** configurable grant-set, so it left `allMappedPerms` and is
+**manual-managed** — edit/create is granted via the `FILTER_*` toggles. This reverses the 2026-06-30
+"keep ASSET_* in grant-sets" decision (which had the side effect of this leak). Perm constants KEPT;
+ADMIN/MAINTENANCE hold `ASSET_*` explicitly in default-roles; existing roles' `ASSET_*` is preserved on
+re-save (no data migration — no live role was spuriously leaked). Feature-privilege count unchanged (89).
+27/27 RBAC tests pass; shared/api/web typecheck clean.
+
 ## [Unreleased] — Permissions-picker redundancy audit: de-dup toggles + re-tag notifications (2026-07-01)
 
 Audited all 92 configurable picker toggles (gate vs. actual backend enforcement). Findings + fixes:
