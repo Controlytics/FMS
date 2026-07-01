@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import * as executor from '@digilog/shared';
 import { loadLocalContext } from './local-context.js';
 import type { RequestContext } from '../../types/context.js';
+import { AppError } from '../../lib/errors.js';
 
 export type AhuCompletionMode = 'NONE' | 'POPUP' | 'INTERLOCK';
 
@@ -138,4 +139,39 @@ export async function computeAhuCompletionStatus(
     .map(f => ({ id: f.id, name: f.name, stage: f.currentLifecycleState ?? 'Not started' }));
 
   return { allAtFinal: pending.length === 0, pending };
+}
+
+/**
+ * Gate: block a filter from submitting its final-stage advance when the AHU
+ * interlock mode is INTERLOCK and one or more sibling filters have not yet
+ * reached their final cleaning stage.
+ *
+ * Mirrors assertStageApprovedToLeave (stage-interlock.ts) — same AppError
+ * class, same details-shape pattern — but with status 422 and code
+ * AHU_INTERLOCK_PENDING.
+ *
+ * Short-circuits (no-op) when:
+ *  - isOfflineReplay is true (best-effort offline; D2 decision)
+ *  - mode is not INTERLOCK
+ *  - the filter has no AHU parent
+ */
+export async function assertAhuInterlockSatisfied(params: {
+  filterId: string;
+  isOfflineReplay: boolean;
+}): Promise<void> {
+  if (params.isOfflineReplay) return;
+  if ((await getAhuCompletionMode()) !== 'INTERLOCK') return;
+
+  const ahuId = await resolveAhuId(params.filterId);
+  if (!ahuId) return; // not under an AHU → don't gate
+
+  const { allAtFinal, pending } = await computeAhuCompletionStatus(ahuId, params.filterId);
+  if (!allAtFinal) {
+    throw new AppError(
+      422,
+      'AHU_INTERLOCK_PENDING',
+      'All filters belonging to this AHU must reach their final cleaning stage before submission.',
+      { pendingFilters: pending },
+    );
+  }
 }

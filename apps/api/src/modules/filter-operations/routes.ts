@@ -8,6 +8,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
 import { getCleaningReasons } from './filter-resolver.js';
+import { computeAhuCompletionStatus } from './ahu-completion-gate.js';
 
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
@@ -581,5 +582,43 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.terminateCycle(ctx, id, req.body as { justification: string; clientOpId?: string; tapeVersion?: number });
+  });
+
+  // ── AHU completion status ─────────────────────────────────────────────────
+  // Returns how many sibling filters are still pending for the given AHU.
+  // Optional ?exclude= query param omits the calling filter from the sibling count
+  // (mirrors the exclude arg of computeAhuCompletionStatus).
+  app.get('/ahu/:ahuId/completion-status', {
+    preHandler: [app.requirePermission('ASSET_READ')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'AHU completion status — which sibling filters are still pending',
+      params: { type: 'object', required: ['ahuId'], properties: { ahuId: { type: 'string' } } },
+      querystring: { type: 'object', properties: { exclude: { type: 'string' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            allAtFinal: { type: 'boolean' },
+            pending: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                  stage: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const { ahuId } = req.params as { ahuId: string };
+    const { exclude } = (req.query ?? {}) as { exclude?: string };
+    return computeAhuCompletionStatus(ahuId, exclude ?? '');
   });
 }

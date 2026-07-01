@@ -35,7 +35,8 @@ import { hashPassword } from '../../../lib/password.js';
 import { AppError } from '../../../lib/errors.js';
 import { loginAs } from '../../../e2e/test-helper.js';
 import { randomUUID } from 'node:crypto';
-import { computeAhuCompletionStatus } from '../ahu-completion-gate.js';
+import { computeAhuCompletionStatus, assertAhuInterlockSatisfied, resolveAhuId } from '../ahu-completion-gate.js';
+import filterOperationsRoutes from '../routes.js';
 
 // ── Unique test user ────────────────────────────────────────────────────────
 // Derived from this file's name so it never clashes with the shared `admin`
@@ -368,5 +369,127 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
     const done = await computeAhuCompletionStatus(ahuId, filterBId);
     expect(done.allAtFinal).toBe(true);
     expect(done.pending).toEqual([]);
+  });
+
+  // ── Task 4: assertAhuInterlockSatisfied + completion-status endpoint ─────────
+  describe('Task 4 — assertAhuInterlockSatisfied + completion-status endpoint', () => {
+    let app4: FastifyInstance;
+    let authHeaders4: Record<string, string>;
+
+    beforeAll(async () => {
+      // Set mode to INTERLOCK in DB (upsert in case first describe's afterAll
+      // has already run and the row exists with NONE; or the row doesn't exist yet).
+      await prisma.systemConfig.upsert({
+        where: { configKey: 'ahu-completion-process' },
+        update: { configValue: { mode: 'INTERLOCK' } as any },
+        create: {
+          configKey: 'ahu-completion-process',
+          configValue: { mode: 'INTERLOCK' } as any,
+          configType: 'filter-management',
+        },
+      });
+
+      // Build a minimal Fastify app with filter-operations routes (for endpoint test).
+      app4 = Fastify({ logger: false, ajv: { customOptions: { keywords: ['example'] } } });
+      await app4.register(cors, { origin: true, credentials: true });
+      await app4.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+      await app4.register(authPlugin);
+      await app4.register(rbacPlugin);
+      app4.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+        if (err instanceof AppError) {
+          return reply.code(err.statusCode).send({
+            error: err.code,
+            message: err.message,
+            ...(err.details ? { details: err.details } : {}),
+          });
+        }
+        if ((err as any).code === 'FST_ERR_VALIDATION' || (err as any).validation) {
+          return reply.code(400).send({
+            error: 'VALIDATION_ERROR',
+            message: err.message,
+            ...((err as any).validation ? { details: (err as any).validation } : {}),
+          });
+        }
+        const status = err.statusCode ?? 500;
+        return reply.code(status).send({ error: err.message || 'Internal Server Error' });
+      });
+      await app4.register(authRoutes, { prefix: '/api/auth' });
+      await app4.register(filterOperationsRoutes, { prefix: '/api/filters' });
+      await app4.ready();
+
+      // Login as the SUPER_ADMIN provisioned in the first describe's beforeAll.
+      // That user persists in the DB across all describes in this file.
+      const token = await loginAs(app4, AHU_GATE_USERNAME, AHU_GATE_PASSWORD);
+      authHeaders4 = { authorization: `Bearer ${token}` };
+    }, 30_000);
+
+    afterAll(async () => {
+      // Reset config to NONE so we leave no state leakage.
+      try {
+        await prisma.systemConfig.updateMany({
+          where: { configKey: 'ahu-completion-process' },
+          data: { configValue: { mode: 'NONE' } as any },
+        });
+      } catch { /* swallow */ }
+      try { await app4.close(); } catch { /* swallow */ }
+    }, 10_000);
+
+    // ── resolveAhuId coverage (Task 3 follow-through) ───────────────────────
+    it('resolveAhuId returns the AHU id when the immediate parent is an AHU', async () => {
+      const resolved = await resolveAhuId(filterAId);
+      expect(resolved).toBe(ahuId);
+    });
+
+    it('resolveAhuId returns null when the immediate parent is not an AHU (AHU has no parent)', async () => {
+      // ahuId itself has parentId = null → early return null.
+      // Covers the gap: "returns null when parent is NOT an AHU".
+      const resolved = await resolveAhuId(ahuId);
+      expect(resolved).toBeNull();
+    });
+
+    // ── assertAhuInterlockSatisfied ─────────────────────────────────────────
+    it('assertAhuInterlockSatisfied passes on offline replay regardless of mode', async () => {
+      // isOfflineReplay = true → immediate return, no DB reads.
+      await expect(assertAhuInterlockSatisfied({ filterId: filterAId, isOfflineReplay: true }))
+        .resolves.toBeUndefined();
+    });
+
+    it('assertAhuInterlockSatisfied passes when mode is NONE', async () => {
+      // Temporarily set mode to NONE.
+      await prisma.systemConfig.updateMany({
+        where: { configKey: 'ahu-completion-process' },
+        data: { configValue: { mode: 'NONE' } as any },
+      });
+      try {
+        await expect(assertAhuInterlockSatisfied({ filterId: filterAId, isOfflineReplay: false }))
+          .resolves.toBeUndefined();
+      } finally {
+        // Restore INTERLOCK for the throw test below.
+        await prisma.systemConfig.updateMany({
+          where: { configKey: 'ahu-completion-process' },
+          data: { configValue: { mode: 'INTERLOCK' } as any },
+        });
+      }
+    });
+
+    it('assertAhuInterlockSatisfied throws 422 AHU_INTERLOCK_PENDING when a sibling is not at final stage', async () => {
+      // mode = INTERLOCK; filter A is at S2 (final) but filter B is at S1 (not final).
+      // Calling with filterAId (exclude A): B is pending → should throw.
+      await expect(assertAhuInterlockSatisfied({ filterId: filterAId, isOfflineReplay: false }))
+        .rejects.toMatchObject({ statusCode: 422, code: 'AHU_INTERLOCK_PENDING' });
+    });
+
+    // ── GET /api/filters/ahu/:ahuId/completion-status ───────────────────────
+    it('GET completion-status returns 200 with allAtFinal=false and B in pending', async () => {
+      const res = await app4.inject({
+        method: 'GET',
+        url: `/api/filters/ahu/${ahuId}/completion-status`,
+        headers: authHeaders4,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.allAtFinal).toBe(false);
+      expect(body.pending.map((p: { id: string }) => p.id)).toContain(filterBId);
+    });
   });
 });
