@@ -31,7 +31,7 @@ interface SidebarSectionSnapshot {
   privilegeIds: string[];
 }
 
-// ─── FEATURE_PRIVILEGES snapshot (96 entries, original order) ────────────────
+// ─── FEATURE_PRIVILEGES snapshot (92 entries, original order) ────────────────
 
 export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   // User Management
@@ -56,15 +56,8 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
 
   // Asset Management
   // (assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 — removed from picker)
-  { id: 'assets.view', label: 'View Assets', category: 'Asset Management', icon: 'eye' },
-
-  // Asset Relationships
-  { id: 'assets.relationships.create', label: 'Create Relationships', category: 'Asset Relationships', icon: 'link' },
-  { id: 'assets.relationships.delete', label: 'Delete Relationships', category: 'Asset Relationships', icon: 'link' },
-
-  // Asset Identifiers
-  { id: 'assets.identifiers.create', label: 'Assign RFID Tags / Create Identifiers', category: 'RFID & Identifiers', icon: 'wifi' },
-  { id: 'assets.identifiers.delete', label: 'Unassign RFID Tags / Delete Identifiers', category: 'RFID & Identifiers', icon: 'wifi' },
+  // (assets.relationships.* + assets.identifiers.* de-duplicated to enforced-only 2026-07-01)
+  { id: 'assets.view', label: 'View Filters', category: 'Asset Management', icon: 'eye' },
 
   // Dashboards
   { id: 'dashboard.view', label: 'View Dashboards', category: 'Dashboards', icon: 'layout' },
@@ -199,15 +192,8 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
 
   // Asset Management
   // (assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 — removed from picker)
+  // (assets.relationships.* + assets.identifiers.* de-duplicated to enforced-only 2026-07-01)
   'assets.view': ['ASSET_VIEW', 'ASSET_READ'],
-
-  // Asset Relationships
-  'assets.relationships.create': ['ASSET_RELATIONSHIP_CREATE', 'ASSET_VIEW'],
-  'assets.relationships.delete': ['ASSET_RELATIONSHIP_DELETE', 'ASSET_VIEW'],
-
-  // Asset Identifiers
-  'assets.identifiers.create': ['ASSET_IDENTIFIER_CREATE', 'ASSET_VIEW'],
-  'assets.identifiers.delete': ['ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW'],
 
   // Dashboards
   'dashboard.view': ['DASHBOARD_VIEW'],
@@ -240,7 +226,7 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'filters.delete': ['FILTER_DELETE', 'ASSET_READ'],
   'filters.hierarchy_edit': ['FILTER_HIERARCHY_EDIT', 'ASSET_READ'],
   'filters.hierarchy_delete': ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
-  'filters.rfid_manage': ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_READ'],
+  'filters.rfid_manage': ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_READ'],
   'replacement_schedule.view': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'],
   'replacement_schedule.upload': ['REPLACEMENT_SCHEDULE_UPLOAD'],
   'replacement_schedule.review': ['REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_VIEW'],
@@ -389,7 +375,7 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     label: "Filters",
     icon: "\u{1F50D}",
     description: "Filter inventory by block",
-    privilegeIds: ["assets.view", "filters.operate", "filters.events", "assets.identifiers.create", "assets.identifiers.delete", "filters.bulk_upload", "filters.retire", "filters.replace", "filters.status_update", "filters.hierarchy_create", "filters.rfid_manage"],
+    privilegeIds: ["assets.view", "filters.operate", "filters.events", "filters.bulk_upload", "filters.retire", "filters.replace", "filters.status_update", "filters.hierarchy_create", "filters.rfid_manage"],
   },
   {
     sidebarId: "filter-retirements",

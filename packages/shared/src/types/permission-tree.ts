@@ -305,10 +305,10 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Filter List ----
   {
     sidebarId: 'filter-list', label: 'Filters', icon: '🔍', description: 'Filter inventory by block',
-    visibilityPrivilegeIds: ['assets.view', 'filters.operate', 'filters.events', 'assets.identifiers.create', 'assets.identifiers.delete', 'filters.bulk_upload', 'filters.retire', 'filters.replace', 'filters.status_update', 'filters.hierarchy_create', 'filters.rfid_manage'],
+    visibilityPrivilegeIds: ['assets.view', 'filters.operate', 'filters.events', 'filters.bulk_upload', 'filters.retire', 'filters.replace', 'filters.status_update', 'filters.hierarchy_create', 'filters.rfid_manage'],
     nodes: [
       // Asset / Filter viewing
-      { id: 'assets.view', label: 'View Assets', sidebarId: 'filter-list', page: 'Filters', action: 'View',
+      { id: 'assets.view', label: 'View Filters', sidebarId: 'filter-list', page: 'Filters', action: 'View',
         icon: 'eye', category: 'Asset Management', permissions: ['ASSET_VIEW', 'ASSET_READ'], enforce: 'b',
         gate: ['ASSET_VIEW'], configurable: true },
       // 2026-06-30: assets.create/edit/delete are DE-DUPLICATED out of the role-config
@@ -335,22 +335,27 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'trash', category: 'Asset Management', permissions: ['ASSET_DELETE', 'ASSET_VIEW', 'ASSET_READ'],
         reauthAction: 'DELETE_ASSET', enforce: 'b',
         gate: ['ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE'] },
+      // 2026-07-01: relationships + identifiers (RFID) toggles DE-DUPLICATED to enforced-only
+      // (configurable dropped). Relationships' ASSET_RELATIONSHIP_* are grant-only perms never
+      // used as a route gate (real gate = ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT on PUT
+      // instance). RFID assign/unassign is fully covered by the single filters.rfid_manage toggle
+      // (both identifier endpoints accept FILTER_RFID_MANAGE via requireAnyPermission). Nodes are
+      // retained for gate/reauth resolution; only their picker visibility is removed. Perm
+      // constants KEPT. See CHANGELOG 2026-07-01.
       { id: 'assets.relationships.create', label: 'Create Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Create Relationship',
         icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_CREATE', 'ASSET_VIEW'], enforce: 'a',
-        // ASSET_RELATIONSHIP_CREATE is a grant perm only; backend enforces via PUT instance (parentId change) → ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT
-        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'], configurable: true },
+        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
       { id: 'assets.relationships.delete', label: 'Delete Relationships', sidebarId: 'filter-list', page: 'Filters', action: 'Delete Relationship',
         icon: 'link', category: 'Asset Relationships', permissions: ['ASSET_RELATIONSHIP_DELETE', 'ASSET_VIEW'], enforce: 'a',
-        // ASSET_RELATIONSHIP_DELETE is a grant perm only; backend enforces via PUT instance (parentId clear) → ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT
-        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'], configurable: true },
+        gate: ['ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT'] },
       { id: 'assets.identifiers.create', label: 'Assign RFID Tags / Create Identifiers', sidebarId: 'filter-list', page: 'Filters', action: 'Assign RFID',
         icon: 'wifi', category: 'RFID & Identifiers', permissions: ['ASSET_IDENTIFIER_CREATE', 'ASSET_VIEW'],
         reauthAction: 'CREATE_ASSET_IDENTIFIER', enforce: 'a',
-        gate: ['ASSET_IDENTIFIER_CREATE', 'FILTER_RFID_MANAGE'], configurable: true },
+        gate: ['ASSET_IDENTIFIER_CREATE', 'FILTER_RFID_MANAGE'] },
       { id: 'assets.identifiers.delete', label: 'Unassign RFID Tags / Delete Identifiers', sidebarId: 'filter-list', page: 'Filters', action: 'Unassign RFID',
         icon: 'wifi', category: 'RFID & Identifiers', permissions: ['ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW'],
         reauthAction: 'DELETE_ASSET_IDENTIFIER', enforce: 'a',
-        gate: ['ASSET_IDENTIFIER_DELETE', 'FILTER_RFID_MANAGE'], configurable: true },
+        gate: ['ASSET_IDENTIFIER_DELETE', 'FILTER_RFID_MANAGE'] },
       // Filter-specific page controls
       { id: 'filters.bulk_upload', label: 'Bulk Upload Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Bulk Upload',
         icon: 'upload', category: 'Filters Page Controls', permissions: ['FILTER_BULK_UPLOAD', 'ASSET_CREATE'],
@@ -395,7 +400,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         reauthAction: 'DELETE_HIERARCHY_NODE', enforce: 'a',
         gate: ['FILTER_HIERARCHY_DELETE', 'ASSET_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDeleteHierarchy)
       { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', sidebarId: 'filter-list', page: 'Filters', action: 'Manage RFID',
-        icon: 'wifi', category: 'Filters Page Controls', permissions: ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_READ'], enforce: 'a',
+        icon: 'wifi', category: 'Filters Page Controls', permissions: ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_READ'], enforce: 'a',
         gate: ['FILTER_RFID_MANAGE'], configurable: true },
     ],
   },
@@ -826,8 +831,8 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'users.create', 'users.view', 'users.edit', 'users.delete', 'users.enable_disable', 'users.unlock', 'users.reset_password',
   'config.view', 'config.edit', 'config.field_ids', 'roles.manage', 'notifications.view', 'notifications.manage', 'notifications.delete', 'audit.view', 'audit.export',
   'assets.view', // assets.create/edit/delete de-duplicated to enforced-only 2026-06-30 (not configurable)
-  'assets.relationships.create', 'assets.relationships.delete',
-  'assets.identifiers.create', 'assets.identifiers.delete',
+  // assets.relationships.create/delete + assets.identifiers.create/delete de-duplicated to
+  // enforced-only 2026-07-01 (RFID covered by filters.rfid_manage; relationships via edit gate).
   'dashboard.view', 'dashboard.create', 'dashboard.manage', 'dashboard.assign',
   'checklists.submit', 'checklists.create', 'checklists.edit', 'checklists.delete', 'checklists.toggle',
   'filters.operate', 'filters.bypass', 'filters.events',

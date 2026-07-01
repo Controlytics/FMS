@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — Roles & Access: de-dup RFID/Relationship toggles + rename View Filters (2026-07-01)
+
+Cleaned up redundant toggles in the **Roles & Access → Permissions** picker (feature
+privileges **96 → 92**), following the 2026-06-30 assets/filters de-dup pattern:
+
+- **RFID assign/unassign was shown 3×** — `assets.identifiers.create` ("Assign RFID Tags"),
+  `assets.identifiers.delete` ("Unassign RFID Tags"), and `filters.rfid_manage`
+  ("Assign / Unassign RFID Tags"). Made the two `assets.identifiers.*` nodes **enforced-only**
+  (dropped from the picker); `filters.rfid_manage` is now the single RFID toggle. Both identifier
+  endpoints already accept `FILTER_RFID_MANAGE` via `requireAnyPermission`, and `ASSET_IDENTIFIER_DELETE`
+  was added to `filters.rfid_manage`'s grant-set so the permission map stays complete.
+- **Relationship toggles were vestigial** — `assets.relationships.create/delete` grant
+  `ASSET_RELATIONSHIP_CREATE/DELETE`, which are **never used as a route gate** (relationships are
+  created/removed via the PUT-instance parentId change, gated by `ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT`).
+  Made both **enforced-only**.
+- **Renamed** `assets.view` label "View Assets" → "View Filters".
+
+Nodes are retained for gate/reauth resolution and all permission constants are kept, so **no role's
+effective access changes** and no `useCan` gating breaks (none referenced these node ids). Updated the
+frozen-snapshot oracle + count assertions (`legacy-maps-derived.test.ts` 96→92); **all 29 RBAC tests
+pass**, shared/api/web typecheck clean.
+
 ## [Unreleased] — Drop orphaned qr_codes + latest_telemetry tables (2026-07-01)
 
 Removed two dead tables surfaced by a schema audit: **`QrCode`/`qr_codes`** and
