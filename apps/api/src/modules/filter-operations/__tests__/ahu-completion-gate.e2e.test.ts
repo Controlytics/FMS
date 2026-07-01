@@ -355,8 +355,18 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
   }, 30_000);
 
   it('computeAhuCompletionStatus reports the mid-cleaning sibling as pending', async () => {
+    // Exclude A (at final S2). Only B (at S1, non-final) remains → allAtFinal false.
     const status = await computeAhuCompletionStatus(ahuId, filterAId);
     expect(status.allAtFinal).toBe(false);
     expect(status.pending.map(p => p.id)).toContain(filterBId);
+  });
+
+  it('computeAhuCompletionStatus sees only the final-stage filter as done', async () => {
+    // Exclude B (at S1). Only A (at S2, final) remains.
+    // If computeFinalStageKey returns null/wrong key, A is treated as pending → assertion fails.
+    // This discriminating case proves the final-stage graph walk actually works.
+    const done = await computeAhuCompletionStatus(ahuId, filterBId);
+    expect(done.allAtFinal).toBe(true);
+    expect(done.pending).toEqual([]);
   });
 });
