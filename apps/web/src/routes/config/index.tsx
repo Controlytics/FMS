@@ -222,6 +222,18 @@ const superAdminCards = [
     gradient: 'from-amber-500 to-orange-600',
     shadowColor: 'shadow-amber-500/25',
   },
+  {
+    title: 'AHU Cleaning Completion Process',
+    description: 'Interlock / Popup / None for final-stage submission',
+    href: '/config/dynamic/ahu-completion-process',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+      </svg>
+    ),
+    gradient: 'from-teal-500 to-emerald-600',
+    shadowColor: 'shadow-teal-500/25',
+  },
   // PM Schedule Settings is edited on the consolidated Role Assignments page
   // (Section "PM Schedule Settings"). The old standalone card was a duplicate
   // and has been removed — see roleAssignmentKeys in ConfigIndexPage.
