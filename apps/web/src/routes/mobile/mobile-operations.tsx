@@ -38,6 +38,10 @@ import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
 // go through core.dispatch / core.advance / core.startAndAdvance / core.submitChecklist.
 import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
+// Task 7 — AHU completion pre-flight (Remaining Filters dialog).
+import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
+import { checkAhuCompletion } from '../../lib/filter-ops/ahu-completion-check';
+import { RemainingFiltersDialog } from '../filter-management/components/remaining-filters-dialog';
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 
@@ -67,6 +71,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // ─── D1/D2/D4 Day 3b — useFilterOperationsCore is now authoritative ──────
   // Owns all dialog state + executeOrQueue invocations for the five dialogs.
   const core = useFilterOperationsCore();
+  // Task 7: AHU completion mode (NONE / POPUP / INTERLOCK) from config.
+  const ahuMode = useAhuCompletionMode();
   const mobileNav = useNavigate();
 
   // Tablet access control — which features are allowed for this role
@@ -137,6 +143,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     gatedStage: boolean; stageKey: string | null; status: string | null;
     approvalId: string | null; approverRole: string | null; blocksLeaving: boolean;
   } | null>(null);
+  // Task 7: AHU remaining-filters dialog state + Promise resolve ref.
+  const [ahuDialogState, setAhuDialogState] = useState<{
+    mode: 'POPUP' | 'INTERLOCK';
+    pending: { id: string; name: string; stage: string }[];
+  } | null>(null);
+  const ahuDialogResolveRef = useRef<((proceed: boolean) => void) | null>(null);
 
   // RFID scan input ref + focus management. autoFocus only fires once on mount,
   // so after the first scan succeeds the input loses focus and subsequent RFID
@@ -2106,6 +2118,34 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const checklists = checklistDialog.checklists as any[];
     for (const cl of checklists) { for (const q of cl.questions) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
+
+    // Task 7: AHU completion pre-flight — POPUP only.
+    // Mobile: the filter's parentId is the AHU (per resolveAhuId server logic).
+    // INTERLOCK is server-driven (422 AHU_INTERLOCK_PENDING, caught in the
+    // single-mode try/catch below). No INTERLOCK pre-flight here: firing at every
+    // checklist submit (not just the terminal one) would deadlock two filters in
+    // the same AHU — each waiting for the other before it can advance past its
+    // own intermediate checklists.
+    if (ahuMode === 'POPUP') {
+      const _filterId = checklistDialog.filterId;
+      const _ahuId = allFilters.find((f: any) => f.id === _filterId)?.parentId ?? null;
+      try {
+        const _ahuCheck = await checkAhuCompletion('POPUP', _ahuId, _filterId, online);
+        if (_ahuCheck.pending.length > 0) {
+          const _shouldProceed = await new Promise<boolean>((resolve) => {
+            ahuDialogResolveRef.current = resolve;
+            setAhuDialogState({ mode: 'POPUP', pending: _ahuCheck.pending });
+          });
+          if (!_shouldProceed) {
+            setLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // Non-fatal: proceed with submission even if the AHU check fails
+      }
+    }
+
     // Phase A.1: send the version each profile was rendered against — server
     // returns 409 SCHEMA_DRIFT if the cycle pin doesn't match.
     const expectedProfileVersions: Record<string, number> = {};
@@ -2164,21 +2204,37 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         return;
       }
 
-      const { executed } = await core.submitChecklist({
-        filterId: checklistDialog.filterId,
-        filterName: checklistDialog.filterName,
-        answers: checklistAnswers,
-        expectedProfileVersions,
-        password,
-      });
-      setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
-      setChecklistAnswers({});
-      // Combined-screen UX: once the checklist is submitted, the stage flow
-      // for this filter is fully complete — drop the recap so the next stage
-      // doesn't show last cycle's data.
-      setStageSubmitRecap(null);
-      // Dialog close + offline cache-clear + batch walking handled by core.submitChecklist.
-      if (executed) mutate('/api/assets/instances?limit=500');
+      try {
+        const { executed } = await core.submitChecklist({
+          filterId: checklistDialog.filterId,
+          filterName: checklistDialog.filterName,
+          answers: checklistAnswers,
+          expectedProfileVersions,
+          password,
+        });
+        setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
+        setChecklistAnswers({});
+        // Combined-screen UX: once the checklist is submitted, the stage flow
+        // for this filter is fully complete — drop the recap so the next stage
+        // doesn't show last cycle's data.
+        setStageSubmitRecap(null);
+        // Dialog close + offline cache-clear + batch walking handled by core.submitChecklist.
+        if (executed) mutate('/api/assets/instances?limit=500');
+      } catch (e: any) {
+        // INTERLOCK: server returns 422 AHU_INTERLOCK_PENDING only at the terminal
+        // checklist (when shouldComplete=true). Show the blocking dialog; the
+        // operator must click Close, then wait for siblings to finish.
+        if (e?.code === 'AHU_INTERLOCK_PENDING' && ahuMode === 'INTERLOCK') {
+          const pending = (e?.connectionInfo?.pendingFilters as { id: string; name: string; stage: string }[]) ?? [];
+          await new Promise<boolean>((resolve) => {
+            ahuDialogResolveRef.current = resolve;
+            setAhuDialogState({ mode: 'INTERLOCK', pending });
+          });
+          return;
+        }
+        // Re-throw so reauth.execute's onError handler displays the message.
+        throw e;
+      }
     }, {
       onError: (e: any) => setError(e?.message ?? 'Failed'),
     });
@@ -3411,6 +3467,24 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           </div>
         </div>
       )}
+      {/* AHU Remaining Filters Dialog (Task 7) */}
+      {ahuDialogState && (
+        <RemainingFiltersDialog
+          mode={ahuDialogState.mode}
+          pending={ahuDialogState.pending}
+          onContinue={() => {
+            ahuDialogResolveRef.current?.(true);
+            ahuDialogResolveRef.current = null;
+            setAhuDialogState(null);
+          }}
+          onCancel={() => {
+            ahuDialogResolveRef.current?.(false);
+            ahuDialogResolveRef.current = null;
+            setAhuDialogState(null);
+          }}
+        />
+      )}
+
       <ReauthDialog
         open={reauth.isOpen}
         password={reauth.password}

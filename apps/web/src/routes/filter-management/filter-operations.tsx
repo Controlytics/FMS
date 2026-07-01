@@ -42,6 +42,10 @@ import {
 // authoritative. All dialog state lives in core.dialogState; all writes
 // go through core.dispatch / core.advance / core.startAndAdvance / core.submitChecklist.
 import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
+// Task 7 — AHU completion pre-flight (Remaining Filters dialog).
+import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
+import { checkAhuCompletion } from '../../lib/filter-ops/ahu-completion-check';
+import { RemainingFiltersDialog } from './components/remaining-filters-dialog';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -57,6 +61,8 @@ export function FilterOperationsPage() {
   // ─── D1/D2/D4 Day 4 — useFilterOperationsCore is now authoritative ──────
   const core = useFilterOperationsCore();
   const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cache, getCache } = useOffline();
+  // Task 7: AHU completion mode (NONE / POPUP / INTERLOCK) from config.
+  const ahuMode = useAhuCompletionMode();
   const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500', { refreshInterval: online ? 30000 : 0 });
   const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=1000');
   const { data: identifiersData } = useSWR<any[]>(online ? '/api/assets/identifiers?limit=1000' : null);
@@ -217,6 +223,12 @@ export function FilterOperationsPage() {
     (bcCfg?.mode ?? bcCfg?.value?.mode ?? bcCfg?.data?.mode) === 'APPROVAL' ? 'APPROVAL' : 'CONFIRM';
   // Saved cycle-start payload when equipment dialog is opened before cycle is started (offline flow)
   const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
+  // Task 7: AHU remaining-filters dialog state + Promise resolve ref.
+  const [ahuDialogState, setAhuDialogState] = useState<{
+    mode: 'POPUP' | 'INTERLOCK';
+    pending: { id: string; name: string; stage: string }[];
+  } | null>(null);
+  const ahuDialogResolveRef = useRef<((proceed: boolean) => void) | null>(null);
 
   // If SWR fetch failed (network error), treat as offline — use cached data.
   // A-01 Step 4: include typed-hierarchy errors so the typed source's network
@@ -1337,6 +1349,32 @@ export function FilterOperationsPage() {
     if (!checklistDialog) return;
     setChecklistLoading(true); setChecklistError('');
 
+    // Task 7: AHU completion pre-flight — POPUP only.
+    // INTERLOCK is server-driven (422 AHU_INTERLOCK_PENDING, caught in the
+    // single-mode catch below). No INTERLOCK pre-flight here: firing at every
+    // checklist submit (not just the terminal one) would deadlock two filters in
+    // the same AHU — each waiting for the other before it can advance past its
+    // own intermediate checklists.
+    if (ahuMode === 'POPUP') {
+      const _filterId = checklistDialog.filterId;
+      const _ahuId = (instances as any[]).find((f: any) => f.id === _filterId)?.ahuId ?? null;
+      try {
+        const _ahuCheck = await checkAhuCompletion('POPUP', _ahuId, _filterId, online);
+        if (_ahuCheck.pending.length > 0) {
+          const _shouldProceed = await new Promise<boolean>((resolve) => {
+            ahuDialogResolveRef.current = resolve;
+            setAhuDialogState({ mode: 'POPUP', pending: _ahuCheck.pending });
+          });
+          if (!_shouldProceed) {
+            setChecklistLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // Non-fatal: proceed with submission even if the AHU check fails
+      }
+    }
+
     // Phase A.1: include the version each profile was rendered against. Server
     // compares to its cycle pins and returns 409 SCHEMA_DRIFT if the live profile
     // version moved between when the dialog opened and when we submitted.
@@ -1387,6 +1425,17 @@ export function FilterOperationsPage() {
         setToast({ type: 'success', message: executed ? 'Checklist submitted successfully' : 'Checklist queued for sync' });
         refreshFilters();
       } catch (e: any) {
+        // INTERLOCK: server returns 422 AHU_INTERLOCK_PENDING only at the terminal
+        // checklist (when shouldComplete=true). Show the blocking dialog; the
+        // operator must click Close, then wait for siblings to finish.
+        if (e?.code === 'AHU_INTERLOCK_PENDING' && ahuMode === 'INTERLOCK') {
+          const pending = (e?.connectionInfo?.pendingFilters as { id: string; name: string; stage: string }[]) ?? [];
+          await new Promise<boolean>((resolve) => {
+            ahuDialogResolveRef.current = resolve;
+            setAhuDialogState({ mode: 'INTERLOCK', pending });
+          });
+          return;
+        }
         setChecklistError(e.message ?? 'Failed to submit checklist');
         setPopupError(e.message ?? 'Failed to submit checklist');
       }
@@ -1759,6 +1808,24 @@ export function FilterOperationsPage() {
         onCancel={() => { core.dispatch({ type: 'close' }); }}
         mode={blockChangeMode}
       />
+
+      {/* AHU Remaining Filters Dialog (Task 7) */}
+      {ahuDialogState && (
+        <RemainingFiltersDialog
+          mode={ahuDialogState.mode}
+          pending={ahuDialogState.pending}
+          onContinue={() => {
+            ahuDialogResolveRef.current?.(true);
+            ahuDialogResolveRef.current = null;
+            setAhuDialogState(null);
+          }}
+          onCancel={() => {
+            ahuDialogResolveRef.current?.(false);
+            ahuDialogResolveRef.current = null;
+            setAhuDialogState(null);
+          }}
+        />
+      )}
 
       {/* Error Popup */}
       <ErrorPopup error={popupError} onClose={() => setPopupError('')} />
