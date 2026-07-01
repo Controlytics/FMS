@@ -373,6 +373,12 @@ export function MobileLoginPage() {
             </button>
           </div>
 
+          {(window as any).Capacitor?.isNativePlatform?.() && (
+            <a href="/m/server-config" className="block text-center text-xs text-slate-400 mt-4">
+              Change server address
+            </a>
+          )}
+
           {/* Company info */}
           <div className="pt-4 border-t border-slate-200 text-center">
             <p className="text-base font-bold text-slate-700">{branding.companyName}</p>

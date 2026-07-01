@@ -41,7 +41,7 @@ import { NotificationsPage } from './routes/notifications/index';
 import { ProfilePage } from './routes/profile/index';
 import { ToastProvider } from './components/toast-provider';
 import './app.css';
-import { initApiBaseFromStorage } from './lib/api-base';
+import { initApiBaseFromStorage, getApiBase } from './lib/api-base';
 
 // Lazy-loaded heavy pages (code-split into separate chunks).
 // FilterOperationsPage + AuditTrailPage added 2026-05-20 (May 16 H18 fix).
@@ -125,11 +125,19 @@ initApiBaseFromStorage();
 // flow legitimately lands there from mobile-login. Without this, any hard
 // reload on /change-password (e.g. from a background API call) bounced the
 // operator to /m/login mid-typing.
+// M8 Task 4: on first launch (no server configured yet), go to /m/server-config
+// before anything else so the operator can set the API URL.
 {
   const path = window.location.pathname;
+  const isNative = (window as any).Capacitor?.isNativePlatform?.();
   const allowedOnTablet = path.startsWith('/m') || path.startsWith('/change-password');
-  if ((window as any).Capacitor?.isNativePlatform?.() && !allowedOnTablet) {
-    window.location.href = '/m/login';
+  if (isNative) {
+    // No server configured yet -> force the Server Address screen first.
+    if (!getApiBase() && path !== '/m/server-config') {
+      window.location.href = '/m/server-config';
+    } else if (!allowedOnTablet) {
+      window.location.href = '/m/login';
+    }
   }
 }
 
