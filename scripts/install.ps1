@@ -71,6 +71,50 @@ if ($Upgrade) {
 if ($DryRun) { Write-Host "[dry-run] create $dbDir, $uploadDir, $logDir, $configDir" -ForegroundColor Yellow }
 else { New-Item -ItemType Directory -Force -Path $dbDir, $uploadDir, $logDir, $configDir | Out-Null }
 
+# 1b. M8: HTTPS-on-LAN certs (so the Android tablet can connect over HTTPS)
+$certDir = Join-Path $DataRoot 'certs'
+$openssl = Join-Path $pgBin 'openssl.exe'
+# LAN IPv4 the tablet will use (default-route interface).
+$lanIp = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } |
+          Select-Object -First 1).IPv4Address.IPAddress
+if (-not $lanIp) { $lanIp = '127.0.0.1' }
+$srvKey = Join-Path $certDir 'server.key'
+$srvCrt = Join-Path $certDir 'server.crt'
+$caPem  = Join-Path $certDir 'rootCA.pem'
+
+if (Test-Path $srvCrt) {
+  Write-Host "==> Reusing existing certs in $certDir (upgrade-safe)" -ForegroundColor Cyan
+} elseif (-not (Test-Path $openssl)) {
+  Write-Host "FATAL: openssl.exe not found at $openssl (needed for HTTPS-on-LAN)." -ForegroundColor Red; exit 1
+} else {
+  New-Item -ItemType Directory -Force -Path $certDir | Out-Null
+  $caKey = Join-Path $certDir 'rootCA.key'
+  $ext = Join-Path $certDir 'server.ext'
+  Set-Content -Path $ext -Encoding ascii -Value @"
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+subjectAltName = @alt
+[alt]
+DNS.1 = localhost
+IP.1 = 127.0.0.1
+IP.2 = $lanIp
+"@
+  if ($DryRun) {
+    Write-Host "[dry-run] openssl generate rootCA + server cert (SAN: localhost,127.0.0.1,$lanIp) in $certDir" -ForegroundColor Yellow
+  } else {
+    & $openssl genrsa -out $caKey 2048
+    & $openssl req -x509 -new -nodes -key $caKey -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out $caPem
+    & $openssl genrsa -out $srvKey 2048
+    & $openssl req -new -key $srvKey -subj "/CN=$lanIp" -out (Join-Path $certDir 'server.csr')
+    & $openssl x509 -req -in (Join-Path $certDir 'server.csr') -CA $caPem -CAkey $caKey -CAcreateserial -days 3650 -sha256 -extfile $ext -out $srvCrt
+    if (-not (Test-Path $srvCrt)) { Write-Host "FATAL: server cert generation failed." -ForegroundColor Red; exit 1 }
+    # Trust the CA on the SERVER so the PC browser does not warn under HTTPS.
+    Import-Certificate -FilePath $caPem -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+    Write-Host "==> Generated HTTPS certs (SAN includes $lanIp); rootCA.pem = $caPem" -ForegroundColor Cyan
+  }
+}
+
 # 2. Secrets + env file. Reuse if present (idempotent); never regenerate.
 $appDbPassword = $null
 if (Test-Path $envFile) {
@@ -90,11 +134,13 @@ OFFLINE_REPLAY_SECRET=$offline
 JWT_EXPIRES_IN=1h
 NODE_ENV=production
 PORT=$ApiPort
-API_HTTPS=false
+API_HTTPS=true
+TLS_KEY_PATH=$srvKey
+TLS_CERT_PATH=$srvCrt
 SERVE_WEB=true
 WEB_DIST_DIR=$webDist
 UPLOAD_DIR=$uploadDir
-ALLOWED_ORIGINS=http://localhost:$ApiPort
+ALLOWED_ORIGINS=https://localhost:$ApiPort,https://${lanIp}:$ApiPort
 "@
   if ($DryRun) { Write-Host "[dry-run] write $envFile (secrets generated, app-db password random)" -ForegroundColor Yellow }
   else { Set-Content -Path $envFile -Value $envBody -Encoding ascii; Write-Host "==> Wrote $envFile (secrets generated)" -ForegroundColor Cyan }
@@ -142,7 +188,7 @@ if (-not $DryRun) {
   Write-Host "==> Waiting for API health..." -ForegroundColor Cyan
   $ok = $false
   foreach ($i in 1..30) {
-    try { $r = Invoke-WebRequest "http://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
+    try { $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
     Start-Sleep -Seconds 1
   }
   if ($ok) { Write-Host "`nDigiLog is running. Open http://localhost:$ApiPort  (login: superadmin)" -ForegroundColor Green }
