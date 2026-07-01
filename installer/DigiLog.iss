@@ -64,6 +64,7 @@ Name: "{commonappdata}\DigiLog\config"
 Name: "{group}\DigiLog"; Filename: "{app}\DigiLog.url"
 Name: "{group}\Uninstall DigiLog"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\DigiLog"; Filename: "{app}\DigiLog.url"; Tasks: desktopicon
+Name: "{group}\Install tablet certificate (rootCA.pem)"; Filename: "{commonappdata}\DigiLog\certs"; Comment: "Copy rootCA.pem to the tablet and install it under Settings > Security > Install certificate"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
@@ -166,6 +167,6 @@ begin
   if CurStep = ssPostInstall then
   begin
     UrlPath := ExpandConstant('{app}\DigiLog.url');
-    SaveStringToFile(UrlPath, '[InternetShortcut]' + #13#10 + 'URL=http://localhost:3000' + #13#10, False);
+    SaveStringToFile(UrlPath, '[InternetShortcut]' + #13#10 + 'URL=https://localhost:3000' + #13#10, False);
   end;
 end;
