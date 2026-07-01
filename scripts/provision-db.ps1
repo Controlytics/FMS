@@ -40,6 +40,7 @@ param(
   [Parameter(Mandatory)] [string]$SuperPassword,
   [Parameter(Mandatory)] [string]$AdminPassword,
   [Parameter(Mandatory)] [string]$ApiDir,
+  [string]$NodeExe = 'node',
   [string]$LogDir,
   [string]$EnvOut,
   [switch]$StopWhenDone
@@ -98,14 +99,11 @@ try {
   & $psql -h localhost -p $Port -U postgres -d $AppDb -v ON_ERROR_STOP=1 -q -f (Join-Path $ApiDir 'prisma\sql\extensions.sql')
   if ($LASTEXITCODE -ne 0) { Write-Host "extensions failed" -ForegroundColor Red; & $pgctl -D $DataDir stop -m fast | Out-Null; exit 1 }
 
-  # 6 + 7. migrate deploy + seed (run from apps/api so dotenv/prisma resolve)
-  Push-Location $ApiDir
-  try {
-    $env:DATABASE_URL = $dbUrl
-    Run 'npx' @('prisma','migrate','deploy') 'prisma migrate deploy'
-    $env:INITIAL_ADMIN_PASSWORD = $AdminPassword
-    Run 'npx' @('tsx','prisma/seed.ts') 'seed'
-  } finally { Pop-Location }
+  # 6 + 7. migrate deploy + seed via the shared, customer-safe apply-schema step
+  #        (bundled node.exe only; npx/tsx dev fallback). Fresh + upgrade both go
+  #        through apply-schema.ps1 so they can never drift. See EXE-PACKAGING-PLAN M6.
+  & (Join-Path $PSScriptRoot 'apply-schema.ps1') -NodeExe $NodeExe -ApiDir $ApiDir -DatabaseUrl $dbUrl -AdminPassword $AdminPassword
+  if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: apply-schema" -ForegroundColor Red; & $pgctl -D $DataDir stop -m fast | Out-Null; exit 1 }
 
   # 8. Verify
   $roleCount = Psql $AppDb "SELECT count(*) FROM roles;"

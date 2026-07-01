@@ -60,8 +60,11 @@ if ($DryRun) { Write-Host "  (DRY RUN - no changes)" -ForegroundColor Yellow }
 Write-Host ""
 
 if ($Upgrade) {
-  Write-Host "Upgrade path is handled by M6 (scripts/upgrade.ps1). This script is fresh-install." -ForegroundColor Yellow
-  exit 2
+  Write-Host "==> Upgrade requested; delegating to upgrade.ps1 (backup + migrate deploy + reseed)" -ForegroundColor Cyan
+  $upgArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; ApiPort = $ApiPort }
+  if ($DryRun) { $upgArgs['DryRun'] = $true }
+  & (Join-Path $scriptsDir 'upgrade.ps1') @upgArgs
+  exit $LASTEXITCODE
 }
 
 # 1. Data directories (survive program upgrades)
@@ -108,7 +111,8 @@ if ($dbAlreadyInit) {
   $provArgs = @{
     PgBin = $pgBin; DataDir = $dbDir; Port = $PgPort;
     AppPassword = $appDbPassword; SuperPassword = (NewSecret 18);
-    AdminPassword = $AdminPassword; ApiDir = $apiDir; LogDir = $logDir
+    AdminPassword = $AdminPassword; ApiDir = $apiDir; LogDir = $logDir;
+    NodeExe = $nodeExe
   }
   if ($DryRun) { Write-Host "[dry-run] provision-db.ps1 (DataDir=$dbDir Port=$PgPort ApiDir=$apiDir)" -ForegroundColor Yellow }
   else {

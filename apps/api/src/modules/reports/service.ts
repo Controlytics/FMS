@@ -8,8 +8,14 @@ import { renderPdf } from './renderers/pdf-renderer.js';
 import type { ResolutionContext } from './data-sources/timestamp-source.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
 
-const UPLOAD_DIR = path.resolve('uploads/reports');
+// Report PDFs. UPLOADS_ROOT honors UPLOAD_DIR (customer install -> ProgramData).
+// Previously path.resolve('uploads/reports') resolved relative to process.cwd(),
+// so under the Windows service (cwd = ...\runtime\api\dist) PDFs landed inside the
+// program dir and were wiped on upgrade — and the absolute pdfPath stored in the DB
+// then pointed at a deleted file. See EXE-PACKAGING-PLAN.md §9.6b.
+const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'reports');
 
 async function ensureUploadDir() {
   await fs.mkdir(UPLOAD_DIR, { recursive: true });

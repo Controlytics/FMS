@@ -1,15 +1,12 @@
 import { type FastifyInstance } from 'fastify';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Uploads directory
-const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads');
-const profilePhotosDir = path.join(uploadsDir, 'photos');
+// Uploads directory. UPLOADS_ROOT honors UPLOAD_DIR (customer install) — must
+// match the static serve root in app.ts, otherwise written photos 404.
+const profilePhotosDir = path.join(UPLOADS_ROOT, 'photos');
 
 // Ensure upload directories exist
 async function ensureDirectories() {

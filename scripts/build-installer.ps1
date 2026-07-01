@@ -33,7 +33,17 @@ param(
   [Parameter(Mandatory)] [string]$WinswExe,
   [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
   [string]$AppVersion = '0.1.0',
-  [string]$OutDir
+  [string]$OutDir,
+  # --- Code signing (M7). Optional: omit -Sign to build an UNSIGNED installer
+  #     (SmartScreen/AV will warn on customer machines - see the acceptance
+  #     runbook). Supply EITHER a PFX file (-CertPath [+ -CertPassword]) OR a
+  #     cert already in the Windows store (-CertSubject "CN=..."). -TimestampUrl
+  #     is an RFC3161 server so signatures stay valid after the cert expires. ---
+  [switch]$Sign,
+  [string]$CertPath,
+  [string]$CertPassword,
+  [string]$CertSubject,
+  [string]$TimestampUrl = 'http://timestamp.digicert.com'
 )
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -45,6 +55,34 @@ function Step($name, $block) {
   Write-Host "==> $name" -ForegroundColor Cyan
   & $block
   if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: $name (exit $LASTEXITCODE)" -ForegroundColor Red; exit 1 }
+}
+
+# Locate signtool.exe from the newest installed Windows SDK (not bundled - it
+# ships with the Windows 10/11 SDK on the build machine).
+function Find-SignTool {
+  $roots = @("${env:ProgramFiles(x86)}\Windows Kits\10\bin", "$env:ProgramFiles\Windows Kits\10\bin")
+  foreach ($r in $roots) {
+    if (Test-Path $r) {
+      $st = Get-ChildItem $r -Recurse -Filter 'signtool.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending | Select-Object -First 1
+      if ($st) { return $st.FullName }
+    }
+  }
+  return $null
+}
+
+# Authenticode-sign one file with SHA-256 + RFC3161 timestamp. Fails hard if
+# signing was requested but cannot proceed (a silently-unsigned "signed" build
+# is worse than an openly unsigned one).
+function Sign-File($signtool, $file) {
+  $common = @('sign', '/fd', 'sha256', '/tr', $TimestampUrl, '/td', 'sha256')
+  if ($CertPath)         { $common += @('/f', $CertPath); if ($CertPassword) { $common += @('/p', $CertPassword) } }
+  elseif ($CertSubject)  { $common += @('/n', $CertSubject) }
+  else { Write-Host "FAILED: -Sign requires -CertPath (PFX) or -CertSubject (store cert)." -ForegroundColor Red; exit 1 }
+  & $signtool @common $file
+  if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: signtool on $file (exit $LASTEXITCODE)" -ForegroundColor Red; exit 1 }
+  Write-Host "    signed: $(Split-Path $file -Leaf)" -ForegroundColor DarkGray
 }
 
 # Fresh staging
@@ -64,6 +102,14 @@ Step "Clean-room npm ci --omit=dev" {
     git archive --format=tar HEAD | tar -x -C $cleanDir
     Push-Location $cleanDir
     npm ci --omit=dev
+    # Generate the Prisma CLIENT (.prisma/client/index.js). `npm ci --omit=dev`
+    # does NOT reliably run @prisma/client's generate postinstall in a monorepo
+    # clean-room (it can't find apps/api/prisma/schema.prisma on its own), and
+    # without the generated client `node prisma/seed.mjs` throws "@prisma/client
+    # did not initialize yet" on the customer box. `prisma` is a prod dep now, so
+    # it is present here. This is separate from the query-engine .node (staged by
+    # stage-runtime) and from the schema engine (used only by migrate deploy).
+    if ($LASTEXITCODE -eq 0) { node node_modules/prisma/build/index.js generate --schema apps/api/prisma/schema.prisma }
     Pop-Location
   } finally { Pop-Location }
 }
@@ -94,7 +140,9 @@ Copy-Item $pgRoot (Join-Path $stage 'pgsql') -Recurse -Force
 Write-Host "==> Stage service + scripts" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'service'), (Join-Path $stage 'scripts') | Out-Null
 Copy-Item $WinswExe (Join-Path $stage 'service\WinSW-x64.exe') -Force
-foreach ($s in 'provision-db.ps1','register-services.ps1','unregister-services.ps1','install.ps1','uninstall.ps1') {
+# apply-schema.ps1 is shared by provision-db (fresh) + upgrade; upgrade.ps1 drives
+# the upgrade [Run] entry. BOTH must ship or fresh install AND upgrade break.
+foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','unregister-services.ps1','install.ps1','upgrade.ps1','uninstall.ps1') {
   Copy-Item (Join-Path $PSScriptRoot $s) (Join-Path $stage 'scripts') -Force
 }
 Copy-Item (Join-Path $repoRoot 'apps\api\prisma\sql') (Join-Path $stage 'runtime\api\prisma\sql') -Recurse -Force -ErrorAction SilentlyContinue
@@ -104,4 +152,20 @@ Write-Host "==> Compile installer (ISCC)" -ForegroundColor Cyan
 if (-not (Test-Path $Iscc)) { Write-Host "Inno Setup not found at $Iscc - install Inno Setup 6 to compile. Staging is ready at $stage." -ForegroundColor Yellow; exit 0 }
 & $Iscc "/DStageDir=$stage" "/DAppVersion=$AppVersion" (Join-Path $repoRoot 'installer\DigiLog.iss')
 if ($LASTEXITCODE -ne 0) { Write-Host "ISCC failed" -ForegroundColor Red; exit 1 }
-Write-Host "`nInstaller built: $OutDir\DigiLog-Setup-$AppVersion.exe" -ForegroundColor Green
+$setupExe = Join-Path $OutDir "DigiLog-Setup-$AppVersion.exe"
+
+# 8. Code sign the finished Setup.exe (M7). Skipped unless -Sign is passed; when
+#    skipped the installer is unsigned and SmartScreen/AV will warn (expected -
+#    see the clean-VM acceptance runbook). To sign a build later, re-run with
+#    -Sign -CertPath <pfx> -CertPassword <pw>  (or -CertSubject "CN=...").
+if ($Sign) {
+  Write-Host "==> Code sign Setup.exe" -ForegroundColor Cyan
+  $signtool = Find-SignTool
+  if (-not $signtool) { Write-Host "FAILED: -Sign requested but signtool.exe not found (install the Windows 10/11 SDK)." -ForegroundColor Red; exit 1 }
+  if (-not (Test-Path $setupExe)) { Write-Host "FAILED: Setup.exe not found to sign: $setupExe" -ForegroundColor Red; exit 1 }
+  Sign-File $signtool $setupExe
+  Write-Host "`nInstaller built + SIGNED: $setupExe" -ForegroundColor Green
+} else {
+  Write-Host "`nInstaller built (UNSIGNED - SmartScreen/AV will warn): $setupExe" -ForegroundColor Yellow
+  Write-Host "  To sign: re-run with -Sign -CertPath <pfx> -CertPassword <pw> (or -CertSubject 'CN=...')." -ForegroundColor Gray
+}

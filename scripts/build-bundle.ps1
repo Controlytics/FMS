@@ -37,6 +37,16 @@ Step "Build @digilog/shared" { npm run build -w @digilog/shared }
 Step "Build @digilog/queue"  { npm run build -w @digilog/queue }
 Step "Compile backend (tsc)" { npx tsc -p apps/api/tsconfig.json }
 
+# Precompile the DB seed to a self-contained ESM file the CUSTOMER runtime can run
+# with just node.exe. tsx is a devDependency and is pruned by `npm ci --omit=dev`,
+# so `tsx prisma/seed.ts` cannot run on a customer machine. esbuild bundles seed.ts
+# + its local ./default-roles import into prisma/seed.mjs, keeping @prisma/client +
+# bcrypt (native runtime deps that survive the prune) external. The installer runs
+# `node prisma/seed.mjs` from runtime/api. See EXE-PACKAGING-PLAN.md M6 / apply-schema.ps1.
+Step "Precompile DB seed (esbuild -> prisma/seed.mjs)" {
+  npx esbuild apps/api/prisma/seed.ts --bundle --platform=node --format=esm --packages=external --outfile=apps/api/prisma/seed.mjs
+}
+
 if ($SkipWeb) {
   Write-Host "==> Skipping web build (reusing apps/web/dist)" -ForegroundColor Yellow
   if (-not (Test-Path "apps/web/dist/index.html")) {

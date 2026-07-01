@@ -25,6 +25,7 @@ import { discoverAndRegisterConfigs } from './lib/config-discovery.js';
 import dynamicConfigRoutes from './modules/config/dynamic-routes.js';
 import auditRoutes from './modules/audit/routes.js';
 import uploadRoutes from './modules/uploads/routes.js';
+import { UPLOADS_ROOT } from './lib/uploads-dir.js';
 import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
@@ -67,10 +68,17 @@ import hierarchyRoutes from './modules/hierarchy/routes.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// TLS cert location is env-overridable so the customer install can point it at
+// C:\ProgramData\DigiLog\certs (data dir → survives upgrades; regenerating the CA
+// on upgrade would re-break the tablet's trust). Defaults to the dev repo's
+// certs/server.{key,crt} so local dev is unchanged. See EXE-PACKAGING-PLAN.md §13.
+const defaultCertDir = path.resolve(__dirname, '../../../certs');
+const tlsKeyPath  = process.env.TLS_KEY_PATH  ?? path.join(defaultCertDir, 'server.key');
+const tlsCertPath = process.env.TLS_CERT_PATH ?? path.join(defaultCertDir, 'server.crt');
 const httpsOptions = process.env.API_HTTPS === 'true'
   ? {
-      key: fs.readFileSync(path.resolve(__dirname, '../../../certs/server.key')),
-      cert: fs.readFileSync(path.resolve(__dirname, '../../../certs/server.crt')),
+      key: fs.readFileSync(tlsKeyPath),
+      cert: fs.readFileSync(tlsCertPath),
     }
   : null;
 
@@ -156,10 +164,11 @@ await app.register(multipart, {
 });
 await app.register(websocket);
 
-// Serve uploaded files
-const uploadsDir = path.join(__dirname, '..', 'uploads');
+// Serve uploaded files. UPLOADS_ROOT honors UPLOAD_DIR (customer install points
+// it at C:\ProgramData\DigiLog\uploads) — must match the photo writer in
+// modules/uploads/routes.ts or served photos 404.
 await app.register(fastifyStatic, {
-  root: uploadsDir,
+  root: UPLOADS_ROOT,
   prefix: '/uploads/',
   decorateReply: false,
 });

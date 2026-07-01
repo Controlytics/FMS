@@ -93,11 +93,21 @@ foreach ($w in @(@{n='shared';d=$sharedDist;p=$sharedPkg}, @{n='queue';d=$queueD
   if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $dest | Out-Null; Copy-Item $w.p (Join-Path $dest 'package.json') -Force }
 }
 
-# Prisma engine sanity check (the 20MB native query engine must be present)
+# Prisma staging sanity checks - BOTH are fatal (a missing artifact = broken install):
+#  1. the generated CLIENT (.prisma/client/index.js) - without it the app + seed
+#     throw "@prisma/client did not initialize yet" (run prisma generate in the
+#     clean-room; build-installer.ps1 does this after npm ci --omit=dev).
+#  2. the native query engine (*.node) - the app cannot talk to Postgres without it.
 if (-not $DryRun) {
+  $clientIdx = Join-Path $OutDir 'node_modules\.prisma\client\index.js'
+  if (-not (Test-Path $clientIdx)) {
+    Write-Host "FAILED: generated Prisma client missing ($clientIdx). Run 'prisma generate' in the clean-room before staging." -ForegroundColor Red; exit 1
+  }
   $engine = Get-ChildItem (Join-Path $OutDir 'node_modules\.prisma\client') -Filter '*.node' -ErrorAction SilentlyContinue
-  if (-not $engine) { Write-Host "WARN: Prisma query engine (.node) not found in staged node_modules - the app will fail to start." -ForegroundColor Yellow }
-  else { Write-Host "  Prisma engine present: $($engine.Name)" -ForegroundColor DarkGray }
+  if (-not $engine) {
+    Write-Host "FAILED: Prisma query engine (.node) not found in staged node_modules - the app will fail to start." -ForegroundColor Red; exit 1
+  }
+  Write-Host "  Prisma client + engine present: $($engine.Name)" -ForegroundColor DarkGray
 }
 
 Write-Host "Runtime staged at $OutDir" -ForegroundColor Green

@@ -231,15 +231,51 @@ MAINTENANCE_CRONTAB_PATH=...\runtime\queue\crontab.txt   # if path differs from 
 
 ---
 
-## 8. Upgrade sequence (v(N) → v(N+1))
+## 8. Upgrade sequence (v(N) → v(N+1)) — IMPLEMENTED (M6, 2026-07-01)
 
-1. Stop `DigiLogAPI` (leave `DigiLogDB` running).
-2. **Back up the DB first** (`pg_dump` → `C:\ProgramData\DigiLog\logs\pre-upgrade-<ver>.sql`) — non-negotiable for an audited system.
-3. Replace `C:\Program Files\DigiLog\runtime` + `pgsql` (if PG minor bump) — **never touch `C:\ProgramData`**.
-4. **Apply new migrations:** `prisma migrate deploy` (forward-only, applies only the migrations the customer DB hasn't seen yet, records them in `_prisma_migrations`). Safe and auditable by design (§2). Then re-run the **idempotent seed** for any new reference data.
-5. Preserve the existing `digilog.env` secrets (do **not** regenerate).
-6. Restart `DigiLogAPI`; health check.
-7. On failure: restore from the `pg_dump` backup + reinstall previous program version (document the rollback runbook).
+The Inno constraint drives the ordering: `[Files]` copy runs **before** the `[Run]`
+orchestrator, and you cannot overwrite a running exe. Solution:
+
+1. **`PrepareToInstall()`** (before the copy): detect upgrade via the presence of
+   `C:\ProgramData\DigiLog\config\digilog.env`; `net stop DigiLogAPI` so
+   `runtime\node.exe` + the WinSW service exe unlock. **`DigiLogDB` is left running.**
+2. **`[Files]` copy:** `runtime\` + `service\` + `scripts\` are replaced
+   (`ignoreversion`); **`pgsql\` is `onlyifdoesntexist`** so the running
+   `postgres.exe` is never overwritten (no lock) and the DB stays up for the backup.
+   `C:\ProgramData` is never touched.
+3. **`upgrade.ps1`** (the `[Run]` upgrade entry, `Check: IsUpgrade`):
+   a. Validate a prior install (env file + initialised cluster) or abort.
+   b. Ensure `DigiLogDB` is accepting connections (`pg_isready`, start if needed).
+   c. **`pg_dump` → `C:\ProgramData\DigiLog\backups\pre-upgrade-v<ver>-<ts>.sql`.
+      FATAL on failure — we never migrate an audited DB unbacked.**
+   d. **`apply-schema.ps1`** = forward-only `prisma migrate deploy` (only unseen
+      migrations, recorded in `_prisma_migrations`) + the **idempotent seed**
+      (throwaway `INITIAL_ADMIN_PASSWORD`; the superadmin upsert never overwrites
+      an existing password). Same shared step as fresh install → zero drift.
+   e. Restart `DigiLogAPI`; health-check `http://localhost:3000/api/health`.
+4. `digilog.env` secrets are **preserved, never regenerated** (regenerating would
+   kill live sessions + every outstanding offline-replay grant).
+5. **Rollback (manual, documented — not automated):** on failure `upgrade.ps1`
+   prints the exact `pre-upgrade-*.sql` to restore; operator restores it and
+   reinstalls the previous program version. Failure window: new program files on
+   old schema until the restore runs.
+
+> **⚠️ Coverage caveat — "upgrade tested" ≠ "migration-on-populated-DB tested".** M6
+> proved the **fresh baseline** path (scratch DB: `migrate deploy` → 70 tables →
+> seed) and the upgrade **orchestration** (dry-run + backup/stop/restart wiring). The
+> forward `migrate deploy` against a *populated* customer DB is a no-op today (no v2
+> migration folder exists yet) — it is unexercised until a real v(N+1) migration is
+> authored. That path is Prisma core (forward-only, `_prisma_migrations`-tracked), but
+> the first real v2 must run the §2.1 acceptance gate AND a populated-DB upgrade test
+> before shipping.
+>
+> **⚠️ Per-release re-seed integrity check (21 CFR §11 — do NOT skip):** the
+> upgrade re-runs the seed, which `upsert`s reference data (help articles, template
+> kinds, system config, default roles). Confirm per release that these upserts do
+> **not** clobber rows a customer has *edited* in the UI — an upsert `update` branch
+> that overwrites a customer-tuned config/help article silently is a data-integrity
+> regression. The superadmin-password case is already safe (update branch omits it);
+> audit every other seed upsert's update branch when adding reference data.
 
 ---
 
@@ -251,7 +287,7 @@ MAINTENANCE_CRONTAB_PATH=...\runtime\queue\crontab.txt   # if path differs from 
 4. **Antivirus false positives** on a freshly-built, unsigned, Node-bundling exe are common — signing mitigates.
 5. **PostgreSQL licensing** — PG is PostgreSQL-licensed (permissive, redistributable). ✅ No issue bundling. Verify the same for the chosen PG Windows binary distribution.
 6. **Backup/restore UX** — the app already has a dynamic backup/restore feature; confirm it points at `C:\ProgramData\DigiLog` paths after install.
-6b. **🟡 Uploads directory must move to ProgramData (found in M4).** Both the upload writer (`modules/uploads/routes.ts`) and the static serve (`app.ts`) resolve uploads to `apps/api/uploads` **relative to `__dirname`** and do **not** honor the `UPLOAD_DIR` env (it's effectively vestigial). Under the install that puts user uploads in `Program Files\DigiLog\runtime\api\uploads` — which (a) violates the read-only program dir and (b) is **wiped on upgrade** (runtime/ is replaced), destroying customer signatures/photos. Fix options: (a) small code change so both sites honor `UPLOAD_DIR`, then point it at `C:\ProgramData\DigiLog\uploads`; or (b) the installer junctions `runtime\api\uploads` -> `C:\ProgramData\DigiLog\uploads`. Prefer (a). Resolve before first customer ship.
+6b. **✅ RESOLVED in M6 (2026-07-01) — uploads now honor `UPLOAD_DIR`.** New single source of truth `apps/api/src/lib/uploads-dir.ts` exports `UPLOADS_ROOT` (= `UPLOAD_DIR` if set, else the cwd-independent `apps/api/uploads` fallback computed from the lib file's own location). Wired into **all four** touch points: the static serve (`app.ts`), the profile-photo writer (`modules/uploads/routes.ts`), the **report-PDF writer** (`modules/reports/service.ts` — this one was the worst: `path.resolve('uploads/reports')` was **cwd-relative**, so under the Windows service it wrote into `runtime\api\dist` and stored that absolute path in the DB, guaranteeing a deleted-file 404 after upgrade), and the deployment-check health probe. Verified: `UPLOAD_DIR` unset -> `apps/api/uploads` (dev unchanged); set -> `C:\ProgramData\DigiLog\uploads`. The installer's `digilog.env` already sets `UPLOAD_DIR=C:\ProgramData\DigiLog\uploads`, so customer uploads land outside the program dir and survive upgrades. *(No 4th writer: branding logos live in config JSON, not on disk.)*
 7. **Disk footprint:** installer ≈ 200–300 MB (Node + Postgres + node_modules + Chromium-less PDF via system Edge). Confirm acceptable.
 8. **Edge dependency for PDF** — `puppeteer-core` auto-detects Edge (present on all modern Windows). If a locked-down customer image lacks Edge, set `PUPPETEER_EXECUTABLE_PATH` or bundle a Chromium. Low risk.
 
@@ -267,8 +303,9 @@ MAINTENANCE_CRONTAB_PATH=...\runtime\queue\crontab.txt   # if path differs from 
 | **M4** | **Windows services** | ✅ **DONE (2026-06-30).** `scripts/register-services.ps1` (+ `unregister-services.ps1`): DB via native `pg_ctl register -S auto`; API via generated WinSW XML (`<depend>DigiLogDB`, auto-start, restart-on-failure, rolling logs). Both AST-syntax-clean + ASCII; `-DryRun` reviewed. **Linchpin verified:** the API loads ALL config (PORT/SERVE_WEB/DATABASE_URL) from `DOTENV_CONFIG_PATH` so the service XML holds no secrets. Live register/start needs admin → done at install time (M5). | Native-config risk retired |
 | **M5** | **Inno Setup installer** | ✅ **AUTHORED + VALIDATED (2026-06-30).** `installer/DigiLog.iss` (thin: copy files, admin-password page, run orchestrators, shortcuts) + `scripts/install.ps1` (secrets -> digilog.env -> provision -> register-services -> firewall -> health), `uninstall.ps1` (stop/remove services, **preserve data**), `stage-runtime.ps1` (runtime assembly w/ junction dereference), `build-installer.ps1` (clean-room `npm ci --omit=dev` -> stage -> ISCC). All PS scripts AST-clean, ASCII, dry-run exit 0; staging dereference sources verified real. **3 real bugs found+fixed:** `$PSScriptRoot` sibling resolution, array-vs-hashtable splatting (positional-bind bug), missing `exit 0` (stale `$LASTEXITCODE`). **GATES (build/customer machine only):** compiling `.iss`->Setup.exe needs Inno Setup 6; test-install needs admin; clean-room prod `npm ci` needs the build machine. | Compile + install test deferred to build machine |
 | **M0** | **Migration discipline** (§2.0–2.3) | ✅ **DONE (2026-06-30).** Verified prior conversion (acceptance gate empty-diff); fixed the broken fresh-install seed; built+tested the drift guard (`scripts/verify-migrations.ps1`, `npm run db:verify-migrations`, PASS); documented the forward-authoring workflow in `apps/api/CLAUDE.md`; fixed the `db:migrate` footgun (`migrate dev`→`migrate deploy`). **Only leftover:** wire the drift guard into CI (needs a Postgres-equipped runner). | — |
-| **M6** | **Upgrade + uninstall safety** (§8) | Tested v1→v2 upgrade preserving data; uninstall that keeps `C:\ProgramData`. Builds on **M0**. | **High** — data-loss surface |
-| **M7** | **Code signing + clean-VM acceptance test** | Signed exe; installs on a fresh Windows VM with nothing pre-installed. | Low (mostly procurement) |
+| **M6** | **Upgrade + uninstall safety** (§8) | ✅ **DONE (2026-07-01).** (1) **Uploads-dir ship-blocker fixed** (§9.6b — `lib/uploads-dir.ts` + 4 sites honor `UPLOAD_DIR`; report-PDF cwd-relative bug fixed). (2) **Customer-runnable schema apply** — `prisma` CLI moved to runtime `dependencies` (keeps CLI + `@prisma/engines` schema engine after `npm ci --omit=dev`); seed precompiled to `prisma/seed.mjs` (esbuild, in `build-bundle.ps1`) since `tsx` is pruned; **proven end-to-end on a scratch DB with only `node`** (no npx/tsx): `node …/prisma/build/index.js migrate deploy` (70 tables) + `node prisma/seed.mjs` (roles/superadmin/33 help/invariants). This also repaired the M3 `provision-db.ps1`, which used the now-unavailable `npx`. (3) **Shared `apply-schema.ps1`** (migrate+seed, node-only w/ npx/tsx dev fallback) used by BOTH fresh + upgrade so they can't drift. (4) **`upgrade.ps1`** — validate prior install → ensure DB up → stop API → **pg_dump backup (FATAL on failure)** → apply-schema (throwaway admin pw; upsert preserves password) → restart API → health; preserves `digilog.env` secrets; manual rollback documented. (5) **`DigiLog.iss`** — detects upgrade (env file present), skips admin page, stops `DigiLogAPI` in `PrepareToInstall()` before the file copy; **`pgsql` copied `onlyifdoesntexist`** so the DB stays up for the live backup and postgres.exe never locks the copy. (6) **Uninstall** already preserves `ProgramData` (verified). **DEFERRED GATES (build/customer machine only, same class as M5):** ISCC compile, an actual admin test-install, and a real clean-room `npm ci --omit=dev` + bundled-node run of migrate/seed. | **High** — data-loss surface |
+| **M7** | **Code signing + clean-VM acceptance test** | ✅ **DONE (2026-07-01), minus the signed artifact (needs a cert).** (1) **Signing scaffold** in `build-installer.ps1` — optional `-Sign` with `-CertPath`(PFX)`/-CertPassword` or `-CertSubject` (store cert) + RFC3161 `-TimestampUrl`; locates `signtool.exe` from the newest Windows SDK; **no-op + explicit "UNSIGNED" warning when `-Sign` omitted**, fails hard if requested-but-unresolvable (no silently-unsigned "signed" build). signtool locator verified on this machine (SDK 10.0.26100). (2) **Clean-VM acceptance runbook** — `tasks/M7-CLEAN-VM-ACCEPTANCE-RUNBOOK.md`: fresh VM -> install -> services auto-start -> login -> data-in-ProgramData -> reboot -> upgrade-preserves-data+secrets -> uninstall-preserves-ProgramData, with SmartScreen-warnings-are-expected called out. **User decision (2026-07-01): scaffold now, sign later** (no cert purchased yet) — so the shipped exe stays unsigned until a cert is bought and `-Sign` is used. **DEFERRED:** the actual signed build (procure OV/EV Authenticode cert) + running the runbook on a real VM (both need a build/VM machine). | Low (mostly procurement) |
+| **M8** | **Tablet HTTPS-on-LAN + APK server-address** (reopens §9.1) | **User decision (2026-07-01): the desktop install MUST also serve the Android tablet over the LAN** -> the "localhost HTTP only" simplification is off; the product needs HTTPS reachable on the LAN + a way for the tablet to find the server. See §13 for the scoped design + the open (a)/(b) client-side decision. **NOT STARTED.** | **High** — cert lifecycle + the APK's baked-IP problem |
 
 **Recommended first action:** do **M0** (migration discipline) and **M1** (backend-serves-UI bundle) — both are foundational. M0 is the one that makes customer upgrades safe and removes the `db push` risk for good; M1 proves the single-process model end-to-end. Neither requires installer tooling, so they're the right place to start.
 
@@ -280,15 +317,92 @@ MAINTENANCE_CRONTAB_PATH=...\runtime\queue\crontab.txt   # if path differs from 
 - ✅ **Customer upgrades are a first-class requirement** (not local-only). — user, 2026-06-30
 - ✅ **Real Prisma migrations; `db push` eliminated** (§2). — user, 2026-06-30
 - ✅ **Bundle PostgreSQL**, data path `C:\ProgramData\DigiLog`. — user, 2026-06-30
+- ✅ **§9.1 — the desktop install MUST also serve the Android tablet over the LAN.** — user, 2026-07-01. This turns on HTTPS-on-LAN (M8, §13). The "localhost HTTP only" simplification is retired.
+- ✅ **§9.3 — code signing: scaffold now, sign later.** — user, 2026-07-01. No cert purchased yet; `build-installer.ps1 -Sign` is wired and ready. Shipped builds stay unsigned (SmartScreen/AV warnings) until a cert is bought.
 
-**Still needed from you before execution:**
-1. **§9.1:** Must the desktop install **also** serve the Android tablet over the LAN? (Changes the HTTP-vs-HTTPS decision. If yes, we keep an HTTPS listener; if no, localhost HTTP only.)
-2. **§9.3:** Budget for a code-signing certificate? (Required for a clean customer experience — unsigned exe triggers SmartScreen/AV warnings.)
+**Still needed from you before M8 execution:**
+1. **§13 (a)/(b) — how does the tablet find the server?** Per-customer APK rebuild + static IP (a), or a runtime-configurable server-address screen in the app (b). This gates the tablet client work (see §13).
 
 ---
 
 ## 12. What does NOT change
 
-- Android APK (`apps/android`) + RFID Kotlin app (`rfid_scan_app`) — separate artifacts, untouched.
+- Android APK (`apps/android`) + RFID Kotlin app (`rfid_scan_app`) — separate artifacts, untouched **(revisited in M8/§13 — serving the tablet does change the APK's server-address story)**.
 - All 35 API modules, the audit hash-chain, offline sync, reports — run identically; they just run inside a bundled Node + bundled Postgres instead of a dev-installed one.
 - The dev workflow (`tsx watch` + `vite`) stays exactly as is; the `SERVE_WEB` flag and the bundle scripts are additive.
+
+---
+
+## 13. M8 — Tablet HTTPS-on-LAN + APK server-address (scoped, NOT started)
+
+**Why this exists:** the user chose (2026-07-01) that the desktop install must **also**
+serve the Android tablet/APK over the LAN. The Capacitor WebView `fetch()` rejects
+self-signed certs and plain HTTP causes a Capacitor TLS parse error on login, so the
+server must present HTTPS with a cert the tablet trusts, on the customer's LAN IP.
+
+### 13.0 ⚠️ Blocking finding (2026-07-01) — the APK's trust model forces an APK change
+
+`apps/android/.../res/xml/network_security_config.xml` trusts **only** `src="system"`
+(OS-shipped CAs) + `@raw/rootca` (a **specific mkcert CA baked into the APK**, which does
+NOT match the repo's `certs/rootCA.pem`). There is **no `<certificates src="user" />`**, so
+since Android 7 the tablet will **not trust a CA the operator installs**. Therefore the
+"generate a CA at install → operator installs it on the tablet" flow (§13.1) **cannot work
+with the current APK** — the APK is where trust is decided. Two trust models:
+
+- **Trust model A (chosen — pairs with runtime-URL (b)):** add `<certificates src="user" />`
+  to `network_security_config.xml`, rebuild the APK once. Then the server generates a CA at
+  install, the operator installs `rootCA.pem` on the tablet, and it's trusted. **One APK for
+  all customers.** Requires: the APK change + `cert install on tablet` step in the operator
+  runbook + `TLS_CERT_PATH` env (done, app.ts).
+- **Trust model B (rejected — the per-customer path):** bake each customer's server CA into
+  `@raw/rootca` and rebuild+re-sign the APK per site. No tablet-side CA install, but a
+  per-customer APK — the option-(a) operational cost.
+
+**Net:** M8 requires **both** a server-side install change AND an APK change (network-security
+config + the runtime-URL feature §13.2). It cannot be shipped as installer-only work, and its
+validation needs a real Android device + LAN (cannot be verified in this dev environment).
+
+### 13.1 Server side (needs the §13.0 Trust-model-A APK change to actually be trusted)
+
+1. **Cert generation at install, ONCE, into `C:\ProgramData\DigiLog\certs`** (data dir →
+   survives upgrades; regenerating on upgrade would re-break tablet trust, same logic as
+   secrets preservation). A rootCA + a server cert whose **SAN includes the PC's LAN IP +
+   `localhost` + `127.0.0.1`**. **Probe first:** the EDB PG18 zip usually ships
+   `pgsql\bin\openssl.exe` → reuse the existing `certs/ssl.conf` + `server.ext` SAN flow,
+   no extra bundled binary. (Fallback: bundle `mkcert.exe`, or PowerShell
+   `New-SelfSignedCertificate` + export — but the app consumes PEM `server.key`/`server.crt`,
+   which openssl produces directly, so openssl is the cleanest fit.)
+2. **Make the hardcoded cert path env-configurable** — `app.ts:71-76` reads
+   `../../../certs/server.{key,crt}`. Add `TLS_CERT_PATH` / `TLS_KEY_PATH` env (default to
+   the current relative path so **dev is unchanged**; mirrors the `UPLOAD_DIR` fix). Installer
+   points them at `ProgramData\certs`.
+3. **`install.ps1` env changes:** `API_HTTPS=true`, `TLS_CERT_PATH`/`TLS_KEY_PATH`,
+   `ALLOWED_ORIGINS=https://localhost:3000,https://<LAN-IP>:3000`. The firewall rule (TCP 3000)
+   already exists.
+4. **Trust the CA on the SERVER too** (so the PC's own browser doesn't warn under
+   `SERVE_WEB` HTTPS) — import `rootCA.pem` into `LocalMachine\Root`. Then the health-check
+   in install/upgrade becomes `https://localhost:3000/...` (trusted, no cert-bypass hacks).
+5. **Export `rootCA.pem`** to an obvious place (e.g. `ProgramData\DigiLog\certs\rootCA.pem` +
+   a Start-menu "Install tablet certificate" helper) for the operator to sideload onto the
+   tablet (Settings → Security → Install certificate), per the existing APK-trust runbook.
+6. **Static-IP prerequisite (document loudly):** DHCP renumbering breaks the cert SAN (and,
+   in option (a), the APK). Require a DHCP reservation / static LAN IP for the server PC.
+
+### 13.2 Client side — OPEN DECISION (a) vs (b)
+
+The APK bakes `VITE_API_URL=https://<IP>:3000` at `vite build`; it is a **compile-time
+constant in 6+ `apps/web/src/lib/*` files with no runtime override**. So one distributable
+APK cannot reach an arbitrary customer's PC. Two ways forward:
+
+- **(a) Per-customer APK rebuild + static IP.** Bake the customer's PC IP, require a DHCP
+  reservation, rebuild + re-sign the APK per site. Technically cheap, operationally heavy;
+  every IP change re-breaks the cert SAN **and** the APK. Acceptable for a single near-term
+  customer.
+- **(b) Runtime-configurable server URL.** First-launch "server address" screen, persisted;
+  one APK for all customers. This is the real product answer but a genuine **new app
+  feature** (replace the compile-time `VITE_API_URL` with a stored runtime base URL +
+  validation + a settings screen), not a packaging step.
+
+**Recommendation:** (b) is the shippable long-term answer; (a) is the fast path if there is
+only one customer near-term. **This deserves a brainstorm once chosen** — it touches the
+api-client, connectivity poll, offline base-URL, and PDF fetch paths.

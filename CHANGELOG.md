@@ -1,5 +1,69 @@
 # Changelog
 
+## [Unreleased] — Setup.exe packaging M7: code-signing scaffold + acceptance runbook (2026-07-01)
+
+**Signing scaffold** (`scripts/build-installer.ps1`): optional `-Sign` step — `-CertPath`(PFX)
+`+ -CertPassword`, or `-CertSubject` (Windows store cert), with an RFC3161 `-TimestampUrl`
+(default DigiCert). Locates `signtool.exe` from the newest installed Windows SDK. When `-Sign`
+is omitted the build is unsigned and prints an explicit "UNSIGNED — SmartScreen/AV will warn"
+notice; when `-Sign` is requested but the cert/tool can't be resolved it **fails hard** (no
+silently-unsigned "signed" build). Also hardened staging: `build-installer.ps1` now runs
+`prisma generate` in the clean-room and stages `apply-schema.ps1`/`upgrade.ps1`;
+`stage-runtime.ps1` now **fails** (not warns) if the generated Prisma client or query engine
+is missing.
+
+**Clean-VM acceptance runbook** (`tasks/M7-CLEAN-VM-ACCEPTANCE-RUNBOOK.md`): fresh-Windows-VM
+checklist — install → services auto-start → login → data-lands-in-ProgramData → reboot →
+upgrade-preserves-data+secrets → uninstall-preserves-ProgramData, with SmartScreen warnings
+flagged as expected (not failures).
+
+**Decisions (user, 2026-07-01):** (1) code signing = **scaffold now, sign later** (no cert
+purchased); (2) the desktop install **must also serve the Android tablet over the LAN** — this
+opens **M8** (`EXE-PACKAGING-PLAN.md` §13): server-side HTTPS-on-LAN (openssl cert into
+ProgramData, env-configurable cert path, `API_HTTPS`, CA trust/export) + the open (a)/(b)
+client decision for how the APK finds the server (per-customer rebuild+static-IP vs a
+runtime-configurable server-address screen). M8 not started.
+
+## [Unreleased] — Setup.exe packaging M6: upgrade + uninstall safety (2026-07-01)
+
+**Context:** M6 of the customer `Setup.exe` effort (`tasks/EXE-PACKAGING-PLAN.md`) — safe
+v(N)→v(N+1) upgrades of an audited DB, plus the `UPLOAD_DIR` ship-blocker M4 flagged.
+
+**1. Uploads honor `UPLOAD_DIR` (§9.6b ship-blocker).** New `apps/api/src/lib/uploads-dir.ts`
+(`UPLOADS_ROOT` = `UPLOAD_DIR` or a cwd-independent `apps/api/uploads` fallback) is the single
+source for uploads. Wired into 4 sites: static serve (`app.ts`), profile-photo writer
+(`modules/uploads/routes.ts`), report-PDF writer (`modules/reports/service.ts`), deployment-check
+probe. The report writer was the worst — `path.resolve('uploads/reports')` was **cwd-relative**, so
+under the Windows service it wrote into the program dir and stored that (soon-deleted) absolute path
+in the DB. Dev behavior unchanged (no `UPLOAD_DIR` set); customer install points it at
+`C:\ProgramData\DigiLog\uploads` so uploads survive upgrades.
+
+**2. Schema apply runs with only `node.exe` (fixes fresh install AND upgrade).** `tsx` and the
+`prisma` CLI are `devDependencies` → pruned by `npm ci --omit=dev`, and the bundle ships only
+`node.exe` (no `npx`) — so the M3 `provision-db.ps1` (which used `npx prisma`/`npx tsx`) could never
+have run on a real customer box. Fixed: moved `prisma` to runtime `dependencies` (keeps the CLI +
+`@prisma/engines` schema engine after the prune); precompiled `prisma/seed.ts` → `prisma/seed.mjs`
+via esbuild in `build-bundle.ps1`. Proven end-to-end on a scratch DB with only `node`:
+`node …/prisma/build/index.js migrate deploy` (70 tables) + `node prisma/seed.mjs` (roles, superadmin,
+33 help articles, invariants).
+
+**3. Shared `scripts/apply-schema.ps1`** (migrate deploy + seed; node-only with npx/tsx dev fallback)
+is used by BOTH fresh (`provision-db.ps1`, refactored) and upgrade (`upgrade.ps1`) so the two paths
+can never drift.
+
+**4. `scripts/upgrade.ps1`** — validate prior install → ensure DB up → stop API → **`pg_dump` backup
+(FATAL on failure)** → apply-schema (throwaway admin pw; seed upsert preserves the real password) →
+restart API → health. `digilog.env` secrets preserved, never regenerated. Manual rollback documented.
+
+**5. `installer/DigiLog.iss`** — detects upgrade (env file present), skips the admin-password page,
+`net stop DigiLogAPI` in `PrepareToInstall()` before the file copy; `pgsql\` copied `onlyifdoesntexist`
+so the DB stays up for the live backup and `postgres.exe` never locks the copy. `uninstall.ps1` already
+preserves `C:\ProgramData` (only `-PurgeData` removes it).
+
+**Deferred gates (build/customer machine, same class as M5):** ISCC compile, admin test-install, a real
+clean-room `npm ci --omit=dev` + bundled-node migrate/seed run. All dev-testable pieces verified here;
+scripts AST-clean, API typecheck clean.
+
 ## [Unreleased] — Filters/Assets permission toggle de-duplication (2026-06-30)
 
 **Problem (user report):** on the Filters page the role-config picker showed two parallel write

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { prisma } from '../../lib/prisma.js';
+import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
 // TimescaleDB + MQTT checks removed with data-ingestion removal.
 // Phase 4 (2026-05-01): Redis fully retired from this codebase. The internal
 // pub/sub bus + RPC TTL cache moved in-process. ioredis dependency dropped.
@@ -247,7 +248,7 @@ function checkFrontend(): SubCheck[] {
 // ── Check 9: Filesystem ──────────────────────────────────────────────
 function checkFilesystem(): SubCheck[] {
   const checks: SubCheck[] = [];
-  const uploadsDir = path.resolve(__dirname, '..', '..', '..', 'uploads');
+  const uploadsDir = UPLOADS_ROOT;  // honors UPLOAD_DIR (customer install)
 
   if (!fs.existsSync(uploadsDir)) {
     // Try to create it

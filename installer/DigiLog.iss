@@ -38,8 +38,18 @@ ArchitecturesInstallIn64BitMode=x64compatible
 SetupLogging=yes
 
 [Files]
-; The whole staged tree -> {app}. recursesubdirs preserves runtime/pgsql/service/scripts.
-Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; Program payload -> {app}. Split so upgrades handle running processes correctly:
+;  - pgsql (bundled PostgreSQL binaries): onlyifdoesntexist. On upgrade the DB
+;    service stays RUNNING (postgres.exe would be locked), and we WANT it up so
+;    upgrade.ps1 can pg_dump a live backup before migrating. Skipping the copy on
+;    upgrade both avoids the file lock and preserves the working PG binaries.
+;    (A future PostgreSQL binary bump is a special, out-of-band migration.)
+;  - runtime + service + scripts: ignoreversion (replaced every upgrade). These
+;    are freed by stopping DigiLogAPI in PrepareToInstall() BEFORE this copy runs.
+Source: "{#StageDir}\pgsql\*";   DestDir: "{app}\pgsql";   Flags: recursesubdirs createallsubdirs onlyifdoesntexist
+Source: "{#StageDir}\runtime\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#StageDir}\service\*"; DestDir: "{app}\service"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#StageDir}\scripts\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Dirs]
 ; Data root - survives upgrades + uninstall. Created here so ACLs are set early.
@@ -59,13 +69,21 @@ Name: "{commondesktop}\DigiLog"; Filename: "{app}\DigiLog.url"; Tasks: desktopic
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Run]
-; Post-install: generate secrets, provision Postgres, register services, health check.
 ; -ExecutionPolicy Bypass is required because the bundled scripts are unsigned; the
 ; installer already runs elevated and the scripts are shipped read-only under {app}.
+;
+; FRESH install: generate secrets, provision Postgres, register services, health check.
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install.ps1"" -InstallDir ""{app}"" -AdminPassword ""{code:GetAdminPassword}"""; \
   StatusMsg: "Setting up the DigiLog database and services (this can take a minute)..."; \
-  Flags: runhidden waituntilterminated
+  Flags: runhidden waituntilterminated; Check: not IsUpgrade
+;
+; UPGRADE: pre-upgrade DB backup, forward-only migrate deploy, reseed, restart API.
+; Preserves all data + secrets in C:\ProgramData\DigiLog.
+Filename: "powershell.exe"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\upgrade.ps1"" -InstallDir ""{app}"" -Version ""{#AppVersion}"""; \
+  StatusMsg: "Backing up and upgrading the DigiLog database (this can take a minute)..."; \
+  Flags: runhidden waituntilterminated; Check: IsUpgrade
 
 [UninstallRun]
 ; Pre-uninstall: stop + remove services. Data is preserved (see uninstall.ps1).
@@ -76,14 +94,33 @@ Filename: "powershell.exe"; \
 [Code]
 var
   AdminPage: TInputQueryWizardPage;
+  IsUpgradeFlag: Boolean;
+
+{ An install is an UPGRADE iff the data-root env file already exists. That file
+  holds the generated secrets + DB connection and only ever exists after a prior
+  successful install; it lives in ProgramData and survives program replacement. }
+function IsUpgrade: Boolean;
+begin
+  Result := IsUpgradeFlag;
+end;
 
 procedure InitializeWizard;
 begin
+  IsUpgradeFlag := FileExists(ExpandConstant('{commonappdata}\DigiLog\config\digilog.env'));
   AdminPage := CreateInputQueryPage(wpSelectDir,
     'Initial administrator password',
     'Set the password for the built-in ''superadmin'' account.',
     'You will be required to change it on first login. Minimum 8 characters.');
   AdminPage.Add('Initial admin password:', True);  { True = password (masked) }
+end;
+
+{ Skip the admin-password page on upgrade: the superadmin already exists and its
+  password is never touched (the seed upsert preserves it). }
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if IsUpgradeFlag and (PageID = AdminPage.ID) then
+    Result := True;
 end;
 
 function GetAdminPassword(Param: string): string;
@@ -94,13 +131,30 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if (CurPageID = AdminPage.ID) then
+  if (not IsUpgradeFlag) and (CurPageID = AdminPage.ID) then
   begin
     if Length(AdminPage.Values[0]) < 8 then
     begin
       MsgBox('The admin password must be at least 8 characters.', mbError, MB_OK);
       Result := False;
     end;
+  end;
+end;
+
+{ Runs BEFORE the [Files] copy. On upgrade, stop the API service so its running
+  node.exe + WinSW service exe are unlocked and can be overwritten. The DB service
+  is deliberately LEFT RUNNING: pgsql is copied onlyifdoesntexist (so postgres.exe
+  is never overwritten and never locks the copy), and upgrade.ps1 needs the DB up
+  to take a pre-upgrade pg_dump backup. `net stop` blocks until the service stops. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  if IsUpgradeFlag then
+  begin
+    Exec('net.exe', 'stop DigiLogAPI', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(2000);  { give Windows a moment to release the exe file handles }
   end;
 end;
 
