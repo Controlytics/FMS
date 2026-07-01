@@ -541,4 +541,167 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       expect(body.pending.map((p: { id: string }) => p.id)).toContain(filterBId);
     });
   });
+
+  // ── Task 5: submit-checklist HTTP route integration ──────────────────────────
+  // Verifies that the assertAhuInterlockSatisfied gate is wired into the
+  // submit-checklist completion path and fires BEFORE any DB write.
+  //
+  // Fixture (inherited from outer beforeAll):
+  //   Filter A — at S2 (final), cycleAId IN_PROGRESS.
+  //   Filter B — at S1 (not final), cycleBId IN_PROGRESS.
+  //   Profile:  S1 → S2 → [CHECKLIST, no checklistProfileId] → END.
+  //   CHECKLIST node has no checklistProfileId → resolveChecklistQuestions
+  //   returns [] → answers:{} is valid for all three tests.
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('Task 5 — submit-checklist interlock gate (HTTP route)', () => {
+    let app5: FastifyInstance;
+    let authHeaders5: Record<string, string>;
+
+    beforeAll(async () => {
+      // Set mode to INTERLOCK (Task 4 afterAll already reset it to NONE).
+      await prisma.systemConfig.upsert({
+        where: { configKey: 'ahu-completion-process' },
+        update: { configValue: { mode: 'INTERLOCK' } as any },
+        create: {
+          configKey: 'ahu-completion-process',
+          configValue: { mode: 'INTERLOCK' } as any,
+          configType: 'filter-management',
+        },
+      });
+
+      // Build a minimal Fastify app mirroring app4 (same error handler is
+      // required — without it AppError.code is swallowed by the default handler
+      // and res.json().error becomes 'Unprocessable Entity', not 'AHU_INTERLOCK_PENDING').
+      app5 = Fastify({ logger: false, ajv: { customOptions: { keywords: ['example'] } } });
+      await app5.register(cors, { origin: true, credentials: true });
+      await app5.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+      await app5.register(authPlugin);
+      await app5.register(rbacPlugin);
+      app5.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+        if (err instanceof AppError) {
+          return reply.code(err.statusCode).send({
+            error: err.code,
+            message: err.message,
+            ...(err.details ? { details: err.details } : {}),
+          });
+        }
+        if ((err as any).code === 'FST_ERR_VALIDATION' || (err as any).validation) {
+          return reply.code(400).send({
+            error: 'VALIDATION_ERROR',
+            message: err.message,
+            ...((err as any).validation ? { details: (err as any).validation } : {}),
+          });
+        }
+        const status = err.statusCode ?? 500;
+        return reply.code(status).send({ error: err.message || 'Internal Server Error' });
+      });
+      await app5.register(authRoutes, { prefix: '/api/auth' });
+      await app5.register(filterOperationsRoutes, { prefix: '/api/filters' });
+      await app5.ready();
+
+      const token = await loginAs(app5, AHU_GATE_USERNAME, AHU_GATE_PASSWORD);
+      authHeaders5 = { authorization: `Bearer ${token}` };
+    }, 30_000);
+
+    afterAll(async () => {
+      // Reset mode unconditionally — runs even if tests were skipped or failed.
+      try {
+        await prisma.systemConfig.updateMany({
+          where: { configKey: 'ahu-completion-process' },
+          data: { configValue: { mode: 'NONE' } as any },
+        });
+      } catch { /* swallow */ }
+      // Remove FilterEvents written by these tests so the outer afterAll's
+      // cleaningCycle.deleteMany / assetInstance.deleteMany can succeed without
+      // FK violations (FilterEvent.cycleId and FilterEvent.filterId are FK cols).
+      try {
+        await prisma.filterEvent.deleteMany({
+          where: { filterId: { in: [filterAId, filterBId].filter(Boolean) } },
+        });
+      } catch { /* swallow */ }
+      try { await app5.close(); } catch { /* swallow */ }
+    }, 10_000);
+
+    it('submit-checklist at final stage is blocked (422) when a sibling is not at final', async () => {
+      // Fixture state: A at S2, B at S1, mode=INTERLOCK.
+      // The gate fires before any transaction → no DB write on 422.
+      const stateRes = await app5.inject({
+        method: 'GET',
+        url: `/api/filters/${filterAId}/current-state`,
+        headers: authHeaders5,
+      });
+      expect(stateRes.statusCode).toBe(200);
+      const { tapeVersion } = stateRes.json();
+
+      const res = await app5.inject({
+        method: 'POST',
+        url: `/api/filters/${filterAId}/submit-checklist`,
+        headers: authHeaders5,
+        payload: { answers: {}, tapeVersion, _currentPassword: AHU_GATE_PASSWORD },
+      });
+      expect(res.statusCode).toBe(422);
+      expect(res.json().error).toContain('AHU_INTERLOCK_PENDING');
+    });
+
+    it('submit-checklist completes the cycle when all siblings are at final', async () => {
+      // Move B to its final stage (S2) via direct DB update so the gate sees
+      // all siblings at final and allows A's completion.
+      await prisma.filterDetails.update({
+        where: { assetInstanceId: filterBId },
+        data: { currentLifecycleState: 'S2' },
+      });
+
+      // Re-fetch tapeVersion: test 1 threw 422 (no write occurred), so
+      // cycle events are unchanged — but re-fetching is more robust.
+      const stateRes = await app5.inject({
+        method: 'GET',
+        url: `/api/filters/${filterAId}/current-state`,
+        headers: authHeaders5,
+      });
+      expect(stateRes.statusCode).toBe(200);
+      const { tapeVersion } = stateRes.json();
+
+      const res = await app5.inject({
+        method: 'POST',
+        url: `/api/filters/${filterAId}/submit-checklist`,
+        headers: authHeaders5,
+        payload: { answers: {}, tapeVersion, _currentPassword: AHU_GATE_PASSWORD },
+      });
+      expect(res.statusCode).toBe(200);
+
+      // Confirm the cycle was completed in the DB.
+      const cycle = await prisma.cleaningCycle.findUnique({ where: { id: cycleAId } });
+      expect(cycle?.status).toBe('COMPLETED');
+    });
+
+    it('submit-checklist completes normally when mode is NONE (gate short-circuits)', async () => {
+      // After test 2: Filter A is COMPLETED (no active cycle).
+      // Filter B is at S2 with cycleBId still IN_PROGRESS — use it for this test.
+      // Mode → NONE: gate short-circuits immediately; cycle completes normally.
+      await prisma.systemConfig.updateMany({
+        where: { configKey: 'ahu-completion-process' },
+        data: { configValue: { mode: 'NONE' } as any },
+      });
+
+      const stateRes = await app5.inject({
+        method: 'GET',
+        url: `/api/filters/${filterBId}/current-state`,
+        headers: authHeaders5,
+      });
+      expect(stateRes.statusCode).toBe(200);
+      const { tapeVersion } = stateRes.json();
+
+      const res = await app5.inject({
+        method: 'POST',
+        url: `/api/filters/${filterBId}/submit-checklist`,
+        headers: authHeaders5,
+        payload: { answers: {}, tapeVersion, _currentPassword: AHU_GATE_PASSWORD },
+      });
+      expect(res.statusCode).toBe(200);
+
+      // Confirm cycle B also completed.
+      const cycleB = await prisma.cleaningCycle.findUnique({ where: { id: cycleBId } });
+      expect(cycleB?.status).toBe('COMPLETED');
+    });
+  });
 });

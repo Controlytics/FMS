@@ -23,6 +23,7 @@ import {
   resolveChecklistQuestions,
 } from '../helpers.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
+import { assertAhuInterlockSatisfied } from '../ahu-completion-gate.js';
 
 /** @param data - Validated by Fastify JSON schema before reaching this method */
 export async function submitChecklistImpl(
@@ -169,6 +170,14 @@ export async function submitChecklistImpl(
       const reach = executor.findReachable(currentStage.id, localCtx.profile.nodes, localCtx.profile.edges);
       shouldComplete = reach.hasEndNext && reach.reachableStages.length === 0;
     }
+  }
+
+  // AHU interlock gate: block final-stage completion when sibling filters are
+  // still mid-cleaning.  Short-circuits on offline replay, mode ≠ INTERLOCK,
+  // or no AHU parent — cost-free for all non-interlock installations.
+  // Placed BEFORE the transaction so a thrown 422 aborts with no partial write.
+  if (shouldComplete) {
+    await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true });
   }
 
   await prisma.$transaction(async (tx) => {
