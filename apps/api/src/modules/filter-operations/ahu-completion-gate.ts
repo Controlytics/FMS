@@ -1,5 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import * as executor from '@digilog/shared';
+import { loadLocalContext } from './local-context.js';
+import type { RequestContext } from '../../types/context.js';
 
 export type AhuCompletionMode = 'NONE' | 'POPUP' | 'INTERLOCK';
 
@@ -45,4 +47,95 @@ export function reachedFinal(f: CountedFilter, finalStageByFilter: Map<string, s
     return !!finalKey && f.currentLifecycleState === finalKey;
   }
   return f.currentLifecycleState === 'CLEANING_CYCLE_COMPLETED';
+}
+
+// ─── Minimal synthetic RequestContext ─────────────────────────────────────────
+// loadLocalContext only reads ctx to populate the unused `user` slice of
+// LocalContext.  computeAhuCompletionStatus is a read-only helper; no real
+// session is in flight.  Using SUPER_ADMIN avoids permission short-circuits
+// inside loadLocalContext if any are added in future.
+const SYSTEM_CTX: RequestContext = {
+  userId: 'system',
+  userSub: 'system',
+  userRole: 'SUPER_ADMIN',
+  ipAddress: '127.0.0.1',
+  sessionId: 'system',
+};
+
+/**
+ * Walk one level up the parent chain of `filterId` and return the parent's id
+ * if that parent has templateKind === 'AHU'.  Returns null if the filter has no
+ * parent or if the immediate parent is not an AHU.
+ */
+export async function resolveAhuId(filterId: string): Promise<string | null> {
+  const self = await prisma.assetInstance.findUnique({
+    where: { id: filterId },
+    select: { parentId: true },
+  });
+  if (!self?.parentId) return null;
+  const parent = await prisma.assetInstance.findUnique({
+    where: { id: self.parentId },
+    select: { id: true, template: { select: { templateKind: true } } },
+  });
+  return parent?.template?.templateKind === 'AHU' ? parent.id : null;
+}
+
+/**
+ * Load all active, non-retired, cleanable child filters of the given AHU.
+ * "Cleanable" means the child has a FilterDetails row with a filterProfileId
+ * set — instances without a profile are not eligible for cleaning cycles and
+ * should not count toward AHU completion.
+ */
+export async function loadCountedFilters(ahuId: string): Promise<CountedFilter[]> {
+  const rows = await prisma.assetInstance.findMany({
+    where: {
+      parentId: ahuId,
+      isActive: true,
+      status: { not: 'Retired' },
+      filterDetails: { filterProfileId: { not: null } },
+    },
+    select: {
+      id: true,
+      name: true,
+      filterDetails: {
+        select: { currentCycleId: true, currentLifecycleState: true },
+      },
+    },
+  });
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    currentCycleId: r.filterDetails?.currentCycleId ?? null,
+    currentLifecycleState: r.filterDetails?.currentLifecycleState ?? null,
+  }));
+}
+
+/**
+ * Determine whether all sibling filters of the AHU (excluding the filter
+ * currently being advanced) have reached their final cleaning stage or
+ * completed their cycle.
+ *
+ * @param ahuId           — Parent AHU to scan.
+ * @param excludeFilterId — The filter being advanced (excluded from count).
+ */
+export async function computeAhuCompletionStatus(
+  ahuId: string,
+  excludeFilterId: string,
+): Promise<{ allAtFinal: boolean; pending: { id: string; name: string; stage: string }[] }> {
+  const others = (await loadCountedFilters(ahuId)).filter(f => f.id !== excludeFilterId);
+
+  // Build the final-stage key for each sibling that has an active cycle.
+  // loadLocalContext is called once per active-cycle sibling (N-small).
+  const finalStageByFilter = new Map<string, string | null>();
+  for (const f of others) {
+    if (!f.currentCycleId) continue;
+    const loaded = await loadLocalContext(f.id, SYSTEM_CTX);
+    finalStageByFilter.set(f.id, computeFinalStageKey(loaded.ctx.profile));
+  }
+
+  const pending = others
+    .filter(f => !reachedFinal(f, finalStageByFilter))
+    .map(f => ({ id: f.id, name: f.name, stage: f.currentLifecycleState ?? 'Not started' }));
+
+  return { allAtFinal: pending.length === 0, pending };
 }

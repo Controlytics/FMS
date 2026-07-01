@@ -34,6 +34,8 @@ import { prisma } from '../../../lib/prisma.js';
 import { hashPassword } from '../../../lib/password.js';
 import { AppError } from '../../../lib/errors.js';
 import { loginAs } from '../../../e2e/test-helper.js';
+import { randomUUID } from 'node:crypto';
+import { computeAhuCompletionStatus } from '../ahu-completion-gate.js';
 
 // ── Unique test user ────────────────────────────────────────────────────────
 // Derived from this file's name so it never clashes with the shared `admin`
@@ -175,5 +177,186 @@ describe('AHU Completion Process — config endpoint + reader', () => {
       headers: authHeaders,
     });
     expect(res.json().mode).toBe('INTERLOCK');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 3 — DB-backed helpers: resolveAhuId, loadCountedFilters,
+//           computeAhuCompletionStatus
+//
+// Fixture: one AHU with two child FILTER instances sharing profile S1→S2→CL→END.
+//   Filter A parked at S2 (final stage).
+//   Filter B mid-cleaning at S1 (not final).
+// Excluded filter = A.  Expectation: B is pending, allAtFinal = false.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('AHU Completion Status — computeAhuCompletionStatus', () => {
+  let ahuTemplateId: string;
+  let filterTemplateId: string;
+  let cleaningProfileId: string;
+  let filterProfileId: string;
+  let ahuId: string;
+  let filterAId: string;
+  let filterBId: string;
+  let cycleAId: string;
+  let cycleBId: string;
+
+  beforeAll(async () => {
+    // ── Template kinds (seeded by seed.ts; upsert for safety) ───────────────
+    await prisma.templateKind.upsert({
+      where: { code: 'AHU' },
+      update: {},
+      create: { code: 'AHU', label: 'AHU', isSystem: true },
+    });
+    await prisma.templateKind.upsert({
+      where: { code: 'FILTER' },
+      update: {},
+      create: { code: 'FILTER', label: 'Filter', isSystem: true },
+    });
+
+    // ── Asset templates (unique names via SUFFIX) ────────────────────────────
+    const ahuTpl = await prisma.assetTemplate.create({
+      data: { name: `AHU Tpl T3 ${SUFFIX}`, templateKind: 'AHU' },
+    });
+    ahuTemplateId = ahuTpl.id;
+
+    const filterTpl = await prisma.assetTemplate.create({
+      data: { name: `Filter Tpl T3 ${SUFFIX}`, templateKind: 'FILTER' },
+    });
+    filterTemplateId = filterTpl.id;
+
+    // ── Cleaning profile: S1 → S2 → [CHECKLIST] → END ───────────────────────
+    const cp = await prisma.filterCleaningProfile.create({
+      data: {
+        name: `CP T3 ${SUFFIX}`,
+        lineageId: randomUUID(),
+        status: 'ACTIVE',
+        createdBy: '00000000-0000-0000-0000-000000000001',
+        stages: {
+          create: [
+            { nodeType: 'STAGE', stateKey: 'S1', sortOrder: 1 },
+            { nodeType: 'STAGE', stateKey: 'S2', sortOrder: 2 },
+            { nodeType: 'CHECKLIST', stateKey: null, sortOrder: 3 },
+            { nodeType: 'END', stateKey: null, sortOrder: 4 },
+          ],
+        },
+      },
+      include: { stages: true },
+    });
+    cleaningProfileId = cp.id;
+
+    // Wire connections: S1 → S2 → CHECKLIST → END
+    const s1 = cp.stages.find(s => s.stateKey === 'S1')!;
+    const s2 = cp.stages.find(s => s.stateKey === 'S2')!;
+    const cl = cp.stages.find(s => s.nodeType === 'CHECKLIST')!;
+    const end = cp.stages.find(s => s.nodeType === 'END')!;
+    await prisma.filterPipelineConnection.createMany({
+      data: [
+        { profileId: cleaningProfileId, fromStageId: s1.id, toStageId: s2.id },
+        { profileId: cleaningProfileId, fromStageId: s2.id, toStageId: cl.id },
+        { profileId: cleaningProfileId, fromStageId: cl.id, toStageId: end.id },
+      ],
+    });
+
+    // ── Filter profile (links AssetInstance → CleaningProfile) ──────────────
+    const fp = await prisma.filterProfile.create({
+      data: { name: `FP T3 ${SUFFIX}`, cleaningProfileId },
+    });
+    filterProfileId = fp.id;
+
+    // ── AHU instance (no parent) ─────────────────────────────────────────────
+    const ahu = await prisma.assetInstance.create({
+      data: { name: `AHU T3 ${SUFFIX}`, templateId: ahuTemplateId },
+    });
+    ahuId = ahu.id;
+
+    // ── Filter A — parked at final stage (S2) ────────────────────────────────
+    const fA = await prisma.assetInstance.create({
+      data: { name: `Filter A T3 ${SUFFIX}`, templateId: filterTemplateId, parentId: ahuId },
+    });
+    filterAId = fA.id;
+
+    // ── Filter B — mid-cleaning at S1 ────────────────────────────────────────
+    const fB = await prisma.assetInstance.create({
+      data: { name: `Filter B T3 ${SUFFIX}`, templateId: filterTemplateId, parentId: ahuId },
+    });
+    filterBId = fB.id;
+
+    // ── Cycles (profileId = FilterCleaningProfile.id directly) ───────────────
+    // loadLocalContext handles this: tries FilterProfile lookup (null), falls
+    // back to treating profileId as a FilterCleaningProfile id.
+    const cycleA = await prisma.cleaningCycle.create({
+      data: {
+        cycleCode: `CC-T3A-${SUFFIX}`,
+        filterId: filterAId,
+        profileId: cleaningProfileId,
+        profileVersion: 1,
+        sequenceNumber: 1,
+        cleaningReasonKey: 'SCHEDULED',
+        cleaningReasonLabel: 'Scheduled',
+      },
+    });
+    cycleAId = cycleA.id;
+
+    const cycleB = await prisma.cleaningCycle.create({
+      data: {
+        cycleCode: `CC-T3B-${SUFFIX}`,
+        filterId: filterBId,
+        profileId: cleaningProfileId,
+        profileVersion: 1,
+        sequenceNumber: 1,
+        cleaningReasonKey: 'SCHEDULED',
+        cleaningReasonLabel: 'Scheduled',
+      },
+    });
+    cycleBId = cycleB.id;
+
+    // ── FilterDetails: A at S2 (final), B at S1 (not final) ─────────────────
+    await prisma.filterDetails.create({
+      data: {
+        assetInstanceId: filterAId,
+        filterProfileId,
+        currentCycleId: cycleAId,
+        currentLifecycleState: 'S2',
+      },
+    });
+    await prisma.filterDetails.create({
+      data: {
+        assetInstanceId: filterBId,
+        filterProfileId,
+        currentCycleId: cycleBId,
+        currentLifecycleState: 'S1',
+      },
+    });
+  }, 30_000);
+
+  afterAll(async () => {
+    // FK-safe teardown order:
+    // FilterDetails → CleaningCycles → child instances → AHU → FilterProfile
+    //   → FilterCleaningProfile (cascades stages/connections) → templates
+    try {
+      await prisma.filterDetails.deleteMany({
+        where: { assetInstanceId: { in: [filterAId, filterBId].filter(Boolean) } },
+      });
+      await prisma.cleaningCycle.deleteMany({
+        where: { id: { in: [cycleAId, cycleBId].filter(Boolean) } },
+      });
+      await prisma.assetInstance.deleteMany({
+        where: { id: { in: [filterAId, filterBId].filter(Boolean) } },
+      });
+      if (ahuId) await prisma.assetInstance.delete({ where: { id: ahuId } });
+      if (filterProfileId) await prisma.filterProfile.delete({ where: { id: filterProfileId } });
+      if (cleaningProfileId)
+        await prisma.filterCleaningProfile.delete({ where: { id: cleaningProfileId } });
+      if (ahuTemplateId) await prisma.assetTemplate.delete({ where: { id: ahuTemplateId } });
+      if (filterTemplateId) await prisma.assetTemplate.delete({ where: { id: filterTemplateId } });
+    } catch {
+      // Swallow cleanup errors — don't mask real test failures.
+    }
+  }, 30_000);
+
+  it('computeAhuCompletionStatus reports the mid-cleaning sibling as pending', async () => {
+    const status = await computeAhuCompletionStatus(ahuId, filterAId);
+    expect(status.allAtFinal).toBe(false);
+    expect(status.pending.map(p => p.id)).toContain(filterBId);
   });
 });
