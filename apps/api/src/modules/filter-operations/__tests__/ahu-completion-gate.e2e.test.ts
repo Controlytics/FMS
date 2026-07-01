@@ -376,6 +376,11 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
     let app4: FastifyInstance;
     let authHeaders4: Record<string, string>;
 
+    // Non-AHU parent fixture for the templateKind !== 'AHU' branch test.
+    let nonAhuTemplateId: string;
+    let nonAhuParentId: string;
+    let nonAhuChildId: string;
+
     beforeAll(async () => {
       // Set mode to INTERLOCK in DB (upsert in case first describe's afterAll
       // has already run and the row exists with NONE; or the row doesn't exist yet).
@@ -417,6 +422,34 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       await app4.register(filterOperationsRoutes, { prefix: '/api/filters' });
       await app4.ready();
 
+      // ── Non-AHU parent fixture (for templateKind !== 'AHU' branch) ──────────
+      // Upsert BLOCK kind (seeded in seed.ts, upsert is safe on a test DB).
+      await prisma.templateKind.upsert({
+        where: { code: 'BLOCK' },
+        update: {},
+        create: { code: 'BLOCK', label: 'Block', isSystem: true },
+      });
+      const nonAhuTpl = await prisma.assetTemplate.create({
+        data: { name: `Block Tpl T4 ${SUFFIX}`, templateKind: 'BLOCK' },
+      });
+      nonAhuTemplateId = nonAhuTpl.id;
+
+      const nonAhuParent = await prisma.assetInstance.create({
+        data: { name: `Block Parent T4 ${SUFFIX}`, templateId: nonAhuTemplateId },
+      });
+      nonAhuParentId = nonAhuParent.id;
+
+      // Child whose parent EXISTS but is a BLOCK (not AHU) — exercises the
+      // `templateKind !== 'AHU'` return-null branch in resolveAhuId.
+      const nonAhuChild = await prisma.assetInstance.create({
+        data: {
+          name: `Child of Block T4 ${SUFFIX}`,
+          templateId: filterTemplateId,
+          parentId: nonAhuParentId,
+        },
+      });
+      nonAhuChildId = nonAhuChild.id;
+
       // Login as the SUPER_ADMIN provisioned in the first describe's beforeAll.
       // That user persists in the DB across all describes in this file.
       const token = await loginAs(app4, AHU_GATE_USERNAME, AHU_GATE_PASSWORD);
@@ -431,6 +464,12 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
           data: { configValue: { mode: 'NONE' } as any },
         });
       } catch { /* swallow */ }
+      // Tear down non-AHU fixture (FK-safe: child → parent → template).
+      try {
+        if (nonAhuChildId) await prisma.assetInstance.delete({ where: { id: nonAhuChildId } });
+        if (nonAhuParentId) await prisma.assetInstance.delete({ where: { id: nonAhuParentId } });
+        if (nonAhuTemplateId) await prisma.assetTemplate.delete({ where: { id: nonAhuTemplateId } });
+      } catch { /* swallow */ }
       try { await app4.close(); } catch { /* swallow */ }
     }, 10_000);
 
@@ -440,10 +479,20 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       expect(resolved).toBe(ahuId);
     });
 
-    it('resolveAhuId returns null when the immediate parent is not an AHU (AHU has no parent)', async () => {
-      // ahuId itself has parentId = null → early return null.
-      // Covers the gap: "returns null when parent is NOT an AHU".
+    it('resolveAhuId returns null when the filter has no parent (early-return null guard)', async () => {
+      // ahuId itself has parentId = null → hits `if (!self?.parentId) return null;`.
+      // This covers the no-parent guard, NOT the templateKind branch.
       const resolved = await resolveAhuId(ahuId);
+      expect(resolved).toBeNull();
+    });
+
+    it('resolveAhuId returns null when the immediate parent exists but is not an AHU (templateKind !== AHU branch)', async () => {
+      // nonAhuChildId has parentId → nonAhuParentId whose templateKind is 'BLOCK'.
+      // resolveAhuId: self.parentId is non-null (skips early guard) → fetches parent
+      // → parent.template.templateKind === 'BLOCK' !== 'AHU' → returns null.
+      // This is the only test that exercises the `return parent?.template?.templateKind === 'AHU' ? parent.id : null`
+      // branch when templateKind is NOT 'AHU'.
+      const resolved = await resolveAhuId(nonAhuChildId);
       expect(resolved).toBeNull();
     });
 
