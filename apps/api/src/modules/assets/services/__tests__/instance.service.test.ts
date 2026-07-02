@@ -51,6 +51,11 @@ const {
       // deviceCredential / connectivityStatus / unsMapping / dataStream models
       // removed with data-ingestion removal — no longer in Prisma client.
       // qrCode / latestTelemetry models dropped 2026-07-01 (orphaned tables).
+      // zipLastCleaned (called by list()) needs filterEvent + cleaningCycle groupBy.
+      // zipFilterAttributes (called by list()) needs filter.findMany.
+      filterEvent: { groupBy: vi.fn().mockResolvedValue([]) },
+      cleaningCycle: { groupBy: vi.fn().mockResolvedValue([]) },
+      filter: { findMany: vi.fn().mockResolvedValue([]) },
     };
     type Tx = typeof tx;
     return {

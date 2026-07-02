@@ -26,7 +26,7 @@ const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
     cleaningCycle: { findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn(), update: vi.fn() },
     equipmentGroup: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     equipmentGroupVersion: { findUnique: vi.fn() },
-    filterCleaningProfile: { findUnique: vi.fn() },
+    filterCleaningProfile: { findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
     filterProfile: { findUnique: vi.fn() },
     filterEvent: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     checklistProfile: { findMany: vi.fn() },

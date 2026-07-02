@@ -55,29 +55,33 @@ describe('backup.repository', () => {
     it('queries every discovered table via $queryRawUnsafe', async () => {
       mockPrisma.$queryRawUnsafe
         .mockResolvedValueOnce([{ tablename: 'roles' }, { tablename: 'users' }]) // pg_tables
-        .mockResolvedValueOnce([]) // foreign-keys (no FKs found)
-        .mockResolvedValueOnce([{ id: 1 }]) // SELECT * FROM "roles"
+        .mockResolvedValueOnce([])            // foreign-keys (no FKs found)
+        .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "roles" (pre-flight size guard)
+        .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "users" (pre-flight size guard)
+        .mockResolvedValueOnce([{ id: 1 }])  // SELECT * FROM "roles"
         .mockResolvedValueOnce([{ id: 2 }]); // SELECT * FROM "users"
 
       const result = await fetchAllTablesRaw();
 
       expect(result).toHaveProperty('roles');
       expect(result).toHaveProperty('users');
-      // 1 introspection (pg_tables) + 1 FKs + 2 selects
-      expect(mockPrisma.$queryRawUnsafe).toHaveBeenCalledTimes(4);
+      // 1 pg_tables + 1 FKs + 2 COUNTs (pre-flight) + 2 SELECTs
+      expect(mockPrisma.$queryRawUnsafe).toHaveBeenCalledTimes(6);
     });
 
     it('orders the audit_trail SELECT by id ASC for byte-for-byte reproducible backups', async () => {
       mockPrisma.$queryRawUnsafe
-        .mockResolvedValueOnce([{ tablename: 'audit_trail' }, { tablename: 'roles' }])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([{ tablename: 'audit_trail' }, { tablename: 'roles' }]) // pg_tables
+        .mockResolvedValueOnce([])            // foreign-keys
+        .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "audit_trail" (pre-flight size guard)
+        .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "roles" (pre-flight size guard)
+        .mockResolvedValueOnce([])           // SELECT * FROM "audit_trail"
+        .mockResolvedValueOnce([]);          // SELECT * FROM "roles"
 
       await fetchAllTablesRaw();
 
       const auditCall = mockPrisma.$queryRawUnsafe.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('audit_trail') && (call[0] as string).startsWith('SELECT'),
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('audit_trail') && (call[0] as string).startsWith('SELECT *'),
       );
       expect(auditCall).toBeDefined();
       expect(auditCall![0] as string).toContain('ORDER BY id ASC');

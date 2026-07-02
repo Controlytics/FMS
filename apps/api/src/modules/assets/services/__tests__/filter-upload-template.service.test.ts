@@ -21,7 +21,7 @@ describe('buildFilterUploadTemplate', () => {
     const ws = wb.getWorksheet('Filters');
     expect(ws).toBeDefined();
     const headers = (ws!.getRow(1).values as any[]).slice(1);
-    expect(headers).toEqual(['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate', 'rfidTag']);
+    expect(headers).toEqual(['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'Filter Dimensions', 'lastCleaningDate']);
   });
 
   it('leaves the filterSize column as free text (no data-validation dropdown)', async () => {
