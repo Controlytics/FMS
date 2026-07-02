@@ -112,11 +112,22 @@ commit `859492e3` (Phase 8.7 / Wave 8a verification). Those files just
 added more concurrent admin logins, exposing a pre-existing infra
 limitation.
 
-**Verified baseline** (Wave 8a, single-fork mode):
-**1231 passing, 2 failed, 9 skipped.** The 2 failures are pre-existing
-and tracked separately. If your single-fork run shows materially
-different numbers, investigate before assuming your change broke
-something.
+**Verified baseline** (2026-07-02, single-fork mode):
+**829 passing, 0 failed, 15 skipped (80 files).** If your single-fork run
+shows materially different numbers, investigate before assuming your change
+broke something.
+
+> The prior "1231 passing / 2 failed" (Wave 8a) baseline went **stale** — by
+> 2026-07-02 the branch carried **83 pre-existing failures** across 14 files
+> (all test debt, not product bugs: prisma-mock drift, auth security-hardening
+> that unified login errors + added an audit-userId guard + stricter body
+> schemas, a `validateUserId` config mismatch, and dead e2e tests for the
+> `POST /api/assets/templates` route removed in Phase 1). Cleared 2026-07-02:
+> 82 stale/dead tests fixed-or-removed + **1 real bug fixed** — `authService.logout`
+> didn't call `invalidateSessionAuthCache`, leaving a logged-out session valid
+> in the 30s cache (commit `3e87785`). **15 skipped** includes 7 instance-CRUD
+> e2e tests `it.skip`'d in `entities.test.ts` — a real coverage gap: they need
+> an asset template, which can now only come from seed (rewrite pending).
 
 **Per-file authoring tip.** If you're adding a new e2e/integration test
 file, follow the pattern from agent AD's recent commits: provision a
