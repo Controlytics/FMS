@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] — AHU dialog: show the real stage, "Completed" only when the cycle finished (2026-07-02)
+
+The AHU interlock dialog labelled a filter "Completed" whenever it had `done=true`, but `done`
+means *reached final stage* — which includes a filter parked AT its final stage (e.g. Storage
+Out) with its terminal checklist **not yet submitted**. A cycle only completes when that
+checklist is submitted (`CLEANING_CYCLE_COMPLETED`). Fix (display-only, `remaining-filters-dialog.tsx`):
+- "Completed" (green ✓) is shown ONLY when `stage === 'CLEANING_CYCLE_COMPLETED'`.
+- A filter at its final stage but checklist-pending now shows its actual stage (e.g. "Storage
+  Out") with a distinct sky/blue indicator (reached final, not blocking, not yet completed).
+- Still-in-progress / idle filters keep the blocking (rose/amber) treatment with their stage.
+- The "N/M completed" count now counts only finished cycles, not filters merely at final.
+
+The interlock gate is unchanged — "reached final stage" is the correct gate condition (requiring
+full completion would deadlock: no filter could finish until all had finished). This is purely
+the dialog's status wording. APK rebuilt.
+
 ## [Unreleased] — AHU interlock: multi-AHU carousel dialog (2026-07-02)
 
 When a submission batch spans multiple AHUs, the pre-checklist dialog now shows **every AHU**

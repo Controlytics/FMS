@@ -64,7 +64,9 @@ export function RemainingFiltersDialog({
   // INTERLOCK: "Complete ready filters" appears only when something can proceed.
   const anyReady = ahus.some((a) => a.allAtFinal);
 
-  const doneCount = ahu ? ahu.filters.filter((f) => f.done).length : 0;
+  // Count only cycles that actually finished (checklist submitted), not filters
+  // merely parked at their final stage.
+  const doneCount = ahu ? ahu.filters.filter((f) => f.stage === 'CLEANING_CYCLE_COMPLETED').length : 0;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4">
@@ -162,18 +164,31 @@ export function RemainingFiltersDialog({
                 <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
                   {ahu.filters.map((f) => {
                     const isCurrent = currentSet.has(f.id);
+                    // "Completed" ONLY when the cycle is actually finished
+                    // (terminal checklist submitted → CLEANING_CYCLE_COMPLETED).
+                    // A filter parked AT its final stage (e.g. Storage Out) with
+                    // the checklist still pending is `done` for the interlock
+                    // (reached final) but is NOT completed — show its real stage.
+                    const isCompleted = f.stage === 'CLEANING_CYCLE_COMPLETED';
+                    const atFinal = f.done && !isCompleted; // reached final, checklist pending
+                    const rowBg = isCompleted ? 'bg-emerald-50/40' : atFinal ? 'bg-sky-50/40' : 'bg-white';
+                    const badge = isCompleted
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : atFinal
+                        ? 'bg-sky-100 text-sky-700'
+                        : isInterlock ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700';
                     return (
                       <li
                         key={f.id}
-                        className={`flex items-center justify-between px-4 py-2.5 text-sm ${f.done ? 'bg-emerald-50/40' : 'bg-white'}`}
+                        className={`flex items-center justify-between px-4 py-2.5 text-sm ${rowBg}`}
                       >
                         <span className="flex items-center gap-2 min-w-0 pr-4">
-                          {f.done ? (
+                          {isCompleted ? (
                             <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                             </svg>
                           ) : (
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${isInterlock ? 'bg-rose-500' : 'bg-amber-500'}`} />
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${atFinal ? 'bg-sky-500' : isInterlock ? 'bg-rose-500' : 'bg-amber-500'}`} />
                           )}
                           <span className="font-medium text-slate-800 truncate">{f.name}</span>
                           {isCurrent && (
@@ -182,12 +197,8 @@ export function RemainingFiltersDialog({
                             </span>
                           )}
                         </span>
-                        <span
-                          className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                            f.done ? 'bg-emerald-100 text-emerald-700' : isInterlock ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
-                          }`}
-                        >
-                          {f.done ? 'Completed' : prettyStageLabel(f.stage)}
+                        <span className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${badge}`}>
+                          {prettyStageLabel(f.stage)}
                         </span>
                       </li>
                     );
