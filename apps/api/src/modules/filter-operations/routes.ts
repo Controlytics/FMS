@@ -8,7 +8,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
 import { getCleaningReasons } from './filter-resolver.js';
-import { computeAhuCompletionStatus } from './ahu-completion-gate.js';
+import { computeAhuCompletionStatus, findProfilesWithoutFinalChecklist } from './ahu-completion-gate.js';
 
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
@@ -582,6 +582,43 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.terminateCycle(ctx, id, req.body as { justification: string; clientOpId?: string; tapeVersion?: number });
+  });
+
+  // ── Task 8: profiles without a terminal CHECKLIST before END ──────────────
+  // Used by the admin config UI to warn that INTERLOCK mode cannot enforce
+  // these profiles (they auto-complete via `advance()`, never reaching
+  // `submit-checklist` where the gate fires).
+  app.get('/cleaning-profiles/without-final-checklist', {
+    preHandler: [app.requirePermission('ASSET_READ')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'List active cleaning profiles whose final stage has no terminal CHECKLIST before END',
+      description:
+        'Returns cleaning profiles in which the final STAGE leads directly to END without a ' +
+        'CHECKLIST node on the path. These profiles cannot be enforced by AHU INTERLOCK mode ' +
+        'because the operator never reaches the submit-checklist gate that triggers the check.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            profiles: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                },
+                required: ['id', 'name'],
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async () => {
+    return { profiles: await findProfilesWithoutFinalChecklist() };
   });
 
   // ── AHU completion status ─────────────────────────────────────────────────

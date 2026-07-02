@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Badge } from '@/components/ui/badge';
 import { SuperAdminApiAccessCard } from '@/components/super-admin-api-access';
 import { canAccessConfigModule } from './can-access-module';
+import { useAhuCompletionMode } from '@/hooks/use-ahu-completion-mode';
 
 const configCards = [
   {
@@ -288,6 +289,18 @@ export function ConfigIndexPage() {
   );
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+
+  // Task 8 — AHU Interlock enforcement warning
+  // Fetch the current AHU completion mode; when it's not NONE, also fetch the
+  // list of active cleaning profiles whose final STAGE leads directly to END
+  // without a terminal CHECKLIST node (those profiles cannot be enforced).
+  const ahuMode = useAhuCompletionMode();
+  const { data: unenforceableProfiles } = useSWR<{ profiles: { id: string; name: string }[] }>(
+    isSuperAdmin && ahuMode !== 'NONE'
+      ? '/api/filters/cleaning-profiles/without-final-checklist'
+      : null,
+    { revalidateOnMount: true, dedupingInterval: 10_000 },
+  );
   // Modules that may be DELEGATED to a non-admin via Configuration Access (shown in
   // the Super Admin Settings section to a granted role). Filter Data Management edits/
   // deletes filter records, so it's the one card admins can hand off explicitly.
@@ -459,6 +472,34 @@ export function ConfigIndexPage() {
             {/* Master kill-switch for all Super Admin API access. */}
             <div className="mt-5">
               <SuperAdminApiAccessCard />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AHU Interlock enforcement warning (Task 8) */}
+      {/* Shown only to SUPER_ADMIN when mode is not NONE and some profiles are unenforceable */}
+      {isSuperAdmin && ahuMode !== 'NONE' && (unenforceableProfiles?.profiles.length ?? 0) > 0 && (
+        <div className="bg-amber-50 rounded-2xl border border-amber-200 p-5 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 mt-0.5">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-800">
+                AHU Interlock — Unenforceable Profiles
+              </p>
+              <p className="text-sm text-amber-700 mt-1">
+                These cleaning profiles do not end with a checklist and will NOT be enforced by
+                Interlock:{' '}
+                <span className="font-medium">
+                  {unenforceableProfiles!.profiles.map((p) => p.name).join(', ')}
+                </span>
+                . Add a Checklist node before END in the pipeline editor, or switch the AHU
+                Completion mode to None.
+              </p>
             </div>
           </div>
         </div>

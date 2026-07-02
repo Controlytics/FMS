@@ -142,6 +142,55 @@ export async function computeAhuCompletionStatus(
 }
 
 /**
+ * Task 8: Returns all ACTIVE cleaning profiles whose final STAGE's forward path
+ * to END does NOT pass through a CHECKLIST node.  These profiles cannot be
+ * enforced by INTERLOCK mode — the `advance()` path auto-completes them without
+ * ever hitting `submit-checklist` (§11.1 of the AHU Completion Process design).
+ *
+ * Design note: `findReachable` walks THROUGH CHECKLIST nodes (hasEndNext alone
+ * cannot distinguish S2→END from S2→CHECKLIST→END).  We therefore use
+ * `collectChecklistsAfterStage` on the final STAGE to check for intervening
+ * CHECKLIST nodes.  Direct-successor check is sufficient because a final STAGE
+ * by definition has no STAGE successors (that's how it was identified).
+ */
+export async function findProfilesWithoutFinalChecklist(): Promise<
+  { id: string; name: string }[]
+> {
+  const profiles = await prisma.filterCleaningProfile.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true, name: true, stages: true, connections: true },
+  });
+
+  const result: { id: string; name: string }[] = [];
+
+  for (const profile of profiles) {
+    // Cast to the ProfileNode / ProfileEdge shapes expected by the shared helpers.
+    const nodes = profile.stages as Parameters<typeof executor.findReachable>[1];
+    const edges = profile.connections as Parameters<typeof executor.findReachable>[2];
+
+    let hasFinalChecklist = false;
+
+    for (const node of nodes) {
+      if (node.nodeType !== 'STAGE' || !node.stateKey) continue;
+      const r = executor.findReachable(node.id, nodes, edges);
+      if (r.hasEndNext && r.reachableStages.length === 0) {
+        // Final STAGE identified — check whether a CHECKLIST precedes END.
+        if (executor.collectChecklistsAfterStage(node, nodes, edges).length > 0) {
+          hasFinalChecklist = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasFinalChecklist) {
+      result.push({ id: profile.id, name: profile.name });
+    }
+  }
+
+  return result;
+}
+
+/**
  * Gate: block a filter from submitting its final-stage advance when the AHU
  * interlock mode is INTERLOCK and one or more sibling filters have not yet
  * reached their final cleaning stage.
