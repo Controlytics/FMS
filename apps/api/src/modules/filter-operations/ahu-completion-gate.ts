@@ -131,23 +131,42 @@ export async function loadCountedFilters(ahuId: string): Promise<CountedFilter[]
 export async function computeAhuCompletionStatus(
   ahuId: string,
   excludeFilterId: string,
-): Promise<{ allAtFinal: boolean; pending: { id: string; name: string; stage: string }[] }> {
-  const others = (await loadCountedFilters(ahuId)).filter(f => f.id !== excludeFilterId);
+): Promise<{
+  allAtFinal: boolean;
+  pending: { id: string; name: string; stage: string }[];
+  ahuName: string;
+  filters: { id: string; name: string; stage: string; done: boolean }[];
+}> {
+  const all = await loadCountedFilters(ahuId);
 
-  // Build the final-stage key for each sibling that has an active cycle.
-  // loadLocalContext is called once per active-cycle sibling (N-small).
+  // Build the final-stage key for EVERY filter that has an active cycle (was
+  // just the siblings — now the full roster so `done` is correct for the row
+  // the operator is currently on, too). loadLocalContext resolves via the
+  // frozen cycle.profileId, so a null FilterDetails.filterProfileId is safe.
   const finalStageByFilter = new Map<string, string | null>();
-  for (const f of others) {
+  for (const f of all) {
     if (!f.currentCycleId) continue;
     const loaded = await loadLocalContext(f.id, SYSTEM_CTX);
     finalStageByFilter.set(f.id, computeFinalStageKey(loaded.ctx.profile));
   }
 
-  const pending = others
-    .filter(f => !reachedFinal(f, finalStageByFilter))
+  // Full roster (INCLUDING the filter being cleaned) with a done flag — powers
+  // the dialog's "all filters under this AHU + status" list.
+  const filters = all.map(f => ({
+    id: f.id,
+    name: f.name,
+    stage: f.currentLifecycleState ?? 'Not started',
+    done: reachedFinal(f, finalStageByFilter),
+  }));
+
+  // Block decision still EXCLUDES the current filter (it's the one completing).
+  const pending = all
+    .filter(f => f.id !== excludeFilterId && !reachedFinal(f, finalStageByFilter))
     .map(f => ({ id: f.id, name: f.name, stage: f.currentLifecycleState ?? 'Not started' }));
 
-  return { allAtFinal: pending.length === 0, pending };
+  const ahu = await prisma.assetInstance.findUnique({ where: { id: ahuId }, select: { name: true } });
+
+  return { allAtFinal: pending.length === 0, pending, ahuName: ahu?.name ?? '', filters };
 }
 
 /**
@@ -276,13 +295,16 @@ export async function assertAhuInterlockSatisfied(params: {
   const ahuId = await resolveAhuId(params.filterId);
   if (!ahuId) return; // not under an AHU → don't gate
 
-  const { allAtFinal, pending } = await computeAhuCompletionStatus(ahuId, params.filterId);
+  const { allAtFinal, pending, ahuName, filters } = await computeAhuCompletionStatus(ahuId, params.filterId);
   if (!allAtFinal) {
     throw new AppError(
       422,
       'AHU_INTERLOCK_PENDING',
       'All filters belonging to this AHU must reach their final cleaning stage before submission.',
-      { pendingFilters: pending },
+      // ahuName + full roster mirror the completion-status endpoint so the
+      // client's safety-net dialog (if the state changed between the pre-check
+      // and submit) renders the same rich list.
+      { pendingFilters: pending, ahuName, filters, currentFilterId: params.filterId },
     );
   }
 }

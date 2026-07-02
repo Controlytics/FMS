@@ -15,24 +15,45 @@ import { apiClient } from '../api-client';
  *
  * Failures are non-fatal — callers should catch and proceed with submission.
  */
+export interface AhuFilterRow { id: string; name: string; stage: string; done: boolean }
+
+export interface AhuCompletionResult {
+  /** INTERLOCK + siblings pending → hard block (don't open the checklist). */
+  block: boolean;
+  /** POPUP + siblings pending → warn (caller shows Continue/Cancel). */
+  warn: boolean;
+  ahuName: string;
+  /** All filters under the AHU (incl. the one being cleaned), with status. */
+  filters: AhuFilterRow[];
+  /** Just the not-yet-final siblings (excludes the current filter). */
+  pending: { id: string; name: string; stage: string }[];
+}
+
 export async function checkAhuCompletion(
   mode: 'NONE' | 'POPUP' | 'INTERLOCK',
   ahuId: string | null,
   filterId: string,
   online: boolean,
-): Promise<{ block: boolean; pending: { id: string; name: string; stage: string }[] }> {
-  if (mode === 'NONE' || !ahuId) return { block: false, pending: [] };
-  if (mode === 'INTERLOCK' && !online) return { block: false, pending: [] };
+): Promise<AhuCompletionResult> {
+  const empty: AhuCompletionResult = { block: false, warn: false, ahuName: '', filters: [], pending: [] };
+  if (mode === 'NONE' || !ahuId) return empty;
+  if (mode === 'INTERLOCK' && !online) return empty;
 
   const res = await apiClient.get<{
     allAtFinal: boolean;
+    ahuName?: string;
     pending: { id: string; name: string; stage: string }[];
+    filters?: AhuFilterRow[];
   }>(`/api/filters/ahu/${ahuId}/completion-status?exclude=${filterId}`);
 
   const pending = res?.pending ?? [];
-  // INTERLOCK: hard block when siblings are pending.
-  // POPUP: warn only (block=false → caller shows Continue/Cancel).
-  return { block: mode === 'INTERLOCK' && pending.length > 0, pending };
+  return {
+    block: mode === 'INTERLOCK' && pending.length > 0,
+    warn: mode === 'POPUP' && pending.length > 0,
+    ahuName: res?.ahuName ?? '',
+    filters: res?.filters ?? [],
+    pending,
+  };
 }
 
 /**

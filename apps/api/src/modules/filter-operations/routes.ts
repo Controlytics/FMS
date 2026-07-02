@@ -637,6 +637,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             allAtFinal: { type: 'boolean' },
+            ahuName: { type: 'string' },
             pending: {
               type: 'array',
               items: {
@@ -645,6 +646,18 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
                   id: { type: 'string' },
                   name: { type: 'string' },
                   stage: { type: 'string' },
+                },
+              },
+            },
+            filters: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                  stage: { type: 'string' },
+                  done: { type: 'boolean' },
                 },
               },
             },

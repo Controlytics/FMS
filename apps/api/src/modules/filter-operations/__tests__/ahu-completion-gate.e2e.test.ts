@@ -760,5 +760,15 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       expect(allAtFinal).toBe(false);
       expect(pending.map(p => p.id)).toContain(idleFilter);
     });
+
+    it('returns ahuName + the full filter roster with correct done flags (2026-07-02 dialog data)', async () => {
+      const res = await computeAhuCompletionStatus(ahu2, finalFilter);
+      expect(res.ahuName).toBe(`AHU T9 ${SUFFIX}`);
+      // filters includes BOTH (roster is not excluded).
+      const byId = new Map(res.filters.map(f => [f.id, f]));
+      expect(byId.get(finalFilter)?.done).toBe(true);   // CLEANING_CYCLE_COMPLETED
+      expect(byId.get(idleFilter)?.done).toBe(false);   // never started
+      expect(byId.get(idleFilter)?.stage).toBe('Not started');
+    });
   });
 });

@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] — AHU completion: pre-checklist gate + richer dialog (2026-07-02)
+
+The AHU completion check now runs **before the terminal checklist opens** (for both POPUP
+and INTERLOCK) instead of at submit — the operator is stopped before filling a checklist
+they'd be blocked on. The dialog was redesigned to show the AHU + the full filter roster.
+
+- **Backend** (`ahu-completion-gate.ts`): `computeAhuCompletionStatus` now also returns
+  `ahuName` and `filters` (all active non-Retired `templateKind='FILTER'` children, each
+  `{ id, name, stage, done }`, including the filter being cleaned). `allAtFinal`/`pending`
+  unchanged (still exclude the current filter). `GET /ahu/:id/completion-status` schema +
+  the INTERLOCK 422 details carry the new fields.
+- **Frontend gate** (`ahu-completion-check.ts` + `filter-operations.tsx` desktop +
+  `mobile-operations.tsx` tablet): a shared `gateAhuBeforeChecklist(filterId)` runs at every
+  point a checklist is about to open, gated on `isTerminalChecklist`. **INTERLOCK + pending**
+  → block (checklist doesn't open); **POPUP + pending** → warn (Continue opens, Cancel
+  aborts); else opens normally. The old submit-time POPUP pre-flight is removed; the server
+  422 stays as a safety net. Gating on the terminal checklist means intermediate checklists
+  are never affected — dissolving the original two-filter deadlock concern.
+- **Dialog** (`remaining-filters-dialog.tsx`): header shows the AHU name; body lists **all**
+  filters under the AHU — completed marked with a green ✓ + "Completed", in-progress
+  highlighted with their stage, the current filter tagged "(this filter)", plus an
+  "N/M completed" count.
+- **Tests:** `ahu-completion-gate.e2e.test.ts` gains an assertion for `ahuName` +
+  `filters[].done` (16 tests pass). Live-verified: the endpoint returns `ahuName:'AHU-0B'`
+  and the 6-filter roster with correct done flags. Spec:
+  `docs/superpowers/specs/2026-07-02-ahu-precheck-dialog-design.md`.
+- **APK rebuilt** — the tablet frontend change requires it.
+
 ## [Unreleased] — AHU INTERLOCK never blocked (loadCountedFilters predicate bug) (2026-07-02)
 
 **Bug:** with AHU Completion Process = INTERLOCK, completing a filter's final cleaning

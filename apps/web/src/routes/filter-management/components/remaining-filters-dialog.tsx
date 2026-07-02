@@ -1,16 +1,27 @@
-/** Remaining Filters Dialog — AHU completion pre-flight (Task 7).
+/** Remaining Filters Dialog — AHU completion pre-flight (Task 7 + 2026-07-02 redesign).
  *
- * Shown before a filter's checklist is submitted when sibling filters in the
- * same AHU have not yet reached their final cleaning stage.
+ * Shown BEFORE a filter's terminal (completing) checklist opens when sibling
+ * filters in the same AHU have not all reached their final cleaning stage.
  *
- * POPUP mode  → informational; operator can Continue or Cancel.
- * INTERLOCK mode → hard block; operator sees the pending list and must close.
+ * POPUP mode  → informational; operator can Continue (open the checklist) or Cancel.
+ * INTERLOCK mode → hard block; operator sees the full roster and must Close.
  *                  The server also enforces the interlock on submit-checklist
  *                  (422 AHU_INTERLOCK_PENDING) so the client block is UX-only.
+ *
+ * The body lists ALL filters under the AHU with their status — completed ones
+ * marked with a green ✓, in-progress ones highlighted with their current stage.
  */
+
+export interface AhuFilterRow {
+  id: string;
+  name: string;
+  stage: string;
+  done: boolean;
+}
 
 function prettyStageLabel(stage: string): string {
   if (!stage || stage === 'Not started') return stage || 'Not started';
+  if (stage === 'CLEANING_CYCLE_COMPLETED') return 'Completed';
   return stage
     .split('_')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -19,7 +30,12 @@ function prettyStageLabel(stage: string): string {
 
 export interface RemainingFiltersDialogProps {
   mode: 'POPUP' | 'INTERLOCK';
-  pending: { id: string; name: string; stage: string }[];
+  /** AHU display name shown in the header. */
+  ahuName: string;
+  /** All filters under the AHU (incl. the one being cleaned), with status. */
+  filters: AhuFilterRow[];
+  /** The filter currently being completed — tagged "(this filter)". */
+  currentFilterId?: string;
   onContinue?: () => void;
   onCancel: () => void;
   error?: string;
@@ -27,12 +43,15 @@ export interface RemainingFiltersDialogProps {
 
 export function RemainingFiltersDialog({
   mode,
-  pending,
+  ahuName,
+  filters,
+  currentFilterId,
   onContinue,
   onCancel,
   error,
 }: RemainingFiltersDialogProps) {
   const isInterlock = mode === 'INTERLOCK';
+  const doneCount = filters.filter((f) => f.done).length;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4">
@@ -59,12 +78,12 @@ export function RemainingFiltersDialog({
                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
           )}
-          <div>
-            <h2 className="text-lg font-bold text-white">Remaining Filters</h2>
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-white truncate">AHU: {ahuName || '—'}</h2>
             <p className={`text-sm ${isInterlock ? 'text-rose-100' : 'text-amber-100'}`}>
               {isInterlock
-                ? 'AHU interlock — cleaning blocked'
-                : 'AHU — other filters still in progress'}
+                ? 'AHU interlock — cleaning completion blocked'
+                : 'Other filters in this AHU are still in progress'}
             </p>
           </div>
         </div>
@@ -73,29 +92,55 @@ export function RemainingFiltersDialog({
         <div className="p-6 space-y-4 overflow-y-auto flex-1">
           <p className="text-sm text-slate-700">
             {isInterlock
-              ? 'All filters in this AHU must reach their final cleaning stage before any can be completed. The following filters are still in progress:'
-              : 'The following filters in this AHU have not yet reached their final cleaning stage. You may continue or wait for them to complete first.'}
+              ? 'All filters in this AHU must reach their final cleaning stage before any filter can be completed. Current status:'
+              : 'The following filters in this AHU have not all reached their final cleaning stage. You may continue anyway or wait for them to finish. Current status:'}
           </p>
 
-          {pending.length > 0 && (
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span className="font-semibold uppercase tracking-wider">Filters under this AHU</span>
+            <span>{doneCount}/{filters.length} completed</span>
+          </div>
+
+          {filters.length > 0 && (
             <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-              {pending.map((f) => (
-                <li
-                  key={f.id}
-                  className="flex items-center justify-between px-4 py-2.5 bg-white text-sm"
-                >
-                  <span className="font-medium text-slate-800 truncate pr-4">{f.name}</span>
-                  <span
-                    className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      isInterlock
-                        ? 'bg-rose-50 text-rose-700'
-                        : 'bg-amber-50 text-amber-700'
+              {filters.map((f) => {
+                const isCurrent = f.id === currentFilterId;
+                return (
+                  <li
+                    key={f.id}
+                    className={`flex items-center justify-between px-4 py-2.5 text-sm ${
+                      f.done ? 'bg-emerald-50/40' : 'bg-white'
                     }`}
                   >
-                    {prettyStageLabel(f.stage)}
-                  </span>
-                </li>
-              ))}
+                    <span className="flex items-center gap-2 min-w-0 pr-4">
+                      {f.done ? (
+                        <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${isInterlock ? 'bg-rose-500' : 'bg-amber-500'}`} />
+                      )}
+                      <span className="font-medium text-slate-800 truncate">{f.name}</span>
+                      {isCurrent && (
+                        <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                          this filter
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        f.done
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : isInterlock
+                            ? 'bg-rose-50 text-rose-700'
+                            : 'bg-amber-50 text-amber-700'
+                      }`}
+                    >
+                      {f.done ? 'Completed' : prettyStageLabel(f.stage)}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
 
@@ -132,7 +177,7 @@ export function RemainingFiltersDialog({
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                 </svg>
-                Continue
+                Continue anyway
               </button>
             </>
           )}
