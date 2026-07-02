@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { buildApp, loginAs, authGet, authPost, authPut, authDelete, ADMIN_PASSWORD } from './test-helper.js';
+import { prisma } from '../lib/prisma.js';
 
 // Unique suffix to avoid collisions between test runs.
 // Used to build a 6-char uppercase alphanumeric username that satisfies
@@ -11,13 +12,70 @@ describe('Users endpoints', () => {
   let app: FastifyInstance;
   let adminToken: string;
 
+  // Snapshot + restore user-id config so our generated username always
+  // conforms, regardless of what the operator has customised in the live DB.
+  // The live DB currently uses PREFIX_LETTERS_NUMBERS/EMP/7 which would reject
+  // our 6-char LETTERS_NUMBERS username. We seed a known-permissive default
+  // that matches our TS<SUFFIX> username, then restore the original in afterAll.
+  let originalUserIdValue: unknown = undefined;
+  let userIdRowExisted = false;
+
   beforeAll(async () => {
+    // 1. Save current user-id config (may be operator-customised)
+    const existingRow = await prisma.systemConfig.findUnique({
+      where: { configKey: 'user-id' },
+    });
+    if (existingRow) {
+      userIdRowExisted = true;
+      originalUserIdValue = existingRow.configValue;
+    }
+
+    // 2. Seed a known-permissive config that matches our TS<SUFFIX> username:
+    //    LETTERS_NUMBERS / length 6 / UPPERCASE. validateUserId() reads the DB
+    //    on every call (no cache), so this takes effect immediately.
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'user-id' },
+      update: {
+        configValue: {
+          format: 'LETTERS_NUMBERS',
+          length: 6,
+          letterCase: 'UPPERCASE',
+          prefix: '',
+          prefixSeparator: '-',
+        },
+      },
+      create: {
+        configKey: 'user-id',
+        configValue: {
+          format: 'LETTERS_NUMBERS',
+          length: 6,
+          letterCase: 'UPPERCASE',
+          prefix: '',
+          prefixSeparator: '-',
+        },
+        configType: 'security',
+        requiresReauth: false,
+      },
+    });
+
     app = await buildApp();
     adminToken = await loginAs(app);
   });
 
   afterAll(async () => {
     await app.close();
+
+    // Restore the user-id config to exactly what it was before the test ran.
+    if (userIdRowExisted) {
+      await prisma.systemConfig.update({
+        where: { configKey: 'user-id' },
+        data: { configValue: originalUserIdValue as any },
+      }).catch(() => undefined);
+    } else {
+      await prisma.systemConfig.delete({
+        where: { configKey: 'user-id' },
+      }).catch(() => undefined);
+    }
   });
 
   // =============================================

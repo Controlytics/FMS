@@ -235,11 +235,16 @@ describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)
   // =========================================================================
   it('DELETE /api/assets/identifiers/:id removes the identifier (200)', async () => {
     expect(identifierA).toBeTruthy();
+    // The route has a body schema (type:'object') for the optional `reason` field.
+    // Fastify rejects a bodyless DELETE with 400; the web client (api-client.ts)
+    // already sends `body: JSON.stringify({})` for all DELETE calls (2026-05-21
+    // Android Content-Type fix). Pass {} here to match that real-client behaviour.
     const res = await authDelete(
       app,
       `/api/assets/identifiers/${identifierA}`,
       adminToken,
       ADMIN_PASSWORD,
+      {},
     );
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
