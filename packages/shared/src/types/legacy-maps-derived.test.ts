@@ -18,11 +18,11 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (89 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (90 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (89 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (90 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
@@ -40,22 +40,24 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 89', () => {
+  it('configurable node count is exactly 90', () => {
+    // 90 = 89 plus filters.rfid_manage (re-added to the picker 2026-07-02 so non-SUPER_ADMIN roles
+    // can be granted RFID assign/unassign; reverses the 2026-07-01 enforced-only removal).
     // 89 = 88 plus audit.delete (physical hard-delete picker toggle added 2026-07-01).
     // 88 = 89 minus notifications.manage (removed from picker 2026-07-01; NOTIFICATION_MANAGE
     // enforced by no route). The RFID->Export swap that day was net-zero (filters.rfid_manage out,
     // filters.export in). 89 = 92 minus checklists.submit + checklists.toggle + cleaning_profiles.toggle;
     // 92 = 96 minus the RFID/relationship identifier nodes; 96 = 99 minus assets.create/edit/delete.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(89);
+    expect(count).toBe(90);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 89 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(89);
+  it('FEATURE_PRIVILEGES has exactly 90 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(90);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 89 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(89);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 90 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(90);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 24 sections', () => {

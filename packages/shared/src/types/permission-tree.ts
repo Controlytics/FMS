@@ -412,11 +412,14 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'trash', category: 'Filters Page Controls', permissions: ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
         reauthAction: 'DELETE_HIERARCHY_NODE', enforce: 'a',
         gate: ['FILTER_HIERARCHY_DELETE'], configurable: true }, // 2026-07-01: dropped ASSET_DELETE alt
-      // 2026-07-01: filters.rfid_manage made enforced-only (removed from the role-config picker per user request).
-      // RFID assign/unassign still gated on FILTER_RFID_MANAGE (SUPER_ADMIN + roles granted it explicitly).
+      // 2026-07-02: filters.rfid_manage made configurable AGAIN (re-added to the role-config picker).
+      // Reverses the 2026-07-01 enforced-only decision: with the toggle gone, only SUPER_ADMIN (and
+      // OPERATOR via a leftover ASSET_IDENTIFIER_CREATE grant) could assign RFID — every other role got
+      // 403 on the tablet RFID-assign page with no UI way to grant it. Enabling this toggle grants
+      // FILTER_RFID_MANAGE (satisfies the assign/unassign endpoint gate).
       { id: 'filters.rfid_manage', label: 'Assign / Unassign RFID Tags', sidebarId: 'filter-list', page: 'Filters', action: 'Manage RFID',
         icon: 'wifi', category: 'Filters Page Controls', permissions: ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_READ'], enforce: 'a',
-        gate: ['FILTER_RFID_MANAGE'] },
+        gate: ['FILTER_RFID_MANAGE'], configurable: true },
       // 2026-07-01: hide/unhide the Filters-page Export (PDF/Excel) menu. enforce:'c' = frontend-only gate
       // (export happens client-side; no backend route). Mirrors retirement_list.export.
       { id: 'filters.export', label: 'Export Filter List (PDF / Excel)', sidebarId: 'filter-list', page: 'Filters', action: 'Export',
@@ -862,7 +865,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'filters.bulk_upload', 'filters.retire', 'filters.replace', 'filters.status_update',
   'filters.create', 'filters.edit', 'filters.delete',
   'retirement_list.export', 'replacement_list.export',
-  'filters.hierarchy_create', 'filters.hierarchy_edit', 'filters.hierarchy_delete', 'filters.export', // rfid_manage removed from picker (enforced-only), export added — 2026-07-01
+  'filters.hierarchy_create', 'filters.hierarchy_edit', 'filters.hierarchy_delete', 'filters.rfid_manage', 'filters.export', // rfid_manage re-added to picker 2026-07-02 (was enforced-only since 2026-07-01)
   'replacement_schedule.view', 'replacement_schedule.upload', 'replacement_schedule.review', 'replacement_schedule.approve',
   'block_change.request', 'block_change.approve',
   'stage_approvals.view', 'stage_approvals.decide',
