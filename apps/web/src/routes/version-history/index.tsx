@@ -465,15 +465,17 @@ function humanizePath(path: string): string {
     .join(' › ');
 }
 
-// Render any snapshot value as plain, human-readable text.
-function formatVal(v: any): string {
+// Render any snapshot value as plain, human-readable text. `fmtDate`, when
+// provided, formats ISO date-time strings per the app's date/time config
+// (falls back to a raw locale string only if omitted).
+function formatVal(v: any, fmtDate?: (s: string) => string): string {
   if (v === null || v === undefined || v === '') return '(none)';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (typeof v === 'number') return String(v);
   if (typeof v === 'string') {
     if (/^\d{4}-\d{2}-\d{2}T[\d:.]/.test(v)) {
       const d = new Date(v);
-      if (!isNaN(d.getTime())) return d.toLocaleString();
+      if (!isNaN(d.getTime())) return fmtDate ? fmtDate(v) : d.toLocaleString();
     }
     return v.length > 80 ? `${v.slice(0, 80)}…` : v;
   }
@@ -491,6 +493,7 @@ function formatVal(v: any): string {
 }
 
 function DiffLine({ change }: { change: DiffChange }) {
+  const { formatDateTime } = useDatetimeFormat();
   const meta = {
     changed: { box: 'bg-amber-50 border-amber-200', tag: 'Changed', tagColor: 'text-amber-700' },
     added: { box: 'bg-emerald-50 border-emerald-200', tag: 'Added', tagColor: 'text-emerald-700' },
@@ -504,16 +507,16 @@ function DiffLine({ change }: { change: DiffChange }) {
       </div>
       {change.kind === 'changed' && (
         <div className="mt-1 flex items-center gap-2 flex-wrap">
-          <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500">{formatVal(change.oldValue)}</span>
+          <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500">{formatVal(change.oldValue, formatDateTime)}</span>
           <span className="text-slate-400">→</span>
-          <span className="px-1.5 py-0.5 rounded bg-white border border-slate-300 font-medium text-slate-900">{formatVal(change.newValue)}</span>
+          <span className="px-1.5 py-0.5 rounded bg-white border border-slate-300 font-medium text-slate-900">{formatVal(change.newValue, formatDateTime)}</span>
         </div>
       )}
       {change.kind === 'added' && change.newValue !== undefined && (
-        <div className="mt-1"><span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-700">{formatVal(change.newValue)}</span></div>
+        <div className="mt-1"><span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-700">{formatVal(change.newValue, formatDateTime)}</span></div>
       )}
       {change.kind === 'removed' && change.oldValue !== undefined && (
-        <div className="mt-1"><span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500 line-through">{formatVal(change.oldValue)}</span></div>
+        <div className="mt-1"><span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500 line-through">{formatVal(change.oldValue, formatDateTime)}</span></div>
       )}
     </li>
   );

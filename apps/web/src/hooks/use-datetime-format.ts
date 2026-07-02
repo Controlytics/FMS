@@ -81,5 +81,18 @@ export function useDatetimeFormat() {
     return `${formatDateValue(date, config.dateFormat, config.timezone)} ${formatTimeValue(date, config.timeFormat, config.timezone)}`;
   };
 
-  return { formatDate, formatTime, formatDateTime, config };
+  // Format a value ONLY if it is an ISO-8601 date/date-time STRING, else return
+  // null so callers can fall back to their own rendering. Used to format the
+  // date-like values that show up inside opaque JSON payloads (e.g. an audit
+  // row's before/after `createdAt`/`updatedAt`) without needing to know the key
+  // names. Value-based (not key-name) detection: a string starting with
+  // YYYY-MM-DDThh:mm is unambiguously a datetime; YYYY-MM-DD (no time) is a date.
+  const formatIfDate = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return formatDateTime(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDate(value);
+    return null;
+  };
+
+  return { formatDate, formatTime, formatDateTime, formatIfDate, config };
 }

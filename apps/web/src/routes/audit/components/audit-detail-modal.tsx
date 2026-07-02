@@ -22,6 +22,7 @@ interface AuditDetailModalProps {
   onClose: () => void;
   isSuperAdmin: boolean;
   formatDateTime: (value: string) => string;
+  formatIfDate: (value: unknown) => string | null;
   getAuditSummary: (record: any, templates: Record<string, string>) => string;
   getAuditStatus: (action: string) => 'Success' | 'Fail';
   templates: Record<string, string>;
@@ -34,6 +35,7 @@ export function AuditDetailModal({
   onClose,
   isSuperAdmin,
   formatDateTime,
+  formatIfDate,
   getAuditSummary,
   getAuditStatus,
   templates,
@@ -153,7 +155,7 @@ export function AuditDetailModal({
                                 {key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim()}
                               </span>
                               <span className="text-sm text-slate-800 break-all">
-                                {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : (formatIfDate(value) ?? String(value))}
                               </span>
                             </div>
                           ))}
@@ -172,7 +174,7 @@ export function AuditDetailModal({
                                 {key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim()}
                               </span>
                               <span className="text-sm text-slate-800 break-all">
-                                {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : (formatIfDate(value) ?? String(value))}
                               </span>
                             </div>
                           ))}

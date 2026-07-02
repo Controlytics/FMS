@@ -1,5 +1,105 @@
 # Changelog
 
+## [Unreleased] — Date/time config respected in audit detail + app-wide sweep (2026-07-02)
+
+**Bug:** the Audit Trail detail modal showed `createdAt`/`updatedAt` inside a record's
+before/after payload as raw ISO strings (`2026-07-02T07:25:38.462Z`) instead of the
+configured date/time format. The modal rendered every payload field via `String(value)`,
+so ISO date strings bypassed the `useDatetimeFormat()` hook.
+
+- **New shared helper `formatIfDate(value)`** on `useDatetimeFormat()` — formats a value
+  ONLY if it's an ISO-8601 date (`…T…` → `formatDateTime`, `YYYY-MM-DD` → `formatDate`),
+  else returns `null` so callers fall back. Value-based (not key-name) detection.
+- **`audit/components/audit-detail-modal.tsx`** — both Previous/New value blocks now render
+  `formatIfDate(value) ?? String(value)`; `formatIfDate` threaded from `audit/index.tsx`.
+  Verified live: `createdAt`/`updatedAt` now show `02/07/2026 01:10 PM` (config format,
+  UTC→configured timezone), no console errors.
+
+**App-wide sweep** (4 parallel agents over routes/mobile/lib/components; canonical pattern =
+the ~43 files using `useDatetimeFormat`, exclusions = `toISOString()` wire/filenames,
+`<input type=date|datetime-local>`, chart-axis/preview, date-math). Fixed the clear
+data-timestamp display bugs:
+- **`version-history/index.tsx`** — the diff-view `formatVal()` rendered ISO snapshot values
+  with raw `toLocaleString()`; now takes the config `formatDateTime` (threaded through `DiffLine`).
+- **`mobile-wrapper.tsx`** — the RFID-scan "Last Cleaned" `fmt` used hardcoded `toLocale*`;
+  now uses `formatDateTime`.
+
+Also made the **`mobile-wrapper.tsx:1036`** weekday home-header (`THU 02 JUL`)
+timezone-correct — it kept its decorative weekday/day/month style but now passes
+`timeZone: config.timezone` so it can't show the wrong day for the configured timezone.
+
+**Reviewed, left as a judgment call (not a data timestamp):** `dashboard.tsx:406,412`
+(chart **axis** tick labels — full config dates per tick would clutter the axis). **Confirmed OK:**
+PDF/Excel report output (`lib/pdf-report.ts`, `lib/report-review.ts`) already receives
+`formatDateTime` from callers, so reports honor the config; filter-management pages were clean.
+
+## [Unreleased] — Test suite isolated to digilog_test_db (2026-07-02)
+
+**The `apps/api` vitest suite ran against the live dev DB `digilog_db`**, so every
+audited e2e action wrote **permanent, immutable, hash-chained** rows into the real
+`audit_trail` (21 CFR §11). The most visible symptom: `phase3-rfid-offline.test.ts`
+created `RFID-p3-<Date.now-b36>-A/B` tags and deleted their throwaway filters in
+`afterAll`, leaving orphaned `ASSET_IDENTIFIER_*` audit rows with blank filter names
+that dominated the top (newest-first) of the operator's Audit Trail UI.
+
+- **New `apps/api/vitest.env.ts`** — shared bootstrap that loads `.env` then rewrites
+  `DATABASE_URL` (`digilog_db` → `digilog_test_db`) before any `lib/prisma` import
+  constructs the client. Idempotent (skips if already the test DB).
+- **`vitest.setup.ts`** (per worker) and **`vitest.global-setup.ts`** (main process)
+  both import it for its side effects; the duplicated dotenv boilerplate was consolidated
+  into it.
+- **`digilog_test_db` seeded** (roles incl. `SUPER_ADMIN`, base config, template kinds) —
+  same migration-driven schema as `digilog_db` (68 tables, 2 migrations; no migration needed).
+- **Two tests un-coupled from ambient data:** `entities.test.ts` instance-list now asserts
+  the pagination contract (array/number/page) instead of `total >= 1` (relied on the 390
+  seeded filters in `digilog_db`).
+- **Verified:** full single-fork run **829 passed / 0 failed / 15 skipped** against
+  `digilog_test_db` — identical to the `digilog_db` baseline. Confirmed airtight: three
+  test-suite runs added **0** rows to `digilog_db.audit_trail` (newest identifier row
+  unchanged at 327); test writes landed in `digilog_test_db`.
+- **Known pre-existing flake (not introduced here):** `config.test.ts`'s
+  `GET /api/config/datetime/current` intermittently sees a body without `dateFormat` in the
+  full 80-file run only (passes in isolation + most full runs; the `[Config] Validation
+  failed` warning is absent, ruling out data corruption). Documented in `apps/api/CLAUDE.md`.
+
+## [Unreleased] — RFID audit record: filter name + tag value now render (2026-07-02)
+
+**Bug:** the audit-trail line for adding/removing an RFID (or QR/barcode) identifier
+rendered as `New identifier (RFID) added to filter "" by admin` — the filter name was
+blank and the tag value was absent. Two independent defects, fixed at both layers:
+
+1. **Stored record was not self-describing.** `identifier.service.ts` wrote
+   `afterValue: identifier` (the raw `asset_identifier` row), which carries `assetId`
+   but no filter name. The audit-list endpoint (`audit/routes.ts`) has read-time
+   enrichment that resolves `assetId → filterName` by looking the filter up live — so
+   rows whose filter **still exists** already rendered the name. But when the filter was
+   **later hard-deleted**, the live lookup returns nothing → the row falls back to `""`
+   (measured: 81 of 492 identifier rows referenced a since-deleted filter). Fix: capture
+   the name at write time so the audit record is self-describing and survives deletion —
+   `create()` now stores `{ ...identifier, filterName: asset.name }`; `delete()` resolves
+   the filter via `instanceRepository.findByIdSimple` and stores `filterName` on
+   `beforeValue`. (Read-time enrichment preserves the stored value via `?? `, so no conflict.)
+2. **Template never surfaced the tag value.** `ASSET_IDENTIFIER_CREATED` / `_DELETED`
+   templates (packages/shared `audit-templates.ts`) rendered `{identifierType}` only —
+   the RFID/QR value was missing on **all** rows even though it was stored. Added
+   `{identifierValue}` to both templates + their `placeholders`, and the matching
+   `{identifierValue}` substitution in the web renderer (`audit/audit-helpers.ts`).
+
+Now renders e.g. `New identifier (RFID: E28011700000021ABCDE) added to filter "Filter-42" by admin`.
+
+**Historic rows:** the **tag value** backfills on all rows (already stored). The **filter
+name** already resolves on rows whose filter still exists (read-time enrichment); rows whose
+filter was hard-deleted **cannot** recover the name — it was never stored and `audit_trail`
+is immutable (21 CFR §11 / `audit_trail_no_update` trigger). Only new rows are guaranteed
+correct post-deletion. This is a data limitation, not a further code gap.
+
+**Touchpoints checked:** `getRfidTrackRecord` (RFID Track Record report) reads specific
+`afterValue` fields and resolves filter/AHU names via its own join — the added `filterName`
+field is additive and does not affect it. Audit-text config has no saved override for these
+keys (verified `system_config` row), so the shared-default change takes effect. Tests:
+`identifier.service.test.ts` (asserts `filterName` + `identifierValue` in the audit payload),
+`audit-templates.test.ts` (placeholder⊆template invariant). Shared package rebuilt.
+
 ## [Unreleased] — AHU Cleaning Completion Process (2026-07-01)
 
 New global configuration (`ahu-completion-process`, SUPER_ADMIN-only) that gates final-stage cleaning submission per AHU. Three mutually-exclusive modes:
