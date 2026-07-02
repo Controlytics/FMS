@@ -104,12 +104,11 @@ describe('authService', () => {
       mockRepo.findUserByUsername.mockResolvedValue(null);
       mockVerifyPassword.mockResolvedValue(false); // dummy hash timing
 
-      // The service distinguishes "username unknown" (USER_NOT_FOUND) from
-      // "wrong password" (INVALID_PASSWORD) at the message level. Both
-      // surface 401 to the client; only the message differs so support
-      // staff can triage failed-login telemetry.
+      // The service unified all login failures into a single generic message
+      // (security hardening — prevents user enumeration). Both USER_NOT_FOUND
+      // and wrong-password paths surface 401 with the same message.
       await expect(authService.login('nobody', 'pass', '127.0.0.1', undefined))
-        .rejects.toThrow('User ID is incorrect.');
+        .rejects.toThrow('Username or password is incorrect.');
     });
 
     it('throws ACCOUNT_DISABLED for disabled user', async () => {
@@ -151,7 +150,7 @@ describe('authService', () => {
       mockRepo.updateUser.mockResolvedValue(user);
 
       await expect(authService.login('admin', 'wrong', '127.0.0.1', undefined))
-        .rejects.toThrow('Password is incorrect.');
+        .rejects.toThrow('Username or password is incorrect.');
 
       expect(mockRepo.updateUser).toHaveBeenCalledWith(user.id, expect.objectContaining({ failedLoginAttempts: 1 }));
     });

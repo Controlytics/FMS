@@ -16,7 +16,7 @@ const { mockVerifyToken, mockPrisma } = vi.hoisted(() => ({
 vi.mock('../../lib/jwt.js', () => ({ verifyToken: mockVerifyToken }));
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
-import authPlugin, { invalidatePasswordPolicyCache } from '../auth.js';
+import authPlugin, { invalidatePasswordPolicyCache, invalidateUserAuthCache, invalidateSessionAuthCache } from '../auth.js';
 
 function makeReq(overrides: Record<string, any> = {}) {
   return {
@@ -41,9 +41,11 @@ describe('authPlugin', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    // The plugin's password-policy cache is module-scope and persists
-    // across tests; reset it so each test's findUnique mock is observed.
+    // The plugin's caches are module-scope and persist across tests;
+    // reset all three so each test's mocks are observed fresh.
     invalidatePasswordPolicyCache();
+    invalidateUserAuthCache('u1');
+    invalidateSessionAuthCache('s1');
     const app = {
       addHook: vi.fn((event: string, handler: Function) => {
         if (event === 'onRequest') onRequestHook = handler;

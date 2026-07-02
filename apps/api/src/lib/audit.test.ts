@@ -73,6 +73,7 @@ describe('auditLog — C3 chain', () => {
   it('chains to the prior checksum when one exists', async () => {
     mockTxQueryRaw.mockResolvedValueOnce([{ checksum: 'prior-sha-abc' }]);
     await auditLog({
+      userId: 'test-user',
       action: 'LOGOUT',
       targetType: 'session',
       targetId: 's1',
@@ -84,7 +85,7 @@ describe('auditLog — C3 chain', () => {
   });
 
   it('handles entries without afterValue', async () => {
-    await auditLog({ action: 'LOGOUT', targetType: 'session', targetId: 's1' });
+    await auditLog({ userId: 'test-user', action: 'LOGOUT', targetType: 'session', targetId: 's1' });
     expect(mockComputeChainedChecksum).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'LOGOUT',
@@ -96,7 +97,7 @@ describe('auditLog — C3 chain', () => {
 
   it('deep clones afterValue before stringifying for insert', async () => {
     const afterValue = { nested: { key: 'value' } };
-    await auditLog({ action: 'TEST', afterValue });
+    await auditLog({ userId: 'test-user', action: 'TEST', afterValue });
     const checksumCall = mockComputeChainedChecksum.mock.calls[0][0] as Record<string, unknown>;
     // The cloned value reaches the checksum input; original object reference
     // is not used (no mutation aliasing).
@@ -106,6 +107,7 @@ describe('auditLog — C3 chain', () => {
 
   it('passes signatureMeaning through to the insert', async () => {
     await auditLog({
+      userId: 'test-user',
       action: 'PASSWORD_CHANGED',
       signatureMeaning: 'User changed password',
     });

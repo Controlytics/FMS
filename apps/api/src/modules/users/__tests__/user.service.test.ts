@@ -253,7 +253,7 @@ describe('userService', () => {
   describe('processResetRequest', () => {
     it('approves reset request', async () => {
       mockUserRepo.findResetRequestById.mockResolvedValue({ id: 'req-1', userId: 'admin', status: 'PENDING' });
-      mockUserRepo.findByUsername.mockResolvedValue({ id: 'user-1' });
+      mockUserRepo.findById.mockResolvedValue({ id: 'user-1', username: 'admin' });
       mockHashPassword.mockResolvedValue('hash');
       mockUserRepo.getPasswordExpiresAt.mockResolvedValue(null);
       mockUserRepo.approveResetRequest.mockResolvedValue([]);
@@ -264,6 +264,7 @@ describe('userService', () => {
 
     it('rejects reset request', async () => {
       mockUserRepo.findResetRequestById.mockResolvedValue({ id: 'req-1', userId: 'admin', status: 'PENDING' });
+      mockUserRepo.findById.mockResolvedValue({ id: 'user-1', username: 'admin' });
       mockUserRepo.rejectResetRequest.mockResolvedValue({});
 
       const result = await userService.processResetRequest('req-1', 'reject', undefined, 'reason', ctx);

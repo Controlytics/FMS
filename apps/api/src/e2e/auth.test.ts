@@ -81,9 +81,9 @@ describe('Auth endpoints', () => {
 
       expect(res.statusCode).toBe(401);
       const body = JSON.parse(res.body);
-      // The service distinguishes USER_NOT_FOUND from INVALID_PASSWORD; both
-      // are 401 to the client, only the message differs (operator UX).
-      expect(body.error).toBe('INVALID_PASSWORD');
+      // The service unified all login failures into INVALID_CREDENTIALS
+      // (security hardening — prevents user enumeration).
+      expect(body.error).toBe('INVALID_CREDENTIALS');
     });
 
     it('returns 401 for non-existent user', async () => {
@@ -147,7 +147,7 @@ describe('Auth endpoints', () => {
   describe('POST /api/auth/logout', () => {
     it('logs out successfully', async () => {
       const token = await loginAs(app);
-      const res = await authPost(app, '/api/auth/logout', token);
+      const res = await authPost(app, '/api/auth/logout', token, {});
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
@@ -156,7 +156,7 @@ describe('Auth endpoints', () => {
 
     it('session is invalid after logout', async () => {
       const token = await loginAs(app);
-      await authPost(app, '/api/auth/logout', token);
+      await authPost(app, '/api/auth/logout', token, {});
 
       // Subsequent request should fail
       const res = await authGet(app, '/api/auth/me', token);
