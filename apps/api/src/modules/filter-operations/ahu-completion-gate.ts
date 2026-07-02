@@ -143,21 +143,30 @@ export async function computeAhuCompletionStatus(
 
 /**
  * Task 8: Returns all ACTIVE cleaning profiles where ANY final STAGE's forward
- * path to END does NOT pass through a CHECKLIST node.  These profiles cannot be
- * fully enforced by INTERLOCK mode — the `advance()` path auto-completes the
- * unguarded branch without ever hitting `submit-checklist` (§11.1).
+ * path to END does NOT pass through a CHECKLIST node that is actively gating.
+ * These profiles cannot be fully enforced by INTERLOCK mode — the `advance()`
+ * path auto-completes the unguarded branch without ever hitting
+ * `submit-checklist` (§11.1).
  *
  * Design notes:
  * - `findReachable` walks THROUGH CHECKLIST nodes (hasEndNext alone cannot
  *   distinguish S2→END from S2→CHECKLIST→END).  We use
  *   `collectChecklistsAfterStage` on each final STAGE to check for intervening
  *   CHECKLIST nodes.
+ * - A CHECKLIST node is "gating" — i.e. it defers auto-completion — ONLY when:
+ *     (a) it has a non-null `checklistProfileId` in its `configuration`, AND
+ *     (b) the referenced ChecklistProfile has `isActive: true`.
+ *   This mirrors the predicate used by `advance()` to set
+ *   `hasPendingChecklistAfterTarget` (cycle-write/advance.ts, ~lines 360-370).
+ *   Keep these in sync: if that predicate changes, update the check here too.
  * - A profile is unenforceable if ANY of its final STAGEs reaches END without
- *   a CHECKLIST (not just ALL of them).  A branching pipeline (diamond) with
- *   one enforceable path and one unenforceable path is still unenforceable
+ *   a GATING CHECKLIST (not just ALL of them).  A branching pipeline (diamond)
+ *   with one enforceable path and one unenforceable path is still unenforceable
  *   overall — the unguarded branch silently completes the cycle.  Therefore the
  *   loop breaks on the first unenforceable final stage it finds, not the first
  *   enforceable one.
+ * - The ChecklistProfile.isActive lookup is batched (one query across all
+ *   profiles) to avoid N+1 queries.
  */
 export async function findProfilesWithoutFinalChecklist(): Promise<
   { id: string; name: string }[]
@@ -167,6 +176,37 @@ export async function findProfilesWithoutFinalChecklist(): Promise<
     select: { id: true, name: true, stages: true, connections: true },
   });
 
+  // ── Pass 1: collect every checklistProfileId referenced by a post-final-stage
+  //    CHECKLIST node across ALL active profiles.  Batching the isActive lookup
+  //    here avoids N+1 DB round-trips.
+  const allReferencedCpIds = new Set<string>();
+  for (const profile of profiles) {
+    const nodes = profile.stages as any[];
+    const edges = profile.connections as any[];
+    for (const node of nodes) {
+      if (node.nodeType !== 'STAGE' || !node.stateKey) continue;
+      const r = executor.findReachable(node.id, nodes, edges);
+      if (r.hasEndNext && r.reachableStages.length === 0) {
+        for (const pn of executor.collectChecklistsAfterStage(node, nodes, edges)) {
+          const cpId = (pn.configuration as any)?.checklistProfileId as string | undefined;
+          if (cpId) allReferencedCpIds.add(cpId);
+        }
+      }
+    }
+  }
+
+  // ── Batch isActive check.  Only IDs that exist AND have isActive:true count
+  //    as gating — mirrors advance.ts's ChecklistProfile.findMany({isActive:true}).
+  const activeChecklistIds = new Set<string>();
+  if (allReferencedCpIds.size > 0) {
+    const active = await prisma.checklistProfile.findMany({
+      where: { id: { in: [...allReferencedCpIds] }, isActive: true },
+      select: { id: true },
+    });
+    for (const row of active) activeChecklistIds.add(row.id);
+  }
+
+  // ── Pass 2: classify each profile.
   const result: { id: string; name: string }[] = [];
 
   for (const profile of profiles) {
@@ -180,8 +220,15 @@ export async function findProfilesWithoutFinalChecklist(): Promise<
       if (node.nodeType !== 'STAGE' || !node.stateKey) continue;
       const r = executor.findReachable(node.id, nodes, edges);
       if (r.hasEndNext && r.reachableStages.length === 0) {
-        // Final STAGE identified — check whether a CHECKLIST precedes END.
-        if (executor.collectChecklistsAfterStage(node, nodes, edges).length === 0) {
+        // Final STAGE identified — check whether an ACTIVE-GATING CHECKLIST
+        // precedes END.  A node is gating only when checklistProfileId is
+        // non-null AND the referenced profile is isActive:true (see note above).
+        const postNodes = executor.collectChecklistsAfterStage(node, nodes, edges);
+        const hasGatingChecklist = postNodes.some(pn => {
+          const cpId = (pn.configuration as any)?.checklistProfileId as string | undefined;
+          return !!cpId && activeChecklistIds.has(cpId);
+        });
+        if (!hasGatingChecklist) {
           unenforceable = true;
           break; // One unenforceable final stage is enough to flag the profile.
         }

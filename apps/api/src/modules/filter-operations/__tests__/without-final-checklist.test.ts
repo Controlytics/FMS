@@ -1,23 +1,27 @@
 /**
  * Task 8 — TDD test for GET /api/filters/cleaning-profiles/without-final-checklist
  *
- * Seeds three cleaning profiles:
- *   Profile 1: S1 → S2 → END                             (no terminal checklist → NOT enforceable)
- *   Profile 2: S1 → S2 → CHECKLIST → END                 (has terminal checklist → enforceable)
- *   Profile 3: S1 branches to S2→END and S3→CHECKLIST→END (diamond — mixed: one unenforceable path)
+ * Seeds four cleaning profiles and two ChecklistProfile records:
+ *   Profile 1: S1 → S2 → END
+ *             (no terminal checklist → unenforceable; MUST be returned)
+ *   Profile 2: S1 → S2 → CHECKLIST(active-cp) → END
+ *             (CHECKLIST has checklistProfileId pointing to an isActive:true profile
+ *              → genuinely enforceable; must NOT be returned)
+ *   Profile 3: S1 branches to S2→END and S3→CHECKLIST(active-cp)→END
+ *             (diamond — S2 path has no gating checklist → unenforceable even
+ *              though S3 path is properly guarded; MUST be returned)
+ *   Profile 4: S1 → S2 → CHECKLIST(inactive-cp) → END
+ *             (CHECKLIST references a ChecklistProfile with isActive:false →
+ *              advance.ts auto-completes the cycle without submit-checklist;
+ *              the warning MUST flag this as unenforceable; MUST be returned)
+ *             This is the T8-c regression case.
  *
- * Asserts the endpoint returns Profile 1 and Profile 3 but NOT Profile 2.
+ * Assertions use membership (toContain / not.toContain), not exact array
+ * length, to survive other test files' fixtures in the shared test DB.
  *
- * Profile 3 exercises the branching-pipeline fix: the profile is unenforceable
- * because ANY final stage that reaches END without a CHECKLIST is sufficient to
- * flag it.  An earlier incorrect implementation would have found S3's CHECKLIST,
- * set hasFinalChecklist=true, and excluded the profile — even though S2 reaches
- * END with no gate.
- *
- * Isolation note: the endpoint is unscoped (returns all ACTIVE profiles) and
- * the test DB accumulates rows from other files. Never assert exact array
- * length — assert membership (toContain / not.toContain) so other files'
- * fixtures don't cause flakes.
+ * Isolation note: unique SUPER_ADMIN per file.  Teardown deletes all four
+ * profiles and the two seeded ChecklistProfile records; cascade removes stages
+ * + connections automatically.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -80,10 +84,15 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
   let app: FastifyInstance;
   let authHeaders: Record<string, string>;
 
-  // Profile IDs seeded by this test file
-  let profile1Id: string; // S1 → S2 → END (unenforceable — should be returned)
-  let profile2Id: string; // S1 → S2 → CHECKLIST → END (enforceable — should NOT be returned)
-  let profile3Id: string; // diamond: S1 → {S2→END, S3→CHECKLIST→END} (mixed — should be returned)
+  // ChecklistProfile records seeded by this file
+  let activeChecklistProfileId: string;   // isActive:true  — used by Profile 2 + Profile 3 (diamond S3 branch)
+  let inactiveChecklistProfileId: string; // isActive:false — used by Profile 4 (T8-c regression case)
+
+  // FilterCleaningProfile IDs seeded by this file
+  let profile1Id: string; // S1 → S2 → END                              (unenforceable — should be returned)
+  let profile2Id: string; // S1 → S2 → CHECKLIST(active) → END          (enforceable  — should NOT be returned)
+  let profile3Id: string; // diamond: S1 → {S2→END, S3→CHECKLIST(active)→END} (unenforceable — should be returned)
+  let profile4Id: string; // S1 → S2 → CHECKLIST(inactive) → END        (unenforceable — should be returned; T8-c)
 
   beforeAll(async () => {
     // ── Provision unique SUPER_ADMIN ──────────────────────────────────────────
@@ -112,6 +121,21 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
         createdBy: 'wfc-test',
       },
     });
+
+    // ── Seed ChecklistProfile records ─────────────────────────────────────────
+    // Must be created BEFORE the cleaning profiles that reference them.
+
+    const activeCP = await prisma.checklistProfile.create({
+      data: { name: `T8 ActiveCP ${SUFFIX}`, isActive: true },
+    });
+    activeChecklistProfileId = activeCP.id;
+
+    // T8-c: an inactive checklist profile — advance.ts will not defer completion
+    // for a CHECKLIST node whose referenced profile has isActive:false.
+    const inactiveCP = await prisma.checklistProfile.create({
+      data: { name: `T8 InactiveCP ${SUFFIX}`, isActive: false },
+    });
+    inactiveChecklistProfileId = inactiveCP.id;
 
     // ── Seed Profile 1: S1 → S2 → END (no terminal checklist) ─────────────────
     const cp1 = await prisma.filterCleaningProfile.create({
@@ -142,7 +166,10 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
       ],
     });
 
-    // ── Seed Profile 2: S1 → S2 → CHECKLIST → END (enforceable) ──────────────
+    // ── Seed Profile 2: S1 → S2 → CHECKLIST(active) → END ─────────────────────
+    // The CHECKLIST node has configuration.checklistProfileId pointing to an
+    // isActive:true ChecklistProfile, so advance.ts WOULD defer completion →
+    // this profile IS enforceable and must NOT appear in the warning list.
     const cp2 = await prisma.filterCleaningProfile.create({
       data: {
         name: `T8 WithChecklist ${SUFFIX}`,
@@ -153,7 +180,12 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
           create: [
             { nodeType: 'STAGE', stateKey: 'S1', sortOrder: 1 },
             { nodeType: 'STAGE', stateKey: 'S2', sortOrder: 2 },
-            { nodeType: 'CHECKLIST', stateKey: null, sortOrder: 3 },
+            {
+              nodeType: 'CHECKLIST',
+              stateKey: null,
+              sortOrder: 3,
+              configuration: { checklistProfileId: activeChecklistProfileId },
+            },
             { nodeType: 'END', stateKey: null, sortOrder: 4 },
           ],
         },
@@ -174,11 +206,12 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
       ],
     });
 
-    // ── Seed Profile 3: diamond — S1 → {S2→END, S3→CHECKLIST→END} ───────────
-    // One branch (S2) reaches END with no CHECKLIST — the profile is unenforceable
-    // even though the other branch (S3) does have a CHECKLIST.
-    // This fixture locks the fix that prevents breaking early on the first
-    // enforceable final stage.
+    // ── Seed Profile 3: diamond — S1 → {S2→END, S3→CHECKLIST(active)→END} ────
+    // S3's CHECKLIST references an isActive:true profile → S3 path is genuinely
+    // enforceable.  But S2→END has no gating checklist → profile is still
+    // unenforceable overall (the unguarded branch silently completes the cycle).
+    // This fixture guards the regression where the loop breaks early on the first
+    // ENFORCEABLE final stage and incorrectly excludes the profile.
     const cp3 = await prisma.filterCleaningProfile.create({
       data: {
         name: `T8 Diamond ${SUFFIX}`,
@@ -188,9 +221,14 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
         stages: {
           create: [
             { nodeType: 'STAGE', stateKey: 'S1', sortOrder: 1 },
-            { nodeType: 'STAGE', stateKey: 'S2', sortOrder: 2 },  // final, no checklist
-            { nodeType: 'STAGE', stateKey: 'S3', sortOrder: 3 },  // final, has checklist
-            { nodeType: 'CHECKLIST', stateKey: null, sortOrder: 4 },
+            { nodeType: 'STAGE', stateKey: 'S2', sortOrder: 2 },  // final, no gating checklist
+            { nodeType: 'STAGE', stateKey: 'S3', sortOrder: 3 },  // final, has active-gating checklist
+            {
+              nodeType: 'CHECKLIST',
+              stateKey: null,
+              sortOrder: 4,
+              configuration: { checklistProfileId: activeChecklistProfileId },
+            },
             { nodeType: 'END', stateKey: null, sortOrder: 5 },
           ],
         },
@@ -214,6 +252,50 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
       ],
     });
 
+    // ── Seed Profile 4: S1 → S2 → CHECKLIST(inactive) → END  (T8-c) ──────────
+    // The CHECKLIST node has a checklistProfileId, but the referenced profile
+    // has isActive:false.  advance.ts queries ChecklistProfile with {isActive:true}
+    // so it gets back 0 rows → hasPendingChecklistAfterTarget=false → auto-completes
+    // without ever hitting submit-checklist.  The warning must flag this profile
+    // as unenforceable.  Before the T8-c fix, findProfilesWithoutFinalChecklist
+    // only tested for CHECKLIST node presence and wrongly considered this profile
+    // enforceable (a silent fail-open in the compliance gate).
+    const cp4 = await prisma.filterCleaningProfile.create({
+      data: {
+        name: `T8 InactiveChecklist ${SUFFIX}`,
+        lineageId: randomUUID(),
+        status: 'ACTIVE',
+        createdBy: '00000000-0000-0000-0000-000000000001',
+        stages: {
+          create: [
+            { nodeType: 'STAGE', stateKey: 'S1', sortOrder: 1 },
+            { nodeType: 'STAGE', stateKey: 'S2', sortOrder: 2 },
+            {
+              nodeType: 'CHECKLIST',
+              stateKey: null,
+              sortOrder: 3,
+              configuration: { checklistProfileId: inactiveChecklistProfileId },
+            },
+            { nodeType: 'END', stateKey: null, sortOrder: 4 },
+          ],
+        },
+      },
+      include: { stages: true },
+    });
+    profile4Id = cp4.id;
+
+    const p4s1 = cp4.stages.find(s => s.stateKey === 'S1')!;
+    const p4s2 = cp4.stages.find(s => s.stateKey === 'S2')!;
+    const p4cl = cp4.stages.find(s => s.nodeType === 'CHECKLIST')!;
+    const p4end = cp4.stages.find(s => s.nodeType === 'END')!;
+    await prisma.filterPipelineConnection.createMany({
+      data: [
+        { profileId: profile4Id, fromStageId: p4s1.id, toStageId: p4s2.id },
+        { profileId: profile4Id, fromStageId: p4s2.id, toStageId: p4cl.id },
+        { profileId: profile4Id, fromStageId: p4cl.id, toStageId: p4end.id },
+      ],
+    });
+
     // ── Build app and log in ──────────────────────────────────────────────────
     app = await buildApp();
     const token = await loginAs(app, WFC_USERNAME, WFC_PASSWORD);
@@ -231,10 +313,21 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
     try {
       if (profile3Id) await prisma.filterCleaningProfile.delete({ where: { id: profile3Id } });
     } catch { /* swallow */ }
+    try {
+      if (profile4Id) await prisma.filterCleaningProfile.delete({ where: { id: profile4Id } });
+    } catch { /* swallow */ }
+    // ChecklistProfile records have no FK from FilterPipelineStage, so clean them
+    // up after the cleaning profiles are gone.
+    try {
+      if (activeChecklistProfileId) await prisma.checklistProfile.delete({ where: { id: activeChecklistProfileId } });
+    } catch { /* swallow */ }
+    try {
+      if (inactiveChecklistProfileId) await prisma.checklistProfile.delete({ where: { id: inactiveChecklistProfileId } });
+    } catch { /* swallow */ }
     try { await app.close(); } catch { /* swallow */ }
   }, 10_000);
 
-  it('returns 200 with the no-checklist profile and excludes the with-checklist profile', async () => {
+  it('returns 200 with correct membership: no-checklist and inactive-checklist profiles flagged; active-checklist profile excluded', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/filters/cleaning-profiles/without-final-checklist',
@@ -247,15 +340,22 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
 
     const ids = body.profiles.map((p) => p.id);
 
-    // Profile 1 (S1→S2→END) must appear — no checklist before END, not enforceable
+    // Profile 1 (S1→S2→END): no CHECKLIST at all → unenforceable → must appear
     expect(ids).toContain(profile1Id);
 
-    // Profile 2 (S1→S2→CHECKLIST→END) must NOT appear — enforceable
+    // Profile 2 (S1→S2→CHECKLIST(active)→END): CHECKLIST has an isActive:true
+    // checklistProfileId → advance.ts defers completion → genuinely enforceable
     expect(ids).not.toContain(profile2Id);
 
-    // Profile 3 (diamond: S1→{S2→END, S3→CHECKLIST→END}) must appear — unenforceable
-    // because the S2 branch reaches END with no CHECKLIST.  This assertion catches the
-    // regression where the loop broke early on S3's CHECKLIST and excluded the profile.
+    // Profile 3 (diamond: S1→{S2→END, S3→CHECKLIST(active)→END}): S2 path has
+    // no gating checklist → unenforceable even though S3 path is properly guarded
     expect(ids).toContain(profile3Id);
+
+    // Profile 4 (S1→S2→CHECKLIST(inactive)→END): CHECKLIST has a checklistProfileId
+    // but the referenced ChecklistProfile is isActive:false → advance.ts does NOT
+    // defer completion → auto-completes without submit-checklist → unenforceable.
+    // This is the T8-c regression: before the fix, the warning treated any CHECKLIST
+    // node presence as sufficient and incorrectly excluded this profile.
+    expect(ids).toContain(profile4Id);
   });
 });
