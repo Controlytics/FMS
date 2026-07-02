@@ -38,7 +38,7 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
 ## Databases
 - **digilog_db** (PostgreSQL 18 via Prisma) — application data (**67 models, 25 enums**)
 - ~~`digilog_tsdb`~~ — **DROPPED 2026-06-11** with the data-ingestion tear-out. All 6 hypertables removed (`ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`).
-- `digilog_test_db` — used by vitest test fixture
+- `digilog_test_db` — **the vitest suite runs entirely against this DB** (since 2026-07-02). `vitest.env.ts` forces `DATABASE_URL` onto it before Prisma connects, so e2e/integration writes never pollute `digilog_db`'s immutable, hash-chained `audit_trail` (21 CFR §11). Same schema as `digilog_db` (migration-driven); seed it once with `DATABASE_URL=…/digilog_test_db INITIAL_ADMIN_PASSWORD=Admin@123 npx tsx prisma/seed.ts`.
 
 ## Database Migrations — READ BEFORE ANY SCHEMA CHANGE
 
@@ -87,7 +87,8 @@ default pool, you will see flaky failures that are NOT real bugs.
 
 1. **Shared `admin` test user race.** `vitest.global-setup.ts` provisions
    one `admin` / `Admin@123` user (SUPER_ADMIN) and one `RB0001` /
-   `Test@1234` user (OPERATOR) in `digilog_db`. Most e2e/integration
+   `Test@1234` user (OPERATOR) in `digilog_test_db` (was `digilog_db` until
+   2026-07-02 — see DB-isolation note below). Most e2e/integration
    suites log in as `admin`. When vitest runs multiple worker forks in
    parallel, two files can hold concurrent sessions for the same user;
    one calling `POST /api/auth/logout` invalidates the session row the
@@ -98,19 +99,37 @@ default pool, you will see flaky failures that are NOT real bugs.
    can still be spawned. `singleFork: true` collapses everything into
    one process, which removes the race.
 
-2. **Local dev server contention.** If `tsx watch src/app.ts` is running
-   on `:3000` against the same `digilog_db` (the normal dev loop), it
-   holds its own `admin` session in the same `user_sessions` table. A
-   test logout invalidates that session too, and any subsequent
-   browser/dev request gets 401'd until the dev server re-logs in. This
-   is benign for tests but disruptive for the human running both at
-   once. Stop the dev server (or run tests against a separate DB) for
-   the cleanest run.
+2. **Local dev server contention.** ~~If `tsx watch src/app.ts` is running
+   on `:3000` against the same `digilog_db`, a test logout invalidates
+   the dev server's session too.~~ **Largely resolved 2026-07-02** by the
+   DB isolation below: the suite now runs against `digilog_test_db`, so a
+   dev server on `digilog_db` no longer shares the `user_sessions` table
+   with the tests. (A test-only flake can still occur within the suite
+   from source #1; single-fork handles that.)
 
 The flakiness was *surfaced*, not introduced, by the new e2e files in
 commit `859492e3` (Phase 8.7 / Wave 8a verification). Those files just
 added more concurrent admin logins, exposing a pre-existing infra
 limitation.
+
+### DB isolation — the suite runs against `digilog_test_db` (2026-07-02)
+
+The suite previously ran against the live dev DB `digilog_db`. Every audited
+e2e action (logins, filter cycles, RFID identifier assign/delete, config
+edits) wrote **permanent, immutable, hash-chained** rows into the real
+`audit_trail` (21 CFR §11) — e.g. `phase3-rfid-offline.test.ts` created RFID
+`RFID-p3-<ts>-A/B` tags and then deleted their filters, leaving orphaned
+`ASSET_IDENTIFIER_*` rows with blank filter names that surfaced in the live
+Audit Trail UI. `vitest.env.ts` now rewrites `DATABASE_URL` (`digilog_db` →
+`digilog_test_db`) before any `lib/prisma` import, so all test writes land in
+the throwaway test DB. `vitest.setup.ts` (per worker) and
+`vitest.global-setup.ts` (main process) both import it for its side effects.
+Two suite tests that had implicitly relied on `digilog_db`'s accumulated data
+were fixed to assert contracts instead of ambient counts
+(`entities.test.ts` instance-list). `config.test.ts`'s datetime/current test
+has a **pre-existing intermittent flake** (unrelated to this change — passes
+in isolation and in most full runs; absent `[Config] Validation failed`
+warning rules out data corruption); single-fork masks it in practice.
 
 **Verified baseline** (2026-07-02, single-fork mode):
 **829 passing, 0 failed, 15 skipped (80 files).** If your single-fork run

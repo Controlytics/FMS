@@ -1,11 +1,10 @@
-import { config as loadDotenv } from 'dotenv';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+// Side-effect import: loads .env and redirects DATABASE_URL onto
+// digilog_test_db BEFORE the PrismaClient below is constructed. Must be the
+// first import so the swap wins.
+import './vitest.env.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-loadDotenv({ path: join(here, '.env'), override: false });
-
-// Tests run against the local digilog_db. e2e helpers default to user
+// Tests run against the dedicated digilog_test_db (isolated from the real
+// digilog_db audit trail — see vitest.env.ts). e2e helpers default to user
 // 'admin' with password 'Admin@123'; ensure that user exists with the ADMIN
 // role before any test runs. Idempotent.
 export default async function setup(): Promise<void> {
