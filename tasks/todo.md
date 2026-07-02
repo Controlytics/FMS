@@ -1681,3 +1681,18 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   sidebar-privilege-map now derived). DASHBOARD_* deliberately LEFT inert (configurable FP family
   gating a UI-less endpoint; removal = disproportionate CFR change for marginal tidiness — user decision).
   Core RBAC redesign (Phases 1-3 + 5) COMPLETE. Owed: runtime curl 403/200 verification (P2/P3/P5C).
+- 2026-07-01 — AHU Cleaning Completion Process (Tasks 1–9): new global config `ahu-completion-process`
+  (NONE/POPUP/INTERLOCK, default NONE, SUPER_ADMIN-only) gating final-stage cleaning submission per AHU.
+  Interlock enforced server-side in `submit-checklist.ts` (D1: terminal-checklist path only; 422
+  `AHU_INTERLOCK_PENDING`). POPUP is client-side warning; NONE is a no-op (D2 offline best-effort,
+  D3 all-active-non-Retired siblings, D4 idle filters block, D7 cycle-id-scoped state). New files:
+  `ahu-completion-process.def.ts` (config def, count 34→35), `ahu-completion-gate.ts` (gate module),
+  `ahu-completion-process.routes.ts` (runtime read), `use-ahu-completion-mode.ts` hook,
+  `remaining-filters-dialog.tsx` (Popup/Interlock dialog). New endpoints: GET
+  /api/config/ahu-completion-process/current, GET /api/filters/ahu/:ahuId/completion-status, GET
+  /api/filters/cleaning-profiles/without-final-checklist. No schema/migration changes; no new
+  permissions/reauth actions. §11.1 limitation noted: advance.ts auto-complete profiles not gated;
+  admin warning banner lists unenforced profiles. Docs updated: CHANGELOG.md, CLAUDE.md (35 defs,
+  34 pages), apps/api/CLAUDE.md (35 files/defs), tasks/todo.md (this entry). Spec:
+  docs/superpowers/specs/2026-07-01-ahu-completion-process-design.md. No manual browser UI
+  verification performed this session.

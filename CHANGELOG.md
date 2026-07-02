@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] — AHU Cleaning Completion Process (2026-07-01)
+
+New global configuration (`ahu-completion-process`, SUPER_ADMIN-only) that gates final-stage cleaning submission per AHU. Three mutually-exclusive modes:
+
+- **None** (default) — today's behaviour, no check.
+- **Popup** — client-side warning listing sibling filters not yet at final stage; operator may Continue or Cancel.
+- **Interlock** — hard server-side block: `POST /api/filters/:id/submit-checklist` returns **422 `AHU_INTERLOCK_PENDING`** with `{ pendingFilters }` when any active sibling filter of the same AHU has not yet reached its final cleaning stage.
+
+**Design decisions (D1–D7):**
+- **D1** — "Final stage" requires a terminal checklist (`submit-checklist.ts` path only; `advance.ts` auto-complete is untouched). See §11.1 limitation below.
+- **D2** — Offline best-effort: gate skips when `isOfflineReplay === true` to avoid sync-queue poisoning. Documented gap.
+- **D3** — Counted filters = all active, non-Retired child filters of the AHU (ignores `pmFilterSetMode`).
+- **D4** — Every counted filter must reach final, including idle / never-started ones. A brand-new or never-started filter blocks the AHU.
+- **D5** — Config rendered as a dropdown (`select`) by the existing auto-generated dynamic config renderer; no new page file.
+- **D6** — Admin force-complete (`instance.service.ts`) intentionally bypasses the batch rule.
+- **D7** — A filter's "reached final" state is interpreted against its current cycle id; `CLEANING_CYCLE_COMPLETED` marker is reset when a different new cycle starts, so stale completions from a prior cycle are not counted.
+
+**New files:**
+- `apps/api/src/modules/config/defs/ahu-completion-process.def.ts` — config definition (config-def count 34 → 35).
+- `apps/api/src/modules/filter-operations/ahu-completion-gate.ts` — `getAhuCompletionMode`, `resolveAhuId`, `buildFinalStageMap`, `assertAhuInterlockSatisfied`.
+- `apps/api/src/modules/config/static-routes/ahu-completion-process.routes.ts` — runtime read route.
+- `apps/web/src/hooks/use-ahu-completion-mode.ts` — SWR hook returning `'NONE' | 'POPUP' | 'INTERLOCK'`.
+- `apps/web/src/routes/filter-management/components/remaining-filters-dialog.tsx` — mode-aware dialog (Popup: Continue/Cancel; Interlock: blocking).
+
+**New endpoints:**
+- `GET /api/config/ahu-completion-process/current` — runtime mode for authenticated operators.
+- `GET /api/filters/ahu/:ahuId/completion-status` (`ASSET_READ`) — pending-sibling list (used by Popup + client Interlock UX).
+- `GET /api/filters/cleaning-profiles/without-final-checklist` — lists in-use cleaning profiles whose last pipeline node is not a checklist (drives admin warning banner on the config card).
+
+**Modified endpoint:** `POST /api/filters/:id/submit-checklist` — may now return **422 `AHU_INTERLOCK_PENDING`** in Interlock mode.
+
+**§11.1 Limitation (accepted, D1):** Interlock enforces **only** on cleaning profiles that end with a checklist node. Profiles that complete via `advance.ts` auto-complete (no terminal checklist) are not blocked. An amber admin warning banner on the config card lists any in-use profiles without a final checklist so operators know which profiles are unenforced. Full coverage (gating `advance.ts`) is deliberately deferred — higher risk to a validated, audited, offline-critical path.
+
+**No schema/migration changes.** Config stored in existing `SystemConfig` table. No new Prisma models, columns, or enums. No new permissions or reauth actions (reuses `CONFIG_READ` / `CONFIG_UPDATE` / `ASSET_READ`). Query cost in Interlock mode: 3 DB queries + ≤ k profile-graph loads (k = distinct pinned profile versions in the AHU, typically 1).
+
+Frontend wired into both desktop (`filter-operations.tsx`) and tablet (`mobile-operations.tsx`) terminal-checklist submit paths. Config card added to `apps/web/src/routes/config/index.tsx`.
+
 ## [Unreleased] — Audit Trail: physical hard-delete permission (⚠ compliance-affecting) (2026-07-01)
 
 Per explicit operator request (confirmed after being warned twice about the 21 CFR §11
