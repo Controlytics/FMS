@@ -34,3 +34,35 @@ export async function checkAhuCompletion(
   // POPUP: warn only (block=false → caller shows Continue/Cancel).
   return { block: mode === 'INTERLOCK' && pending.length > 0, pending };
 }
+
+/**
+ * Is the filter's CURRENT stage the terminal (completing) stage — i.e. would
+ * submitting its checklist finish the cycle?
+ *
+ * The POPUP AHU pre-flight must fire ONLY on the terminal checklist submit, not
+ * on every intermediate checklist. A stage is terminal iff its `stageLookup`
+ * entry leads to END *and* has no further stages:
+ *
+ *   - `leadsToEnd === true`   — an END node is reachable from this stage, AND
+ *   - `nextStages.length === 0` — no further STAGE node follows.
+ *
+ * Both conditions are required: a branching stage can reach END yet still have
+ * another stage on a different branch, so `leadsToEnd` alone is insufficient.
+ *
+ * `currentState` is the filter's current lifecycle stateKey; `stageLookup` is
+ * the server-computed per-stage table (see current-state.ts `buildStageLookup`
+ * / the inline builder). Both come from the cached `filter-state-{id}` row.
+ * Returns false when either is missing (conservative — no popup without data).
+ */
+export function isTerminalChecklist(
+  currentState: string | null | undefined,
+  stageLookup:
+    | Record<string, { nextStages?: string[]; leadsToEnd?: boolean }>
+    | null
+    | undefined,
+): boolean {
+  if (!currentState || !stageLookup) return false;
+  const entry = stageLookup[currentState];
+  if (!entry) return false;
+  return entry.leadsToEnd === true && (entry.nextStages?.length ?? 0) === 0;
+}

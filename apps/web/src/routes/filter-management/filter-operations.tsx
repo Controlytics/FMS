@@ -44,7 +44,7 @@ import {
 import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
-import { checkAhuCompletion } from '../../lib/filter-ops/ahu-completion-check';
+import { checkAhuCompletion, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from './components/remaining-filters-dialog';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
@@ -1349,7 +1349,11 @@ export function FilterOperationsPage() {
     if (!checklistDialog) return;
     setChecklistLoading(true); setChecklistError('');
 
-    // Task 7: AHU completion pre-flight — POPUP only.
+    // Task 7: AHU completion pre-flight — POPUP only, and ONLY on the terminal
+    // (completing) checklist submit. `currentState` + `stageLookup` come from
+    // the SAME cached `filter-state-{id}` row (not a possibly-stale SWR list);
+    // isTerminalChecklist gates so intermediate checklists never pop the dialog
+    // (a stage is terminal iff it leads to END with no further stages).
     // INTERLOCK is server-driven (422 AHU_INTERLOCK_PENDING, caught in the
     // single-mode catch below). No INTERLOCK pre-flight here: firing at every
     // checklist submit (not just the terminal one) would deadlock two filters in
@@ -1357,21 +1361,25 @@ export function FilterOperationsPage() {
     // own intermediate checklists.
     if (ahuMode === 'POPUP') {
       const _filterId = checklistDialog.filterId;
+      const _cachedState = await getCache<any>(`filter-state-${_filterId}`).catch(() => null);
+      const _terminal = isTerminalChecklist(_cachedState?.currentState, _cachedState?.stageLookup);
       const _ahuId = (instances as any[]).find((f: any) => f.id === _filterId)?.ahuId ?? null;
-      try {
-        const _ahuCheck = await checkAhuCompletion('POPUP', _ahuId, _filterId, online);
-        if (_ahuCheck.pending.length > 0) {
-          const _shouldProceed = await new Promise<boolean>((resolve) => {
-            ahuDialogResolveRef.current = resolve;
-            setAhuDialogState({ mode: 'POPUP', pending: _ahuCheck.pending });
-          });
-          if (!_shouldProceed) {
-            setChecklistLoading(false);
-            return;
+      if (_terminal) {
+        try {
+          const _ahuCheck = await checkAhuCompletion('POPUP', _ahuId, _filterId, online);
+          if (_ahuCheck.pending.length > 0) {
+            const _shouldProceed = await new Promise<boolean>((resolve) => {
+              ahuDialogResolveRef.current = resolve;
+              setAhuDialogState({ mode: 'POPUP', pending: _ahuCheck.pending });
+            });
+            if (!_shouldProceed) {
+              setChecklistLoading(false);
+              return;
+            }
           }
+        } catch {
+          // Non-fatal: proceed with submission even if the AHU check fails
         }
-      } catch {
-        // Non-fatal: proceed with submission even if the AHU check fails
       }
     }
 
@@ -1430,6 +1438,9 @@ export function FilterOperationsPage() {
         // operator must click Close, then wait for siblings to finish.
         if (e?.code === 'AHU_INTERLOCK_PENDING' && ahuMode === 'INTERLOCK') {
           const pending = (e?.connectionInfo?.pendingFilters as { id: string; name: string; stage: string }[]) ?? [];
+          // Clear the checklist Submit spinner BEFORE showing the blocking
+          // dialog so the button doesn't spin behind the interlock modal.
+          setChecklistLoading(false);
           await new Promise<boolean>((resolve) => {
             ahuDialogResolveRef.current = resolve;
             setAhuDialogState({ mode: 'INTERLOCK', pending });

@@ -22,7 +22,6 @@ export interface RemainingFiltersDialogProps {
   pending: { id: string; name: string; stage: string }[];
   onContinue?: () => void;
   onCancel: () => void;
-  loading?: boolean;
   error?: string;
 }
 
@@ -31,7 +30,6 @@ export function RemainingFiltersDialog({
   pending,
   onContinue,
   onCancel,
-  loading,
   error,
 }: RemainingFiltersDialogProps) {
   const isInterlock = mode === 'INTERLOCK';
@@ -114,8 +112,7 @@ export function RemainingFiltersDialog({
             /* INTERLOCK: single Close button — no Continue */
             <button
               onClick={onCancel}
-              disabled={loading}
-              className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40"
+              className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition-colors"
             >
               Close
             </button>
@@ -124,26 +121,18 @@ export function RemainingFiltersDialog({
             <>
               <button
                 onClick={onCancel}
-                disabled={loading}
-                className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40"
+                className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={onContinue}
-                disabled={loading}
-                className="flex-1 py-3 bg-amber-500 text-white rounded-xl font-bold hover:bg-amber-400 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-amber-500 text-white rounded-xl font-bold hover:bg-amber-400 transition-colors flex items-center justify-center gap-2"
               >
-                {loading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                    </svg>
-                    Continue
-                  </>
-                )}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                </svg>
+                Continue
               </button>
             </>
           )}

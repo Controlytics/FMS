@@ -40,7 +40,7 @@ import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
-import { checkAhuCompletion } from '../../lib/filter-ops/ahu-completion-check';
+import { checkAhuCompletion, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from '../filter-management/components/remaining-filters-dialog';
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
@@ -2119,7 +2119,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     for (const cl of checklists) { for (const q of cl.questions) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
 
-    // Task 7: AHU completion pre-flight — POPUP only.
+    // Task 7: AHU completion pre-flight — POPUP only, and ONLY on the terminal
+    // (completing) checklist submit. `currentState` + `stageLookup` come from
+    // the SAME cached `filter-state-{id}` row (not a possibly-stale SWR list);
+    // isTerminalChecklist gates so intermediate checklists never pop the dialog
+    // (a stage is terminal iff it leads to END with no further stages).
     // Mobile: the filter's parentId is the AHU (per resolveAhuId server logic).
     // INTERLOCK is server-driven (422 AHU_INTERLOCK_PENDING, caught in the
     // single-mode try/catch below). No INTERLOCK pre-flight here: firing at every
@@ -2128,21 +2132,25 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // own intermediate checklists.
     if (ahuMode === 'POPUP') {
       const _filterId = checklistDialog.filterId;
+      const _cachedState = await getCache<any>(`filter-state-${_filterId}`).catch(() => null);
+      const _terminal = isTerminalChecklist(_cachedState?.currentState, _cachedState?.stageLookup);
       const _ahuId = allFilters.find((f: any) => f.id === _filterId)?.parentId ?? null;
-      try {
-        const _ahuCheck = await checkAhuCompletion('POPUP', _ahuId, _filterId, online);
-        if (_ahuCheck.pending.length > 0) {
-          const _shouldProceed = await new Promise<boolean>((resolve) => {
-            ahuDialogResolveRef.current = resolve;
-            setAhuDialogState({ mode: 'POPUP', pending: _ahuCheck.pending });
-          });
-          if (!_shouldProceed) {
-            setLoading(false);
-            return;
+      if (_terminal) {
+        try {
+          const _ahuCheck = await checkAhuCompletion('POPUP', _ahuId, _filterId, online);
+          if (_ahuCheck.pending.length > 0) {
+            const _shouldProceed = await new Promise<boolean>((resolve) => {
+              ahuDialogResolveRef.current = resolve;
+              setAhuDialogState({ mode: 'POPUP', pending: _ahuCheck.pending });
+            });
+            if (!_shouldProceed) {
+              setLoading(false);
+              return;
+            }
           }
+        } catch {
+          // Non-fatal: proceed with submission even if the AHU check fails
         }
-      } catch {
-        // Non-fatal: proceed with submission even if the AHU check fails
       }
     }
 
@@ -2226,6 +2234,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // operator must click Close, then wait for siblings to finish.
         if (e?.code === 'AHU_INTERLOCK_PENDING' && ahuMode === 'INTERLOCK') {
           const pending = (e?.connectionInfo?.pendingFilters as { id: string; name: string; stage: string }[]) ?? [];
+          // Clear the page loading spinner BEFORE showing the blocking dialog so
+          // the checklist Submit button doesn't spin behind the interlock modal.
+          setLoading(false);
           await new Promise<boolean>((resolve) => {
             ahuDialogResolveRef.current = resolve;
             setAhuDialogState({ mode: 'INTERLOCK', pending });
