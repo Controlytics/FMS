@@ -40,7 +40,7 @@ import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
-import { checkAhuCompletion, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
+import { checkAhuCompletionBatch, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from '../filter-management/components/remaining-filters-dialog';
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
@@ -143,12 +143,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     gatedStage: boolean; stageKey: string | null; status: string | null;
     approvalId: string | null; approverRole: string | null; blocksLeaving: boolean;
   } | null>(null);
-  // Task 7 + 2026-07-02: AHU remaining-filters dialog state + Promise resolve ref.
+  // Task 7 + 2026-07-02: AHU remaining-filters dialog state (multi-AHU carousel).
   const [ahuDialogState, setAhuDialogState] = useState<{
     mode: 'POPUP' | 'INTERLOCK';
-    ahuName: string;
-    filters: { id: string; name: string; stage: string; done: boolean }[];
-    currentFilterId?: string;
+    ahus: { ahuName: string; allAtFinal: boolean; filters: { id: string; name: string; stage: string; done: boolean }[] }[];
+    currentFilterIds: string[];
   } | null>(null);
   const ahuDialogResolveRef = useRef<((proceed: boolean) => void) | null>(null);
 
@@ -982,7 +981,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               } catch { /* skip — unresolved filters fall back to single-mode */ }
             }
             // AHU pre-flight BEFORE the (terminal) checklist opens.
-            if ((await gateAhuBeforeChecklist(item.filterId)) === 'blocked') {
+            if ((await gateAhuBeforeChecklist(batchMembers.map(m => m.filterId))) === 'blocked') {
               setLoading(false);
               return;
             }
@@ -1200,7 +1199,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const primary = chosen[0];
           const batchMembers = chosen.map(p => p.item);
           // AHU pre-flight BEFORE the (terminal) checklist opens.
-          if ((await gateAhuBeforeChecklist(primary.item.filterId)) === 'proceed') {
+          if ((await gateAhuBeforeChecklist(batchMembers.map(m => m.filterId))) === 'proceed') {
             setPendingBatch(batchMembers);
             core.dispatch({
               type: 'open_checklist',
@@ -1538,7 +1537,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const noActiveCycle = !state.currentCycle;
           if (stageMatches || noActiveCycle) {
             // AHU pre-flight BEFORE the (terminal) checklist opens.
-            if ((await gateAhuBeforeChecklist(filterId)) === 'blocked') {
+            if ((await gateAhuBeforeChecklist([filterId])) === 'blocked') {
               setLoading(false);
               return;
             }
@@ -2076,7 +2075,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             const primary = chosen[0];
             const batchMembers = chosen.map(p => p.item);
             // AHU pre-flight BEFORE the (terminal) checklist opens.
-            if ((await gateAhuBeforeChecklist(primary.item.filterId)) === 'proceed') {
+            if ((await gateAhuBeforeChecklist(batchMembers.map(m => m.filterId))) === 'proceed') {
               setPendingBatch(batchMembers);
               core.dispatch({
                 type: 'open_checklist',
@@ -2136,25 +2135,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // isTerminalChecklist so intermediate checklists are unaffected. Returns
   // 'blocked' when the operator must not open the checklist. Mobile resolves the
   // AHU as the filter's parentId (matches resolveAhuId server logic).
-  const gateAhuBeforeChecklist = async (filterId: string): Promise<'proceed' | 'blocked'> => {
-    if (ahuMode === 'NONE') return 'proceed';
-    const cachedState = await getCache<any>(`filter-state-${filterId}`).catch(() => null);
+  const gateAhuBeforeChecklist = async (filterIds: string[]): Promise<'proceed' | 'blocked'> => {
+    if (ahuMode === 'NONE' || filterIds.length === 0) return 'proceed';
+    const cachedState = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
     if (!isTerminalChecklist(cachedState?.currentState, cachedState?.stageLookup)) return 'proceed';
-    const ahuId = allFilters.find((f: any) => f.id === filterId)?.parentId ?? null;
-    let check;
-    try {
-      check = await checkAhuCompletion(ahuMode, ahuId, filterId, online);
-    } catch {
-      return 'proceed';
-    }
-    if (!check.block && !check.warn) return 'proceed';
+    const { ahus } = await checkAhuCompletionBatch(ahuMode, filterIds, online);
+    if (ahus.filter((a) => !a.allAtFinal).length === 0) return 'proceed';
     const proceed = await new Promise<boolean>((resolve) => {
       ahuDialogResolveRef.current = resolve;
       setAhuDialogState({
-        mode: check.block ? 'INTERLOCK' : 'POPUP',
-        ahuName: check.ahuName,
-        filters: check.filters,
-        currentFilterId: filterId,
+        mode: ahuMode === 'INTERLOCK' ? 'INTERLOCK' : 'POPUP',
+        ahus,
+        currentFilterIds: filterIds,
       });
     });
     return proceed ? 'proceed' : 'blocked';
@@ -2259,7 +2251,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setLoading(false);
           await new Promise<boolean>((resolve) => {
             ahuDialogResolveRef.current = resolve;
-            setAhuDialogState({ mode: 'INTERLOCK', ahuName: info.ahuName ?? '', filters, currentFilterId: info.currentFilterId ?? checklistDialog.filterId });
+            setAhuDialogState({
+              mode: 'INTERLOCK',
+              ahus: [{ ahuName: info.ahuName ?? '', filters, allAtFinal: false }],
+              currentFilterIds: [info.currentFilterId ?? checklistDialog.filterId],
+            });
           });
           return;
         }
@@ -3502,9 +3498,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       {ahuDialogState && (
         <RemainingFiltersDialog
           mode={ahuDialogState.mode}
-          ahuName={ahuDialogState.ahuName}
-          filters={ahuDialogState.filters}
-          currentFilterId={ahuDialogState.currentFilterId}
+          ahus={ahuDialogState.ahus}
+          currentFilterIds={ahuDialogState.currentFilterIds}
           onContinue={() => {
             ahuDialogResolveRef.current?.(true);
             ahuDialogResolveRef.current = null;

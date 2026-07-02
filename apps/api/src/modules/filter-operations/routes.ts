@@ -8,7 +8,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
 import { getCleaningReasons } from './filter-resolver.js';
-import { computeAhuCompletionStatus, findProfilesWithoutFinalChecklist } from './ahu-completion-gate.js';
+import { computeAhuCompletionStatus, computeAhuBatchStatus, findProfilesWithoutFinalChecklist } from './ahu-completion-gate.js';
 
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
@@ -670,5 +670,55 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     const { ahuId } = req.params as { ahuId: string };
     const { exclude } = (req.query ?? {}) as { exclude?: string };
     return computeAhuCompletionStatus(ahuId, exclude ?? '');
+  });
+
+  // ── AHU completion status — BATCH (multi-AHU carousel) ──────────────────────
+  // Given the filter ids in a submission batch, return one status block per
+  // distinct AHU. Powers the multi-AHU dialog on desktop + tablet.
+  app.post('/ahu-completion-status/batch', {
+    preHandler: [app.requirePermission('ASSET_READ')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'AHU completion status for every AHU in a submission batch',
+      body: {
+        type: 'object',
+        required: ['filterIds'],
+        properties: { filterIds: { type: 'array', items: { type: 'string' } } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ahus: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  ahuId: { type: 'string' },
+                  ahuName: { type: 'string' },
+                  allAtFinal: { type: 'boolean' },
+                  filters: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string' },
+                        name: { type: 'string' },
+                        stage: { type: 'string' },
+                        done: { type: 'boolean' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const { filterIds } = (req.body ?? {}) as { filterIds: string[] };
+    return computeAhuBatchStatus(Array.isArray(filterIds) ? filterIds : []);
   });
 }

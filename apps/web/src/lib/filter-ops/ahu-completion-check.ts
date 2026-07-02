@@ -56,6 +56,37 @@ export async function checkAhuCompletion(
   };
 }
 
+export interface AhuBatchCard {
+  ahuId: string;
+  ahuName: string;
+  allAtFinal: boolean;
+  filters: AhuFilterRow[];
+}
+
+/**
+ * 2026-07-02: batch variant — one completion-status block per distinct AHU in a
+ * submission batch. Powers the multi-AHU carousel. Non-fatal: returns no AHUs on
+ * NONE / INTERLOCK-offline / any error (the server 422 still guards INTERLOCK on
+ * submit).
+ */
+export async function checkAhuCompletionBatch(
+  mode: 'NONE' | 'POPUP' | 'INTERLOCK',
+  filterIds: string[],
+  online: boolean,
+): Promise<{ ahus: AhuBatchCard[] }> {
+  if (mode === 'NONE' || filterIds.length === 0) return { ahus: [] };
+  if (mode === 'INTERLOCK' && !online) return { ahus: [] };
+  try {
+    const res = await apiClient.post<{ ahus: AhuBatchCard[] }>(
+      '/api/filters/ahu-completion-status/batch',
+      { filterIds },
+    );
+    return { ahus: res?.ahus ?? [] };
+  } catch {
+    return { ahus: [] };
+  }
+}
+
 /**
  * Is the filter's CURRENT stage the terminal (completing) stage — i.e. would
  * submitting its checklist finish the cycle?

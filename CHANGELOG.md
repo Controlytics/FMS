@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — AHU interlock: multi-AHU carousel dialog (2026-07-02)
+
+When a submission batch spans multiple AHUs, the pre-checklist dialog now shows **every AHU**
+as a card in a ◀ ▶ carousel (was: only the primary filter's AHU). Approach A — the server
+still enforces the interlock per-filter; the carousel is the heads-up.
+
+- **Backend** (`ahu-completion-gate.ts` + route): new `computeAhuBatchStatus(filterIds)` resolves
+  each filter's AHU, returns one `{ ahuId, ahuName, allAtFinal, filters }` block per distinct AHU
+  (pending-first). New `POST /api/filters/ahu-completion-status/batch` (ASSET_READ).
+- **Frontend** (`ahu-completion-check.ts` + desktop `filter-operations.tsx` + tablet
+  `mobile-operations.tsx`): `gateAhuBeforeChecklist` now takes the **batch** filter IDs
+  (single-filter sites pass `[id]`, batch sites pass all members), calls the batch endpoint, and
+  shows the carousel when any AHU is pending. On proceed the whole-batch checklist opens; the
+  server completes ready-AHU filters and 422-blocks pending ones ("block only pending").
+- **Dialog** (`remaining-filters-dialog.tsx`): `ahus[]` array + carousel — ◀ ▶ arrows,
+  "AHU X of N", dot indicators (green = ready), per-AHU "Ready"/"Blocking" badge, each AHU's
+  filter roster. One AHU → single card, no arrows (unchanged look). INTERLOCK footer shows
+  "Complete ready filters" only when at least one AHU is ready; all-pending → Close-only hard block.
+- **Tests:** `ahu-completion-gate.e2e.test.ts` Task 10 asserts `computeAhuBatchStatus` returns a
+  block per AHU, pending-first (17 tests pass). Live-verified: 3 filters across 3 AHUs → 3 cards.
+  Spec: `docs/superpowers/specs/2026-07-02-ahu-multi-carousel-design.md`. APK rebuilt.
+
 ## [Unreleased] — AHU completion: pre-checklist gate + richer dialog (2026-07-02)
 
 The AHU completion check now runs **before the terminal checklist opens** (for both POPUP

@@ -170,6 +170,48 @@ export async function computeAhuCompletionStatus(
 }
 
 /**
+ * 2026-07-02: batch variant. Given the filter ids in a submission batch, resolve
+ * each filter's AHU, then return one completion-status block per DISTINCT AHU.
+ * Powers the multi-AHU carousel dialog. Pending AHUs (allAtFinal=false) are
+ * returned first, then alphabetical by name.
+ *
+ * Uses computeAhuCompletionStatus(ahuId, '') — exclude NONE — because a filter
+ * sitting at its terminal checklist is already `reachedFinal`, so co-batched
+ * siblings in the same AHU never false-block each other.
+ */
+export async function computeAhuBatchStatus(
+  filterIds: string[],
+): Promise<{
+  ahus: {
+    ahuId: string;
+    ahuName: string;
+    allAtFinal: boolean;
+    filters: { id: string; name: string; stage: string; done: boolean }[];
+  }[];
+}> {
+  // Resolve each filter → its AHU (skip filters with no AHU parent). Distinct.
+  const ahuIds = new Set<string>();
+  for (const fid of filterIds) {
+    const ahuId = await resolveAhuId(fid);
+    if (ahuId) ahuIds.add(ahuId);
+  }
+
+  const ahus = [];
+  for (const ahuId of ahuIds) {
+    const { ahuName, allAtFinal, filters } = await computeAhuCompletionStatus(ahuId, '');
+    ahus.push({ ahuId, ahuName, allAtFinal, filters });
+  }
+
+  // Pending AHUs first, then by name.
+  ahus.sort((a, b) => {
+    if (a.allAtFinal !== b.allAtFinal) return a.allAtFinal ? 1 : -1;
+    return a.ahuName.localeCompare(b.ahuName);
+  });
+
+  return { ahus };
+}
+
+/**
  * Task 8: Returns all ACTIVE cleaning profiles where ANY final STAGE's forward
  * path to END does NOT pass through a CHECKLIST node that is actively gating.
  * These profiles cannot be fully enforced by INTERLOCK mode — the `advance()`

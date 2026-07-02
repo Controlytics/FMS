@@ -35,7 +35,7 @@ import { hashPassword } from '../../../lib/password.js';
 import { AppError } from '../../../lib/errors.js';
 import { loginAs } from '../../../e2e/test-helper.js';
 import { randomUUID } from 'node:crypto';
-import { computeAhuCompletionStatus, assertAhuInterlockSatisfied, resolveAhuId } from '../ahu-completion-gate.js';
+import { computeAhuCompletionStatus, computeAhuBatchStatus, assertAhuInterlockSatisfied, resolveAhuId } from '../ahu-completion-gate.js';
 import filterOperationsRoutes from '../routes.js';
 
 // ── Unique test user ────────────────────────────────────────────────────────
@@ -769,6 +769,57 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       expect(byId.get(finalFilter)?.done).toBe(true);   // CLEANING_CYCLE_COMPLETED
       expect(byId.get(idleFilter)?.done).toBe(false);   // never started
       expect(byId.get(idleFilter)?.stage).toBe('Not started');
+    });
+  });
+
+  // ── Task 10 (2026-07-02): multi-AHU batch status (carousel data) ────────────
+  describe('computeAhuBatchStatus — one block per distinct AHU, pending first', () => {
+    let ahuTpl10 = '';
+    let filterTpl10 = '';
+    let ahuPending = '';   // has an idle filter → allAtFinal=false
+    let ahuReady = '';     // all filters done → allAtFinal=true
+    let fP = '';           // done filter in ahuPending
+    let fPidle = '';       // idle filter in ahuPending
+    let fR = '';           // done filter in ahuReady
+
+    beforeAll(async () => {
+      ahuTpl10 = (await prisma.assetTemplate.create({ data: { name: `AHU Tpl T10 ${SUFFIX}`, templateKind: 'AHU' } })).id;
+      filterTpl10 = (await prisma.assetTemplate.create({ data: { name: `Filter Tpl T10 ${SUFFIX}`, templateKind: 'FILTER' } })).id;
+
+      ahuPending = (await prisma.assetInstance.create({ data: { name: `AHU Pending T10 ${SUFFIX}`, templateId: ahuTpl10 } })).id;
+      ahuReady = (await prisma.assetInstance.create({ data: { name: `AHU Ready T10 ${SUFFIX}`, templateId: ahuTpl10 } })).id;
+
+      fP = (await prisma.assetInstance.create({ data: { name: `FP T10 ${SUFFIX}`, templateId: filterTpl10, parentId: ahuPending } })).id;
+      fPidle = (await prisma.assetInstance.create({ data: { name: `FPidle T10 ${SUFFIX}`, templateId: filterTpl10, parentId: ahuPending } })).id;
+      fR = (await prisma.assetInstance.create({ data: { name: `FR T10 ${SUFFIX}`, templateId: filterTpl10, parentId: ahuReady } })).id;
+
+      await prisma.filterDetails.create({ data: { assetInstanceId: fP, filterProfileId: null, currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' } });
+      await prisma.filterDetails.create({ data: { assetInstanceId: fPidle, filterProfileId: null, currentCycleId: null, currentLifecycleState: null } });
+      await prisma.filterDetails.create({ data: { assetInstanceId: fR, filterProfileId: null, currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' } });
+    }, 30_000);
+
+    afterAll(async () => {
+      try {
+        await prisma.filterDetails.deleteMany({ where: { assetInstanceId: { in: [fP, fPidle, fR].filter(Boolean) } } });
+        for (const id of [fP, fPidle, fR, ahuPending, ahuReady].filter(Boolean)) {
+          await prisma.assetInstance.delete({ where: { id } }).catch(() => undefined);
+        }
+        for (const id of [filterTpl10, ahuTpl10].filter(Boolean)) {
+          await prisma.assetTemplate.delete({ where: { id } }).catch(() => undefined);
+        }
+      } catch { /* swallow */ }
+    });
+
+    it('returns a block per AHU with correct allAtFinal, pending AHU first', async () => {
+      const { ahus } = await computeAhuBatchStatus([fP, fR]);
+      expect(ahus).toHaveLength(2);
+      // Pending AHU sorts first.
+      expect(ahus[0].ahuId).toBe(ahuPending);
+      expect(ahus[0].allAtFinal).toBe(false);
+      expect(ahus[1].ahuId).toBe(ahuReady);
+      expect(ahus[1].allAtFinal).toBe(true);
+      // The pending AHU's roster includes the idle filter as not-done.
+      expect(ahus[0].filters.find(f => f.id === fPidle)?.done).toBe(false);
     });
   });
 });
