@@ -10,6 +10,7 @@ import { AppError, NotFoundError, ValidationError, ConflictError } from '../../l
 import { authRepository } from './auth.repository.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
+import { invalidateSessionAuthCache } from '../../plugins/auth.js';
 
 const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6';
 
@@ -262,6 +263,7 @@ export const authService = {
 
   async logout(sessionId: string, username: string, role: string, ip: string, userAgent: string | undefined, reason: 'manual' | 'idle_timeout' = 'manual') {
     await authRepository.terminateSession(sessionId, reason);
+    invalidateSessionAuthCache(sessionId);
     await auditLog({
       userId: username, userRole: role, action: 'LOGOUT',
       targetType: 'session', targetId: sessionId,
@@ -279,6 +281,7 @@ export const authService = {
       const session = await authRepository.findSessionById(payload.sessionId);
       if (session) {
         await authRepository.terminateSession(session.id, 'tab_closed');
+        invalidateSessionAuthCache(session.id);
         await auditLog({
           userId: payload.username, userRole: payload.role, action: 'LOGOUT',
           targetType: 'session', targetId: payload.sessionId,
