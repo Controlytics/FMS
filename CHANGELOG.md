@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] — AHU INTERLOCK never blocked (loadCountedFilters predicate bug) (2026-07-02)
+
+**Bug:** with AHU Completion Process = INTERLOCK, completing a filter's final cleaning
+stage was **not** blocked even when sibling filters of the same AHU hadn't been cleaned —
+the interlock never fired. Root cause in `ahu-completion-gate.ts loadCountedFilters()`: it
+counted only filters whose `FilterDetails.filterProfileId` is non-null. But that direct
+binding is optional and **unused in practice** — `resolveFilterProfile()` resolves a
+filter's cleaning profile from a config rule (`cleaning-profile-assignment`) or a default
+fallback (first ACTIVE profile), per the 2026-05-25 decision that `filter_profile_id` must
+not be required to start a cycle. Measured: **0 of 274** filters carry the binding, so
+`loadCountedFilters` returned **zero siblings for every AHU** → `computeAhuCompletionStatus`
+always reported `allAtFinal: true` → INTERLOCK (and the POPUP feed, which shares the same
+helper via `GET /ahu/:id/completion-status`) were silent no-ops **system-wide**. This also
+contradicted the feature's own design decision D3 ("count all active, non-Retired child
+filters").
+
+**Fix:** count all active, non-Retired child **filters** (`template.templateKind = 'FILTER'`)
+regardless of the `filterProfileId` binding — matching D3, and D4 (idle / never-started
+filters are included and block). One-line predicate change in `loadCountedFilters`; fixes
+both INTERLOCK and POPUP (single shared code path).
+
+**Why it shipped undetected:** the existing e2e fixtures set `filterProfileId`, so they
+passed with the bug present. Added a fail-first regression test (`ahu-completion-gate.e2e.test.ts`
+Task 9) that creates filters with `filterProfileId = null` (the production condition) and
+asserts the idle sibling is counted as pending — it fails on the old predicate, passes on the
+new one. All 15 gate tests pass. **Live-verified** on the reported AHU: `completion-status`
+now returns `allAtFinal:false` with the 4 uncleaned siblings (was `true`/empty).
+
+**Note:** cycles that already completed before this fix stay completed (past actions are
+immutable); the gate now blocks *future* final-stage completions while siblings are pending.
+
 ## [Unreleased] — Date/time config respected in audit detail + app-wide sweep (2026-07-02)
 
 **Bug:** the Audit Trail detail modal showed `createdAt`/`updatedAt` inside a record's

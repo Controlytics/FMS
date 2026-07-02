@@ -704,4 +704,61 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       expect(cycleB?.status).toBe('COMPLETED');
     });
   });
+
+  // ── Task 9 (2026-07-02 regression): count filters that resolve their profile
+  //    via config-rule / default fallback — i.e. FilterDetails.filterProfileId
+  //    is NULL. This is the PRODUCTION norm (0/274 filters carry a direct
+  //    binding; resolveFilterProfile falls back to the block/area rule or the
+  //    default active profile). The original loadCountedFilters predicate
+  //    `filterDetails.filterProfileId != null` excluded EVERY such filter, so
+  //    computeAhuCompletionStatus returned zero siblings and INTERLOCK/POPUP
+  //    were silent no-ops system-wide. The Task 3 fixtures set filterProfileId,
+  //    which is exactly why they never caught this. Fixtures here leave it NULL.
+  describe('AHU interlock — counts filters with NO filterProfileId binding (regression)', () => {
+    let ahu2 = '';
+    let finalFilter = '';   // reached final via CLEANING_CYCLE_COMPLETED (no cycle)
+    let idleFilter = '';    // never started → must be counted + block
+    let ahuTpl2 = '';
+    let filterTpl2 = '';
+
+    beforeAll(async () => {
+      const ahuT = await prisma.assetTemplate.create({ data: { name: `AHU Tpl T9 ${SUFFIX}`, templateKind: 'AHU' } });
+      ahuTpl2 = ahuT.id;
+      const filterT = await prisma.assetTemplate.create({ data: { name: `Filter Tpl T9 ${SUFFIX}`, templateKind: 'FILTER' } });
+      filterTpl2 = filterT.id;
+
+      const ahu = await prisma.assetInstance.create({ data: { name: `AHU T9 ${SUFFIX}`, templateId: ahuTpl2 } });
+      ahu2 = ahu.id;
+
+      const fFinal = await prisma.assetInstance.create({ data: { name: `Filter Final T9 ${SUFFIX}`, templateId: filterTpl2, parentId: ahu2 } });
+      finalFilter = fFinal.id;
+      const fIdle = await prisma.assetInstance.create({ data: { name: `Filter Idle T9 ${SUFFIX}`, templateId: filterTpl2, parentId: ahu2 } });
+      idleFilter = fIdle.id;
+
+      // The crux: NO direct binding — both clean via config/default resolution.
+      await prisma.filterDetails.create({ data: { assetInstanceId: finalFilter, filterProfileId: null, currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' } });
+      await prisma.filterDetails.create({ data: { assetInstanceId: idleFilter, filterProfileId: null, currentCycleId: null, currentLifecycleState: null } });
+    }, 30_000);
+
+    afterAll(async () => {
+      try {
+        await prisma.filterDetails.deleteMany({ where: { assetInstanceId: { in: [finalFilter, idleFilter].filter(Boolean) } } });
+        for (const id of [finalFilter, idleFilter, ahu2].filter(Boolean)) {
+          await prisma.assetInstance.delete({ where: { id } }).catch(() => undefined);
+        }
+        for (const id of [filterTpl2, ahuTpl2].filter(Boolean)) {
+          await prisma.assetTemplate.delete({ where: { id } }).catch(() => undefined);
+        }
+      } catch { /* swallow cleanup errors */ }
+    });
+
+    it('counts a never-started sibling (filterProfileId=null) as pending — pre-fix it was excluded → allAtFinal=true', async () => {
+      // Exclude the completed filter; the idle sibling with no binding must
+      // still be counted and reported pending. Pre-fix this returned
+      // { allAtFinal: true, pending: [] } because loadCountedFilters found none.
+      const { allAtFinal, pending } = await computeAhuCompletionStatus(ahu2, finalFilter);
+      expect(allAtFinal).toBe(false);
+      expect(pending.map(p => p.id)).toContain(idleFilter);
+    });
+  });
 });

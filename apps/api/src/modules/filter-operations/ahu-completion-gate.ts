@@ -82,10 +82,19 @@ export async function resolveAhuId(filterId: string): Promise<string | null> {
 }
 
 /**
- * Load all active, non-retired, cleanable child filters of the given AHU.
- * "Cleanable" means the child has a FilterDetails row with a filterProfileId
- * set — instances without a profile are not eligible for cleaning cycles and
- * should not count toward AHU completion.
+ * Load all active, non-retired child FILTERS of the given AHU (design D3).
+ *
+ * "Cleanable" = the child is a filter (templateKind 'FILTER'). It does NOT
+ * require FilterDetails.filterProfileId — that direct binding is optional and
+ * in practice unused: `resolveFilterProfile()` resolves a filter's cleaning
+ * profile from a config-based rule (cleaning-profile-assignment) or a default
+ * fallback (first ACTIVE profile), per the 2026-05-25 decision that
+ * filter_profile_id must NOT be required for a cycle to start. Gating on
+ * `filterProfileId != null` (the original predicate) excluded EVERY filter in
+ * any deployment that uses config/default resolution — i.e. all of them — so
+ * the AHU never had siblings to count and INTERLOCK/POPUP silently no-op'd.
+ * Idle / never-started filters are intentionally included (D4): they haven't
+ * reached final, so they must block completion of their siblings.
  */
 export async function loadCountedFilters(ahuId: string): Promise<CountedFilter[]> {
   const rows = await prisma.assetInstance.findMany({
@@ -93,7 +102,7 @@ export async function loadCountedFilters(ahuId: string): Promise<CountedFilter[]
       parentId: ahuId,
       isActive: true,
       status: { not: 'Retired' },
-      filterDetails: { filterProfileId: { not: null } },
+      template: { templateKind: 'FILTER' },
     },
     select: {
       id: true,
