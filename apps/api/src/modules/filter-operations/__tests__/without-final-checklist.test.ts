@@ -1,11 +1,18 @@
 /**
  * Task 8 — TDD test for GET /api/filters/cleaning-profiles/without-final-checklist
  *
- * Seeds two cleaning profiles:
- *   Profile 1: S1 → S2 → END            (no terminal checklist → NOT enforceable by INTERLOCK)
- *   Profile 2: S1 → S2 → CHECKLIST → END (has terminal checklist → enforceable)
+ * Seeds three cleaning profiles:
+ *   Profile 1: S1 → S2 → END                             (no terminal checklist → NOT enforceable)
+ *   Profile 2: S1 → S2 → CHECKLIST → END                 (has terminal checklist → enforceable)
+ *   Profile 3: S1 branches to S2→END and S3→CHECKLIST→END (diamond — mixed: one unenforceable path)
  *
- * Asserts that the endpoint returns Profile 1 but NOT Profile 2.
+ * Asserts the endpoint returns Profile 1 and Profile 3 but NOT Profile 2.
+ *
+ * Profile 3 exercises the branching-pipeline fix: the profile is unenforceable
+ * because ANY final stage that reaches END without a CHECKLIST is sufficient to
+ * flag it.  An earlier incorrect implementation would have found S3's CHECKLIST,
+ * set hasFinalChecklist=true, and excluded the profile — even though S2 reaches
+ * END with no gate.
  *
  * Isolation note: the endpoint is unscoped (returns all ACTIVE profiles) and
  * the test DB accumulates rows from other files. Never assert exact array
@@ -76,6 +83,7 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
   // Profile IDs seeded by this test file
   let profile1Id: string; // S1 → S2 → END (unenforceable — should be returned)
   let profile2Id: string; // S1 → S2 → CHECKLIST → END (enforceable — should NOT be returned)
+  let profile3Id: string; // diamond: S1 → {S2→END, S3→CHECKLIST→END} (mixed — should be returned)
 
   beforeAll(async () => {
     // ── Provision unique SUPER_ADMIN ──────────────────────────────────────────
@@ -166,6 +174,46 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
       ],
     });
 
+    // ── Seed Profile 3: diamond — S1 → {S2→END, S3→CHECKLIST→END} ───────────
+    // One branch (S2) reaches END with no CHECKLIST — the profile is unenforceable
+    // even though the other branch (S3) does have a CHECKLIST.
+    // This fixture locks the fix that prevents breaking early on the first
+    // enforceable final stage.
+    const cp3 = await prisma.filterCleaningProfile.create({
+      data: {
+        name: `T8 Diamond ${SUFFIX}`,
+        lineageId: randomUUID(),
+        status: 'ACTIVE',
+        createdBy: '00000000-0000-0000-0000-000000000001',
+        stages: {
+          create: [
+            { nodeType: 'STAGE', stateKey: 'S1', sortOrder: 1 },
+            { nodeType: 'STAGE', stateKey: 'S2', sortOrder: 2 },  // final, no checklist
+            { nodeType: 'STAGE', stateKey: 'S3', sortOrder: 3 },  // final, has checklist
+            { nodeType: 'CHECKLIST', stateKey: null, sortOrder: 4 },
+            { nodeType: 'END', stateKey: null, sortOrder: 5 },
+          ],
+        },
+      },
+      include: { stages: true },
+    });
+    profile3Id = cp3.id;
+
+    const p3s1 = cp3.stages.find(s => s.stateKey === 'S1')!;
+    const p3s2 = cp3.stages.find(s => s.stateKey === 'S2')!;
+    const p3s3 = cp3.stages.find(s => s.stateKey === 'S3')!;
+    const p3cl = cp3.stages.find(s => s.nodeType === 'CHECKLIST')!;
+    const p3end = cp3.stages.find(s => s.nodeType === 'END')!;
+    await prisma.filterPipelineConnection.createMany({
+      data: [
+        { profileId: profile3Id, fromStageId: p3s1.id, toStageId: p3s2.id },   // S1→S2
+        { profileId: profile3Id, fromStageId: p3s1.id, toStageId: p3s3.id },   // S1→S3
+        { profileId: profile3Id, fromStageId: p3s2.id, toStageId: p3end.id },  // S2→END (no gate)
+        { profileId: profile3Id, fromStageId: p3s3.id, toStageId: p3cl.id },   // S3→CHECKLIST
+        { profileId: profile3Id, fromStageId: p3cl.id, toStageId: p3end.id },  // CHECKLIST→END
+      ],
+    });
+
     // ── Build app and log in ──────────────────────────────────────────────────
     app = await buildApp();
     const token = await loginAs(app, WFC_USERNAME, WFC_PASSWORD);
@@ -179,6 +227,9 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
     } catch { /* swallow */ }
     try {
       if (profile2Id) await prisma.filterCleaningProfile.delete({ where: { id: profile2Id } });
+    } catch { /* swallow */ }
+    try {
+      if (profile3Id) await prisma.filterCleaningProfile.delete({ where: { id: profile3Id } });
     } catch { /* swallow */ }
     try { await app.close(); } catch { /* swallow */ }
   }, 10_000);
@@ -201,5 +252,10 @@ describe('GET /api/filters/cleaning-profiles/without-final-checklist', () => {
 
     // Profile 2 (S1→S2→CHECKLIST→END) must NOT appear — enforceable
     expect(ids).not.toContain(profile2Id);
+
+    // Profile 3 (diamond: S1→{S2→END, S3→CHECKLIST→END}) must appear — unenforceable
+    // because the S2 branch reaches END with no CHECKLIST.  This assertion catches the
+    // regression where the loop broke early on S3's CHECKLIST and excluded the profile.
+    expect(ids).toContain(profile3Id);
   });
 });

@@ -142,16 +142,22 @@ export async function computeAhuCompletionStatus(
 }
 
 /**
- * Task 8: Returns all ACTIVE cleaning profiles whose final STAGE's forward path
- * to END does NOT pass through a CHECKLIST node.  These profiles cannot be
- * enforced by INTERLOCK mode — the `advance()` path auto-completes them without
- * ever hitting `submit-checklist` (§11.1 of the AHU Completion Process design).
+ * Task 8: Returns all ACTIVE cleaning profiles where ANY final STAGE's forward
+ * path to END does NOT pass through a CHECKLIST node.  These profiles cannot be
+ * fully enforced by INTERLOCK mode — the `advance()` path auto-completes the
+ * unguarded branch without ever hitting `submit-checklist` (§11.1).
  *
- * Design note: `findReachable` walks THROUGH CHECKLIST nodes (hasEndNext alone
- * cannot distinguish S2→END from S2→CHECKLIST→END).  We therefore use
- * `collectChecklistsAfterStage` on the final STAGE to check for intervening
- * CHECKLIST nodes.  Direct-successor check is sufficient because a final STAGE
- * by definition has no STAGE successors (that's how it was identified).
+ * Design notes:
+ * - `findReachable` walks THROUGH CHECKLIST nodes (hasEndNext alone cannot
+ *   distinguish S2→END from S2→CHECKLIST→END).  We use
+ *   `collectChecklistsAfterStage` on each final STAGE to check for intervening
+ *   CHECKLIST nodes.
+ * - A profile is unenforceable if ANY of its final STAGEs reaches END without
+ *   a CHECKLIST (not just ALL of them).  A branching pipeline (diamond) with
+ *   one enforceable path and one unenforceable path is still unenforceable
+ *   overall — the unguarded branch silently completes the cycle.  Therefore the
+ *   loop breaks on the first unenforceable final stage it finds, not the first
+ *   enforceable one.
  */
 export async function findProfilesWithoutFinalChecklist(): Promise<
   { id: string; name: string }[]
@@ -168,21 +174,21 @@ export async function findProfilesWithoutFinalChecklist(): Promise<
     const nodes = profile.stages as Parameters<typeof executor.findReachable>[1];
     const edges = profile.connections as Parameters<typeof executor.findReachable>[2];
 
-    let hasFinalChecklist = false;
+    let unenforceable = false;
 
     for (const node of nodes) {
       if (node.nodeType !== 'STAGE' || !node.stateKey) continue;
       const r = executor.findReachable(node.id, nodes, edges);
       if (r.hasEndNext && r.reachableStages.length === 0) {
         // Final STAGE identified — check whether a CHECKLIST precedes END.
-        if (executor.collectChecklistsAfterStage(node, nodes, edges).length > 0) {
-          hasFinalChecklist = true;
-          break;
+        if (executor.collectChecklistsAfterStage(node, nodes, edges).length === 0) {
+          unenforceable = true;
+          break; // One unenforceable final stage is enough to flag the profile.
         }
       }
     }
 
-    if (!hasFinalChecklist) {
+    if (unenforceable) {
       result.push({ id: profile.id, name: profile.name });
     }
   }
