@@ -50,17 +50,22 @@ describe('identifierService', () => {
 
   describe('create', () => {
     it('creates identifier', async () => {
-      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1' });
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'Filter-42' });
       // The service enforces "one identifier per entity" via findMany before
       // findByIdentifierValue. Both must return empty for the create to
       // proceed.
       mockIdentRepo.findMany.mockResolvedValue([]);
       mockIdentRepo.findByIdentifierValue.mockResolvedValue(null);
-      mockIdentRepo.create.mockResolvedValue({ id: 'i1', assetId: 'a1', identifierType: 'QR', identifierValue: 'QR-001' });
+      mockIdentRepo.create.mockResolvedValue({ id: 'i1', assetId: 'a1', identifierType: 'RFID', identifierValue: 'RFID-001' });
 
-      const result = await identifierService.create({ assetId: 'a1', identifierType: 'QR', identifierValue: 'QR-001' }, ctx);
-      expect(result.identifierValue).toBe('QR-001');
-      expect(mockAuditLog).toHaveBeenCalled();
+      const result = await identifierService.create({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'RFID-001' }, ctx);
+      expect(result.identifierValue).toBe('RFID-001');
+      // Audit row must be self-describing: it stores the filter name (targetId is
+      // the identifier UUID) and the tag value so the audit UI can render both.
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'ASSET_IDENTIFIER_CREATED',
+        afterValue: expect.objectContaining({ filterName: 'Filter-42', identifierValue: 'RFID-001' }),
+      }));
     });
 
     it('rejects when asset not found', async () => {
@@ -82,12 +87,16 @@ describe('identifierService', () => {
 
   describe('delete', () => {
     it('deletes identifier and logs audit', async () => {
-      mockIdentRepo.findById.mockResolvedValue({ id: 'i1', assetId: 'a1', identifierType: 'QR', identifierValue: 'QR-001' });
+      mockIdentRepo.findById.mockResolvedValue({ id: 'i1', assetId: 'a1', identifierType: 'RFID', identifierValue: 'RFID-001' });
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'Filter-42' });
       mockIdentRepo.delete.mockResolvedValue({});
 
       await identifierService.delete('i1', ctx);
       expect(mockIdentRepo.delete).toHaveBeenCalledWith('i1');
-      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'ASSET_IDENTIFIER_DELETED' }));
+      expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'ASSET_IDENTIFIER_DELETED',
+        beforeValue: expect.objectContaining({ filterName: 'Filter-42', identifierValue: 'RFID-001' }),
+      }));
     });
 
     it('throws NotFoundError', async () => {

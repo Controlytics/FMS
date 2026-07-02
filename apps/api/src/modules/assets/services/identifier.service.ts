@@ -44,7 +44,11 @@ export const identifierService = {
       action: 'ASSET_IDENTIFIER_CREATED',
       targetType: 'asset_identifier',
       targetId: identifier.id,
-      afterValue: identifier,
+      // Store the filter name alongside the identifier so the audit row is
+      // self-describing (targetId is the identifier UUID, not the filter, so the
+      // audit UI cannot resolve the filter name at render time). identifierValue
+      // is already on `identifier` — the template renders it as the RFID tag.
+      afterValue: { ...identifier, filterName: asset.name },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 
@@ -54,6 +58,10 @@ export const identifierService = {
   async delete(id: string, ctx: RequestContext, reason?: string | null) {
     const existing = await identifierRepository.findById(id);
     if (!existing) throw new NotFoundError('Identifier not found');
+
+    // Resolve the filter name for a self-describing audit row (targetId is the
+    // identifier UUID, so the audit UI can't look up the filter at render time).
+    const asset = await instanceRepository.findByIdSimple(existing.assetId);
 
     await identifierRepository.delete(id);
 
@@ -70,6 +78,7 @@ export const identifierService = {
         assetId: existing.assetId,
         identifierType: existing.identifierType,
         identifierValue: existing.identifierValue,
+        filterName: asset?.name ?? null,
       },
       afterValue: { deleted: true },
       reason: trimmedReason || undefined,

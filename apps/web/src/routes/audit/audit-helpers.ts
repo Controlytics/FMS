@@ -140,6 +140,7 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const beforeStatus = before.status || '';
   const afterStatus = after.status || '';
   const identifierType = after.identifierType || before.identifierType || '';
+  const identifierValue = after.identifierValue || before.identifierValue || '';
   // 2026-05-20 fix: {reason} was in the CYCLE_STARTED template (per
   // packages/shared/src/types/audit-templates.ts:342) but had no substitution
   // here — rendered as literal "{reason}" on every cycle-start row. Read
@@ -186,6 +187,7 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{beforeStatus\}/g, beforeStatus)
       .replace(/\{afterStatus\}/g, afterStatus)
       .replace(/\{identifierType\}/g, identifierType)
+      .replace(/\{identifierValue\}/g, identifierValue)
       .replace(/\{reason\}/g, reason)
       .replace(/\{stage\}/g, stage)
       .replace(/\{fromStage\}/g, fromStage)

@@ -312,14 +312,14 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
   ASSET_IDENTIFIER_CREATED: {
     label: 'Filter Identifier Added',
     category: 'Filter Management',
-    template: 'New identifier ({identifierType}) added to filter "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName', 'identifierType'],
+    template: 'New identifier ({identifierType}: {identifierValue}) added to filter "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName', 'identifierType', 'identifierValue'],
   },
   ASSET_IDENTIFIER_DELETED: {
     label: 'Filter Identifier Removed',
     category: 'Filter Management',
-    template: 'Identifier ({identifierType}) removed from filter "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName', 'identifierType'],
+    template: 'Identifier ({identifierType}: {identifierValue}) removed from filter "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName', 'identifierType', 'identifierValue'],
   },
 
   // Alarm Management
