@@ -65,7 +65,6 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 |---|---|---|
 | `/checklists` | ChecklistProfileListPage | FCP_READ |
 | `/checklists/:id` | ChecklistProfileDetailPage | FCP_READ |
-| `/checklist/:entityId` | ChecklistPage (standalone) | Any authenticated |
 
 ### Cleaning Cycles (lazy-loaded)
 

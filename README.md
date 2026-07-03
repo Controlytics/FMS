@@ -13,7 +13,7 @@ The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite 
 | Path | Contents |
 |---|---|
 | `apps/api/` | Fastify 5 backend — 37 modules, ~398 endpoints across 59 route files |
-| `apps/web/` | React 19 SPA — 22 route modules, ~85 pages, Tailwind CSS |
+| `apps/web/` | React 19 SPA — 22 route modules, ~84 pages, Tailwind CSS |
 | `apps/android/` | Capacitor Android wrapper that ships the SPA as `DigiLog-FilterOps.apk` |
 | `rfid_scan_app/` | Native Kotlin app for KC-series UHF RFID readers (USB) |
 | `packages/shared/` | Permissions, privileges, reauth actions, Zod schemas |
@@ -97,11 +97,9 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 |---|---|
 | Backend | Fastify 5 (Node.js / TypeScript, port 3000) |
 | Frontend | React 19 + Vite 6 (TypeScript, Tailwind CSS 4, port 5175 dev) |
-| Database | PostgreSQL 18 + Prisma ORM |
-| Time-series DB | TimescaleDB extension on PG 18 |
-| MQTT broker | Mosquitto 2.0 (Windows-native service, port 1883) |
+| Database | PostgreSQL 18 + Prisma ORM (single DB `digilog_db`; TimescaleDB dropped in Phase 7) |
 | Job queue | graphile-worker on PostgreSQL (LISTEN/NOTIFY + SKIP LOCKED + advisory locks) |
-| Pub/sub (non-queue) | In-process EventEmitter bus (`apps/api/src/lib/internal-bus.ts`). Phase 4 retired Redis. |
+| Pub/sub (non-queue) | None — Phase 4 retired Redis; the in-process EventEmitter bus was later removed with its last WS/trace/debug consumer (Phase 6/7) |
 | PDF + charts | puppeteer-core + Microsoft Edge + @napi-rs/canvas (no bundled Chromium, no node-gyp) |
 | Mobile | Capacitor Android APK + native Kotlin RFID app |
 | Reverse proxy | Optional / customer-choice (no longer bundled — Fastify on `:3000` direct is the default; see `DEPLOY-WINDOWS.md` § 7 for the NSSM stopgap until Phase 5 ships a managed-service launcher) |

@@ -58,8 +58,10 @@
 > on PostgreSQL (Phase 2); Puppeteer (bundled Chromium) + chartjs-node-canvas
 > → puppeteer-core + Edge + @napi-rs/canvas (Phase 3). **Phase 4 (2026-05-01):
 > Redis fully retired** — non-queue pub/sub (WebSocket events,
-> pipeline tracer, debug recorder) moved to in-process EventEmitter bus
-> (`apps/api/src/lib/internal-bus.ts`). `ioredis` dependency removed. (The
+> pipeline tracer, debug recorder) moved to an in-process EventEmitter bus;
+> `ioredis` dependency removed. Those consumers were all torn out in Phase 6/7
+> and the orphaned bus (`lib/internal-bus.ts`) + `@fastify/websocket` were
+> removed 2026-07-03 as dead code — no pub/sub layer remains. (The
 > device-RPC correlation cache `lib/rpc-cache.ts` was removed 2026-07-01 as
 > dead code after the Phase 7 data-ingestion/MQTT tear-out.)
 
@@ -84,7 +86,7 @@
 ├── apps/web/                      (React SPA)
 │   └── src/
 │       ├── main.tsx               Route definitions, lazy loading, error boundaries
-│       ├── routes/                22 route modules (~85 pages)
+│       ├── routes/                22 route modules (~84 pages)
 │       ├── components/            Layout (sidebar, header), UI primitives, dialogs
 │       ├── hooks/                 14 custom hooks (auth, session, branding, offline, etc.)
 │       └── lib/                   API client, SWR config, themes, offline store, sync engine
@@ -333,9 +335,6 @@ Phase 2 of the windows-friendly-rewrite swapped from BullMQ + Redis/Memurai to g
         │   ├── /m/login → MobileLoginPage
         │   └── /m → MobileOperationsPage
         │
-        ├── Standalone Routes
-        │   └── /checklist/:entityId → ChecklistPage (no sidebar)
-        │
         └── Protected Routes
             └── <AppLayout> (sidebar + header + session management)
                 ├── useAuth() → fetch /api/auth/me, check login
@@ -438,7 +437,7 @@ Phase 4 of the windows-friendly-rewrite removed Redis from the codebase entirely
 
 | Former Redis use | Replacement |
 |---|---|
-| Pub/sub (WebSocket events `ws:events`) | In-process EventEmitter bus (`apps/api/src/lib/internal-bus.ts`) |
+| Pub/sub (WebSocket events) | Removed 2026-07-03 — the WS/trace/debug consumers were torn out in Phase 6/7 and the orphaned in-process bus with them; no pub/sub layer remains |
 | RPC correlation (device commands) | Removed with the data-ingestion/MQTT tear-out (Phase 7, 2026-06-11..06-17); the `lib/rpc-cache.ts` orphan was deleted 2026-07-01 |
 | Pipeline tracer / debug recorder | Same EventEmitter bus, different channels |
 | Re-auth token cache (10s TTL) | In-memory `Map` in `apps/api/src/lib/reauth-check.ts` |

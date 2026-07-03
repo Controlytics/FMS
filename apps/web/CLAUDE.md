@@ -43,7 +43,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (23 route folders/files; ~85 pages; **81 `<Route>` definitions** in `main.tsx`)
+- Routes: `apps/web/src/routes/` (22 route folders/files; ~84 pages; **76 `<Route>` definitions** in `main.tsx`)
 - Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`
@@ -70,7 +70,6 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 - 26 config pages (auto-discovered from registry)
 - Entity tree with drag-and-drop hierarchy
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
-- Mobile-optimized checklist at `/checklist/:entityId` (standalone layout, no sidebar)
 - Notification system (email/SMS/Telegram/Slack)
 - Debug trace page for pipeline visibility
 
@@ -80,7 +79,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 - No dark theme anywhere in the application
 
 ## Frontend Pages
-admin-requests, assets (dialogs/tabs/hooks), audit, auth, checklist, checklists, cleaning-cycles (history/timeline), config (branding/notification-rules/notification-settings/roles), debug, filter-management (operations/profiles/status/scan/traceability/AHU-dashboard/cleaning-profile-editor/retirement/replacement/bulk-upload/equipment), mobile, notifications, pm-schedules, profile, system-health, tenant, users (alarms + rule-chains route folders removed 2026-05-17)
+admin-requests, assets (dialogs/tabs/hooks), audit, auth, checklists, cleaning-cycles (history/timeline), config (branding/notification-rules/notification-settings/roles), debug, filter-management (operations/profiles/status/scan/traceability/AHU-dashboard/cleaning-profile-editor/retirement/replacement/bulk-upload/equipment), mobile, notifications, pm-schedules, profile, system-health, tenant, users (alarms + rule-chains route folders removed 2026-05-17)
 
 ## Phase 2 Pages
 - `routes/filter-management/filter-operations.tsx` — Main operations page (8 stages, scan, checklist dialog, reason selection)
