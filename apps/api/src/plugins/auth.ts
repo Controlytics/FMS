@@ -156,13 +156,12 @@ const PUBLIC_PATHS = [
   '/api/guest/cleaning-request',  // guest (unauthenticated) filter cleaning request
 
   ...(isProduction ? [] : ['/docs', '/docs/']),  // Swagger only public in non-production
-  '/api/internal/mqtt',  // EMQX auth callbacks (no JWT)
-  '/api/ws',             // WebSocket (authenticates via message flow)
   '/api/notification-settings/email/oauth2/code', // OAuth2 callback (no JWT - redirect from Microsoft/Google)
-  '/api/data/telemetry', // Device token auth (handled by route preHandler)
-  '/api/data/attributes',// Device token auth (handled by route preHandler)
-  '/api/data/binary',    // Device token auth (handled by route preHandler)
-  '/api/data/event',     // Device token auth (handled by route preHandler)
+  // 2026-07-03: removed 6 stale JWT-skip entries whose routes were deleted in the
+  // Phase 7 data-ingestion + MQTT tear-out — no route is registered for any of
+  // them, so the allowlist entries were dead cruft:
+  //   /api/internal/mqtt (EMQX), /api/ws (WS transport module),
+  //   /api/data/{telemetry,attributes,binary,event} (data-ingestion module).
 ];
 
 // Paths that are public only for GET requests

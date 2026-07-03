@@ -6,7 +6,6 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import websocket from '@fastify/websocket';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerSwagger } from './lib/swagger.js';
@@ -30,10 +29,6 @@ import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
 import assetRoutes from './modules/assets/index.js';
-
-
-import { isFeatureEnabled, FEATURE_FLAGS } from './lib/feature-flags.js';
-
 import helpRoutes from './modules/help/routes.js';
 import systemHealthRoutes, { trackRequest } from './modules/system-health/routes.js';
 
@@ -167,7 +162,6 @@ await app.register(multipart, {
     files: 1,
   },
 });
-await app.register(websocket);
 
 // Serve uploaded files. UPLOADS_ROOT honors UPLOAD_DIR (customer install points
 // it at C:\ProgramData\DigiLog\uploads) — must match the photo writer in
@@ -325,10 +319,7 @@ await app.register(roleRoutes, { prefix: '/api/roles' });
 await app.register(backupRoutes, { prefix: '/api/backup' });
 await app.register(assetRoutes, { prefix: '/api/assets' });
 
-// Data Ingestion & Transport routes
-// Phase 1 cut-over: when USE_MOSQUITTO=true, expose Mosquitto's
-// dynamic-security refresh endpoint instead of the EMQX auth-webhook
-// routes. See docs/plans/2026-04-29-windows-friendly-rewrite.md.
+// (Data-ingestion / MQTT / transport routes were removed in Phase 7.)
 
 
 
@@ -418,12 +409,6 @@ try {
   const proto = httpsOptions ? 'https' : 'http';
   app.log.info(`DigiLog API running on ${proto}://localhost:${port}`);
   app.log.info(`Swagger UI: ${proto}://localhost:${port}/docs`);
-
-  // Initialize MQTT client after server is listening
- 
-
-  // Initialize telemetry batcher (Phase C)
- 
 
   // Phase 2 — single graphile-worker Runner registers ALL task identifiers
   // and the maintenance crontab (Task 2.8). The legacy BullMQ path was

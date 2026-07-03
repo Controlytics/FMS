@@ -56,7 +56,6 @@ const LdapConfigPage = lazy(() => import("./routes/config/ldap"));
 const RoleAssignmentsPage = lazy(() => import("./routes/config/role-assignments").then(m => ({ default: m.RoleAssignmentsPage })));
 const SystemHealthPage = lazy(() => import('./routes/system-health/index').then(m => ({ default: m.SystemHealthPage })));
 const DebugTracesPage = lazy(() => import('./routes/debug/index').then(m => ({ default: m.DebugTracesPage })));
-const ChecklistPage = lazy(() => import('./routes/checklist-form/index').then(m => ({ default: m.ChecklistPage })));
 const EmailSettingsPage = lazy(() => import('./routes/config/notification-settings/email-settings').then(m => ({ default: m.EmailSettingsPage })));
 const SmsSettingsPage = lazy(() => import('./routes/config/notification-settings/sms-settings').then(m => ({ default: m.SmsSettingsPage })));
 const NotificationRulesPage = lazy(() => import('./routes/config/notification-rules/index').then(m => ({ default: m.NotificationRulesPage })));
@@ -275,9 +274,6 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/hierarchy-preview" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><HierarchyPreviewPage /></Suspense></RequireRole>} />
 
           </Route>
-
-          {/* Standalone checklist form (no sidebar/header, auth handled by component) */}
-          <Route path="/checklist/:entityId" element={<Suspense fallback={<LazyFallback />}><ChecklistPage /></Suspense>} />
 
           {/* Catch-all: any unknown route falls through to here. Redirect to dashboard. */}
           <Route path="*" element={<Navigate to="/" replace />} />

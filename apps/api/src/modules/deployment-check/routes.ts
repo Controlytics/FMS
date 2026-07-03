@@ -164,7 +164,9 @@ function checkApiRoutes(app: any): SubCheck[] {
 
   const criticalPrefixes = [
     '/api/auth', '/api/users', '/api/config', '/api/roles',
-    '/api/audit', '/api/assets', '/api/system-health', '/api/data',
+    '/api/audit', '/api/assets', '/api/system-health',
+    // '/api/data' removed 2026-07-03 — the data-ingestion module was deleted in
+    // Phase 7, so asserting it here made this check permanently FAIL.
     '/api/filters', '/api/help', '/api/notifications',
     '/api/filter-cleaning-profiles', '/api/pm-schedules',
   ];

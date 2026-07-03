@@ -57,20 +57,14 @@ export async function registerSwagger(app: FastifyInstance) {
         { name: 'Backup', description: 'Database backup & restore — export (JSON, SQL, CSV, BAK), validate, and restore with SHA-256 checksum integrity' },
         { name: 'Entity Templates', description: 'Entity template management — reusable blueprints for entity types with alarm rules and checklist schemas' },
         { name: 'Entities', description: 'Entity instance management — create, configure, and operate entity instances in parent-child hierarchies' },
-        { name: 'Entity Relationships', description: 'Entity relationships — bidirectional connections between entities (12 types with auto-inverse)' },
         { name: 'Entity Identifiers', description: 'Entity identifiers — QR, RFID, NFC, Barcode, Manual identifiers' },
-        { name: 'Data Ingestion', description: 'Data ingestion — HTTP telemetry, batch ingestion, data streams, device credentials' },
-        { name: 'Rule Chains', description: 'Rule chain engine — visual DAG-based data processing with 77 node types, sandboxed execution, sub-chain delegation' },
-        { name: 'UNS', description: 'Unified Namespace — ISA-95 hierarchical namespace mappings and auto-mapping' },
-        { name: 'Telemetry', description: 'Telemetry queries — latest values, history, aggregated, compare, delta, stats' },
-        { name: 'Alarms', description: 'Alarm management — lifecycle tracking (ACTIVE → ACKNOWLEDGED → CLEARED), acknowledge, clear with electronic signatures' },
-        { name: 'Export', description: 'Data export — telemetry, alarms, audit trail export to CSV/JSON with background job processing' },
-        { name: 'Retention', description: 'Data retention — configurable retention policies per data type' },
-        { name: 'Connectivity', description: 'Connectivity tracking — real-time device online/offline status, history, and statistics' },
+        // 2026-07-03: removed 10 dead tags for subsystems torn out in Phase 6/7
+        // (Data Ingestion, Rule Chains, UNS, Telemetry, Alarms, Export, Retention,
+        // Connectivity, MQTT Internal, Entity Relationships) — they rendered as
+        // empty categories in /docs since no route carries them anymore.
         { name: 'Help', description: 'Help articles — versioned documentation with CRUD and version history' },
-        { name: 'Debug Traces', description: 'Debug traces — pipeline execution traces for troubleshooting data ingestion' },
+        { name: 'Debug Traces', description: 'Debug traces — audited-action pipeline traces for troubleshooting' },
         { name: 'System Health', description: 'System health — request tracking, throughput stats, and system metrics' },
-        { name: 'MQTT Internal', description: 'MQTT broker integration — EMQX authentication, ACL, and superuser callbacks (internal use only)' },
       ],
       components: {
         securitySchemes: {

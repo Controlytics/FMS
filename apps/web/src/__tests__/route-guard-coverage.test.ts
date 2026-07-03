@@ -7,7 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const mainTsx = readFileSync(resolve(__dirname, '../main.tsx'), 'utf8');
 
 // Routes intentionally open today (auth handled inside component). Phase 2 closes these.
-const KNOWN_OPEN = ['/quality-notifications', '/checklist/:entityId'];
+const KNOWN_OPEN = ['/quality-notifications'];
 
 describe('route-guard coverage', () => {
   it('documents the known open routes (loose Phase-1 lock)', () => {
