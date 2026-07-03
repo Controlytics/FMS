@@ -50,10 +50,10 @@ export function CleaningProfileAssignmentPage() {
   // filtering by kind is needed. AHUs / Blocks / Areas / Filters are
   // separate calls (SWR dedupes per-key) — cheaper than one nested expand
   // because each piece is consumed in a different `useMemo`.
-  const { data: blocksData }  = useSWR<{ data: any[] }>('/api/hierarchy/blocks?limit=500');
+  const { data: blocksData }  = useSWR<{ data: any[] }>('/api/hierarchy/blocks');
   const { data: areasData }   = useSWR<{ data: any[] }>('/api/hierarchy/areas?limit=500');
   const { data: ahusData }    = useSWR<{ data: any[] }>('/api/hierarchy/ahus?limit=500');
-  const { data: filtersData } = useSWR<{ data: any[] }>('/api/hierarchy/filters?limit=500');
+  const { data: filtersData } = useSWR<{ data: any[] }>('/api/hierarchy/filters');
 
   const [mode, setMode] = useState<AssignmentMode>('BY_ENTITY');
   const [rules, setRules] = useState<AssignmentRule[]>([]);

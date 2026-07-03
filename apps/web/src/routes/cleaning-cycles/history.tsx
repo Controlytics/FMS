@@ -80,7 +80,7 @@ export function CleaningCycleHistoryPage() {
   // /api/assets/templates to /api/hierarchy/filters (typed-table read).
   // The hierarchy endpoint already gates on isActive=true and returns ONLY
   // filter-kind rows — no template Set membership check needed.
-  const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/hierarchy/filters?limit=500');
+  const { data: instancesData } = useSWR<PaginatedResponse<FilterInstance>>('/api/hierarchy/filters');
   const filterInstances = (instancesData?.data ?? []).filter((i) => i.status !== 'Retired');
 
   // Cascading hierarchy options. Areas scope to the chosen block, AHUs to the
@@ -88,7 +88,7 @@ export function CleaningCycleHistoryPage() {
   // NOTE: blocks laid out Block→AHU (no Area level) return no areas; the operator
   // filters at Block level there (the backend recursive walk still resolves every
   // descendant filter), and the AHU dropdown stays disabled until an area exists.
-  const { data: blocksData } = useSWR<PaginatedResponse<any>>('/api/hierarchy/blocks?limit=500');
+  const { data: blocksData } = useSWR<PaginatedResponse<any>>('/api/hierarchy/blocks');
   const { data: areasData } = useSWR<PaginatedResponse<any>>(blockId ? `/api/hierarchy/areas?blockId=${blockId}&limit=500` : null);
   const { data: ahusData } = useSWR<PaginatedResponse<any>>(areaId ? `/api/hierarchy/ahus?areaId=${areaId}&limit=500` : null);
   const blocks = (blocksData?.data ?? []) as any[];

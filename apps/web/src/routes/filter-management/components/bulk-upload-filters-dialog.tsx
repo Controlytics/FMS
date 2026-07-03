@@ -49,7 +49,7 @@ export function BulkUploadFiltersDialog({ open, onClose, ahuId, ahuName, onSucce
   // typed hierarchy endpoint. /api/hierarchy/blocks returns only block-kind rows —
   // no templateKind heuristic or join needed. attributeSchema is not accessed here
   // (CSV columns are hardcoded constants), so no legacy call is needed.
-  const { data: blocksData } = useSWR(open ? '/api/hierarchy/blocks?limit=500' : null);
+  const { data: blocksData } = useSWR(open ? '/api/hierarchy/blocks' : null);
   const blocks = (blocksData?.data ?? []) as any[];
 
   useEffect(() => { if (!open) reset(); }, [open]);

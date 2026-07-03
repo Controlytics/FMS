@@ -368,16 +368,18 @@ describe('createAssetIdentifierSchema', () => {
 // =============================================
 
 describe('assetQuerySchema', () => {
-  it('applies defaults', () => {
+  it('defaults page to 1 and leaves limit undefined (uncapped — returns all)', () => {
+    // 2026-07-03: record lists are uncapped. An omitted limit stays undefined so
+    // the service returns ALL rows (no `take`), instead of silently capping.
     const result = assetQuerySchema.safeParse({});
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.page).toBe(1);
-      expect(result.data.limit).toBe(50);
+      expect(result.data.limit).toBeUndefined();
     }
   });
 
-  it('coerces page and limit from strings', () => {
+  it('coerces page and limit from strings when provided', () => {
     const result = assetQuerySchema.safeParse({ page: '2', limit: '25' });
     expect(result.success).toBe(true);
     if (result.success) {
@@ -386,8 +388,10 @@ describe('assetQuerySchema', () => {
     }
   });
 
-  it('rejects limit over 100', () => {
-    expect(assetQuerySchema.safeParse({ limit: '200' }).success).toBe(false);
+  it('accepts a large explicit limit (no upper cap — nothing is hidden)', () => {
+    const result = assetQuerySchema.safeParse({ limit: '100000' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.limit).toBe(100000);
   });
 
   it('accepts all optional filters', () => {
@@ -404,12 +408,12 @@ describe('assetQuerySchema', () => {
 });
 
 describe('templateQuerySchema', () => {
-  it('applies defaults', () => {
+  it('defaults page to 1 and leaves limit undefined (uncapped — returns all)', () => {
     const result = templateQuerySchema.safeParse({});
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.page).toBe(1);
-      expect(result.data.limit).toBe(50);
+      expect(result.data.limit).toBeUndefined();
     }
   });
 

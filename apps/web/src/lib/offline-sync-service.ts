@@ -93,7 +93,7 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // one typed kind per endpoint, so they can't rebuild this mixed cache.
     // Unblocked when those two carve-out files migrate off templateId/templateKind.
     report(steps[currentStep]);
-    const templatesRes = await apiClient.get<any>('/api/assets/templates?limit=1000');
+    const templatesRes = await apiClient.get<any>('/api/assets/templates');
     await cacheItem('templates', templatesRes?.data ?? []);
     currentStep++;
 
@@ -107,7 +107,7 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // Migration is gated on filter-operations.tsx + mobile-operations.tsx
     // moving off the templateId discriminator and CachedFilter dropping templateId.
     report(steps[currentStep]);
-    const instancesRes = await apiClient.get<any>('/api/assets/instances?limit=500');
+    const instancesRes = await apiClient.get<any>('/api/assets/instances');
     const instances = instancesRes?.data ?? [];
     await cacheFilters(instances); // stores in 'filters' IndexedDB store
     await cacheItem('instances-raw', instances); // also cache raw for reference
@@ -119,10 +119,10 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // populated-but-unused inventory.
     try {
       const [blocksRes, areasRes, ahusRes, filtersTypedRes] = await Promise.all([
-        apiClient.get<any>('/api/hierarchy/blocks?limit=500'),
+        apiClient.get<any>('/api/hierarchy/blocks'),
         apiClient.get<any>('/api/hierarchy/areas?limit=500'),
         apiClient.get<any>('/api/hierarchy/ahus?limit=500'),
-        apiClient.get<any>('/api/hierarchy/filters?limit=500'),
+        apiClient.get<any>('/api/hierarchy/filters'),
       ]);
       await Promise.all([
         cacheBlocks(blocksRes?.data ?? []),
@@ -197,7 +197,7 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // cross-cutting concern (one identifier per asset, independent of typed-table
     // kind). No migration needed here.
     report(steps[currentStep]);
-    const identRes = await apiClient.get<any[]>('/api/assets/identifiers?limit=1000');
+    const identRes = await apiClient.get<any[]>('/api/assets/identifiers');
     const identList = Array.isArray(identRes) ? identRes : [];
     const identMap: Record<string, { filterId: string; filterName: string }> = {};
     for (const ident of identList) {

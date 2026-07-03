@@ -169,16 +169,15 @@ describe('hierarchy routes', () => {
     }
   });
 
-  it('clamps ?limit=10000 to the 500 ceiling (audit §1.8)', async () => {
-    // The JSON-schema `maximum: 500` is the wire gate — Fastify's AJV
-    // validation rejects the request with a 400 before the handler ever
-    // sees it. That IS the ceiling enforcement. (The handler's
-    // `normalizeLimit` is the belt-and-braces second gate for any code
-    // path that bypasses schema validation.)
+  it('rejects a limit above the (raised) 1,000,000 ceiling', async () => {
+    // 2026-07-03: record lists were uncapped for real deployments; the ceiling
+    // moved 500 → 1,000,000. The JSON-schema `maximum` is still the wire gate —
+    // AJV rejects anything ABOVE it with a 400 before the handler runs. Assert
+    // the gate still fires just past the new ceiling.
     const app = await buildFixtureApp();
     try {
       const res = await app.inject({
-        method: 'GET', url: '/api/hierarchy/blocks?limit=10000', headers: AUTH,
+        method: 'GET', url: '/api/hierarchy/blocks?limit=1000001', headers: AUTH,
       });
       expect(res.statusCode).toBe(400);
       const body = res.json();
@@ -206,6 +205,27 @@ describe('hierarchy routes', () => {
       expect(res.statusCode).toBe(200);
       const arg = mockPrisma.block.findMany.mock.calls[0][0];
       expect(arg.take).toBe(500);
+      expect(arg.skip).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('returns ALL rows (no take) when limit is omitted — record lists uncapped', async () => {
+    // 2026-07-03: record lists are uncapped. With no `limit` in the query, the
+    // handler must NOT set a Prisma `take` (undefined → return every row) and
+    // must NOT skip. Pre-change, the schema `default: 50` silently capped this.
+    mockPrisma.block.findMany.mockResolvedValueOnce([]);
+    mockPrisma.block.count.mockResolvedValueOnce(0);
+
+    const app = await buildFixtureApp();
+    try {
+      const res = await app.inject({
+        method: 'GET', url: '/api/hierarchy/blocks', headers: AUTH,
+      });
+      expect(res.statusCode).toBe(200);
+      const arg = mockPrisma.block.findMany.mock.calls[0][0];
+      expect(arg.take).toBeUndefined();
       expect(arg.skip).toBe(0);
     } finally {
       await app.close();

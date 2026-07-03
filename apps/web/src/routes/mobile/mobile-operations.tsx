@@ -370,8 +370,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   }, [view, scanQueue.length]);
 
   // Data — always fetch when online, cache for offline
-  const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 30000 });
-  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
+  const { data: instancesData } = useSWR(online ? '/api/assets/instances' : null, { refreshInterval: 30000 });
+  const { data: templatesData } = useSWR(online ? '/api/assets/templates' : null);
   // Always attempt the reasons fetch (not gated on the `online` flag — that
   // flag is unreliable on Android WebViews and, when it flips false on an
   // actually-online device, left the cleaning-reason picker empty). Offline the
@@ -381,7 +381,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // reassigned to another filter (here or on admin/web) propagates within ~30s
   // of being online, so a later OFFLINE scan resolves to the right filter
   // instead of "Filter not found" (matches the instances cache cadence).
-  const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 30000, revalidateOnReconnect: true });
+  const { data: identifiersData } = useSWR(online ? '/api/assets/identifiers' : null, { refreshInterval: 30000, revalidateOnReconnect: true });
   const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
   // B.5 — Cache cleaning-profile-assignment + active profiles so offline scans of
   // a brand-new filter (no filter-state-{id} cache yet) can still resolve a pipeline.
@@ -463,7 +463,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   useEffect(() => {
     // When pending count drops (operations synced), refresh data
     if (prevPendingCount > 0 && pendingCount < prevPendingCount && online) {
-      mutate('/api/assets/instances?limit=500');
+      mutate('/api/assets/instances');
       mutateDueTasks();
     }
     setPrevPendingCount(pendingCount);
@@ -473,7 +473,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   useEffect(() => {
     const cleanup = onSyncEvent((event) => {
       if (event.type === 'complete' && event.synced && event.synced > 0) {
-        mutate('/api/assets/instances?limit=500');
+        mutate('/api/assets/instances');
         mutateDueTasks();
       }
     });
@@ -668,7 +668,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // without re-projecting every cached filter (separate follow-up).
   const goHome = () => {
     setView('home'); setActiveStage(null); core.dispatch({ type: 'close' }); setError(''); setSuccess(''); setScanQueue([]); setDryerDurations({}); setEquipmentGroupSyncWarning(null); setStageSubmitRecap(null);
-    if (online) mutate('/api/assets/instances?limit=500');
+    if (online) mutate('/api/assets/instances');
   };
 
   // 2026-05-20: accept an explicit `rawValue` arg so RFID-driven scans can
@@ -1243,7 +1243,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // so the panel paints with all countdowns immediately, no 15s wait.
     const queuedIds = scanQueueSnapshot.map(q => q.filterId);
     if (online) {
-      await mutate('/api/assets/instances?limit=500', undefined, { revalidate: true });
+      await mutate('/api/assets/instances', undefined, { revalidate: true });
       // Prime per-filter cache so when DryingFilterCard remounts/refetches,
       // the data is already in the in-memory store. We also write to the
       // offline-store cache so an OFFLINE remount sees the same data.
@@ -1621,7 +1621,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setSuccess(`${filterName || state.filterName} → ${activeStage.label}${executed ? '' : ' (queued)'}`);
       setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks('');
-      if (executed) mutate('/api/assets/instances?limit=500');
+      if (executed) mutate('/api/assets/instances');
     } catch (e: any) {
       if ((e.code === 'BLOCK_CHANGE_CONFIRM' || e.code === 'BLOCK_CHANGE_REQUIRED') && e.connectionInfo) {
         core.dispatch({ type: 'open_block_change', filterId: e.connectionInfo.filterId, filterName: scanValue, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
@@ -1690,7 +1690,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setSuccess(`${reasonDialog.filterName} → ${stageLabel}${cycleExecuted ? '' : ' (queued)'}`);
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: !cycleExecuted }, ...prev].slice(0, 20));
       setScanValue(''); setRemarks('');
-      if (cycleExecuted) mutate('/api/assets/instances?limit=500');
+      if (cycleExecuted) mutate('/api/assets/instances');
       // Dialog close + checklist dispatch handled by core.startAndAdvance
     }, {
       onError: (e: any) => {
@@ -1802,7 +1802,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // (assertOpenable), so core.advance never auto-opens a checklist from here.
       // Dispatch close explicitly so the dialog dismisses.
       core.dispatch({ type: 'close' });
-      if (executed) mutate('/api/assets/instances?limit=500');
+      if (executed) mutate('/api/assets/instances');
     } catch (e: any) {
       setDryerError(e.message ?? 'Failed to start dryer');
     }
@@ -2106,7 +2106,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // hook's return-value signal so we close the equip dialog when (and
       // only when) the cycle write produced no gate transition.
       if (!dialogOpenedByCore) core.dispatch({ type: 'close' });
-      if (executed) mutate('/api/assets/instances?limit=500');
+      if (executed) mutate('/api/assets/instances');
       // Dialog + checklist dispatch handled by core.advance / core.startAndAdvance
     } catch (e: any) {
       // B7.2: equipment-dialog flows go through `start-and-advance`, which
@@ -2145,8 +2145,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // Reset any prior choice so a non-AHU / non-terminal submit carries none.
     ahuSetChoiceRef.current = null;
     if (ahuMode === 'NONE' || filterIds.length === 0) return 'proceed';
-    const cachedState = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
-    if (!isTerminalChecklist(cachedState?.currentState, cachedState?.stageLookup)) return 'proceed';
+    // Terminal-checklist detection. The CACHED filter-state row can carry a
+    // PREVIOUS cycle's terminal stage (or miss stageLookup) — that both skipped
+    // the pre-flight AND mis-fired the POPUP at intermediate stages. ALWAYS
+    // attempt fresh state (NOT gated on the flaky Android `online` flag, which
+    // can read false while the network is up); fall back to cache only if the
+    // fetch truly fails (genuinely offline).
+    let termState: any = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
+    try { termState = await apiClient.get<any>(`/api/filters/${filterIds[0]}/current-state`); }
+    catch { /* genuinely offline → keep cached fallback */ }
+    if (!isTerminalChecklist(termState?.currentState, termState?.stageLookup)) return 'proceed';
 
     // Only ask A / B / All when the batch actually spans both sets — otherwise
     // the choice is meaningless (proceed as ALL). Cancel = don't proceed.
@@ -2179,6 +2187,22 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const checklists = checklistDialog.checklists as any[];
     for (const cl of checklists) { for (const q of cl.questions) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
+
+    // 2026-07-03: a TERMINAL checklist (e.g. Storage Out → cycle completes) has
+    // no follow-up step, so the DRY_IN-style batch replay must NOT fire —
+    // otherwise it re-runs handleSubmitQueue over the now-completed filters
+    // ("not in correct stage") and the scan queue lingers showing them. Detect
+    // completion up-front (fresh state, cache fallback) and suppress the replay
+    // BEFORE the dialog close can schedule it; the batch branch clears the queue.
+    let willComplete = false;
+    try {
+      let fresh: any = null;
+      // Always attempt fresh (not gated on the flaky `online` flag); cache fallback.
+      try { fresh = await apiClient.get<any>(`/api/filters/${checklistDialog.filterId}/current-state`); }
+      catch { fresh = await getCache<any>(`filter-state-${checklistDialog.filterId}`); }
+      willComplete = isTerminalChecklist(fresh?.currentState, fresh?.stageLookup);
+    } catch { /* leave willComplete=false → replay behaves exactly as before */ }
+    if (willComplete) pendingBatchReplayRef.current = false;
 
     // 2026-07-02: the AHU completion pre-flight (POPUP + INTERLOCK) now runs
     // BEFORE the checklist opens (gateAhuBeforeChecklist), so there is no
@@ -2240,7 +2264,24 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         } else {
           setSuccess(`Checklist submitted for ${success} filter(s)`);
         }
-        mutate('/api/assets/instances?limit=500');
+        // Robust refresh: a plain mutate() is deduped by SWR's dedupingInterval,
+        // so completed filters lingered in the cleaning view and the operator
+        // re-submitted → ALREADY_SUBMITTED. Force a hard revalidate AND re-prime
+        // each submitted filter's /current-state cache so finished cycles drop
+        // out immediately. Mirrors the dryer batch refresh in handleSubmitQueue.
+        if (online) {
+          await mutate('/api/assets/instances', undefined, { revalidate: true });
+          await Promise.all(batch.map(async b => {
+            try {
+              const st = await apiClient.get<any>(`/api/filters/${b.filterId}/current-state`);
+              if (st) await cache(`filter-state-${b.filterId}`, st, 24 * 60 * 60 * 1000);
+            } catch { /* best-effort per-filter prime */ }
+          }));
+        }
+        // Terminal checklist completed the cycles → nothing left to do. Clear the
+        // scan queue so the finished filters don't linger and a re-submit can't
+        // re-process them. (DRY_IN / non-terminal keeps the queue for its replay.)
+        if (willComplete) { setScanQueue([]); setDryerDurations({}); }
         return;
       }
 
@@ -2260,7 +2301,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // doesn't show last cycle's data.
         setStageSubmitRecap(null);
         // Dialog close + offline cache-clear + batch walking handled by core.submitChecklist.
-        if (executed) mutate('/api/assets/instances?limit=500');
+        // Robust refresh (see batch branch): hard revalidate + re-prime this
+        // filter's /current-state so a completed cycle drops out of the view now.
+        if (executed && online) {
+          await mutate('/api/assets/instances', undefined, { revalidate: true });
+          try {
+            const st = await apiClient.get<any>(`/api/filters/${checklistDialog.filterId}/current-state`);
+            if (st) await cache(`filter-state-${checklistDialog.filterId}`, st, 24 * 60 * 60 * 1000);
+          } catch { /* best-effort prime */ }
+        }
       } catch (e: any) {
         // INTERLOCK: server returns 422 AHU_INTERLOCK_PENDING only at the terminal
         // checklist (when shouldComplete=true). Show the blocking dialog; the
@@ -3178,7 +3227,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                         online={online}
                         getCache={getCache}
                         executeOrQueue={executeOrQueue}
-                        onSuccess={(msg) => { setSuccess(msg); mutate('/api/assets/instances?limit=500'); refreshOfflineData(); }}
+                        onSuccess={(msg) => { setSuccess(msg); mutate('/api/assets/instances'); refreshOfflineData(); }}
                         onError={setError}
                       />
                     ))}

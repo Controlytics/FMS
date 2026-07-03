@@ -197,11 +197,11 @@ export function FilterListPage() {
   const [deleteBlockDialog, setDeleteBlockDialog] = useState<FilterRef | null>(null);
   const [deletingBlock, setDeletingBlock] = useState(false);
 
-  const { data: templatesData } = useSWR('/api/assets/templates?limit=1000');
+  const { data: templatesData } = useSWR('/api/assets/templates');
   const { data: instancesData, isLoading } = useSWR('/api/hierarchy/tree', { refreshInterval: 30000 });
 
   // Fetch all identifiers to show RFID tags on filters
-  const { data: identifiersData } = useSWR('/api/assets/identifiers?limit=1000');
+  const { data: identifiersData } = useSWR('/api/assets/identifiers');
 
   const templates = (templatesData?.data ?? []) as any[];
   // Flattened typed hierarchy (A-01 T2.2) — replaces the legacy flat instance list.
@@ -580,7 +580,7 @@ export function FilterListPage() {
       onSuccess: () => {
         toast.success('RFID Assigned', `Tag "${rfidTagValue.trim()}" assigned to ${rfidPanel!.name}`);
         setRfidTagValue(''); setRfidSubmitting(false);
-        mutate('/api/assets/identifiers?limit=1000');
+        mutate('/api/assets/identifiers');
       },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed to assign tag'); setRfidSubmitting(false); },
     });
@@ -595,7 +595,7 @@ export function FilterListPage() {
       onSuccess: () => {
         toast.success('RFID Removed', 'Tag unassigned from filter');
         setRfidSubmitting(false);
-        mutate('/api/assets/identifiers?limit=1000');
+        mutate('/api/assets/identifiers');
       },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed to remove tag'); setRfidSubmitting(false); },
     });

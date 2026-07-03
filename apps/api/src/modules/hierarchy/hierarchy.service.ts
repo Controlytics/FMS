@@ -34,8 +34,10 @@ import { filterService } from '../assets/services/filter.service.js';
 import type { FilterFieldInput } from '../assets/services/filter-fields.service.js';
 import type { RequestContext } from '../../types/context.js';
 
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 500;
+// 2026-07-03: record lists are uncapped per user request. An OMITTED limit means
+// "return ALL rows" (no Prisma `take`). MAX_LIMIT is only a sanity gate for an
+// explicitly-provided value — the frontend now omits limit entirely.
+const MAX_LIMIT = 1_000_000;
 
 type ExpandLevel = 0 | 1 | 2 | 3;
 
@@ -62,10 +64,14 @@ export interface FilterListQuery extends PageQuery {
   ahuId?: string;
 }
 
-/** Bounded `take` value matching audit §1.8 contract. */
-export function normalizeLimit(raw?: number): number {
-  const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : DEFAULT_LIMIT;
-  return Math.min(Math.max(Math.trunc(n), 1), MAX_LIMIT);
+/**
+ * Returns `undefined` when the client omits `limit` — the record list is
+ * uncapped (2026-07-03), so an omitted limit returns ALL rows (no `take`).
+ * A provided value is honored (min 1), clamped only by the huge sanity ceiling.
+ */
+export function normalizeLimit(raw?: number): number | undefined {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  return Math.min(Math.max(Math.trunc(raw), 1), MAX_LIMIT);
 }
 
 export function normalizePage(raw?: number): number {
@@ -215,12 +221,13 @@ interface PaginatedResult<T> {
   totalPages: number;
 }
 
-function paginateMeta(total: number, page: number, limit: number) {
+function paginateMeta(total: number, page: number, limit?: number) {
   return {
     total,
     page,
-    limit,
-    totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+    // Uncapped list (limit omitted) → the whole set is returned on page 1.
+    limit: limit ?? total,
+    totalPages: !limit ? 1 : (total === 0 ? 0 : Math.ceil(total / limit)),
   };
 }
 
@@ -244,7 +251,7 @@ export const hierarchyService = {
         where,
         ...(include ? { include } : {}),
         orderBy: { name: 'asc' },
-        skip: (page - 1) * limit,
+        skip: limit ? (page - 1) * limit : 0,
         take: limit,
       } as any),
       prisma.block.count({ where }),
@@ -274,7 +281,7 @@ export const hierarchyService = {
         where,
         ...(include ? { include } : {}),
         orderBy: { name: 'asc' },
-        skip: (page - 1) * limit,
+        skip: limit ? (page - 1) * limit : 0,
         take: limit,
       } as any),
       prisma.area.count({ where }),
@@ -304,7 +311,7 @@ export const hierarchyService = {
         where,
         ...(include ? { include } : {}),
         orderBy: { name: 'asc' },
-        skip: (page - 1) * limit,
+        skip: limit ? (page - 1) * limit : 0,
         take: limit,
       } as any),
       prisma.ahu.count({ where }),
@@ -343,7 +350,7 @@ export const hierarchyService = {
       prisma.filter.findMany({
         where,
         orderBy: { name: 'asc' },
-        skip: (page - 1) * limit,
+        skip: limit ? (page - 1) * limit : 0,
         take: limit,
       } as any),
       prisma.filter.count({ where }),

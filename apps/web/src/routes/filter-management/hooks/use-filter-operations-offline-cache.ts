@@ -125,11 +125,11 @@ interface UseFilterOperationsOfflineCacheReturn {
  *       6. identifiers   -> cache('identifier-map', ...)
  *       7. mount         -> load offline filters + templates
  *       8. offline flip  -> re-load offline filters + templates
- *       9. post-sync     -> mutate('/api/assets/instances?limit=500') + reprime
+ *       9. post-sync     -> mutate('/api/assets/instances') + reprime
  *
  * A-01 Wave 5 migration note (2026-05-29): this hook has NO legacy
  * /api/assets/* API calls to migrate. The only legacy reference is the
- * `mutate('/api/assets/instances?limit=500')` SWR cache-key invalidation in
+ * `mutate('/api/assets/instances')` SWR cache-key invalidation in
  * effect 9. That key MUST match the SWR fetcher key in filter-operations.tsx
  * (line ~59), mobile-operations.tsx (line ~328), and mobile-wrapper.tsx
  * (line ~182) — all of which are carve-outs not migrated in Wave 5. Changing
@@ -289,7 +289,7 @@ export function useFilterOperationsOfflineCache(
   useEffect(() => {
     const cleanup = onSyncEvent((event) => {
       if (event.type === 'complete' && event.synced && event.synced > 0) {
-        mutate('/api/assets/instances?limit=500');
+        mutate('/api/assets/instances');
         triggerPrime();
       }
     });

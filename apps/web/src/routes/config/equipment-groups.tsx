@@ -72,7 +72,7 @@ export function EquipmentGroupsConfigPage() {
   // no templateKind heuristic or join needed. Equipment instances are not fetched
   // here (instruments are embedded in the EquipmentGroup payload via g.instruments[]).
   // Equipment-kind typed home is a deferred A-01 D1 decision; no carve-out needed.
-  const { data: blocksData } = useSWR('/api/hierarchy/blocks?limit=200');
+  const { data: blocksData } = useSWR('/api/hierarchy/blocks');
   const blocks = (blocksData?.data ?? []) as any[];
   const [selectedBlockId, setSelectedBlockId] = useState<string>('');
   // includeInactive=true so disabled groups stay visible and re-enableable.

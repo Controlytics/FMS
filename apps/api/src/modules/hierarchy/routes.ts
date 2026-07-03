@@ -103,7 +103,10 @@ const paginatedEnvelope = (itemSchema: object) => ({
 
 const pageQueryProps = {
   page: { type: 'integer', minimum: 1, default: 1 },
-  limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 },
+  // 2026-07-03: record lists uncapped per user request. NO default — an omitted
+  // limit reaches the handler as undefined → returns ALL rows. `maximum` is only
+  // a sanity gate for an explicitly-provided value.
+  limit: { type: 'integer', minimum: 1, maximum: 1_000_000 },
 } as const;
 
 export default async function hierarchyRoutes(app: FastifyInstance) {

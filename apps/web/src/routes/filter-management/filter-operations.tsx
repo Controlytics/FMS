@@ -64,9 +64,9 @@ export function FilterOperationsPage() {
   const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cache, getCache } = useOffline();
   // Task 7: AHU completion mode (NONE / POPUP / INTERLOCK) from config.
   const ahuMode = useAhuCompletionMode();
-  const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances?limit=500', { refreshInterval: online ? 30000 : 0 });
-  const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates?limit=1000');
-  const { data: identifiersData } = useSWR<any[]>(online ? '/api/assets/identifiers?limit=1000' : null);
+  const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances', { refreshInterval: online ? 30000 : 0 });
+  const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates');
+  const { data: identifiersData } = useSWR<any[]>(online ? '/api/assets/identifiers' : null);
   // A-01 cluster Step 4 (2026-05-29): primary data source is the typed
   // hierarchy endpoints. Filter rows include the four cycle-state fields
   // (currentLifecycleState / currentCycleId / filterProfileId / filterSet)
@@ -77,11 +77,11 @@ export function FilterOperationsPage() {
   // mobile-operations consume. Steps 5-6 migrate those consumers; Step 7
   // drops the legacy SWR + cache entirely.
   const { data: typedFiltersResp, error: typedFiltersError } = useSWR<PaginatedResponse<any>>(
-    '/api/hierarchy/filters?limit=500',
+    '/api/hierarchy/filters',
     { refreshInterval: online ? 30000 : 0 },
   );
   const { data: typedBlocksResp, error: typedBlocksError } = useSWR<PaginatedResponse<any>>(
-    '/api/hierarchy/blocks?limit=500',
+    '/api/hierarchy/blocks',
   );
   const { data: reasonsData } = useSWR<any>(online ? '/api/filters/reasons' : null);
   const { data: equipGroupsData } = useSWR<any>(online ? '/api/equipment-groups' : null);
@@ -301,9 +301,9 @@ export function FilterOperationsPage() {
     // A-01 Step 4: invalidate typed-hierarchy SWR (primary source) AND the
     // legacy /api/assets/instances key (still feeds the offline cache hook
     // for the legacy mixed `filters` IDB store until Step 7).
-    mutate('/api/hierarchy/filters?limit=500');
-    mutate('/api/hierarchy/blocks?limit=500');
-    mutate('/api/assets/instances?limit=500');
+    mutate('/api/hierarchy/filters');
+    mutate('/api/hierarchy/blocks');
+    mutate('/api/assets/instances');
   }, []);
 
   // A-01 Step 4: blocks come direct from the typed-hierarchy endpoint. The
@@ -1376,9 +1376,15 @@ export function FilterOperationsPage() {
     // (server then treats it as ALL — legacy behavior).
     ahuSetChoiceRef.current = null;
     if (ahuMode === 'NONE' || filterIds.length === 0) return 'proceed';
-    // Batch filters share the stage — gate on the primary's terminal-checklist state.
-    const cachedState = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
-    if (!isTerminalChecklist(cachedState?.currentState, cachedState?.stageLookup)) return 'proceed';
+    // Terminal-checklist detection. The CACHED filter-state row can carry a
+    // PREVIOUS cycle's terminal stage (or miss stageLookup) — that both skipped
+    // the pre-flight AND mis-fired the POPUP at intermediate stages. ALWAYS
+    // attempt fresh state (NOT gated on the flaky `online` flag); fall back to
+    // cache only if the fetch truly fails (genuinely offline).
+    let termState: any = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
+    try { termState = await apiClient.get<any>(`/api/filters/${filterIds[0]}/current-state`); }
+    catch { /* genuinely offline → keep cached fallback */ }
+    if (!isTerminalChecklist(termState?.currentState, termState?.stageLookup)) return 'proceed';
 
     // Only ask A / B / All when the batch actually spans both sets — otherwise
     // the choice is meaningless (proceed as ALL). Cancel = don't proceed.

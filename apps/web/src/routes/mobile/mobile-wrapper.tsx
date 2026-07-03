@@ -252,7 +252,7 @@ export function MobileWrapperPage() {
         syncAllDataForOffline((progress) => {
           setSyncProgress(progress);
         });
-        mutate('/api/assets/instances?limit=500');
+        mutate('/api/assets/instances');
       }
     });
     return cleanup;
@@ -262,9 +262,9 @@ export function MobileWrapperPage() {
   // May 16 H19 tuning (2026-05-20): bumped intervals to halve API load.
   // Stage-by-stage workflows operate on minute-scale, so 30-60s polling is
   // well below operator-perceptible staleness.
-  const { data: instancesData } = useSWR(online ? '/api/assets/instances?limit=500' : null, { refreshInterval: 30000 });
-  const { data: templatesData } = useSWR(online ? '/api/assets/templates?limit=1000' : null);
-  const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers?limit=1000' : null, { refreshInterval: 60000 });
+  const { data: instancesData } = useSWR(online ? '/api/assets/instances' : null, { refreshInterval: 30000 });
+  const { data: templatesData } = useSWR(online ? '/api/assets/templates' : null);
+  const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers' : null, { refreshInterval: 60000 });
 
   // My Tasks filters (mirror the desktop My Tasks page). Time period drives the
   // server query (/due?from=&to=); search / block / area / status filter client-side.
@@ -604,7 +604,7 @@ export function MobileWrapperPage() {
     // pre-cycle stage breakdown for up to 15s after a submit, which felt
     // like a broken cycle during today's offline test. Online-only; offline
     // mode keeps the prior server snapshot until reconnect.
-    if (online) mutate('/api/assets/instances?limit=500');
+    if (online) mutate('/api/assets/instances');
   };
 
   // ─── RFID Assign handlers ───
@@ -753,7 +753,7 @@ export function MobileWrapperPage() {
         // Feedback = the task list refreshes (qty decrements / task clears).
         replTaskScan.setValue(''); setReplTaskSubmitting(false); setActiveReplTask(null);
         await mutateReplDue();
-        if (online) { await mutate('/api/assets/instances?limit=500'); await mutateIdentifiers(); }
+        if (online) { await mutate('/api/assets/instances'); await mutateIdentifiers(); }
       },
       onError: (e: any) => { setReplTaskError(e?.message ?? 'Failed to replace filter'); setReplTaskSubmitting(false); },
     });
@@ -795,7 +795,7 @@ export function MobileWrapperPage() {
         setReplTaskSelected(new Set());
         const res = replBatchResultRef.current;
         await mutateReplDue();
-        if (online) { await mutate('/api/assets/instances?limit=500'); await mutateIdentifiers(); }
+        if (online) { await mutate('/api/assets/instances'); await mutateIdentifiers(); }
         if (res && res.failed.length > 0) {
           // Stay on the task so the operator can retry the failed ones.
           setReplTaskError(`Replaced ${res.done}, ${res.failed.length} failed — ${res.failed.join('; ')}`);
@@ -827,7 +827,7 @@ export function MobileWrapperPage() {
         setReplaceSubmitting(false);
         // Refresh the master data so the retired filter drops out and the new
         // one appears with its carried-over tag.
-        if (online) { await mutate('/api/assets/instances?limit=500'); await mutateIdentifiers(); }
+        if (online) { await mutate('/api/assets/instances'); await mutateIdentifiers(); }
       },
       onError: (err: any) => {
         setReplaceError(err?.message ?? 'Failed to replace filter');

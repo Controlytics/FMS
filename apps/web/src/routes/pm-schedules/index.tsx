@@ -369,7 +369,7 @@ export function PmScheduleListPage() {
   // filter-name lookup further down (around line ~449) walks instance
   // parentId chains. That lookup is part of the deferred filter-list.tsx /
   // filter-operations.tsx migration; once those land we can drop this call.
-  const { data: instancesData } = useSWR('/api/assets/instances?limit=500');
+  const { data: instancesData } = useSWR('/api/assets/instances');
   const instances = (instancesData?.data ?? []) as any[];
 
   const { data: ahuListData } = useSWR('/api/hierarchy/ahus?limit=500');

@@ -166,8 +166,10 @@ export const identifierService = {
 
     const total = enriched.length;
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 50, 500);
-    const data = enriched.slice((page - 1) * limit, (page - 1) * limit + limit);
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+    // 2026-07-03: RFID identifier list uncapped per user request. An omitted
+    // limit returns ALL rows; a provided value still paginates the in-memory set.
+    const limit = query.limit;
+    const data = limit ? enriched.slice((page - 1) * limit, (page - 1) * limit + limit) : enriched;
+    return { data, total, page, limit: limit ?? total, totalPages: limit ? Math.ceil(total / limit) : 1 };
   },
 };

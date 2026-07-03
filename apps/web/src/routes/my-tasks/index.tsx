@@ -84,7 +84,7 @@ export function MyTasksPage() {
   // Block / Area dropdowns list ALL active blocks/areas (not just those with a
   // due task), so the operator always sees the full set. /areas carries blockId
   // for the cascade. Tasks are still filtered by id against these.
-  const { data: blocksData } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/blocks?limit=500');
+  const { data: blocksData } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/blocks');
   const { data: areasData } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/areas?limit=500');
   const allBlocks = blocksData?.data ?? [];
   const allAreas = areasData?.data ?? [];

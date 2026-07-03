@@ -257,18 +257,19 @@ export const assetQuerySchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
   isActive: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  // Cap upper bound; missing limit defaults to a sane page size.
-  // Cap raised to 1000 so the SPA's bulk fetches (Filter Operations, Equipment
-  // Groups, Filter Management list) stop tripping a 500 — still bounded enough
-  // that an authenticated request can't OOM the API.
-  limit: z.coerce.number().int().min(1).max(1000).default(50),
+  // 2026-07-03: record lists are uncapped per user request. An OMITTED limit is
+  // undefined → the service resolves it to "return ALL rows" (no Prisma `take`).
+  // A provided value is honored. No default (would silently cap) and no max
+  // (would hide rows past the cap) — the row count itself is the only bound.
+  limit: z.coerce.number().int().min(1).optional(),
 });
 
 export const templateQuerySchema = z.object({
   search: z.string().optional(),
   isActive: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(1000).default(50),
+  // 2026-07-03: uncapped — see assetQuerySchema note above.
+  limit: z.coerce.number().int().min(1).optional(),
 });
 
 export type AssetQueryInput = z.infer<typeof assetQuerySchema>;

@@ -203,7 +203,7 @@ export function FilterDataManagementPage() {
   // /api/hierarchy/filters which returns typed filter rows directly — no
   // templateKind heuristic needed. The `id` field is the same AssetInstance
   // UUID referenced by cleaning_cycles.filter_id.
-  const cycleFiltersData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/hierarchy/filters?limit=500' : null);
+  const cycleFiltersData = useSWR<any>(tab === 'cleaning-cycles' ? '/api/hierarchy/filters' : null);
   const cycleFilterAttrMap = new Map<string, Record<string, any>>();
   (cycleFiltersData.data?.data ?? []).forEach((f: any) => {
     cycleFilterAttrMap.set(f.id, f.attributes ?? {});

@@ -325,7 +325,7 @@ function MiniBreakdown({ title, items, color, emptyText = 'No data', onItemClick
 // Status / Type / Micron). Lazy-fetches the filter list only when opened.
 function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value: string; title: string }; onClose: () => void }) {
   const { formatDate } = useDatetimeFormat();
-  const { data, isLoading } = useSWR<any>('/api/assets/instances?limit=500');
+  const { data, isLoading } = useSWR<any>('/api/assets/instances');
   const all = useMemo(() => (data?.data ?? []) as any[], [data]);
   const nameById = useMemo(() => new Map(all.map((i: any) => [i.id, i.name])), [all]);
   const matches = useMemo(() => all.filter((f: any) => {

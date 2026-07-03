@@ -214,7 +214,7 @@ export function ReplacementSchedulePage() {
   const filtersEnabled = useReplacementFiltersEnabled();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpand = (id: string) => setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const { data: identsData } = useSWR<any>(filtersEnabled ? '/api/assets/identifiers?limit=1000' : null);
+  const { data: identsData } = useSWR<any>(filtersEnabled ? '/api/assets/identifiers' : null);
   const identMap = useMemo(() => {
     const m = new Map<string, string[]>();
     const list: any[] = identsData?.data ?? (Array.isArray(identsData) ? identsData : []);
