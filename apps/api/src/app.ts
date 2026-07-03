@@ -155,7 +155,12 @@ app.addHook('onSend', async (_req, reply, payload) => {
   reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   return payload;
 });
-await app.register(rateLimit, { max: 500, timeWindow: '1 minute' });
+// 2026-07-03: raised 500 → 5000/min. A single actively-used tablet fires bursts
+// of SWR fetches + per-filter /current-state primes; hitting the old 500 ceiling
+// returned 429s, which the client treated as "offline" and retried — a
+// self-reinforcing storm that piled up failed HTTPS requests and OOM-crashed the
+// WebView. Auth routes keep their own tighter per-route limits below.
+await app.register(rateLimit, { max: 5000, timeWindow: '1 minute' });
 await app.register(multipart, {
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB max

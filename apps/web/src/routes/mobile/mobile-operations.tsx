@@ -765,7 +765,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setScanValue('');
       return;
     }
-    setScanQueue(prev => [...prev, { ...resolved, tagId: value }]);
+    // Dedup INSIDE the functional updater too, not only the closure check above:
+    // an RFID reader re-fires the same tag rapidly, so two handleAddToQueue calls
+    // can run before a re-render — both see a stale `scanQueue` and pass the check
+    // above. The updater sees the accumulated `prev`, so the duplicate is dropped.
+    setScanQueue(prev =>
+      prev.some(q => q.filterId === resolved.filterId) ? prev : [...prev, { ...resolved, tagId: value }],
+    );
     // 2026-05-20: pre-populate per-filter dryer duration with a sensible
     // default so the Submit-All button is enabled out of the box. Operator
     // can change per row before submitting. Only meaningful on DRY_IN
@@ -1542,8 +1548,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const stageMatches = currentLifecycle === activeStage.key;
           const noActiveCycle = !state.currentCycle;
           if (stageMatches || noActiveCycle) {
-            // AHU pre-flight BEFORE the (terminal) checklist opens.
-            if ((await gateAhuBeforeChecklist([filterId])) === 'blocked') {
+            // AHU pre-flight BEFORE the (terminal) checklist opens. Pass the
+            // fresh `state` already resolved above (its currentState === the
+            // stage this checklist is for) so the terminal check is exact — no
+            // redundant re-fetch that could mis-fire the popup at other stages.
+            if ((await gateAhuBeforeChecklist([filterId], { currentState: state.currentState, stageLookup: state.stageLookup })) === 'blocked') {
               setLoading(false);
               return;
             }
@@ -2141,19 +2150,25 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // isTerminalChecklist so intermediate checklists are unaffected. Returns
   // 'blocked' when the operator must not open the checklist. Mobile resolves the
   // AHU as the filter's parentId (matches resolveAhuId server logic).
-  const gateAhuBeforeChecklist = async (filterIds: string[]): Promise<'proceed' | 'blocked'> => {
+  const gateAhuBeforeChecklist = async (
+    filterIds: string[],
+    known?: { currentState?: string | null; stageLookup?: any },
+  ): Promise<'proceed' | 'blocked'> => {
     // Reset any prior choice so a non-AHU / non-terminal submit carries none.
     ahuSetChoiceRef.current = null;
     if (ahuMode === 'NONE' || filterIds.length === 0) return 'proceed';
-    // Terminal-checklist detection. The CACHED filter-state row can carry a
-    // PREVIOUS cycle's terminal stage (or miss stageLookup) — that both skipped
-    // the pre-flight AND mis-fired the POPUP at intermediate stages. ALWAYS
-    // attempt fresh state (NOT gated on the flaky Android `online` flag, which
-    // can read false while the network is up); fall back to cache only if the
-    // fetch truly fails (genuinely offline).
-    let termState: any = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
-    try { termState = await apiClient.get<any>(`/api/filters/${filterIds[0]}/current-state`); }
-    catch { /* genuinely offline → keep cached fallback */ }
+    // Terminal-checklist detection MUST use the exact state THIS checklist was
+    // opened for. Single-scan passes the just-fetched /current-state (`known`) —
+    // using it avoids a redundant second fetch that could return a different or
+    // stale response (e.g. a prior cycle's Storage Out) and mis-fire the POPUP at
+    // intermediate stages. Only when the caller has no resolved state (batch) do
+    // we fetch, falling back to the IndexedDB cache when genuinely offline.
+    let termState: any = known;
+    if (!termState?.currentState || !termState?.stageLookup) {
+      termState = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
+      try { termState = await apiClient.get<any>(`/api/filters/${filterIds[0]}/current-state`); }
+      catch { /* genuinely offline → keep cached fallback */ }
+    }
     if (!isTerminalChecklist(termState?.currentState, termState?.stageLookup)) return 'proceed';
 
     // Only ask A / B / All when the batch actually spans both sets — otherwise

@@ -1009,3 +1009,116 @@ describe('AHU Completion Status — filter-set scoping', () => {
     expect(setAAhu.filters.map((f: any) => f.id)).not.toContain(sbx);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-07-03 — Full 3-mode gate with 10 filters (CWH-block scenario).
+//
+// Exercises NONE / POPUP / INTERLOCK against ONE AHU carrying 10 filters — the
+// user-requested "10 filters, cwh block, 3 methods" scenario. Done the
+// audit-safe way (test DB, gate code driven directly): driving 10 real cleaning
+// cycles ×3 modes would write hundreds of permanent, hash-chained rows into the
+// live 21 CFR audit_trail. Lightweight state pattern: done = the terminal cycle
+// finished (CLEANING_CYCLE_COMPLETED); idle = never started (blocks under
+// INTERLOCK per design D4).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('AHU completion — NONE / POPUP / INTERLOCK with 10 filters (CWH)', () => {
+  let ahuTpl10m = '';
+  let filterTpl10m = '';
+  let ahu10 = '';
+  const fids: string[] = [];
+
+  const setMode = (mode: 'NONE' | 'POPUP' | 'INTERLOCK') =>
+    prisma.systemConfig.upsert({
+      where: { configKey: 'ahu-completion-process' },
+      update: { configValue: { mode } as any },
+      create: { configKey: 'ahu-completion-process', configValue: { mode } as any, configType: 'filter-management' },
+    });
+  const setDone = (id: string) =>
+    prisma.filterDetails.update({ where: { assetInstanceId: id }, data: { currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' } });
+  const setIdle = (id: string) =>
+    prisma.filterDetails.update({ where: { assetInstanceId: id }, data: { currentCycleId: null, currentLifecycleState: null } });
+
+  beforeAll(async () => {
+    ahuTpl10m = (await prisma.assetTemplate.create({ data: { name: `AHU Tpl 3M ${SUFFIX}`, templateKind: 'AHU' } })).id;
+    filterTpl10m = (await prisma.assetTemplate.create({ data: { name: `Filter Tpl 3M ${SUFFIX}`, templateKind: 'FILTER' } })).id;
+    // Name mirrors the CWH-block filter naming convention (CWH/F1/AHU-.../...).
+    ahu10 = (await prisma.assetInstance.create({ data: { name: `CWH/F1/AHU-10 ${SUFFIX}`, templateId: ahuTpl10m } })).id;
+    for (let i = 0; i < 10; i++) {
+      const f = await prisma.assetInstance.create({
+        data: { name: `CWH/F1/AHU-10/F${i} ${SUFFIX}`, templateId: filterTpl10m, parentId: ahu10 },
+      });
+      fids.push(f.id);
+      await prisma.filterDetails.create({ data: { assetInstanceId: f.id, currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' } });
+    }
+  }, 30_000);
+
+  afterAll(async () => {
+    try {
+      await setMode('NONE');
+      await prisma.filterDetails.deleteMany({ where: { assetInstanceId: { in: fids } } });
+      for (const id of [...fids, ahu10].filter(Boolean)) await prisma.assetInstance.delete({ where: { id } }).catch(() => undefined);
+      for (const id of [filterTpl10m, ahuTpl10m].filter(Boolean)) await prisma.assetTemplate.delete({ where: { id } }).catch(() => undefined);
+    } catch { /* swallow */ }
+  }, 30_000);
+
+  it('all 10 filters resolve to the same AHU and are counted', async () => {
+    const status = await computeAhuCompletionStatus(ahu10, '');
+    expect(status.filters).toHaveLength(10);
+  });
+
+  it('NONE: never blocks submission, even with an idle sibling (no server gate)', async () => {
+    await setMode('NONE');
+    await setIdle(fids[9]);
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toBeUndefined();
+    await setDone(fids[9]);
+  });
+
+  it('POPUP: server does NOT gate (client-only warning), but completion-status flags the idle filter', async () => {
+    await setMode('POPUP');
+    await setIdle(fids[9]);
+    // POPUP has no server enforcement — the gate is a no-op...
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toBeUndefined();
+    // ...but the status the client reads to render the warning DOES flag it.
+    const status = await computeAhuCompletionStatus(ahu10, fids[0]);
+    expect(status.allAtFinal).toBe(false);
+    expect(status.pending.map(p => p.id)).toContain(fids[9]);
+    expect(status.filters).toHaveLength(10);
+    await setDone(fids[9]);
+  });
+
+  it('INTERLOCK: blocks with 422 when any 1 of the 10 is not at final', async () => {
+    await setMode('INTERLOCK');
+    await setIdle(fids[9]);
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false }))
+      .rejects.toMatchObject({ statusCode: 422, code: 'AHU_INTERLOCK_PENDING' });
+    await setDone(fids[9]);
+  });
+
+  it('INTERLOCK: passes once all 10 filters have reached final', async () => {
+    await setMode('INTERLOCK');
+    // fids[9] restored to done above → all 10 completed.
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toBeUndefined();
+  });
+
+  it('INTERLOCK: 422 details carry the AHU name + full 10-filter roster + the pending one', async () => {
+    await setMode('INTERLOCK');
+    await setIdle(fids[9]);
+    try {
+      await assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false });
+      throw new Error('expected AHU_INTERLOCK_PENDING to throw');
+    } catch (e: any) {
+      expect(e.code).toBe('AHU_INTERLOCK_PENDING');
+      expect(e.details.filters).toHaveLength(10);
+      expect(e.details.pendingFilters.map((p: any) => p.id)).toContain(fids[9]);
+      expect(e.details.ahuName).toContain('AHU-10');
+    }
+    await setDone(fids[9]);
+  });
+
+  it('INTERLOCK: offline replay is never blocked (best-effort, D2)', async () => {
+    await setMode('INTERLOCK');
+    await setIdle(fids[9]);
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: true })).resolves.toBeUndefined();
+    await setDone(fids[9]);
+  });
+});
