@@ -1,6 +1,11 @@
 # DigiLog — Backend Guide
 
-> ⚠️ **2026-06-17 — Sections below mentioning `data-ingestion` / `uns` / `connectivity` / `queries` / `transport/` / Mosquitto / MQTT / TimescaleDB / `packages/db` / `@digilog/db` are HISTORICAL.** Those subsystems were removed in Phase 7 (2026-06-11..2026-06-17). Current module count: **35**. See root `CLAUDE.md` Phase 7 snapshot + `apps/api/CLAUDE.md` for the current module list + `CHANGELOG.md` for the tear-out details.
+> **2026-07-03 — synced to the current codebase.** The Phase 6/7 tear-out
+> sections (`data-ingestion` / `uns` / `connectivity` / `queries` / `rule-chain` /
+> `transport/` / Mosquitto / MQTT / TimescaleDB / `packages/db`) were removed from
+> this guide, and counts/tables reconciled to live (**35 modules, 67 models, 25
+> enums**). See root `CLAUDE.md` Phase 7 snapshot + `apps/api/CLAUDE.md` for the
+> authoritative module list + `CHANGELOG.md` for tear-out details.
 
 ## Overview
 
@@ -23,17 +28,19 @@ The main application file registers everything in this order:
 6. **Auth plugin** — JWT verification, user lookup, session validation
 7. **RBAC plugin** — `requirePermission()` decorator
 8. **Audit logger plugin** — SHA-256 hash-chain logging
-9. **37 route modules** — registered under `/api/` prefix
-10. **MQTT client** — connects to Mosquitto broker (Phase 1 of windows-friendly-rewrite swapped from EMQX)
-11. **WebSocket handler** — real-time data at `/ws`
-12. **Ingestion worker** — graphile-worker `ingestion` task consumer (concurrency: 10) — Phase 2 swapped from BullMQ
-13. **Maintenance worker** — graphile-worker cron tasks for DLQ check, connectivity check, retention cleanup (`pg_advisory_lock` for leader election)
-14. **Config discovery** — auto-registers 30 config definitions
-15. **Static uploads** — serves `/uploads/` directory
-16. **Health check** — `GET /api/health`
-17. **Error handler** — unified error responses (AppError → HTTP codes)
+9. **35 route modules** — registered under `/api/` prefix
+10. **Job runner** — one graphile-worker Runner registers the task handlers
+   (`notification`, `pm_overdue_check`, `session_sweep`) + the maintenance
+   crontab (Phase 2 swapped from BullMQ). *The MQTT client, `/ws` handler, and
+   the ingestion/maintenance workers were removed in the Phase 7 tear-out.*
+11. **Config discovery** — auto-registers 35 config definitions
+12. **Static uploads** — serves `/uploads/` directory
+13. **Health check** — `GET /api/health`
+14. **Error handler** — unified error responses (AppError → HTTP codes)
 
-## 37 API Modules
+## 35 API Modules
+
+(Authoritative list: `ls apps/api/src/modules/` — see `apps/api/CLAUDE.md`. Endpoint counts below are approximate.)
 
 ### Auth & User Management
 
@@ -58,7 +65,7 @@ The main application file registers everything in this order:
 | Module | Prefix | Endpoints | Key Features |
 |---|---|---|---|
 | `assets` | `/api/assets` | 30+ | Templates, instances, relationships, identifiers (sub-routes) |
-| `entity-assignments` | `/api/entity-assignments` | 6 | Entity-to-group/user/org assignments |
+| `hierarchy` | `/api/hierarchy` | 10+ | Typed Block/Area/AHU/Filter hierarchy read + typed filter create (Wave 2/3) |
 | `equipment-groups` | `/api/equipment-groups` | 6 | AHU equipment group CRUD |
 
 ### Filter Operations
@@ -71,6 +78,8 @@ The main application file registers everything in this order:
 | `checklist-profiles` | `/api/checklist-profiles` | 9 | Checklist template + question management |
 | `pm-schedules` | `/api/pm-schedules` | 18 | PM scheduling, entries, executions, approvals |
 | `block-change-requests` | `/api/block-change-requests` | 5 | Block reassignment approval workflow |
+| `stage-approvals` | `/api/stage-approvals` | 6 | Stage-interlock approval workflow (WASH_OUT/DRY_OUT QA gate) |
+| `replacement-schedule` | `/api/replacement-schedules` | 6 | Scheduled filter-replacement workflow |
 
 ### Reports
 
@@ -78,19 +87,7 @@ The main application file registers everything in this order:
 |---|---|---|---|
 | `report-templates` | `/api/report-templates` | 9 | Template CRUD, versioning, preview |
 | `reports` | `/api/reports` | 8 | Report generation, PDF export, signatures |
-
-### Data Pipeline
-
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `data-ingestion` | `/api/data` | 11 | Telemetry, attributes, events, RPC, binary upload |
-| `queries` | `/api/telemetry`, `/api/alarms`, `/api/retention`, `/api/export` | 15+ | Time-series queries, alarm management, data retention, bulk export |
-
-### Rule Engine
-
-| Module | Prefix | Endpoints | Key Features |
-|---|---|---|---|
-| `rule-chain` | `/api/rule-chains` | 14+ | Rule chain CRUD, 77 node types, graph execution, debug |
+| `report-reviews` | `/api/report-reviews` | 6 | Report review/approval workflow |
 
 ### Notifications
 
@@ -112,9 +109,7 @@ The main application file registers everything in this order:
 
 | Module | Prefix | Endpoints | Key Features |
 |---|---|---|---|
-| `connectivity` | `/api/connectivity` | 7 | Device token management, connection status, code snippets |
-| `qr-code` | `/api/qr` | 4 | QR code generation for entities |
-| `uns` | `/api/uns` | 7 | ISA-95 UNS path management |
+| `guest` | `/api/guest` | 1 | Unauthenticated guest filter-cleaning request |
 | `uploads` | `/api/uploads` | 1 | Profile photo upload |
 | `help` | `/api/help` | 6 | Help article CRUD |
 | `ldap` | `/api/ldap` | 4 | LDAP integration config, sync |
@@ -128,6 +123,8 @@ The main application file registers everything in this order:
 | `system-health` | `/api/system-health` | 1 | System metrics |
 | `deployment-check` | `/api/deployment-check` | 1 | Deployment validation |
 | `dashboards` | `/api/dashboards` | 13 | Dashboard CRUD, widget management |
+| `debug-traces` | `/api/debug/traces` | 2 | Audited-action traces for the Debug UI (repointed onto `audit_trail` in Phase 7) |
+| `sync` | `/api/sync` | 4 | Offline queue sync / batch replay |
 
 ## Shared Libraries (apps/api/src/lib/)
 
@@ -137,7 +134,6 @@ The main application file registers everything in this order:
 | `audit.ts` | SHA-256 hash-chain audit logger |
 | `jwt.ts` | JWT token creation, verification, refresh |
 | `build-context.ts` | Extract RequestContext from Fastify request |
-| `org-scope.ts` | Organization-scoped Prisma where clauses |
 | `reauth-check.ts` | Re-authentication enforcement (10s in-memory cache) |
 | `sanitize.ts` | HTML stripping on all text inputs |
 | `password.ts` | bcrypt hashing, password validation |
@@ -148,7 +144,6 @@ The main application file registers everything in this order:
 | `config-registry.ts` | Self-registering config module pattern |
 | `hash-chain.ts` | SHA-256 chain verification for audit integrity |
 | `swagger.ts` | OpenAPI/Swagger configuration |
-| `uns-path.ts` | ISA-95 UNS path utilities |
 | `user-id-validator.ts` | Custom user ID format validation |
 | `idempotency.ts` | **Offline replay dedup** — checks `x-client-op-id` header against `FilterEvent.attributes.clientOpId`; returns cached state for duplicate replays so retries never produce duplicate cycles, double advances, or repeat checklist submissions. |
 
@@ -160,64 +155,15 @@ The main application file registers everything in this order:
 | `rbac.ts` | `requirePermission(perm)` — single perm check; `requireAnyPermission(...perms)` — accepts any of the listed perms (used for granular toggle fallbacks like `FCP_* OR CHECKLIST_*`); `enforceReauth(action, req, reply)` accepts `string \| string[]` and reauths if any configured for role. |
 | `audit-logger.ts` | Auto-log mutations with before/after values; SHA-256 hash-chained per-org. |
 
-## Transport Layer
-
-| File | Purpose |
-|---|---|
-| `transport/mqtt-client.ts` | MQTT client wrapper. Mode-flag-driven: `USE_MOSQUITTO=true` → admin/`MOSQUITTO_ADMIN_PASSWORD`; legacy EMQX path on `USE_MOSQUITTO=false`. |
-| `transport/mqtt-handler.ts` | MQTT message processing (subscribe to `digilog/v1/#`); enqueues ingestion jobs via graphile-worker. |
-| `transport/mosquitto-acl-generator.ts` | Pure async function that translates active `DeviceCredential` rows into Mosquitto v2 dynamic-security JSON (5 publish + 8 subscribe ACLs per device, scoped to each device's UNS path). |
-| `transport/mosquitto-refresh-routes.ts` | `POST /api/internal/mqtt/refresh-acl` — regenerates `dynamic-security.json` from the DB on demand. Bearer-auth via `MOSQUITTO_REFRESH_TOKEN`. Atomic write via tmp + rename. |
-| `transport/mqtt-auth-routes.ts` | Legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`). Remain conditionally registered when `USE_MOSQUITTO=false` to support EMQX fallback; full removal deferred to a future cleanup phase once no env still has `USE_MOSQUITTO=false` in production. |
-| `transport/ws-handler.ts` | WebSocket handler for real-time data push |
-
 ## Workers
 
-| Worker | File | Concurrency | Schedule |
-|---|---|---|---|
-| Ingestion | `workers/ingestion.worker.ts` | 10 | Continuous (graphile-worker consumer; PG `LISTEN/NOTIFY` for instant dispatch, `SELECT … FOR UPDATE SKIP LOCKED` for concurrency) |
-| Maintenance | `workers/maintenance.worker.ts` | 1 | DLQ: 60s, Connectivity: 60s, Retention: 24h (graphile-worker cron via `pg_advisory_lock` for leader election) |
+Three graphile-worker task handlers (the `transport/` layer + the ingestion/maintenance workers were all removed in the Phase 7 tear-out):
 
-## Data Ingestion Pipeline (`apps/api/src/modules/data-ingestion/`, 11 files)
-
-The single biggest pipeline in the system — accepts MQTT + HTTP telemetry / attributes / events / RPC / binary uploads, routes through 11 stages, persists to TimescaleDB, and triggers alarms / notifications.
-
-| File | Role |
-|---|---|
-| `routes.ts` | HTTP endpoints (`/api/data/telemetry`, `/attributes`, `/events`, `/rpc`, `/binary`) |
-| `debug-trace.routes.ts` | Separate routes file — `/api/debug/traces` for pipeline trace inspection (rule-chain debug page) |
-| `ingestion.service.ts` | Orchestrator — receives normalized message, dispatches through pipeline |
-| `ingestion.repository.ts` | DB writes — telemetry batcher, attribute upsert, event log |
-| `ingestion-config.service.ts` | Per-org ingestion limits, IP allowlists, rate-limit config |
-| `entity-resolver.ts` | Device-token → `AssetInstance` resolution (cached) |
-| `message-normalizer.ts` | Normalize MQTT / HTTP / binary payloads into common message shape |
-| `pipeline-tracer.ts` | Records every pipeline stage outcome to `ts_pipeline_traces` for the debug UI |
-| `connectivity-tracker.ts` | Tracks device online/offline state → `ConnectivityStatus` table |
-| `dlq-manager.ts` | Dead Letter Queue — failed messages, requeue / discard, audit |
-| `rpc-handler.ts` | Bidirectional MQTT RPC for device commands |
-
-## Rule Chain Engine (`apps/api/src/modules/rule-chain/`)
-
-| File / Dir | Role |
-|---|---|
-| `routes.ts` | Rule chain CRUD + execution + debug endpoints |
-| `rule-engine.ts` | VM-sandboxed execution (`node:vm` with timeout); each chain compiles to an in-memory graph |
-| `node-registry.ts` | Registry of all 77 node types across 8 categories |
-| `nodes/` | Per-category implementations: `input-nodes.ts`, `filter-nodes.ts`, `enrichment-nodes.ts`, `action-nodes.ts`, `analytics-nodes.ts`, `flow-nodes.ts`, `external-nodes.ts`, `email-notification-node.ts`, `sms-notification-node.ts` (+ `index.ts` barrel) |
-| `default-chain-builder.ts` | Factory for the default rule chain seeded on org creation |
-| `debug-recorder.ts` | Captures step-by-step execution traces for the debug UI |
-| `types.ts` | Rule-chain TypeScript types |
-
-## Queries module (`apps/api/src/modules/queries/`, 4 route files)
-
-Aggregates four query surfaces under one module folder:
-| File | Surface |
-|---|---|
-| `telemetry.routes.ts` | `/api/telemetry/*` — latest, history, aggregation, delta |
-| `alarm.routes.ts` | `/api/alarms/*` — alarm lifecycle with e-signatures |
-| `export.routes.ts` | `/api/export/*` — CSV/JSON/Excel export with graphile-worker background jobs |
-| `retention.routes.ts` | `/api/retention/*` — per-table retention policy management |
-| `index.ts` | Registration barrel |
+| Worker | Task | Schedule |
+|---|---|---|
+| `notification.worker.ts` | `notification` | On-demand (enqueued by app events) |
+| `pm-overdue.worker.ts` | `pm_overdue_check` | Daily cron (~08:30) — flags overdue PM deviations |
+| `session-sweep.worker.ts` | `session_sweep` | Cron — expires stale sessions |
 
 ## Assets module (`apps/api/src/modules/assets/`)
 
@@ -265,24 +211,23 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 | `checklist-submission.test.ts` | Checklist field validation, sig flow |
 | `checklist-templates.test.ts` | Checklist profile + question CRUD |
 | `config.test.ts` | Config defs, registry, partial update |
-| `connectivity.test.ts` | Device tokens + status |
 | `health.test.ts` | `/api/health` endpoint |
 | `help-articles.test.ts` | Help CRUD + versioning |
 | `notifications.test.ts` | In-app notification flow |
-| `qr-codes.test.ts` | QR generation + lookup |
-| `rule-chains.test.ts` | Rule chain CRUD + execution |
 | `system-health.test.ts` | System metrics |
 | `test-helper.ts` | Shared bootstrapper (sets up + tears down test DB) |
 
 **Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
 
-## Database Schema (68 models, 21 enums)
+## Database Schema (67 models, 25 enums)
+
+> `apps/api/prisma/schema.prisma` is authoritative. The lists below are grouped highlights (deleted Phase 6/7 models — `Organization`, `DeviceCredential`, `RuleChain*`, `Alarm`, `ConnectivityStatus`, `DataStream`, `LatestTelemetry`, `DeadLetterQueue`, `IngestionSystemConfig`, `QrCode`, `UnsMapping` — removed; newer typed-hierarchy sidecars `Block`/`Area`/`Ahu`/`Filter` + `FilterDetails` not all listed).
 
 ### Core Models
-`Organization`, `User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`
+`User`, `Role`, `Session`, `PasswordHistory`, `PasswordResetRequest`, `SystemConfig`, `FieldIdConfig`, `RoleConfig`, `UserConfig`
 
 ### Asset Models
-`AssetTemplate`, `AssetTemplateVersion`, `AssetInstance`, `AssetRelationship`, `AssetIdentifier`, `TemplateAssignment`, `EntityAssignment`, `DeviceCredential`
+`AssetTemplate`, `AssetTemplateVersion`, `AssetInstance`, `AssetRelationship`, `AssetIdentifier`, `TemplateAssignment`, `EntityAssignment`, `FilterDetails` (Step 6 sidecar), typed `Block`/`Area`/`Ahu`/`Filter` (Wave 1)
 
 ### Filter Operation Models
 `FilterCleaningProfile`, `FilterPipelineStage`, `FilterPipelineConnection`, `FilterProfile`, `FilterProfileVersion` (Phase A.3 sidecar), `FilterProfileApplicableTemplate` (Step 4 join table), `CleaningCycle`, `FilterEvent`, `ChecklistProfile`, `ChecklistQuestion`, `ChecklistProfileVersion` (Phase A.1 sidecar), `ChecklistReview`, `ElectronicSignature`, `EquipmentGroup`, `EquipmentGroupInstrument`, `EquipmentGroupVersion` (Phase A.4 composite sidecar)
@@ -293,11 +238,11 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 ### Report Models
 `ReportTemplate`, `ReportTemplateVersion`, `ReportInstance`, `ReportSignature`
 
-### Rule & Notification Models
-`RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Notification`, `NotificationLog`, `NotificationTemplate`, `NotificationRule`, `NotificationRuleRecipient`, `UserGroup`, `UserGroupMember`
+### Notification Models
+`Notification`, `NotificationLog`, `NotificationTemplate`, `NotificationRule`, `NotificationRuleRecipient`, `UserGroup`, `UserGroupMember`
 
 ### System Models
-`AuditTrail`, `Alarm`, `Dashboard`, `DashboardWidget`, `DashboardAssignment`, `ConnectivityStatus`, `DataStream`, `LatestTelemetry`, `DeadLetterQueue`, `IngestionSystemConfig`, `QrCode`, `HelpArticle`, `HelpArticleVersion`, `UnsMapping`, `AdminRequest`
+`AuditTrail`, `Dashboard`, `DashboardWidget`, `DashboardAssignment`, `HelpArticle`, `HelpArticleVersion`, `AdminRequest`
 
 ## Environment Variables
 
@@ -305,28 +250,9 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 # PostgreSQL
 DATABASE_URL=postgresql://digilog:password@localhost:5432/digilog_db?schema=public
 
-# TimescaleDB
-TSDB_HOST=localhost
-TSDB_PORT=5432
-TSDB_DATABASE=digilog_tsdb
-TSDB_USER=digilog
-TSDB_PASSWORD=password
-
-# MQTT (Mosquitto)
-MQTT_ENABLED=true
-MQTT_BROKER_HOST=localhost
-MQTT_BROKER_PORT=1883
-USE_MOSQUITTO=true
-MOSQUITTO_ADMIN_PASSWORD=random-12-or-more-chars
-MOSQUITTO_REFRESH_TOKEN=random-hex-token
-# Optional: explicit dynsec path; defaults to <repo>/mosquitto/dynamic-security.json
-# MOSQUITTO_DYNSEC_PATH=C:/Program Files/mosquitto/dynamic-security.json
-
-# Phase 4 (2026-05-01): Redis fully retired. Pub/sub moved to an in-process
-# EventEmitter bus (apps/api/src/lib/internal-bus.ts). REDIS_* env vars
-# are no longer read by anything. (The device-RPC correlation cache
-# lib/rpc-cache.ts was removed 2026-07-01 as dead code after the Phase 7
-# data-ingestion/MQTT tear-out removed its only consumer.)
+# (Phase 7 removed TimescaleDB (TSDB_*), MQTT/Mosquitto (MQTT_*/MOSQUITTO_*/EMQX_*)
+# env vars. Phase 4 had retired Redis (REDIS_*); the in-process EventEmitter bus
+# that replaced it was itself removed 2026-07-03 as dead code. None are read now.)
 
 # JWT
 JWT_SECRET=random-64-char-string
@@ -356,6 +282,6 @@ MAX_FILE_SIZE=5242880
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
 7. **Config registry** — 30 config definitions auto-discovered at startup
-8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and rule chains/help articles; (b) **sidecar table** for `ChecklistProfile` (Phase A.1), `FilterProfile` (Phase A.3), and `EquipmentGroup` (Phase A.4 — composite snapshot of group + 3 instruments) — all three mutate in place; mutations snapshot the OUTGOING state into a `*Version` sidecar then bump `version`. **Cycle pinning:** ChecklistProfile via `cycle.checklistVersionPins JSONB` (A.1) and EquipmentGroup via `cycle.equipmentGroupVersionPin Int?` (P1, 2026-05-02) — reading validation reads operating-range from the pinned snapshot, not the live group. FilterProfile needs no cycle pin because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start. Submitted instrument readings are also immutably snapshotted into `FilterEvent.attributes.instrumentReadings`. First version is created lazily — the live row IS v1 until first edit. Cleaning reasons (config def) are NOT versioned: `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns written at cycle start act as the per-cycle pin. **Tablet/offline contract** for sending `expected<Entity>Version` and self-healing on 409 SCHEMA_DRIFT is documented in `future/offline-version-sync-contract.md` and bundled with the next APK build (Slice B).
+8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and help articles; (b) **sidecar table** for `ChecklistProfile` (Phase A.1), `FilterProfile` (Phase A.3), and `EquipmentGroup` (Phase A.4 — composite snapshot of group + 3 instruments) — all three mutate in place; mutations snapshot the OUTGOING state into a `*Version` sidecar then bump `version`. **Cycle pinning:** ChecklistProfile via `cycle.checklistVersionPins JSONB` (A.1) and EquipmentGroup via `cycle.equipmentGroupVersionPin Int?` (P1, 2026-05-02) — reading validation reads operating-range from the pinned snapshot, not the live group. FilterProfile needs no cycle pin because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start. Submitted instrument readings are also immutably snapshotted into `FilterEvent.attributes.instrumentReadings`. First version is created lazily — the live row IS v1 until first edit. Cleaning reasons (config def) are NOT versioned: `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns written at cycle start act as the per-cycle pin. **Tablet/offline contract** for sending `expected<Entity>Version` and self-healing on 409 SCHEMA_DRIFT is documented in `future/offline-version-sync-contract.md` and bundled with the next APK build (Slice B).
 9. **Immutable events** — Filter events stored with checksums, never modified (21 CFR Part 11)
 10. **Error handling** — `AppError(statusCode, code, message)` → unified JSON error response
