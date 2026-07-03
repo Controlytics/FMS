@@ -44,8 +44,9 @@ import {
 import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
-import { checkAhuCompletionBatch, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
+import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from './components/remaining-filters-dialog';
+import { AhuSetChooserDialog, type FilterSetChoice } from './components/ahu-set-chooser-dialog';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -231,6 +232,11 @@ export function FilterOperationsPage() {
     currentFilterIds: string[];
   } | null>(null);
   const ahuDialogResolveRef = useRef<((proceed: boolean) => void) | null>(null);
+  // 2026-07-03: filter-set chooser shown BEFORE the AHU popup. The choice
+  // scopes the status check AND rides in the submit body via ahuSetChoiceRef.
+  const [ahuSetChooser, setAhuSetChooser] = useState<boolean>(false);
+  const ahuSetResolveRef = useRef<((set: FilterSetChoice | null) => void) | null>(null);
+  const ahuSetChoiceRef = useRef<FilterSetChoice | null>(null);
 
   // If SWR fetch failed (network error), treat as offline — use cached data.
   // A-01 Step 4: include typed-hierarchy errors so the typed source's network
@@ -1366,11 +1372,28 @@ export function FilterOperationsPage() {
   // operator picks Cancel. Non-fatal on any error (the server 422 still guards
   // INTERLOCK at submit as a safety net).
   const gateAhuBeforeChecklist = async (filterIds: string[]): Promise<'proceed' | 'blocked'> => {
+    // Reset any prior choice so a non-AHU / non-terminal submit carries none
+    // (server then treats it as ALL — legacy behavior).
+    ahuSetChoiceRef.current = null;
     if (ahuMode === 'NONE' || filterIds.length === 0) return 'proceed';
     // Batch filters share the stage — gate on the primary's terminal-checklist state.
     const cachedState = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
     if (!isTerminalChecklist(cachedState?.currentState, cachedState?.stageLookup)) return 'proceed';
-    const { ahus } = await checkAhuCompletionBatch(ahuMode, filterIds, online);
+
+    // Only ask A / B / All when the batch actually spans both sets — otherwise
+    // the choice is meaningless (proceed as ALL). Cancel = don't proceed.
+    let set: FilterSetChoice | undefined;
+    if (await checkAhuHasBothSets(ahuMode, filterIds, online)) {
+      const chosen = await new Promise<FilterSetChoice | null>((resolve) => {
+        ahuSetResolveRef.current = resolve;
+        setAhuSetChooser(true);
+      });
+      if (!chosen) return 'blocked';
+      set = chosen;
+      ahuSetChoiceRef.current = chosen;
+    }
+
+    const { ahus } = await checkAhuCompletionBatch(ahuMode, filterIds, online, set);
     if (ahus.filter((a) => !a.allAtFinal).length === 0) return 'proceed';
     const proceed = await new Promise<boolean>((resolve) => {
       ahuDialogResolveRef.current = resolve;
@@ -1401,7 +1424,13 @@ export function FilterOperationsPage() {
         expectedProfileVersions[cl.checklistProfileId] = cl.profileVersion;
       }
     }
-    const submitPayload = { answers, expectedProfileVersions };
+    // ahuSetChoiceRef holds the operator's A/B/All pick (set in gateAhuBeforeChecklist).
+    // It scopes the server INTERLOCK gate to the same roster the popup showed.
+    const submitPayload = {
+      answers,
+      expectedProfileVersions,
+      ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
+    };
 
     // SUBMIT_CHECKLIST_WITH_SIGNATURE is reauth-gated when the admin enables
     // it in Action-Reauth config. Wrap so the password dialog appears once
@@ -1436,6 +1465,7 @@ export function FilterOperationsPage() {
           filterName: checklistDialog.filterName,
           answers: submitPayload.answers,
           expectedProfileVersions: submitPayload.expectedProfileVersions,
+          filterSet: ahuSetChoiceRef.current ?? undefined,
           password,
         });
         // Dialog close + offline cache-clear + batch walking handled by core.submitChecklist.
@@ -1835,6 +1865,22 @@ export function FilterOperationsPage() {
         onCancel={() => { core.dispatch({ type: 'close' }); }}
         mode={blockChangeMode}
       />
+
+      {/* AHU Filter-Set Chooser — shown before the completion popup (2026-07-03) */}
+      {ahuSetChooser && (
+        <AhuSetChooserDialog
+          onChoose={(set) => {
+            setAhuSetChooser(false);
+            ahuSetResolveRef.current?.(set);
+            ahuSetResolveRef.current = null;
+          }}
+          onCancel={() => {
+            setAhuSetChooser(false);
+            ahuSetResolveRef.current?.(null);
+            ahuSetResolveRef.current = null;
+          }}
+        />
+      )}
 
       {/* AHU Remaining Filters Dialog (Task 7) */}
       {ahuDialogState && (

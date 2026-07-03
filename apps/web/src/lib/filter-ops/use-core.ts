@@ -127,6 +127,12 @@ export interface SubmitChecklistArgs {
   answers: Record<string, unknown>;
   expectedProfileVersions?: Record<string, number>;
   password?: string;
+  /**
+   * Operator's runtime AHU filter-set choice (SET_A / SET_B / ALL). Rides in the
+   * submit body so the server INTERLOCK gate scopes to the same roster the
+   * pre-popup chooser showed. Omitted = ALL (legacy behavior).
+   */
+  filterSet?: 'ALL' | 'SET_A' | 'SET_B';
 }
 
 export interface UseFilterOperationsCoreResult {
@@ -421,6 +427,7 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           {
             answers: args.answers,
             expectedProfileVersions: args.expectedProfileVersions ?? {},
+            ...(args.filterSet ? { filterSet: args.filterSet } : {}),
           },
           undefined,
           args.password,

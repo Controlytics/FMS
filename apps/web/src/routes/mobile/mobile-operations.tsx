@@ -40,8 +40,9 @@ import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
-import { checkAhuCompletionBatch, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
+import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from '../filter-management/components/remaining-filters-dialog';
+import { AhuSetChooserDialog, type FilterSetChoice } from '../filter-management/components/ahu-set-chooser-dialog';
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 
@@ -150,6 +151,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     currentFilterIds: string[];
   } | null>(null);
   const ahuDialogResolveRef = useRef<((proceed: boolean) => void) | null>(null);
+  // 2026-07-03: filter-set chooser shown BEFORE the AHU popup. Choice scopes the
+  // status check AND rides in the submit body via ahuSetChoiceRef.
+  const [ahuSetChooser, setAhuSetChooser] = useState<boolean>(false);
+  const ahuSetResolveRef = useRef<((set: FilterSetChoice | null) => void) | null>(null);
+  const ahuSetChoiceRef = useRef<FilterSetChoice | null>(null);
 
   // RFID scan input ref + focus management. autoFocus only fires once on mount,
   // so after the first scan succeeds the input loses focus and subsequent RFID
@@ -2136,10 +2142,26 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // 'blocked' when the operator must not open the checklist. Mobile resolves the
   // AHU as the filter's parentId (matches resolveAhuId server logic).
   const gateAhuBeforeChecklist = async (filterIds: string[]): Promise<'proceed' | 'blocked'> => {
+    // Reset any prior choice so a non-AHU / non-terminal submit carries none.
+    ahuSetChoiceRef.current = null;
     if (ahuMode === 'NONE' || filterIds.length === 0) return 'proceed';
     const cachedState = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
     if (!isTerminalChecklist(cachedState?.currentState, cachedState?.stageLookup)) return 'proceed';
-    const { ahus } = await checkAhuCompletionBatch(ahuMode, filterIds, online);
+
+    // Only ask A / B / All when the batch actually spans both sets — otherwise
+    // the choice is meaningless (proceed as ALL). Cancel = don't proceed.
+    let set: FilterSetChoice | undefined;
+    if (await checkAhuHasBothSets(ahuMode, filterIds, online)) {
+      const chosen = await new Promise<FilterSetChoice | null>((resolve) => {
+        ahuSetResolveRef.current = resolve;
+        setAhuSetChooser(true);
+      });
+      if (!chosen) return 'blocked';
+      set = chosen;
+      ahuSetChoiceRef.current = chosen;
+    }
+
+    const { ahus } = await checkAhuCompletionBatch(ahuMode, filterIds, online, set);
     if (ahus.filter((a) => !a.allAtFinal).length === 0) return 'proceed';
     const proceed = await new Promise<boolean>((resolve) => {
       ahuDialogResolveRef.current = resolve;
@@ -2192,6 +2214,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               filterName: item.filterName,
               answers: checklistAnswers,
               expectedProfileVersions,
+              filterSet: ahuSetChoiceRef.current ?? undefined,
               password,
             });
             success++;
@@ -2227,6 +2250,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           filterName: checklistDialog.filterName,
           answers: checklistAnswers,
           expectedProfileVersions,
+          filterSet: ahuSetChoiceRef.current ?? undefined,
           password,
         });
         setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
@@ -3494,6 +3518,22 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           </div>
         </div>
       )}
+      {/* AHU Filter-Set Chooser — shown before the completion popup (2026-07-03) */}
+      {ahuSetChooser && (
+        <AhuSetChooserDialog
+          onChoose={(set) => {
+            setAhuSetChooser(false);
+            ahuSetResolveRef.current?.(set);
+            ahuSetResolveRef.current = null;
+          }}
+          onCancel={() => {
+            setAhuSetChooser(false);
+            ahuSetResolveRef.current?.(null);
+            ahuSetResolveRef.current = null;
+          }}
+        />
+      )}
+
       {/* AHU Remaining Filters Dialog (Task 7) */}
       {ahuDialogState && (
         <RemainingFiltersDialog

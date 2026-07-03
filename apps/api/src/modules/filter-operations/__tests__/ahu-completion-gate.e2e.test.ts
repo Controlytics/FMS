@@ -35,7 +35,7 @@ import { hashPassword } from '../../../lib/password.js';
 import { AppError } from '../../../lib/errors.js';
 import { loginAs } from '../../../e2e/test-helper.js';
 import { randomUUID } from 'node:crypto';
-import { computeAhuCompletionStatus, computeAhuBatchStatus, assertAhuInterlockSatisfied, resolveAhuId } from '../ahu-completion-gate.js';
+import { computeAhuCompletionStatus, computeAhuBatchStatus, computeAhuSetAvailability, assertAhuInterlockSatisfied, resolveAhuId } from '../ahu-completion-gate.js';
 import filterOperationsRoutes from '../routes.js';
 
 // ── Unique test user ────────────────────────────────────────────────────────
@@ -821,5 +821,191 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       // The pending AHU's roster includes the idle filter as not-done.
       expect(ahus[0].filters.find(f => f.id === fPidle)?.done).toBe(false);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-07-03 — Filter-set scoping (SET_A / SET_B / ALL)
+//
+// Operator picks a set live before the AHU-completion popup. The gate must
+// scope the sibling roster to the chosen set + UNCLASSIFIED filters, excluding
+// only the OPPOSITE named set. Unclassified (null filterSet) ALWAYS counts.
+//
+// Fixture (lightweight no-cycle pattern — done = CLEANING_CYCLE_COMPLETED,
+// not-done = idle/null; avoids cleaning-profile/cycle setup):
+//   SA1 — SET_A, done
+//   SB1 — SET_B, done
+//   SBX — SET_B, NOT done   (the only Set-B blocker)
+//   U1  — unclassified (null), done
+//
+// The discriminating case: the SAME roster returns allAtFinal=false under ALL
+// (SBX blocks) but allAtFinal=true under SET_A (SBX excluded) — proving the
+// choice actually scopes the gate.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('AHU Completion Status — filter-set scoping', () => {
+  let ahuTplFS = '';
+  let filterTplFS = '';
+  let ahuFS = '';
+  let sa1 = '';
+  let sb1 = '';
+  let sbx = '';
+  let u1 = '';
+  // Second AHU — proves the "no FilterDetails row" (never-started) branch of
+  // filterSetWhere still counts + blocks under a set choice (D4 idle-blocks).
+  let ahuND = '';
+  let ndDone = '';
+  let ndIdle = '';   // NO filterDetails row created — the discriminating case.
+  // App for the route-schema passthrough test (Fastify strips unlisted body
+  // fields — an untested schema is how `set` could silently drop to ALL).
+  let appFS: FastifyInstance;
+  let headersFS: Record<string, string> = {};
+
+  beforeAll(async () => {
+    ahuTplFS = (await prisma.assetTemplate.create({ data: { name: `AHU Tpl FS ${SUFFIX}`, templateKind: 'AHU' } })).id;
+    filterTplFS = (await prisma.assetTemplate.create({ data: { name: `Filter Tpl FS ${SUFFIX}`, templateKind: 'FILTER' } })).id;
+    ahuFS = (await prisma.assetInstance.create({ data: { name: `AHU FS ${SUFFIX}`, templateId: ahuTplFS } })).id;
+
+    sa1 = (await prisma.assetInstance.create({ data: { name: `SA1 FS ${SUFFIX}`, templateId: filterTplFS, parentId: ahuFS } })).id;
+    sb1 = (await prisma.assetInstance.create({ data: { name: `SB1 FS ${SUFFIX}`, templateId: filterTplFS, parentId: ahuFS } })).id;
+    sbx = (await prisma.assetInstance.create({ data: { name: `SBX FS ${SUFFIX}`, templateId: filterTplFS, parentId: ahuFS } })).id;
+    u1 = (await prisma.assetInstance.create({ data: { name: `U1 FS ${SUFFIX}`, templateId: filterTplFS, parentId: ahuFS } })).id;
+
+    await prisma.filterDetails.create({ data: { assetInstanceId: sa1, currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED', filterSet: 'SET_A' } });
+    await prisma.filterDetails.create({ data: { assetInstanceId: sb1, currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED', filterSet: 'SET_B' } });
+    await prisma.filterDetails.create({ data: { assetInstanceId: sbx, currentCycleId: null, currentLifecycleState: null, filterSet: 'SET_B' } });
+    await prisma.filterDetails.create({ data: { assetInstanceId: u1, currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED', filterSet: null } });
+
+    // ── No-details AHU: one done (Set A) + one never-started (NO details row) ──
+    ahuND = (await prisma.assetInstance.create({ data: { name: `AHU ND FS ${SUFFIX}`, templateId: ahuTplFS } })).id;
+    ndDone = (await prisma.assetInstance.create({ data: { name: `ND Done FS ${SUFFIX}`, templateId: filterTplFS, parentId: ahuND } })).id;
+    ndIdle = (await prisma.assetInstance.create({ data: { name: `ND Idle FS ${SUFFIX}`, templateId: filterTplFS, parentId: ahuND } })).id;
+    await prisma.filterDetails.create({ data: { assetInstanceId: ndDone, currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED', filterSet: 'SET_A' } });
+    // ndIdle: intentionally NO filterDetails.create — exercises `{ filterDetails: { is: null } }`.
+
+    // ── App mounting the real filter-operations routes (schema passthrough) ────
+    appFS = Fastify({ logger: false, ajv: { customOptions: { keywords: ['example'] } } });
+    await appFS.register(cors, { origin: true, credentials: true });
+    await appFS.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+    await appFS.register(authPlugin);
+    await appFS.register(rbacPlugin);
+    appFS.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+      if (err instanceof AppError) return reply.code(err.statusCode).send({ error: err.code, message: err.message });
+      const status = err.statusCode ?? 500;
+      return reply.code(status).send({ error: err.message || 'Internal Server Error' });
+    });
+    await appFS.register(authRoutes, { prefix: '/api/auth' });
+    await appFS.register(filterOperationsRoutes, { prefix: '/api/filters' });
+    await appFS.ready();
+    const token = await loginAs(appFS, AHU_GATE_USERNAME, AHU_GATE_PASSWORD);
+    headersFS = { authorization: `Bearer ${token}` };
+  }, 30_000);
+
+  afterAll(async () => {
+    try {
+      await prisma.filterDetails.deleteMany({ where: { assetInstanceId: { in: [sa1, sb1, sbx, u1, ndDone].filter(Boolean) } } });
+      for (const id of [sa1, sb1, sbx, u1, ndDone, ndIdle, ahuFS, ahuND].filter(Boolean)) {
+        await prisma.assetInstance.delete({ where: { id } }).catch(() => undefined);
+      }
+      for (const id of [filterTplFS, ahuTplFS].filter(Boolean)) {
+        await prisma.assetTemplate.delete({ where: { id } }).catch(() => undefined);
+      }
+    } catch { /* swallow */ }
+    try { await appFS.close(); } catch { /* swallow */ }
+  }, 30_000);
+
+  it('ALL (default) counts every filter — SBX blocks', async () => {
+    const status = await computeAhuCompletionStatus(ahuFS, '', 'ALL');
+    expect(status.allAtFinal).toBe(false);
+    expect(status.pending.map(p => p.id)).toContain(sbx);
+    // Full roster present.
+    expect(status.filters.map(f => f.id).sort()).toEqual([sa1, sb1, sbx, u1].sort());
+  });
+
+  it('omitting set === ALL (legacy callers unaffected)', async () => {
+    const withAll = await computeAhuCompletionStatus(ahuFS, '', 'ALL');
+    const omitted = await computeAhuCompletionStatus(ahuFS, '');
+    expect(omitted.filters.map(f => f.id).sort()).toEqual(withAll.filters.map(f => f.id).sort());
+    expect(omitted.allAtFinal).toBe(withAll.allAtFinal);
+  });
+
+  it('SET_A excludes Set B, includes unclassified → unblocks (discriminator)', async () => {
+    const status = await computeAhuCompletionStatus(ahuFS, '', 'SET_A');
+    // Same data as the ALL case, but SBX (Set B) is out of scope → all done.
+    expect(status.allAtFinal).toBe(true);
+    expect(status.pending).toEqual([]);
+    const ids = status.filters.map(f => f.id);
+    expect(ids).toContain(sa1);
+    expect(ids).toContain(u1);      // unclassified always counts
+    expect(ids).not.toContain(sb1); // opposite set excluded
+    expect(ids).not.toContain(sbx);
+  });
+
+  it('SET_B excludes Set A, includes unclassified → SBX still blocks', async () => {
+    const status = await computeAhuCompletionStatus(ahuFS, '', 'SET_B');
+    expect(status.allAtFinal).toBe(false);
+    expect(status.pending.map(p => p.id)).toEqual([sbx]);
+    const ids = status.filters.map(f => f.id);
+    expect(ids).toContain(sb1);
+    expect(ids).toContain(sbx);
+    expect(ids).toContain(u1);      // unclassified always counts
+    expect(ids).not.toContain(sa1); // opposite set excluded
+  });
+
+  it('batch status honors the set choice', async () => {
+    // Pass one filter from the AHU; batch resolves the AHU and scopes to SET_A.
+    const { ahus } = await computeAhuBatchStatus([sa1], 'SET_A');
+    expect(ahus).toHaveLength(1);
+    expect(ahus[0].ahuId).toBe(ahuFS);
+    expect(ahus[0].allAtFinal).toBe(true); // SBX excluded under SET_A
+    expect(ahus[0].filters.map(f => f.id)).not.toContain(sbx);
+  });
+
+  it('a never-started filter (NO FilterDetails row) still counts + blocks under SET_A', async () => {
+    // ndIdle has no filterDetails row → unclassified. Under SET_A it must remain
+    // in scope and block (D4 idle-blocks). If Prisma `is: null` misbehaved, it
+    // would silently drop — the same silent-no-op class as the original bug.
+    const status = await computeAhuCompletionStatus(ahuND, '', 'SET_A');
+    expect(status.allAtFinal).toBe(false);
+    expect(status.pending.map(p => p.id)).toContain(ndIdle);
+    expect(status.filters.map(f => f.id)).toContain(ndIdle);
+  });
+
+  it('set availability: an AHU with both Set A and Set B → hasBothSets true', async () => {
+    // ahuFS has sa1 (SET_A) + sb1/sbx (SET_B) → the chooser is meaningful.
+    const { hasBothSets } = await computeAhuSetAvailability([sa1]);
+    expect(hasBothSets).toBe(true);
+  });
+
+  it('set availability: an AHU with a single set (+ unclassified) → hasBothSets false', async () => {
+    // ahuND has only ndDone (SET_A) + ndIdle (unclassified, no row) → no A/B
+    // split → the chooser would be meaningless, so the client proceeds as ALL.
+    const { hasBothSets } = await computeAhuSetAvailability([ndDone]);
+    expect(hasBothSets).toBe(false);
+  });
+
+  it('batch ENDPOINT passes the set param through the route schema (not stripped)', async () => {
+    // Without set → ALL → SBX blocks → allAtFinal false.
+    const resAll = await appFS.inject({
+      method: 'POST',
+      url: '/api/filters/ahu-completion-status/batch',
+      headers: headersFS,
+      payload: { filterIds: [sa1] },
+    });
+    expect(resAll.statusCode).toBe(200);
+    const allAhu = resAll.json().ahus.find((a: any) => a.ahuId === ahuFS);
+    expect(allAhu.allAtFinal).toBe(false);
+
+    // With set=SET_A → SBX out of scope → allAtFinal true. Proves the schema
+    // carries `set` to computeAhuBatchStatus rather than dropping it.
+    const resA = await appFS.inject({
+      method: 'POST',
+      url: '/api/filters/ahu-completion-status/batch',
+      headers: headersFS,
+      payload: { filterIds: [sa1], set: 'SET_A' },
+    });
+    expect(resA.statusCode).toBe(200);
+    const setAAhu = resA.json().ahus.find((a: any) => a.ahuId === ahuFS);
+    expect(setAAhu.allAtFinal).toBe(true);
+    expect(setAAhu.filters.map((f: any) => f.id)).not.toContain(sbx);
   });
 });

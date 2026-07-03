@@ -6,10 +6,43 @@ import { AppError } from '../../lib/errors.js';
 
 export type AhuCompletionMode = 'NONE' | 'POPUP' | 'INTERLOCK';
 
+/**
+ * Operator's runtime filter-set choice for one AHU-completion submission.
+ * Picked live in the pre-popup chooser (2026-07-03). Semantics:
+ *   'ALL'   — every filter under the AHU counts (legacy behavior).
+ *   'SET_A' — Set A + UNCLASSIFIED filters count; Set B ignored.
+ *   'SET_B' — Set B + UNCLASSIFIED filters count; Set A ignored.
+ * "Unclassified" = filterDetails.filterSet is null OR the filter has no
+ * FilterDetails row at all. Unclassified filters always count (user decision
+ * 2026-07-03) — only the OPPOSITE named set is excluded.
+ */
+export type FilterSetChoice = 'ALL' | 'SET_A' | 'SET_B';
+
 export async function getAhuCompletionMode(): Promise<AhuCompletionMode> {
   const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'ahu-completion-process' } });
   const m = (cfg?.configValue as { mode?: string } | null)?.mode;
   return m === 'INTERLOCK' || m === 'POPUP' ? m : 'NONE';
+}
+
+/**
+ * Prisma `where` fragment scoping the AHU roster to the operator's set choice.
+ * Returns `{}` for 'ALL' / undefined (no scoping). For 'SET_A' / 'SET_B',
+ * matches the chosen set PLUS unclassified filters (null set, or no
+ * FilterDetails row) and excludes only the opposite named set.
+ *
+ * Note: `filterDetails.filterSet: { not: 'SET_B' }` alone would NOT do — Prisma
+ * `not` on a nullable column skips NULL rows, and it wouldn't cover filters with
+ * no FilterDetails row. The explicit OR keeps both unclassified cases in.
+ */
+function filterSetWhere(set?: FilterSetChoice) {
+  if (set !== 'SET_A' && set !== 'SET_B') return {};
+  return {
+    OR: [
+      { filterDetails: { is: null } },        // no FilterDetails row → unclassified
+      { filterDetails: { filterSet: null } }, // explicit null set → unclassified
+      { filterDetails: { filterSet: set } },  // the chosen named set
+    ],
+  };
 }
 
 export type CountedFilter = {
@@ -96,13 +129,14 @@ export async function resolveAhuId(filterId: string): Promise<string | null> {
  * Idle / never-started filters are intentionally included (D4): they haven't
  * reached final, so they must block completion of their siblings.
  */
-export async function loadCountedFilters(ahuId: string): Promise<CountedFilter[]> {
+export async function loadCountedFilters(ahuId: string, set?: FilterSetChoice): Promise<CountedFilter[]> {
   const rows = await prisma.assetInstance.findMany({
     where: {
       parentId: ahuId,
       isActive: true,
       status: { not: 'Retired' },
       template: { templateKind: 'FILTER' },
+      ...filterSetWhere(set),
     },
     select: {
       id: true,
@@ -131,13 +165,14 @@ export async function loadCountedFilters(ahuId: string): Promise<CountedFilter[]
 export async function computeAhuCompletionStatus(
   ahuId: string,
   excludeFilterId: string,
+  set?: FilterSetChoice,
 ): Promise<{
   allAtFinal: boolean;
   pending: { id: string; name: string; stage: string }[];
   ahuName: string;
   filters: { id: string; name: string; stage: string; done: boolean }[];
 }> {
-  const all = await loadCountedFilters(ahuId);
+  const all = await loadCountedFilters(ahuId, set);
 
   // Build the final-stage key for EVERY filter that has an active cycle (was
   // just the siblings — now the full roster so `done` is correct for the row
@@ -181,6 +216,7 @@ export async function computeAhuCompletionStatus(
  */
 export async function computeAhuBatchStatus(
   filterIds: string[],
+  set?: FilterSetChoice,
 ): Promise<{
   ahus: {
     ahuId: string;
@@ -198,7 +234,7 @@ export async function computeAhuBatchStatus(
 
   const ahus = [];
   for (const ahuId of ahuIds) {
-    const { ahuName, allAtFinal, filters } = await computeAhuCompletionStatus(ahuId, '');
+    const { ahuName, allAtFinal, filters } = await computeAhuCompletionStatus(ahuId, '', set);
     ahus.push({ ahuId, ahuName, allAtFinal, filters });
   }
 
@@ -209,6 +245,39 @@ export async function computeAhuBatchStatus(
   });
 
   return { ahus };
+}
+
+/**
+ * 2026-07-03: does the given submission batch actually span BOTH a Set A and a
+ * Set B filter (across all AHUs it touches)? Drives whether the frontend shows
+ * the A/B/All chooser at all — when an AHU has no A/B split (all unclassified,
+ * or a single set), the three choices collapse to the same roster, so the
+ * chooser is meaningless and we proceed as ALL. Evaluated across the whole
+ * batch (the choice is global), so an all-Set-A AHU batched with an all-Set-B
+ * AHU still surfaces the chooser.
+ */
+export async function computeAhuSetAvailability(
+  filterIds: string[],
+): Promise<{ hasBothSets: boolean }> {
+  const ahuIds = new Set<string>();
+  for (const fid of filterIds) {
+    const ahuId = await resolveAhuId(fid);
+    if (ahuId) ahuIds.add(ahuId);
+  }
+  let hasA = false;
+  let hasB = false;
+  for (const ahuId of ahuIds) {
+    const rows = await prisma.assetInstance.findMany({
+      where: { parentId: ahuId, isActive: true, status: { not: 'Retired' }, template: { templateKind: 'FILTER' } },
+      select: { filterDetails: { select: { filterSet: true } } },
+    });
+    for (const r of rows) {
+      if (r.filterDetails?.filterSet === 'SET_A') hasA = true;
+      else if (r.filterDetails?.filterSet === 'SET_B') hasB = true;
+    }
+    if (hasA && hasB) break;
+  }
+  return { hasBothSets: hasA && hasB };
 }
 
 /**
@@ -330,6 +399,7 @@ export async function findProfilesWithoutFinalChecklist(): Promise<
 export async function assertAhuInterlockSatisfied(params: {
   filterId: string;
   isOfflineReplay: boolean;
+  set?: FilterSetChoice;
 }): Promise<void> {
   if (params.isOfflineReplay) return;
   if ((await getAhuCompletionMode()) !== 'INTERLOCK') return;
@@ -337,7 +407,7 @@ export async function assertAhuInterlockSatisfied(params: {
   const ahuId = await resolveAhuId(params.filterId);
   if (!ahuId) return; // not under an AHU → don't gate
 
-  const { allAtFinal, pending, ahuName, filters } = await computeAhuCompletionStatus(ahuId, params.filterId);
+  const { allAtFinal, pending, ahuName, filters } = await computeAhuCompletionStatus(ahuId, params.filterId, params.set);
   if (!allAtFinal) {
     throw new AppError(
       422,

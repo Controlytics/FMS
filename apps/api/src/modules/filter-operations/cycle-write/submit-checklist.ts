@@ -177,7 +177,14 @@ export async function submitChecklistImpl(
   // or no AHU parent — cost-free for all non-interlock installations.
   // Placed BEFORE the transaction so a thrown 422 aborts with no partial write.
   if (shouldComplete) {
-    await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true });
+    // Operator's runtime filter-set choice (SET_A / SET_B / ALL) rides in the
+    // submit body so the server gate scopes to the SAME roster the operator saw
+    // in the pre-popup chooser — no UI-says-green / server-422 mismatch.
+    const set: 'ALL' | 'SET_A' | 'SET_B' | undefined =
+      data.filterSet === 'SET_A' || data.filterSet === 'SET_B' || data.filterSet === 'ALL'
+        ? data.filterSet
+        : undefined;
+    await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
   }
 
   await prisma.$transaction(async (tx) => {

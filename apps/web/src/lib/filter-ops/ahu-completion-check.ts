@@ -73,17 +73,43 @@ export async function checkAhuCompletionBatch(
   mode: 'NONE' | 'POPUP' | 'INTERLOCK',
   filterIds: string[],
   online: boolean,
+  /** Operator's runtime filter-set choice; omitted / 'ALL' = every filter. */
+  set?: 'ALL' | 'SET_A' | 'SET_B',
 ): Promise<{ ahus: AhuBatchCard[] }> {
   if (mode === 'NONE' || filterIds.length === 0) return { ahus: [] };
   if (mode === 'INTERLOCK' && !online) return { ahus: [] };
   try {
     const res = await apiClient.post<{ ahus: AhuBatchCard[] }>(
       '/api/filters/ahu-completion-status/batch',
-      { filterIds },
+      { filterIds, ...(set && set !== 'ALL' ? { set } : {}) },
     );
     return { ahus: res?.ahus ?? [] };
   } catch {
     return { ahus: [] };
+  }
+}
+
+/**
+ * 2026-07-03: does this submission batch span BOTH Set A and Set B filters?
+ * Drives whether the A/B/All chooser is shown at all — when an AHU has no A/B
+ * split the choice is meaningless, so the caller proceeds as ALL. Non-fatal:
+ * returns false on NONE / offline / any error (skip chooser → ALL, the
+ * legacy-safe default).
+ */
+export async function checkAhuHasBothSets(
+  mode: 'NONE' | 'POPUP' | 'INTERLOCK',
+  filterIds: string[],
+  online: boolean,
+): Promise<boolean> {
+  if (mode === 'NONE' || filterIds.length === 0 || !online) return false;
+  try {
+    const res = await apiClient.post<{ hasBothSets: boolean }>(
+      '/api/filters/ahu-set-availability',
+      { filterIds },
+    );
+    return res?.hasBothSets === true;
+  } catch {
+    return false;
   }
 }
 

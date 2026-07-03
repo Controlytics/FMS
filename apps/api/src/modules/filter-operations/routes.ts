@@ -8,7 +8,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
 import { getCleaningReasons } from './filter-resolver.js';
-import { computeAhuCompletionStatus, computeAhuBatchStatus, findProfilesWithoutFinalChecklist } from './ahu-completion-gate.js';
+import { computeAhuCompletionStatus, computeAhuBatchStatus, computeAhuSetAvailability, findProfilesWithoutFinalChecklist } from './ahu-completion-gate.js';
 
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
@@ -336,6 +336,10 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           // Phase 8.7 cutover (decision-tape architecture): required staleness
           // guard. See /advance route comment.
           tapeVersion: { type: 'integer', description: 'Required staleness guard; rejected with 409 STALE_TAPE on mismatch' },
+          // 2026-07-03: operator's runtime AHU filter-set choice. Scopes the
+          // INTERLOCK gate to the same roster the pre-popup chooser showed.
+          // Omitted / 'ALL' = every filter under the AHU (legacy behavior).
+          filterSet: { type: 'string', enum: ['ALL', 'SET_A', 'SET_B'], description: 'AHU-completion filter-set scope for the INTERLOCK gate' },
         },
       },
       response: {
@@ -631,7 +635,14 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       tags: ['Filter Operations'],
       summary: 'AHU completion status — which sibling filters are still pending',
       params: { type: 'object', required: ['ahuId'], properties: { ahuId: { type: 'string' } } },
-      querystring: { type: 'object', properties: { exclude: { type: 'string' } } },
+      querystring: {
+        type: 'object',
+        properties: {
+          exclude: { type: 'string' },
+          // Operator's runtime filter-set choice; omitted / 'ALL' = every filter.
+          set: { type: 'string', enum: ['ALL', 'SET_A', 'SET_B'] },
+        },
+      },
       response: {
         200: {
           type: 'object',
@@ -668,8 +679,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { ahuId } = req.params as { ahuId: string };
-    const { exclude } = (req.query ?? {}) as { exclude?: string };
-    return computeAhuCompletionStatus(ahuId, exclude ?? '');
+    const { exclude, set } = (req.query ?? {}) as { exclude?: string; set?: 'ALL' | 'SET_A' | 'SET_B' };
+    return computeAhuCompletionStatus(ahuId, exclude ?? '', set);
   });
 
   // ── AHU completion status — BATCH (multi-AHU carousel) ──────────────────────
@@ -683,7 +694,11 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         required: ['filterIds'],
-        properties: { filterIds: { type: 'array', items: { type: 'string' } } },
+        properties: {
+          filterIds: { type: 'array', items: { type: 'string' } },
+          // Operator's runtime filter-set choice; omitted / 'ALL' = every filter.
+          set: { type: 'string', enum: ['ALL', 'SET_A', 'SET_B'] },
+        },
       },
       response: {
         200: {
@@ -718,7 +733,30 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
+    const { filterIds, set } = (req.body ?? {}) as { filterIds: string[]; set?: 'ALL' | 'SET_A' | 'SET_B' };
+    return computeAhuBatchStatus(Array.isArray(filterIds) ? filterIds : [], set);
+  });
+
+  // ── AHU set availability — does this batch span BOTH Set A and Set B? ────────
+  // Drives whether the frontend surfaces the A/B/All chooser. When false, the
+  // choice is meaningless (no A/B split) so the client proceeds as ALL.
+  app.post('/ahu-set-availability', {
+    preHandler: [app.requirePermission('ASSET_READ')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'Whether a submission batch spans both Set A and Set B filters',
+      body: {
+        type: 'object',
+        required: ['filterIds'],
+        properties: { filterIds: { type: 'array', items: { type: 'string' } } },
+      },
+      response: {
+        200: { type: 'object', properties: { hasBothSets: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
     const { filterIds } = (req.body ?? {}) as { filterIds: string[] };
-    return computeAhuBatchStatus(Array.isArray(filterIds) ? filterIds : []);
+    return computeAhuSetAvailability(Array.isArray(filterIds) ? filterIds : []);
   });
 }
