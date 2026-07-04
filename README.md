@@ -34,7 +34,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Audit trail** — Tamper-evident SHA-256 hash-chain log with before/after snapshots
 - **Notifications** — In-app + email (SMTP/OAuth2) + SMS (AWS SNS / Twilio) + Telegram + Slack
 - **Backup/restore** — Full DB export covering all tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
-- **RBAC** — 6 hierarchical roles, **109 permissions**, **90 feature toggles**, **102 reauthentication actions** across 16 categories, **26 sidebar items** (single-tenant since 2026-04-30)
+- **RBAC** — 6 hierarchical roles, **109 permissions**, **90 feature toggles**, **99 reauthentication actions** across 16 categories, **26 sidebar items** (single-tenant since 2026-04-30)
 - **Help articles** — 40+ versioned in-app docs across 8 categories
 - **LDAP integration** — Active Directory / OpenLDAP with group→role mapping
 
@@ -66,7 +66,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Report template designer** — visual editor + PDF generation engine + digital signatures
 - **Configurable report header/footer/layout** — `/config/report-settings`
 - **Dynamic bulk upload** — CSV columns from template `attributeSchema`
-- **102 reauthentication actions** across 16 categories
+- **99 reauthentication actions** across 16 categories
 - **Block change request/approval** workflow with single-use consumption
 
 ### Phase 5 — April 15–29, 2026 (live on `RFID` branch)

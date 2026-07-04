@@ -91,7 +91,7 @@
 ├── packages/shared/               (Shared types & schemas)
 │   └── src/
 │       ├── schemas/               Zod validation schemas
-│       └── types/                 Permissions (109), privileges (90), reauth (102), sidebar items (26)
+│       └── types/                 Permissions (109), privileges (90), reauth (99), sidebar items (26)
 │
 └── packages/queue/                (Job queue)
     ├── crontab.txt                graphile-worker cron file (pm_overdue_check, session_sweep)

@@ -106,13 +106,9 @@ export const REAUTH_ACTIONS = {
   // attacker-controlled directory. Distinct from UPDATE_LOGIN_SECURITY
   // so the audit trail makes the source-of-trust change explicit.
   UPDATE_LDAP_CONFIG: { label: 'Update LDAP Config', category: 'Configuration' },
-  // Template-kinds CRUD (audit 2026-05-04 fix #5 — web-routes review H3):
-  // controlled-vocabulary edits cascade across every asset using the kind.
-  // Distinct from per-asset edits so cleanroom audits can distinguish
-  // "asset" edits (per-asset) from "kind" edits (vocabulary).
-  CREATE_TEMPLATE_KIND: { label: 'Create Template Kind', category: 'Asset Management' },
-  UPDATE_TEMPLATE_KIND: { label: 'Update Template Kind', category: 'Asset Management' },
-  DELETE_TEMPLATE_KIND: { label: 'Delete Template Kind', category: 'Asset Management' },
+  // (CREATE/UPDATE/DELETE_TEMPLATE_KIND removed 2026-07-04 — dead/theater: they
+  //  rendered in the action-reauth config UI but no endpoint ever enforced them.
+  //  Template kinds are seed-only; there is no runtime template-kind CRUD route.)
   // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
   // surfaces). Distinct keys would force operators to maintain a check
   // matrix per page; this single umbrella reauth action covers the
