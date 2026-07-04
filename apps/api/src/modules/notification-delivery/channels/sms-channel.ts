@@ -90,6 +90,66 @@ async function sendViaVonage(config: SmsConfig, to: string, message: string): Pr
   return { success: true, messageId: String(messages?.[0]?.['message-id'] ?? '') };
 }
 
+/**
+ * Inspect only for an UNAMBIGUOUS body-level failure that any sane gateway would
+ * agree is an error, so this never false-positives a real success (which would
+ * cause a needless retry → duplicate SMS). Only trusts a JSON object with an
+ * explicit `success/ok === false` or a `status` of error/failed/etc. Anything
+ * else (plain text, unknown shape, an `error: null`) → null (treated as success).
+ */
+export function detectUnambiguousGatewayFailure(bodyText: string): string | null {
+  const t = (bodyText ?? '').trim();
+  if (!t || t[0] !== '{') return null; // only trust a top-level JSON object
+  let parsed: any;
+  try { parsed = JSON.parse(t); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const detail = () => String(parsed.message ?? parsed.error ?? parsed.description ?? parsed.reason ?? '').trim();
+  if (parsed.success === false || parsed.ok === false) {
+    return detail() || 'provider returned success=false';
+  }
+  const status = typeof parsed.status === 'string' ? parsed.status.toLowerCase() : '';
+  if (['error', 'failed', 'failure', 'fail', 'rejected'].includes(status)) {
+    return detail() || `provider status=${parsed.status}`;
+  }
+  return null;
+}
+
+/**
+ * #sms-2xx (2026-07-04): decide send outcome from an HTTP-gateway response.
+ * Previously ANY 2xx was recorded SENT, ignoring gateways that return HTTP 200
+ * with an error body (MSG91 / Plivo / custom backends commonly do). Order:
+ *   1. non-2xx → fail (unchanged).
+ *   2. `httpGatewaySuccessRegex` configured → AUTHORITATIVE: body must match, else
+ *      fail (the correct, provider-specific control — the gateway is fully
+ *      operator-configured already). An invalid regex is ignored (never crashes a
+ *      send) and we fall through.
+ *   3. no matcher → still catch an unambiguous JSON failure body; otherwise SENT.
+ * Pure + exported for unit testing.
+ */
+export function interpretHttpGatewayResult(
+  httpOk: boolean,
+  status: number,
+  bodyText: string,
+  successRegex?: string,
+): { ok: true } | { ok: false; error: string } {
+  if (!httpOk) {
+    return { ok: false, error: `HTTP Gateway error (${status}): ${bodyText.substring(0, 200)}` };
+  }
+  const pattern = successRegex?.trim();
+  if (pattern) {
+    let re: RegExp | null = null;
+    try { re = new RegExp(pattern); } catch { re = null; } // invalid config → skip, don't fail the send on it
+    if (re) {
+      return re.test(bodyText)
+        ? { ok: true }
+        : { ok: false, error: `HTTP Gateway 2xx but body did not match success pattern /${pattern}/: ${bodyText.substring(0, 200)}` };
+    }
+  }
+  const failure = detectUnambiguousGatewayFailure(bodyText);
+  if (failure) return { ok: false, error: `HTTP Gateway reported failure: ${failure.substring(0, 200)}` };
+  return { ok: true };
+}
+
 async function sendViaHttpGateway(config: SmsConfig, to: string, message: string): Promise<DeliveryResult> {
   const { httpGatewayUrl, httpGatewayMethod, httpGatewayHeaders, httpGatewayBodyTemplate } = config;
   if (!httpGatewayUrl) {
@@ -118,10 +178,12 @@ async function sendViaHttpGateway(config: SmsConfig, to: string, message: string
     ...(body ? { body } : {}),
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    return { success: false, error: `HTTP Gateway error (${res.status}): ${text.substring(0, 200)}` };
-  }
+  // A 2xx alone is NOT proof of delivery — many gateways return HTTP 200 with an
+  // error body. Interpret the body (operator-configured success regex when set,
+  // else an unambiguous JSON-failure check) instead of trusting the status code.
+  const text = await res.text();
+  const outcome = interpretHttpGatewayResult(res.ok, res.status, text, config.httpGatewaySuccessRegex);
+  if (!outcome.ok) return { success: false, error: outcome.error };
 
   return { success: true, messageId: `http-${Date.now()}` };
 }

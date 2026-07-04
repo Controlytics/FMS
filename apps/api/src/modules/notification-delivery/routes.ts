@@ -370,6 +370,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
           httpGatewayMethod: { type: 'string', enum: ['GET', 'POST'] },
           httpGatewayHeaders: { type: 'object', additionalProperties: { type: 'string' } },
           httpGatewayBodyTemplate: { type: 'string' },
+          httpGatewaySuccessRegex: { type: 'string' },
         },
       },
       response: {

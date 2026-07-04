@@ -65,6 +65,7 @@ interface SmsConfig {
   httpGatewayMethod: string;
   httpGatewayHeaders: Record<string, string>;
   httpGatewayBodyTemplate: string;
+  httpGatewaySuccessRegex: string;
 }
 
 const SMS_PROVIDERS = [
@@ -677,6 +678,7 @@ function SmsTab() {
     twilioAccountSid: '', twilioAuthToken: '', twilioFromNumber: '',
     vonageApiKey: '', vonageApiSecret: '', vonageFromNumber: '',
     httpGatewayUrl: '', httpGatewayMethod: 'POST', httpGatewayHeaders: {}, httpGatewayBodyTemplate: '',
+    httpGatewaySuccessRegex: '',
   };
 
   const { register, handleSubmit, watch, reset, formState: { isSubmitting, isDirty } } = useForm<SmsConfig>({
@@ -844,6 +846,15 @@ function SmsTab() {
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono h-24"
                   placeholder={'{"to": "{phone}", "message": "{message}"}'}
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Success Response Pattern (optional)</label>
+                <Input {...register('httpGatewaySuccessRegex')} placeholder={'"status"\\s*:\\s*"success"'} />
+                <p className="text-xs text-slate-500 mt-1">
+                  Regex the response body must match to count as delivered. Many gateways return HTTP 200 even on
+                  failure — set this so a failed send is recorded as failed (and retried). Leave blank to accept any
+                  2xx that isn't an obvious JSON error.
+                </p>
               </div>
             </div>
           </div>

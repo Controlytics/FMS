@@ -58,6 +58,11 @@ export interface SmsConfig {
   httpGatewayMethod?: 'GET' | 'POST';
   httpGatewayHeaders?: Record<string, string>;
   httpGatewayBodyTemplate?: string;
+  // #sms-2xx: optional regex the response body MUST match for the send to count
+  // as delivered (authoritative when set). Gateways that return HTTP 200 on
+  // failure need this — e.g. `"status"\s*:\s*"success"`. Empty → 2xx + an
+  // unambiguous-JSON-failure fallback decides.
+  httpGatewaySuccessRegex?: string;
   // Common
   defaultCountryCode?: string;
   senderId?: string;
