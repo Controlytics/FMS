@@ -542,12 +542,17 @@ export async function clearOfflineCycleId(filterId: string): Promise<void> {
  */
 type QueueInput = Omit<OfflineOperation, 'id' | 'clientOpId' | 'createdAt' | 'status' | 'retryCount' | 'tapeVersion'> & {
   tapeVersion?: number | null;
+  // #9 fix: the caller (use-offline) may supply the clientOpId it ALSO sent on a
+  // failed online attempt, so a lost-response online commit and this queued replay
+  // share one idempotency key (server dedups instead of 409 / duplicate cycle).
+  // Omitted for purely-offline ops → a fresh id is generated.
+  clientOpId?: string;
 };
 
 export async function queueOperation(op: QueueInput): Promise<string> {
   const db = await openDB();
   const id = `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const clientOpId = generateClientOpId();
+  const clientOpId = op.clientOpId ?? generateClientOpId();
   const tx = db.transaction('operations', 'readwrite');
   // Phase 8.4 M-3: persist tapeVersion as `number | null` only — no undefined
   // on the wire. The IDB upgrade also normalizes any pre-existing v3 rows

@@ -18,6 +18,7 @@ import {
   getCachedData,
   clearAllOperations,
   getAllOperations,
+  generateClientOpId,
 } from '@/lib/offline-store';
 import { syncPendingOperations, onSyncEvent, startAutoSync } from '@/lib/sync-engine';
 import { isOnline as connIsOnline, onConnectivityChange, startConnectivityEngine } from '@/lib/connectivity';
@@ -120,11 +121,21 @@ export function useOffline() {
         }
       } catch { /* tapeVersion stays null — server will 400 if it really requires it */ }
     }
-    // Merge tapeVersion into payload for cycle-bound online sends. Skipped for
-    // start-cycle / start-and-advance (no concept of prior tape).
-    const onlinePayload = isCycleBound && tapeVersion !== null
-      ? { ...payload, tapeVersion }
-      : payload;
+    // #9 fix: one clientOpId for BOTH the online attempt and the queued row. If the
+    // op commits online but the HTTP response is lost (routine WiFi drop right after
+    // the server commit), the queued replay carries the SAME id so the server dedups
+    // it (findExisting*ByClientOpId → benign no-op) instead of 409-ing (CYCLE_ACTIVE
+    // with a misleading "already active" toast) or creating a duplicate cycle.
+    const clientOpId = generateClientOpId();
+
+    // Merge tapeVersion (cycle-bound only) + clientOpId into the online body.
+    // start-cycle / start-and-advance inject clientOpId at their own call sites —
+    // start-and-advance uses the same `:start` / `:advance` sub-keys the replay does.
+    const onlinePayload = {
+      ...payload,
+      ...(isCycleBound && tapeVersion !== null ? { tapeVersion } : {}),
+      clientOpId,
+    };
 
     // Online post helper — routes to postWithReauth when caller forwarded a
     // password (reauth-gated action). Keeps every case branch single-line.
@@ -164,7 +175,7 @@ export function useOffline() {
           result = await cyclePost(`/api/filters/${filterId}/advance`, onlinePayload);
           break;
         case 'start-cycle':
-          result = await onlinePost(`/api/filters/${filterId}/start-cycle`, payload);
+          result = await onlinePost(`/api/filters/${filterId}/start-cycle`, { ...payload, clientOpId });
           break;
         case 'start-and-advance': {
           const { cyclePayload, advancePayload } = payload as any;
@@ -172,7 +183,7 @@ export function useOffline() {
             // start-cycle is the reauth-gated half of this pair (advance has
             // no reauth check on the server). Forward the password here so
             // ADMIN-role operators don't get a REAUTH_REQUIRED on start.
-            await onlinePost(`/api/filters/${filterId}/start-cycle`, cyclePayload);
+            await onlinePost(`/api/filters/${filterId}/start-cycle`, { ...cyclePayload, clientOpId: `${clientOpId}:start` });
           } catch (startErr: any) {
             const code = startErr?.code || startErr?.error || '';
             if (code !== 'CYCLE_ACTIVE') throw startErr;
@@ -187,9 +198,11 @@ export function useOffline() {
             const fresh = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
             if (typeof fresh?.tapeVersion === 'number') saTapeVersion = fresh.tapeVersion;
           } catch { /* if this fails, advance will surface the 400 — fall through */ }
-          const advanceBody = saTapeVersion !== undefined
-            ? { ...advancePayload, tapeVersion: saTapeVersion }
-            : advancePayload;
+          const advanceBody = {
+            ...advancePayload,
+            ...(saTapeVersion !== undefined ? { tapeVersion: saTapeVersion } : {}),
+            clientOpId: `${clientOpId}:advance`,
+          };
           // /advance is NOT in the reauth config — plain post is correct.
           result = await apiClient.post(`/api/filters/${filterId}/advance`, advanceBody);
           break;
@@ -264,7 +277,10 @@ export function useOffline() {
     // null reads here are safe). The cached tapeVersion was captured ABOVE
     // before the network attempt, so we never persist a tape value that's
     // already been bumped by a successful prior write.
-    await queueOperation({ type, filterId, filterName, payload, tapeVersion });
+    // #9 fix: reuse the SAME clientOpId the failed online attempt sent, so a lost-
+    // response online commit and this replay share one idempotency key. For
+    // start-and-advance the replay derives `:start`/`:advance` sub-keys from this base.
+    await queueOperation({ type, filterId, filterName, payload, tapeVersion, clientOpId });
     if (optimisticState) {
       // When starting a cycle offline, also mark the filter as having an active cycle
       const markCycleActive = type === 'start-and-advance' || type === 'start-cycle';
