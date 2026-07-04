@@ -165,11 +165,7 @@ model User {
   templateAssignments TemplateAssignment[] @relation("UserTemplateAssignments")
   entityAssignments   EntityAssignment[]   @relation("UserEntityAssignments")
 
-  // Report relations
-  reportTemplatesCreated  ReportTemplate[]        @relation("ReportTemplateCreator")
-  templateVersionsCreated ReportTemplateVersion[] @relation("TemplateVersionCreator")
-  reportsGenerated        ReportInstance[]        @relation("ReportGenerator")
-  reportSignatures        ReportSignature[]       @relation("ReportSigner")
+  // (Report generate/sign relations removed 2026-07-04 with the orphaned module.)
 
   @@index([role])
   @@index([status])
@@ -1758,106 +1754,12 @@ model BlockChangeRequest {
   @@map("block_change_requests")
 }
 
-// ─── Report Template Status ────────────────────────────────
+// (ReportTemplateStatus + ReportStatus enums removed 2026-07-04 with the
+// orphaned reports generate/sign models.)
 
-enum ReportTemplateStatus {
-  ACTIVE
-  ARCHIVED
-  DRAFT
-}
-
-enum ReportStatus {
-  DRAFT
-  PENDING_SIGNATURE
-  SIGNED
-  REJECTED
-  EXPIRED
-}
-
-// ─── Report Templates ──────────────────────────────────────
-
-model ReportTemplate {
-  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String               @db.VarChar(200)
-  description    String?              @db.VarChar(2000)
-  status         ReportTemplateStatus @default(ACTIVE)
-  currentVersion Int                  @default(1) @map("current_version")
-  createdBy      String               @map("created_by") @db.Uuid
-  creator        User                 @relation("ReportTemplateCreator", fields: [createdBy], references: [id])
-  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz
-
-  versions        ReportTemplateVersion[]
-  reportInstances ReportInstance[]
-
-  @@index([status])
-  @@map("report_templates")
-}
-
-model ReportTemplateVersion {
-  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  templateId String         @map("template_id") @db.Uuid
-  template   ReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  version    Int
-  config     Json           @db.JsonB
-  changelog  String?
-  createdBy  String         @map("created_by") @db.Uuid
-  creator    User           @relation("TemplateVersionCreator", fields: [createdBy], references: [id])
-  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz
-
-  @@unique([templateId, version])
-  @@index([templateId])
-  @@map("report_template_versions")
-}
-
-// ─── Report Instances ──────────────────────────────────────
-
-model ReportInstance {
-  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  templateId      String         @map("template_id") @db.Uuid
-  template        ReportTemplate @relation(fields: [templateId], references: [id])
-  templateVersion Int            @map("template_version")
-  name            String         @db.VarChar(500)
-  status          ReportStatus   @default(DRAFT)
-  timeRangeStart  DateTime?      @map("time_range_start") @db.Timestamptz
-  timeRangeEnd    DateTime?      @map("time_range_end") @db.Timestamptz
-  entitySlots     Json?          @map("entity_slots") @db.JsonB
-  resolvedData    Json?          @map("resolved_data") @db.JsonB
-  pdfPath         String?        @map("pdf_path") @db.VarChar(1000)
-  pdfSize         Int?           @map("pdf_size")
-  pageCount       Int?           @map("page_count")
-  generatedBy     String         @map("generated_by") @db.Uuid
-  generator       User           @relation("ReportGenerator", fields: [generatedBy], references: [id])
-  generatedAt     DateTime       @default(now()) @map("generated_at") @db.Timestamptz
-  signedAt        DateTime?      @map("signed_at") @db.Timestamptz
-  expiresAt       DateTime?      @map("expires_at") @db.Timestamptz
-
-  signatures ReportSignature[]
-
-  @@index([templateId])
-  @@index([status])
-  @@index([generatedAt])
-  @@map("report_instances")
-}
-
-model ReportSignature {
-  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reportId    String         @map("report_id") @db.Uuid
-  report      ReportInstance @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  signerRole  String         @map("signer_role") @db.VarChar(50)
-  signerLabel String         @map("signer_label") @db.VarChar(100)
-  userId      String         @map("user_id") @db.Uuid
-  user        User           @relation("ReportSigner", fields: [userId], references: [id])
-  meaning     String         @db.VarChar(500)
-  signedAt    DateTime       @default(now()) @map("signed_at") @db.Timestamptz
-  ipAddress   String?        @map("ip_address") @db.VarChar(45)
-  userAgent   String?        @map("user_agent") @db.VarChar(500)
-
-  @@unique([reportId, signerRole])
-  @@index([reportId])
-  @@index([userId])
-  @@map("report_signatures")
-}
+// ─── Report generate/sign models (ReportTemplate, ReportTemplateVersion,
+// ReportInstance, ReportSignature) removed 2026-07-04 with the orphaned
+// reports module. ReportReview (below) is the ACTIVE ad-hoc review workflow. ──
 
 // 3-stage review/approval workflow for AD-HOC PDF exports (Audit Trail, Filters,
 // Cleaning Cycles, etc. — generated via lib/pdf-report.ts). Because those reports

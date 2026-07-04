@@ -19,10 +19,8 @@ type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
  */
 async function clearUserDeleteBlockers(tx: Tx, ids: string[]): Promise<void> {
   await tx.userConfig.deleteMany({ where: { userId: { in: ids } } });
-  await tx.reportSignature.deleteMany({ where: { userId: { in: ids } } });
-  await tx.reportInstance.deleteMany({ where: { generatedBy: { in: ids } } });
-  await tx.reportTemplateVersion.deleteMany({ where: { createdBy: { in: ids } } });
-  await tx.reportTemplate.deleteMany({ where: { createdBy: { in: ids } } });
+  // (reportSignature/reportInstance/reportTemplateVersion/reportTemplate cascade
+  // cleanup removed 2026-07-04 with the orphaned reports module + its tables.)
 }
 
 export const userRepository = {
