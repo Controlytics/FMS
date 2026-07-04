@@ -1,12 +1,12 @@
 # Entities & Hierarchy
 
-Entities represent physical equipment in a hierarchical tree following ISA-95. Managed via 68 Prisma models with 21 enums (verified 2026-05-20 post rule-chain/alarm tear-out + typed-hierarchy sidecars Block/Area/AHU/Filter).
+Entities represent physical equipment in a hierarchical tree following ISA-95. Managed via 67 Prisma models with 25 enums, including typed-hierarchy sidecars (Block/Area/AHU/Filter).
 
 ## Entity Templates
-Templates define the blueprint: attribute schema (14 data types), alarm rules, checklist fields (14 question types), connectivity settings, and relationship constraints. Every edit creates a new version.
+Templates define the blueprint: attribute schema (14 data types), checklist fields (14 question types), and relationship constraints. Every edit creates a new version.
 
 ## Entity Instances
-Instances are created from templates with: unique name, UNS path, status (Active/Inactive/Under Maintenance/Decommissioned/Quarantine), attributes, telemetry, and relationships.
+Instances are created from templates with: unique name, UNS path, status (Active/Inactive/Under Maintenance/Decommissioned/Quarantine), attributes, and relationships.
 
 ## Hierarchy
 Parent-child relationships form a tree: Enterprise > Site > Area > Line > Equipment > Sensor. Each entity has a UNS path auto-generated from its position.

@@ -1,6 +1,6 @@
 # DigiLog — Project Architecture
 
-> ⚠️ **2026-06-17 — Architecture diagrams + sections below referencing TimescaleDB / Mosquitto / MQTT / data-ingestion pipeline / UNS / transport layer / packages/db are HISTORICAL.** Those subsystems were removed in Phase 7 (2026-06-11..2026-06-17). Current architecture: Fastify API + PostgreSQL 18 (Prisma, single database, no TSDB extension) + graphile-worker queue + React SPA + Capacitor APK + RFID scanner. See root `CLAUDE.md` Phase 7 snapshot + `CHANGELOG.md` for current stack.
+> **Reconciled to current architecture 2026-07-04.** DigiLog is a Fastify API + PostgreSQL 18 (Prisma, single database — no TimescaleDB) + graphile-worker queue + React SPA + Capacitor APK + native RFID scanner. The data-ingestion pipeline, UNS, device connectivity, MQTT/Mosquitto broker, TimescaleDB, transport layer, rule-chain/alarm subsystems, and multi-tenancy were all removed (2026-04-30..2026-07-03). This doc describes only what remains. See root `CLAUDE.md` + `CHANGELOG.md` for the full removal history.
 
 ## System Architecture
 
@@ -8,12 +8,12 @@
 ┌──────────────────────────────────────────────────────────────────┐
 │                        CLIENT DEVICES                            │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌──────────────┐  │
-│  │  Desktop   │  │  Tablet   │  │  Mobile   │  │  IoT Device  │  │
-│  │  Browser   │  │  APK      │  │  PWA      │  │  (MQTT/HTTP) │  │
+│  │  Desktop   │  │  Tablet   │  │  Mobile   │  │ RFID Scanner │  │
+│  │  Browser   │  │  APK      │  │  PWA      │  │ (Kotlin app) │  │
 │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └──────┬───────┘  │
 └────────┼───────────────┼───────────────┼───────────────┼─────────┘
          │               │               │               │
-         │  HTTPS :3000  │  HTTPS :3000  │  HTTPS :3000  │ MQTT :1883
+         │  HTTPS :3000  │  HTTPS :3000  │  HTTPS :3000  │ HTTPS :3000
          ▼               ▼               ▼               ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                      SERVER (Windows)                            │
@@ -25,45 +25,36 @@
 │  │  proxy (Nginx / IIS) is optional / customer-choice;   │        │
 │  │  not bundled after Phase 4 of the                     │        │
 │  │  windows-friendly-rewrite.                            │        │
-│  │  ┌──────────┐ ┌──────────┐ ┌────────┐                 │        │
-│  │  │ 37 Route │ │  Auth    │ │ RBAC   │                 │        │
-│  │  │ Modules  │ │  Plugin  │ │ Plugin │                 │        │
-│  │  └────┬─────┘ └──────────┘ └────────┘                 │        │
-│  │       │  ┌──────────┐ ┌────────────┐                  │        │
-│  │       │  │ Workers  │ │ WebSocket  │                  │        │
-│  │       │  │ Ingestion│ │ Handler    │                  │        │
-│  │       │  │ Maint.   │ │ (real-time)│                  │        │
-│  │       │  └──────────┘ └────────────┘                  │        │
+│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐    │        │
+│  │  │ 35 Route │ │  Auth    │ │ RBAC   │ │ graphile │    │        │
+│  │  │ Modules  │ │  Plugin  │ │ Plugin │ │ workers  │    │        │
+│  │  └────┬─────┘ └──────────┘ └────────┘ └──────────┘    │        │
 │  └───────┼──────────────────────────────────────────────┘        │
 │          │                                                       │
 │  ┌───────┼──────────────────────────────────────────────┐        │
 │  │       ▼          DATA LAYER                          │        │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐               │        │
-│  │  │PostgreSQL│ │TimescaleDB│ │Mosquitto │               │        │
-│  │  │  :5432   │ │  :5432   │ │  :1883   │               │        │
-│  │  │ 67 models│ │ 7 hyper- │ │  MQTT    │               │        │
-│  │  │ Prisma   │ │ tables   │ │  Broker  │               │        │
-│  │  │digilog_db│ │digilog_  │ │  IoT     │               │        │
-│  │  │ +queue   │ │tsdb      │ │  devices │               │        │
-│  │  │(graphile)│ │          │ │          │               │        │
-│  │  └──────────┘ └──────────┘ └──────────┘               │        │
-│  │  Phase 4 (2026-05-01): Redis retired — pub/sub now    │        │
-│  │  in-process via EventEmitter bus + RPC TTL Map.       │        │
+│  │  ┌────────────────────────────────┐                   │        │
+│  │  │ PostgreSQL 18  :5432            │                   │        │
+│  │  │ 67 Prisma models · 25 enums     │                   │        │
+│  │  │ digilog_db (app + queue schema) │                   │        │
+│  │  │ graphile-worker job queue       │                   │        │
+│  │  └────────────────────────────────┘                   │        │
+│  │  Single database. No TimescaleDB, no Redis, no MQTT    │        │
+│  │  broker, no separate queue service.                   │        │
 │  └──────────────────────────────────────────────────────┘        │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-> **Tech-stack swap (windows-friendly-rewrite Phases 1+2+3+4):**
-> EMQX → Mosquitto 2.0 (Phase 1); BullMQ on Redis/Memurai → graphile-worker
-> on PostgreSQL (Phase 2); Puppeteer (bundled Chromium) + chartjs-node-canvas
-> → puppeteer-core + Edge + @napi-rs/canvas (Phase 3). **Phase 4 (2026-05-01):
-> Redis fully retired** — non-queue pub/sub (WebSocket events,
-> pipeline tracer, debug recorder) moved to an in-process EventEmitter bus;
-> `ioredis` dependency removed. Those consumers were all torn out in Phase 6/7
-> and the orphaned bus (`lib/internal-bus.ts`) + `@fastify/websocket` were
-> removed 2026-07-03 as dead code — no pub/sub layer remains. (The
-> device-RPC correlation cache `lib/rpc-cache.ts` was removed 2026-07-01 as
-> dead code after the Phase 7 data-ingestion/MQTT tear-out.)
+> **Tech-stack swap (windows-friendly-rewrite Phases 2+3+4):**
+> BullMQ on Redis/Memurai → graphile-worker on PostgreSQL (Phase 2);
+> Puppeteer (bundled Chromium) + chartjs-node-canvas → puppeteer-core + Edge +
+> @napi-rs/canvas (Phase 3). **Phase 4 (2026-05-01): Redis fully retired** —
+> `ioredis` removed; the non-queue pub/sub consumers (WebSocket events,
+> pipeline tracer, debug recorder) that briefly moved to an in-process
+> EventEmitter bus were all torn out in Phase 6/7, and the orphaned bus
+> (`lib/internal-bus.ts`) + `@fastify/websocket` were removed 2026-07-03 as
+> dead code — **no pub/sub layer remains**. (The device-RPC correlation cache
+> `lib/rpc-cache.ts` went 2026-07-01 with the Phase 7 data-ingestion tear-out.)
 
 ## Monorepo Package Architecture
 
@@ -73,22 +64,21 @@
 ├── apps/api/                      (Fastify backend)
 │   ├── src/
 │   │   ├── app.ts                 Entry point — registers all plugins, routes, handlers
-│   │   ├── modules/               37 feature modules (routes.ts + *.service.ts)
+│   │   ├── modules/               35 feature modules (routes.ts + *.service.ts)
 │   │   ├── plugins/               auth.ts, rbac.ts, audit-logger.ts
-│   │   ├── transport/             mqtt-client.ts, mqtt-handler.ts, ws-handler.ts
-│   │   ├── workers/               ingestion.worker.ts, maintenance.worker.ts
+│   │   ├── workers/               notification.worker.ts, pm-overdue.worker.ts, session-sweep.worker.ts (graphile-worker tasks)
 │   │   ├── lib/                   Shared utilities (audit, jwt, sanitize, prisma, etc.)
 │   │   └── types/                 TypeScript type definitions
 │   └── prisma/
-│       ├── schema.prisma          68 models, 21 enums
+│       ├── schema.prisma          67 models, 25 enums
 │       └── seed.ts                Default roles, superadmin, configs
 │
 ├── apps/web/                      (React SPA)
 │   └── src/
-│       ├── main.tsx               Route definitions, lazy loading, error boundaries
-│       ├── routes/                22 route modules (~84 pages)
+│       ├── main.tsx               Route definitions (76 routes), lazy loading, error boundaries
+│       ├── routes/                22 route module dirs
 │       ├── components/            Layout (sidebar, header), UI primitives, dialogs
-│       ├── hooks/                 14 custom hooks (auth, session, branding, offline, etc.)
+│       ├── hooks/                 26 custom hooks (auth, session, branding, offline, etc.)
 │       └── lib/                   API client, SWR config, themes, offline store, sync engine
 │
 ├── apps/android/                  (Capacitor Android wrapper)
@@ -100,19 +90,13 @@
 │
 ├── packages/shared/               (Shared types & schemas)
 │   └── src/
-│       ├── schemas/               8 Zod validation schemas
-│       └── types/                 Permissions (109), privileges (91), reauth (81), sidebar items (26)
-│
-├── packages/db/                   (Database utilities)
-│   └── src/
-│       ├── prisma.ts              Prisma client singleton
-│       ├── tsdb.ts                TimescaleDB connection pool
-│       └── telemetry-batcher.ts   Batch telemetry writes
+│       ├── schemas/               Zod validation schemas
+│       └── types/                 Permissions (109), privileges (90), reauth (102), sidebar items (26)
 │
 └── packages/queue/                (Job queue)
+    ├── crontab.txt                graphile-worker cron file (pm_overdue_check, session_sweep)
     └── src/
         ├── index.ts               getProducer() + getRunner() over graphile-worker on Postgres (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis; commit `7832af1`)
-        ├── crontab.txt            graphile-worker cron file (dlq_check, connectivity_check, retention_cleanup)
         ├── schemas.ts             Zod schemas for job payloads
         └── priorities.ts          Job priority levels (1-8)
 ```
@@ -123,9 +107,9 @@
 |---|---|
 | `turbo.json` | Turborepo task graph — build/test pipelines for all workspaces |
 | `vitest.workspace.ts` | Vitest workspace config — discovers tests across `apps/*` and `packages/*` |
-| `test-engine.mjs` (root) | Standalone rule-chain VM-sandbox tester (`node:vm` runner) — used to debug a single chain in isolation |
+| `test-engine.mjs` (root) | Standalone `node:vm`-sandbox script runner — used to debug an isolated snippet |
 | `package.json` (root) | Workspace root, holds turbo + dev tools (NOT app deps — those live in workspaces; bloat audit P3.1 cleanup done) |
-| Per-workspace `vitest.config.ts` | Each of `apps/api`, `apps/web` (no), `packages/db`, `packages/shared` carries its own Vitest config; `packages/queue` is the exception (no test config). |
+| Per-workspace `vitest.config.ts` | `apps/api` and `packages/shared` each carry their own Vitest config; `packages/queue` has no test config. |
 | `apps/web/vite.config.ts` | Vite + PWA plugin + Tailwind + path aliases |
 | `apps/web/eslint.config.js` | ESLint flat config — `typescript-eslint` + `no-explicit-any: warn`; max-warnings cap 10000 (bloat audit P0.3) |
 | `apps/web/index.html` | Vite SPA entry HTML — root `<div id="root">`, theme `<meta>` |
@@ -143,9 +127,9 @@
 
 | Path | Purpose |
 |---|---|
-| `apps/api/prisma/schema.prisma` | 68 models, 21 enums |
-| `apps/api/prisma/seed.ts` | Default roles, super-admin user, system configs, default rule chain |
-| `apps/api/prisma/migrations/` | Versioned Prisma migrations (8+ migrations: phase_a_data_ingestion, sync_schema, audit_fixes, equipment_groups, admin_requests, sync_drift_phase3, block_change_nullable_org, …) plus `migration_lock.toml` |
+| `apps/api/prisma/schema.prisma` | 67 models, 25 enums |
+| `apps/api/prisma/seed.ts` | Default roles, super-admin user, system configs |
+| `apps/api/prisma/migrations/` | Versioned Prisma migrations — `00000000000000_baseline` (squashed schema) + `20260701071802_drop_qrcode_latesttelemetry`, plus `migration_lock.toml` |
 | `apps/api/prisma/sql/extensions.sql` | Hand-written SQL — installs PostgreSQL extensions (e.g. `pg_trgm`, `uuid-ossp`) used by Prisma |
 | `apps/api/prisma/schema.prisma.bak` | **Stray backup file** — clean up |
 | `apps/api/uploads/photos/` | User-uploaded profile photos + checklist photos (served at `/uploads/`) |
@@ -171,12 +155,9 @@
 │   ├── server.crt / server.key    Localhost cert pair used by API_HTTPS=true
 │   └── ssl.conf                   OpenSSL config for cert generation
 │
-├── tsdb-migration/                (TimescaleDB hypertable bootstrap)
-│   └── init-hypertables.sql       Converts 5 PG tables to hypertables (ts_telemetry 7-day chunks, ts_attributes, ts_device_events, ts_checklist_responses, ts_pipeline_traces). Run once after creating digilog_tsdb.
-│
 ├── scripts/                       (Windows deployment automation)
 │   ├── package-for-production.ps1  Builds API + Web + shared, zips into digilog-production.zip
-│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, invokes install-mosquitto.ps1, opens firewall, enables LongPathsEnabled, checks for msedge.exe; prints smoke-test launch instructions. Does NOT register a managed service — see DEPLOY-WINDOWS.md § 7 for the NSSM stopgap.
+│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, opens firewall, enables LongPathsEnabled, checks for msedge.exe; prints smoke-test launch instructions. Does NOT register a managed service — see DEPLOY-WINDOWS.md § 7 for the NSSM stopgap.
 │   └── reset-cwh-cycles.sql        Emergency SQL to terminate IN_PROGRESS cycles bound to obsolete profile (used 04-25 for 7 stuck CWH cycles)
 │
 ├── rfid_scan_app/                 (Standalone Kotlin app — predates RFID SDK plugin in DigiLog APK)
@@ -186,8 +167,6 @@
 │   ├── rfid-key.jks                **SENSITIVE** signing keystore (should not be committed — see Working-tree noise)
 │   └── RFID_Scanner_User_Manual.html  End-user manual for the standalone scanner
 ├── start-digilog.bat / stop-digilog.bat  Local Windows service launchers
-├── docker-compose.yml             (Optional Docker dev stack — see docs/deployment-methods/method-b)
-├── init-tsdb.sql                  (Convenience init for digilog_tsdb)
 └── DigiLog-FilterOps.apk          Built APK at repo root after gradlew assembleDebug
 ```
 
@@ -222,7 +201,6 @@ HTTPS Request → Fastify (:3000, mkcert TLS, serves SPA + /api/*)
       → Route Handler (business logic)
         → Service Layer (data processing)
           → Prisma (PostgreSQL)
-          → TimescaleDB Pool (time-series)
           → graphile-worker (async jobs on Postgres)
         → Audit Logger (SHA-256 hash chain)
       → Response (JSON)
@@ -232,7 +210,7 @@ HTTPS Request → Fastify (:3000, mkcert TLS, serves SPA + /api/*)
 
 ### Module Structure
 
-Each of the 36 modules follows this pattern:
+Each of the 35 modules follows this pattern:
 
 ```
 modules/
@@ -243,25 +221,23 @@ modules/
     └── __tests__/             Vitest unit tests
 ```
 
-### 36 API Modules
+### 35 API Modules
 
-> **MT removal 2026-04-30:** `org-admin` and `tenant-admin` modules deleted; DigiLog is single-tenant.
+> **MT removal 2026-04-30:** `org-admin` and `tenant-admin` modules deleted; DigiLog is single-tenant. **Phase 6/7 (2026-05-17..06-17):** `rule-chain`, `data-ingestion`, `queries`, `uns`, `connectivity`, `qr-code` modules deleted with their subsystems.
 
 | Category | Modules |
 |---|---|
-| **Auth & Users** | auth, users, roles, user-groups |
+| **Auth & Users** | auth, users, roles, user-groups, guest |
 | **Admin** | super-admin (org CRUD endpoints removed in MT removal) |
-| **Assets** | assets (templates/instances/relationships/identifiers), **template-kinds** (admin-editable lookup; Step 1 of architectural refactor) |
-| **Filter Operations** | filter-operations, filter-profiles, cleaning-profiles, checklist-profiles |
-| **Scheduling** | pm-schedules, equipment-groups, entity-assignments |
+| **Assets** | assets (templates/instances/relationships/identifiers), hierarchy |
+| **Filter Operations** | filter-operations, filter-profiles, cleaning-profiles, checklist-profiles, stage-approvals |
+| **Scheduling** | pm-schedules, equipment-groups, replacement-schedule |
 | **Approvals** | block-change-requests, admin-requests |
-| **Reports** | report-templates (CRUD + versioning), reports (generation engine + PDF + signatures) |
-| **Data Pipeline** | data-ingestion, queries (telemetry/alarms/retention/export) |
-| **Rule Engine** | rule-chain (77 node types, 8 categories) |
+| **Reports** | report-templates (CRUD + versioning), reports (generation engine + PDF + signatures), report-reviews |
 | **Notifications** | notifications, notification-rules, notification-delivery |
-| **Config** | config (30 definitions with auto-discovery; monolith split into `static-routes/` per surface) |
-| **Infrastructure** | connectivity, qr-code, uns, uploads, help, ldap |
-| **System** | audit, backup, system-health, deployment-check, dashboards |
+| **Config** | config (35 definitions with auto-discovery; monolith split into `static-routes/` per surface) |
+| **Support** | uploads, help, ldap |
+| **System** | audit, backup, system-health, deployment-check, dashboards, debug-traces, sync |
 
 ### Authentication Architecture
 
@@ -278,7 +254,7 @@ Token Refresh:
 
 Re-authentication:
   POST /api/auth/verify → password check → 5-min verification token
-  (required for 81 sensitive operations)
+  (required for 102 sensitive operations)
 
 Session Management:
   - Single active session per user (force login terminates existing)
@@ -286,35 +262,15 @@ Session Management:
   - Auto-expired by configurable idle timeout
 ```
 
-### Data Ingestion Pipeline
-
-```
-IoT Device
-  → MQTT (Mosquitto :1883) or HTTP (POST /api/data/telemetry)
-    → Mosquitto dynsec lookup (configured via /api/internal/mqtt/refresh-acl)
-    → Message Normalization
-    → graphile-worker `ingestion` task (Postgres-backed; LISTEN/NOTIFY + SKIP LOCKED)
-      → Ingestion Worker (10 concurrent)
-        → Entity Resolution (device token → asset instance)
-        → UNS Path Mapping
-        → Rule Chain Execution (77 node types)
-        → TimescaleDB Write (telemetry, attributes)
-        → Alarm Processing
-        → Notification Dispatch
-        → Dead Letter Queue (failed messages)
-```
-
 ### Job Queue Architecture (graphile-worker on Postgres)
 
-Phase 2 of the windows-friendly-rewrite swapped from BullMQ + Redis/Memurai to graphile-worker against `digilog_db` (uses `LISTEN/NOTIFY` for instant dispatch, `SELECT … FOR UPDATE SKIP LOCKED` for concurrency, `pg_advisory_lock` for cron leader election). No separate queue service.
+Phase 2 of the windows-friendly-rewrite swapped from BullMQ + Redis/Memurai to graphile-worker against `digilog_db` (uses `LISTEN/NOTIFY` for instant dispatch, `SELECT … FOR UPDATE SKIP LOCKED` for concurrency, `pg_advisory_lock` for cron leader election). No separate queue service. Three worker tasks remain after the Phase 6/7 tear-out:
 
-| Task | Purpose | Trigger | Concurrency |
-|---|---|---|---|
-| `ingestion` | Telemetry, attributes, events | enqueued by HTTP/MQTT handler | 10 (`addJob` + worker pool) |
-| `notification` | Email, SMS, in-app delivery | enqueued by alarm/event hooks | shared pool |
-| `dlq_check` | Dead letter queue scan | cron 60 s (`packages/queue/crontab.txt`) | 1 leader |
-| `connectivity_check` | Device online/offline staleness | cron 60 s | 1 leader |
-| `retention_cleanup` | TimescaleDB retention policy | cron 24 h | 1 leader |
+| Task | Purpose | Trigger |
+|---|---|---|
+| `notification` | Email + in-app notification delivery | enqueued by event hooks |
+| `pm_overdue_check` | Opens/closes PM overdue deviations | cron 03:00 (`packages/queue/crontab.txt`) |
+| `session_sweep` | Terminates idle/expired sessions + records LOGOUT audit | cron every 5 min |
 
 ## Frontend Architecture (apps/web/)
 
@@ -368,19 +324,19 @@ Phase 2 of the windows-friendly-rewrite swapped from BullMQ + Redis/Memurai to g
 ### Code Splitting
 
 Heavy pages are lazy-loaded for performance:
-- Assets, Rule Chains, Alarms (large editors with ReactFlow)
+- Cleaning-profile / filter-pipeline editor (STAGE / CHECKLIST nodes on a hand-rolled canvas — not ReactFlow)
 - Filter Management (all 10+ pages)
-- Config pages (20+ pages)
+- Config pages (34 pages)
 - Reports (template editor, generator, detail)
 - Mobile routes
 
 ## Database Architecture
 
-### PostgreSQL (digilog_db) — 64 Models
+### PostgreSQL (digilog_db) — 67 Models
 
 ```
 Core:
-  Organization → User → Role → Session → PasswordHistory
+  User → Role → Session → PasswordHistory
 
 Assets:
   AssetTemplate → AssetTemplateVersion
@@ -404,47 +360,23 @@ Reports:
   ReportTemplate → ReportTemplateVersion
   ReportInstance → ReportSignature
 
-Rules & Notifications:
-  RuleChain → RuleNode → RuleNodeConnection
+Notifications:
   Notification, NotificationLog, NotificationTemplate
   NotificationRule → NotificationRuleRecipient
 
 System:
   SystemConfig, FieldIdConfig, RoleConfig, UserConfig
-  AuditTrail (SHA-256 hash chain)
-  DeadLetterQueue, IngestionSystemConfig
+  AuditTrail (SHA-256 hash chain — previous_checksum + chain_position)
   Dashboard → DashboardWidget → DashboardAssignment
   HelpArticle → HelpArticleVersion
-  ConnectivityStatus, DeviceCredential, DataStream
-  QrCode, UnsMapping, BlockChangeRequest, AdminRequest
+  BlockChangeRequest, AdminRequest
 ```
 
-### TimescaleDB (digilog_tsdb) — 7 Hypertables
+> **No TimescaleDB.** The `digilog_tsdb` database and its hypertables were dropped in Phase 7 (2026-06-11) with the data-ingestion tear-out. `digilog_db` (app + graphile-worker queue schema) plus `digilog_test_db` (test isolation) are the only databases.
 
-| Table | Purpose | Partition |
-|---|---|---|
-| ts_telemetry | Sensor readings (temperature, humidity, pressure) | Time (hourly) |
-| ts_attributes | Device attributes (firmware, config) | Time (daily) |
-| ts_alarms | Alarm history with severity levels | Time (daily) |
-| ts_checklist_responses | Checklist answer submissions | Time (daily) |
-| ts_device_events | Device connect/disconnect events | Time (daily) |
-| ts_events | General system events | Time (daily) |
-| ts_exports | Export request tracking | Time (daily) |
+### No Redis (retired Phase 4, 2026-05-01)
 
-### Redis — RETIRED (Phase 4, 2026-05-01)
-
-Phase 4 of the windows-friendly-rewrite removed Redis from the codebase entirely. `ioredis` is no longer in `package.json`. No Redis-protocol service is required to run DigiLog.
-
-| Former Redis use | Replacement |
-|---|---|
-| Pub/sub (WebSocket events) | Removed 2026-07-03 — the WS/trace/debug consumers were torn out in Phase 6/7 and the orphaned in-process bus with them; no pub/sub layer remains |
-| RPC correlation (device commands) | Removed with the data-ingestion/MQTT tear-out (Phase 7, 2026-06-11..06-17); the `lib/rpc-cache.ts` orphan was deleted 2026-07-01 |
-| Pipeline tracer / debug recorder | Same EventEmitter bus, different channels |
-| Re-auth token cache (10s TTL) | In-memory `Map` in `apps/api/src/lib/reauth-check.ts` |
-| Rule chain graph cache | In-memory cache in rule-chain compiler |
-| Session validation cache | Now hits Postgres directly (negligible overhead — reauth-check is the hot path) |
-
-> Job queues moved off Redis to graphile-worker on Postgres in Phase 2 (commit `7832af1`). Phase 4 (commit `cd03de3`) finished the retirement by moving non-queue pub/sub in-process. Why in-process beats PG `LISTEN/NOTIFY` for DigiLog: single-Node-process deployment model + 10ns vs 5-20ms latency + zero new infra. If multi-process scale-out ever becomes a real requirement, swap the EventEmitter implementation behind the same `bus.emit / bus.on` interface for a PG LISTEN/NOTIFY adapter — zero call-site changes.
+DigiLog runs with no Redis-protocol service. `ioredis` is not in `package.json`. Job queues run on graphile-worker over Postgres (Phase 2, commit `7832af1`); the brief in-process EventEmitter pub/sub that replaced Redis pub/sub was itself torn out in Phase 6/7 — there is no pub/sub layer now. The re-auth token cache is an in-memory `Map` in `apps/api/src/lib/reauth-check.ts`; session validation hits Postgres directly.
 
 ## Security Architecture
 
@@ -457,13 +389,11 @@ Phase 4 of the windows-friendly-rewrite removed Redis from the codebase entirely
 │                                                     │
 │  Layer 2: Authentication                            │
 │    └── JWT (8h expiry, 30-min refresh)              │
-│    └── Device tokens (64-char hex, per entity)      │
-│    └── Mosquitto dynsec auth (DeviceCredential → dynamic-security.json via /refresh-acl)         │
+│    └── Single active session per user               │
 │                                                     │
 │  Layer 3: Authorization                             │
-│    └── RBAC (106 permissions, role-based)            │
-│    └── Organization scoping (multi-tenant isolation) │
-│    └── Re-authentication (81 sensitive actions)      │
+│    └── RBAC (109 permissions, role-based)            │
+│    └── Re-authentication (102 sensitive actions)     │
 │                                                     │
 │  Layer 4: Input Validation                          │
 │    └── HTML sanitization (all text inputs)           │
@@ -483,8 +413,6 @@ Phase 4 of the windows-friendly-rewrite removed Redis from the codebase entirely
 | Protocol | Port | Purpose | Authentication |
 |---|---|---|---|
 | HTTPS | 3000 | Web UI + API (Fastify direct; reverse proxy optional) | JWT token |
-| WSS | 3000 | Real-time updates on `/ws` | JWT token |
-| MQTT | 1883 | IoT device telemetry (Mosquitto 2.0) | Device access token (Mosquitto dynsec) |
 | PostgreSQL | 5432 | Database connections (also hosts the graphile-worker queue schema) | Username/password |
-| ~~Redis~~ | ~~6379~~ | RETIRED in Phase 4 (2026-05-01) — pub/sub moved in-process, RPC TTL moved in-process | n/a |
-| Mosquitto control | n/a | Dynsec is configured via the API's `POST /api/internal/mqtt/refresh-acl`, not a standalone dashboard | `MOSQUITTO_REFRESH_TOKEN` (timing-safe compare) |
+
+> No MQTT/WebSocket/Redis ports. The MQTT broker (1883), WebSocket `/ws`, and Redis (6379) were all removed (Phase 4–7). HTTPS on 3000 is the only inbound service.

@@ -4,20 +4,17 @@ DigiLog is a **21 CFR Part 11** compliant **Digital Filter Management System (FM
 
 The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite SPA, a Capacitor Android wrapper for tablets, and a native Kotlin RFID scanner companion app.
 
-> ⚠️ **2026-06-17 — Sections below referencing IoT data ingestion / MQTT / TimescaleDB / rule-chain engine / alarm management are HISTORICAL.** The data-ingestion subsystem was removed in Phase 7 (2026-06-11..2026-06-17) and the rule-chain + alarm subsystem in 2026-05-17. See root `CLAUDE.md` System Stats + `CHANGELOG.md` Phase 7 entry for what's current.
-
 ---
 
 ## What's in this repo
 
 | Path | Contents |
 |---|---|
-| `apps/api/` | Fastify 5 backend — 37 modules, ~398 endpoints across 59 route files |
-| `apps/web/` | React 19 SPA — 22 route modules, ~84 pages, Tailwind CSS |
+| `apps/api/` | Fastify 5 backend — 35 modules, 200+ endpoints |
+| `apps/web/` | React 19 SPA — 76 routes, Tailwind CSS |
 | `apps/android/` | Capacitor Android wrapper that ships the SPA as `DigiLog-FilterOps.apk` |
 | `rfid_scan_app/` | Native Kotlin app for KC-series UHF RFID readers (USB) |
 | `packages/shared/` | Permissions, privileges, reauth actions, Zod schemas |
-| `packages/db/` | Prisma client + TimescaleDB pool + telemetry batcher |
 | `packages/queue/` | graphile-worker queue producer + runner (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis) |
 | `docs/` | Active project documentation |
 | `old/` | Archived superseded docs (kept for reference) |
@@ -32,22 +29,18 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 ## Features
 
 ### Phase 1 — Core Platform
-- **Entity management** — Hierarchical asset modeling, 12 relationship types, identifiers (QR / RFID / NFC / Barcode)
-- **Rule chain engine** — Visual DAG editor with **77 node types** across 8 categories
-- **Data ingestion** — MQTT (Mosquitto) + HTTP with rate limiting, IP allowlists, schema validation
-- **Alarm system** — Threshold / rate-of-change / absence alarms with electronic-signature acknowledgment
-- **Unified Namespace (UNS)** — ISA-95 hierarchical topic structure
+- **Entity management** — Hierarchical asset modeling, identifiers (RFID / NFC / Barcode)
 - **Digital checklists** — 10+ field types, photo capture, 3-step approval workflow
 - **Audit trail** — Tamper-evident SHA-256 hash-chain log with before/after snapshots
 - **Notifications** — In-app + email (SMTP/OAuth2) + SMS (AWS SNS / Twilio) + Telegram + Slack
-- **Backup/restore** — Full DB export covering all 64 tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
-- **RBAC** — 6 hierarchical roles, **106 permissions**, **90 feature toggles**, **87 reauthentication actions** across 16 categories, **26 sidebar items** (single-tenant since 2026-04-30; `VERSION_HISTORY_VIEW` added 2026-05-02 for cross-entity audit history; reauth gained `UPDATE_PROFILE`/`RETIRE_FILTER`/`REPLACE_FILTER`/`BULK_UPLOAD_FILTERS` on 2026-05-04, plus `APPROVE_ADMIN_REQUEST` (M1) and `UPDATE_FILTER_LIFECYCLE` (M2) on 2026-05-04 — distinguish admin-request approvals from generic user creation, and filter lifecycle moves from generic asset edits)
+- **Backup/restore** — Full DB export covering all tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
+- **RBAC** — 6 hierarchical roles, **109 permissions**, **90 feature toggles**, **102 reauthentication actions** across 16 categories, **26 sidebar items** (single-tenant since 2026-04-30)
 - **Help articles** — 40+ versioned in-app docs across 8 categories
 - **LDAP integration** — Active Directory / OpenLDAP with group→role mapping
 
 ### Phase 2 — Digital Filter Management System (FMS)
 - **Filter operations** — Multi-stage cleaning lifecycle with QR/RFID scan
-- **Cleaning profiles** — Visual pipeline editor (ReactFlow) with drag-and-drop nodes, CHECKLIST gates, BYPASS mode
+- **Cleaning profiles** — Visual pipeline editor (custom hand-rolled canvas) with drag-and-drop nodes, CHECKLIST gates, BYPASS mode
 - **Checklist profiles** — Reusable question templates wired into pipeline checklist nodes
 - **Filter profiles** — Block restrictions, max-cycle limits, profile-to-filter assignment
 - **Cleaning cycles** — Full audit trail with timestamps, performer, remarks, checklist answers
@@ -73,7 +66,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Report template designer** — visual editor + PDF generation engine + digital signatures
 - **Configurable report header/footer/layout** — `/config/report-settings`
 - **Dynamic bulk upload** — CSV columns from template `attributeSchema`
-- **87 reauthentication actions** across 16 categories
+- **102 reauthentication actions** across 16 categories
 - **Block change request/approval** workflow with single-use consumption
 
 ### Phase 5 — April 15–29, 2026 (live on `RFID` branch)
@@ -82,9 +75,9 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 - **Reports module — phases A–F complete** — visual template designer + PDF generation engine (puppeteer-core + Microsoft Edge + @napi-rs/canvas + Handlebars) + 5-source variable resolver + digital signatures. (Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to drop the bundled-Chromium download and the node-gyp/MSVC dependency.)
 - **Offline hardening (14-issue overhaul)** — TTL cache, idempotency keys, tombstones, LRU eviction, JWT refresh on replay, server-side `stageLookup` walker for chained CHECKLIST nodes, Capacitor Network plugin + Service Worker hook
 - **RFID SDK plugin baked into DigiLog APK** — `Reader_Usb.jar` via `RfidPlugin.java` — KC-series readers work in SDK and UKB modes
-- **Filter Data Management console** — 10 tabs each mirroring its user-facing page (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, etc.) with Edit modals
+- **Filter Data Management console** — 10 tabs each mirroring its user-facing page (cycles, events, PM, audit, notifications, admin requests, block changes, etc.) with Edit modals
 - **DRY_IN two-step flow** — SET_DURATION → SUBMIT_READINGS, "Currently Drying" countdown panel persisted across navigation/offline
-- **Dynamic backup/restore** — covers all 64 tables via `pg_tables` + `jsonb_populate_recordset`, non-superuser compatible
+- **Dynamic backup/restore** — covers all tables via `pg_tables` + `jsonb_populate_recordset`, non-superuser compatible
 - **Admin requests approval execution** — approvals now actually create/unlock/reset/modify users
 - **Bloat audit follow-up** — 12/14 items resolved (SPIS submit-path parity, dependency cleanup, config monolith split, inline-style codemod, EC2 assets removed, lint rule for `as any`)
 - **Decision-tape proposal** — future architecture to eliminate client/server pipeline drift (proposed, not yet implemented)
@@ -97,7 +90,7 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 |---|---|
 | Backend | Fastify 5 (Node.js / TypeScript, port 3000) |
 | Frontend | React 19 + Vite 6 (TypeScript, Tailwind CSS 4, port 5175 dev) |
-| Database | PostgreSQL 18 + Prisma ORM (single DB `digilog_db`; TimescaleDB dropped in Phase 7) |
+| Database | PostgreSQL 18 + Prisma ORM (single DB `digilog_db`) |
 | Job queue | graphile-worker on PostgreSQL (LISTEN/NOTIFY + SKIP LOCKED + advisory locks) |
 | Pub/sub (non-queue) | None — Phase 4 retired Redis; the in-process EventEmitter bus was later removed with its last WS/trace/debug consumer (Phase 6/7) |
 | PDF + charts | puppeteer-core + Microsoft Edge + @napi-rs/canvas (no bundled Chromium, no node-gyp) |
@@ -108,7 +101,7 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 
 ## Quick Start (Windows local dev)
 
-**Prerequisites:** Node.js 20+, PostgreSQL 18 with TimescaleDB, Mosquitto 2.0 via `scripts/install-mosquitto.ps1` (optional unless testing MQTT). **No Redis dependency** — Phase 4 (2026-05-01) retired it.
+**Prerequisites:** Node.js 20+, PostgreSQL 18. **No Redis dependency** — Phase 4 (2026-05-01) retired it.
 
 ```bash
 # Clone
@@ -120,17 +113,12 @@ npm install
 # Build shared packages
 npm run build -w @digilog/shared && npm run build -w @digilog/queue
 
-# Initialize databases
+# Initialize the database
 createdb digilog_db
-createdb digilog_tsdb
 npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
 npx prisma db seed --schema=apps/api/prisma/schema.prisma
 
-# Start services (or use start-digilog.bat)
-# Phase 4 (2026-05-01): Redis fully retired — no Memurai needed.
-Get-Service mosquitto                          # Mosquitto runs as a Windows service after install-mosquitto.ps1
-
-# Run API and web in two terminals
+# Run API and web in two terminals (or use start-digilog.bat)
 cd apps/api && npx tsx watch src/app.ts       # API on :3000
 cd apps/web && npx vite --host                # Web on :5175
 ```
@@ -149,17 +137,15 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 | Web (Vite dev) | http://localhost:5175 |
 | API | https://localhost:3000 |
 | Swagger docs | https://localhost:3000/docs |
-| Mosquitto | tcp://localhost:1883 (no web dashboard; dynsec via `POST /api/internal/mqtt/refresh-acl`) |
 
 ---
 
 ## Database
 
 ### PostgreSQL (`digilog_db` — Prisma)
-**68 models, 21 enums** covering users, roles, sessions, entities, templates, relationships (Step 2 enum), identifiers, audit, notifications, configs, help articles, electronic signatures, filter cleaning profiles (Phase A.2 added `lineageId UUID` for rowful version history — same row count, no new model), filter profiles + FilterProfileVersion immutable history (Phase A.3) + FilterProfileApplicableTemplate join table (Step 4), cleaning cycles, filter events, FilterDetails 1:1 sidecar (Step 6), PM schedules + entries + executions, checklist profiles + questions + ChecklistProfileVersion immutable history (Phase 5b A.1), equipment groups + instruments + EquipmentGroupVersion composite-snapshot history (Phase A.4), report templates + versions + instances + signatures, block-change requests, admin requests, dashboards + widgets + assignments, password history + reset requests.
+**67 models, 25 enums** covering users, roles, sessions, entities, templates, relationships (Step 2 enum), identifiers, audit, notifications, configs, help articles, electronic signatures, filter cleaning profiles (Phase A.2 added `lineageId UUID` for rowful version history — same row count, no new model), filter profiles + FilterProfileVersion immutable history (Phase A.3) + FilterProfileApplicableTemplate join table (Step 4), cleaning cycles, filter events, FilterDetails 1:1 sidecar (Step 6), PM schedules + entries + executions, checklist profiles + questions + ChecklistProfileVersion immutable history (Phase 5b A.1), equipment groups + instruments + EquipmentGroupVersion composite-snapshot history (Phase A.4), report templates + versions + instances + signatures, block-change requests, admin requests, dashboards + widgets + assignments, password history + reset requests.
 
-### TimescaleDB (`digilog_tsdb`)
-**7 hypertables**: `ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`, `ts_alarm_history`.
+The vitest suite runs against a separate `digilog_test_db`.
 
 ---
 
@@ -177,7 +163,7 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 | `CHANGELOG.md` | Full chronological history |
 | `future/README.md` | Onboarding pack — overview + reading order |
 | `future/overview/CODEBASE_SUMMARY.md` | Most-comprehensive single-file tech stack with version pins (React 19 / Vite 6 / Fastify 5 / Prisma 6 / Capacitor 8 / `jose` / `ldapts`), feature areas verified by directory inspection, "How to find things" cookbook |
-| `future/overview/CURRENT_STATUS.md` | Snapshot @ 2026-04-29 + **KNOWN GOTCHAS** taxonomy (Capacitor WebView fetch, Redis ≥5, `digilog_tsdb`, Fastify schema stripping, roles after DB restore, cycle profile_id frozen, idempotency-key required for replay) |
+| `future/overview/CURRENT_STATUS.md` | Snapshot @ 2026-04-29 + **KNOWN GOTCHAS** taxonomy (Capacitor WebView fetch, Fastify schema stripping, roles after DB restore, cycle profile_id frozen, idempotency-key required for replay) |
 | `future/overview/API_LIST.md` | Compact 394-endpoint index with `*` public markers |
 | `future/backend/{README,MODULES,API_ENDPOINTS,ENV_SETUP}.md` | Backend onboarding — directory map, request lifecycle + PUBLIC_PATHS taxonomy, per-module verified endpoint counts, full canonical endpoint table, env-setup walkthrough |
 | `future/frontend/{README,KEY_FILES,PATTERNS}.md` | Frontend onboarding — directory map, annotated file index ("why it matters"), conventions for routes / SWR / forms / offline-safe mutations / dynamic attribute forms |

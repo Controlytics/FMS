@@ -37,11 +37,14 @@ This folder contains detailed analysis of every deployment method evaluated for 
 |---|---|---|
 | [method-a-native-windows.md](method-a-native-windows.md) | Native Windows Install | **RECOMMENDED** |
 | [method-b-docker-compose.md](method-b-docker-compose.md) | Docker Compose on Windows | Good alternative |
-| [method-c-wsl2-linux.md](method-c-wsl2-linux.md) | WSL2 + Native Linux Stack | Not recommended |
 | [method-d-hybrid.md](method-d-hybrid.md) | Hybrid (Docker Infra + Native App) | Niche use case |
 | [method-e-iis.md](method-e-iis.md) | IIS Instead of Nginx | Only if mandated |
-| [method-f-cloud.md](method-f-cloud.md) | Cloud-Managed Services | Not for factories |
 | [comparison.md](comparison.md) | Side-by-Side Comparison & Final Verdict | — |
+
+> **Note:** Methods C (WSL2) and F (Cloud) were evaluated in the matrix but never written
+> up as separate files, so their rows are omitted here. See the status banner at the top of
+> this file for how the stack has since changed; the MQTT/TimescaleDB components in the tables
+> below are historical (removed 2026-06, Phase 7).
 
 ## Quick Decision Tree
 

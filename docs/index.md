@@ -2,13 +2,12 @@
 
 A 21 CFR Part 11–compliant digital logbook + IoT data platform with an integrated **Digital Filter Management System** for pharmaceutical cleanrooms.
 
-## Platform stats (current — 2026-04-29, verified against live code)
-- **36 API modules**, **200+ endpoints**, **68 Prisma models**, **21 enums**
-- **77 rule-chain node types** across 8 categories
-- **30 config definitions** with auto-discovery, **26 config pages**
-- **106 permissions**, **90 feature toggles**, **87 reauth actions**, **26 sidebar items** (reauth gained `APPROVE_ADMIN_REQUEST` (M1) + `UPDATE_FILTER_LIFECYCLE` (M2) on 2026-05-04 — audit-trail correctness fixes from `tasks/AUDIT-2026-05-04-linkage-review.md`)
+## Platform stats (current — 2026-07-04, verified against live code)
+- **35 API modules**, **200+ endpoints**, **67 Prisma models**, **25 enums**
+- **35 config definitions** with auto-discovery, **34 config pages**
+- **109 permissions**, **90 feature toggles**, **102 reauth actions**, **26 sidebar items**
 - **10 color themes**, configurable report layout, multi-channel notifications
-- **TimescaleDB** with 7 hypertables for telemetry / attributes / events / alarm history
+- Single PostgreSQL database (`digilog_db`); Postgres-backed **graphile-worker** job queue (no Redis)
 
 ## Where to start
 
@@ -30,14 +29,11 @@ For a top-down view, prefer the docs at the repo root:
 ## User Guide
 - [Entities & Hierarchy](user-guide/entities/entities-and-hierarchy.md)
 - [Asset Templates](user-guide/templates/asset-templates.md)
-- [Device Connectivity](user-guide/connectivity/device-connectivity.md)
-- [MQTT Setup](user-guide/connectivity/mqtt.md)
-- [Telemetry](user-guide/telemetry/telemetry.md)
-- [Rule Engine](user-guide/rule-engine/overview.md)
-- [Alarms](user-guide/alarms/alarms.md)
 - [Checklists](user-guide/checklists/checklists.md)
-- [UNS (Unified Namespace)](user-guide/uns/uns.md)
-- [Data Export](user-guide/data-export/data-export.md)
+
+> The IoT-ingestion subsystems (Device Connectivity, MQTT, Telemetry, Rule Engine,
+> Alarms, UNS, Data Export) were removed in Phases 6–7 (2026-05..2026-06). Their user
+> guides are archived under `old/docs-superseded/removed-user-guides/`.
 
 ## Administration
 - [User Management](administration/users/user-management.md)
@@ -64,7 +60,7 @@ For a top-down view, prefer the docs at the repo root:
 Comprehensive system for tracking the cleaning lifecycle of pharmaceutical cleanroom HEPA filters.
 
 **Modules**
-- **Cleaning Profiles** — Visual pipeline editor (ReactFlow) with STAGE / CHECKLIST / BYPASS / END nodes
+- **Cleaning Profiles** — Visual pipeline editor (custom hand-rolled canvas) with STAGE / CHECKLIST / BYPASS / END nodes
 - **Filter Profiles** — Block restrictions, max cycles, profile assignment
 - **Filter Operations** — Cycle start, advance, bypass, terminate, checklist submission
 - **PM Schedules** — Per-AHU preventive maintenance with tolerance windows + QA approval
@@ -119,7 +115,7 @@ All filter operations are recorded as immutable events with SHA-256 checksums, e
 - RFID SDK plugin baked into DigiLog APK (KC-series via `Reader_Usb.jar`)
 - Filter Data Mgmt console — 10 tabs mirroring user-facing pages
 - DRY_IN two-step flow with persisted countdown panel
-- Dynamic backup/restore covering all 64 tables
+- Dynamic backup/restore covering all app tables
 - EC2 / PM2 production assets removed; Windows-local-only
 - Bloat audit (12/14 items resolved)
 - Decision-tape proposal (future architecture)

@@ -3,13 +3,12 @@
     Post-install smoke-check for the DigiLog Windows deployment.
 
 .DESCRIPTION
-    Runs a sequence of read-only checks to confirm the four critical pieces of
-    the stack are alive after install-on-target.ps1 has finished:
+    Runs a sequence of read-only checks to confirm the three critical pieces of
+    the stack are alive after a DigiLog install/upgrade has finished:
 
         1. API /api/health responds 200
-        2. Mosquitto MQTT broker is listening on tcp://localhost:1883
-        3. graphile_worker schema exists in the application database
-        4. The /api/reports/generate path can render a 1-page PDF
+        2. graphile_worker schema exists in the application database
+        3. The /api/reports/generate path can render a 1-page PDF
            (login as superadmin, find an ACTIVE template, generate, fetch PDF,
            verify the response begins with the PDF magic bytes "%PDF-")
 
@@ -184,8 +183,8 @@ try {
 
 Set-CertCallback -Skip:$Insecure
 
-# ───── [1/4] API health ──────────────────────────────────
-Write-Host "[1/4] Checking API health..." -ForegroundColor Cyan
+# ───── [1/3] API health ──────────────────────────────────
+Write-Host "[1/3] Checking API health..." -ForegroundColor Cyan
 try {
     $healthUrl = "$ApiBase/api/health"
     $resp = Invoke-Api -Method GET -Url $healthUrl
@@ -204,32 +203,9 @@ try {
     Write-Host "     FAIL: $msg" -ForegroundColor Red
 }
 
-# ───── [2/4] Mosquitto port ──────────────────────────────
+# ───── [2/3] graphile_worker schema ──────────────────────
 Write-Host ""
-Write-Host "[2/4] Checking Mosquitto MQTT (tcp://localhost:1883)..." -ForegroundColor Cyan
-try {
-    # Test-NetConnection is verbose — suppress its progress + warning stream.
-    $tnc = Test-NetConnection -ComputerName 'localhost' -Port 1883 -WarningAction SilentlyContinue -InformationLevel Quiet
-    # On PS 5.1 -InformationLevel Quiet returns a bool; otherwise we get the object.
-    $ok = $false
-    if ($tnc -is [bool]) { $ok = $tnc }
-    elseif ($tnc -and $tnc.PSObject.Properties['TcpTestSucceeded']) { $ok = [bool]$tnc.TcpTestSucceeded }
-    if ($ok) {
-        Add-Result 'Mosquitto MQTT (localhost:1883)' 'PASS' 'TcpTestSucceeded'
-        Write-Host "     PASS" -ForegroundColor Green
-    } else {
-        Add-Result 'Mosquitto MQTT (localhost:1883)' 'FAIL' 'TCP connect failed'
-        Write-Host "     FAIL: could not connect to tcp://localhost:1883" -ForegroundColor Red
-    }
-} catch {
-    $msg = $_.Exception.Message
-    Add-Result 'Mosquitto MQTT (localhost:1883)' 'FAIL' $msg
-    Write-Host "     FAIL: $msg" -ForegroundColor Red
-}
-
-# ───── [3/4] graphile_worker schema ──────────────────────
-Write-Host ""
-Write-Host "[3/4] Checking graphile_worker schema..." -ForegroundColor Cyan
+Write-Host "[2/3] Checking graphile_worker schema..." -ForegroundColor Cyan
 try {
     $psqlOk = $false
     try {
@@ -290,9 +266,9 @@ try {
     Write-Host "     FAIL: $msg" -ForegroundColor Red
 }
 
-# ───── [4/4] Reports - generate + fetch PDF ──────────────
+# ───── [3/3] Reports - generate + fetch PDF ──────────────
 Write-Host ""
-Write-Host "[4/4] Checking report generation (login -> generate -> fetch PDF)..." -ForegroundColor Cyan
+Write-Host "[3/3] Checking report generation (login -> generate -> fetch PDF)..." -ForegroundColor Cyan
 try {
     # Resolve admin password: explicit -AdminPassword wins, else INITIAL_ADMIN_PASSWORD from .env
     $pwd = $AdminPassword

@@ -3,6 +3,8 @@
 **Status: Niche use case — only for technical teams — HISTORICAL EVALUATION DOC**
 
 > **2026-04-29 update:** windows-friendly-rewrite changed the stack: EMQX → Mosquitto 2.0, BullMQ + Memurai → graphile-worker on Postgres (no separate queue service), Nginx + PM2 → Fastify-direct on `:3000`. This evaluation predates those swaps; for the current shipping install runbook see root `DEPLOY-WINDOWS.md`.
+>
+> **2026-06 update (Phase 7):** the entire data-ingestion subsystem — MQTT (Mosquitto), TimescaleDB, and Redis — was removed. The MQTT-broker, TimescaleDB, and Redis containers shown below **no longer apply**; DigiLog now runs on a single vanilla PostgreSQL 18 database with no broker or cache service. This page is retained as a historical evaluation only.
 
 PostgreSQL, Redis, and EMQX run in Docker containers. API and Nginx run natively on Windows.
 

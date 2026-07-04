@@ -3,6 +3,8 @@
 **Status: Good alternative if client knows Docker — HISTORICAL EVALUATION DOC**
 
 > **2026-04-29 update:** the bundled `docker-compose.yml` was updated to `eclipse-mosquitto:2.0` (replacing the EMQX image) in Phase 1 of the windows-friendly-rewrite. BullMQ + Memurai are no longer required — the queue runs inside Postgres via graphile-worker. Reports use Edge headless via `puppeteer-core` (Phase 3). For the current shipping install runbook see root `DEPLOY-WINDOWS.md`; this page is the original evaluation.
+>
+> **2026-06 update (Phase 7):** the entire data-ingestion subsystem — MQTT (Mosquitto), TimescaleDB, and Redis — was removed. The MQTT-broker, TimescaleDB, and Redis containers shown in the diagrams below **no longer apply**; DigiLog now runs on a single vanilla PostgreSQL 18 database with no broker or cache service. This page is retained as a historical evaluation only.
 
 All services run as Docker containers. One `docker-compose up -d` starts everything.
 
