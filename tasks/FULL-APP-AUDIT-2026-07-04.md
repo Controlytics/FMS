@@ -177,9 +177,13 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
   left broad by design (SUMMARY_SELECT, no snapshot — the tracking board). FE `canDownloadReview`
   mirrors the scope so the Download button only renders for parties. Pure helpers unit-tested
   (8 api + 7 web). api 856/0/13, web 373/0.
-- 🟡 **MEDIUM — equipment-group version pin lazy-binds to the LIVE version** when no group was
-  supplied at cycle start (partly by-design; only the deviation flag is affected, submitted values
-  are still snapshotted).
+- ✅ **FIXED (0577aa8) 🟡 MEDIUM — equipment-group version pin lazy-binds to the LIVE version** when no
+  group was supplied at cycle start. Fixed: `start-cycle` now pins the version at START for the common
+  single-active-group-per-block case (pure `resolveStartEquipmentGroupPin`, unit-tested) instead of
+  lazy-binding to whatever's live at first readings; `advance` only honours the pin for its own group
+  (defensive override guard). Corrects the out-of-range determination; recorded reading values were
+  always immutable in `FilterEvent`. Accepted limits: offline-replay pins at replay time, legacy
+  in-flight cycles still lazy-bind. api 861/0/13.
 - 🟡 **MEDIUM — SMS http-gateway marks SENT on any 2xx**, ignoring a body-level error (provider-schema
   specific).
 - ⚪ **LOW (batch)**: pdf-renderer cold-start browser launch race (Edge leak); OAuth2 email callback
