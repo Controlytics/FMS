@@ -96,9 +96,6 @@ async function buildPhase4App(): Promise<FastifyInstance> {
   await app.register(configRoutes, { prefix: '/api/config' });
   await app.register(dynamicConfigRoutes, { prefix: '/api/config' });
   await app.register(filterOperationsRoutes, { prefix: '/api/filters' });
-  // Reports routes use a dynamic import to defer puppeteer-core load — same
-  // pattern as app.ts:296.
-  await app.register((await import('../modules/reports/routes.js')).default, { prefix: '/api/reports' });
 
   await app.ready();
   return app;
@@ -322,34 +319,7 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
   // ===========================================================================
   // 6. Report generation smoke test — SKIPPED with rationale
   // ===========================================================================
-  describe('POST /api/reports/generate', () => {
-    it('rejects unauthenticated requests with 401', async () => {
-      // A lightweight assertion that does NOT require a full template
-      // fixture: the route is mounted and auth is enforced. This is the
-      // route-layer signal we can give without spinning up puppeteer.
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/reports/generate',
-        payload: { templateId: '00000000-0000-4000-8000-000000000000' },
-      });
-      expect(res.statusCode).toBe(401);
-    });
-
-    it.skip('generates a real PDF — SKIP: requires puppeteer-core Edge runtime + full template fixture', () => {
-      // Skipped because end-to-end PDF generation requires:
-      //   1. A persisted ReportTemplate + ReportTemplateVersion row with a
-      //      complete PageSettings + sections config blob,
-      //   2. Edge browser binary discoverable by puppeteer-core (the project
-      //      uses puppeteer-core to avoid bundling Chromium — see Phase 3 of
-      //      windows-friendly-rewrite),
-      //   3. @napi-rs/canvas for chart rendering,
-      //   4. Writable uploads/reports/ directory and DB write to ReportInstance.
-      //
-      // This combination is intentionally exercised by the integration
-      // harness in tests/integration/windows-server-stack.test.ts (gated by
-      // INTEGRATION_TEST=1) which boots the full stack. Replicating it
-      // inside the route-layer e2e suite would duplicate that fixture and
-      // make the suite environment-dependent (browser binary path).
-    });
-  });
+  // (Removed 2026-07-04: POST /api/reports/generate tests — the reports
+  // generate/sign module was deleted as dead code, no FE surface since
+  // 2026-06-08. See tasks/REMOVE-REPORTS-MODULE-PLAN.md.)
 });
