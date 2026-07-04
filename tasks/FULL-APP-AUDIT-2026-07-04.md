@@ -154,15 +154,22 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
 - 🟡 **MEDIUM — CSV-restore numeric coercion corrupted text** (`backup.service.ts`): `"0055"→55`,
   `"+91…"`, `"1.0"→1`. Fixed: coerce only canonical numbers (`String(Number(v))===v`).
 
+### ⚠️ FLAGGED
+- ✅ **FIXED (9b345a3) 🟠 HIGH — audit per-row checksum omits `beforeValue`/`reason`/`signatureMeaning`/`userRole`**
+  (+`userName`/`ipAddress`/`userAgent`/`sessionId`) (`audit.ts`/`hash-chain.ts`/`audit-verify.ts`/`audit/routes.ts`):
+  those columns (incl. the §11.50 signature meaning) were outside tamper-evidence — a DB-level actor could
+  rewrite them and verify-chain still passed. Fixed **without** a recompute-and-rechain migration, following
+  the file's own V1/V2 versioning philosophy: new rows are hashed over the EXPANDED field set; the verifier
+  tries expanded-then-reduced so all pre-expansion rows still verify via the reduced fallback (accepted
+  limitation: extra columns not tamper-covered for historical rows). Chain walker SELECTs+passes all 8 columns.
+  13-case proof (tamper on every newly-covered field now DETECTED) + hash-chain 24/24 + e2e audit-chain 4/4 + suite 846/0/13.
+- ✅ **FIXED (361c4df) 🟠 HIGH — SQL-format restore silently drops/corrupts rows** with newlines or `);` in a value
+  (`backup.service.ts`). Root cause was the OUTER statement regex (`.` can't cross `\n` → row dropped; lazy `\);`
+  → row truncated). Replaced with a header-match + string-aware `findValuesClose()` scanner (the inner
+  `parseSqlValues` tokenizer was already correct). 2 round-trip tests (newline/`);`/embedded-INSERT/`''`/jsonb/
+  truncated-tail), all fail on the old regex. Suite 848/0/13.
+
 ### ⚠️ FLAGGED — real but need a design decision / bigger effort (NOT fixed)
-- 🟠 **HIGH — audit per-row checksum omits `beforeValue`/`reason`/`signatureMeaning`/`userRole`**
-  (`audit.ts`/`hash-chain.ts`): those columns (incl. the §11.50 signature meaning) are outside
-  tamper-evidence — a DB-level actor can rewrite them and verify-chain still passes. Fix requires
-  a checksum-field expansion + a **recompute-and-rechain migration** of all existing rows (a
-  compatibility-breaking change), so it needs an explicit decision, not a quick edit.
-- 🟠 **HIGH — SQL-format restore silently drops/corrupts rows** with newlines or `);` in a value
-  (`backup.service.ts` regex parser). Needs a proper SQL value tokenizer; JSON/BAK formats are safe.
-  Recommend: make JSON the canonical restore format + rewrite the SQL parser (or drop SQL restore).
 - 🟡 **MEDIUM — report-review cross-user snapshot read** (`list()`/`getById()` unscoped): a
   SUBMIT-only user can read any report's `dataSnapshot`. Contained fix (scope getById to involved
   parties) — deferred to avoid frontend-fetch coordination in this pass.
