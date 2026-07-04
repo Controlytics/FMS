@@ -80,7 +80,8 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
 - **Confidence:** verified (traced; no `'syncing'`→`'pending'` reset anywhere).
 - **Fix:** on app boot, requeue any `'syncing'` rows back to `'pending'` (they're idempotent via clientOpId, so re-replay is safe).
 
-### 🟠 #6 — MEDIUM — replacement-execute route has no authorization guard
+### 🟠 #6 — MEDIUM — replacement-execute route has no authorization guard — ✅ FIXED (`29263e3`)
+> Fixed 2026-07-04: added `preHandler: [requirePermission('FILTER_REPLACE')]` (the same gate the direct replace endpoint uses). api suite 846/0/13. Role grants unchanged (policy).
 - **Where:** `apps/api/src/modules/replacement-schedule/routes.ts:175` — `POST /api/replacement-schedules/entries/:id/execute`.
 - **Defect:** no `requirePermission`/`requireRole` preHandler; the only control is `enforceReauth('REPLACE_FILTER')`, which returns `{ok:true}` **without a password** whenever `REPLACE_FILTER` isn't in the `action-reauth` config (the default/legacy state). So the JWT is the sole control.
 - **Scenario:** any authenticated user with **zero filter perms** (viewer/auditor/notifications-only) POSTs a valid due-entry id → `executeReplacement()` retires the old filter + creates a replacement (21 CFR lifecycle mutation). Marked "intentional" in a 2026-06-04 comment, but a genuine broken-access-control.
