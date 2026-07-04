@@ -4,6 +4,7 @@
  */
 
 import { type FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import { prisma } from '../../lib/prisma.js';
@@ -41,6 +42,11 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     delete value.accessToken;
     delete value.tokenExpiresAt;
     if (value.refreshToken) value.refreshToken = MASK;
+    // #low-batch (CSRF): the pending OAuth2 `state` is a server-only anti-forgery
+    // secret — never expose it on read, or a CONFIG_READ user could read the live
+    // state and forge the callback, defeating the very protection it provides.
+    delete value.oauth2PendingState;
+    delete value.oauth2PendingStateAt;
     return value;
   });
 
@@ -173,6 +179,16 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       return { authUrl: '' };
     }
 
+    // #low-batch (CSRF, RFC 6749 §10.12): mint an unpredictable `state`, persist it
+    // server-side (only this authenticated CONFIG_UPDATE admin can set it), and echo
+    // it in the auth URL. The callback verifies it before exchanging the code, so an
+    // attacker-initiated code (carrying THEIR state) can't link their mailbox.
+    const state = randomUUID();
+    await prisma.systemConfig.update({
+      where: { configKey: 'notification-email' },
+      data: { configValue: { ...value, oauth2PendingState: state, oauth2PendingStateAt: Date.now() } as any },
+    });
+
     let authUrl = '';
     if (provider === 'microsoft' || provider === 'office365') {
       const params = new URLSearchParams({
@@ -182,6 +198,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         scope: 'offline_access https://outlook.office365.com/SMTP.Send',
         response_mode: 'query',
         prompt: 'consent',
+        state,
       });
       authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
     } else if (provider === 'google') {
@@ -192,6 +209,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         scope: 'https://mail.google.com/',
         access_type: 'offline',
         prompt: 'consent',
+        state,
       });
       authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
@@ -211,11 +229,12 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
           code: { type: 'string' },
           error: { type: 'string' },
           error_description: { type: 'string' },
+          state: { type: 'string' },
         },
       },
     },
   }, async (req, reply) => {
-    const query = req.query as { code?: string; error?: string; error_description?: string };
+    const query = req.query as { code?: string; error?: string; error_description?: string; state?: string };
 
     if (query.error) {
       return reply.type('text/html').send(`<html><body><h2>OAuth2 Error</h2><p>${escapeHtml(query.error)}: ${escapeHtml(query.error_description ?? '')}</p><script>window.close();</script></body></html>`);
@@ -228,6 +247,18 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     try {
       const config = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
       const value = (config?.configValue ?? {}) as Record<string, unknown>;
+
+      // #low-batch (CSRF): verify the `state` echoed by the provider matches the
+      // one this server minted in /authorize (unpredictable, admin-set, one-time,
+      // 10-min TTL). Without this an attacker could feed the admin a code bound to
+      // the ATTACKER's mailbox and hijack outbound notification email. Reject BEFORE
+      // any token exchange.
+      const storedState = String(value.oauth2PendingState ?? '');
+      const storedStateAt = Number(value.oauth2PendingStateAt ?? 0);
+      const STATE_TTL_MS = 10 * 60 * 1000;
+      if (!query.state || !storedState || query.state !== storedState || Date.now() - storedStateAt > STATE_TTL_MS) {
+        return reply.type('text/html').send('<html><body><h2>Authorization Error</h2><p>Invalid or expired authorization state. Please restart the connection from the notification settings page.</p><script>window.close();</script></body></html>');
+      }
 
       const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
       const proto = req.headers['x-forwarded-proto'] || 'http';
@@ -287,6 +318,9 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         refreshToken: tokenData.refresh_token ?? value.refreshToken,
         tokenExpiresAt: Date.now() + (Number(tokenData.expires_in ?? 3600) * 1000),
         oauth2Configured: true,
+        // One-time use: consume the pending state so the same code+state can't be replayed.
+        oauth2PendingState: null,
+        oauth2PendingStateAt: null,
       };
 
       await prisma.systemConfig.update({
