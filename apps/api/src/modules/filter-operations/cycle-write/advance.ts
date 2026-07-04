@@ -15,7 +15,7 @@ import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempoten
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
-import { computeChecksum, collectChecklistsAfterStage } from '../helpers.js';
+import { computeChecksum, collectChecklistsAfterStage, prettyStageLabel } from '../helpers.js';
 import { lockAndVerifyFilterState } from './locking.js';
 import { validateAdvanceBlock } from '../filter-resolver.js';
 import {
@@ -377,6 +377,23 @@ export async function advanceImpl(
   // snapshot (DB reads) is gathered BEFORE the tx; the notification fires AFTER
   // commit (best-effort). willComplete mirrors the auto-complete condition below.
   const willComplete = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget;
+
+  // #5 fix (audit 2026-07-04): a terminal interlock stage — WASH_OUT / DRY_OUT that
+  // leads straight to END — would auto-complete with NO QA sign-off. `willComplete`
+  // zeroes `enteringInterlock` below, so no PENDING CleaningStageApproval is ever
+  // created and the interlock gate ("no filter leaves WASH_OUT/DRY_OUT without QA
+  // approval") is silently defeated. Fail SAFE: reject the completing advance rather
+  // than complete without the required approval (21 CFR §11). An admin must add a
+  // stage after the interlock point or disable the interlock. Offline replay is
+  // exempt (offline work is never gated — same carve-out as `enteringInterlock`).
+  if (interlockConfig.enabled && isInterlockStage(targetState) && willComplete && !ctx.isOfflineReplay) {
+    throw new AppError(
+      422,
+      'INTERLOCK_TERMINAL_STAGE',
+      `This cleaning cycle would complete directly out of ${prettyStageLabel(targetState)}, but the QA stage interlock is enabled for that stage — a filter cannot complete a cycle without the required QA approval. An administrator must add a stage after ${prettyStageLabel(targetState)} or disable the stage interlock.`,
+    );
+  }
+
   // Offline exemption (see leave-gate note above): don't raise the gate for an
   // offline-replayed entry into WASH_OUT / DRY_OUT — offline work isn't gated, so
   // creating a PENDING approval would leave a stuck request no operator can clear.
