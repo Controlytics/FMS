@@ -30,13 +30,13 @@ node apps/api/dist/app.js
 - JWT auth with 30-min refresh, session management, re-auth for sensitive ops
 - Permission-based RBAC via `requirePermission()` on all protected routes
 
-## 35 API Modules (verified `ls` 2026-06-17)
-admin-requests, assets, audit, auth, backup, block-change-requests, checklist-profiles, cleaning-profiles, config (35 auto-discovered definitions), dashboards, debug-traces, deployment-check, equipment-groups, filter-operations, filter-profiles, guest, help, hierarchy, ldap, notification-delivery, notification-rules, notifications, pm-schedules, replacement-schedule, report-reviews, report-templates, reports, roles, stage-approvals, super-admin, sync, system-health, uploads, user-groups, users.
+## 33 API Modules (verified `ls` 2026-07-04)
+admin-requests, assets, audit, auth, backup, block-change-requests, checklist-profiles, cleaning-profiles, config (35 auto-discovered definitions), dashboards, debug-traces, deployment-check, equipment-groups, filter-operations, filter-profiles, guest, help, hierarchy, ldap, notification-delivery, notification-rules, notifications, pm-schedules, replacement-schedule, report-reviews, roles, stage-approvals, super-admin, sync, system-health, uploads, user-groups, users.
 
-**Removed in 2026 cleanups**: `org-admin` + `tenant-admin` (MT removal, 2026-04-30), `rule-chain` (alarm tear-out, 2026-05-17), `qr-code` (placeholder, 2026-06-06), **`data-ingestion` + `uns` + `connectivity` + `queries` (ingestion tear-out, 2026-06-11..2026-06-17)**.
+**Removed in 2026 cleanups**: `org-admin` + `tenant-admin` (MT removal, 2026-04-30), `rule-chain` (alarm tear-out, 2026-05-17), `qr-code` (placeholder, 2026-06-06), **`data-ingestion` + `uns` + `connectivity` + `queries` (ingestion tear-out, 2026-06-11..2026-06-17)**, **`reports` + `report-templates` (reports generate/sign tear-out, 2026-07-04 — `report-reviews` survives)**.
 
 ## Databases
-- **digilog_db** (PostgreSQL 18 via Prisma) — application data (**65 models, 25 enums**)
+- **digilog_db** (PostgreSQL 18 via Prisma) — application data (**61 models, 23 enums**)
 - ~~`digilog_tsdb`~~ — **DROPPED 2026-06-11** with the data-ingestion tear-out. All 6 hypertables removed (`ts_telemetry`, `ts_attributes`, `ts_checklist_responses`, `ts_device_events`, `ts_binary_data`, `ts_pipeline_traces`).
 - `digilog_test_db` — **the vitest suite runs entirely against this DB** (since 2026-07-02). `vitest.env.ts` forces `DATABASE_URL` onto it before Prisma connects, so e2e/integration writes never pollute `digilog_db`'s immutable, hash-chained `audit_trail` (21 CFR §11). Same schema as `digilog_db` (migration-driven); seed it once with `DATABASE_URL=…/digilog_test_db INITIAL_ADMIN_PASSWORD=Admin@123 npx tsx prisma/seed.ts`.
 
@@ -252,7 +252,7 @@ See `CHANGELOG.md` for full details.
 - Public endpoint: `GET /api/config/password-policy/current`
 
 **Permissions Updates (snapshot at release; current totals are higher — see live counts in root `CLAUDE.md`):**
-- ~95 permission constants at release (now 109 — verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
+- ~95 permission constants at release (now 102 — verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`)
 - 87 reauth actions across 16 categories (gained `UPDATE_PROFILE` (H1) + `RETIRE_FILTER` / `REPLACE_FILTER` / `BULK_UPLOAD_FILTERS` (C2) on 2026-05-04, plus `APPROVE_ADMIN_REQUEST` (M1) + `UPDATE_FILTER_LIFECYCLE` (M2) on 2026-05-04 — both audit-trail correctness fixes from `tasks/AUDIT-2026-05-04-linkage-review.md`)
 - FEATURE_TO_PERMISSION_MAP entries include both frontend + backend permissions
 - Block change requests GET endpoint accepts BLOCK_CHANGE_REQUEST OR BLOCK_CHANGE_APPROVE

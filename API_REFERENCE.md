@@ -329,30 +329,6 @@ PUT    /api/pm-schedules/:id/entries/:entryId  Permission: PM_UPDATE
 
 ---
 
-## Report Templates
-
-```
-GET    /api/report-templates                   Permission: REPORT_TEMPLATE_READ
-GET    /api/report-templates/:id               Permission: REPORT_TEMPLATE_READ
-POST   /api/report-templates                   Permission: REPORT_TEMPLATE_CREATE, Reauth
-PUT    /api/report-templates/:id               Permission: REPORT_TEMPLATE_UPDATE, Reauth
-DELETE /api/report-templates/:id               Permission: REPORT_TEMPLATE_DELETE, Reauth
-```
-
----
-
-## Reports
-
-```
-GET    /api/reports                             Permission: REPORT_VIEW
-GET    /api/reports/:id                         Permission: REPORT_VIEW
-POST   /api/reports                             Permission: REPORT_GENERATE
-DELETE /api/reports/:id                         Permission: REPORT_DELETE
-GET    /api/reports/:id/export?format=pdf       Permission: REPORT_VIEW
-```
-
----
-
 ## Audit Trail
 
 ```
@@ -418,7 +394,7 @@ Common error codes:
 
 ---
 
-## Permission Reference (109 total — verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`; the list below is illustrative grouping, not exhaustive)
+## Permission Reference (102 total — verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`; the list below is illustrative grouping, not exhaustive)
 
 ### User Management
 `USER_CREATE`, `USER_READ`, `USER_UPDATE`, `USER_DELETE`, `USER_ENABLE_DISABLE`, `USER_UNLOCK`, `USER_RESET_PASSWORD`
@@ -442,7 +418,7 @@ Common error codes:
 `PM_READ`, `PM_CREATE`, `PM_UPDATE`, `PM_DELETE`, `PM_EXECUTE`, `PM_APPROVE`, `PM_DOWNLOAD_TEMPLATE`, `PM_UPLOAD`, `PM_EDIT_ENTRY`, `PM_RESUBMIT`
 
 ### Reports
-`REPORT_TEMPLATE_READ`, `REPORT_TEMPLATE_CREATE`, `REPORT_TEMPLATE_UPDATE`, `REPORT_TEMPLATE_DELETE`, `REPORT_GENERATE`, `REPORT_VIEW`, `REPORT_SIGN`, `REPORT_DELETE`, `REPORT_EXPORT`
+`REPORT_GENERATE`, `REPORT_EXPORT`, `REPORT_REVIEW_SUBMIT`, `REPORT_REVIEW`, `REPORT_APPROVE` (report generate/sign template perms `REPORT_TEMPLATE_*` / `REPORT_VIEW` / `REPORT_SIGN` / `REPORT_DELETE` removed 2026-07-04; `REPORT_GENERATE`/`REPORT_EXPORT` now gate the cleaning-record + lifecycle PDF export)
 
 ### Other
 `AUDIT_READ`, `AUDIT_EXPORT`, `EVENT_READ`, `CYCLE_READ`, `ALARM_VIEW`, `ALARM_ACKNOWLEDGE`, `ALARM_CLEAR`, `NOTIFICATION_VIEW`, `NOTIFICATION_CREATE`, `NOTIFICATION_UPDATE`, `NOTIFICATION_DELETE`, `NOTIFICATION_MANAGE`, `RULE_CHAIN_VIEW`, `RULE_CHAIN_CREATE`, `RULE_CHAIN_UPDATE`, `RULE_CHAIN_DELETE`, `DASHBOARD_CREATE`, `DASHBOARD_MANAGE`, `DASHBOARD_VIEW`, `DASHBOARD_ASSIGN`, `UNS_VIEW`, `UNS_MANAGE`, `READ_DEBUG_TRACE`, `MANAGE_DEBUG_TRACE`, `BLOCK_CHANGE_REQUEST`, `BLOCK_CHANGE_APPROVE`, `BACKUP_MANAGE`, `EG_VIEW`, `EG_CREATE`, `EG_EDIT`, `EG_DELETE`, `FP_READ`, `FP_CREATE`, `FP_UPDATE`, `FP_DELETE`, `FP_ASSIGN`

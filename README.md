@@ -10,7 +10,7 @@ The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite 
 
 | Path | Contents |
 |---|---|
-| `apps/api/` | Fastify 5 backend — 35 modules, 200+ endpoints |
+| `apps/api/` | Fastify 5 backend — 33 modules, 200+ endpoints |
 | `apps/web/` | React 19 SPA — 76 routes, Tailwind CSS |
 | `apps/android/` | Capacitor Android wrapper that ships the SPA as `DigiLog-FilterOps.apk` |
 | `rfid_scan_app/` | Native Kotlin app for KC-series UHF RFID readers (USB) |
@@ -34,7 +34,7 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Audit trail** — Tamper-evident SHA-256 hash-chain log with before/after snapshots
 - **Notifications** — In-app + email (SMTP/OAuth2) + SMS (AWS SNS / Twilio) + Telegram + Slack
 - **Backup/restore** — Full DB export covering all tables (`pg_tables` + `jsonb_populate_recordset`), SHA-256 integrity verification
-- **RBAC** — 6 hierarchical roles, **109 permissions**, **90 feature toggles**, **99 reauthentication actions** across 16 categories, **26 sidebar items** (single-tenant since 2026-04-30)
+- **RBAC** — 6 hierarchical roles, **102 permissions**, **83 feature toggles**, **92 reauthentication actions** across 16 categories, **26 sidebar items** (single-tenant since 2026-04-30)
 - **Help articles** — 40+ versioned in-app docs across 8 categories
 - **LDAP integration** — Active Directory / OpenLDAP with group→role mapping
 
@@ -66,13 +66,13 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 - **Report template designer** — visual editor + PDF generation engine + digital signatures
 - **Configurable report header/footer/layout** — `/config/report-settings`
 - **Dynamic bulk upload** — CSV columns from template `attributeSchema`
-- **99 reauthentication actions** across 16 categories
+- **92 reauthentication actions** across 16 categories
 - **Block change request/approval** workflow with single-use consumption
 
 ### Phase 5 — April 15–29, 2026 (live on `RFID` branch)
 Detailed in `PHASE_5_RECENT_WORK.md`:
 
-- **Reports module — phases A–F complete** — visual template designer + PDF generation engine (puppeteer-core + Microsoft Edge + @napi-rs/canvas + Handlebars) + 5-source variable resolver + digital signatures. (Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas` to drop the bundled-Chromium download and the node-gyp/MSVC dependency.)
+- ~~**Reports module — phases A–F**~~ — **REMOVED 2026-07-04** as dead code (the report generate/sign template designer + PDF engine was orphaned). The `reports`/`report-templates` modules, their 4 Prisma models, and the puppeteer-core/@napi-rs/canvas render stack are gone. The active `report-reviews` workflow + report-config (page titles / labels / signatories) chrome survive; cleaning-record and lifecycle PDF export remain.
 - **Offline hardening (14-issue overhaul)** — TTL cache, idempotency keys, tombstones, LRU eviction, JWT refresh on replay, server-side `stageLookup` walker for chained CHECKLIST nodes, Capacitor Network plugin + Service Worker hook
 - **RFID SDK plugin baked into DigiLog APK** — `Reader_Usb.jar` via `RfidPlugin.java` — KC-series readers work in SDK and UKB modes
 - **Filter Data Management console** — 10 tabs each mirroring its user-facing page (cycles, events, PM, audit, notifications, admin requests, block changes, etc.) with Edit modals
@@ -93,7 +93,6 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 | Database | PostgreSQL 18 + Prisma ORM (single DB `digilog_db`) |
 | Job queue | graphile-worker on PostgreSQL (LISTEN/NOTIFY + SKIP LOCKED + advisory locks) |
 | Pub/sub (non-queue) | None — Phase 4 retired Redis; the in-process EventEmitter bus was later removed with its last WS/trace/debug consumer (Phase 6/7) |
-| PDF + charts | puppeteer-core + Microsoft Edge + @napi-rs/canvas (no bundled Chromium, no node-gyp) |
 | Mobile | Capacitor Android APK + native Kotlin RFID app |
 | Reverse proxy | Optional / customer-choice (no longer bundled — Fastify on `:3000` direct is the default; see `DEPLOY-WINDOWS.md` § 7 for the NSSM stopgap until Phase 5 ships a managed-service launcher) |
 
@@ -143,7 +142,7 @@ See `LOCAL_SETUP_WINDOWS.md` for the full step-by-step setup, and `DEPLOY-WINDOW
 ## Database
 
 ### PostgreSQL (`digilog_db` — Prisma)
-**65 models, 25 enums** covering users, roles, sessions, entities, templates, relationships (Step 2 enum), identifiers, audit, notifications, configs, help articles, electronic signatures, filter cleaning profiles (Phase A.2 added `lineageId UUID` for rowful version history — same row count, no new model), filter profiles + FilterProfileVersion immutable history (Phase A.3) + FilterProfileApplicableTemplate join table (Step 4), cleaning cycles, filter events, FilterDetails 1:1 sidecar (Step 6), PM schedules + entries + executions, checklist profiles + questions + ChecklistProfileVersion immutable history (Phase 5b A.1), equipment groups + instruments + EquipmentGroupVersion composite-snapshot history (Phase A.4), report templates + versions + instances + signatures, block-change requests, admin requests, dashboards + widgets + assignments, password history + reset requests.
+**61 models, 23 enums** covering users, roles, sessions, entities, templates, relationships (Step 2 enum), identifiers, audit, notifications, configs, help articles, filter cleaning profiles (Phase A.2 added `lineageId UUID` for rowful version history — same row count, no new model), filter profiles + FilterProfileVersion immutable history (Phase A.3) + FilterProfileApplicableTemplate join table (Step 4), cleaning cycles, filter events, FilterDetails 1:1 sidecar (Step 6), PM schedules + entries + executions, checklist profiles + questions + ChecklistProfileVersion immutable history (Phase 5b A.1), equipment groups + instruments + EquipmentGroupVersion composite-snapshot history (Phase A.4), report reviews, block-change requests, admin requests, dashboards + widgets + assignments, password history + reset requests.
 
 The vitest suite runs against a separate `digilog_test_db`.
 

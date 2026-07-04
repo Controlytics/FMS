@@ -3,13 +3,13 @@
 > **2026-07-03 — synced to the current codebase.** The Phase 6/7 tear-out
 > sections (`data-ingestion` / `uns` / `connectivity` / `queries` / `rule-chain` /
 > `transport/` / Mosquitto / MQTT / TimescaleDB / `packages/db`) were removed from
-> this guide, and counts/tables reconciled to live (**35 modules, 65 models, 25
-> enums**). See root `CLAUDE.md` Phase 7 snapshot + `apps/api/CLAUDE.md` for the
+> this guide, and counts/tables reconciled to live (**33 modules, 61 models, 23
+> enums** — reports + report-templates removed 2026-07-04). See root `CLAUDE.md` Phase 7 snapshot + `apps/api/CLAUDE.md` for the
 > authoritative module list + `CHANGELOG.md` for tear-out details.
 
 ## Overview
 
-Fastify 5 backend with TypeScript, **35 API modules** (verified `ls` 2026-06-17 — see `apps/api/CLAUDE.md`). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. Production launch is currently `node dist/app.js` in the foreground (Phase 4 of windows-friendly-rewrite retired PM2; an NSSM stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher). EC2 is no longer in scope.
+Fastify 5 backend with TypeScript, **33 API modules** (verified `ls` 2026-07-04 — see `apps/api/CLAUDE.md`). Runs locally on Windows: `tsx watch` in dev, compiled JS for prod-style local builds. Production launch is currently `node dist/app.js` in the foreground (Phase 4 of windows-friendly-rewrite retired PM2; an NSSM stopgap is documented in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships a managed-service launcher). EC2 is no longer in scope.
 
 **Entry point:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npx tsx watch src/app.ts` (port 3000)
@@ -28,7 +28,7 @@ The main application file registers everything in this order:
 6. **Auth plugin** — JWT verification, user lookup, session validation
 7. **RBAC plugin** — `requirePermission()` decorator
 8. **Audit logger plugin** — SHA-256 hash-chain logging
-9. **35 route modules** — registered under `/api/` prefix
+9. **33 route modules** — registered under `/api/` prefix
 10. **Job runner** — one graphile-worker Runner registers the task handlers
    (`notification`, `pm_overdue_check`, `session_sweep`) + the maintenance
    crontab (Phase 2 swapped from BullMQ). *The MQTT client, `/ws` handler, and
@@ -85,8 +85,6 @@ The main application file registers everything in this order:
 
 | Module | Prefix | Endpoints | Key Features |
 |---|---|---|---|
-| `report-templates` | `/api/report-templates` | 9 | Template CRUD, versioning, preview |
-| `reports` | `/api/reports` | 8 | Report generation, PDF export, signatures |
 | `report-reviews` | `/api/report-reviews` | 6 | Report review/approval workflow |
 
 ### Notifications
@@ -219,7 +217,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 
 **Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
 
-## Database Schema (65 models, 25 enums)
+## Database Schema (61 models, 23 enums)
 
 > `apps/api/prisma/schema.prisma` is authoritative. The lists below are grouped highlights (deleted Phase 6/7 models — `Organization`, `DeviceCredential`, `RuleChain*`, `Alarm`, `ConnectivityStatus`, `DataStream`, `LatestTelemetry`, `DeadLetterQueue`, `IngestionSystemConfig`, `QrCode`, `UnsMapping` — removed; newer typed-hierarchy sidecars `Block`/`Area`/`Ahu`/`Filter` + `FilterDetails` not all listed).
 
@@ -236,7 +234,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 `PmSchedule`, `PmScheduleEntry`, `PmExecution`, `EquipmentGroup`, `EquipmentGroupInstrument`, `BlockChangeRequest`
 
 ### Report Models
-`ReportTemplate`, `ReportTemplateVersion`, `ReportInstance`, `ReportSignature`
+`ReportReview` (ad-hoc review/approval workflow). *(ReportTemplate, ReportTemplateVersion, ReportInstance, ReportSignature dropped 2026-07-04 with the orphaned reports generate/sign module.)*
 
 ### Notification Models
 `Notification`, `NotificationLog`, `NotificationTemplate`, `NotificationRule`, `NotificationRuleRecipient`, `UserGroup`, `UserGroupMember`
