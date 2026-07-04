@@ -420,7 +420,9 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     label: "Checklists",
     icon: "\u{1F4CB}",
     description: "Checklist profile management",
-    privilegeIds: ["checklists.create", "checklists.edit", "checklists.delete", "checklists.toggle", "checklists.submit"],
+    // checklists.submit removed 2026-07-04 (audit #1) — submit drives the filter-ops
+    // group's visibility, not this management page. See permission-tree.ts.
+    privilegeIds: ["checklists.create", "checklists.edit", "checklists.delete", "checklists.toggle"],
   },
   {
     sidebarId: "cleaning-profiles",

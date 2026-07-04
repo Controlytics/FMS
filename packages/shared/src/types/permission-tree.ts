@@ -589,7 +589,14 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Checklists ----
   {
     sidebarId: 'checklists', label: 'Checklists', icon: '📋', description: 'Checklist profile management',
-    visibilityPrivilegeIds: ['checklists.create', 'checklists.edit', 'checklists.delete', 'checklists.toggle', 'checklists.submit'],
+    // Visibility = who can MANAGE checklist profiles (create/edit/delete/toggle).
+    // `checklists.submit` was removed 2026-07-04 (audit #1): submitting checklists
+    // happens on the filter-operations page (it drives the filters group's
+    // visibility, line ~493), not this profile-management page. Leaving it here
+    // made the nav item show for operators (FILTER_OPERATE/CHECKLIST_SUBMIT) even
+    // though the page 403s for them — and it diverged isSidebarItemVisible from the
+    // derived SIDEBAR_PRIVILEGE_MAP (enforced-only nodes aren't in FEATURE_TO_PERMISSION_MAP).
+    visibilityPrivilegeIds: ['checklists.create', 'checklists.edit', 'checklists.delete', 'checklists.toggle'],
     nodes: [
       { id: 'checklists.submit', label: 'Submit Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Submit',
         icon: 'clipboard-check', category: 'Checklists', permissions: ['CHECKLIST_SUBMIT'], enforce: 'a',
