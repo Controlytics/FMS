@@ -110,7 +110,8 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
 ### 🟡 #7 — LOW/informational — PM deviation acknowledge gated on a read perm
 - `apps/api/src/modules/pm-schedules/routes.ts:569` — `POST /deviations/:id/acknowledge` gated on `PM_READ` (read) for a state change, but mitigated by always-on `enforceReauthAlways('ACKNOWLEDGE_PM_OVERDUE')` (password required, non-toggleable) and non-destructive. Borderline; identity-bound.
 
-### 🟡 #1 (severity resolved) — LOW/cosmetic — checklists nav leak to operators
+### 🟡 #1 (severity resolved) — LOW/cosmetic — checklists nav leak to operators — ✅ FIXED (`8d71b8e`)
+> Fixed 2026-07-04: removed `checklists.submit` from the checklists-management sidebar's `visibilityPrivilegeIds` (+ updated the frozen snapshot). Web suite now fully green (366/0). Submit still drives the filter-ops group's visibility.
 - Downgraded from #1: the auth agent verified `GET /api/checklist-profiles` requires `FCP_READ`/`CHECKLIST_TOGGLE`/`VERSION_HISTORY_VIEW`, so an operator clicking the leaked nav gets a **403 on data load** — no leak, no mutation. **Cosmetic nav artifact only.** Fix: remove `checklists.submit` from the node's `visibilityPrivilegeIds` (or update the stale test).
 
 ### ⚪ #2 (updated) — circular deps: filter-ops ones are NOT a runtime hazard
