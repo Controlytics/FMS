@@ -368,6 +368,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
     try {
       let fileBuffer: Buffer | null = null;
+      let fileTruncated = false;
       let ahuId = '';
       let blockId = '';
       // 2026-05-22: dialog-level fallback when a CSV row has no `filterSet`
@@ -382,6 +383,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
             chunks.push(chunk);
           }
           fileBuffer = Buffer.concat(chunks);
+          if ((part.file as any).truncated) fileTruncated = true;
         } else if (part.type === 'field' && part.fieldname === 'ahuId') {
           ahuId = (part.value as string) ?? '';
         } else if (part.type === 'field' && part.fieldname === 'blockId') {
@@ -395,6 +397,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
         }
       }
 
+      // #low-batch: see /validate handler — detect the silent 5 MB truncation
+      // loudly instead of letting a corrupt buffer fail deep in the parser.
+      if (fileTruncated) {
+        return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' });
+      }
       if (!fileBuffer || fileBuffer.length === 0) {
         return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
       }
@@ -427,6 +434,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     try {
       let fileBuffer: Buffer | null = null;
+      let fileTruncated = false;
       let ahuId = '';
       let blockId = '';
       let defaultFilterSet: 'SET_A' | 'SET_B' | undefined;
@@ -437,6 +445,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
           const chunks: Buffer[] = [];
           for await (const chunk of part.file) chunks.push(chunk);
           fileBuffer = Buffer.concat(chunks);
+          if ((part.file as any).truncated) fileTruncated = true;
         } else if (part.type === 'field' && part.fieldname === 'ahuId') {
           ahuId = (part.value as string) ?? '';
         } else if (part.type === 'field' && part.fieldname === 'blockId') {
@@ -448,6 +457,13 @@ export default async function instanceRoutes(app: FastifyInstance) {
         }
       }
 
+      // #low-batch: @fastify/multipart silently TRUNCATES at the global 5 MB
+      // fileSize limit rather than throwing, so an oversized upload becomes a
+      // corrupt buffer that fails deep in the xlsx parser with a confusing error.
+      // Detect it loudly (mirrors uploads/pm-schedules routes).
+      if (fileTruncated) {
+        return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' });
+      }
       if (!fileBuffer || fileBuffer.length === 0) {
         return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
       }
