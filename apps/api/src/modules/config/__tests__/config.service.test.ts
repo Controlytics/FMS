@@ -80,6 +80,30 @@ describe('configService', () => {
       const result = await configService.getConfig('password-policy', schema);
       expect(result).toEqual({});
     });
+
+    it('#low-batch: on a parse failure, re-derives SCHEMA DEFAULTS (fail-safe), not {}', async () => {
+      // A corrupt stored value must NOT collapse password-policy to {} (which would
+      // leave minLength/requireUppercase undefined → rules silently disabled).
+      mockConfigRepo.getSystemConfig.mockResolvedValue({ configValue: { minLength: 'BROKEN' } });
+      const DEFAULTS = { minLength: 8, requireUppercase: true };
+      const schema = {
+        // stored value fails; a bare {} parse yields the schema's .default()s
+        safeParse: (d: any) =>
+          d && d.minLength === 'BROKEN'
+            ? { success: false }
+            : { success: true, data: DEFAULTS },
+      };
+
+      const result = await configService.getConfig('password-policy', schema);
+      expect(result).toEqual(DEFAULTS); // NOT {}
+    });
+
+    it('#low-batch: falls back to {} only if the schema itself cannot produce defaults', async () => {
+      mockConfigRepo.getSystemConfig.mockResolvedValue({ configValue: { x: 1 } });
+      const schema = { safeParse: () => ({ success: false }) }; // never succeeds
+      const result = await configService.getConfig('some-key', schema);
+      expect(result).toEqual({});
+    });
   });
 
   describe('updateConfig', () => {

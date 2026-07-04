@@ -51,7 +51,15 @@ export const configService = {
     const parsed = schema.safeParse(config?.configValue ?? {});
     if (!parsed.success) {
       console.warn(`[Config] Validation failed for ${key}, using defaults`);
-      return def?.defaults ?? {};
+      // #low-batch: a corrupt stored value (bad manual edit / older restore /
+      // schema tightening) must fall back to the SCHEMA's own defaults, not `{}`.
+      // `def` is never actually passed by any caller, so the old `?? {}` meant a
+      // bad `password-policy` returned {} → minLength/requireUppercase undefined
+      // → password rules silently disabled (fail-OPEN). Re-parse {} to fill the
+      // schema's `.default()`s (mirrors getNextUserId below).
+      if (def?.defaults) return def.defaults;
+      const fallback = schema.safeParse({});
+      return fallback.success ? fallback.data : {};
     }
     return parsed.data;
   },
