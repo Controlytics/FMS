@@ -81,12 +81,6 @@ export function getDryerStart(cycle: any, events: FilterEvent[]) {
   return { minutes, time };
 }
 
-/** Dryer temperature reading from the DRY_IN (or DRY_OUT fallback) readings. */
-export function getDryerTemp(dryReadings: any[]) {
-  const dryer = getReading(dryReadings, 'dryer');
-  return dryer !== '-' ? dryer : getReading(dryReadings, 'temperature');
-}
-
 /**
  * Display status for a cycle. A cycle terminated because its filter was retired
  * or replaced mid-cleaning carries terminationReason RETIRED / REPLACED — surface

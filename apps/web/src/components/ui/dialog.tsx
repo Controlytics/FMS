@@ -79,10 +79,6 @@ export function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHe
   );
 }
 
-export function DialogDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn('text-sm text-slate-500 mt-1.5', className)} {...props} />;
-}
-
 export function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div

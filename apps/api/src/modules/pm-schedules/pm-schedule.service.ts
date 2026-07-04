@@ -3,7 +3,6 @@
  *
  * Public surface (consumed by routes.ts and execution-routes.ts):
  *   • `PmScheduleService` class with the same method names as before
- *   • `DueFilter*` / `DueTask*` / `DueTasksResponse` type re-exports
  *
  * Behaviour for each method lives in a focused sibling file:
  *   • pm-shared.ts          — `checkPmEnabled` guard
@@ -30,16 +29,6 @@ import * as importer from './pm-import.js';
 import * as ahuConfig from './pm-ahu-config.js';
 import * as approval from './pm-approval.js';
 import * as exporter from './pm-export.js';
-
-// Re-export My Tasks types so existing `import { DueTaskRow } from './pm-schedule.service.js'`
-// keeps working unchanged.
-export type {
-  DueFilterStatus,
-  DueOverallStatus,
-  DueFilterRow,
-  DueTaskRow,
-  DueTasksResponse,
-} from './pm-types.js';
 
 export class PmScheduleService {
   // ─── PM Schedule CRUD ─────────────────────────────────────

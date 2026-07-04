@@ -105,17 +105,6 @@ export interface ConfigManifestEntry {
   settings: SettingDefinition[];
 }
 
-// ─── Category Metadata ───────────────────────────────────
-export const CATEGORY_META: Record<string, { label: string; sortOrder: number }> = {
-  general: { label: 'General Settings', sortOrder: 1 },
-  security: { label: 'Security & Authentication', sortOrder: 2 },
-  display: { label: 'Display & Formatting', sortOrder: 3 },
-  user: { label: 'User Management', sortOrder: 4 },
-  notifications: { label: 'Notifications', sortOrder: 5 },
-  integrations: { label: 'Integrations', sortOrder: 6 },
-  advanced: { label: 'Advanced', sortOrder: 7 },
-};
-
 // ─── Config Registry Singleton ───────────────────────────
 class ConfigRegistry {
   private definitions = new Map<string, ModuleConfigDefinition>();

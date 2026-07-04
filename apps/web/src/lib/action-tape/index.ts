@@ -28,20 +28,7 @@
 import { computeNextActions, type Action } from '@digilog/shared';
 import { loadLocalContextFromCache } from '@/lib/local-context';
 
-export type {
-  Action,
-  ActionKind,
-  ActionTape,
-  AdvanceToStageAction,
-  BypassStageAction,
-  CompleteCycleAction,
-  OperatingRangeMap,
-  SetDryerDurationAction,
-  SubmitChecklistAction,
-  SubmitDryerReadingsAction,
-  TapeQuestion,
-  TerminateCycleAction,
-} from '@digilog/shared';
+export type { Action } from '@digilog/shared';
 
 /**
  * Filter a tape down to actions that target a given stage.

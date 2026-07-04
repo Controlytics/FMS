@@ -13,19 +13,7 @@
  * This makes every offline replay safe to retry without producing duplicate cycles,
  * double advances, or repeat checklist submissions.
  */
-import type { FastifyRequest } from 'fastify';
 import { prisma } from './prisma.js';
-
-/**
- * Read clientOpId from header (preferred) or body fallback.
- * Returns null when the request is not an idempotent replay.
- */
-export function getClientOpId(req: FastifyRequest, body?: Record<string, any>): string | null {
-  const header = req.headers['x-client-op-id'];
-  if (typeof header === 'string' && header.trim()) return header.trim();
-  if (body && typeof body.clientOpId === 'string' && body.clientOpId.trim()) return body.clientOpId.trim();
-  return null;
-}
 
 /**
  * Has this clientOpId already been processed for this filter + cycle? Used

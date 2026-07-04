@@ -1,4 +1,4 @@
-import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
+import { createCanvas } from '@napi-rs/canvas';
 import { Chart, registerables } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 
@@ -109,12 +109,4 @@ export async function renderChart(
   } finally {
     chart.destroy();
   }
-}
-
-// Exposed for tests and for app-level cleanup hooks. @napi-rs/canvas does
-// not require explicit shutdown, but keeping a symmetric API with
-// pdf-renderer's closeBrowser simplifies callers.
-export async function shutdownChartRenderer(): Promise<void> {
-  // Reserved for future font-cache or worker pool cleanup.
-  void GlobalFonts;
 }

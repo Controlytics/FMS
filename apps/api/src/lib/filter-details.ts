@@ -6,9 +6,7 @@
  * 1:1 table because those fields are meaningless for non-filter rows.
  *
  * This module provides:
- *   - getFilterCore(filterId): flat object combining instance + filterDetails
  *   - upsertFilterDetails(filterId, patch): write helper
- *   - clearFilterCycle(filterId): convenience for terminate / retire
  *   - flattenFilterFields(instance): adapter for instance objects already
  *     loaded with `include: { filterDetails: true }` so API response shapes
  *     stay flat (frontend stays unchanged)
@@ -17,46 +15,12 @@ import { prisma } from './prisma.js';
 
 export type FilterSetLabel = 'SET_A' | 'SET_B';
 
-export type FilterCore = {
-  id: string;
-  name: string | null;
-  parentId: string | null;
-  filterProfileId: string | null;
-  currentLifecycleState: string | null;
-  currentCycleId: string | null;
-  filterSet: FilterSetLabel | null;
-};
-
 export type FilterDetailsPatch = Partial<{
   filterProfileId: string | null;
   currentLifecycleState: string | null;
   currentCycleId: string | null;
   filterSet: FilterSetLabel | null;
 }>;
-
-/** Read the filter's core fields as a flat object — always returns null for fields
- *  if no FilterDetails row exists. Throws if the AssetInstance is missing. */
-export async function getFilterCore(filterId: string): Promise<FilterCore | null> {
-  const inst = await prisma.assetInstance.findUnique({
-    where: { id: filterId },
-    select: {
-      id: true, name: true, parentId: true,
-      filterDetails: {
-        select: { filterProfileId: true, currentLifecycleState: true, currentCycleId: true, filterSet: true },
-      },
-    },
-  });
-  if (!inst) return null;
-  return {
-    id: inst.id,
-    name: inst.name ?? null,
-    parentId: inst.parentId ?? null,
-    filterProfileId: inst.filterDetails?.filterProfileId ?? null,
-    currentLifecycleState: inst.filterDetails?.currentLifecycleState ?? null,
-    currentCycleId: inst.filterDetails?.currentCycleId ?? null,
-    filterSet: (inst.filterDetails?.filterSet ?? null) as FilterSetLabel | null,
-  };
-}
 
 /** Upsert FilterDetails for a filter. Creates the row if missing.
  *  Pass an explicit `null` to clear a field; omit a key to leave it unchanged. */
@@ -71,14 +35,6 @@ export async function upsertFilterDetails(
     update: patch as any,
     create: { assetInstanceId: filterId, ...(patch as any) },
   });
-}
-
-/** Convenience: clear the active cycle on a filter (used at terminate / retire / cycle-complete). */
-export async function clearFilterCycle(
-  filterId: string,
-  tx?: Parameters<typeof prisma.$transaction>[0] extends (t: infer T) => any ? T : never,
-): Promise<void> {
-  await upsertFilterDetails(filterId, { currentCycleId: null, currentLifecycleState: null }, tx);
 }
 
 /** Flatten an AssetInstance loaded with `include: { filterDetails: true }` so

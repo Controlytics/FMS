@@ -14,14 +14,12 @@
  */
 
 export { validateOfflineGate, firstStagesFromGraph } from './validate-offline-gate';
-export type { GateInput, GateResult } from './validate-offline-gate';
 
 export { resolvePendingChecklistDialog } from './resolve-pending-checklist';
 
 export { findNextPendingChecklist } from './next-pending-checklist';
 export type {
   PendingChecklistBatchItem,
-  NextPendingChecklistResult,
 } from './next-pending-checklist';
 
 export {
@@ -31,6 +29,5 @@ export {
   findDryerTempInstrument,
   projectDryerCountdown,
 } from './use-dryer-countdown';
-export type { DryerProjection } from './use-dryer-countdown';
 
-export type { PendingChecklist, PendingChecklistQuestion } from './types';
+export type { PendingChecklist } from './types';

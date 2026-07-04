@@ -10,7 +10,6 @@
  * codes + messages MUST match the originals for cross-runtime parity.
  */
 import type {
-  CycleSlice,
   FilterSlice,
   GuardResult,
   LocalContext,
@@ -381,6 +380,3 @@ export function assertCanTransition(
     message: `Cannot move to ${targetStateKey} from ${ctx.filter.currentLifecycleState ?? 'START'}. Next allowed: ${reachable.join(', ')}`,
   };
 }
-
-// Re-export types referenced in tests for ergonomic imports.
-export type { CycleSlice };

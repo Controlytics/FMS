@@ -64,7 +64,6 @@
  * "executor crashed".
  */
 import type {
-  AssetTemplateSlice,
   ChecklistProfileSlice,
   CycleSlice,
   EquipmentGroupSlice,
@@ -601,6 +600,3 @@ function readCachedUser(): LocalContext['user'] {
     return { id: '', role: '', permissions: [] };
   }
 }
-
-// ── Re-export AssetTemplateSlice for callers that need it ─────────────────
-export type { AssetTemplateSlice };

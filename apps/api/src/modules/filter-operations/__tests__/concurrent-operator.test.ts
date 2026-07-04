@@ -35,7 +35,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
-const { mockPrisma, mockAuditLog, mockFindExistingByClientOpId, mockUpsertFilterDetails, mockClearFilterCycle } = vi.hoisted(() => ({
+const { mockPrisma, mockAuditLog, mockFindExistingByClientOpId, mockUpsertFilterDetails } = vi.hoisted(() => ({
   mockPrisma: {
     assetInstance: { findFirst: vi.fn(), findUnique: vi.fn() },
     cleaningCycle: { findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn(), update: vi.fn() },
@@ -54,7 +54,6 @@ const { mockPrisma, mockAuditLog, mockFindExistingByClientOpId, mockUpsertFilter
   mockAuditLog: vi.fn(),
   mockFindExistingByClientOpId: vi.fn(),
   mockUpsertFilterDetails: vi.fn(),
-  mockClearFilterCycle: vi.fn(),
 }));
 
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
@@ -69,7 +68,6 @@ vi.mock('../../../lib/idempotency.js', async (importOriginal) => {
 });
 vi.mock('../../../lib/filter-details.js', () => ({
   upsertFilterDetails: mockUpsertFilterDetails,
-  clearFilterCycle: mockClearFilterCycle,
 }));
 
 import { FilterOperationsService } from '../filter-operations.service.js';

@@ -30,37 +30,6 @@ export interface CleaningProfile {
   createdAt: string;
 }
 
-export interface PipelineStage {
-  id: string;
-  stateKey: string | null;
-  nodeType: 'START' | 'END' | 'STAGE' | 'CHECKLIST';
-  label?: string;
-  configuration?: Record<string, any>;
-  positionX?: number;
-  positionY?: number;
-  sortOrder?: number;
-}
-
-export interface PipelineConnection {
-  id: string;
-  fromStageId: string;
-  toStageId: string;
-  label?: string;
-}
-
-export interface FilterProfile {
-  id: string;
-  name: string;
-  description?: string | null;
-  cleaningProfileId: string;
-  defaultPmScheduleId?: string | null;
-  blockRestriction?: string;
-  maxCleaningCycles?: number | null;
-  isActive: boolean;
-  cleaningProfileName?: string;
-  activeFilterCount?: number;
-}
-
 export interface CleaningCycle {
   id: string;
   cycleCode: string;
@@ -101,73 +70,6 @@ export interface FilterEvent {
   remarks?: string | null;
   deviationDetails?: Record<string, any> | null;
   checksum?: string;
-}
-
-export interface PmSchedule {
-  id: string;
-  name: string;
-  entityId?: string;
-  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
-  entries: PmScheduleEntry[];
-}
-
-export interface PmScheduleEntry {
-  id: string;
-  scheduleId: string;
-  month: number;
-  year: number;
-  dueDate: string;
-  toleranceDays?: number;
-}
-
-export interface PmExecution {
-  id: string;
-  scheduleEntryId: string;
-  status: 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE' | 'MISSED';
-  performedBy: string;
-  completedAt?: string | null;
-}
-
-export interface ChecklistProfile {
-  id: string;
-  name: string;
-  description?: string | null;
-  isActive: boolean;
-  questions: ChecklistQuestion[];
-}
-
-export interface ChecklistQuestion {
-  id: string;
-  question: string;
-  questionType: string;
-  required: boolean;
-  section?: string | null;
-  description?: string | null;
-  options?: any[];
-  sortOrder?: number;
-}
-
-export interface EquipmentGroup {
-  id: string;
-  name: string;
-  blockId: string;
-  isActive: boolean;
-  instruments: EquipmentGroupInstrument[];
-}
-
-export interface EquipmentGroupInstrument {
-  id: string;
-  description: string;
-  stageKey: string;
-  serialNumber: string;
-  instrumentId: string;
-  uom: string;
-  instrumentMin: number;
-  instrumentMax: number;
-  operatingMin: number;
-  operatingMax: number;
-  leastCount: number;
-  sortOrder: number;
 }
 
 export interface PaginatedResponse<T> {

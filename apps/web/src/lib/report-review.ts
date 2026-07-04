@@ -25,14 +25,6 @@ export async function submitForReview(snapshot: ReportSnapshot, assignee: { user
   });
 }
 
-export async function fetchQueue(): Promise<ReviewSummary[]> {
-  const r = await apiClient.get<{ data: ReviewSummary[] }>('/api/report-reviews/queue');
-  return r?.data ?? [];
-}
-export async function fetchReviews(query = ''): Promise<ReviewSummary[]> {
-  const r = await apiClient.get<{ data: ReviewSummary[] }>(`/api/report-reviews${query}`);
-  return r?.data ?? [];
-}
 export async function fetchReview(id: string): Promise<ReviewFull> {
   return apiClient.get<ReviewFull>(`/api/report-reviews/${id}`);
 }

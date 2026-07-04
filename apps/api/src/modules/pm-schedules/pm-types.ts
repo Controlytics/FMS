@@ -43,9 +43,3 @@ export interface DueTaskRow {
   // Read-only deviation context (null unless an overdue deviation exists).
   deviation?: DueDeviationContext | null;
 }
-
-export interface DueTasksResponse {
-  tasks: DueTaskRow[];
-  overdue: DueTaskRow[];
-  settings: { showOverdueSeparately: boolean };
-}

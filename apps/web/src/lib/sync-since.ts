@@ -293,8 +293,3 @@ export function __resetSyncSinceForTest(): void {
 export function __isSyncBusyForTest(): boolean {
   return inFlight !== null || debounceTimer !== null;
 }
-
-/** Internal — exposed for diagnostic UIs (e.g. "Last synced X minutes ago"). */
-export function lastSyncStartedAt(): number {
-  return lastSyncStarted;
-}

@@ -235,25 +235,3 @@ export async function authDelete(
     ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}),
   });
 }
-
-/**
- * Make an authenticated PATCH request with optional reauth password.
- */
-export async function authPatch(
-  app: FastifyInstance,
-  url: string,
-  token: string,
-  payload?: unknown,
-  reauthPassword?: string,
-) {
-  const headers: Record<string, string> = { authorization: `Bearer ${token}` };
-  if (reauthPassword) {
-    headers['x-reauth-password'] = reauthPassword;
-  }
-  return app.inject({
-    method: 'PATCH',
-    url,
-    headers,
-    payload: payload as Record<string, unknown>,
-  });
-}

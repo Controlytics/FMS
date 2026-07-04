@@ -138,22 +138,3 @@ export async function startConnectivityEngine(): Promise<void> {
     document.addEventListener('visibilitychange', visListener);
   }
 }
-
-export function stopConnectivityEngine(): void {
-  if (!started) return;
-  started = false;
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  if (visListener && typeof document !== 'undefined') {
-    document.removeEventListener('visibilitychange', visListener);
-    visListener = null;
-  }
-  if (onlineListener && typeof window !== 'undefined') {
-    window.removeEventListener('online', onlineListener);
-    onlineListener = null;
-  }
-  if (offlineListener && typeof window !== 'undefined') {
-    window.removeEventListener('offline', offlineListener);
-    offlineListener = null;
-  }
-  if (capUnsub) { capUnsub(); capUnsub = null; }
-}

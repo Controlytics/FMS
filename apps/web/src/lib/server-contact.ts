@@ -38,16 +38,6 @@ function emit(timestampMs: number) {
 }
 
 /**
- * Mark that we just received an HTTP response from the server. Prefer
- * `markServerContactFromResponse(res)` which applies the correct rule for
- * proxy-aware contact detection; this lower-level entrypoint is exported
- * for the rare caller that wants unconditional marking (e.g. tests).
- */
-export function markServerContact(): void {
-  emit(Date.now());
-}
-
-/**
  * Mark contact based on a fetch Response, applying the < 500 rule.
  *
  * Why the rule: in dev (and in any deployment with a reverse proxy in

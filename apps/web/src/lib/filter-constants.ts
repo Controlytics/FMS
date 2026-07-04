@@ -1,13 +1,3 @@
-/** Shared cleaning stage definitions used across filter-operations and cleaning-profile-editor */
-export const CLEANING_STAGES = [
-  { key: 'WASH_IN', label: 'Wash In', color: 'blue' },
-  { key: 'WASH_OUT', label: 'Wash Out', color: 'cyan' },
-  { key: 'DRY_IN', label: 'Dry In', color: 'amber' },
-  { key: 'DRY_OUT', label: 'Dry Out', color: 'orange' },
-  { key: 'STORAGE_IN', label: 'Storage In', color: 'green' },
-  { key: 'STORAGE_OUT', label: 'Storage Out', color: 'emerald' },
-];
-
 /** UI-enriched stage definitions for the filter operations page */
 export const CLEANING_STAGES_OPS = [
   { key: 'WASH_IN', label: 'Wash In', icon: '🚿', color: 'from-sky-600 to-sky-700', border: 'border-sky-600', activeBg: 'bg-sky-50', needsBlock: true },
