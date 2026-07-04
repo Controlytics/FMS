@@ -49,6 +49,20 @@ function requireOneAssignee(userId?: string, role?: string) {
   return { assigneeUserId: u || null, assigneeRole: u ? null : (r || null) };
 }
 
+// #reports-1 fix: the review/approve actions previously checked only `status`, so ANY
+// REPORT_REVIEW / REPORT_APPROVE holder could act on a report assigned to someone else.
+// Enforce that the caller is the assigned party (or SUPER_ADMIN, who may act as any
+// assignee). The separation-of-duties checks in review()/approve() are separate and
+// apply to everyone — they are the two-person 21 CFR §11 control and are NOT bypassed.
+function assertIsAssignee(ctx: RequestContext, row: { assigneeUserId: string | null; assigneeRole: string | null }) {
+  if (ctx.userRole === 'SUPER_ADMIN') return;
+  const matchesUser = !!row.assigneeUserId && row.assigneeUserId === ctx.userSub;
+  const matchesRole = !!row.assigneeRole && row.assigneeRole === ctx.userRole;
+  if (!matchesUser && !matchesRole) {
+    throw new AppError(403, 'NOT_ASSIGNEE', 'This report is not assigned to you or your role.');
+  }
+}
+
 export const reportReviewService = {
   async submit(ctx: RequestContext, input: SubmitInput) {
     if (!input.reportType || !input.title || input.dataSnapshot == null) {
@@ -112,6 +126,11 @@ export const reportReviewService = {
     const row = await prisma.reportReview.findUnique({ where: { id } });
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Report not found.');
     if (row.status !== 'PENDING_REVIEW') throw new AppError(400, 'INVALID_STATUS', 'This report is not awaiting review.');
+    assertIsAssignee(ctx, row);
+    // Separation of duties: the reviewer must not be the report's generator.
+    if (ctx.userSub === row.generatedBy) {
+      throw new AppError(403, 'SELF_REVIEW', 'You cannot review a report you generated (separation of duties).');
+    }
 
     if (action === 'reject') {
       if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 chars).');
@@ -145,6 +164,11 @@ export const reportReviewService = {
     const row = await prisma.reportReview.findUnique({ where: { id } });
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Report not found.');
     if (row.status !== 'PENDING_APPROVAL') throw new AppError(400, 'INVALID_STATUS', 'This report is not awaiting approval.');
+    assertIsAssignee(ctx, row);
+    // Separation of duties: the approver must be neither the generator nor the reviewer.
+    if (ctx.userSub === row.generatedBy || ctx.userSub === row.reviewedBy) {
+      throw new AppError(403, 'SELF_APPROVE', 'You cannot approve a report you generated or reviewed (separation of duties).');
+    }
 
     if (action === 'reject') {
       if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 chars).');
