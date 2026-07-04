@@ -72,7 +72,8 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
 - **Confidence:** verified (code asymmetry traced; `concurrent-operator.test.ts:268-276` explicitly `it.skip`s these recheck cases, documenting the known gap). Timing-dependent (needs 2 concurrent operators on 1 filter).
 - **Fix:** route submitChecklist through the same `lockAndVerifyFilterState` recheck as the other writers.
 
-### 🟠 #8 — MEDIUM-HIGH — orphaned `'syncing'` offline ops → silent data loss under tablet OOM-kill
+### 🟠 #8 — MEDIUM-HIGH — orphaned `'syncing'` offline ops → silent data loss under tablet OOM-kill — ✅ FIXED (`125bb44`)
+> Fixed 2026-07-04: `requeueStuckSyncing()` requeues `'syncing'` ops+tombstones→`'pending'` in `startAutoSync()` before the first drain (idempotent re-replay via clientOpId; no retryCount bump). web tsc 0, web suite 365 pass, vite build 0.
 - **Where:** `apps/web/src/lib/sync-engine.ts:472` (+ :272 tombstones).
 - **Defect:** drain sets op `'pending'→'syncing'` *before* the multi-second network POST; **nothing ever resets `'syncing'`→`'pending'`** (only two `'syncing'` writes exist repo-wide; no startup requeue). `getPendingOperations` queries the `'pending'` index only.
 - **Scenario:** tablet is killed mid-replay (the documented OOM/429 auto-close from memory). The row stays `'syncing'` forever — the 30s retry, count refresh, and cleanup all skip it. If the crash preceded the server commit, the operator's cleaning advance/checklist is **silently lost while "Data Synced" shows green** — a 21 CFR data-integrity loss.
