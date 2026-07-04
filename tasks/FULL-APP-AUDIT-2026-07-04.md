@@ -189,13 +189,27 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
   (authoritative body matcher, new SMS-settings field) + a conservative default that fails on an
   unambiguous JSON error body (`success:false`/`status:"error"`) — never false-positives a real send
   into a duplicate. Twilio/Vonage untouched. api 872/0/13, web 373/0.
-- ⚪ **LOW (batch)**: pdf-renderer cold-start browser launch race (Edge leak); OAuth2 email callback
-  missing `state`/CSRF; DROPDOWN skips validation when `dropdownOptions` absent; `getConfig` returns
-  `{}` not defaults on a Zod-parse failure; dynamic-routes PUT no HTML-sanitize + full-replace;
-  bulk-upload 200-cap enforced after full in-memory parse (DoS); `snapshotAndBump` concurrent edit →
-  unhandled 500 not 409; backup `validate()` always `checksumValid:true` for SQL/CSV; report can stick
-  in `PENDING_SIGNATURE` if no signer is `required`; html-builder interpolates template-authored style
-  strings unescaped (admin-authored only).
+- ⚪ **LOW (batch)** — swept 2026-07-04 (5 verification agents → triage → fix). Outcome:
+  - ✅ **FIXED (0f4bc0e) P2002→409**: concurrent version-sidecar edits (equipment-groups / checklist- /
+    cleaning- / filter-profiles) raised an unhandled 500 + spurious SYSTEM_ERROR; one systemic global-
+    handler branch maps P2002 → 409 retryable.
+  - ✅ **FIXED (0794a74) getConfig fail-open**: parse-failure returned `{}` not schema defaults →
+    password-policy silently disabled; now re-derives `.default()`s (real schema fully defaulted). +2 tests.
+  - ✅ **FIXED (3db3979) backup validate() false PASS**: SQL/CSV self-comparison always "VALID"; now
+    honest `checksumSupported` flag + FE neutral "NOT VERIFIED" state (restore still allowed). +2 tests.
+  - ✅ **FIXED (3f67d46) bulk-upload silent truncation**: @fastify/multipart truncates at 5 MB w/o
+    throwing → confusing parse error; both handlers now 413 on `part.file.truncated` (verified v9 sets it).
+  - ✅ **FIXED (b21232f) OAuth2 state/CSRF**: live mailbox-linking flow had no `state`; now minted server-
+    side (unpredictable, 10-min TTL, one-time), verified in callback before token exchange, and stripped
+    from GET /email so a CONFIG_READ user can't read+forge it (advisor-caught leak).
+  - ⏸️ **DEFERRED — dormant** (orphaned reports/generate feature, no FE caller since 2026-06-08; API-only):
+    pdf-renderer cold-start launch race, html-builder unescaped admin-authored style strings,
+    PENDING_SIGNATURE stuck when no signer `required`. Real at code level; revisit only if reports revived.
+  - ⏭️ **SKIPPED — by-design**: DROPDOWN with no `dropdownOptions` accepts any string (explicitly tested,
+    `attribute-validator.test.ts:198`; the cleaner win is a template-save refine, not a value-validator change).
+  - ↩️ **REVERTED — net-negative**: dynamic-routes `sanitizeStrings` — no security gain (SUPER_ADMIN-only,
+    render sinks already escape) and `stripHtml` double-encodes/drops legitimate labels ("Wear & tear",
+    "temp < 5"). Left unsanitized deliberately.
 
 ### Verified-clean (strong negatives, round 2)
 Frontend hooks (`useCan`/`useReauth`/`useSession`/`use-single-tab`/`api-client`), notification
