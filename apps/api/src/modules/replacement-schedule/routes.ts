@@ -169,10 +169,16 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
     return { data };
   });
 
-  // Replace one filter against a due entry (from the tablet task). Open to any
-  // authenticated role (2026-06-04) but STILL requires REPLACE_FILTER reauth —
-  // so the action carries the operator's 21 CFR electronic signature + audit.
+  // Replace one filter against a due entry (from the tablet task). Requires
+  // FILTER_REPLACE — the same gate as the direct replace endpoint
+  // (filter-operations/routes.ts, M2 2026-06-30). The prior "open to any
+  // authenticated role" relied solely on REPLACE_FILTER reauth, which is
+  // authorization-inert when the action isn't enabled in the action-reauth
+  // config (the default) — a broken-access-control gap (audit 2026-07-04 #6).
+  // Reauth stays on top for the 21 CFR electronic signature; grant FILTER_REPLACE
+  // via the "Replace Filters" role toggle to authorize a role to run replacements.
   app.post('/entries/:id/execute', {
+    preHandler: [app.requirePermission('FILTER_REPLACE')],
     schema: {
       tags: ['Replacement Schedule'],
       summary: 'Replace one filter against a schedule entry',
