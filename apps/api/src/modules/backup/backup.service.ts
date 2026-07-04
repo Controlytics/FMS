@@ -112,14 +112,35 @@ function parseSqlBackup(sqlContent: string): BackupData {
     if (!data[tm[1]]) data[tm[1]] = [];
   }
 
-  // Match INSERT INTO "tablename" (columns) VALUES (values);
-  const insertRegex = /INSERT INTO "([^"]+)"\s*\(([^)]+)\)\s*VALUES\s*\((.+?)\);/g;
-  let match;
-
-  while ((match = insertRegex.exec(sqlContent)) !== null) {
-    const table = match[1];
-    const columns = match[2].split(',').map(c => c.trim().replace(/"/g, ''));
-    const valuesStr = match[3];
+  // Parse each INSERT with a STRING-AWARE scanner. The previous single regex
+  // (/...VALUES\s*\((.+?)\);/g) had two silent data-loss bugs on real data:
+  //   1. `.` doesn't match newlines → any row with a newline inside a text value
+  //      (multi-line reason / description / address) was SILENTLY DROPPED — the
+  //      INSERT simply failed to match, so the row vanished on restore.
+  //   2. `\);` is lazy → a value containing `);` (e.g. "cleaned filter (A); redo")
+  //      terminated the match at the FIRST `);` → the row was truncated to the
+  //      wrong column count and reinserted corrupt (or rejected).
+  // Fix: match only the fixed `INSERT INTO "t" (cols) VALUES (` header (identifiers
+  // never contain newlines or `)`), then scan the values with full single-quote /
+  // `''`-escape awareness to find the TRUE top-level `)`. A stray `INSERT INTO …`
+  // substring living inside a string value can't be re-matched because the cursor
+  // always advances past the statement we just consumed.
+  const headerRegex = /INSERT INTO "([^"]+)"\s*\(([^)]+)\)\s*VALUES\s*\(/g;
+  let cursor = 0;
+  for (;;) {
+    headerRegex.lastIndex = cursor;
+    const m = headerRegex.exec(sqlContent);
+    if (!m) break;
+    const table = m[1];
+    const columns = m[2].split(',').map(c => c.trim().replace(/"/g, ''));
+    const valuesStart = headerRegex.lastIndex; // first char after VALUES '('
+    const valuesEnd = findValuesClose(sqlContent, valuesStart);
+    if (valuesEnd === -1) {
+      // Truncated/malformed tail (no unquoted close paren). Stop rather than
+      // silently mis-parse the remainder into bad rows.
+      break;
+    }
+    const valuesStr = sqlContent.slice(valuesStart, valuesEnd);
 
     // Parse values (handle quoted strings, NULL, booleans, numbers, jsonb)
     const values = parseSqlValues(valuesStr);
@@ -130,6 +151,8 @@ function parseSqlBackup(sqlContent: string): BackupData {
       row[columns[i]] = values[i] ?? null;
     }
     data[table].push(row);
+
+    cursor = valuesEnd + 1; // past this statement's close paren
   }
 
   // Extract metadata from SQL comments
@@ -200,6 +223,33 @@ function parseSqlValues(valuesStr: string): any[] {
   }
 
   return result;
+}
+
+/**
+ * Given a serialized SQL VALUES list, scan from `start` (the first char AFTER
+ * the opening `(`) and return the index of the matching TOP-LEVEL `)` — the one
+ * that is NOT inside a quoted string. Single quotes escape as `''` (SQL
+ * standard, matching escapeSqlValue). Newlines, `)`, `;` and `,` inside a quoted
+ * string are all skipped. Returns -1 if no unquoted close paren exists
+ * (truncated input). This is what makes multi-line values and values containing
+ * `);` parse correctly.
+ */
+function findValuesClose(sql: string, start: number): number {
+  let inString = false;
+  for (let i = start; i < sql.length; i++) {
+    const ch = sql[i];
+    if (inString) {
+      if (ch === "'") {
+        if (sql[i + 1] === "'") { i++; continue; } // '' escaped quote — skip both
+        inString = false;
+      }
+      // any other char (incl. newline / ')' / ';') stays inside the string
+    } else {
+      if (ch === "'") inString = true;
+      else if (ch === ')') return i; // top-level close paren
+    }
+  }
+  return -1;
 }
 
 
