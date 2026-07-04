@@ -24,6 +24,35 @@ import {
 } from '../filter-resolver.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
+/**
+ * #eqpin (2026-07-04): decide the equipment-group binding + version pin to freeze
+ * at cycle START. Pinning the version at start (rather than lazy-binding it at the
+ * first instrument-readings submission, as advance() did) stops an admin edit to
+ * instrument operating-ranges *mid-cycle* from changing the out-of-range
+ * determination for an in-flight cycle — the pin exists precisely so mid-cycle
+ * edits don't reach a running cycle (CLAUDE.md P1).
+ *
+ *   - explicit group supplied  → pin its version (caller has validated it's active).
+ *   - no group, block has exactly ONE active group → bind + pin it at start (the
+ *     common auto-resolve case that previously drifted).
+ *   - no group, block has 0 or >1 active groups → leave unbound; advance() resolves
+ *     later exactly as before (no-group → no readings; >1 → ambiguity error).
+ *
+ * Pure + exported so the pin-capture decision is unit-testable without a DB.
+ */
+export function resolveStartEquipmentGroupPin(
+  explicitGroup: { id: string; version: number } | null,
+  blockGroups: Array<{ id: string; version: number }>,
+): { equipmentGroupId: string | null; equipmentGroupVersionPin: number | null } {
+  if (explicitGroup) {
+    return { equipmentGroupId: explicitGroup.id, equipmentGroupVersionPin: explicitGroup.version };
+  }
+  if (blockGroups.length === 1) {
+    return { equipmentGroupId: blockGroups[0].id, equipmentGroupVersionPin: blockGroups[0].version };
+  }
+  return { equipmentGroupId: null, equipmentGroupVersionPin: null };
+}
+
 /** @param data - Validated by Fastify JSON schema before reaching this method */
 export async function startCycleImpl(
   service: FilterOperationsService,
@@ -152,16 +181,28 @@ export async function startCycleImpl(
     // group's current version so the cycle pins it at start. Reading validation
     // later reads operating-range from the pinned EquipmentGroupVersion
     // snapshot, NOT the live group, so admin edits to ranges mid-cycle don't
-    // reach the in-flight cycle.
-    let equipmentGroupVersionPin: number | null = null;
+    // reach the in-flight cycle. #eqpin (2026-07-04): also pin the common case
+    // where no group was passed but the block has exactly one active group —
+    // previously that stayed null and lazy-bound to the LIVE version at the
+    // first readings advance, drifting if the group was edited in between.
+    let explicitGroup: { id: string; version: number } | null = null;
     if (equipmentGroupId) {
-      const eqGroup = await tx.equipmentGroup.findFirst({
+      explicitGroup = await tx.equipmentGroup.findFirst({
         where: { id: equipmentGroupId, isActive: true },
         select: { id: true, version: true },
       });
-      if (!eqGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found or inactive');
-      equipmentGroupVersionPin = eqGroup.version;
+      if (!explicitGroup) throw new AppError(400, 'INVALID_EQUIPMENT_GROUP', 'Equipment group not found or inactive');
     }
+    // Only resolve the block's active groups when we need to (no explicit group +
+    // a known block). Matches advance()'s auto-resolve: bind only when EXACTLY one.
+    const blockGroups = (!equipmentGroupId && cleaningAreaId)
+      ? await tx.equipmentGroup.findMany({
+          where: { blockId: cleaningAreaId, isActive: true },
+          select: { id: true, version: true },
+        })
+      : [];
+    const { equipmentGroupId: boundEquipmentGroupId, equipmentGroupVersionPin } =
+      resolveStartEquipmentGroupPin(explicitGroup, blockGroups);
 
     const newCycle = await tx.cleaningCycle.create({
       data: {
@@ -183,8 +224,8 @@ export async function startCycleImpl(
         cleaningReasonLabel: reason.name,
         cleaningJustification: cleaningJustification ?? null,
         cleaningAreaId: cleaningAreaId ?? null,
-        equipmentGroupId: equipmentGroupId ?? null,
-        equipmentGroupVersionPin, // P1: null when no group bound at start
+        equipmentGroupId: boundEquipmentGroupId, // #eqpin: block's sole group auto-bound at start
+        equipmentGroupVersionPin, // P1: version frozen at start (null only when no group resolvable)
         ...(offlineTime && { startedAt: offlineTime }),
       },
     });

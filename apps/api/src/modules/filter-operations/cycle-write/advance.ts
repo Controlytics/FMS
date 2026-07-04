@@ -213,7 +213,16 @@ export async function advanceImpl(
   if (instrumentReadings && typeof instrumentReadings === 'object' && Object.keys(instrumentReadings).length > 0) {
     let cycleGroupId = equipmentGroupId ?? cycle.equipmentGroupId;
     // Three pin sources (priority): cycle pin → lazy-bind live group version → null (legacy).
-    let cycleVersionPin: number | null = cycle.equipmentGroupVersionPin ?? null;
+    // #eqpin (2026-07-04): the pin was frozen against cycle.equipmentGroupId. Only
+    // honour it when we're validating THAT group. If the caller supplies a different
+    // equipmentGroupId (an advance-time override), the pin doesn't apply to it — drop
+    // to null so we lazy-bind / use live for the overriding group instead of matching
+    // the wrong group against a stale version number. Defensive: normal advances pass
+    // no override, so cycleGroupId === cycle.equipmentGroupId and the pin is kept.
+    let cycleVersionPin: number | null =
+      cycleGroupId && cycleGroupId === cycle.equipmentGroupId
+        ? (cycle.equipmentGroupVersionPin ?? null)
+        : null;
 
     // Auto-resolve: if no group on cycle but block is known, pick the block's active group.
     // Hybrid guard #30 — pure portion (count <= 1) wraps the live DB read.
