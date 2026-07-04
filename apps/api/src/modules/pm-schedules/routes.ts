@@ -567,7 +567,11 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   });
 
   app.post('/deviations/:id/acknowledge', {
-    preHandler: [app.requirePermission('PM_READ')],
+    // Audit #7 (2026-07-04): acknowledging is the precursor to COMPLETING an overdue
+    // task, and completion requires PM_EXECUTE (execution-routes.ts). Gate the
+    // (state-changing) acknowledge on PM_EXECUTE too, not the read perm PM_READ — a
+    // read-only role can't complete the task, so it has no reason to acknowledge it.
+    preHandler: [app.requirePermission('PM_EXECUTE')],
     schema: {
       tags: ['PM Schedules'],
       summary: 'Acknowledge an overdue task before completing it (password re-auth)',
