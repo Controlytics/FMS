@@ -25,7 +25,12 @@ const ipv4Lookup: any = (hostname: any, options: any, callback: any) => {
 let cachedOAuthToken: { token: string; expiresAt: number } | null = null;
 
 function configHash(config: EmailConfig): string {
-  return `${config.host}:${config.port}:${config.username}:${config.secure}:${config.authType}:${config.clientId ?? ''}`;
+  // #notif-1 fix: include the basic-auth password so a password rotation busts the
+  // cached transporter. Without it the hash was unchanged on rotation → getTransporter
+  // returned a transporter built with the OLD password and every send failed until an
+  // API restart (the basic-auth catch never self-heals). In-memory equality key only,
+  // never logged. (oauth2 bypasses this cache entirely, see getTransporter.)
+  return `${config.host}:${config.port}:${config.username}:${config.secure}:${config.authType}:${config.clientId ?? ''}:${config.password ?? ''}`;
 }
 
 /**
