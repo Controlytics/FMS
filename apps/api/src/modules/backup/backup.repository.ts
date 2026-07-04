@@ -352,6 +352,19 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
       await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" DISABLE TRIGGER "${t.tgname}"`);
     }
 
+    // #backup-critical fix: the export replaces every users.password_hash with the
+    // stripped sentinel (so a leaked backup can't be cracked — §11.10(d)). But the
+    // TRUNCATE+reinsert below would write that sentinel over EVERY user's real hash,
+    // bricking all login — including SUPER_ADMIN, so the "recover via Reset Requests"
+    // path is itself unreachable. Snapshot the CURRENT hashes before truncate and
+    // re-apply them to the sentinel rows on reinsert (see the users special-case in
+    // the insert loop), so existing users keep their login across a restore.
+    const currentUserSecrets = new Map<string, { password_hash: unknown; password_history_hashes: unknown }>();
+    try {
+      const cur: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash, password_history_hashes FROM "users"`);
+      for (const u of cur) currentUserSecrets.set(u.id, { password_hash: u.password_hash, password_history_hashes: u.password_history_hashes });
+    } catch { /* users shape differs / table absent — skip preservation, restore as-is */ }
+
     // Truncate every DB table in one statement — CASCADE handles all FKs in a single pass
     for (const t of dbTables) assertSafeIdentifier(t);
     await tx.$executeRawUnsafe(
@@ -362,8 +375,20 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     //   1) INSERT with the self-ref column(s) NULLed out
     //   2) UPDATE to set the real self-ref values
     for (const table of restoreTables) {
-      const rows = data[table];
+      let rows = data[table];
       if (!rows || rows.length === 0) continue;
+      if (table === 'users') {
+        // Re-apply the pre-truncate hash for any user whose backup row carries the
+        // stripped sentinel and who still exists — otherwise the sentinel stands (a
+        // backup-only user that never existed here must reset via the admin workflow).
+        rows = rows.map((r: Record<string, any>) => {
+          if (r.password_hash === PASSWORD_STRIPPED_SENTINEL && currentUserSecrets.has(r.id)) {
+            const kept = currentUserSecrets.get(r.id)!;
+            return { ...r, password_hash: kept.password_hash, password_history_hashes: kept.password_history_hashes };
+          }
+          return r;
+        });
+      }
       const selfRefCols = selfRefs[table] ?? [];
       await insertRows(tx, table, rows, selfRefCols);
       if (selfRefCols.length > 0) {

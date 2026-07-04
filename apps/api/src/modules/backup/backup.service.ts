@@ -62,8 +62,13 @@ function parseCsvContent(csvString: string): Record<string, any>[] {
       // Convert "true"/"false" to boolean
       else if (val === 'true') val = true;
       else if (val === 'false') val = false;
-      // Convert numeric strings
-      else if (val !== '' && !isNaN(Number(val)) && !val.includes('-') && val.length < 15) val = Number(val);
+      // Convert numeric strings — ONLY when the string is the canonical form of the
+      // number (#backup-csv fix). The old check coerced any numeric-looking cell,
+      // corrupting text columns: "0055"→55, "+919876543210"→919876543210, "1.0"→1,
+      // "1e5"→100000 (serials / phone numbers / zero-padded codes lost their form).
+      // `String(Number(val)) === val` coerces genuine numbers (e.g. "55") and leaves
+      // everything else as text; Postgres casts per column type on reinsert either way.
+      else if (val !== '' && val.length < 15 && Number.isFinite(Number(val)) && String(Number(val)) === val) val = Number(val);
       // Convert empty to null
       else if (val === '') val = null;
       row[headers[j]] = val;
