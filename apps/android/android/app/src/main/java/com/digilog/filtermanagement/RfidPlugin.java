@@ -44,8 +44,7 @@ import java.util.Iterator;
  * Lifecycle:
  *   - connect()        — finds the USB RFID device, requests permission, opens it
  *   - startInventory() — begins continuous read; tags arrive via "tag" listener
- *   - stopInventory()  — pauses read
- *   - disconnect()     — closes the USB connection
+ *   - disconnect()     — closes the USB connection (also stops any running read)
  */
 @CapacitorPlugin(name = "Rfid")
 public class RfidPlugin extends Plugin {
@@ -187,17 +186,6 @@ public class RfidPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void stopInventory(PluginCall call) {
-        try {
-            reader.StopRead();
-            inventoryRunning = false;
-            JSObject ret = new JSObject(); ret.put("stopped", true); call.resolve(ret);
-        } catch (Throwable t) {
-            call.reject("stopInventory failed: " + t.getMessage());
-        }
-    }
-
-    @PluginMethod
     public void disconnect(PluginCall call) {
         try {
             if (inventoryRunning) {
@@ -212,14 +200,6 @@ public class RfidPlugin extends Plugin {
         } catch (Throwable t) {
             call.reject("disconnect failed: " + t.getMessage());
         }
-    }
-
-    @PluginMethod
-    public void isConnected(PluginCall call) {
-        JSObject ret = new JSObject();
-        ret.put("connected", connected && reader.isConnect());
-        ret.put("inventoryRunning", inventoryRunning);
-        call.resolve(ret);
     }
 
     /**
