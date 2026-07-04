@@ -104,12 +104,14 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
 - **Confidence:** verified (uncommon config, not prevented).
 - **Fix:** create the interlock approval before the auto-complete when `enteringInterlock` on a terminal stage (or block that profile config).
 
-### 🟡 #10 — LOW — `ensureCycleAlive` pre-empts server idempotency for the cycle-completing op
+### 🟡 #10 — LOW — `ensureCycleAlive` pre-empts server idempotency for the cycle-completing op — ✅ FIXED (`a0a0c9a`)
+> Fixed 2026-07-04: neutral, accurate messaging ("cycle already ended — queued action skipped, no data lost") instead of "operation discarded". The cycle-scoped idempotency (intentional) can't confirm a completing op post-completion, so a behavioral auto-sync would be unsafe; the misreport was the message. web suite 366/0.
 - **Where:** `apps/web/src/lib/sync-engine.ts:176-192` + :575.
 - **Defect:** the pre-replay `ensureCycleAlive` guard fetches `/current-state`; if the cycle-completing op committed server-side but its response was lost, the next drain sees `currentCycle==null` and throws `CYCLE_ENDED` **without calling the server**, so `findExistingByClientOpId` (which would return the cached success) never runs → op misreported "failed/discarded" though server data is correct.
 - **Confidence:** verified. Cosmetic (no data loss; misleading status only).
 
-### 🟡 #7 — LOW/informational — PM deviation acknowledge gated on a read perm
+### 🟡 #7 — LOW/informational — PM deviation acknowledge gated on a read perm — ✅ FIXED (`75c4f91`)
+> Fixed 2026-07-04: gate changed `PM_READ` → `PM_EXECUTE` (matches the completion action it precedes). api suite 846/0/13.
 - `apps/api/src/modules/pm-schedules/routes.ts:569` — `POST /deviations/:id/acknowledge` gated on `PM_READ` (read) for a state change, but mitigated by always-on `enforceReauthAlways('ACKNOWLEDGE_PM_OVERDUE')` (password required, non-toggleable) and non-destructive. Borderline; identity-bound.
 
 ### 🟡 #1 (severity resolved) — LOW/cosmetic — checklists nav leak to operators — ✅ FIXED (`8d71b8e`)
