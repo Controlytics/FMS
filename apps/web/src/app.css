@@ -118,11 +118,6 @@ table {
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes slideIn {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -130,25 +125,6 @@ table {
 
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out;
-}
-
-.animate-slide-in {
-  animation: slideIn 0.3s ease-out;
-}
-
-/* Glass effect for cards */
-.glass {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-/* Gradient text utility */
-.gradient-text {
-  background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 /* Professional shadow utilities */
@@ -185,29 +161,5 @@ table {
 }
 .animate-rise { animation: mobileRise 360ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
 
-/* Counter "breathing" pulse for active pipeline stages. */
-@keyframes stagePulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.35); }
-  50%      { box-shadow: 0 0 0 10px rgba(14, 165, 233, 0); }
-}
-.animate-stage-pulse { animation: stagePulse 2.4s ease-in-out infinite; }
-
-/* Pipeline arrow connector — a small chevron that suggests flow direction
-   between stage tiles without taking real estate. */
-.pipeline-arrow {
-  width: 0; height: 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-left: 6px solid #cbd5e1;
-  flex-shrink: 0;
-}
-
-/* Theme utility classes — replace inline style={{ color: 'var(--theme-*)' }} patterns */
+/* Theme utility class — replaces inline style={{ color: 'var(--theme-primary)' }} */
 .text-theme-primary { color: var(--theme-primary); }
-.text-theme-primary-dark { color: var(--theme-primary-dark); }
-.bg-theme-primary { background-color: var(--theme-primary); }
-.bg-theme-primary-light { background-color: var(--theme-primary-light); }
-.border-theme-primary { border-color: var(--theme-primary); }
-.ring-theme-focus { box-shadow: 0 0 0 3px var(--theme-focus-ring); }
-.bg-theme-gradient { background-image: linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to)); }
-.bg-theme-gradient-br { background-image: linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to)); }
