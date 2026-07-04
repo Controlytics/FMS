@@ -1,18 +1,20 @@
 /**
  * Filter Operations — submitChecklist() implementation.
  *
- * Extracted byte-for-byte from filter-operations.service.ts. Note: the
- * SELECT FOR UPDATE here uses `SELECT 1` (just acquires the row lock) and
- * verifies its invariant via an ALREADY_SUBMITTED FilterEvent lookup, which
- * is structurally different from the (state, cycle) recheck used by
- * advance/bypass/terminate. So this lock stays inline rather than going
- * through the shared `lockAndVerifyFilterState` helper.
+ * Extracted from filter-operations.service.ts. The in-tx lock goes through the
+ * shared `lockAndVerifyFilterState` helper — the same (state, cycle) recheck
+ * advance/bypass/terminate use — AND keeps an ALREADY_SUBMITTED FilterEvent
+ * guard on top (duplicate same-stage submission). The recheck was added
+ * 2026-07-04: without it a concurrent terminate/bypass that changed
+ * (state, cycle) between the pre-tx read and the lock would be clobbered by the
+ * completion branch (flipping a just-TERMINATED cycle back to COMPLETED).
  */
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
+import { lockAndVerifyFilterState } from './locking.js';
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
@@ -188,11 +190,16 @@ export async function submitChecklistImpl(
   }
 
   await prisma.$transaction(async (tx) => {
-    // Phase 5b.4: SELECT FOR UPDATE on FilterDetails to serialize submitChecklist
-    // against concurrent advance/bypass on the same filter.
-    await tx.$queryRaw`
-      SELECT 1 FROM filter_details WHERE asset_instance_id = ${filterId}::uuid FOR UPDATE
-    `;
+    // Phase 5b.4 + 2026-07-04 race fix: lock filter_details AND re-verify the
+    // (state, cycle) tuple still matches the snapshot we validated against —
+    // the same recheck advance/bypass/terminate use. Without it, a concurrent
+    // terminate/bypass that changed (state, cycle) between our pre-tx read and
+    // this lock would be clobbered: the completion branch below would flip a
+    // just-TERMINATED cycle back to COMPLETED, writing contradictory 21 CFR
+    // events (CYCLE_TERMINATED + CYCLE_COMPLETED). Throws 409 STATE_CHANGED /
+    // CYCLE_CHANGED on mismatch. The ALREADY_SUBMITTED guard below still runs
+    // on top (it catches a duplicate same-stage submission, a different case).
+    await lockAndVerifyFilterState(tx, filterId, currentState, cycle.id);
 
     // Check for duplicate submission (same stage, same cycle).
     //

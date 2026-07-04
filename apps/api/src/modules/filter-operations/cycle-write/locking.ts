@@ -12,10 +12,10 @@
  *   2. If lockedFD.current_lifecycle_state !== expectedState -> 409 STATE_CHANGED
  *   3. If lockedFD.current_cycle_id      !== expectedCycleId -> 409 CYCLE_CHANGED
  *
- * Extracted as a shared helper so the three writers stay in lockstep when
- * the lock semantics get audited again. submitChecklist's lock is a
- * different shape (SELECT 1, ALREADY_SUBMITTED guard against filter_event)
- * and stays inline in submit-checklist.ts.
+ * Extracted as a shared helper so the writers stay in lockstep when the lock
+ * semantics get audited again. submitChecklist ALSO uses this helper (race fix
+ * 2026-07-04) and keeps its ALREADY_SUBMITTED filter_event guard on top of the
+ * (state, cycle) recheck.
  */
 import type { Prisma } from '@prisma/client';
 import { AppError } from '../../../lib/errors.js';

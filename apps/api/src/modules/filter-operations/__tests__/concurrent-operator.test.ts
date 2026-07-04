@@ -265,14 +265,53 @@ describe('Phase 8.7 — Concurrent-Operator Collision Codes', () => {
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
 
-    it.skip('STATE_CHANGED — n/a for submitChecklist; the txn does not recheck currentLifecycleState (uses ALREADY_SUBMITTED instead)', () => {
-      // submitChecklist's post-lock guard checks for an existing CHECKLIST_COMPLETED
-      // event for the same stage rather than rechecking currentLifecycleState.
-      // The collision surface is covered by the ALREADY_SUBMITTED test below.
+    it('STATE_CHANGED — operator A snapshots the stage; operator B advanced/bypassed before A acquires the row lock', async () => {
+      // 2026-07-04 race fix: submitChecklist now rechecks (state, cycle) post-lock
+      // via lockAndVerifyFilterState. The locked row reports a DIFFERENT
+      // currentLifecycleState → 409 STATE_CHANGED, before any completion write.
+      setupBaseline((tx) => {
+        tx.$queryRaw.mockResolvedValue([
+          { current_lifecycle_state: NEXT_STATE, current_cycle_id: CYCLE_ID },
+        ]);
+      });
+      const service = new FilterOperationsService();
+
+      await expect(
+        service.submitChecklist(ctx, FILTER_ID, {
+          answers: {},
+          clientOpId: 'op-A',
+          tapeVersion: FRESH_TAPE,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'STATE_CHANGED',
+      });
+      // Transaction WAS entered — the rejection happens after the row lock.
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
-    it.skip('CYCLE_CHANGED — n/a for submitChecklist; same reason as STATE_CHANGED', () => {
-      // No current_cycle_id recheck inside the txn for submitChecklist.
+    it('CYCLE_CHANGED — operator A snapshots cycle X; operator B terminated it before A acquires the lock (else the completion branch flips TERMINATED→COMPLETED)', async () => {
+      // The exact contradictory-record race: same currentLifecycleState (state
+      // check passes) but a DIFFERENT current_cycle_id → 409 CYCLE_CHANGED,
+      // so A's completion writes never clobber B's terminate.
+      setupBaseline((tx) => {
+        tx.$queryRaw.mockResolvedValue([
+          { current_lifecycle_state: CURRENT_STATE, current_cycle_id: ALT_CYCLE_ID },
+        ]);
+      });
+      const service = new FilterOperationsService();
+
+      await expect(
+        service.submitChecklist(ctx, FILTER_ID, {
+          answers: {},
+          clientOpId: 'op-A',
+          tapeVersion: FRESH_TAPE,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'CYCLE_CHANGED',
+      });
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
     it('ALREADY_SUBMITTED — operator A already wrote CHECKLIST_COMPLETED for this stage; operator B (different clientOpId) hits the duplicate check', async () => {
