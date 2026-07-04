@@ -162,6 +162,7 @@ export default async function backupRoutes(app: FastifyInstance) {
             metadata: { type: 'object', additionalProperties: true },
             tableSummary: { type: 'object', additionalProperties: { type: 'number' } },
             checksumValid: { type: 'boolean' },
+            checksumSupported: { type: 'boolean' },
             totalRecords: { type: 'number' },
           },
           additionalProperties: true,

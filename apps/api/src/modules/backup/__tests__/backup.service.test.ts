@@ -93,6 +93,34 @@ describe('backup.service', () => {
       expect(result.totalRecords).toBe(2);
     });
 
+    it('json/bak: checksum is a real independent check → checksumSupported true', async () => {
+      const backup = makeBackup();
+      const buf = Buffer.from(JSON.stringify(backup));
+      mockComputeChecksum.mockReturnValue('abc123');
+      const result = await validate(buf);
+      expect(result.checksumSupported).toBe(true);
+      expect(result.checksumValid).toBe(true);
+      expect(result.valid).toBe(true);
+    });
+
+    it('#low-batch: SQL backup → checksumSupported=false, checksumValid=false, valid=true (no false VALID)', async () => {
+      // SQL/CSV synthesize the checksum from the parsed data at import, so a
+      // self-comparison always "passes". Report it as not-independently-verifiable
+      // instead of a green VALID, but keep valid=true since the file is restorable.
+      mockComputeChecksum.mockReturnValue('whatever'); // its own metadata.checksum
+      const sql = [
+        '-- DigiLog Database Backup',
+        'TRUNCATE TABLE "roles" CASCADE;',
+        `INSERT INTO "roles" ("name") VALUES ('ADMIN');`,
+      ].join('\n');
+
+      const result = await validate(Buffer.from(sql));
+      expect(result.metadata.format).toBe('sql');
+      expect(result.checksumSupported).toBe(false);
+      expect(result.checksumValid).toBe(false);
+      expect(result.valid).toBe(true); // parseable ⇒ restorable
+    });
+
     it('rejects invalid JSON', async () => {
       const buf = Buffer.from('not json');
       await expect(validate(buf)).rejects.toThrow();

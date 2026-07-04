@@ -650,12 +650,22 @@ export async function validate(
   metadata: BackupData['metadata'];
   tableSummary: Record<string, number>;
   checksumValid: boolean;
+  checksumSupported: boolean;
   totalRecords: number;
 }> {
   const backup = parseBackupFile(fileBuffer);
 
-  const computedChecksum = computeBackupChecksum(backup.data);
-  const checksumValid = computedChecksum === backup.metadata.checksum;
+  // #low-batch: the checksum is only an INDEPENDENT integrity check for json/bak,
+  // whose digest is stored in the file. SQL/CSV synthesize the checksum FROM the
+  // parsed data at import time (parseSqlBackup/parseCsvZipBackup), so comparing it
+  // to a fresh recompute is a self-comparison that is always true — it verifies
+  // nothing. The restore path already skips the checksum for those formats; report
+  // it honestly here too via `checksumSupported` instead of a false "VALID".
+  const fmt = backup.metadata.format ?? 'json';
+  const checksumSupported = fmt === 'json' || fmt === 'bak';
+  const checksumValid = checksumSupported
+    ? computeBackupChecksum(backup.data) === backup.metadata.checksum
+    : false;
 
   const tableSummary: Record<string, number> = {};
   for (const [key, value] of Object.entries(backup.data)) {
@@ -663,10 +673,13 @@ export async function validate(
   }
 
   return {
-    valid: checksumValid,
+    // json/bak: a tampered file (checksum mismatch) is NOT valid. SQL/CSV: no
+    // independent checksum exists, but a parseable file is still restorable.
+    valid: checksumSupported ? checksumValid : true,
     metadata: backup.metadata,
     tableSummary,
     checksumValid,
+    checksumSupported,
     totalRecords: Object.values(tableSummary).reduce((s, n) => s + n, 0),
   };
 }

@@ -19,6 +19,7 @@ interface ValidationResult {
   };
   tableSummary: Record<string, number>;
   checksumValid: boolean;
+  checksumSupported?: boolean;
   totalRecords: number;
 }
 
@@ -370,40 +371,58 @@ export function BackupRestorePage() {
             <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>
           )}
 
-          {/* Validation result */}
-          {validation && (
-            <div className={`rounded-2xl border p-5 space-y-4 ${validation.checksumValid ? 'bg-emerald-50/50 border-emerald-200' : 'bg-red-50/50 border-red-200'}`}>
+          {/* Validation result. Three states: verified (json/bak checksum OK),
+              failed (json/bak checksum mismatch), and not-applicable (SQL/CSV
+              carry no independent integrity digest — showing green "VALID" there
+              was a false tamper-evidence signal). */}
+          {validation && (() => {
+            const csState: 'ok' | 'fail' | 'na' =
+              validation.checksumSupported === false ? 'na' : validation.checksumValid ? 'ok' : 'fail';
+            const box = csState === 'ok' ? 'bg-emerald-50/50 border-emerald-200'
+              : csState === 'fail' ? 'bg-red-50/50 border-red-200'
+              : 'bg-amber-50/50 border-amber-200';
+            return (
+            <div className={`rounded-2xl border p-5 space-y-4 ${box}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  {validation.checksumValid ? (
+                  {csState === 'ok' ? (
                     <div className="p-2 rounded-xl bg-emerald-100">
                       <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                       </svg>
                     </div>
-                  ) : (
+                  ) : csState === 'fail' ? (
                     <div className="p-2 rounded-xl bg-red-100">
                       <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                       </svg>
                     </div>
+                  ) : (
+                    <div className="p-2 rounded-xl bg-amber-100">
+                      <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
                   )}
                   <div>
-                    <p className={`font-semibold ${validation.checksumValid ? 'text-emerald-800' : 'text-red-800'}`}>
-                      {validation.checksumValid ? 'Backup file is valid' : 'Backup file integrity check failed'}
+                    <p className={`font-semibold ${csState === 'ok' ? 'text-emerald-800' : csState === 'fail' ? 'text-red-800' : 'text-amber-800'}`}>
+                      {csState === 'ok' ? 'Backup file is valid'
+                        : csState === 'fail' ? 'Backup file integrity check failed'
+                        : 'Structure valid — integrity not independently verifiable'}
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      {validation.checksumValid
-                        ? 'Checksum verified. File has not been tampered with.'
-                        : 'The file may be corrupted or modified. Do not restore from this file.'}
+                      {csState === 'ok' ? 'Checksum verified. File has not been tampered with.'
+                        : csState === 'fail' ? 'The file may be corrupted or modified. Do not restore from this file.'
+                        : 'SQL/CSV backups carry no independent integrity digest, so tampering cannot be detected. Use a .json or .bak backup if you need a verifiable checksum.'}
                     </p>
                   </div>
                 </div>
-                <Badge className={validation.checksumValid
+                <Badge className={csState === 'ok'
                   ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0'
-                  : 'bg-gradient-to-r from-red-400 to-rose-400 text-white border-0'
+                  : csState === 'fail' ? 'bg-gradient-to-r from-red-400 to-rose-400 text-white border-0'
+                  : 'bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0'
                 }>
-                  {validation.checksumValid ? 'VALID' : 'INVALID'}
+                  {csState === 'ok' ? 'VALID' : csState === 'fail' ? 'INVALID' : 'NOT VERIFIED'}
                 </Badge>
               </div>
 
@@ -443,8 +462,11 @@ export function BackupRestorePage() {
               </div>
 
               {/* Restore button — 2026-05-26 gated on BACKUP_RESTORE
-                  (explicit, NOT covered by BACKUP_MANAGE suffix). */}
-              {validation.checksumValid && (
+                  (explicit, NOT covered by BACKUP_MANAGE suffix). Available when
+                  the file isn't a proven-tampered json/bak (csState 'ok' or 'na');
+                  SQL/CSV ('na') has no verifiable checksum but restore() skips the
+                  check for those formats, so they remain restorable as before. */}
+              {csState !== 'fail' && (
                 <>
                   <Button
                     onClick={() => setConfirmRestore(true)}
@@ -465,7 +487,8 @@ export function BackupRestorePage() {
                 </>
               )}
             </div>
-          )}
+            );
+          })()}
 
           {/* Restore result */}
           {restoreResult && (
