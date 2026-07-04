@@ -37,7 +37,11 @@ async function validateParent(parentId: string, childTemplateId: string, childId
   const parentTemplate = await templateRepository.findById(parent.templateId);
   const parentMax = (parentTemplate as any)?.maxConnections ?? 10;
   if (parentMax > 0) {
-    const parentUsed = await relationshipRepository.countBySourceAsset(parentId);
+    // #assets-1 fix: count CONTAINS children only, not every relationship sourced at
+    // the parent. countBySourceAsset also counted the parent's own upward CONTAINED_IN
+    // link (created for every non-root node), so a parent that itself had a parent
+    // started at parentUsed=1 → off-by-one under-allow (9 children on a max of 10).
+    const parentUsed = await relationshipRepository.countContainsChildren(parentId);
     if (parentUsed >= parentMax) {
       throw new ValidationError(`Parent entity has reached max connections (${parentUsed}/${parentMax})`);
     }

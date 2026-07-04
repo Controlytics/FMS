@@ -127,7 +127,7 @@ describe('instanceService', () => {
     it('creates instance with parent and CONTAINS + CONTAINED_IN relationships in one transaction', async () => {
       mockTemplateRepo.findById.mockResolvedValue({ id: 't1', version: 1, attributeSchema: [], maxParentConnections: 1, maxConnections: 10 });
       mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'parent', templateId: 't1' });
-      mockRelRepo.countBySourceAsset.mockResolvedValue(2);
+      mockRelRepo.countContainsChildren.mockResolvedValue(2); // connection-limit now counts CONTAINS children only (#assets-1)
       mockInstanceRepo.findByIdWithName.mockResolvedValue({ name: 'Parent' });
       mockHasCycle.mockResolvedValue(false);
 

@@ -59,11 +59,20 @@ export function validateAttributeValues(
           }
         }
         break;
-      case 'DATE':
-        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      case 'DATE': {
+        // #assets-2 fix: regex alone accepted impossible calendar dates like
+        // "2026-02-31" / "2026-13-45" (\d{2} matches 13/31/45), storing them as a
+        // 21 CFR record. Round-trip through Date (parsed as UTC) so a rolled-over
+        // date fails to match — same guard filter-fields.service.ts uses.
+        const dateOk = typeof value === 'string'
+          && /^\d{4}-\d{2}-\d{2}$/.test(value)
+          && !Number.isNaN(Date.parse(value))
+          && new Date(value).toISOString().slice(0, 10) === value;
+        if (!dateOk) {
           errors.push(`"${fieldName}" must be a valid date (YYYY-MM-DD)`);
         }
         break;
+      }
       case 'DATETIME':
         if (typeof value !== 'string' || isNaN(Date.parse(value))) {
           errors.push(`"${fieldName}" must be a valid datetime`);
