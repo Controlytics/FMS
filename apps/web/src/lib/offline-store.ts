@@ -620,6 +620,60 @@ export async function updateOperationStatus(id: string, status: OfflineOperation
 }
 
 /**
+ * Flip a stuck 'syncing' row back to 'pending' for re-drain. Pure policy (mirrors
+ * `normalizeOpForV4` — exported so it can be unit-tested without a full IDB harness).
+ * Deliberately does NOT bump `retryCount`: an interrupted replay is not a failure,
+ * so it must not burn the op's retry budget. Returns the mutated row.
+ */
+export function markSyncingRowPending<T extends { status: string }>(row: T): T {
+  row.status = 'pending';
+  return row;
+}
+
+function requeueSyncingInStore(db: IDBDatabase, storeName: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const req = store.index('status').getAll('syncing');
+    let count = 0;
+    req.onsuccess = () => {
+      for (const row of (req.result ?? [])) {
+        store.put(markSyncingRowPending(row));
+        count++;
+      }
+    };
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve(count);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+/**
+ * Requeue operations + tombstones stuck in 'syncing' back to 'pending'.
+ *
+ * An op is flipped to 'syncing' immediately before its network POST (sync-engine).
+ * If the app is killed mid-replay — the documented tablet OOM / 429-retry-storm
+ * auto-close — nothing ever resets it: getPendingOperations/getPendingTombstones
+ * read only the 'pending' index, so the row is orphaned forever and the operator's
+ * cleaning action is silently lost while the UI still shows "Data Synced".
+ *
+ * Called once at boot (startAutoSync) BEFORE the first drain, so any 'syncing' row
+ * present is necessarily an orphan from a prior interrupted session — the current
+ * session hasn't started a drain yet. Re-replay is safe: every op carries a
+ * clientOpId the server dedups, so an op that actually committed before the crash
+ * replays as an idempotent no-op. Returns the number of rows requeued.
+ */
+export async function requeueStuckSyncing(): Promise<number> {
+  const db = await openDB();
+  let total = await requeueSyncingInStore(db, 'operations');
+  if (db.objectStoreNames.contains('tombstones')) {
+    total += await requeueSyncingInStore(db, 'tombstones');
+  }
+  return total;
+}
+
+/**
  * Delete a single queued operation by id. Used by the "couldn't sync" review
  * panel when an operator dismisses a terminal-failed op (e.g. cycle already
  * ended / stale tape) they've decided not to re-perform.

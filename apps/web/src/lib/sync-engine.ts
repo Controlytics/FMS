@@ -29,6 +29,7 @@ import {
   clearSyncedTombstones,
   compactSyncedOperations,
   evictLruCache,
+  requeueStuckSyncing,
 } from './offline-store';
 import { onConnectivityChange } from './connectivity';
 import {
@@ -706,7 +707,23 @@ export function startAutoSync(): void {
     pendingTimers.clear();
   };
 
-  scheduleSync(SYNC_INITIAL_DELAY_MS);
+  // Recover ops/tombstones orphaned in 'syncing' by a prior session that was
+  // killed mid-replay (tablet OOM / 429-storm auto-close). Requeue them to
+  // 'pending' BEFORE the first drain so they aren't silently lost. Safe: any
+  // that already committed replay as idempotent no-ops (clientOpId dedup).
+  // Scheduling the initial drain in .finally() guarantees the requeue lands first.
+  requeueStuckSyncing()
+    .then((n) => {
+      if (n > 0) {
+        // eslint-disable-next-line no-console -- operator-facing recovery diagnostic
+        console.warn(`[sync-engine] requeued ${n} operation(s) stuck in 'syncing' from a prior interrupted session`);
+      }
+    })
+    .catch((err) => {
+      // eslint-disable-next-line no-console -- surface IDB failure; drain still scheduled
+      console.warn('[sync-engine] requeueStuckSyncing failed —', err instanceof Error ? err.message : String(err));
+    })
+    .finally(() => scheduleSync(SYNC_INITIAL_DELAY_MS));
 }
 
 export function stopAutoSync(): void {

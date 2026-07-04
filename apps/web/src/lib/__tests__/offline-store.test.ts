@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeOpForV4 } from '../offline-store';
+import { normalizeOpForV4, markSyncingRowPending } from '../offline-store';
 
 /**
  * Phase 8.4 M-3 — IDB v3 -> v4 migration policy.
@@ -37,5 +37,19 @@ describe('offline-store — Phase 8.4 M-3 v4 migration', () => {
     const wrote = normalizeOpForV4(row);
     expect(wrote).toBe(false);
     expect(row.tapeVersion).toBe(1005);
+  });
+});
+
+describe('offline-store — requeue stuck syncing (audit #8, silent-data-loss fix)', () => {
+  it('flips syncing -> pending', () => {
+    const row = { id: 'op-1', status: 'syncing' };
+    expect(markSyncingRowPending(row).status).toBe('pending');
+  });
+
+  it('does NOT bump retryCount (an interrupted replay is not a failure)', () => {
+    const row = { id: 'op-2', status: 'syncing', retryCount: 2 };
+    markSyncingRowPending(row);
+    expect(row.status).toBe('pending');
+    expect(row.retryCount).toBe(2); // retry budget preserved — the crash wasn't the op's fault
   });
 });
