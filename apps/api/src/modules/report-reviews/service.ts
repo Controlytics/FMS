@@ -63,6 +63,41 @@ function assertIsAssignee(ctx: RequestContext, row: { assigneeUserId: string | n
   }
 }
 
+export interface ReportReviewParties {
+  generatedBy: string | null;
+  assigneeUserId: string | null;
+  assigneeRole: string | null;
+  reviewedBy: string | null;
+  approvedBy: string | null;
+  rejectedBy: string | null;
+}
+
+/**
+ * #reports-2 fix: `getById` returns the full `dataSnapshot` (the entire rendered
+ * report payload). It's reached by ANY `REPORT_REVIEW_SUBMIT`/`REPORT_REVIEW`/
+ * `REPORT_APPROVE` holder, so without scoping a submit-only user could read the
+ * snapshot of a report they have no part in. A caller may view a report only if
+ * they are SUPER_ADMIN or a party to THIS report:
+ *   - its generator, or
+ *   - the current-stage assignee (matched by user id OR by role — a role
+ *     assignee must preview before acting), or
+ *   - a past actor (reviewer / approver / rejecter).
+ * Pure + exported so it can be unit-tested without a DB.
+ */
+export function canViewReportReview(
+  ctx: Pick<RequestContext, 'userSub' | 'userRole'>,
+  row: ReportReviewParties,
+): boolean {
+  if (ctx.userRole === 'SUPER_ADMIN') return true;
+  if (row.generatedBy && row.generatedBy === ctx.userSub) return true;
+  if (row.reviewedBy && row.reviewedBy === ctx.userSub) return true;
+  if (row.approvedBy && row.approvedBy === ctx.userSub) return true;
+  if (row.rejectedBy && row.rejectedBy === ctx.userSub) return true;
+  if (row.assigneeUserId && row.assigneeUserId === ctx.userSub) return true;
+  if (row.assigneeRole && row.assigneeRole === ctx.userRole) return true;
+  return false;
+}
+
 export const reportReviewService = {
   async submit(ctx: RequestContext, input: SubmitInput) {
     if (!input.reportType || !input.title || input.dataSnapshot == null) {
@@ -115,9 +150,15 @@ export const reportReviewService = {
     return rows;
   },
 
-  async getById(id: string) {
+  async getById(ctx: RequestContext, id: string) {
     const row = await prisma.reportReview.findUnique({ where: { id } });
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Report not found.');
+    // #reports-2: scope the snapshot read to parties involved in THIS report.
+    // 403 (not 404) is fine here — list()/the archive board already expose every
+    // report's id + title to any perm-holder, so hiding existence adds nothing.
+    if (!canViewReportReview(ctx, row)) {
+      throw new AppError(403, 'FORBIDDEN', 'You do not have access to this report.');
+    }
     return row;
   },
 

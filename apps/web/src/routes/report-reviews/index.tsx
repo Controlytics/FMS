@@ -6,7 +6,8 @@ import { useReauth } from '@/hooks/use-reauth';
 import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { ReauthDialog } from '@/components/reauth-dialog';
-import { downloadReview, type ReviewSummary } from '@/lib/report-review';
+import { useAuth } from '@/hooks/use-auth';
+import { downloadReview, canDownloadReview, type ReviewSummary } from '@/lib/report-review';
 
 const STATUS_CHIP: Record<string, string> = {
   PENDING_REVIEW: 'bg-sky-50 text-sky-700 border-sky-200',
@@ -22,6 +23,7 @@ interface Role { name: string; displayName: string; }
 
 export function ReportReviewsPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const reauth = useReauth();
   const can = useCan();
   const { formatDate } = useDatetimeFormat();
@@ -118,7 +120,7 @@ export function ReportReviewsPage() {
               )}
             </>
           ) : (
-            can('report_reviews.view') && (
+            can('report_reviews.view') && canDownloadReview(user, r) && (
               <button onClick={() => download(r)} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50">Download PDF</button>
             )
           )}

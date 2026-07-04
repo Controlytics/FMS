@@ -58,7 +58,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
     schema: { tags: ['Report Reviews'], summary: 'Get a report review (with snapshot)' },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    return svc.getById(id);
+    return svc.getById(buildContext(req), id);
   });
 
   // Stage 2 — reviewer approves (assigns approver) or rejects. Reauth required.
