@@ -254,7 +254,12 @@ export default async function auditRoutes(app: FastifyInstance) {
         // checksum is computed against ORIGINAL afterValue — recompute
         // verification against THAT, not the enriched copy.
         afterValue: enriched,
-        integrityValid: verifyAuditChecksum({ ...record, afterValue: af }),
+        // Verify against the ORIGINAL stored afterValue (record.afterValue), not
+        // the enriched copy AND not `af` (= `?? {}`, which would canonicalize a
+        // null afterValue to '{}' instead of 'null' → false mismatch).
+        // verifyAuditChecksum null-normalizes internally. beforeValue + the rest
+        // pass through raw via `...record` (needed for the expanded checksum).
+        integrityValid: verifyAuditChecksum({ ...record, afterValue: record.afterValue }),
       };
     });
 

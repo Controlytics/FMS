@@ -58,10 +58,18 @@ interface AuditRow {
   chain_position: bigint | number | null;
   timestamp: Date;
   user_id: string | null;
+  user_name: string | null;
+  user_role: string | null;
   action: string;
   target_type: string | null;
   target_id: string | null;
+  before_value: unknown;
   after_value: unknown;
+  reason: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  session_id: string | null;
+  signature_meaning: string | null;
   checksum: string;
   previous_checksum: string | null;
   redacted_at: Date | null;
@@ -76,8 +84,10 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
   // — those rows wouldn't exist after the migration backfill, but the SQL
   // is defensive.
   const rows = await prisma.$queryRaw<AuditRow[]>`
-    SELECT id, chain_position, timestamp, user_id, action, target_type, target_id,
-           after_value, checksum, previous_checksum, redacted_at
+    SELECT id, chain_position, timestamp, user_id, user_name, user_role, action,
+           target_type, target_id, before_value, after_value, reason,
+           ip_address, user_agent, session_id, signature_meaning,
+           checksum, previous_checksum, redacted_at
     FROM audit_trail
     WHERE chain_position >= ${fromPos}
       AND chain_position <= ${toPos}
@@ -101,10 +111,23 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
     const perRowOk = verifyAuditChecksum({
       timestamp: row.timestamp,
       userId: row.user_id,
+      // #audit-3 (2026-07-04): plumb ALL persisted columns so the expanded
+      // checksum (audit.ts) verifies for new rows. Omitting any of these would
+      // reconstruct the expanded field set with nulls → per-row mismatch on
+      // every post-expansion row. Old rows ignore the extras via the reduced
+      // fallback in verifyAuditChecksum.
+      userName: row.user_name,
+      userRole: row.user_role,
       action: row.action,
       targetType: row.target_type,
       targetId: row.target_id,
+      beforeValue: row.before_value ?? undefined,
       afterValue: row.after_value ?? undefined,
+      reason: row.reason,
+      ipAddress: row.ip_address,
+      userAgent: row.user_agent,
+      sessionId: row.session_id,
+      signatureMeaning: row.signature_meaning,
       checksum: row.checksum,
       previousChecksum: row.previous_checksum,
       // #audit-2: plumb redacted_at so verifyAuditChecksum's redaction

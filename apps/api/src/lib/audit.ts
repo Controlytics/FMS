@@ -106,13 +106,26 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
   const timestamp = new Date();
   const afterValueClean = entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined;
   const beforeValueClean = entry.beforeValue ? JSON.parse(JSON.stringify(entry.beforeValue)) : undefined;
+  // Checksum field set (expanded 2026-07-04): cover EVERY persisted audit column so
+  // beforeValue / reason / signatureMeaning (§11.50) / userRole / userName / ip /
+  // agent / session are all inside the tamper-evidence envelope. Keys + values MUST
+  // stay byte-identical to `expandedFields` in hash-chain.ts:verifyAuditChecksum.
+  // Old rows keep verifying via that function's reduced fallback (no rewrite).
   const baseFields = {
     timestamp: timestamp.toISOString(),
-    userId: entry.userId,
+    userId: entry.userId ?? undefined,
+    userName: entry.userName ?? undefined,
+    userRole: entry.userRole ?? undefined,
     action: entry.action,
-    targetType: entry.targetType,
-    targetId: entry.targetId,
+    targetType: entry.targetType ?? undefined,
+    targetId: entry.targetId ?? undefined,
+    beforeValue: beforeValueClean,
     afterValue: afterValueClean,
+    reason: entry.reason ?? undefined,
+    ipAddress: entry.ipAddress ?? undefined,
+    userAgent: entry.userAgent ?? undefined,
+    sessionId: entry.sessionId ?? undefined,
+    signatureMeaning: entry.signatureMeaning ?? undefined,
   } as Record<string, unknown>;
 
   if (tx) {

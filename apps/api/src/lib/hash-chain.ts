@@ -158,10 +158,18 @@ export function computeChainedChecksumV2(
 export function verifyAuditChecksum(record: {
   timestamp: Date | string;
   userId?: string | null;
+  userName?: string | null;
+  userRole?: string | null;
   action: string;
   targetType?: string | null;
   targetId?: string | null;
+  beforeValue?: unknown;
   afterValue?: unknown;
+  reason?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  sessionId?: string | null;
+  signatureMeaning?: string | null;
   checksum: string;
   previousChecksum?: string | null;
   redactedAt?: Date | string | null;
@@ -175,8 +183,37 @@ export function verifyAuditChecksum(record: {
   // the NEXT row (its previous_checksum points at this row's stored
   // checksum, which is the pre-redaction value).
   if (record.redactedAt != null) return true;
-  const baseFields: Record<string, unknown> = {
-    timestamp: record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp,
+  const ts = record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp;
+
+  // EXPANDED field set (audit finding, 2026-07-04): the per-row checksum now
+  // covers EVERY persisted audit column — beforeValue / reason / signatureMeaning
+  // (§11.50) / userRole / userName / ipAddress / userAgent / sessionId — not just
+  // {timestamp, userId, action, target*, afterValue}. Those columns were outside
+  // the tamper-evidence envelope, so a DB-level actor (the exact threat the chain
+  // defends against — triggers can be disabled) could rewrite them and verify-chain
+  // still passed. New rows are WRITTEN over this set (audit.ts).
+  const expandedFields: Record<string, unknown> = {
+    timestamp: ts,
+    userId: record.userId ?? undefined,
+    userName: record.userName ?? undefined,
+    userRole: record.userRole ?? undefined,
+    action: record.action,
+    targetType: record.targetType ?? undefined,
+    targetId: record.targetId ?? undefined,
+    beforeValue: record.beforeValue ?? undefined,
+    afterValue: record.afterValue ?? undefined,
+    reason: record.reason ?? undefined,
+    ipAddress: record.ipAddress ?? undefined,
+    userAgent: record.userAgent ?? undefined,
+    sessionId: record.sessionId ?? undefined,
+    signatureMeaning: record.signatureMeaning ?? undefined,
+  };
+  // REDUCED field set — the original formula. Every row written before the
+  // field-coverage expansion verifies via this set (accepted limitation: the extra
+  // columns aren't tamper-covered for those historical rows — same versioning
+  // philosophy as V1/V2 above, and NO rewrite of immutable historical rows).
+  const reducedFields: Record<string, unknown> = {
+    timestamp: ts,
     userId: record.userId ?? undefined,
     action: record.action,
     targetType: record.targetType ?? undefined,
@@ -184,32 +221,26 @@ export function verifyAuditChecksum(record: {
     afterValue: record.afterValue ?? undefined,
   };
 
-  if (record.previousChecksum != null) {
-    // Chain rows: include previousChecksum in the recomputation.
-    // Try V2 (recursive canonical) first; fall back to V1 for historical rows.
-    const v2 = computeChainedChecksumV2(baseFields, record.previousChecksum);
-    if (v2 === record.checksum) return true;
-    const v1 = computeChainedChecksum(baseFields, record.previousChecksum);
-    return v1 === record.checksum;
-  } else {
-    // V-2 fix: genesis rows (previousChecksum === null) and pre-chain rows both
-    // reach here. For genesis rows written post-C3, the writer called
-    // computeChainedChecksum(baseFields, null) — which includes the key
-    // {previousChecksum: null} in the hash. The verifier must do the same.
-    // For pre-chain rows (written before C3), their stored checksum was computed
-    // by computeChecksum(baseFields) without the previousChecksum key; the V1
-    // fallback below will match those.
-    //
-    // Attempt 1: post-C3 genesis row formula (previousChecksum key present, value null).
-    const v2Genesis = computeChainedChecksumV2(baseFields, null);
-    if (v2Genesis === record.checksum) return true;
-    const v1Genesis = computeChainedChecksum(baseFields, null);
-    if (v1Genesis === record.checksum) return true;
-    // Attempt 2: pre-chain legacy formula (no previousChecksum key at all).
-    // Handles rows written before the C3 migration.
-    const legacyV2 = computeChecksumV2(baseFields);
-    if (legacyV2 === record.checksum) return true;
-    const legacyV1 = computeChecksum(baseFields);
-    return legacyV1 === record.checksum;
+  return matchesStoredChecksum(expandedFields, record.checksum, record.previousChecksum)
+      || matchesStoredChecksum(reducedFields, record.checksum, record.previousChecksum);
+}
+
+/**
+ * Does `fields` hash (under any of the accepted formulas) to `checksum`?
+ * Chain rows: V2-chained then V1-chained. Genesis/pre-chain rows: V2/V1-chained
+ * (previousChecksum key = null) then V2/V1 legacy (no previousChecksum key).
+ */
+function matchesStoredChecksum(
+  fields: Record<string, unknown>,
+  checksum: string,
+  previousChecksum?: string | null,
+): boolean {
+  if (previousChecksum != null) {
+    return computeChainedChecksumV2(fields, previousChecksum) === checksum
+        || computeChainedChecksum(fields, previousChecksum) === checksum;
   }
+  return computeChainedChecksumV2(fields, null) === checksum
+      || computeChainedChecksum(fields, null) === checksum
+      || computeChecksumV2(fields) === checksum
+      || computeChecksum(fields) === checksum;
 }
