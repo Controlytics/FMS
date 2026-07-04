@@ -64,6 +64,7 @@ interface AuditRow {
   after_value: unknown;
   checksum: string;
   previous_checksum: string | null;
+  redacted_at: Date | null;
 }
 
 export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<VerifyChainResult> {
@@ -76,7 +77,7 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
   // is defensive.
   const rows = await prisma.$queryRaw<AuditRow[]>`
     SELECT id, chain_position, timestamp, user_id, action, target_type, target_id,
-           after_value, checksum, previous_checksum
+           after_value, checksum, previous_checksum, redacted_at
     FROM audit_trail
     WHERE chain_position >= ${fromPos}
       AND chain_position <= ${toPos}
@@ -106,6 +107,11 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
       afterValue: row.after_value ?? undefined,
       checksum: row.checksum,
       previousChecksum: row.previous_checksum,
+      // #audit-2: plumb redacted_at so verifyAuditChecksum's redaction
+      // short-circuit (hash-chain.ts) fires during the chain walk. Without
+      // this, a chain-preserving REDACT (after_value nulled, checksum kept)
+      // false-FAILs verify-chain while GET /api/audit shows the row valid.
+      redactedAt: row.redacted_at ?? undefined,
     });
     if (!perRowOk) {
       anomalies.push({
