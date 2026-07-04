@@ -763,66 +763,13 @@ model AssetIdentifier {
 // Device Credentials (per entity instance)
 // (DeviceCredential model removed with data-ingestion removal — MQTT device auth no longer used.)
 
-// Checklist Review (3-step approval workflow)
-model ChecklistReview {
-  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  checklistId String @unique @map("checklist_id") @db.VarChar(255) // Links to ts_checklist_responses
-  entityId    String @map("entity_id") @db.Uuid
-  templateId  String @map("template_id") @db.Uuid
-
-  // Current state
-  currentStep     String @default("SUBMITTED") @map("current_step") @db.VarChar(30)
-  currentSequence Int    @default(1) @map("current_sequence")
-
-  // Step 1: Performed By
-  performedBy          String   @map("performed_by") @db.VarChar(50)
-  performedAt          DateTime @map("performed_at") @db.Timestamptz
-  performedSignatureId String?  @map("performed_signature_id") @db.Uuid
-
-  // Step 2: Checked By
-  checkedBy          String?   @map("checked_by") @db.VarChar(50)
-  checkedAt          DateTime? @map("checked_at") @db.Timestamptz
-  checkedRemarks     String?   @map("checked_remarks")
-  checkedSignatureId String?   @map("checked_signature_id") @db.Uuid
-
-  // Step 3: Verified By
-  verifiedBy          String?   @map("verified_by") @db.VarChar(50)
-  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz
-  verifiedRemarks     String?   @map("verified_remarks")
-  verifiedSignatureId String?   @map("verified_signature_id") @db.Uuid
-
-  // Rejection
-  rejectedBy      String?   @map("rejected_by") @db.VarChar(50)
-  rejectedAt      DateTime? @map("rejected_at") @db.Timestamptz
-  rejectionReason String?   @map("rejection_reason")
-
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
-  @@index([entityId])
-  @@index([currentStep])
-  @@map("checklist_reviews")
-}
-
-// Electronic Signature (21 CFR Part 11 -- SS11.50 + SS11.70)
-model ElectronicSignature {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  recordType     String   @map("record_type") @db.VarChar(30) // 'alarm' | 'checklist'
-  recordId       String   @map("record_id") // Alarm.id or ChecklistReview.id
-  signerUserId   String   @map("signer_user_id") @db.VarChar(50)
-  signerFullName String   @map("signer_full_name") @db.VarChar(100) // SS11.50(a)
-  signerRole     String   @map("signer_role") @db.VarChar(50)
-  signedAt       DateTime @default(now()) @map("signed_at") @db.Timestamptz // SS11.50(b)
-  meaning        String   @db.VarChar(100) // SS11.50(c): "Performed By" | "Checked By" | "Verified By" | etc.
-  recordHash     String   @map("record_hash") @db.VarChar(64) // SS11.70
-  signatureHash  String   @map("signature_hash") @db.VarChar(64) // SS11.70: SHA-256(recordHash + signerUserId + signedAt)
-  reAuthVerified Boolean  @default(true) @map("re_auth_verified")
-  reAuthMethod   String   @default("password") @map("re_auth_method") @db.VarChar(20)
-  signatureImage String?  @map("signature_image") @db.Text
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  @@index([recordType, recordId])
-  @@map("electronic_signatures")
-}
+// (ChecklistReview + ElectronicSignature models removed 2026-07-04 — orphaned scaffolding
+//  introduced with the data-ingestion feature set (commit e8706bb) and stranded by the
+//  Phase 6/7 tear-outs: ChecklistReview.checklistId linked to the dropped ts_checklist_responses
+//  hypertable; ElectronicSignature.recordId keyed off Alarm.id (removed 2026-05-17) or
+//  ChecklistReview.id. Both 0 rows, 0 code references, no relations. The live e-signature
+//  surface uses ReportSignature + the hash-chained audit_trail, not these tables.
+//  Migration: 20260704062157_drop_checklistreview_electronicsignature.)
 
 // (UnsMapping + ConnectivityStatus models removed with data-ingestion removal.)
 

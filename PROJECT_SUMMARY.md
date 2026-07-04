@@ -14,7 +14,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 |---|---|---|
 | **Frontend** | React 19 + TypeScript | Vite SPA, Tailwind CSS, SWR |
 | **Backend** | Node.js + Fastify 5 | TypeScript, 35 API modules, 200+ endpoints (org-admin + tenant-admin removed in MT removal 2026-04-30) |
-| **Primary DB** | PostgreSQL 18 | 67 Prisma models, 25 enums (single DB `digilog_db`; TemplateKind lookup; MT removal dropped Organization; Step 6 added FilterDetails 1:1 sidecar; Step 5b A.1 added ChecklistProfileVersion immutable-history table; Phase A.2 added `FilterCleaningProfile.lineageId` for rowful version-history tracking — no new model; Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar — group + 3 instruments composite snapshot per version; **Step 4 (2026-05-02)** replaced `FilterProfile.applicableTemplates` JSONB array with `FilterProfileApplicableTemplate` join table — cascade FKs to AssetTemplate kill the dangling-reference foot-gun, and AssetTemplate delete is guarded with 409 IN_USE) |
+| **Primary DB** | PostgreSQL 18 | 65 Prisma models, 25 enums (single DB `digilog_db`; TemplateKind lookup; MT removal dropped Organization; Step 6 added FilterDetails 1:1 sidecar; Step 5b A.1 added ChecklistProfileVersion immutable-history table; Phase A.2 added `FilterCleaningProfile.lineageId` for rowful version-history tracking — no new model; Phase A.3 added `FilterProfileVersion` sidecar; Phase A.4 added `EquipmentGroupVersion` sidecar — group + 3 instruments composite snapshot per version; **Step 4 (2026-05-02)** replaced `FilterProfile.applicableTemplates` JSONB array with `FilterProfileApplicableTemplate` join table — cascade FKs to AssetTemplate kill the dangling-reference foot-gun, and AssetTemplate delete is guarded with 409 IN_USE) |
 | **Job Queue** | graphile-worker on PostgreSQL | LISTEN/NOTIFY + SKIP LOCKED + advisory locks; no separate Redis service |
 | **PDF + charts** | puppeteer-core + Edge + @napi-rs/canvas | No bundled Chromium, no node-gyp / MSVC (Phase 3 of windows-friendly-rewrite) |
 | **Mobile** | Capacitor (Android APK) | Wraps web app for tablet use |
@@ -83,7 +83,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 
 | Metric | Count |
 |---|---|
-| Prisma models | 67 |
+| Prisma models | 65 |
 | Database enums | 25 |
 | Permission constants | 109 |
 | Feature privileges | 90 |

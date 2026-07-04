@@ -35,7 +35,7 @@
 │  │       ▼          DATA LAYER                          │        │
 │  │  ┌────────────────────────────────┐                   │        │
 │  │  │ PostgreSQL 18  :5432            │                   │        │
-│  │  │ 67 Prisma models · 25 enums     │                   │        │
+│  │  │ 65 Prisma models · 25 enums     │                   │        │
 │  │  │ digilog_db (app + queue schema) │                   │        │
 │  │  │ graphile-worker job queue       │                   │        │
 │  │  └────────────────────────────────┘                   │        │
@@ -70,7 +70,7 @@
 │   │   ├── lib/                   Shared utilities (audit, jwt, sanitize, prisma, etc.)
 │   │   └── types/                 TypeScript type definitions
 │   └── prisma/
-│       ├── schema.prisma          67 models, 25 enums
+│       ├── schema.prisma          65 models, 25 enums
 │       └── seed.ts                Default roles, superadmin, configs
 │
 ├── apps/web/                      (React SPA)
@@ -127,7 +127,7 @@
 
 | Path | Purpose |
 |---|---|
-| `apps/api/prisma/schema.prisma` | 67 models, 25 enums |
+| `apps/api/prisma/schema.prisma` | 65 models, 25 enums |
 | `apps/api/prisma/seed.ts` | Default roles, super-admin user, system configs |
 | `apps/api/prisma/migrations/` | Versioned Prisma migrations — `00000000000000_baseline` (squashed schema) + `20260701071802_drop_qrcode_latesttelemetry`, plus `migration_lock.toml` |
 | `apps/api/prisma/sql/extensions.sql` | Hand-written SQL — installs PostgreSQL extensions (e.g. `pg_trgm`, `uuid-ossp`) used by Prisma |
