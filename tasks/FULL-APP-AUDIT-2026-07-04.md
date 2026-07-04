@@ -129,6 +129,63 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
 
 ---
 
+## ROUND 2 — backup/config, reports, assets, audit/versioning, notifications/frontend
+5 more adversarial agents over the subsystems round 1 didn't cover. Verified findings:
+
+### ✅ FIXED this pass
+- 🔴 **CRITICAL — backup restore total lockout** (`backup.repository.ts`): export strips
+  `password_hash`→sentinel for ALL users; `TRUNCATE`+reinsert wrote the sentinel over every
+  real hash → nobody (incl. SUPER_ADMIN) could log in, recovery path unreachable. Fixed: snapshot
+  current hashes pre-truncate, re-apply to sentinel rows on reinsert.
+- 🟠 **HIGH — audit verify-chain false-FAIL on redaction** (`audit-verify.ts`): didn't plumb
+  `redacted_at`, so a chain-preserving REDACT reported `intact:false` permanently while `GET /api/audit`
+  showed it valid. Fixed: SELECT + pass `redactedAt`.
+- 🟠 **HIGH — stale SMTP transporter on password rotation** (`email-channel.ts`): `configHash` excluded
+  the password → cached transporter kept old creds after a rotation, all email failed until restart.
+  Fixed: include password in the cache key.
+- 🟠 **HIGH — report-review no assignee check + no separation-of-duties** (`report-reviews/service.ts`):
+  review/approve checked only `status` → any holder could act on any item, and one user could
+  submit→review→approve solo. Fixed: `assertIsAssignee` (SA may act as any assignee) + SoD
+  (reviewer≠generator, approver≠reviewer/generator, no SA bypass).
+- 🟡 **MEDIUM — connection-limit off-by-one** (`instance.service.ts`): counted a node's own upward
+  `CONTAINED_IN` link → under-allowed children by 1 for any non-root parent. Fixed: `countContainsChildren`.
+- 🟡 **MEDIUM — DATE attribute accepted impossible dates** (`attribute-validator.ts`): regex passed
+  `2026-02-31`. Fixed: calendar round-trip (matches filter-fields).
+- 🟡 **MEDIUM — CSV-restore numeric coercion corrupted text** (`backup.service.ts`): `"0055"→55`,
+  `"+91…"`, `"1.0"→1`. Fixed: coerce only canonical numbers (`String(Number(v))===v`).
+
+### ⚠️ FLAGGED — real but need a design decision / bigger effort (NOT fixed)
+- 🟠 **HIGH — audit per-row checksum omits `beforeValue`/`reason`/`signatureMeaning`/`userRole`**
+  (`audit.ts`/`hash-chain.ts`): those columns (incl. the §11.50 signature meaning) are outside
+  tamper-evidence — a DB-level actor can rewrite them and verify-chain still passes. Fix requires
+  a checksum-field expansion + a **recompute-and-rechain migration** of all existing rows (a
+  compatibility-breaking change), so it needs an explicit decision, not a quick edit.
+- 🟠 **HIGH — SQL-format restore silently drops/corrupts rows** with newlines or `);` in a value
+  (`backup.service.ts` regex parser). Needs a proper SQL value tokenizer; JSON/BAK formats are safe.
+  Recommend: make JSON the canonical restore format + rewrite the SQL parser (or drop SQL restore).
+- 🟡 **MEDIUM — report-review cross-user snapshot read** (`list()`/`getById()` unscoped): a
+  SUBMIT-only user can read any report's `dataSnapshot`. Contained fix (scope getById to involved
+  parties) — deferred to avoid frontend-fetch coordination in this pass.
+- 🟡 **MEDIUM — equipment-group version pin lazy-binds to the LIVE version** when no group was
+  supplied at cycle start (partly by-design; only the deviation flag is affected, submitted values
+  are still snapshotted).
+- 🟡 **MEDIUM — SMS http-gateway marks SENT on any 2xx**, ignoring a body-level error (provider-schema
+  specific).
+- ⚪ **LOW (batch)**: pdf-renderer cold-start browser launch race (Edge leak); OAuth2 email callback
+  missing `state`/CSRF; DROPDOWN skips validation when `dropdownOptions` absent; `getConfig` returns
+  `{}` not defaults on a Zod-parse failure; dynamic-routes PUT no HTML-sanitize + full-replace;
+  bulk-upload 200-cap enforced after full in-memory parse (DoS); `snapshotAndBump` concurrent edit →
+  unhandled 500 not 409; backup `validate()` always `checksumValid:true` for SQL/CSV; report can stick
+  in `PENDING_SIGNATURE` if no signer is `required`; html-builder interpolates template-authored style
+  strings unescaped (admin-authored only).
+
+### Verified-clean (strong negatives, round 2)
+Frontend hooks (`useCan`/`useReauth`/`useSession`/`use-single-tab`/`api-client`), notification
+recipient-scoping + worker idempotency, cleaning-profile & checklist cycle-pinning, backup
+FK-order/self-refs/BigInt/identifier-injection, config seedDefaults & merge semantics, cycle-detection.
+
+---
+
 ## NOT COVERED (honest scope boundary)
 - Exhaustive logic-bug coverage of all 102K LoC (only highest-risk subsystems hunted).
 - Unused Prisma columns (Prisma `select *` makes this low-signal).
