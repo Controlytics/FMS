@@ -95,9 +95,3 @@ For every page touched during a test session:
 - No console logs that return unexpected responses (401/403/500, `Unexpected token '<'`, parse errors).
 - Datetimes render via the app's formatter (no raw ISO strings leaking into the UI).
 - Permission-gated buttons appear/disappear correctly per role (log out/in after a role grant — perms are baked at login).
-
-## Additional Resources
-
-### Reference Files
-- **`references/entities.md`** — legacy entity/test-fixture notes (predates the Phase 7 ingestion removal; kept for historical context only).
-- **`references/test-results.md`** — previous test execution results.
