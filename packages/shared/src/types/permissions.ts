@@ -157,17 +157,11 @@ export const PERMISSIONS = {
   BLOCK_CHANGE_REQUEST: 'BLOCK_CHANGE_REQUEST',
   BLOCK_CHANGE_APPROVE: 'BLOCK_CHANGE_APPROVE',
 
-  // Report Templates
-  REPORT_TEMPLATE_READ: 'REPORT_TEMPLATE_READ',
-  REPORT_TEMPLATE_CREATE: 'REPORT_TEMPLATE_CREATE',
-  REPORT_TEMPLATE_UPDATE: 'REPORT_TEMPLATE_UPDATE',
-  REPORT_TEMPLATE_DELETE: 'REPORT_TEMPLATE_DELETE',
-
-  // Report Instances
+  // Report PDF export — gate for the cleaning-record + filter-lifecycle PDF
+  // export (client-side render). The orphaned reports generate/sign module +
+  // its REPORT_TEMPLATE_*/REPORT_VIEW/REPORT_SIGN/REPORT_DELETE perms were
+  // removed 2026-07-04; these two survive solely as the export gate.
   REPORT_GENERATE: 'REPORT_GENERATE',
-  REPORT_VIEW: 'REPORT_VIEW',
-  REPORT_SIGN: 'REPORT_SIGN',
-  REPORT_DELETE: 'REPORT_DELETE',
   REPORT_EXPORT: 'REPORT_EXPORT',
   // Report review/approval workflow (2026-06-11)
   REPORT_REVIEW_SUBMIT: 'REPORT_REVIEW_SUBMIT', // send a generated report for review

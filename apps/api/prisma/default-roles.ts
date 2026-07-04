@@ -30,9 +30,8 @@ export const defaultRoles = [
       'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_EXECUTE', 'PM_APPROVE',
       'CYCLE_READ', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
       'BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE',
-      // Reports
-      'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
-      'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
+      // Reports — PDF export + review/approval (generate/sign designer removed 2026-07-04)
+      'REPORT_GENERATE', 'REPORT_EXPORT',
       'REPORT_REVIEW_SUBMIT', 'REPORT_REVIEW', 'REPORT_APPROVE',
       // Cleaning stage interlock (2026-06-12)
       'STAGE_APPROVAL_VIEW', 'STAGE_APPROVAL_DECIDE',
@@ -69,9 +68,8 @@ export const defaultRoles = [
       'PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_EXECUTE', 'PM_APPROVE',
       'CYCLE_READ', 'READ_DEBUG_TRACE', 'MANAGE_DEBUG_TRACE',
       'BLOCK_CHANGE_REQUEST', 'BLOCK_CHANGE_APPROVE',
-      // Reports
-      'REPORT_TEMPLATE_READ', 'REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_DELETE',
-      'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_DELETE', 'REPORT_EXPORT',
+      // Reports — PDF export + review/approval (generate/sign designer removed 2026-07-04)
+      'REPORT_GENERATE', 'REPORT_EXPORT',
       'REPORT_REVIEW_SUBMIT', 'REPORT_REVIEW', 'REPORT_APPROVE',
       // Cleaning stage interlock (2026-06-12)
       'STAGE_APPROVAL_VIEW', 'STAGE_APPROVAL_DECIDE',
@@ -95,8 +93,8 @@ export const defaultRoles = [
       'BLOCK_CHANGE_REQUEST',
       // Cleaning stage interlock — SUPERVISOR is a natural approver role (2026-06-12)
       'STAGE_APPROVAL_VIEW', 'STAGE_APPROVAL_DECIDE',
-      // Reports
-      'REPORT_TEMPLATE_READ', 'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_SIGN', 'REPORT_EXPORT',
+      // Reports — PDF export (generate/sign designer removed 2026-07-04)
+      'REPORT_GENERATE', 'REPORT_EXPORT',
     ],
     color: 'bg-gradient-to-r from-blue-500 to-cyan-500',
     isSystem: true,
@@ -114,8 +112,8 @@ export const defaultRoles = [
       'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
       'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
       'BLOCK_CHANGE_REQUEST',
-      // Reports
-      'REPORT_TEMPLATE_READ', 'REPORT_GENERATE', 'REPORT_VIEW', 'REPORT_EXPORT',
+      // Reports — PDF export (generate/sign designer removed 2026-07-04)
+      'REPORT_GENERATE', 'REPORT_EXPORT',
     ],
     color: 'bg-gradient-to-r from-amber-500 to-orange-500',
     isSystem: true,
@@ -133,8 +131,7 @@ export const defaultRoles = [
       'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
       'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
       'BLOCK_CHANGE_REQUEST',
-      // Reports
-      'REPORT_VIEW',
+      // (Reports: VIEWER had only the orphaned REPORT_VIEW — removed 2026-07-04.)
     ],
     color: 'bg-gradient-to-r from-emerald-500 to-green-500',
     isSystem: true,

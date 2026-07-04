@@ -139,16 +139,9 @@ const PERMISSION_META: Record<string, { label: string; category: string }> = {
   [PERMISSIONS.FILTER_DELETE]: { label: 'Delete Filters', category: 'Filters Page Controls' },
   [PERMISSIONS.FILTER_HIERARCHY_EDIT]: { label: 'Edit Block / Area / AHU', category: 'Filters Page Controls' },
   [PERMISSIONS.FILTER_HIERARCHY_DELETE]: { label: 'Delete Block / Area / AHU', category: 'Filters Page Controls' },
-  // Reports
-  [PERMISSIONS.REPORT_TEMPLATE_READ]: { label: 'View Report Templates', category: 'Reports' },
-  [PERMISSIONS.REPORT_TEMPLATE_CREATE]: { label: 'Create Report Templates', category: 'Reports' },
-  [PERMISSIONS.REPORT_TEMPLATE_UPDATE]: { label: 'Update Report Templates', category: 'Reports' },
-  [PERMISSIONS.REPORT_TEMPLATE_DELETE]: { label: 'Delete Report Templates', category: 'Reports' },
-  [PERMISSIONS.REPORT_GENERATE]: { label: 'Generate Reports', category: 'Reports' },
-  [PERMISSIONS.REPORT_VIEW]: { label: 'View Reports', category: 'Reports' },
-  [PERMISSIONS.REPORT_SIGN]: { label: 'Sign Reports', category: 'Reports' },
-  [PERMISSIONS.REPORT_DELETE]: { label: 'Delete Reports', category: 'Reports' },
-  [PERMISSIONS.REPORT_EXPORT]: { label: 'Export Reports', category: 'Reports' },
+  // Reports — PDF export gate (orphaned generate/sign perms removed 2026-07-04)
+  [PERMISSIONS.REPORT_GENERATE]: { label: 'Export PDF (Cleaning Record / Lifecycle)', category: 'Reports' },
+  [PERMISSIONS.REPORT_EXPORT]: { label: 'Export PDF (Cleaning Record / Lifecycle)', category: 'Reports' },
   // Audit C3 — version history viewer + admin-request review (this branch)
   [PERMISSIONS.VERSION_HISTORY_VIEW]: { label: 'View Version History', category: 'Audit' },
   [PERMISSIONS.ADMIN_REQUEST_APPROVE]: { label: 'Approve Admin Requests', category: 'User Management' },

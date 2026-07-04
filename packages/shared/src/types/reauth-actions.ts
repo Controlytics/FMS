@@ -182,13 +182,9 @@ export const REAUTH_ACTIONS = {
   REJECT_BLOCK_CHANGE: { label: 'Reject Block Change', category: 'Filter Management' },
 
   // Reports
-  CREATE_REPORT_TEMPLATE: { label: 'Create Report Template', category: 'Reports' },
-  UPDATE_REPORT_TEMPLATE: { label: 'Update Report Template', category: 'Reports' },
-  DELETE_REPORT_TEMPLATE: { label: 'Delete Report Template', category: 'Reports' },
-  GENERATE_REPORT: { label: 'Generate Report', category: 'Reports' },
-  SIGN_REPORT: { label: 'Sign Report', category: 'Reports' },
-  REJECT_REPORT: { label: 'Reject Report', category: 'Reports' },
-  DELETE_REPORT: { label: 'Delete Report', category: 'Reports' },
+  // (CREATE/UPDATE/DELETE_REPORT_TEMPLATE, GENERATE_REPORT, SIGN_REPORT,
+  // REJECT_REPORT, DELETE_REPORT removed 2026-07-04 with the orphaned reports
+  // generate/sign module.) The active report-reviews workflow keeps these two:
   REVIEW_REPORT: { label: 'Review Report', category: 'Reports' },
   APPROVE_REPORT: { label: 'Approve Report', category: 'Reports' },
 } as const;

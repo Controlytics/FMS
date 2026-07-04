@@ -535,8 +535,8 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'refresh', category: 'Cleaning Cycles', permissions: ['CYCLE_READ'], enforce: 'a',
         gate: ['CYCLE_READ'], configurable: true },
       { id: 'cleaning_record.export', label: 'Export Cleaning Record', sidebarId: 'cleaning-cycles', page: 'Filter Cleaning Record', action: 'Export',
-        icon: 'download', category: 'Cleaning Cycles', permissions: [], enforce: 'c',
-        gate: ['REPORT_EXPORT', 'REPORT_GENERATE'] }, // 5C fix: UI canExportPdf gates on REPORT_EXPORT||REPORT_GENERATE; CYCLE_READ would loosen
+        icon: 'download', category: 'Cleaning Cycles', permissions: ['REPORT_EXPORT', 'REPORT_GENERATE'], enforce: 'c',
+        gate: ['REPORT_EXPORT', 'REPORT_GENERATE'], configurable: true }, // #reports-removal 2026-07-04: now the GRANTABLE export toggle (was gate-only; the reports.export/generate toggles that used to grant these were removed). UI canExportPdf gates on REPORT_EXPORT||REPORT_GENERATE.
     ],
   },
 
@@ -546,43 +546,14 @@ export const PERMISSION_TREE: SidebarGroup[] = [
     description: 'Per-filter cleaning lifecycle, cycle by cycle',
     visibilityPrivilegeIds: ['cycles.view'],
     nodes: [
-      // Report templates + instances placed here (no dedicated sidebar entry in oracle)
-      { id: 'report_templates.view', label: 'View Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'View',
-        icon: 'file-text', category: 'Reports', permissions: ['REPORT_TEMPLATE_READ'], enforce: 'a',
-        gate: ['REPORT_TEMPLATE_READ'], configurable: true },
-      { id: 'report_templates.create', label: 'Create Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'Create',
-        icon: 'plus', category: 'Reports', permissions: ['REPORT_TEMPLATE_CREATE', 'REPORT_TEMPLATE_READ'],
-        reauthAction: 'CREATE_REPORT_TEMPLATE', enforce: 'a',
-        gate: ['REPORT_TEMPLATE_CREATE'], configurable: true },
-      { id: 'report_templates.edit', label: 'Edit Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'Edit',
-        icon: 'edit', category: 'Reports', permissions: ['REPORT_TEMPLATE_UPDATE', 'REPORT_TEMPLATE_READ'],
-        reauthAction: 'UPDATE_REPORT_TEMPLATE', enforce: 'a',
-        gate: ['REPORT_TEMPLATE_UPDATE'], configurable: true },
-      { id: 'report_templates.delete', label: 'Delete Report Templates', sidebarId: 'filter-lifecycle-report', page: 'Report Templates', action: 'Delete',
-        icon: 'trash', category: 'Reports', permissions: ['REPORT_TEMPLATE_DELETE', 'REPORT_TEMPLATE_READ'],
-        reauthAction: 'DELETE_REPORT_TEMPLATE', enforce: 'a',
-        gate: ['REPORT_TEMPLATE_DELETE'], configurable: true },
-      { id: 'reports.generate', label: 'Generate Reports', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'Generate',
-        icon: 'play', category: 'Reports', permissions: ['REPORT_GENERATE', 'REPORT_VIEW'],
-        reauthAction: 'GENERATE_REPORT', enforce: 'a',
-        gate: ['REPORT_GENERATE'], configurable: true },
-      { id: 'reports.view', label: 'View Generated Reports', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'View',
-        icon: 'eye', category: 'Reports', permissions: ['REPORT_VIEW'], enforce: 'a',
-        gate: ['REPORT_VIEW'], configurable: true },
-      { id: 'reports.sign', label: 'Sign Reports', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'Sign',
-        icon: 'pen-tool', category: 'Reports', permissions: ['REPORT_SIGN', 'REPORT_VIEW'],
-        reauthAction: 'SIGN_REPORT', enforce: 'a',
-        gate: ['REPORT_SIGN'], configurable: true },
-      { id: 'reports.delete', label: 'Delete Reports', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'Delete',
-        icon: 'trash', category: 'Reports', permissions: ['REPORT_DELETE', 'REPORT_VIEW'],
-        reauthAction: 'DELETE_REPORT', enforce: 'a',
-        gate: ['REPORT_DELETE'], configurable: true },
-      { id: 'reports.export', label: 'Export Report PDFs', sidebarId: 'filter-lifecycle-report', page: 'Reports', action: 'Export',
-        icon: 'download', category: 'Reports', permissions: ['REPORT_EXPORT', 'REPORT_VIEW'], enforce: 'a',
-        gate: ['REPORT_EXPORT'], configurable: true },
+      // #reports-removal 2026-07-04: the 9 report_templates.*/reports.* nodes
+      // (orphaned generate/sign designer) were removed. lifecycle.export stays —
+      // it's the active Filter Lifecycle PDF export, now the GRANTABLE toggle
+      // (was gate-only; the reports.export/generate toggles that granted these
+      // were removed with the module).
       { id: 'lifecycle.export', label: 'Export Filter Lifecycle Report', sidebarId: 'filter-lifecycle-report', page: 'Filter Lifecycle Report', action: 'Export',
-        icon: 'download', category: 'Reports', permissions: [], enforce: 'c',
-        gate: ['REPORT_EXPORT', 'REPORT_GENERATE'] }, // 5C fix: UI canExportPdf gates on REPORT_EXPORT||REPORT_GENERATE; CYCLE_READ would loosen
+        icon: 'download', category: 'Reports', permissions: ['REPORT_EXPORT', 'REPORT_GENERATE'], enforce: 'c',
+        gate: ['REPORT_EXPORT', 'REPORT_GENERATE'], configurable: true }, // UI canExportPdf gates on REPORT_EXPORT||REPORT_GENERATE.
     ],
   },
 
@@ -883,8 +854,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'equipment_groups.view', 'equipment_groups.create', 'equipment_groups.edit', 'equipment_groups.delete',
   'admin_requests.approve', 'admin_requests.reject',
   'debug.view', 'debug.manage',
-  'report_templates.view', 'report_templates.create', 'report_templates.edit', 'report_templates.delete',
-  'reports.generate', 'reports.view', 'reports.sign', 'reports.delete', 'reports.export',
+  'cleaning_record.export', 'lifecycle.export', // #reports-removal 2026-07-04: grantable PDF-export toggles (replaced the removed reports.export/generate)
   'version_history.view',
   'backup.export', 'backup.restore',
 ] as const;
