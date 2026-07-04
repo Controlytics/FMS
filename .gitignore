@@ -44,6 +44,10 @@ logs/
 CREDENTIALS.md
 *.pem
 *.key
+# Android signing keystores — never commit (untracked 2026-07-04 audit;
+# rfid_scan_app/app/build.gradle.kts reads ../rfid-key.jks locally for release signing).
+*.jks
+*.keystore
 # Backup snapshots of any file (audit-relevant: schema.prisma.bak
 # would let `prisma db push` overwrite live schema from a stale snapshot).
 *.bak
@@ -103,4 +107,4 @@ certs/certs/
 
 # Local DB dumps must never be committed — they hold bcrypt password hashes,
 # audit-trail PII, and the full data set (audit 2026-05-30).
-old/db-backups/*.sql
+old/db-backups/*
