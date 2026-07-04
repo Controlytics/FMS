@@ -184,8 +184,11 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
   (defensive override guard). Corrects the out-of-range determination; recorded reading values were
   always immutable in `FilterEvent`. Accepted limits: offline-replay pins at replay time, legacy
   in-flight cycles still lazy-bind. api 861/0/13.
-- 🟡 **MEDIUM — SMS http-gateway marks SENT on any 2xx**, ignoring a body-level error (provider-schema
-  specific).
+- ✅ **FIXED (1c0a6d5) 🟡 MEDIUM — SMS http-gateway marks SENT on any 2xx**, ignoring a body-level error.
+  Fixed via `interpretHttpGatewayResult` (pure, unit-tested): optional `httpGatewaySuccessRegex`
+  (authoritative body matcher, new SMS-settings field) + a conservative default that fails on an
+  unambiguous JSON error body (`success:false`/`status:"error"`) — never false-positives a real send
+  into a duplicate. Twilio/Vonage untouched. api 872/0/13, web 373/0.
 - ⚪ **LOW (batch)**: pdf-renderer cold-start browser launch race (Edge leak); OAuth2 email callback
   missing `state`/CSRF; DROPDOWN skips validation when `dropdownOptions` absent; `getConfig` returns
   `{}` not defaults on a Zod-parse failure; dynamic-routes PUT no HTML-sanitize + full-replace;
