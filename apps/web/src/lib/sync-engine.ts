@@ -574,9 +574,18 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       // Treating NO_CYCLE as terminal here drops the stale op once, emits one
       // toast, and clears the queue. Operator can start a fresh cycle.
       if (e?.stranded || e?.code === 'CYCLE_ENDED' || e?.code === 'NO_CYCLE') {
-        await updateOperationStatus(op.id, 'failed', `Cycle ended before this operation could sync: ${errMsg}`);
+        // #10 fix: the cycle this queued action targeted has already ended on the
+        // server. For a COMPLETING action (final advance / last checklist) that
+        // usually means the action ALREADY SUCCEEDED and completed the cycle — the
+        // lost HTTP response is exactly why it got re-queued. It can equally mean
+        // another operator terminated the cycle. Either way the queued action no
+        // longer applies and NO data is lost. The cycle-scoped idempotency can't
+        // confirm a completing op post-completion (dedup needs the now-null cycle),
+        // so we report NEUTRALLY instead of the old "operation discarded" toast,
+        // which wrongly implied the operator's completed work vanished.
+        await updateOperationStatus(op.id, 'failed', `The cleaning cycle already ended on the server — this queued action no longer applies (no data lost).`);
         failed++;
-        notify({ type: 'error', error: `${op.filterName}: cycle ended before sync — operation discarded` });
+        notify({ type: 'error', error: `${op.filterName}: cycle already ended — queued action skipped (no data lost; verify the filter's status)` });
         continue;
       }
 
