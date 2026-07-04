@@ -88,14 +88,16 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
 - **Confidence:** verified (traced).
 - **Fix:** add a `FILTER_REPLACE`/`REPLACEMENT_SCHEDULE_*` permission preHandler; don't rely on config-dependent reauth as the sole gate.
 
-### 🟠 #9 — MEDIUM — online cycle-writes omit clientOpId → lost-response replay fails or duplicates
+### 🟠 #9 — MEDIUM — online cycle-writes omit clientOpId → lost-response replay fails or duplicates — ✅ FIXED (`a87c6f6`)
+> Fixed 2026-07-04: one clientOpId shared between the online body + the queued replay (start-and-advance uses `:start`/`:advance` sub-keys). web suite 366/0.
 - **Where:** `apps/web/src/hooks/use-offline.ts:131-205` (online post paths) + `apps/api/src/lib/idempotency.ts:57-70`.
 - **Defect:** online cycle-writes send no `clientOpId`, so if the op commits server-side but the HTTP response is lost (routine WiFi drop), the retry is queued with a *fresh* clientOpId that can't correlate to the committed op.
 - **Scenario:** tap Start Cycle online → server creates cycle (no clientOpId) → response lost → op queued → replay POSTs start-cycle → `findExistingStartByClientOpId`=false → server sees `currentCycleId` set → **409 CYCLE_ACTIVE**, op burns 5 retries → `failed` with misleading "already has active cycle" toast (data is fine). **Worse:** if the cycle was terminated elsewhere first, the replay creates a **duplicate cycle**.
 - **Confidence:** verified (traced).
 - **Fix:** attach a clientOpId to online cycle-writes too (so online+offline share one idempotency key), or add benign-409 handling to the standalone start-cycle replay branch.
 
-### 🟡 #5 — MEDIUM — stage-interlock QA gate skipped at a terminal interlock stage
+### 🟡 #5 — MEDIUM — stage-interlock QA gate skipped at a terminal interlock stage — ✅ FIXED (`33a7cfc`)
+> Fixed 2026-07-04: fail-safe — advance() now rejects (422 INTERLOCK_TERMINAL_STAGE) a completing advance out of an interlock stage rather than auto-completing without QA sign-off. api suite 846/0/13. (Fuller gate-and-complete-on-approval left as a future enhancement.)
 - **Where:** `apps/api/src/modules/filter-operations/cycle-write/advance.ts:379-384`.
 - **Defect:** when a WASH_OUT/DRY_OUT interlock stage is *also* the final stage, `willComplete` zeroes `enteringInterlock` → no PENDING `CleaningStageApproval` created → cycle auto-completes with **no QA sign-off**.
 - **Scenario:** admin configures `WASH_IN→WASH_OUT→END` with `stage-interlock.enabled=true`; advancing WASH_IN→WASH_OUT auto-completes, skipping the required WASH_OUT approver. Defeats the interlock's purpose for a terminal interlock stage.
