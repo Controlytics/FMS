@@ -170,9 +170,13 @@ All verified/traced with a concrete failure scenario (adversarial discipline hel
   truncated-tail), all fail on the old regex. Suite 848/0/13.
 
 ### ⚠️ FLAGGED — real but need a design decision / bigger effort (NOT fixed)
-- 🟡 **MEDIUM — report-review cross-user snapshot read** (`list()`/`getById()` unscoped): a
-  SUBMIT-only user can read any report's `dataSnapshot`. Contained fix (scope getById to involved
-  parties) — deferred to avoid frontend-fetch coordination in this pass.
+- ✅ **FIXED (5bc6450) 🟡 MEDIUM — report-review cross-user snapshot read** (`getById()` unscoped): a
+  SUBMIT-only user could read any report's `dataSnapshot` (reachable via the web "All Reports" tab's
+  per-row Download PDF). Fixed: `getById(ctx, id)` enforces `canViewReportReview` (SUPER_ADMIN /
+  generator / current assignee by user-or-role / past reviewer-approver-rejecter → else 403). `list()`
+  left broad by design (SUMMARY_SELECT, no snapshot — the tracking board). FE `canDownloadReview`
+  mirrors the scope so the Download button only renders for parties. Pure helpers unit-tested
+  (8 api + 7 web). api 856/0/13, web 373/0.
 - 🟡 **MEDIUM — equipment-group version pin lazy-binds to the LIVE version** when no group was
   supplied at cycle start (partly by-design; only the deviation flag is affected, submitted values
   are still snapshotted).
