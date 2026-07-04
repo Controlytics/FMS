@@ -237,6 +237,20 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       message: 'Request body is not valid JSON',
     });
   }
+  // Prisma unique-constraint violation → 409 (not 500). #low-batch: the four
+  // version sidecars (equipment-groups / checklist-profiles / cleaning-profiles /
+  // filter-profiles) read the live version unlocked then INSERT
+  // (id, versionNumber); two concurrent edits to the same record collide on the
+  // unique index and the loser raises P2002. Surface it as a clean, retryable
+  // conflict instead of a 500 + a spurious SYSTEM_ERROR notification. Systemic —
+  // covers every current + future unique constraint.
+  if ((err as any).code === 'P2002') {
+    return reply.code(409).send({
+      error: 'CONFLICT',
+      message: 'This record was modified concurrently. Please reload and try again.',
+    });
+  }
+
   // Genuine internal errors
   app.log.error(err);
   // Dispatch SYSTEM_ERROR notification (fire-and-forget, rate-limited to 1 per minute)
