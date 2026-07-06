@@ -356,4 +356,38 @@ export const MODULE_FLOWS: ModuleFlow[] = [
         description: 'Client-side export of the currently loaded rows; the export menu on this page has no useCan() check at all — once the page itself is visible (config-gated, see above) export is unconditionally available.' },
     ],
   },
+  {
+    id: 'dashboard',
+    title: 'Dashboard',
+    category: 'System',
+    summary: 'Read-only landing page shown right after login, pulling stats from several existing modules; a separate widget-dashboard CRUD backend exists but is not wired into any frontend page.',
+    steps: [
+      { label: 'View Dashboard (landing page)', kind: 'system', gate: [],
+        description: 'Default route at "/", not wrapped in <RequireRole> — every authenticated user sees it. Pulls /api/users/stats (admin only), /api/audit?limit=1, /api/notifications?limit=1, /api/filters/dashboard-stats, /api/config/dashboard-cards/current, and /api/assets/instances; none of these belong to the /api/dashboards module.' },
+      { label: 'Widget-dashboard CRUD (parked backend feature)', kind: 'system', gate: ['DASHBOARD_VIEW'],
+        description: 'The /api/dashboards module (list/get gate DASHBOARD_VIEW; create gates DASHBOARD_CREATE; update/delete/widgets/layout gate DASHBOARD_MANAGE; assign/unassign gate DASHBOARD_ASSIGN) is feature-complete but parked since 2026-04-30 — no frontend page calls it. The dashboard.* permission-tree toggles are grantable but have no visible effect until a drag-drop widget canvas page is built.' },
+    ],
+  },
+  {
+    id: 'system-health',
+    title: 'System Health',
+    category: 'System',
+    summary: 'Read-only diagnostics page: OS, memory, CPU, disk, process, API-traffic, and database metrics for the local server.',
+    steps: [
+      { label: 'View System Health metrics', kind: 'system', gate: [],
+        description: 'GET /api/system-health uses requireRole(\'SUPER_ADMIN\', \'ADMIN\') rather than a permission constant — ADMIN or SUPER_ADMIN only, no discrete permission gates it (matches the permission-tree\'s system_health.view node: gate: [], gateRoles: [\'ADMIN\']).' },
+    ],
+  },
+  {
+    id: 'debug-traces',
+    title: 'Debug Traces',
+    category: 'System',
+    summary: 'Read-only operations log repointed onto audit_trail: every audited action renders as a single-stage SUCCESS trace, plus two vestigial tracing toggles kept for UI compatibility.',
+    steps: [
+      { label: 'View traces (list, stats, detail, tracing-flag read)', kind: 'system', gate: ['READ_DEBUG_TRACE'],
+        description: 'GET /, GET /stats, GET /:id, and GET /operation-trace all gate on READ_DEBUG_TRACE. Since audit_trail only records successes, finalStatus is always SUCCESS, there are no error codes, and durations are always 0.' },
+      { label: 'Toggle tracing flags (vestigial)', kind: 'action', gate: ['MANAGE_DEBUG_TRACE'],
+        description: 'PUT /operation-trace (global) and PUT /entity/:id/toggle (per-entity) are no-ops kept only so the UI can persist a flag without erroring — the underlying pipeline tracer was retired with the ingestion/TSDB removal.' },
+    ],
+  },
 ];
