@@ -66,6 +66,8 @@ Cold-start render also dropped from ~34 s (bundled puppeteer first launch) to ~1
 
 This Windows-hostility problem is permanently resolved: there's no broker to install, no service to manage, no dynsec to regenerate. See `CHANGELOG.md` "Data-ingestion + TimescaleDB removal" entry and root `CLAUDE.md` Phase 7 snapshot for full scope.
 
+> **Deploy-script note (2026-07-04):** `scripts/install-on-target.ps1`, `install-mosquitto.ps1`, and `package-for-production.ps1` were **removed**. The current deploy path is the `DigiLog-Setup-<ver>.exe` installer (`scripts/build-installer.ps1` → `install.ps1` → `provision-db.ps1` + `register-services.ps1`; see `docs/PHARMA_DEPLOYMENT_21CFR.md`). The mitigation prose below that says *"install-on-target.ps1 should run X"* describes what the **installer** should enforce — read it as the installer's responsibility, not that script.
+
 ### 4. Bash shell scripts
 
 **Files:** `tests/e2e-scripts/*.sh`, references in `future/testing/README.md` to `bash e2e-functional-test.sh`

@@ -115,8 +115,8 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 ## Deployment
 
 ### Production Deployment (Windows Server)
-- Self-contained ZIP package via `scripts/package-for-production.ps1`
-- PowerShell-based automated installation via `scripts/install-on-target.ps1`
+- Packaged `DigiLog-Setup-<ver>.exe` installer (bundles portable PostgreSQL) built via `scripts/build-installer.ps1`
+- On run it provisions the DB + registers the `DigiLogDB` / `DigiLogAPI` Windows services (`install.ps1` → `provision-db.ps1` + `register-services.ps1`). *(Old `package-for-production.ps1` / `install-on-target.ps1` removed 2026-07-04; see `docs/PHARMA_DEPLOYMENT_21CFR.md`.)*
 - API serves SPA + `/api/*` directly on `:3000` over HTTPS (mkcert)
 - Reverse proxy (Nginx / IIS) is optional / customer-choice — not bundled after Phase 4 of the windows-friendly-rewrite
 - The `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as auto-start Windows services (WinSW, via `scripts/register-services.ps1`); see `docs/PHARMA_DEPLOYMENT_21CFR.md`

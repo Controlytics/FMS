@@ -53,7 +53,7 @@
 
 ### Frontend (`apps/web`, `type: module`)
 - **Framework:** React 19 + Vite 6
-- **Routing:** React Router 7 (**81 `<Route>` definitions** in `main.tsx`)
+- **Routing:** React Router 7 (**76 `<Route>` definitions** in `main.tsx`)
 - **State / data:** SWR 2
 - **Forms:** `react-hook-form` + `@hookform/resolvers` + `zod`
 - **UI primitives:** hand-rolled under `components/ui/` — no off-the-shelf library
@@ -82,7 +82,7 @@
 - ~~**Broker:** Mosquitto 2.0 (MQTT 1883)~~ *(removed 2026-06-17 — no MQTT broker anymore)*
 - **Job queue:** graphile-worker on PostgreSQL (no separate queue service)
 - ~~**Cache / pub-sub:** Memurai ≥5 / Redis~~ *(removed 2026-05-01 — pub/sub is now in-process; queue is on Postgres)*
-- **Production deployment:** PowerShell scripts at `scripts/{package-for-production,install-on-target}.ps1`
+- **Production deployment:** the `DigiLog-Setup-<ver>.exe` installer (built by `scripts/build-installer.ps1`; runs `install.ps1`→`provision-db.ps1`+`register-services.ps1`). *(The old `package-for-production.ps1` / `install-on-target.ps1` scripts were removed 2026-07-04 — see `docs/PHARMA_DEPLOYMENT_21CFR.md`.)*
 - **Optional:** `docker-compose.yml` for a containerized dev stack
 
 > **EC2 / Linux / PM2 are no longer in scope.** All EC2-related assets were removed in commit `251be95` (session 04-21). Older docs may still reference them — those references are stale.
@@ -173,7 +173,7 @@ Full detail: `LOCAL_SETUP_WINDOWS.md` at root.
 ## How to find things
 
 - HTTP endpoint → `future/overview/API_LIST.md` (compact catalog) or `future/backend/API_ENDPOINTS.md` (full table) or live Swagger at `https://localhost:3000/docs`
-- Frontend route → `apps/web/src/main.tsx` (81 `<Route>` definitions)
+- Frontend route → `apps/web/src/main.tsx` (76 `<Route>` definitions)
 - Permission → `packages/shared/src/types/permissions.ts` (109 entries)
 - Feature privilege → `packages/shared/src/types/feature-privileges.ts` (91 entries; FEATURE_TO_PERMISSION_MAP at the bottom)
 - Reauth action → `packages/shared/src/types/reauth-actions.ts` (81 entries)
@@ -181,12 +181,12 @@ Full detail: `LOCAL_SETUP_WINDOWS.md` at root.
 - Audit action → `packages/shared/src/types/audit-actions.ts`
 - Audit-template (UUID-hiding) → `packages/shared/src/types/audit-templates.ts`
 - ~~Alarm column metadata → `packages/shared/src/types/alarm-columns.ts`~~ *(removed 2026-05-17 with the alarm tear-out)*
-- DB schema → `apps/api/prisma/schema.prisma` (69 models, 23 enums)
+- DB schema → `apps/api/prisma/schema.prisma` (61 models, 23 enums)
 - Migrations → `apps/api/prisma/migrations/`
 - Config def → `apps/api/src/modules/config/defs/<name>.def.ts` (30 files)
 - Config page → `apps/web/src/routes/config/<name>.tsx` (26 files)
 - Config route → `apps/api/src/modules/config/static-routes/<name>.routes.ts` (11 files; bloat audit P2.3 split done)
-- Backend module → `apps/api/src/modules/<name>/` (37 modules)
-- Frontend hook → `apps/web/src/hooks/<name>.ts` (14 hooks)
+- Backend module → `apps/api/src/modules/<name>/` (33 modules)
+- Frontend hook → `apps/web/src/hooks/<name>.ts` (27 hooks)
 - Frontend lib helper → `apps/web/src/lib/<name>.ts` (15 modules)
 - Shared Zod schema → `packages/shared/src/schemas/<name>.ts` (8 schemas)

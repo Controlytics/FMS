@@ -6,7 +6,7 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 
 | File | Why it matters |
 |---|---|
-| `src/main.tsx` | The only router. Registers **81 `<Route>` definitions**. `<ErrorBoundary>` → `<ToastProvider>` → `<SWRConfig>` → `<BrowserRouter>`. Lazy-loads every heavy route. |
+| `src/main.tsx` | The only router. Registers **76 `<Route>` definitions**. `<ErrorBoundary>` → `<ToastProvider>` → `<SWRConfig>` → `<BrowserRouter>`. Lazy-loads every heavy route. |
 | `src/app.css` | Tailwind entry + theme utility classes (`.text-theme-primary`, `.bg-theme-gradient`, `.bg-theme-gradient-br`, etc.) — codemod target replacing inline `style={{ color: 'var(--theme-primary)' }}`. |
 | `src/components/layout/app-layout.tsx` | Sidebar + header + outlet. Mounts `useRfidGuard()`, `use-branding`, `use-session`, single-tab check. |
 | `src/components/layout/sidebar.tsx` | Permission-filtered sidebar. Reads `SIDEBAR_ITEMS` from `@digilog/shared` and filters by `SIDEBAR_PRIVILEGE_MAP`. Collapses to hamburger below `lg`. |

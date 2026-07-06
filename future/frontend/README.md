@@ -2,7 +2,7 @@
 
 **Location:** `apps/web/`
 **Tech:** React 19 + Vite 6 + TailwindCSS 4 + SWR 2 + React Router 7 + react-hook-form + zod 4. Plus `@dnd-kit/*`, `recharts`, `signature_pad`, `qrcode.react`, `vite-plugin-pwa`. *(`reactflow` 11 + `@monaco-editor/react` were removed 2026-05-17 with the rule-chain tear-out; the cleaning-profile pipeline editor now uses a custom canvas.)*
-**Entry:** `apps/web/src/main.tsx` (**81 `<Route>` definitions**)
+**Entry:** `apps/web/src/main.tsx` (**76 `<Route>` definitions**)
 **Dev:** `cd apps/web && npm run dev` → Vite on port 5173 (5175 on some configurations)
 **Build:** `npm run build` (tsc -b + vite build) → output to `apps/web/dist/`. The bundle is served by the Fastify API at `:3000` (Phase 4 of the windows-friendly-rewrite retired the bundled Nginx config; a reverse proxy is now optional / customer-choice). Capacitor 8 also packages `dist/` into the Android APK.
 
@@ -10,7 +10,7 @@
 
 ```
 apps/web/src/
-├── main.tsx            Router, global providers (ErrorBoundary, ToastProvider, SWRConfig, BrowserRouter), 81 <Route> definitions
+├── main.tsx            Router, global providers (ErrorBoundary, ToastProvider, SWRConfig, BrowserRouter), 76 <Route> definitions
 ├── app.css             Tailwind entry + theme utility classes (.text-theme-primary, .bg-theme-gradient, etc.)
 ├── vite-env.d.ts       Vite ambient types
 ├── components/         (7 top-level + layout/ + ui/)
@@ -21,7 +21,7 @@ apps/web/src/
 │   ├── report-page-wrapper.tsx     Consistent report header/footer/pagination driven by report settings
 │   ├── require-role.tsx            Route permission + role gate (SUPER_ADMIN bypass)
 │   └── toast-provider.tsx
-├── hooks/              (14 hooks)
+├── hooks/              (27 hooks)
 │   ├── use-auth.ts                  Current user + login/logout + permissions
 │   ├── use-branding.ts              Applies theme CSS variables to :root
 │   ├── use-datetime-format.ts       User-configured date formatting

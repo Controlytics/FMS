@@ -110,8 +110,9 @@ node apps/api/dist/app.js
 cd apps/api && npm test                          # all unit + e2e
 cd apps/api && vitest run --testPathPattern=e2e  # e2e only
 
-# package for distribution to a target Windows machine
-powershell -ExecutionPolicy Bypass -File scripts/package-for-production.ps1
+# build the customer installer (Inno Setup 6 on a build machine)
+powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1   # → DigiLog-Setup-<ver>.exe
+# (old package-for-production.ps1 / install-on-target.ps1 removed 2026-07-04)
 ```
 
 ## Where to read next

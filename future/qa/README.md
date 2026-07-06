@@ -19,7 +19,7 @@ Pharmaceutical plants that need to manage HVAC filters and AHUs under **21 CFR P
 | Dev (web) | `http://localhost:5173` (or 5175) | Needs `cd apps/web && npm run dev` |
 | Dev (API) | `https://localhost:3000` (when `API_HTTPS=true`) | `cd apps/api && npm run dev` |
 | Dev API docs | `https://localhost:3000/docs` | Swagger UI — dev only |
-| Local prod (Windows) | `https://localhost:3000` (Fastify direct) | Built via `scripts/package-for-production.ps1` + `install-on-target.ps1`. Reverse proxy is optional / customer-choice after Phase 4 of windows-friendly-rewrite. |
+| Local prod (Windows) | `https://localhost:3000` (Fastify direct) | Installed via the `DigiLog-Setup-<ver>.exe` installer (`scripts/build-installer.ps1`; the old `package-for-production.ps1` / `install-on-target.ps1` were removed 2026-07-04). Reverse proxy optional / customer-choice. |
 | ~~Local MQTT admin~~ | ~~_(no web dashboard)_~~ | *(REMOVED 2026-06-17 — Mosquitto/MQTT broker torn out with the data-ingestion tear-out; no broker anymore)* |
 | Mobile / tablet | launch **DigiLog** APK | APK bakes in `https://192.168.1.22:3000` — rebuild if your dev box IP differs |
 

@@ -42,7 +42,7 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 - ☐ Datetime (locale + format)
 - ☐ User-ID (dynamic prefix/sequence rules, `/validate` endpoint)
 - ☐ Field IDs (label + required overrides per field)
-- ☐ Action reauth (**81** reauth actions across 16 categories)
+- ☐ Action reauth (**92** reauth actions across 16 categories)
 - ☐ Audit templates (default + category + custom overrides)
 - ~~☐ Alarm columns (which columns appear in the alarm table)~~ *(removed 2026-05-17 with the alarm tear-out)*
 - ☐ Pagination (rows per page default)

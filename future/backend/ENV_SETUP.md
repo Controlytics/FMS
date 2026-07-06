@@ -50,10 +50,11 @@ npx tsc -p apps/api/tsconfig.json
 # run the compiled JS
 node apps/api/dist/app.js
 
-# or package for transport to a target Windows machine
-powershell -ExecutionPolicy Bypass -File scripts/package-for-production.ps1
-# then on the target box (after unzipping):
-powershell -ExecutionPolicy Bypass -File scripts/install-on-target.ps1
+# or build the customer installer (on a build machine with Inno Setup 6)
+powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
+# → produces DigiLog-Setup-<ver>.exe (bundles portable Postgres; on run it
+#   provisions the DB + registers the DigiLogDB/DigiLogAPI Windows services).
+# (The old package-for-production.ps1 / install-on-target.ps1 scripts were removed 2026-07-04.)
 ```
 
 After Phase 4 of the windows-friendly-rewrite the Fastify API serves both the SPA (from `apps/web/dist/`) and `/api/*` directly on port 3000 over HTTPS (`API_HTTPS=true` + mkcert certs). A reverse proxy (Nginx / IIS) is optional / customer-choice; nothing in the standard install path depends on it.
