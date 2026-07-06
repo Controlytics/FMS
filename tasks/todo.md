@@ -1783,5 +1783,8 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   apps/api/CLAUDE:256 (added "now 92"). LEFT as labeled/dated historical: CHANGELOG, tasks/todo audit log,
   docs/plans, RESUME-STATE/CODE-REVIEW, docs/CONTRIBUTING:9 (2026-04-29 audit narrative), docs/index.md:110
   (Phase-4 feature list), architectural-refactor-9-steps:50 (step delta), APPLICATION_FLOW:266 (Section-18
-  Phase-4 snapshot), apps/api/CLAUDE:255 (release snapshot w/ "now 102"). NOTE (flagged, out of scope):
-  docs/index.md:107 still lists the removed "Report template designer" in its Phase-4 historical section.
+  Phase-4 snapshot), apps/api/CLAUDE:255 (release snapshot w/ "now 102"). NOTE: docs/index.md:107
+  (Phase-4 list) + :113 (Phase-5 list) listed the removed "Report template designer / generation engine" —
+  FIXED 2026-07-06 (struck through + "removed 2026-07-04" annotation, matching the README:66 treatment).
+  docs/index.md:129 (archived design-plan pointer under "Historical design specs") left as-is — the archived
+  plan file still exists, same class as the PHASE_5_RECENT_WORK §10 rationale pointers.

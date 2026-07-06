@@ -104,13 +104,13 @@ All filter operations are recorded as immutable events with SHA-256 checksums, e
 ## Phase 4 — Permissions, Themes, Reports (2026-04-14)
 - 18 granular feature toggles across Filters / Checklists / Cleaning Profiles / Equipment / PM
 - 10 preset color themes via CSS variables
-- Report template designer + PDF generation engine + digital signatures
+- ~~Report template designer + PDF generation engine + digital signatures~~ *(removed 2026-07-04 — orphaned generate/sign engine torn out; the ad-hoc report-reviews workflow + client-side cleaning-record/lifecycle PDF export remain)*
 - Configurable report header/footer/layout
 - Dynamic CSV bulk upload from template attributeSchema
 - 87 reauth actions
 
 ## Phase 5 — Reports, Offline Hardening, RFID SDK, Filter Data Console (Apr 15–29, 2026)
-- Reports module phases A–F complete (template designer + generation engine + signatures)
+- Reports module phases A–F complete (template designer + generation engine + signatures) — *the generate/sign engine + template designer were removed 2026-07-04 (orphaned dead code); report-reviews + report-config survive*
 - Offline overhaul: TTLs, idempotency keys, tombstones, LRU, JWT refresh on replay, server-side `stageLookup`, Capacitor Network plugin + Service Worker hook
 - RFID SDK plugin baked into DigiLog APK (KC-series via `Reader_Usb.jar`)
 - Filter Data Mgmt console — 10 tabs mirroring user-facing pages
