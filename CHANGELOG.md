@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased] — Home / Module Guide page (2026-07-06)
+
+Branch: `RFID`. Added a `/home` "Module Guide" page + a top-of-sidebar `home` nav item
+(`apps/web/src/routes/home/`, `apps/web/src/components/layout/sidebar.tsx`). Frontend route
+count **76 → 77** (`grep -cE "<Route" apps/web/src/main.tsx`); route folder count **22 → 23**.
+
+### What it does
+Renders per-module workflow flowcharts as a data-driven vertical stepper (`FlowChart.tsx`,
+`module-flows.ts`) — no new dependencies, no reuse of the retired `reactflow` canvas. Each step
+shows the roles allowed to perform it, resolved from that step's real backend permission gate
+(`FlowStep.gate: Permission[]`) via `deriveRolesForGate()` — so role badges reflect actual
+`requireAnyPermission`/`requirePermission` enforcement, not aspirational documentation. Steps
+with an empty gate render as automatic/system-driven; steps intentionally open to any
+authenticated user render as such — there is no case where a SUPER_ADMIN-only action is
+mislabeled as available to any user.
+
+### Roles: derived, drift-guarded
+Role → permission mapping is an embedded copy of `apps/api/prisma/default-roles.ts`
+(`routes/home/role-gates.ts`, `DEFAULT_ROLE_PERMISSIONS`), duplicated because the web app can't
+import across the workspace at runtime. `__tests__/role-gates.test.ts` asserts set-equality
+against the live seed file so the embedded copy cannot silently drift from the real default
+roles.
+
+### Sidebar item
+`home` is hardcoded in `sidebar.tsx` (`if (item.id === 'home') return true;`) — it is
+**non-configurable** and deliberately **not** part of `packages/shared/src/types/sidebar-items.ts`
+(sidebar item count stays **26**, unaffected). It sits above the configurable items and is
+visible to every authenticated user regardless of role, since the Module Guide is ungated
+reference documentation, not a data-bearing page.
+
+### Doc sync
+Updated the frontend route count (76 → 77) and route-folder count (22 → 23) across the active
+doc set: `CLAUDE.md`, `apps/web/CLAUDE.md`, `README.md`, `PROJECT_SUMMARY.md`,
+`PROJECT_ARCHITECTURE.md`. `OFFLINE_SYNC_ARCHITECTURE.md` was not touched (protected surface).
+
 ## [Unreleased] — Reports (generate/sign) module tear-out (2026-07-04)
 
 Branch: `RFID`. Removed the orphaned server-side report **generation + signing** engine

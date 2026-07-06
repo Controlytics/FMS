@@ -43,7 +43,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 ## Key Paths
 - Source: `apps/web/src/`
 - Entry: `apps/web/src/main.tsx`
-- Routes: `apps/web/src/routes/` (22 route folders/files; ~84 pages; **76 `<Route>` definitions** in `main.tsx`)
+- Routes: `apps/web/src/routes/` (23 route folders/files; ~84 pages; **77 `<Route>` definitions** in `main.tsx`)
 - Hooks: `apps/web/src/hooks/` (auth, branding, datetime, pagination, reauth, session, single-tab, toast, field-labels)
 - Components: `apps/web/src/components/` (layout, UI primitives, dialogs)
 - API Client: `apps/web/src/lib/api-client.ts`
@@ -72,6 +72,14 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Notification system (email/SMS/Telegram/Slack)
 - Debug trace page for pipeline visibility
+- Home / Module Guide (`/home`, `routes/home/`, 2026-07-06): a non-configurable
+  `home` sidebar item hardcoded in `components/layout/sidebar.tsx` (not in
+  `packages/shared/src/types/sidebar-items.ts`) — always visible at the top of
+  the sidebar to every authenticated user regardless of role. The page renders
+  per-module workflow flowcharts (data-driven vertical stepper, no new deps)
+  with the roles allowed at each step derived from an embedded copy of
+  `apps/api/prisma/default-roles.ts` (`routes/home/role-gates.ts`), kept honest
+  by a drift-guard test asserting set-equality against the live seed file.
 
 ## Theme
 - Unified light theme: bg-white cards, bg-slate-50 sections, border-slate-200

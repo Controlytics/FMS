@@ -79,8 +79,8 @@
 │
 ├── apps/web/                      (React SPA)
 │   └── src/
-│       ├── main.tsx               Route definitions (76 routes), lazy loading, error boundaries
-│       ├── routes/                22 route module dirs
+│       ├── main.tsx               Route definitions (77 routes), lazy loading, error boundaries
+│       ├── routes/                23 route module dirs
 │       ├── components/            Layout (sidebar, header), UI primitives, dialogs
 │       ├── hooks/                 26 custom hooks (auth, session, branding, offline, etc.)
 │       └── lib/                   API client, SWR config, themes, offline store, sync engine

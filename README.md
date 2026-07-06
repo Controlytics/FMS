@@ -11,7 +11,7 @@ The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite 
 | Path | Contents |
 |---|---|
 | `apps/api/` | Fastify 5 backend — 33 modules, 200+ endpoints |
-| `apps/web/` | React 19 SPA — 76 routes, Tailwind CSS |
+| `apps/web/` | React 19 SPA — 77 routes, Tailwind CSS |
 | `apps/android/` | Capacitor Android wrapper that ships the SPA as `DigiLog-FilterOps.apk` |
 | `rfid_scan_app/` | Native Kotlin app for KC-series UHF RFID readers (USB) |
 | `packages/shared/` | Permissions, privileges, reauth actions, Zod schemas |

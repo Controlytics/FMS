@@ -25,7 +25,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 21cfrlogbook-DigitalFMS/
 ├── apps/
 │   ├── api/            — Fastify backend (33 modules, TypeScript)
-│   ├── web/            — React SPA (76 routes, Vite + Tailwind)
+│   ├── web/            — React SPA (77 routes, Vite + Tailwind)
 │   └── android/        — Capacitor wrapper for Android APK (incl. RfidPlugin.java for SDK-mode RFID)
 ├── packages/
 │   ├── shared/         — Zod schemas, permissions, types (102 permissions, 83 privileges, 92 reauth actions, 26 sidebar items)
@@ -90,7 +90,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 | API endpoints | 200+ |
 | Config definitions | 35 |
 | Config pages | 34 |
-| Frontend routes | 76 |
+| Frontend routes | 77 |
 | Custom React hooks | 26 |
 | Frontend lib modules | 30 |
 | graphile-worker tasks | 3 (`notification`, `pm_overdue_check`, `session_sweep`) |
