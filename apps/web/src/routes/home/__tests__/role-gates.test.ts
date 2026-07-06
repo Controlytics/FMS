@@ -29,6 +29,12 @@ describe('deriveRolesForGate', () => {
   it('empty gate → empty list', () => {
     expect(deriveRolesForGate([])).toEqual([]);
   });
+
+  it('permission held by no default role still yields SUPER_ADMIN (gate bypass)', () => {
+    // AUDIT_DELETE is off-by-default and not held by any default role in default-roles.ts.
+    // But SUPER_ADMIN bypasses all permission gates, so it must always appear on gated steps.
+    expect(deriveRolesForGate(['AUDIT_DELETE'])).toEqual(['SUPER_ADMIN']);
+  });
 });
 
 describe('DEFAULT_ROLE_PERMISSIONS drift guard', () => {

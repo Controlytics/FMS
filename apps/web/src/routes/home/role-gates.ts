@@ -102,12 +102,18 @@ export const ROLE_META: { name: string; displayName: string; badgeClass: string 
 /**
  * Default role names that hold ANY of the given gate permissions, returned in
  * hierarchy order. Mirrors requireAnyPermission semantics. Empty gate → [].
+ *
+ * SUPER_ADMIN is ALWAYS included for non-empty gates because SUPER_ADMIN
+ * bypasses all permission/role gates at runtime (see apps/api/src/plugins/rbac.ts).
  */
 export function deriveRolesForGate(gate: Permission[]): string[] {
   if (gate.length === 0) return [];
   return ROLE_META
     .map((m) => m.name)
     .filter((name) => {
+      // SUPER_ADMIN bypasses all permission/role gates (apps/api/src/plugins/rbac.ts) — always allowed on any gated step.
+      if (name === 'SUPER_ADMIN') return true;
+
       const held = DEFAULT_ROLE_PERMISSIONS[name] ?? [];
       return gate.some((g) => held.includes(g));
     });
