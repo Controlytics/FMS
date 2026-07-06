@@ -13,7 +13,12 @@ Authoritative inventory of features and dependencies in the codebase that are **
 
 ## 🔴 Hard blockers
 
-### 1. Puppeteer (Chromium for PDF generation) — ✅ RESOLVED
+### 1. Puppeteer (Chromium for PDF generation) — ✅ RESOLVED → ⚪ MOOT (reports removed 2026-07-04)
+
+> **MOOT as of 2026-07-04.** The server-side reports generate/sign engine was removed entirely, and
+> `puppeteer-core` + `@napi-rs/canvas` + `chart.js` were uninstalled with it. There is no server-side
+> PDF/Chromium path anymore (the surviving cleaning-record / filter-lifecycle export renders client-side
+> via `apps/web/src/lib/pdf-report.ts` with jsPDF). The Phase-3 resolution below is kept for history.
 
 **Resolved by:** `abdc9dd feat(reports): switch pdf-renderer from puppeteer to puppeteer-core + Edge` and `79937b7 feat(reports): edge-detector helper for puppeteer-core executablePath` (2026-04-29, on `feature/phase3-reports-edge`).
 
@@ -35,7 +40,10 @@ Original pain points all neutralised:
 
 Cold-start render also dropped from ~34 s (bundled puppeteer first launch) to ~1.9 s on the same hardware. Smoke test at `apps/api/src/modules/reports/renderers/__tests__/pdf-renderer.test.ts` exercises the real Edge headless and asserts `%PDF-` magic bytes for both A4 portrait and landscape.
 
-### 2. `chartjs-node-canvas` + `canvas` (native Skia/Cairo bindings) — ✅ RESOLVED
+### 2. `chartjs-node-canvas` + `canvas` (native Skia/Cairo bindings) — ✅ RESOLVED → ⚪ MOOT (reports removed 2026-07-04)
+
+> **MOOT as of 2026-07-04.** `@napi-rs/canvas` + `chart.js` were uninstalled with the reports engine.
+> No server-side chart rendering remains. The Phase-3 resolution below is kept for history.
 
 **Resolved by:** `d72d44c feat(reports): replace chartjs-node-canvas with @napi-rs/canvas` (2026-04-29).
 
@@ -284,7 +292,7 @@ For a **Windows Server production deployment**, the realistic stance is:
 | PostgreSQL 18 (vanilla, no TimescaleDB) | ✅ keep | Also hosts the graphile-worker job queue. TimescaleDB dropped 2026-06-11 with data-ingestion tear-out. |
 | ~~Memurai~~ | ✅ fully removed | Phase 2: queue → graphile-worker on Postgres. Phase 4 (2026-05-01): pub/sub → in-process EventEmitter bus. `ioredis` dependency dropped. **No Redis service required at all.** |
 | ~~MQTT broker~~ | ✅ fully removed (2026-06-17) | Mosquitto Windows service uninstalled; `mqtt`/`aedes` npm deps gone. No broker needed at all. |
-| Reports module (PDF + charts) | ✅ Edge + @napi-rs/canvas | Phase 3: puppeteer-core drives preinstalled Edge; @napi-rs/canvas ships prebuilt N-API. No bundled Chromium, no MSVC, no node-gyp. |
+| ~~Reports module (PDF + charts)~~ | ⚪ REMOVED (2026-07-04) | Server-side reports generate/sign engine torn out; `puppeteer-core`/`@napi-rs/canvas`/`chart.js` uninstalled. No server PDF/Chromium path. Surviving export is client-side (jsPDF). |
 | APK builds | ❌ off-server | Build on dev machine, copy artifact |
 | Native RFID hardware | ❌ off-server | Tablet + USB reader on operator floor |
 | CI builds | ✅ ubuntu-latest | Leave Windows out of CI loop |

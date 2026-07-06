@@ -1719,10 +1719,21 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
     `/config/report-settings`→`/config/report-config` (FRONTEND_GUIDE + README). AGENTS.md brought fully
     current (was 2026-04-29-era: 37 modules / 68 models / 106 perms + a stale 9-module list + harmful
     multi-tenant review guidance that would flag correct single-tenant code) + LOCAL_SETUP_WINDOWS.md counts.
-  - **OPEN / FLAGGED (NOT fixed — needs its own careful pass):** `DEPLOY-WINDOWS.md` + `windowsIssues.md`
-    were never synced for **Phase 7** — they still instruct operators to install **TimescaleDB** (dropped
-    2026-06-11) and **Mosquitto/MQTT** (removed 2026-06-17), and reference the reports/Edge PDF stack
-    (removed 2026-07-04). DEPLOY-WINDOWS §2 (line ~66), §3 prereqs table (lines ~83–87: PostgreSQL Stack
-    Builder→TimescaleDB, Mosquitto row, Microsoft Edge row), the Server-Core note (~92–97), and the
-    troubleshooting row (~463) are all stale. This is a deploy-critical multi-subsystem remediation, left
-    for a dedicated pass so the runbook isn't half-corrected.
+  - **DEPLOY-WINDOWS.md + windowsIssues.md — FIXED 2026-07-06** (user-directed follow-up: "don't install
+    timescale db, mqtt, emqx, uns env keys"). Both were never synced for **Phase 7**. Stripped TimescaleDB
+    (single `digilog_db` now; no `digilog_tsdb`, no `CREATE EXTENSION timescaledb`, no `TSDB_*` env keys),
+    Mosquitto/MQTT/EMQX (no broker install, no `:1883`, no `MOSQUITTO_*` keys), Redis/Memurai, and the
+    reports/Edge server-side PDF stack from DEPLOY-WINDOWS.md across §1–§12 (prereqs, DB creation, `.env`,
+    verification, backups, troubleshooting, handover). Also discovered the doc documents a **deleted install
+    path** — `install-on-target.ps1` / `install-mosquitto.ps1` / `package-for-production.ps1` were removed
+    2026-07-04; the current path is the **Inno Setup `DigiLog-Setup-<ver>.exe`** (bundles portable Postgres;
+    `install.ps1`→`provision-db.ps1`+`register-services.ps1`; data in `C:\ProgramData\DigiLog`; upgrade via
+    `upgrade.ps1`). Added a superseded banner + pointers to `docs/PHARMA_DEPLOYMENT_21CFR.md` /
+    `tasks/EXE-PACKAGING-PLAN.md` (did NOT write a second installer walkthrough — out of scope). windowsIssues.md:
+    §1/§2 + summary row marked MOOT (reports removed), matching the existing §3/§8 Phase-7 pattern.
+    **Also fixed a real script bug:** `scripts/verify-windows-deployment.ps1` still probed deleted
+    `/api/report-templates` + `/api/reports/generate` in its `[3/3]` check — removed that block, renumbered
+    to `[1/2]`/`[2/2]`, dropped the now-unused `-AdminUser`/`-AdminPassword` params; PowerShell parse clean.
+  - **OPEN (user's call — raised in report):** whether DEPLOY-WINDOWS.md's manual-install method should be
+    kept as the stripped+redirected version or fully replaced by a pointer/rewrite to the Setup.exe path
+    (its whole architecture is superseded, not just the dead subsystems).

@@ -3,14 +3,15 @@
     Post-install smoke-check for the DigiLog Windows deployment.
 
 .DESCRIPTION
-    Runs a sequence of read-only checks to confirm the three critical pieces of
+    Runs a sequence of read-only checks to confirm the two critical pieces of
     the stack are alive after a DigiLog install/upgrade has finished:
 
         1. API /api/health responds 200
         2. graphile_worker schema exists in the application database
-        3. The /api/reports/generate path can render a 1-page PDF
-           (login as superadmin, find an ACTIVE template, generate, fetch PDF,
-           verify the response begins with the PDF magic bytes "%PDF-")
+
+    (The former report-generation/PDF check was removed 2026-07-04 with the
+    server-side reports generate/sign engine — /api/reports and /api/report-templates
+    no longer exist.)
 
     Each check is wrapped in its own try/catch so one failure does not abort
     the rest. The script prints a colour-coded pass/fail summary at the end
@@ -18,14 +19,6 @@
 
 .PARAMETER ApiBase
     Base URL of the API. Default: https://localhost:3000
-
-.PARAMETER AdminUser
-    Login username for the report-render check. Default: superadmin
-
-.PARAMETER AdminPassword
-    Plaintext password for the AdminUser. If omitted, the script reads
-    INITIAL_ADMIN_PASSWORD from the .env at the repo root. The reports check
-    is skipped (WARN) when neither source supplies a password.
 
 .PARAMETER Insecure
     Bypass TLS certificate validation. Auto-enabled when ApiBase points at
@@ -39,7 +32,7 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts/verify-windows-deployment.ps1 `
-        -ApiBase https://digilog.example.com:3000 -AdminPassword 'S3cret!' -Insecure:$false
+        -ApiBase https://digilog.example.com:3000 -Insecure:$false
 
 .NOTES
     PowerShell 5.1 compatible. Read-only — no destructive operations.
@@ -49,8 +42,6 @@
 [CmdletBinding()]
 param(
     [string]$ApiBase = 'https://localhost:3000',
-    [string]$AdminUser = 'superadmin',
-    [string]$AdminPassword = '',
     [Nullable[bool]]$Insecure = $null,
     [switch]$Help
 )
@@ -183,8 +174,8 @@ try {
 
 Set-CertCallback -Skip:$Insecure
 
-# ───── [1/3] API health ──────────────────────────────────
-Write-Host "[1/3] Checking API health..." -ForegroundColor Cyan
+# ───── [1/2] API health ──────────────────────────────────
+Write-Host "[1/2] Checking API health..." -ForegroundColor Cyan
 try {
     $healthUrl = "$ApiBase/api/health"
     $resp = Invoke-Api -Method GET -Url $healthUrl
@@ -203,9 +194,9 @@ try {
     Write-Host "     FAIL: $msg" -ForegroundColor Red
 }
 
-# ───── [2/3] graphile_worker schema ──────────────────────
+# ───── [2/2] graphile_worker schema ──────────────────────
 Write-Host ""
-Write-Host "[2/3] Checking graphile_worker schema..." -ForegroundColor Cyan
+Write-Host "[2/2] Checking graphile_worker schema..." -ForegroundColor Cyan
 try {
     $psqlOk = $false
     try {
@@ -266,81 +257,8 @@ try {
     Write-Host "     FAIL: $msg" -ForegroundColor Red
 }
 
-# ───── [3/3] Reports - generate + fetch PDF ──────────────
-Write-Host ""
-Write-Host "[3/3] Checking report generation (login -> generate -> fetch PDF)..." -ForegroundColor Cyan
-try {
-    # Resolve admin password: explicit -AdminPassword wins, else INITIAL_ADMIN_PASSWORD from .env
-    $pwd = $AdminPassword
-    if ([string]::IsNullOrEmpty($pwd)) { $pwd = Read-EnvVar 'INITIAL_ADMIN_PASSWORD' }
-    if ([string]::IsNullOrEmpty($pwd)) {
-        Add-Result 'Reports - generate 1-page PDF' 'WARN' 'No admin password supplied (-AdminPassword or INITIAL_ADMIN_PASSWORD in .env)'
-        Write-Host "     WARN: pass -AdminPassword or set INITIAL_ADMIN_PASSWORD in .env to enable this check" -ForegroundColor Yellow
-    } else {
-        # 4a. Login
-        Write-Host "     logging in as $AdminUser..." -ForegroundColor DarkGray
-        $loginResp = Invoke-Api -Method POST -Url "$ApiBase/api/auth/login" -Body @{ username = $AdminUser; password = $pwd }
-        $login = $loginResp.Content | ConvertFrom-Json
-        if (-not $login.token) { throw "login response did not contain a token" }
-        $token = $login.token
-        $authHeaders = @{ Authorization = "Bearer $token" }
-
-        # 4b. Find an ACTIVE template
-        Write-Host "     listing report templates..." -ForegroundColor DarkGray
-        $tplResp = Invoke-Api -Method GET -Url "$ApiBase/api/report-templates?status=ACTIVE&limit=5" -Headers $authHeaders
-        $tplBody = $tplResp.Content | ConvertFrom-Json
-        $tpls = @()
-        if ($tplBody.data) { $tpls = @($tplBody.data) }
-        elseif ($tplBody -is [System.Array]) { $tpls = @($tplBody) }
-        if ($tpls.Count -lt 1) {
-            Add-Result 'Reports - generate 1-page PDF' 'WARN' 'no ACTIVE report template; create one in the UI to enable this check'
-            Write-Host "     WARN: no ACTIVE report template exists yet (this is normal on a fresh install)" -ForegroundColor Yellow
-        } else {
-            $templateId = $tpls[0].id
-            Write-Host "     using template $($tpls[0].name) ($templateId)" -ForegroundColor DarkGray
-
-            # 4c. Generate (reauth via _currentPassword body field)
-            $genBody = @{
-                templateId       = $templateId
-                entitySlots      = @{}
-                _currentPassword = $pwd
-                name             = "smoke-check $(Get-Date -Format 'yyyyMMddHHmmss')"
-            }
-            $genResp = Invoke-Api -Method POST -Url "$ApiBase/api/reports/generate" -Body $genBody -Headers $authHeaders
-            $report = $genResp.Content | ConvertFrom-Json
-            $reportId = $null
-            if ($report.id) { $reportId = $report.id }
-            elseif ($report.report -and $report.report.id) { $reportId = $report.report.id }
-            if (-not $reportId) { throw "generate response missing report id" }
-
-            # 4d. Fetch PDF + assert magic bytes
-            $pdfUrl = "$ApiBase/api/reports/$reportId/pdf"
-            Write-Host "     fetching $pdfUrl" -ForegroundColor DarkGray
-            $pdfResp = Invoke-Api -Method GET -Url $pdfUrl -Headers $authHeaders
-            $bytes = $null
-            if ($pdfResp.RawContentStream) {
-                $ms = New-Object System.IO.MemoryStream
-                $pdfResp.RawContentStream.CopyTo($ms)
-                $bytes = $ms.ToArray()
-            } elseif ($pdfResp.Content -is [byte[]]) {
-                $bytes = $pdfResp.Content
-            } else {
-                $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$pdfResp.Content)
-            }
-            if (-not $bytes -or $bytes.Length -lt 5) { throw "PDF response was empty or too short" }
-            $magic = [System.Text.Encoding]::ASCII.GetString($bytes[0..4])
-            if ($magic -ne '%PDF-') {
-                throw "PDF magic bytes mismatch: got '$magic' (length=$($bytes.Length))"
-            }
-            Add-Result 'Reports - generate 1-page PDF' 'PASS' "PDF $($bytes.Length) bytes (template '$($tpls[0].name)')"
-            Write-Host "     PASS (PDF $($bytes.Length) bytes, magic '%PDF-' verified)" -ForegroundColor Green
-        }
-    }
-} catch {
-    $msg = $_.Exception.Message
-    Add-Result 'Reports - generate 1-page PDF' 'FAIL' $msg
-    Write-Host "     FAIL: $msg" -ForegroundColor Red
-}
+# (The former [3/3] report-generation/PDF check was removed 2026-07-04 with the
+#  server-side reports engine — /api/reports and /api/report-templates no longer exist.)
 
 # ───── Summary ───────────────────────────────────────────
 Write-Host ""

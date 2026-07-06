@@ -5,7 +5,17 @@ This guide walks through installing DigiLog on a **fresh Windows machine**
 Total time: **60–90 minutes** for an experienced admin, 2–3 hours if you're
 installing Node, PostgreSQL, etc. for the first time.
 
-> **Before you begin:** read `windowsIssues.md` at the repo root for the full audit of 18 dependency / runtime issues that affect Windows deployments, with severity ratings and concrete mitigations. Each mitigation in this guide cross-references its `windowsIssues.md` § number for the rationale. The Phase-1 plan in `docs/plans/2026-04-29-windows-friendly-rewrite.md` (when present) tracks long-term remediation.
+> ⚠️ **This manual-install method is superseded by the packaged `DigiLog-Setup-<ver>.exe` installer.**
+> The current customer deploy path is a single Inno Setup installer that **bundles its own portable
+> PostgreSQL** (no pre-installed database needed), writes its runtime config, provisions the DB, and
+> registers Windows services automatically. See **`docs/PHARMA_DEPLOYMENT_21CFR.md`** and
+> **`tasks/EXE-PACKAGING-PLAN.md`** for that path. The `install-on-target.ps1` / `install-mosquitto.ps1`
+> / `package-for-production.ps1` scripts this guide used to reference were removed. This document is kept
+> for the manual/reference deploy story and has been stripped of the removed subsystems (TimescaleDB,
+> MQTT/Mosquitto, Redis, and the server-side PDF/reports engine — all torn out across Phases 4/7 and the
+> 2026-07-04 reports removal).
+
+> **Before you begin:** read `windowsIssues.md` at the repo root for the audit of dependency / runtime issues that affect Windows deployments, with severity ratings and mitigations. The single database is now `digilog_db` (Prisma); TimescaleDB / `digilog_tsdb` and the MQTT broker were removed 2026-06-11..17, and Redis 2026-05-01.
 
 ---
 
@@ -22,15 +32,15 @@ digilog-production/
 │   ├── server.key
 │   └── rootCA.pem                 ← install this on every tablet
 ├── DigiLog-FilterOps.apk          ← Android APK for tablets
-├── mosquitto/                     ← Mosquitto config + dynamic-security.json regen target
-├── scripts/
-│   ├── install-on-target.ps1      ← run once on the target machine (also runs install-mosquitto.ps1)
-│   └── install-mosquitto.ps1      ← invoked by install-on-target.ps1
 ├── .env.example                   ← copy to .env and edit
 └── DEPLOY-WINDOWS.md              ← this file
 ```
 
-> **Phase 4 (windows-friendly-rewrite) note:** the bundled `start-digilog.ps1` / `stop-digilog.ps1` shells were dropped because they referenced PM2 + EMQX. Smoke-test launch is now `cd api; node dist/app.js` in the foreground; a managed Windows-service launcher is tracked as Phase 5 work.
+> **Note:** the packaged `DigiLog-Setup-<ver>.exe` installer (see the banner above) is the current path
+> and needs none of this manual layout. There is no `mosquitto/` folder anymore (MQTT broker removed
+> 2026-06-17), and the old `install-on-target.ps1` / `install-mosquitto.ps1` / `start-digilog.ps1` /
+> `stop-digilog.ps1` scripts were removed. Smoke-test launch of a manually-placed bundle is
+> `cd api; node dist/app.js` in the foreground.
 
 Anything the customer shouldn't need to touch stays inside `api/` and `web/`.
 Configuration is all in `.env` and `certs/`.
@@ -42,16 +52,14 @@ Configuration is all in `.env` and `certs/`.
 ```
 ┌─────────────── target Windows machine ───────────────┐
 │                                                       │
-│  ┌─────────┐   ┌────────┐                ┌──────────┐│
-│  │ Node 20+│   │Postgres│                │Mosquitto ││
-│  │ API     │←──│ +Timsc │                │ MQTT     ││
-│  │ :3000   │   │ +queue │                │ :1883    ││
-│  │  HTTPS  │   │:5432   │                │ (service)││
-│  └────┬────┘   └────────┘                └──────────┘│
-│       │   (Phase 4: Redis retired — pub/sub in-process)│
-│       │  NSSM-managed services:                       │
-│       │    - DigiLogAPI-Phase5                        │
-│       │    - DigiLogWeb-Phase5                        │
+│  ┌─────────┐   ┌────────────┐                         │
+│  │ Node 20+│   │ PostgreSQL  │                         │
+│  │ API+SPA │←──│ 18 + queue  │                         │
+│  │ :3000   │   │ :5432       │                         │
+│  │  HTTPS  │   │ digilog_db  │                         │
+│  └────┬────┘   └────────────┘                         │
+│       │   (graphile-worker job queue lives in Postgres;│
+│       │    pub/sub is in-process — no Redis, no MQTT)  │
 └───────┼───────────────────────────────────────────────┘
         │
         │ https://<server-ip>:3000
@@ -63,12 +71,7 @@ Configuration is all in `.env` and `certs/`.
     └───────────────────────────────┘
 ```
 
-Three components run on the server: **PostgreSQL 18 + TimescaleDB**, **Mosquitto 2.0**, and **the built API + SPA**. Phase 1+2 of the windows-friendly-rewrite swapped EMQX for Mosquitto and moved the job queue to graphile-worker on Postgres. Phase 3 swapped the PDF/chart pipeline to puppeteer-core + Edge and @napi-rs/canvas, eliminating ~150 MB of bundled Chromium and the node-gyp / MSVC / Cairo build chain. **Phase 4 (2026-05-01) retired Redis entirely** — non-queue pub/sub (WebSocket events, RPC correlation, pipeline tracer, debug recorder) moved to an in-process EventEmitter bus + Map-based TTL cache. Phase 5 added managed-Windows-service launchers (DigiLogAPI-Phase5 + DigiLogWeb-Phase5 via NSSM).
-
-> **Phases 2 + 4 (2026):** the job queue moved from BullMQ-on-Redis to
-> graphile-worker-on-Postgres in Phase 2; pub/sub + RPC correlation moved
-> in-process in Phase 4. **No Redis dependency at all.** Memurai is no
-> longer needed for any DigiLog feature.
+Two components run on the server: **PostgreSQL 18** (single database `digilog_db`) and **the built API + SPA** (one Node process — the Fastify API serves the static SPA on `:3000` HTTPS). The graphile-worker job queue lives inside Postgres (Phase 2 moved it off BullMQ/Redis). **No Redis, no MQTT broker, no TimescaleDB, no server-side PDF/Chromium** — all removed across Phases 4 (Redis, 2026-05-01), 7 (data-ingestion + TimescaleDB + MQTT, 2026-06-11..17), and the reports generate/sign tear-out (2026-07-04). The packaged Setup.exe installer registers `DigiLogDB` (bundled Postgres) + `DigiLogAPI` (WinSW) as auto-starting Windows services.
 
 ---
 
@@ -77,41 +80,39 @@ Three components run on the server: **PostgreSQL 18 + TimescaleDB**, **Mosquitto
 Do these **once** on the target Windows machine before running the install script.
 Each is a Next-Next-Finish installer.
 
+> **The packaged Setup.exe bundles its own portable PostgreSQL**, so on the customer path you install
+> nothing from this table. It only applies to a **manual** deploy against a self-managed PostgreSQL.
+
 | Software | Version | Install URL | Notes |
 |---|---|---|---|
 | **Node.js LTS** | 20.x or 22.x | https://nodejs.org/ | Accept default options. Ensures `node` and `npm` are on PATH. |
-| **PostgreSQL** | 18 | https://www.postgresql.org/download/windows/ | Remember the password for the `postgres` superuser — you'll need it. Install **Stack Builder** and use it to add the **TimescaleDB** extension afterwards. |
-| **TimescaleDB** | latest for PG 18 | https://docs.timescale.com/self-hosted/latest/install/installation-windows/ | Needed for time-series data. Follow their Windows guide — it's a DLL copy + one `CREATE EXTENSION` statement. |
-| ~~**Memurai**~~ | RETIRED | n/a | Phase 4 (2026-05-01) retired Redis entirely. Pub/sub moved to in-process EventEmitter bus; RPC correlation moved to in-process Map. **Do NOT install Memurai or Redis.** |
-| **Mosquitto** *(installed by script)* | 2.0.x | Bundled — `install-on-target.ps1` invokes `install-mosquitto.ps1` automatically | MQTT broker. **No separate install step.** Step 3/9 of `install-on-target.ps1` runs `install-mosquitto.ps1`, which downloads the official 2.0.18 installer, registers the Windows service, deploys the conf, and rewrites paths to absolute (the SCM-managed broker has CWD=System32, no stdout — relative paths and `log_dest stdout` would silently exit it). |
-| **Microsoft Edge** | preinstalled on Win10+/Server 2019+ | https://www.microsoft.com/edge | Used by `puppeteer-core` for PDF report rendering. The installer probes for `msedge.exe` and warns if missing. On Windows Server Core, install Chrome and set `PUPPETEER_EXECUTABLE_PATH` in `.env`. |
+| **PostgreSQL** | 18 | https://www.postgresql.org/download/windows/ | Remember the password for the `postgres` superuser — you'll need it. **No extensions to add** — vanilla PG 18 (the app uses only `ltree` + `pgcrypto` from `prisma/sql/extensions.sql`, which the schema step installs). **Do NOT install TimescaleDB** — it was dropped 2026-06-11. |
 | **Git (optional)** | any | https://git-scm.com/ | Only needed if you'll pull source updates later. |
 
-> **Phase 4 retired Nginx and PM2 from the customer-facing path.** The Fastify API serves the SPA's static bundle directly on `:3000` (HTTPS), and the API is launched manually for smoke-test (`cd api; node dist/app.js`). A managed Windows-service launcher is Phase 5 work — for now there is no auto-restart-on-crash and no boot persistence. If you want a reverse proxy or SPA-only static server, install Nginx or IIS yourself; nothing in the install script depends on it.
+> **Do NOT install:** TimescaleDB, Mosquitto/any MQTT broker, EMQX, Memurai/Redis, or Microsoft Edge/Chromium. None are used anymore — the data-ingestion + TimescaleDB + MQTT layer was removed 2026-06-11..17, Redis 2026-05-01, and the server-side PDF/reports engine (which needed Edge) 2026-07-04.
 
-> **Windows Server SKU note:** Phase 3 of windows-friendly-rewrite swapped
-> the PDF/chart pipeline to puppeteer-core + @napi-rs/canvas, so **Windows
-> Server Core works** for the API itself (Mosquitto and graphile-worker run
-> headless; PDFs use Edge headless which doesn't require `dwm.exe`). The
-> remaining "Desktop Experience" requirement is the PostgreSQL installer GUI
-> — use the headless installer or run the install via psql on Core.
+> **Nginx / PM2 not used.** The Fastify API serves the SPA's static bundle directly on `:3000` (HTTPS). Under the Setup.exe installer the API runs as the `DigiLogAPI` Windows service (WinSW). For a manual deploy, launch it with `cd api; node dist/app.js` (foreground — no auto-restart) or register it yourself.
+
+> **Windows Server SKU note:** the API, graphile-worker, and Postgres all run headless, so **Windows Server Core works**. The only "Desktop Experience" dependency would be a GUI PostgreSQL installer — use the headless installer or the bundled Postgres from the Setup.exe path.
 
 ---
 
 ## 4. Prepare the deployment package on your dev machine
 
-Before shipping the ZIP to the customer, run the packaging script **on your
-development machine** (the one you've been using to build):
-
-```powershell
-# From the repo root:
-powershell -ExecutionPolicy Bypass -File scripts/package-for-production.ps1
-```
-
-This builds the API and web bundles, copies the APK, certs, and .env template
-into a `digilog-production/` folder, and creates `digilog-production.zip` next
-to it. Transfer that ZIP to the customer by whatever means you prefer (USB,
-secure file share, email if under 25 MB).
+> The old `package-for-production.ps1` script was removed. The current build path produces the
+> `DigiLog-Setup-<ver>.exe` installer:
+>
+> ```powershell
+> # On a build machine with Inno Setup 6 installed:
+> powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
+> ```
+>
+> `build-installer.ps1` runs `build-bundle.ps1` (compiles the single-process backend+SPA bundle),
+> does a clean-room `npm ci --omit=dev`, stages the runtime + portable Postgres + WinSW + the
+> provision/register scripts, and compiles the Inno script to `Setup.exe`. See
+> `tasks/EXE-PACKAGING-PLAN.md` §4/M5. For a **manual** bundle (no installer), run
+> `scripts/build-bundle.ps1` and copy `apps/api/dist`, `apps/web/dist`, `certs/`, the APK, and
+> `.env.example` to the target yourself.
 
 ---
 
@@ -140,22 +141,19 @@ and run:
 -- Create the app user
 CREATE USER digilog WITH PASSWORD 'CHANGE_ME_STRONG_PASSWORD' CREATEDB;
 
--- Create the two databases
-CREATE DATABASE digilog_db     OWNER digilog;
-CREATE DATABASE digilog_tsdb   OWNER digilog;
-
--- Enable TimescaleDB on the time-series DB
-\c digilog_tsdb
-CREATE EXTENSION IF NOT EXISTS timescaledb;
+-- Create the single application database
+CREATE DATABASE digilog_db OWNER digilog;
 ```
+
+> **One database only.** `digilog_tsdb` + the TimescaleDB extension were dropped 2026-06-11 with the
+> data-ingestion tear-out. The app uses only `ltree` + `pgcrypto`, installed from
+> `prisma/sql/extensions.sql` by the schema-apply step — no manual `CREATE EXTENSION` here.
 
 Verify:
 
 ```sql
 \c digilog_db
 SELECT current_database();   -- should print digilog_db
-\c digilog_tsdb
-SELECT extname FROM pg_extension WHERE extname = 'timescaledb';
 ```
 
 ### 5.3 Create the `.env` file
@@ -171,13 +169,8 @@ notepad .env
 **Critical fields to change before starting:**
 
 ```env
-# ─── PostgreSQL ────────────────────────────────────────
+# ─── PostgreSQL (single database — no TSDB_*/MQTT_*/EMQX_*/UNS_* keys anymore) ───
 DATABASE_URL=postgresql://digilog:CHANGE_ME_STRONG_PASSWORD@localhost:5432/digilog_db?schema=public
-TSDB_HOST=localhost
-TSDB_PORT=5432
-TSDB_DATABASE=digilog_tsdb
-TSDB_USER=digilog
-TSDB_PASSWORD=CHANGE_ME_STRONG_PASSWORD
 
 # ─── JWT ──────────────────────────────────────────────
 # MUST be replaced with a random 64+ char string — do NOT ship with the default.
@@ -199,32 +192,39 @@ Generate random secrets with:
 -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 64 | ForEach-Object {[char]$_})
 ```
 
-### 5.4 Run the install script
+### 5.4 Apply the schema and seed
+
+> **The old `install-on-target.ps1` script was removed.** Under the packaged `DigiLog-Setup-<ver>.exe`,
+> the Inno installer runs `scripts/install.ps1` (→ `provision-db.ps1` + `register-services.ps1`)
+> automatically against the bundled Postgres — nothing to run by hand. The steps below are the
+> **manual** equivalent against a self-managed PostgreSQL.
+
+For a manual bundle, from the placed `api/` folder:
 
 ```powershell
-cd C:\DigiLog
-powershell -ExecutionPolicy Bypass -File scripts\install-on-target.ps1
+cd C:\DigiLog\api
+npm ci --omit=dev                 # production dependencies from the lockfile
+npx prisma generate               # Prisma client against the deployed schema
+# extensions (ltree + pgcrypto) then migrations then seed:
+psql -U digilog -d digilog_db -f prisma/sql/extensions.sql
+npx prisma migrate deploy         # applies every migration to digilog_db
+npx prisma db seed                # SUPER_ADMIN role + default superadmin (best-effort; auto-seeds on first start too)
 ```
 
-This does (9 steps):
-1. **Sanity checks** — verifies `api/`, `.env`, Node.js, npm, `psql` (warns if missing), Microsoft Edge (warns if missing — needed for PDF reports)
-2. **Enables Windows long-paths** — sets `HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`
-3. **Installs Mosquitto 2.0** — invokes `scripts/install-mosquitto.ps1` (idempotent — silently installs MSI, registers the Windows service, copies the conf, rewrites paths to absolute)
-4. **Copies `.env` into `api/`** — so the compiled API can read it
-5. **`npm ci --omit=dev`** in `api/` — installs production dependencies from the lockfile
-6. **`npx prisma generate`** — generates the Prisma client against the deployed schema
-7. **`npx prisma migrate deploy`** — applies every migration to `digilog_db`
-8. **`npx prisma db seed`** — creates the SUPER_ADMIN role and default superadmin user (config registry also auto-seeds on first API start, so this is best-effort)
-9. **Opens Windows Firewall** — ports **80**, **443**, **3000**, **1883**
+Also enable Windows long-paths once (`HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`)
+and open the firewall for the API port only — **80, 443, 3000** (port **1883** is no longer used; the
+MQTT broker was removed).
 
-After the script finishes, **launch the API manually for smoke-test:**
+Then **launch the API manually for smoke-test:**
 
 ```powershell
 cd C:\DigiLog\api
 node dist/app.js
 ```
 
-> **Phase 4 honest disclaimer:** the API runs in the foreground in this console window. There is no auto-restart on crash, no boot persistence, no log rotation. This is for smoke-testing only. A managed Windows-service launcher (NSSM or `sc.exe`-registered service via `verify-windows-deployment.ps1`) is tracked as **Phase 5 work** of the windows-friendly-rewrite plan.
+> **Manual-launch disclaimer:** in the foreground there is no auto-restart, boot persistence, or log
+> rotation — smoke-test only. The packaged Setup.exe registers the `DigiLogAPI` WinSW service (with the
+> `DigiLogDB` Postgres service) for boot persistence + restart-on-crash; see `register-services.ps1`.
 
 ### 5.5 Install the HTTPS cert on client tablets
 
@@ -257,45 +257,36 @@ Launch the API in one console (`cd C:\DigiLog\api; node dist/app.js`) and run th
 # 1. PostgreSQL is responding
 psql -U digilog -d digilog_db -c "SELECT now();"
 
-# 2. TimescaleDB extension is loaded on the time-series DB
-psql -U digilog -d digilog_tsdb -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';"
-# → should print one row with the extension version
-
-# 3. graphile-worker schema bootstrapped on first API connect
+# 2. graphile-worker schema bootstrapped on first API connect
 psql -U digilog -d digilog_db -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='graphile_worker';"
 # → should print a non-zero count (jobs, job_queues, known_crontabs, migrations, etc.). Schema auto-creates on first API start; if zero, the API hasn't connected yet.
 
-# 4. (Phase 4: Memurai/Redis fully retired — skip this section.)
-redis-cli -p 6379 ping
-# → Memurai/Redis no longer used; skip the PING check.
-
-# 5. Mosquitto service is running
-Get-Service mosquitto
-# → Status: Running, StartType: Automatic
-Test-NetConnection -ComputerName localhost -Port 1883
-# → TcpTestSucceeded : True
-
-# 6. API is responding (run AFTER you start the API console with `cd api; node dist/app.js`)
+# 3. API is responding (run AFTER you start the API console with `cd api; node dist/app.js`)
 curl -k https://localhost:3000/health
 # → returns {"error":"UNAUTHORIZED","message":"Missing token"}  (expected — TLS handshake succeeded, route requires auth)
 
-# 7. SPA is being served by the API directly (Phase 4: no Nginx)
+# 4. SPA is being served by the API directly (no Nginx)
 curl -k https://localhost:3000/
 # → returns HTML containing <title>DigiLog</title>
 
-# 8. Can log in
+# 5. Can log in
 # Open a desktop browser on the server itself:  https://localhost:3000
 # Default credentials: superadmin / Admin@123
 # CHANGE the superadmin password immediately after first login.
 ```
 
-If step 6 fails, check the API console output directly (it's running in the foreground). Most likely causes: `DATABASE_URL` wrong, TimescaleDB extension missing, or `MOSQUITTO_ADMIN_PASSWORD` / `MOSQUITTO_REFRESH_TOKEN` blank in `.env` (the API refuses to start with a blank token when `USE_MOSQUITTO=true`).
+> No Redis/Memurai (removed 2026-05-01), no Mosquitto/MQTT (removed 2026-06-17), no TimescaleDB
+> (removed 2026-06-11) — there are no broker/time-series/PING checks to run.
+
+If step 3 fails, check the API console output directly (it's running in the foreground). Most likely causes: `DATABASE_URL` wrong or Postgres down.
 
 ---
 
 ## 7. Auto-start on boot — Phase 5 work
 
-**Auto-start ships via NSSM (Phase 5).** PostgreSQL and Mosquitto register as Windows services by default and auto-start on reboot. The API and the static-served SPA run as NSSM services `DigiLogAPI-Phase5` and `DigiLogWeb-Phase5` registered via `scripts/install-services-phase5.ps1`. (Phase 4 retired Memurai entirely; Redis is no longer in the dependency chain.)
+**Under the packaged Setup.exe**, `register-services.ps1` registers two auto-starting Windows services: `DigiLogDB` (the bundled Postgres cluster via `pg_ctl register`) and `DigiLogAPI` (`node dist/app.js` wrapped by WinSW, depending on `DigiLogDB`). Both survive reboots with no console window. (There is no Mosquitto/MQTT service and no Redis — both removed.)
+
+For a **manual** deploy against self-managed Postgres, the older `scripts/install-services-phase5.ps1` (NSSM-based `DigiLogAPI-Phase5` + `DigiLogWeb-Phase5`) is still present, or use the NSSM stopgap below.
 
 If you need auto-restart today, the simplest stopgap is **NSSM**:
 
@@ -308,7 +299,7 @@ nssm set digilog-api AppStderr C:\DigiLog\logs\api.err.log
 nssm start digilog-api
 ```
 
-`scripts/verify-windows-deployment.ps1` (shipped in Phase 5.2 — commit `b4ad539`, review-fix `ad07280`) provides a smoke-check today: API `/api/health`, Mosquitto port 1883, graphile-worker schema, and end-to-end PDF generation. A fully managed-service launcher (with restart policies, log rotation, and boot persistence) remains Phase 5+ work — the NSSM stopgap above covers it for now.
+`scripts/verify-windows-deployment.ps1` provides an operator smoke-check: API `/api/health` and graphile-worker schema. (Its old Mosquitto :1883 and PDF-report-generation checks were removed with those subsystems.)
 
 ---
 
@@ -317,10 +308,12 @@ nssm start digilog-api
 **Daily, automated via Windows Task Scheduler:**
 
 ```powershell
-# Dump both databases to C:\DigiLog\backups\
+# Dump the application database to C:\DigiLog\backups\
 pg_dump -U digilog -F c -f C:\DigiLog\backups\digilog_db-$(Get-Date -Format yyyy-MM-dd).dump digilog_db
-pg_dump -U digilog -F c -f C:\DigiLog\backups\digilog_tsdb-$(Get-Date -Format yyyy-MM-dd).dump digilog_tsdb
 ```
+
+> One database only — `digilog_tsdb` was dropped 2026-06-11. (The Setup.exe path stores data under
+> `C:\ProgramData\DigiLog`; `upgrade.ps1` auto-dumps to `ProgramData\backups\pre-upgrade-*` before migrating.)
 
 Keep at least **7 daily + 4 weekly** backups off-server (external drive,
 cloud, or file share).
@@ -331,8 +324,8 @@ cloud, or file share).
 
 When you ship a new build:
 
-1. On your dev machine, run `scripts/package-for-production.ps1` again.
-2. On the target machine, **stop the API first** — Ctrl-C in the API console, or `nssm stop digilog-api` if you registered it as a service.
+1. On your build machine, run `scripts/build-installer.ps1` to produce the new `DigiLog-Setup-<ver>.exe` (or `scripts/build-bundle.ps1` for a manual bundle). Under the Setup.exe path, running the new installer performs the upgrade for you (`upgrade.ps1`: data-safe, backs up, forward-only `migrate deploy`).
+2. On the target machine (manual deploy), **stop the API first** — Ctrl-C in the API console, or `nssm stop digilog-api` if you registered it as a service.
 3. Replace `C:\DigiLog\api\` and `C:\DigiLog\web\` with the new folders from the ZIP. **Do NOT overwrite `.env` or `certs/`.**
 4. Apply any new migrations:
    ```powershell
@@ -366,7 +359,7 @@ apps/api/prisma/migrations/20260503162127_capture_schema_vs_db_drift/migration.s
 
 It captures schema-vs-DB drift accumulated via `prisma db push` between roughly 2026-04-XX and 2026-05-02 (enums, tables, columns, drops). The migration's own header records the constraint — this section restates it for operators.
 
-**Greenfield install (fresh, empty `digilog_db`):** no special action. `npx prisma migrate deploy` (step 7 of `install-on-target.ps1`) applies every migration including this one in order, against an empty schema. Done.
+**Greenfield install (fresh, empty `digilog_db`):** no special action. `npx prisma migrate deploy` (the schema-apply step — `provision-db.ps1`/`apply-schema.ps1` under the installer, or the manual §5.4 sequence) applies every migration including this one in order, against an empty schema. Done.
 
 **Populated DB (any environment that's been running pre-8.7 and already has the post-`db push` schema):** you MUST mark this migration as applied **before** running `prisma migrate deploy`, otherwise the deploy will try to re-create tables/columns that already exist and fail on at least:
 
@@ -382,7 +375,7 @@ npx prisma migrate resolve --applied 20260503162127_capture_schema_vs_db_drift
 
 Then `prisma migrate deploy` is safe to run on every subsequent upgrade.
 
-**How to tell which case you're in:** if the database was created from scratch by step 7 of `install-on-target.ps1` for this release, it's greenfield. If you're upgrading an existing install that has been live and accepting telemetry, it's populated — run `migrate resolve` first.
+**How to tell which case you're in:** if the database was created from scratch by the schema-apply step for this release, it's greenfield. If you're upgrading an existing install that has been live, it's populated — run `migrate resolve` first.
 
 If you're unsure, the safest path is: take a `pg_dump` backup (section 8), run `migrate resolve`, then `migrate deploy`. The resolve is a metadata-only update to the `_prisma_migrations` table — it doesn't touch user data.
 
@@ -453,14 +446,10 @@ npx prisma migrate deploy
 |---|---|---|
 | Tablet login fails with "unable to parse tls packet header" | API is running plain HTTP | Check `.env` has `API_HTTPS=true` and restart the API console (Ctrl-C, `node dist/app.js` again) |
 | Tablet login fails with "certificate not trusted" | `rootCA.pem` not installed on the tablet | Re-do section 5.5 for that tablet |
-| API 500 errors, log says "TimescaleDB extension not found" | Extension not installed on `digilog_tsdb` | `psql -d digilog_tsdb -c "CREATE EXTENSION timescaledb;"` |
 | API 500, log says "Cannot connect to Postgres on queue connection" | DATABASE_URL/DATABASE_URL_QUEUE wrong, or Postgres down | Verify `psql -U digilog -d digilog_db -c "SELECT 1;"` works; check the API console output |
-| WebSocket events / RPC / debug-recorder failing | (Phase 4: pub/sub moved in-process — Memurai is no longer involved.) | Restart the API service: `Restart-Service DigiLogAPI-Phase5` |
 | Login works but no data loads | CORS rejecting the origin | Add the LAN IP/hostname to `ALLOWED_ORIGINS` in `.env` and restart the API console |
 | Can't find superadmin login after install | Seed didn't run | `cd C:\DigiLog\api; npx prisma db seed` (or restart the API — config registry auto-seeds on first start) |
-| API doesn't survive reboots | No managed-service launcher yet | Phase 5 work; for now use NSSM (see section 7) or relaunch manually after reboot |
-| MQTT (data ingestion) not working | Mosquitto service not running, firewall, or stale dynsec | `Restart-Service mosquitto`; check Windows Firewall allows port 1883; verify `Get-Content "C:\Program Files\mosquitto\mosquitto.log"` for plugin / auth errors. After every `POST /api/internal/mqtt/refresh-acl`, copy `<repo>/mosquitto/dynamic-security.json` into `C:\Program Files\mosquitto\` and restart the service. |
-| Reports/PDF generation fails with "executable not found" | Microsoft Edge missing on the host | Install Edge from https://www.microsoft.com/edge OR set `PUPPETEER_EXECUTABLE_PATH` in `.env` to a Chromium-family browser path |
+| API doesn't survive reboots (manual deploy) | No managed-service launcher | Use the Setup.exe path (registers `DigiLogAPI`), NSSM (see section 7), or relaunch manually after reboot |
 | `prisma migrate deploy` fails on `filter_cleaning_profiles.lineage_id NOT NULL` or `asset_instances` column drops after a Phase 8.7 upgrade | Drift catch-up migration `20260503162127_capture_schema_vs_db_drift` is being applied to a populated DB | Run `npx prisma migrate resolve --applied 20260503162127_capture_schema_vs_db_drift` from `C:\DigiLog\api`, then re-run `migrate deploy`. See section 10.1 for full context. |
 | Tablets show toast "advance failed" / "submit failed" / "bypass failed" / "terminate failed" with HTTP 400 immediately after upgrading to the Phase 8.7 APK | Pre-8.7 offline queue items in IndexedDB have `tapeVersion: null`; the new API rejects them | Expected migration cost. Operators must re-perform each failed action on the tablet after the sync settles. See section 10.2. |
 
@@ -470,15 +459,13 @@ npx prisma migrate deploy
 
 Give the customer a printed copy of this list:
 
-- [ ] Windows machine meets the prerequisites (section 3)
-- [ ] Received `digilog-production.zip`
-- [ ] Installed Node.js, PostgreSQL 18 + TimescaleDB. (Phase 4: Memurai/Redis NOT required. Mosquitto installs automatically via `scripts/install-on-target.ps1`.)
-- [ ] Unzipped to `C:\DigiLog\`
-- [ ] Created `digilog_db` + `digilog_tsdb` databases (section 5.2)
-- [ ] Filled in `.env` — **database password + JWT secrets + Mosquitto admin password + Mosquitto refresh token changed from defaults**
-- [ ] Ran `scripts\install-on-target.ps1` (which also runs `install-mosquitto.ps1`)
-- [ ] Launched the API for smoke-test (`cd api; node dist/app.js`)
-- [ ] Verified all 8 smoke tests (section 6) pass
+- [ ] Windows machine meets the prerequisites (section 3) — **or** used the `DigiLog-Setup-<ver>.exe` installer (bundles Postgres; skip the manual DB/prereq steps)
+- [ ] (Manual path) Installed Node.js + PostgreSQL 18. **Do NOT install TimescaleDB, Mosquitto/MQTT, or Redis/Memurai — none are used.**
+- [ ] (Manual path) Created the single `digilog_db` database (section 5.2)
+- [ ] Filled in `.env` — **database password + JWT secrets changed from defaults** (no TSDB_*/MQTT_*/Mosquitto keys)
+- [ ] Applied schema + seed (section 5.4) — installer does this automatically
+- [ ] Launched the API for smoke-test (`cd api; node dist/app.js`) — or confirmed the `DigiLogAPI` service is running
+- [ ] Verified the smoke tests (section 6) pass
 - [ ] Changed superadmin password from `Admin@123`
 - [ ] Installed `rootCA.pem` on each tablet (section 5.5)
 - [ ] Installed `DigiLog-FilterOps.apk` on each tablet (section 5.6)
