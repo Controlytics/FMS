@@ -159,9 +159,17 @@
 │   ├── server.crt / server.key    Localhost cert pair used by API_HTTPS=true
 │   └── ssl.conf                   OpenSSL config for cert generation
 │
-├── scripts/                       (Windows deployment automation)
-│   ├── package-for-production.ps1  Builds API + Web + shared, zips into digilog-production.zip
-│   ├── install-on-target.ps1       Run-once on target Windows: installs deps, runs migrations, opens firewall, enables LongPathsEnabled, checks for msedge.exe; prints smoke-test launch instructions. Does NOT register a managed service — see DEPLOY-WINDOWS.md § 7 for the NSSM stopgap.
+├── scripts/                       (Setup.exe installer automation — M0–M8; see tasks/EXE-PACKAGING-PLAN.md)
+│   ├── build-bundle.ps1            Compiles the single-process backend+SPA bundle (no Vite)
+│   ├── build-installer.ps1         Full pipeline → DigiLog-Setup-<ver>.exe (bundle + clean-room deps + portable Postgres + WinSW + Inno ISCC)
+│   ├── stage-runtime.ps1           Assembles the self-contained runtime/ folder the installer ships
+│   ├── provision-db.ps1            Init the bundled private Postgres cluster + extensions + migrate + seed
+│   ├── apply-schema.ps1            Shared migrate deploy + seed (used by both fresh install and upgrade — no drift)
+│   ├── register-services.ps1       Register DigiLogDB (pg_ctl) + DigiLogAPI (WinSW) auto-start services
+│   ├── install.ps1 / upgrade.ps1   Fresh-install / data-safe upgrade orchestrators (run by the Inno installer)
+│   ├── uninstall.ps1 / unregister-services.ps1  Uninstall (preserves C:\ProgramData\DigiLog data)
+│   ├── verify-windows-deployment.ps1  Post-install smoke-check (API /health + graphile-worker schema)
+│   ├── verify-migrations.ps1       Drift guard: scratch DB from migrations must diff empty vs dev DB
 │   └── reset-cwh-cycles.sql        Emergency SQL to terminate IN_PROGRESS cycles bound to obsolete profile (used 04-25 for 7 stuck CWH cycles)
 │
 ├── rfid_scan_app/                 (Standalone Kotlin app — predates RFID SDK plugin in DigiLog APK)

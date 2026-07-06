@@ -1734,6 +1734,14 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
     **Also fixed a real script bug:** `scripts/verify-windows-deployment.ps1` still probed deleted
     `/api/report-templates` + `/api/reports/generate` in its `[3/3]` check — removed that block, renumbered
     to `[1/2]`/`[2/2]`, dropped the now-unused `-AdminUser`/`-AdminPassword` params; PowerShell parse clean.
-  - **OPEN (user's call — raised in report):** whether DEPLOY-WINDOWS.md's manual-install method should be
-    kept as the stripped+redirected version or fully replaced by a pointer/rewrite to the Setup.exe path
-    (its whole architecture is superseded, not just the dead subsystems).
+  - **DEPLOY-WINDOWS.md REPLACED with a pointer 2026-07-06** (user chose "replace it with a pointer to the
+    Setup.exe path"). The manual-install guide (superseded architecture + deleted scripts) is now a concise
+    pointer to `docs/PHARMA_DEPLOYMENT_21CFR.md` (deployment runbook) + `tasks/EXE-PACKAGING-PLAN.md`
+    (installer internals) + the M-series scripts, plus a "current stack is/isn't" table and a
+    "historical upgrade caveats" note pointing to CHANGELOG.md (pre-deletion rule: §10's unique Phase-8.7 /
+    audit-hardening knowledge is preserved there + in the migration history, not stranded). Also fixed the
+    one active-doc inbound ref this surfaced: `PROJECT_ARCHITECTURE.md` scripts listing cited the deleted
+    `package-for-production.ps1` / `install-on-target.ps1` + removed DEPLOY-WINDOWS §7 → replaced with the
+    current M-series installer scripts. (Historical `tasks/RESUME-STATE-*` / `CODE-REVIEW-*` refs to
+    DEPLOY-WINDOWS §10.1/§10.3 left as dated records. `docs/deployment-methods/*` is a separate exploratory
+    comparison doc set — not touched.)
