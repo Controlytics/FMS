@@ -277,7 +277,7 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 - HTTPS via mkcert (after the cert-import step in §6)
 - Windows Service registration — the `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as WinSW services (`scripts/register-services.ps1`); NSSM (`install-services-phase5.ps1`) remains for manual deploys
 - ~~Memurai (Redis substitute, paid)~~ — RETIRED in Phase 4 (2026-05-01); pub/sub now in-process
-- The 30 config defs + 27 config pages + 106 permissions — all pure JS
+- The 35 config defs + 34 config pages + 102 permissions — all pure JS
 
 ---
 

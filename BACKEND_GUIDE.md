@@ -99,7 +99,7 @@ The main application file registers everything in this order:
 
 | Module | Prefix | Endpoints | Key Features |
 |---|---|---|---|
-| `config` | `/api/config` | 40+ | 30 config definitions (`config/defs/`), `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` per-tab files (split done in bloat audit P2.3) |
+| `config` | `/api/config` | 40+ | 35 config definitions (`config/defs/`), `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` per-tab files (split done in bloat audit P2.3) |
 
 **Static-routes split** (`apps/api/src/modules/config/static-routes/`, 11 files): `access-matrix.routes.ts`, `action-reauth.routes.ts`, `alarm-columns.routes.ts`, `audit-templates.routes.ts`, `branding.routes.ts`, `cleaning-profile-assignment.routes.ts`, `dashboard-cards.routes.ts`, `field-ids.routes.ts`, `roles.routes.ts`, `tablet-access.routes.ts`, `user-id.routes.ts`. Top-level `routes.ts` is now a registration loop (~170 LOC, was 1003).
 
@@ -279,7 +279,7 @@ MAX_FILE_SIZE=5242880
 4. **Re-authentication** — `enforceReauth('ACTION', req, reply)` for 81 sensitive operations
 5. **Audit logging** — Every mutation auto-logged with SHA-256 hash chain
 6. **Input sanitization** — All text fields stripped of HTML via `sanitize.ts`
-7. **Config registry** — 30 config definitions auto-discovered at startup
+7. **Config registry** — 35 config definitions auto-discovered at startup
 8. **Versioning** — Two patterns: (a) **immutable-rowful** for `FilterCleaningProfile` (update archives the old row + inserts a new row with `version+1`; rows in the same lineage share `lineageId UUID`; cycles freeze `profileId` at start) and help articles; (b) **sidecar table** for `ChecklistProfile` (Phase A.1), `FilterProfile` (Phase A.3), and `EquipmentGroup` (Phase A.4 — composite snapshot of group + 3 instruments) — all three mutate in place; mutations snapshot the OUTGOING state into a `*Version` sidecar then bump `version`. **Cycle pinning:** ChecklistProfile via `cycle.checklistVersionPins JSONB` (A.1) and EquipmentGroup via `cycle.equipmentGroupVersionPin Int?` (P1, 2026-05-02) — reading validation reads operating-range from the pinned snapshot, not the live group. FilterProfile needs no cycle pin because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start. Submitted instrument readings are also immutably snapshotted into `FilterEvent.attributes.instrumentReadings`. First version is created lazily — the live row IS v1 until first edit. Cleaning reasons (config def) are NOT versioned: `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns written at cycle start act as the per-cycle pin. **Tablet/offline contract** for sending `expected<Entity>Version` and self-healing on 409 SCHEMA_DRIFT is documented in `future/offline-version-sync-contract.md` and bundled with the next APK build (Slice B).
 9. **Immutable events** — Filter events stored with checksums, never modified (21 CFR Part 11)
 10. **Error handling** — `AppError(statusCode, code, message)` → unified JSON error response

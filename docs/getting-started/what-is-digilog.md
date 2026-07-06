@@ -19,7 +19,7 @@ DigiLog is a **21 CFR Part 11 compliant** IoT data logging platform designed for
 - **Tamper-evident audit trail** with SHA-256 hash-chain integrity
 - **Electronic signatures** with re-authentication (21 CFR Part 11 compliant)
 - **3-step checklist approval workflow** (Performed -> Checked -> Verified)
-- **Role-based access control** with 6 hierarchical roles and 109 permission constants (verified 2026-04-29)
+- **Role-based access control** with 6 hierarchical roles and 102 permission constants (verified 2026-07-06)
 
 ### Organization
 - **Entity hierarchy** following ISA-95 standard (Enterprise -> Site -> Area -> Line -> Equipment -> Sensor)
@@ -36,7 +36,7 @@ DigiLog uses a modern tech stack (verified 2026-04-29):
 - **MQTT:** Mosquitto 2.0 (Phase 1 of windows-friendly-rewrite swapped from EMQX)
 - **Queue:** graphile-worker on PostgreSQL (Phase 2 swapped from BullMQ + Redis/Memurai). **No Redis dependency** — Phase 4 (2026-05-01) retired it; pub/sub moved to an in-process EventEmitter bus.
 - **PDF / charts:** `puppeteer-core` + Microsoft Edge + `@napi-rs/canvas` (Phase 3 swapped from `puppeteer` + `chartjs-node-canvas`)
-- **Config:** **30 config definitions** with auto-discovery at startup, **26** corresponding pages
+- **Config:** **35 config definitions** with auto-discovery at startup, **34** corresponding pages
 
 ## Digital Filter Management System (Phase 2)
 

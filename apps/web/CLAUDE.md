@@ -67,7 +67,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 - Force login (`force: true`) to terminate existing sessions
 
 ## Key Features
-- 26 config pages (auto-discovered from registry)
+- 34 config pages (auto-discovered from registry)
 - Entity tree with drag-and-drop hierarchy
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Notification system (email/SMS/Telegram/Slack)

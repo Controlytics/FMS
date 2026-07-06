@@ -43,7 +43,7 @@ RETENTION_MANAGE, SYSTEM_CONFIG_MANAGE
 
 ## Permission Constants (109 total — verified 2026-04-29)
 
-The system defines 109 permission string constants in `packages/shared/src/types/permissions.ts` (verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`). These are grouped into categories (User Management, Configuration, Assets, Audit, Data, Alarms, Filters, PM, Checklists, Reports, etc.) and referenced by the RBAC plugin to gate every API endpoint.
+The system defines 102 permission string constants in `packages/shared/src/types/permissions.ts` (verify with `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts`). These are grouped into categories (User Management, Configuration, Assets, Audit, Data, Alarms, Filters, PM, Checklists, Reports, etc.) and referenced by the RBAC plugin to gate every API endpoint.
 
 ## Feature Privileges (91 total — verified 2026-04-29)
 

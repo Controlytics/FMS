@@ -16,7 +16,7 @@ DigiLog implements the following 21 CFR Part 11 requirements across both core Io
 | (g) Authority checks | Permission-based route guards, re-authentication for sensitive ops (action-reauth config) |
 | (h) Device checks | Device credential validation, IP allowlists, rate limiting |
 | (i) Training | Role-based UI, 28+ in-app help articles with version history |
-| (j) Written policies | Configurable password policy, session timeout, audit retention (23 config definitions) |
+| (j) Written policies | Configurable password policy, session timeout, audit retention (35 config definitions) |
 | (k) Documentation | API docs (Swagger at /docs), architecture docs, test documentation |
 
 ### 11.30 Controls for Open Systems

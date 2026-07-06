@@ -91,13 +91,13 @@
 
 ### Core platform (Phases 1–2)
 - Auth, users, roles
-- **109 permission constants** in `packages/shared/src/types/permissions.ts`
-- **91 feature privileges** + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
-- **81 reauth actions** across 16 categories
+- **102 permission constants** in `packages/shared/src/types/permissions.ts`
+- **83 feature privileges** + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
+- **92 reauth actions** across 16 categories
 - **26 sidebar items** with privilege binding via `sidebar-privilege-map.ts`
 - Audit trail with hash-chain integrity (`apps/api/src/lib/hash-chain.ts`)
 - 21 CFR Part 11 e-signatures + reauth checks (`apps/api/src/lib/reauth-check.ts`)
-- Config system: **30 config definitions** (`apps/api/src/modules/config/defs/`) auto-discovered via `config-discovery.ts`; **26 corresponding pages** under `apps/web/src/routes/config/`; routes split per-tab in `config/static-routes/`
+- Config system: **35 config definitions** (`apps/api/src/modules/config/defs/`) auto-discovered via `config-discovery.ts`; **34 corresponding pages** under `apps/web/src/routes/config/`; routes split per-tab in `config/static-routes/`
 - Audit-template UUID hiding (per-action templates registered in `packages/shared/src/types/audit-templates.ts`)
 - Branding + theme system (10 preset themes, CSS variables)
 - Multi-tenant super-admin

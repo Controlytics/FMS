@@ -1,6 +1,6 @@
 # System Configuration
 
-23 config definitions with auto-discovery at startup. All operational limits are stored in the database (SystemConfig table), not environment variables.
+35 config definitions with auto-discovery at startup. All operational limits are stored in the database (SystemConfig table), not environment variables.
 
 ## Config Definitions
 | Key | Description |

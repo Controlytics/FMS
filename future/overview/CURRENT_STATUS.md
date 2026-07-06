@@ -15,7 +15,7 @@
 
 ### Identity, access, and audit
 - JWT auth via `jose` 6 with refresh tokens, beacon logout, reauth verification for sensitive actions (`apps/api/src/modules/auth/routes.ts`)
-- **109 permission constants**, **91 feature privileges**, **81 reauth actions** across 16 categories, **26 sidebar items** (see `packages/shared/src/types/*`)
+- **102 permission constants**, **83 feature privileges**, **92 reauth actions** across 16 categories, **26 sidebar items** (see `packages/shared/src/types/*`)
 - Feature-privilege → permission mapping drives both frontend visibility AND backend route protection (`FEATURE_TO_PERMISSION_MAP`)
 - `requireAnyPermission(...perms)` decorator (`plugins/rbac.ts`) for granular toggle fallbacks (e.g. equipment-groups accepts `ASSET_*` OR `EG_*`)
 - `enforceReauth(action, req, reply)` extended to accept `string | string[]`
@@ -86,8 +86,8 @@
 
 ### Configuration surface
 - Sidebar, permissions, reauth are deliberately independent — no auto-sync between config tabs (memory `feedback_no_auto_sync_config`)
-- **30 config definitions** in `apps/api/src/modules/config/defs/*.def.ts` auto-discovered via `config-discovery.ts`
-- **26 corresponding pages** in `apps/web/src/routes/config/*.tsx`
+- **35 config definitions** in `apps/api/src/modules/config/defs/*.def.ts` auto-discovered via `config-discovery.ts`
+- **34 corresponding pages** in `apps/web/src/routes/config/*.tsx`
 - Routes split per-tab in `apps/api/src/modules/config/static-routes/` (11 files; bloat audit P2.3 done) — top-level `routes.ts` is now ~170 LOC (was 1003)
 - Config partial updates: each tab sends only its own fields; backend preserves the rest
 - **10 preset color themes** with CSS variable swap (`applyTheme()` on `:root`)

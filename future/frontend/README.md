@@ -61,7 +61,7 @@ apps/web/src/
 │   ├── rule-chains/, report-templates/, reports/
 │   ├── alarms/, audit/, notifications/, system-health/, debug/
 │   ├── tenant/                      super-admin org management
-│   └── config/                      26 config pages (branding, role-access, field-ids, action-reauth, audit-templates, alarm-columns, access-matrix, ahu-filter-set-config, cleaning-profile-assignment, filter-data-management, tablet-access, etc.)
+│   └── config/                      34 config pages (branding, role-access, field-ids, action-reauth, audit-templates, access-matrix, ahu-filter-set-config, cleaning-profile-assignment, filter-data-management, tablet-access, etc.)
 └── types/                           Ambient typings
 ```
 

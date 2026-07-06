@@ -13,7 +13,7 @@ apps/api/         — Fastify backend (TypeScript, port 3000)
 apps/web/         — React SPA (Vite, port 5175 dev)
 apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
-packages/shared/  — Permissions (109), privileges (90), reauth (99), sidebar items (26), zod schemas
+packages/shared/  — Permissions (102), privileges (83), reauth (92), sidebar items (26), zod schemas
 packages/queue/   — graphile-worker job queue (Postgres-backed)
 docs/             — Project docs (current)
 old/              — Archived superseded docs and tasks

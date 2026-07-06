@@ -1769,4 +1769,19 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   + PHARMA; PHASE_5_RECENT_WORK "Production deployment artifacts" section got a SUPERSEDED banner (deleted scripts +
   TSDB bullets retained as Phase-5 record). LEFT as dated/historical: CHANGELOG entries, docs/plans/2026-04-29-*,
   windowsIssues §225 "Phase 4 status (2026-04-29)" footnote, tasks/todo.md audit log. NOTE (out of scope, flagged):
-  windowsIssues:280 still has stale counts "30 config defs + 27 pages + 106 perms" (should be 35/34/102).
+  windowsIssues:280 still has stale counts "30 config defs + 27 pages + 106 perms" (should be 35/34/102). [FIXED below]
+- 2026-07-06 — Fixed windowsIssues:280 + swept the full active doc set for the count-trio (config-defs 35 /
+  config-pages 34 / permissions 102) and the adjacent RBAC counts (feature-privileges 83 / reauth 92 /
+  sidebar 26), all re-verified vs live code. Fixed stale CURRENT-STATE claims in ~13 files: windowsIssues:280
+  (30/27/106→35/34/102); CLAUDE.md:16 + PROJECT_ARCHITECTURE.md:98 (the "Permissions (109), privileges (90),
+  reauth (99)" pkg annotations → 102/83/92); BACKEND_GUIDE ×2 (30→35 defs); apps/web/CLAUDE (26→34 pages);
+  docs/{administration/configuration/system-configuration (23→35), compliance/21-cfr-part-11 (23→35),
+  getting-started/what-is-digilog (30/26→35/34 + 109→102), administration/roles/roles-and-permissions (109→102),
+  index.md:8 (109/90/99→102/83/92)}; future/{overview/CODEBASE_SUMMARY (30/26/109/91/81→35/34/102/83/92),
+  overview/CURRENT_STATUS (30/26/109/91/81→…), frontend/README (26→34, dropped deleted alarm-columns from the
+  enumeration), qa/FEATURE_CHECKLIST (26/109/91→34/102/83)}; PROJECT_HANDOVER/APPLICATION_FLOW:8 (109/91/81→102/83/92);
+  apps/api/CLAUDE:256 (added "now 92"). LEFT as labeled/dated historical: CHANGELOG, tasks/todo audit log,
+  docs/plans, RESUME-STATE/CODE-REVIEW, docs/CONTRIBUTING:9 (2026-04-29 audit narrative), docs/index.md:110
+  (Phase-4 feature list), architectural-refactor-9-steps:50 (step delta), APPLICATION_FLOW:266 (Section-18
+  Phase-4 snapshot), apps/api/CLAUDE:255 (release snapshot w/ "now 102"). NOTE (flagged, out of scope):
+  docs/index.md:107 still lists the removed "Report template designer" in its Phase-4 historical section.
