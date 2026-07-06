@@ -70,4 +70,28 @@ describe('MODULE_FLOWS integrity', () => {
       }
     }
   });
+
+  it('every gateRoles entry contains SUPER_ADMIN', () => {
+    for (const m of MODULE_FLOWS) {
+      for (const s of m.steps) {
+        if (s.gateRoles !== undefined && s.gateRoles.length > 0) {
+          expect(s.gateRoles, `${m.id} → "${s.label}" gateRoles must contain SUPER_ADMIN`).toContain('SUPER_ADMIN');
+        }
+      }
+    }
+  });
+
+  it('every step has exactly one access mode: gate, gateRoles, or access', () => {
+    for (const m of MODULE_FLOWS) {
+      for (const s of m.steps) {
+        const hasModes = [
+          s.gate.length > 0,
+          (s.gateRoles?.length ?? 0) > 0,
+          s.access !== undefined,
+        ];
+        const modeCount = hasModes.filter(Boolean).length;
+        expect(modeCount, `${m.id} → "${s.label}" must have exactly one of: gate, gateRoles, access (found ${modeCount})`).toBe(1);
+      }
+    }
+  });
 });

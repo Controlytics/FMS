@@ -1,7 +1,6 @@
 import { MODULE_FLOWS, CATEGORY_ORDER } from './module-flows';
 import { FlowChart } from './FlowChart';
 import { ROLE_META } from './role-gates';
-import type { ModuleCategory } from './types';
 
 function slug(id: string) { return `mod-${id}`; }
 
