@@ -1,15 +1,18 @@
 import type { Permission } from '@digilog/shared';
-import type { FlowStep } from './types';
+import type { AccessKind, FlowStep } from './types';
 import { deriveRolesForGate, ROLE_META } from './role-gates';
 
-function RoleBadges({ gate }: { gate: Permission[] }) {
-  const roles = deriveRolesForGate(gate);
-  if (roles.length === 0) {
-    return <span className="text-xs text-slate-400 italic">any user</span>;
-  }
+const ACCESS_COPY: Record<AccessKind, string> = {
+  automatic: 'Automatic — system',
+  public: 'Anyone — no login required',
+  configured: 'Roles enabled in visibility config',
+  authenticated: 'Any signed-in user',
+};
+
+function RoleNameBadges({ names }: { names: string[] }) {
   return (
     <div className="flex flex-wrap gap-1">
-      {roles.map((name) => {
+      {names.map((name) => {
         const meta = ROLE_META.find((m) => m.name === name)!;
         return (
           <span
@@ -22,6 +25,40 @@ function RoleBadges({ gate }: { gate: Permission[] }) {
       })}
     </div>
   );
+}
+
+function AccessChip({ access }: { access: AccessKind }) {
+  return (
+    <span className="inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium bg-slate-100 text-slate-600 border-slate-200">
+      {ACCESS_COPY[access]}
+    </span>
+  );
+}
+
+/** Branch access is gate-only today — no branch in the catalog has an empty
+ * or role-level gate (verified against module-flows.ts). */
+function RoleBadges({ gate }: { gate: Permission[] }) {
+  const roles = deriveRolesForGate(gate);
+  return <RoleNameBadges names={roles} />;
+}
+
+/**
+ * Resolves a step's access display in order: permission gate → role gate →
+ * access marker → a loud "unspecified" warning. No silent "any user"
+ * catch-all — every step must resolve to one of the three real signals
+ * (enforced by the module-flows integrity test).
+ */
+function StepAccess({ step }: { step: FlowStep }) {
+  if (step.gate.length > 0) {
+    return <RoleBadges gate={step.gate} />;
+  }
+  if (step.gateRoles && step.gateRoles.length > 0) {
+    return <RoleNameBadges names={step.gateRoles} />;
+  }
+  if (step.access) {
+    return <AccessChip access={step.access} />;
+  }
+  return <span className="text-xs font-semibold text-red-600">⚠ access unspecified</span>;
 }
 
 export function FlowChart({ steps }: { steps: FlowStep[] }) {
@@ -50,7 +87,7 @@ export function FlowChart({ steps }: { steps: FlowStep[] }) {
               <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium text-slate-800">{step.label}</span>
-                  <RoleBadges gate={step.gate} />
+                  <StepAccess step={step} />
                 </div>
                 {step.description && (
                   <p className="mt-1 text-sm text-slate-500">{step.description}</p>
