@@ -1788,3 +1788,20 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   FIXED 2026-07-06 (struck through + "removed 2026-07-04" annotation, matching the README:66 treatment).
   docs/index.md:129 (archived design-plan pointer under "Historical design specs") left as-is — the archived
   plan file still exists, same class as the PHASE_5_RECENT_WORK §10 rationale pointers.
+- 2026-07-06 — Final reports-engine-as-live sweep (code + docs). **Live code = clean** (git grep: no
+  modules/reports/, /api/reports, ReportInstance/ReportSignature, renderers, or removed perms/reauth in
+  live .ts/.tsx — only intentional "removed" comments; no puppeteer/@napi-rs/chartjs in any package.json).
+  **Docs fixed** (reports-engine + same-line dead-subsystem tangles): future/overview/API_LIST (dropped the
+  /api/report-templates + /api/reports endpoint sections → removal note), future/frontend/KEY_FILES (routes/reports
+  → removed), future/overview/CODEBASE_SUMMARY (:49 reports PDF deps, :61 @dnd-kit report-designer+rule-chain,
+  :122 reports-module bullet, :161 install-prereqs Edge/TSDB/Mosquitto), future/overview/CURRENT_STATUS (:54
+  reports-module bullet, :110 PDF pipeline), future/backend/README (:4 tech-stack: reports-PDF+TSDB+MQTT+Redis),
+  future/backend/ENV_SETUP (:11 Edge-for-PDF), docs/getting-started/{system-requirements:18, what-is-digilog:38}
+  (Edge/PDF), docs/PHARMA_DEPLOYMENT_21CFR:117 (dropped @napi-rs/canvas from native-modules), docs/EXE_PACKAGING_FEASIBILITY
+  (:48-49 reports-PDF native-module rows → N/A), tasks/EXE-PACKAGING-PLAN:161 (native-module caveat).
+  **LEFT historical/annotated:** PHASE_5_RECENT_WORK §1 (under REMOVED banner) + §10/§12 (dated), windowsIssues
+  §1/§2 (MOOT banners), PROJECT_ARCHITECTURE:50-59 (annotated), tasks/todo + CHANGELOG (audit log).
+  **FLAGGED (out of scope — separate future/ Phase-6/7 resync):** future/ still has rule-chain-builder/reactflow
+  refs (removed 2026-05-17) at CODEBASE_SUMMARY:62 etc., and MQTT/Mosquitto (removed 2026-06-17) at
+  CURRENT_STATUS:109 etc. — pure non-reports staleness, not touched. Also docs/CONFIG_AUDIT:137 (@napi-rs/canvas
+  dep-upgrade row) + incidental @napi-rs/canvas mentions in EXE_PACKAGING_FEASIBILITY:15/93/117 left as dated records.

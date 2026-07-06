@@ -46,7 +46,7 @@
 - **Transport:** `mqtt` (Mosquitto 2.0 — Phase 1 of windows-friendly-rewrite swapped from EMQX), native WebSocket via `@fastify/websocket`
 - **LDAP:** `ldapts` 8.1
 - **Mail:** `nodemailer`
-- **Docs / reports:** `handlebars`, `puppeteer-core` 24.42, `chart.js` 4 + `@napi-rs/canvas` + `chartjs-adapter-date-fns`, `qrcode`, `xlsx`, `csv-parse`, `adm-zip`. (Phase 3 of windows-friendly-rewrite swapped `puppeteer` → `puppeteer-core` driving Edge via `detectEdgePath()`, and `chartjs-node-canvas` → `@napi-rs/canvas` to drop the bundled-Chromium download and the node-gyp/MSVC/Cairo build chain.)
+- **Docs / export:** `qrcode`, `xlsx`, `csv-parse`, `adm-zip`. *(The server-side reports PDF/chart stack — `handlebars`, `puppeteer-core`, `chart.js`, `@napi-rs/canvas`, `chartjs-adapter-date-fns`, `dayjs` — was uninstalled 2026-07-04 with the reports generate/sign removal. PDF export is now client-side via `apps/web` `lib/pdf-report.ts` (jsPDF).)*
 - **Validation:** `zod` (shared with frontend via `@digilog/shared`)
 - **Idempotency:** custom `idempotency.ts` for offline-replay dedup via `x-client-op-id`
 - **Dev:** `tsx watch` for hot reload; `tsc -p` to compile for prod-style local builds
@@ -58,7 +58,7 @@
 - **Forms:** `react-hook-form` + `@hookform/resolvers` + `zod`
 - **UI primitives:** hand-rolled under `components/ui/` — no off-the-shelf library
 - **Styling:** TailwindCSS 4 (`@tailwindcss/vite`) + theme utility classes (`.text-theme-primary`, `.bg-theme-gradient`, etc.)
-- **Drag-and-drop:** `@dnd-kit/*` (rule-chain builder, dashboard layouts, report template designer)
+- **Drag-and-drop:** `@dnd-kit/*` (dashboard layouts). *(The rule-chain builder was removed 2026-05-17 and the report template designer 2026-07-04.)*
 - **Graph editor:** `reactflow` 11 (rule-chain + cleaning-profile pipeline editor)
 - **Charts:** `recharts`
 - **Monaco code editor:** `@monaco-editor/react` (rule-chain script nodes)
@@ -119,7 +119,7 @@
 - **PM schedules:** CSV upload template, approve / reject / resubmit, due tasks; `PmEntryApprovalStatus` enum + 11 columns; `PM_APPROVE` permission
 - **PM My Tasks:** `/my-tasks`, per-AHU filter-set mode (BOTH / SET_A / SET_B / DISABLED), PM auto-reason on mobile
 - **Equipment groups, checklist profiles, filter profiles**
-- **Reports module (complete):** 4 Prisma models (ReportTemplate, ReportTemplateVersion, ReportInstance, ReportSignature), 9 `REPORT_*` permissions, template designer with `@dnd-kit`, PDF engine via puppeteer-core + Microsoft Edge + @napi-rs/canvas + Handlebars (Phase 3 of windows-friendly-rewrite swapped from `puppeteer` + `chartjs-node-canvas`), 5 data sources (attribute / identifier / telemetry / timestamp / meta), digital signatures, `DRAFT → PENDING_SIGNATURE → SIGNED / REJECTED` workflow
+- ~~**Reports module (generate/sign engine)**~~ — **REMOVED 2026-07-04** (orphaned dead code: 2 backend modules, 4 Prisma models, 7 perms, 5 npm deps incl. puppeteer-core + @napi-rs/canvas). Live report surface: **report-reviews** (submit/review/approve) + report-config defs + client-side PDF export (`lib/pdf-report.ts`, jsPDF)
 
 ### Phase 5: RFID + offline operations (April 15–29 work on `RFID` branch)
 - **Native RFID SDK plugin in DigiLog APK** — `RfidPlugin.java` wraps `Reader_Usb.jar`, paired with `apps/web/src/lib/rfid-bridge.ts`
@@ -158,7 +158,7 @@ See `overview/CURRENT_STATUS.md` for the running punch list.
 
 ## How to run it locally (short version)
 
-1. Install prerequisites: Node 22, npm 11, PostgreSQL 18 + TimescaleDB extension, Mosquitto 2.0 (via `scripts/install-mosquitto.ps1`, only if testing MQTT), Microsoft Edge (preinstalled on Win10+/Server 2019+, used by puppeteer-core for PDF rendering), JDK 21 + Android SDK (only if building APK). Memurai/Redis is optional — only needed for non-queue pub/sub features.
+1. Install prerequisites: Node 22, npm 11, PostgreSQL 18 (vanilla — no TimescaleDB), JDK 21 + Android SDK (only if building APK). *(No TimescaleDB/MQTT-broker/Redis/Edge needed anymore — TimescaleDB + Mosquitto removed 2026-06, Redis 2026-05, and the Edge-driven server-side PDF engine 2026-07-04.)*
 2. `npm install` at the repo root.
 3. Copy `.env.example` → `.env`, adjust DB URLs and secrets. Set `API_HTTPS=true` if connecting from APK.
 4. `psql -f init-tsdb.sql` on the TimescaleDB DB; or run `tsdb-migration/init-hypertables.sql`.

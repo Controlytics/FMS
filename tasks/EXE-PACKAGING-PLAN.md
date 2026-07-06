@@ -158,7 +158,7 @@ Run on the dev machine to create the `Setup.exe`. Encapsulate as `scripts/build-
 7. **Stage `service/`:** include WinSW (or nssm) wrapper exe + per-service XML config.
 8. **Compile installer:** run Inno Setup (`ISCC.exe DigiLog.iss`) → `dist/DigiLog-Setup-vX.Y.Z.exe`.
 
-**Native-module caveat (verified in code):** the backend depends on `bcrypt` (native), `@napi-rs/canvas` (native), and Prisma's engine (native). These must be **built/copied for the exact Node version we bundle**. If the bundled Node's ABI differs from the dev machine's, rebuild with `npm rebuild` against the target Node before staging.
+**Native-module caveat (verified in code):** the backend depends on `bcrypt` (native) and Prisma's engine (native). These must be **built/copied for the exact Node version we bundle**. If the bundled Node's ABI differs from the dev machine's, rebuild with `npm rebuild` against the target Node before staging. *(`@napi-rs/canvas` was also native but was removed 2026-07-04 with the reports PDF engine — no longer a bundling concern.)*
 
 ---
 

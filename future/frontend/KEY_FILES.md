@@ -89,7 +89,7 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 
 | File | Why it matters |
 |---|---|
-| `src/routes/reports/*` | List, generate, detail. Calls `/api/reports/*`. |
+| ~~`src/routes/reports/*`~~ | **Removed** — the reports list/generate/detail pages + `/api/reports/*` were torn out (FE 2026-06-08, backend 2026-07-04). Live report surface: `src/routes/report-reviews/`. |
 | `src/routes/report-templates/*` | Template list + editor. |
 | `src/lib/pdf-report.ts` | Client-side PDF helpers (mostly for preview — the authoritative PDFs are produced server-side via Puppeteer). |
 

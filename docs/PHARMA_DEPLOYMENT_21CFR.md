@@ -114,7 +114,7 @@ Frontend build: set `apps/web/.env.production` → `VITE_API_URL=https://digilog
 Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 
 1. Lays down a **portable Node.js LTS** (v20) — not a global install.
-2. Lays down the **built app**: `apps/api/dist`, `apps/web/dist`, `packages/*/dist`, a pruned production `node_modules` (so native binaries — Prisma engine, `bcrypt`, `@napi-rs/canvas` — are real files), `node_modules/.prisma`, and `apps/api/prisma/migrations/`.
+2. Lays down the **built app**: `apps/api/dist`, `apps/web/dist`, `packages/*/dist`, a pruned production `node_modules` (so native binaries — Prisma engine, `bcrypt` — are real files; `@napi-rs/canvas` was removed 2026-07-04 with the reports PDF engine), `node_modules/.prisma`, and `apps/api/prisma/migrations/`.
 3. Bundles **PostgreSQL 18 portable**; runs `initdb` into `%ProgramData%\DigiLog\pgdata`, creates the `digilog` role + `digilog_db`, then **`prisma migrate deploy`** — which rebuilds the **complete** schema in one step (tables, the `deviation_number_seq`/`qnn_seq` sequences, 5 triggers, 6 functions, partial unique index) thanks to the squashed baseline migration.
 4. Installs the **internal-CA server certificate** (or generates a CSR for IT to sign) and ensures the root CA is trusted.
 5. Generates `apps/api/.env` with **strong random secrets** + `NODE_ENV=production` + the production hostname.

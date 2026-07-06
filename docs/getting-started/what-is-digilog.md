@@ -35,7 +35,7 @@ DigiLog uses a modern tech stack (verified 2026-04-29):
 - **Database:** PostgreSQL 18 + Prisma 6 + TimescaleDB (time-series), **68 Prisma models, 21 enums**
 - **MQTT:** Mosquitto 2.0 (Phase 1 of windows-friendly-rewrite swapped from EMQX)
 - **Queue:** graphile-worker on PostgreSQL (Phase 2 swapped from BullMQ + Redis/Memurai). **No Redis dependency** — Phase 4 (2026-05-01) retired it; pub/sub moved to an in-process EventEmitter bus.
-- **PDF / charts:** `puppeteer-core` + Microsoft Edge + `@napi-rs/canvas` (Phase 3 swapped from `puppeteer` + `chartjs-node-canvas`)
+- **PDF export:** client-side via `apps/web` `lib/pdf-report.ts` (jsPDF). *(The server-side `puppeteer-core` + Edge + `@napi-rs/canvas` reports engine was removed 2026-07-04.)*
 - **Config:** **35 config definitions** with auto-discovery at startup, **34** corresponding pages
 
 ## Digital Filter Management System (Phase 2)

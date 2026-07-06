@@ -8,7 +8,7 @@ For the full root-level setup (Windows dev box), the authoritative guide is **`L
 - PostgreSQL 18 with two databases: `digilog_db` (app + graphile-worker schema) and `digilog_tsdb` (telemetry, TimescaleDB extension)
 - Mosquitto 2.0 — optional unless testing MQTT ingest. Install via `scripts/install-mosquitto.ps1` from elevated PowerShell. (Phase 1 of windows-friendly-rewrite swapped from EMQX.)
 - Redis / Memurai ≥5 — **optional**. Phase 2 of windows-friendly-rewrite moved the job queue onto Postgres via graphile-worker. Redis is still used for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracer, debug recorder); if you skip it those features degrade silently. Don't use Redis 3 or earlier; BullMQ-era code paths will crash.
-- Microsoft Edge — preinstalled on Win10+/Server 2019+. `puppeteer-core` drives it for PDF reports via `detectEdgePath()`. Set `PUPPETEER_EXECUTABLE_PATH` to override (e.g. on Server Core install Chrome and point at it).
+- ~~Microsoft Edge for PDF reports~~ — **no longer needed.** The server-side `puppeteer-core` + Edge reports PDF engine was removed 2026-07-04; PDF export is now client-side (`apps/web` `lib/pdf-report.ts`, jsPDF). No Edge/Chromium dependency.
 - JDK 21 + Android SDK (only if you also build the APK) — installed at `C:\Users\hello\` on the reference dev box.
 
 ## First-time setup

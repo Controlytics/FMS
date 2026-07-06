@@ -1,7 +1,7 @@
 # Backend — Quick Tour
 
 **Location:** `apps/api/`
-**Tech:** Fastify 5.2 + TypeScript (ESM, `"type": "module"`), Prisma 6.3 (PostgreSQL 18), raw `pg` pool (TimescaleDB), graphile-worker on Postgres for the job queue (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis; commit `7832af1`), Mosquitto 2.0 for MQTT (Phase 1 swapped from EMQX), `puppeteer-core` 24.42 + Microsoft Edge + `@napi-rs/canvas` for PDF reports (Phase 3 swapped from `puppeteer` + `chartjs-node-canvas`), `jose` 6 for JWT, `ldapts` 8.1 for LDAP. Memurai/Redis is **optional** — used only for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracer, debug recorder).
+**Tech:** Fastify 5.2 + TypeScript (ESM, `"type": "module"`), Prisma 6.3 (PostgreSQL 18 — single `digilog_db`, vanilla; TimescaleDB dropped 2026-06-11), graphile-worker on Postgres for the job queue (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis; commit `7832af1`), `jose` 6 for JWT, `ldapts` 8.1 for LDAP. **No MQTT broker** (Mosquitto/EMQX removed 2026-06-17), **no Redis** (removed 2026-05-01; pub/sub is in-process), and **no server-side PDF engine** — the `puppeteer-core` + Edge + `@napi-rs/canvas` reports stack was removed 2026-07-04; PDF export is now client-side (`apps/web` `lib/pdf-report.ts`, jsPDF).
 **Entry:** `apps/api/src/app.ts`
 **Dev:** `cd apps/api && npm run dev` → `tsx watch src/app.ts`
 **Build + run (prod-style local):** `npm run build` (tsc) → `node dist/app.js`. PM2 / EC2 are no longer in scope (removed in commit `251be95`).

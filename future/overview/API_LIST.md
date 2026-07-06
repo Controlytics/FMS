@@ -239,17 +239,13 @@ Core state machine for cleaning cycles; split across `routes.ts` and `events-rou
 - CRUD: `POST /`, `PUT /:id`, `DELETE /:id`
 - Executions (separate prefix): `POST /`, `PUT /:id`
 
-## Report templates — `/api/report-templates`
+## Reports — REMOVED (2026-07-04)
 
-- `GET /` · `GET /:id` · `POST /` · `PUT /:id` · `PATCH /:id/toggle-status` · `DELETE /:id`
-- Versions: `GET /:id/versions`, `GET /:id/versions/:version`
-- `POST /:id/duplicate`
-
-## Reports — `/api/reports`
-
-- `POST /generate`
-- `GET /` · `GET /:id` · `GET /:id/pdf` · `GET /:id/preview`
-- `POST /:id/sign` · `POST /:id/reject` · `DELETE /:id`
+The `/api/report-templates` (template designer) and `/api/reports` (generate/sign engine)
+endpoints were removed with the orphaned reports generate/sign tear-out. The surviving
+report surface is `/api/report-reviews` (ad-hoc submit/review/approve) + the report-config
+endpoints (`report-page-titles` / `report-labels` / `report-signatories`); PDF export of the
+cleaning-record / filter-lifecycle pages is client-side (`lib/pdf-report.ts`).
 
 ## Deployment check — `/api/deployment-check`
 
