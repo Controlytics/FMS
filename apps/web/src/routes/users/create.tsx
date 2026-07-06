@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { createUserSchema, type CreateUserInput, type PasswordPolicyConfig, type RoleData } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
+import { useToast } from '@/hooks/use-toast';
 import { useFieldLabels } from '@/hooks/use-field-labels';
 import { apiClient } from '@/lib/api-client';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -17,6 +18,7 @@ import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
 export function CreateUserPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const { userLabels } = useFieldLabels();
   const navigate = useNavigate();
   const reauth = useReauth();
@@ -80,9 +82,14 @@ export function CreateUserPage() {
     await reauth.execute('CREATE_USER', async (password?) => {
       if (password) await apiClient.postWithReauth('/api/users', data, password);
       else await apiClient.post('/api/users', data);
+      toast.success('User created', `User "${data.username}" was created successfully.`);
       navigate('/users');
     }, {
-      onError: (err: any) => setError(err.message || 'Failed to create user'),
+      onError: (err: any) => {
+        const message = err.message || 'Failed to create user';
+        setError(message);
+        toast.error('User creation failed', message);
+      },
     });
   };
 

@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { updateUserSchema, type UpdateUserInput, type PasswordPolicyConfig, type RoleData } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
+import { useToast } from '@/hooks/use-toast';
 import { useFieldLabels } from '@/hooks/use-field-labels';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { apiClient } from '@/lib/api-client';
@@ -28,6 +29,7 @@ const statusConfig: Record<string, { color: string; bg: string; icon: string }> 
 export function EditUserPage() {
   const { id } = useParams();
   const { user: currentUser } = useAuth();
+  const { toast } = useToast();
   const { userLabels } = useFieldLabels();
   const { formatDate, formatTime } = useDatetimeFormat();
   const navigate = useNavigate();
@@ -80,9 +82,14 @@ export function EditUserPage() {
     await reauth.execute('UPDATE_USER', async (password?) => {
       if (password) await apiClient.putWithReauth(`/api/users/${id}`, data, password);
       else await apiClient.put(`/api/users/${id}`, data);
+      toast.success('User updated', 'The user’s details were updated successfully.');
       navigate('/users');
     }, {
-      onError: (err: any) => setError(err.message || 'Failed to update user'),
+      onError: (err: any) => {
+        const message = err.message || 'Failed to update user';
+        setError(message);
+        toast.error('User update failed', message);
+      },
     });
   };
 

@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { passwordChangeSchema, type PasswordChangeInput, type PasswordPolicyConfig } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
+import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,7 @@ const defaultPolicy: PasswordPolicyConfig = {
 
 export function ChangePasswordPage() {
   const { user, mutate } = useAuth();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false });
@@ -89,9 +91,12 @@ export function ChangePasswordPage() {
       const hint = sessionStorage.getItem('post_change_password_redirect');
       sessionStorage.removeItem('post_change_password_redirect');
       const redirect = hint || (isCapacitor ? '/m' : '/');
+      toast.success('Password changed successfully', 'Your password has been updated.');
       navigate(redirect);
     } catch (err: any) {
-      setError(err.message || 'Failed to change password');
+      const message = err.message || 'Failed to change password';
+      setError(message);
+      toast.error('Password change failed', message);
     }
   };
 
