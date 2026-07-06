@@ -73,6 +73,13 @@ describe('rolesForStep', () => {
     const out = rolesForStep(step, 'dashboard', [SA, pinnedOperator])!.map((r) => r.name);
     expect(out).toEqual(['SUPER_ADMIN']);
   });
+
+  it('audit mode (ignoreSidebar) includes a gate-holder even if its sidebar hides the module', () => {
+    const pinnedOperator: RoleAccess = { ...OPERATOR, sidebarItems: ['filter-operations'] };
+    const step: FlowStep = { label: 'Advance', gate: ['FILTER_OPERATE'], kind: 'action' };
+    const out = rolesForStep(step, 'dashboard', [SA, pinnedOperator], true)!.map((r) => r.name);
+    expect(out).toEqual(['SUPER_ADMIN', 'OPERATOR']);
+  });
 });
 
 describe('rolesForGate (branches)', () => {

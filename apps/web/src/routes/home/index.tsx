@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import useSWR from 'swr';
 import { useAuth } from '@/hooks/use-auth';
 import { MODULE_FLOWS, CATEGORY_ORDER } from './module-flows';
@@ -25,6 +26,11 @@ export default function HomePage() {
   const { data: myConfig } = useSWR<{ sidebarItems?: string[] }>('/api/config/my-config');
   const { data: qnn } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
+  // Audit view: every module + every role permitted by the backend gate,
+  // regardless of the viewer's or any role's sidebar. Default = the viewer's
+  // own modules (mirrors their sidebar).
+  const [auditView, setAuditView] = useState(false);
+
   const roles = matrix?.roles ?? [];
 
   // Which module flowcharts THIS viewer sees — mirrors their own sidebar.
@@ -34,7 +40,9 @@ export default function HomePage() {
     sidebarItems: (myConfig?.sidebarItems as string[]) ?? [],
     qnnVisible: qnn?.visible ?? false,
   };
-  const visibleModules = MODULE_FLOWS.filter((m) => viewerCanSeeModule(m.id, viewer));
+  const visibleModules = auditView
+    ? MODULE_FLOWS
+    : MODULE_FLOWS.filter((m) => viewerCanSeeModule(m.id, viewer));
 
   const byCategory = CATEGORY_ORDER
     .map((cat) => ({ cat, mods: visibleModules.filter((m) => m.category === cat) }))
@@ -45,11 +53,32 @@ export default function HomePage() {
   return (
     <div className="mx-auto max-w-5xl p-4 sm:p-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">Module Guide</h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-2xl font-bold text-slate-800">Module Guide</h1>
+          {/* View toggle: personalized vs full audit view. */}
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm" role="group" aria-label="Guide view">
+            <button
+              type="button"
+              onClick={() => setAuditView(false)}
+              aria-pressed={!auditView}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${!auditView ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              My modules
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuditView(true)}
+              aria-pressed={auditView}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${auditView ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              All modules (audit)
+            </button>
+          </div>
+        </div>
         <p className="mt-2 text-slate-600">
-          How each module works, step by step, with the role(s) configured to perform
-          each operation. Roles come live from your role configuration, so custom roles
-          and permission changes are reflected. You see the modules your role can access.
+          {auditView
+            ? 'Audit view — every module and every role permitted to perform each operation, from your live role configuration (independent of any role’s sidebar).'
+            : 'How each module works, step by step, with the role(s) configured to perform each operation. Roles come live from your role configuration, so custom roles and permission changes are reflected. You see the modules your role can access.'}
         </p>
       </header>
 
@@ -101,7 +130,7 @@ export default function HomePage() {
                       <article key={m.id} id={slug(m.id)} className="scroll-mt-6">
                         <h3 className="text-base font-semibold text-slate-800">{m.title}</h3>
                         <p className="mb-3 text-sm text-slate-500">{m.summary}</p>
-                        <FlowChart steps={m.steps} moduleId={m.id} roles={roles} />
+                        <FlowChart steps={m.steps} moduleId={m.id} roles={roles} auditMode={auditView} />
                       </article>
                     ))}
                   </div>

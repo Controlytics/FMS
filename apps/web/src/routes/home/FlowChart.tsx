@@ -53,8 +53,8 @@ function AccessChip({ access }: { access: AccessKind }) {
 
 /** Which role(s) perform this step, from the live access matrix. Steps that
  * aren't permission/role-gated (automatic/public/configured) show a chip. */
-function StepAccess({ step, moduleId, roles }: { step: FlowStep; moduleId: string; roles: RoleAccess[] }) {
-  const stepRoles = rolesForStep(step, moduleId, roles);
+function StepAccess({ step, moduleId, roles, auditMode }: { step: FlowStep; moduleId: string; roles: RoleAccess[]; auditMode: boolean }) {
+  const stepRoles = rolesForStep(step, moduleId, roles, auditMode);
   if (stepRoles === null) return <AccessChip access={step.access!} />;
   return <RoleBadges roles={stepRoles} />;
 }
@@ -79,7 +79,7 @@ const CLAMP_3: React.CSSProperties = {
   overflow: 'hidden',
 };
 
-function StepCard({ step, index, moduleId, roles }: { step: FlowStep; index: number; moduleId: string; roles: RoleAccess[] }) {
+function StepCard({ step, index, moduleId, roles, auditMode }: { step: FlowStep; index: number; moduleId: string; roles: RoleAccess[]; auditMode: boolean }) {
   return (
     <div className="relative w-52 shrink-0">
       <div className={`rounded-lg border border-l-4 border-slate-200 bg-white p-3 shadow-sm ${KIND_ACCENT[step.kind]}`}>
@@ -89,7 +89,7 @@ function StepCard({ step, index, moduleId, roles }: { step: FlowStep; index: num
           </span>
           <span className="text-sm font-medium leading-tight text-slate-800">{step.label}</span>
         </div>
-        <StepAccess step={step} moduleId={moduleId} roles={roles} />
+        <StepAccess step={step} moduleId={moduleId} roles={roles} auditMode={auditMode} />
         {step.description && (
           <p className="mt-2 text-xs text-slate-500" style={CLAMP_3} title={step.description}>
             {step.description}
@@ -106,7 +106,7 @@ function StepCard({ step, index, moduleId, roles }: { step: FlowStep; index: num
           </svg>
           <div className="w-48 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-2.5 shadow-sm">
             <p className="mb-1 text-xs font-medium text-slate-600">{step.branch.label}</p>
-            <RoleBadges roles={rolesForGate(step.branch.gate, moduleId, roles)} />
+            <RoleBadges roles={rolesForGate(step.branch.gate, moduleId, roles, auditMode)} />
           </div>
         </div>
       )}
@@ -114,7 +114,7 @@ function StepCard({ step, index, moduleId, roles }: { step: FlowStep; index: num
   );
 }
 
-export function FlowChart({ steps, moduleId, roles }: { steps: FlowStep[]; moduleId: string; roles: RoleAccess[] }) {
+export function FlowChart({ steps, moduleId, roles, auditMode = false }: { steps: FlowStep[]; moduleId: string; roles: RoleAccess[]; auditMode?: boolean }) {
   const hasBranch = steps.some((s) => s.branch);
   return (
     <div className="overflow-x-auto">
@@ -124,7 +124,7 @@ export function FlowChart({ steps, moduleId, roles }: { steps: FlowStep[]; modul
       <ol className={`flex w-max items-center pt-1 ${hasBranch ? 'pb-28' : 'pb-1'}`}>
         {steps.map((step, i) => (
           <li key={i} className="flex items-center">
-            <StepCard step={step} index={i} moduleId={moduleId} roles={roles} />
+            <StepCard step={step} index={i} moduleId={moduleId} roles={roles} auditMode={auditMode} />
             {i < steps.length - 1 && <ArrowConnector />}
           </li>
         ))}
