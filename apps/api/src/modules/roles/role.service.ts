@@ -170,6 +170,18 @@ export const roleService = {
     return roleRepository.findActive();
   },
 
+  /**
+   * Access matrix for the Module Guide: every active role with its live
+   * permissions + per-role sidebar override. Lets the guide compute, per
+   * module operation, which roles are configured to perform it. Any
+   * authenticated user may read it (no ROLE_MANAGE) — it exposes the RBAC
+   * structure the guide documents, nothing more.
+   */
+  async getAccessMatrix() {
+    const roles = await roleRepository.findActiveWithAccess();
+    return { roles };
+  },
+
   /** Get a single role by name. Throws NotFoundError if missing. */
   async getByName(name: string) {
     const role = await roleRepository.findByName(name);

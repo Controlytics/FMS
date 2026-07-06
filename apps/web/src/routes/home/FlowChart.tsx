@@ -1,6 +1,5 @@
-import type { Permission } from '@digilog/shared';
 import type { AccessKind, FlowStep, StepKind } from './types';
-import { deriveRolesForGate, ROLE_META } from './role-gates';
+import { rolesForStep, rolesForGate, type RoleAccess } from './viewer-access';
 
 const ACCESS_COPY: Record<AccessKind, string> = {
   automatic: 'Automatic — system',
@@ -17,20 +16,29 @@ const KIND_ACCENT: Record<StepKind, string> = {
   system: 'border-l-slate-400',
 };
 
-function RoleNameBadges({ names }: { names: string[] }) {
+/** A role's colour may be a Tailwind class (default roles) or a raw #hex/rgb
+ * (custom roles); render each appropriately. */
+function RoleBadge({ role }: { role: RoleAccess }) {
+  const isRaw = /^(#|rgb|hsl)/i.test(role.color);
+  return (
+    <span
+      style={isRaw ? { backgroundColor: role.color } : undefined}
+      className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium text-white shadow-sm ${isRaw ? '' : role.color}`}
+    >
+      {role.displayName}
+    </span>
+  );
+}
+
+function RoleBadges({ roles }: { roles: RoleAccess[] }) {
+  if (roles.length === 0) {
+    return <span className="text-[11px] italic text-slate-400">no role configured</span>;
+  }
   return (
     <div className="flex flex-wrap gap-1">
-      {names.map((name) => {
-        const meta = ROLE_META.find((m) => m.name === name)!;
-        return (
-          <span
-            key={name}
-            className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium ${meta.badgeClass}`}
-          >
-            {meta.displayName}
-          </span>
-        );
-      })}
+      {roles.map((r) => (
+        <RoleBadge key={r.name} role={r} />
+      ))}
     </div>
   );
 }
@@ -43,33 +51,15 @@ function AccessChip({ access }: { access: AccessKind }) {
   );
 }
 
-/** Branch access is gate-only today — no branch in the catalog has an empty
- * or role-level gate (verified against module-flows.ts + integrity test). */
-function RoleBadges({ gate }: { gate: Permission[] }) {
-  return <RoleNameBadges names={deriveRolesForGate(gate)} />;
+/** Which role(s) perform this step, from the live access matrix. Steps that
+ * aren't permission/role-gated (automatic/public/configured) show a chip. */
+function StepAccess({ step, moduleId, roles }: { step: FlowStep; moduleId: string; roles: RoleAccess[] }) {
+  const stepRoles = rolesForStep(step, moduleId, roles);
+  if (stepRoles === null) return <AccessChip access={step.access!} />;
+  return <RoleBadges roles={stepRoles} />;
 }
 
-/**
- * Resolves a step's access display in order: permission gate → role gate →
- * access marker → a loud "unspecified" warning. No silent "any user"
- * catch-all — every step must resolve to one of the three real signals
- * (enforced by the module-flows integrity test).
- */
-function StepAccess({ step }: { step: FlowStep }) {
-  if (step.gate.length > 0) {
-    return <RoleBadges gate={step.gate} />;
-  }
-  if (step.gateRoles && step.gateRoles.length > 0) {
-    return <RoleNameBadges names={step.gateRoles} />;
-  }
-  if (step.access) {
-    return <AccessChip access={step.access} />;
-  }
-  return <span className="text-xs font-semibold text-red-600">⚠ access unspecified</span>;
-}
-
-/** Horizontal connector between two consecutive step cards: a line + arrowhead,
- * vertically centred on the card row. */
+/** Horizontal connector between two consecutive step cards: a line + arrowhead. */
 function ArrowConnector() {
   return (
     <div className="flex shrink-0 items-center px-0.5 text-slate-300" aria-hidden="true">
@@ -81,7 +71,7 @@ function ArrowConnector() {
   );
 }
 
-/** Two-line clamp without depending on the line-clamp plugin. */
+/** Three-line clamp without depending on the line-clamp plugin. */
 const CLAMP_3: React.CSSProperties = {
   display: '-webkit-box',
   WebkitLineClamp: 3,
@@ -89,7 +79,7 @@ const CLAMP_3: React.CSSProperties = {
   overflow: 'hidden',
 };
 
-function StepCard({ step, index }: { step: FlowStep; index: number }) {
+function StepCard({ step, index, moduleId, roles }: { step: FlowStep; index: number; moduleId: string; roles: RoleAccess[] }) {
   return (
     <div className="relative w-52 shrink-0">
       <div className={`rounded-lg border border-l-4 border-slate-200 bg-white p-3 shadow-sm ${KIND_ACCENT[step.kind]}`}>
@@ -99,7 +89,7 @@ function StepCard({ step, index }: { step: FlowStep; index: number }) {
           </span>
           <span className="text-sm font-medium leading-tight text-slate-800">{step.label}</span>
         </div>
-        <StepAccess step={step} />
+        <StepAccess step={step} moduleId={moduleId} roles={roles} />
         {step.description && (
           <p className="mt-2 text-xs text-slate-500" style={CLAMP_3} title={step.description}>
             {step.description}
@@ -116,7 +106,7 @@ function StepCard({ step, index }: { step: FlowStep; index: number }) {
           </svg>
           <div className="w-48 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-2.5 shadow-sm">
             <p className="mb-1 text-xs font-medium text-slate-600">{step.branch.label}</p>
-            <RoleBadges gate={step.branch.gate} />
+            <RoleBadges roles={rolesForGate(step.branch.gate, moduleId, roles)} />
           </div>
         </div>
       )}
@@ -124,7 +114,7 @@ function StepCard({ step, index }: { step: FlowStep; index: number }) {
   );
 }
 
-export function FlowChart({ steps }: { steps: FlowStep[] }) {
+export function FlowChart({ steps, moduleId, roles }: { steps: FlowStep[]; moduleId: string; roles: RoleAccess[] }) {
   const hasBranch = steps.some((s) => s.branch);
   return (
     <div className="overflow-x-auto">
@@ -134,7 +124,7 @@ export function FlowChart({ steps }: { steps: FlowStep[] }) {
       <ol className={`flex w-max items-center pt-1 ${hasBranch ? 'pb-28' : 'pb-1'}`}>
         {steps.map((step, i) => (
           <li key={i} className="flex items-center">
-            <StepCard step={step} index={i} />
+            <StepCard step={step} index={i} moduleId={moduleId} roles={roles} />
             {i < steps.length - 1 && <ArrowConnector />}
           </li>
         ))}
