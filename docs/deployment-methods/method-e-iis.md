@@ -2,7 +2,7 @@
 
 **Status: Only if client mandates IIS — HISTORICAL EVALUATION DOC**
 
-> **2026-04-29 update:** Phase 4 of the windows-friendly-rewrite retired the bundled Nginx config from the standard install path. Fastify now serves the SPA + `/api/*` directly on `:3000`, so a reverse proxy is **optional**. If a customer requires IIS in front of Fastify, this evaluation still applies; otherwise the IIS step can be skipped entirely. EMQX → Mosquitto 2.0 (Phase 1); BullMQ + Memurai → graphile-worker on Postgres (Phase 2) also apply. See root `DEPLOY-WINDOWS.md` for the current install runbook.
+> **2026-04-29 update:** Phase 4 of the windows-friendly-rewrite retired the bundled Nginx config from the standard install path. Fastify now serves the SPA + `/api/*` directly on `:3000`, so a reverse proxy is **optional**. If a customer requires IIS in front of Fastify, this evaluation still applies; otherwise the IIS step can be skipped entirely. EMQX → Mosquitto 2.0 (Phase 1); BullMQ + Memurai → graphile-worker on Postgres (Phase 2) also apply. DigiLog ships as the `DigiLog-Setup-<ver>.exe` installer (Fastify serves the SPA directly; a reverse proxy is optional); the deployment runbook is [`docs/PHARMA_DEPLOYMENT_21CFR.md`](../PHARMA_DEPLOYMENT_21CFR.md).
 >
 > **2026-06 update (Phase 7):** the entire data-ingestion subsystem — MQTT (Mosquitto), TimescaleDB, and Redis — was removed, and the WebSocket layer no longer exists. The Memurai (:6379), EMQX/Mosquitto (:1883), and WebSocket-proxy references below **no longer apply**; DigiLog now runs on a single vanilla PostgreSQL 18 database with no broker, cache, or WebSocket endpoint. This page is retained as a historical evaluation only.
 

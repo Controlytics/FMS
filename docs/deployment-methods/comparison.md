@@ -1,6 +1,6 @@
 # Deployment Methods — Side-by-Side Comparison & Final Verdict
 
-> **2026-04-29 status banner — HISTORICAL EVALUATION:** the windows-friendly-rewrite has shipped Phases 1–4 and changed the underlying stack referenced in the comparisons below. Mosquitto 2.0 (not EMQX), graphile-worker on Postgres (not BullMQ + Redis/Memurai), `puppeteer-core` + Edge + `@napi-rs/canvas` (not bundled puppeteer + chartjs-node-canvas), Fastify-direct on `:3000` (not Nginx + PM2). The evaluation matrix below remains useful for choosing **whether** to add Docker / IIS / a reverse proxy, but the per-component tooling has changed. See root `DEPLOY-WINDOWS.md` for the current shipping install runbook.
+> **HISTORICAL EVALUATION — stack has changed since this was written.** DigiLog now ships as a single **`DigiLog-Setup-<ver>.exe`** (Inno Setup) installer that bundles its own portable PostgreSQL + registers Windows services — i.e. **Method A (Native Windows), productized**. The multi-service stack the tables below compare (EMQX/Mosquitto MQTT, Redis/Memurai, TimescaleDB, Nginx, PM2) has been **removed** (TimescaleDB + MQTT 2026-06, Redis 2026-05, Nginx/PM2 Phase 4, server-side PDF engine 2026-07-04); the current stack is PostgreSQL 18 (`digilog_db`) + one Node process. The matrix below is retained as the **decision record** — why native Windows was chosen over Docker / IIS / cloud — not as a current install guide. **For the deployment runbook read [`docs/PHARMA_DEPLOYMENT_21CFR.md`](../PHARMA_DEPLOYMENT_21CFR.md).**
 
 ---
 
@@ -129,7 +129,7 @@
 
 4. **Zero ongoing cost** — Client already has the server. No Docker licenses, no cloud bills.
 
-5. **Scripts ready** — `package-for-production.ps1`, `install-on-target.ps1`, and `DEPLOY-WINDOWS.md` handle the complete deployment flow today.
+5. **Installer ready** — Method A is now **productized as the `DigiLog-Setup-<ver>.exe` installer** (Inno Setup): it bundles portable PostgreSQL, provisions the DB, and registers the `DigiLogDB` + `DigiLogAPI` Windows services. Built by `scripts/build-installer.ps1`; deployment runbook in `docs/PHARMA_DEPLOYMENT_21CFR.md`. *(The old manual `package-for-production.ps1` / `install-on-target.ps1` scripts were removed 2026-07-04.)*
 
 6. **Proven** — This is how the application has been running during development and testing.
 
@@ -144,42 +144,27 @@
 
 ---
 
-## Quick Reference: How to Deploy with Method A
+## Quick Reference: How to Deploy with Method A (current)
+
+Method A now deploys via the packaged installer — there is no manual multi-service setup:
 
 ```
-DEV MACHINE                          CLIENT SERVER
+BUILD MACHINE                        CLIENT SERVER
 ─────────────                        ─────────────
-1. Run package script                3. Install prerequisites
-   scripts/package-for-               (Node, PG, Memurai,
-   production.ps1                      EMQX, Nginx)
+1. scripts/build-installer.ps1       2. Run DigiLog-Setup-<ver>.exe
+   → DigiLog-Setup-<ver>.exe            (elevated). It bundles + does:
+   (needs Inno Setup 6)                 - portable PostgreSQL (no pre-install)
+                                        - provision DB + migrate + seed
+                                        - register DigiLogDB + DigiLogAPI services
+                                        - HTTPS cert + config
 
-2. Transfer ZIP to client     →     4. Unzip to C:\DigiLog\
+                                     3. Trust the root CA + install the APK
+                                        on each tablet
 
-                                     5. Create databases
-                                        (digilog_db + digilog_tsdb)
-
-                                     6. Edit .env (passwords,
-                                        JWT secrets, server IP)
-
-                                     7. Run install script
-                                        scripts/install-on-target.ps1
-
-                                     8. Configure Nginx
-                                        (cert paths, server name)
-
-                                     9. Install rootCA.pem
-                                        on tablets
-
-                                     10. Install APK on tablets
-
-                                     11. Verify (section 6 of
-                                         DEPLOY-WINDOWS.md)
-
-                                     12. Set up auto-start
-                                         (pm2 save, NSSM for Nginx)
-
-                                     13. Configure daily backups
-                                         (Task Scheduler + pg_dump)
+                                     4. Verify: scripts/verify-windows-deployment.ps1
+                                        (API /health + graphile-worker schema)
 ```
 
-See [DEPLOY-WINDOWS.md](../../DEPLOY-WINDOWS.md) for the complete step-by-step guide.
+> The old manual flow (install Node/PG/Memurai/EMQX/Nginx by hand, create `digilog_db` + `digilog_tsdb`, run `install-on-target.ps1`, configure Nginx, `pm2 save`) is gone — those subsystems and scripts were removed.
+
+See **[`docs/PHARMA_DEPLOYMENT_21CFR.md`](../PHARMA_DEPLOYMENT_21CFR.md)** for the complete step-by-step runbook (installer, internal-CA HTTPS, 21 CFR controls, tablet/APK).

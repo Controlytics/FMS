@@ -1,8 +1,8 @@
 # Method A: Native Windows Install
 
-**Status: RECOMMENDED — HISTORICAL EVALUATION DOC**
+**Status: CHOSEN METHOD — now shipped as the Setup.exe installer — HISTORICAL EVALUATION DOC**
 
-> **2026-04-29 update:** the windows-friendly-rewrite has shipped Phases 1–4 and superseded the stack described below. The current install path is **Mosquitto 2.0** (not EMQX), **graphile-worker on Postgres** (not Memurai/BullMQ), **`puppeteer-core` + Edge + `@napi-rs/canvas`** (not bundled puppeteer + chartjs-node-canvas), and **Fastify-direct on `:3000` (HTTPS via mkcert)** (not Nginx-fronted with PM2). For the current runbook see root `DEPLOY-WINDOWS.md`. The prose below is preserved as the original evaluation rationale.
+> **This is the method DigiLog ships — now productized as the `DigiLog-Setup-<ver>.exe` installer.** The installer bundles its own **portable PostgreSQL** and registers the `DigiLogDB` + `DigiLogAPI` Windows services, so the "five separate installers to manage" (Node + PostgreSQL + Memurai + EMQX + Nginx) that this doc's body treats as Method A's main *con* **no longer apply** — the installer handles it. The multi-service stack below is also gone: TimescaleDB + MQTT/EMQX/Mosquitto removed 2026-06, Redis/Memurai 2026-05, Nginx + PM2 in Phase 4, the server-side PDF engine 2026-07-04. The current stack is PostgreSQL 18 (`digilog_db`) + one Node process (Fastify serving the SPA + `/api/*` on `:3000` HTTPS). **For the deployment runbook see [`docs/PHARMA_DEPLOYMENT_21CFR.md`](../PHARMA_DEPLOYMENT_21CFR.md)** and [`tasks/EXE-PACKAGING-PLAN.md`](../../tasks/EXE-PACKAGING-PLAN.md). The prose below is preserved as the original evaluation rationale for *why* native Windows was chosen.
 
 Install PostgreSQL, Memurai, EMQX, Nginx, and Node.js directly on Windows. PM2 manages the API process.
 
@@ -28,11 +28,13 @@ Every service is a visible Windows program. The client's IT team can find them i
 ### 2. No Docker Knowledge Needed
 Factory IT teams manage Active Directory, printers, and Windows updates. They understand Windows Services. Docker, containers, and Linux are foreign concepts they don't need to learn.
 
-### 3. Scripts Already Written and Tested
-- `scripts/package-for-production.ps1` — packages everything into a deployable ZIP
-- `scripts/install-on-target.ps1` — runs on the client machine to install
-- `DEPLOY-WINDOWS.md` — 12-section guide with printable checklist
-- `start-digilog.bat` / `stop-digilog.bat` — start/stop all services
+### 3. Packaged Installer (updated)
+This pro is now realised as the **`DigiLog-Setup-<ver>.exe`** installer — even less for client IT to do than the loose scripts this doc originally listed:
+- `scripts/build-installer.ps1` — builds the bundle + portable Postgres + `Setup.exe` (Inno Setup)
+- `scripts/install.ps1` → `provision-db.ps1` + `register-services.ps1` — run by the installer (DB + `DigiLogDB`/`DigiLogAPI` services)
+- `scripts/upgrade.ps1` — data-safe in-place upgrade
+- `docs/PHARMA_DEPLOYMENT_21CFR.md` — deployment runbook + printable 21 CFR checklist
+- *(the original loose scripts `package-for-production.ps1` / `install-on-target.ps1` / `start-digilog.bat` / `stop-digilog.bat` were removed)*
 
 ### 4. Direct Filesystem Access
 Config files, logs, uploads, and backups are all in standard Windows folders. Client can browse to `C:\DigiLog\`, open files in Notepad, copy backups to USB drives.

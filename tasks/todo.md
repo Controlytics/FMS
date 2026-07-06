@@ -1743,5 +1743,19 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
     one active-doc inbound ref this surfaced: `PROJECT_ARCHITECTURE.md` scripts listing cited the deleted
     `package-for-production.ps1` / `install-on-target.ps1` + removed DEPLOY-WINDOWS §7 → replaced with the
     current M-series installer scripts. (Historical `tasks/RESUME-STATE-*` / `CODE-REVIEW-*` refs to
-    DEPLOY-WINDOWS §10.1/§10.3 left as dated records. `docs/deployment-methods/*` is a separate exploratory
-    comparison doc set — not touched.)
+    DEPLOY-WINDOWS §10.1/§10.3 left as dated records. `docs/deployment-methods/*` reconciled in a
+    follow-up, below.)
+- 2026-07-06 — Reconciled `docs/deployment-methods/` (the deployment decision record) with the Setup.exe
+  path. Rule applied: current-state assertion / active instruction that's now wrong → fix/redirect;
+  evaluation-of-a-rejected-alternative → historical banner, body untouched. **README.md:** replaced the
+  stale "current stack" table with a one-line summary + pointer to `PHARMA_DEPLOYMENT_21CFR.md` (did NOT
+  mint a 4th stack-table copy — the drift class cleaned up in 6e352ae); reframed as a decision record;
+  marked decision-tree + architecture-diagram headings "original evaluation". **comparison.md:** updated
+  the historical banner (Setup.exe = productized Method A), fixed the Recommendation (deleted-script
+  reasons → installer), rewrote "Quick Reference: How to Deploy" to the installer flow, redirected the
+  "§6 of DEPLOY-WINDOWS" + step-by-step refs → PHARMA. **method-a:** strong banner (chosen method, now the
+  Setup.exe that bundles the "five separate installers" its body treats as a con) + fixed the false
+  "Scripts Already Written" list (named 4 deleted scripts) → current M-series/installer. **method-b/d/e:**
+  redirected their "current runbook = DEPLOY-WINDOWS.md" pointers → PHARMA (bodies left as historical
+  evaluation per the rule). Did NOT collapse the folder to a pointer — it's a 21 CFR decision record (the
+  "why native Windows over Docker/IIS/cloud" rationale has archival value). All relative links verified.

@@ -1,22 +1,10 @@
 # DigiLog — Deployment Methods Guide
 
-This folder contains detailed analysis of every deployment method evaluated for installing DigiLog on a client Windows Server for production use.
+This folder is the **decision record** for how DigiLog is deployed on a client Windows Server — the analysis of every method evaluated (native Windows, Docker, hybrid, IIS, cloud) and *why native Windows won* for a 21 CFR Part 11 pharma client. It is kept for that rationale; it is **not** the install runbook.
 
-> **2026-04-29 status banner — windows-friendly-rewrite has changed the stack:** the install path that actually ships is now **Method A (Native Windows)** with **Mosquitto 2.0** instead of EMQX (Phase 1), **graphile-worker on Postgres** instead of BullMQ + Redis/Memurai (Phase 2), **`puppeteer-core` + Microsoft Edge + `@napi-rs/canvas`** instead of bundled `puppeteer` + `chartjs-node-canvas` (Phase 3), and **Fastify-direct on `:3000` (HTTPS via mkcert)** instead of a bundled Nginx + PM2 (Phase 4). The tables in this folder still describe the original evaluation matrix as a historical reference; **for the current install runbook refer to root `DEPLOY-WINDOWS.md` and `LOCAL_SETUP_WINDOWS.md`**, not the per-method files in this folder.
-
-## Application Stack (current — 2026-04-29)
-
-| Component | Technology | Port |
-|---|---|---|
-| Backend API + SPA | Node.js / Fastify (TypeScript), serves SPA + `/api/*` directly | 3000 (HTTPS via mkcert) |
-| Primary Database | PostgreSQL 18 (also hosts the graphile-worker queue schema) | 5432 |
-| Time-Series Database | TimescaleDB (PostgreSQL extension, `digilog_tsdb`) | 5432 |
-| Job Queue | graphile-worker on PostgreSQL (no separate service) | — |
-| MQTT Broker | Mosquitto 2.0 (Windows-native service) | 1883 |
-| PDF / Charts | `puppeteer-core` + Microsoft Edge + `@napi-rs/canvas` | — |
-| Pub/sub (optional) | Memurai / Redis ≥5 — non-queue only (WebSocket events, RPC, tracer, debug recorder) | 6379 |
-| Reverse proxy | Optional / customer-choice — not bundled. Customers can add Nginx or IIS in front of Fastify if they want. | 80 / 443 |
-| Process manager | None bundled today; NSSM stopgap in `DEPLOY-WINDOWS.md` § 7. Managed Windows-service launcher is Phase 5 of the windows-friendly-rewrite. | — |
+> **What actually ships (2026-07):** DigiLog installs via a single **`DigiLog-Setup-<ver>.exe`** (Inno Setup) — this is **Method A (Native Windows), productized**. The installer bundles its own portable PostgreSQL and registers Windows services (`DigiLogDB` + `DigiLogAPI`), so the manual multi-installer process the method files below describe no longer applies. **For the deployment runbook, read [`docs/PHARMA_DEPLOYMENT_21CFR.md`](../PHARMA_DEPLOYMENT_21CFR.md)** (and [`tasks/EXE-PACKAGING-PLAN.md`](../../tasks/EXE-PACKAGING-PLAN.md) for installer internals).
+>
+> **The stack has also shrunk.** Removed since these docs were written: TimescaleDB (2026-06-11), the MQTT broker / EMQX / Mosquitto (2026-06-17), Redis/Memurai (2026-05-01), Nginx + PM2 (Phase 4), and the server-side PDF/Chromium engine (2026-07-04). The **current** stack is just **PostgreSQL 18 (single `digilog_db`) + one Node process** (Fastify serving the SPA + `/api/*` on `:3000` HTTPS; graphile-worker queue lives inside Postgres). The canonical stack description lives in `PHARMA_DEPLOYMENT_21CFR.md` — not duplicated here to avoid drift. **Every table, diagram, and per-method write-up below describes the ORIGINAL multi-service stack and is retained as historical evaluation.**
 
 ## Application Stack (original evaluation — historical)
 
@@ -46,7 +34,7 @@ This folder contains detailed analysis of every deployment method evaluated for 
 > this file for how the stack has since changed; the MQTT/TimescaleDB components in the tables
 > below are historical (removed 2026-06, Phase 7).
 
-## Quick Decision Tree
+## Quick Decision Tree (original evaluation — the shipped path is the Setup.exe installer = Method A)
 
 ```
 Is the client a factory with on-premises server?
@@ -62,7 +50,7 @@ Does the client mandate IIS?
 └── NO  → Stick with Nginx (Methods A/B)
 ```
 
-## Architecture Diagram
+## Architecture Diagram (original multi-service stack — historical; current stack is Postgres + one Node process, see `PHARMA_DEPLOYMENT_21CFR.md`)
 
 ```
 ┌─────────────── Client Windows Server ───────────────┐
