@@ -14,8 +14,8 @@ apps/api/src/
 ├── lib/                    Cross-cutting utilities (JWT, hash-chain, password, sanitize, errors, swagger, config-discovery, prisma, reauth-check, etc.)
 ├── plugins/                Fastify plugins (audit-logger, auth, rbac)
 ├── modules/                Feature modules (see MODULES.md)
-├── transport/              MQTT client + handler + WS handler + MQTT auth HTTP routes
-├── workers/                graphile-worker tasks (ingestion concurrency:10; maintenance via cron `pg_advisory_lock` leader election)
+├── transport/              (REMOVED 2026-06-17 — MQTT client/handler + WS handler + MQTT auth routes torn out with the data-ingestion tear-out)
+├── workers/                graphile-worker tasks (notification, pm_overdue_check, session_sweep; the ingestion + maintenance workers were removed 2026-06-17)
 ├── e2e/                    Vitest integration tests hitting a real DB
 └── types/                  Ambient typings
 ```
@@ -23,19 +23,19 @@ apps/api/src/
 ## Request lifecycle
 
 1. **Top-level plugins** (order matters — see `app.ts` lines ~100–135):
-   - CORS, Helmet, rate-limit (500 req/min), multipart, static, websocket, Swagger UI.
+   - CORS, Helmet, rate-limit (500 req/min), multipart, static, Swagger UI. *(the `websocket` plugin was removed 2026-07-03 with the pub/sub tear-out.)*
    - `auditLoggerPlugin` — logs mutation endpoints into the audit table.
    - `authPlugin` — `onRequest` hook that verifies the JWT (skipped for `PUBLIC_PATHS`), caches session config (1 min) and role scope (5 s). Populates `req.user` with a `JwtPayload`.
    - `rbacPlugin` — provides helpers for route-level permission checks.
 2. **Route modules** registered under `/api/...` prefixes.
-3. **Device-token routes** (`/api/data/telemetry`, etc.) do their own `preHandler` token check — bypass the JWT.
-4. **WebSocket** (`/api/ws`) authenticates via the first client message, not the HTTP upgrade headers.
+3. ~~**Device-token routes** (`/api/data/telemetry`, etc.)~~ *(removed 2026-06-17 with the data-ingestion tear-out).*
+4. ~~**WebSocket** (`/api/ws`)~~ *(removed — the `@fastify/websocket` plugin + WS handler were torn out 2026-07-03 after the Redis pub/sub layer was retired 2026-05-01).*
 
 ## Public paths (no JWT)
 
 Defined in `plugins/auth.ts`:
 
-- Always public: `/api/auth/login`, `/api/auth/forgot-password`, `/api/auth/beacon-logout`, `/api/health`, `/api/internal/mqtt`, `/api/ws`, `/api/notification-settings/email/oauth2/code`, `/api/data/*` (device token).
+- Always public: `/api/auth/login`, `/api/auth/forgot-password`, `/api/auth/beacon-logout`, `/api/health`, `/api/notification-settings/email/oauth2/code`. *(`/api/internal/mqtt`, `/api/ws`, and `/api/data/*` (device token) were removed 2026-06-17..2026-07-03 with the MQTT/WebSocket/data-ingestion tear-out.)*
 - Dev-only public: `/docs`, `/docs/` (Swagger UI — hidden in production).
 - `GET`-only public: `/api/config/branding`, `/api/config/datetime/current`, `/uploads/photos/`, `/uploads/branding/`, `/api/roles/active`, `/api/admin-requests/user-lookup`.
 - `/api/config/password-policy/current`, `/api/config/report-settings/current`, `/api/config/pagination/current` are marked public inside their own route definitions.
@@ -61,34 +61,36 @@ Defined in `plugins/auth.ts`:
 | `config-discovery.ts` + `config-registry.ts` | Auto-register config modules that expose `moduleKey` + Zod schema |
 | `swagger.ts` | Registers `@fastify/swagger` + `@fastify/swagger-ui` (UI at `/docs`) |
 | `errors.ts` + `error-schemas.ts` | `AppError` class + Fastify error schema helpers |
-| `build-context.ts`, `uns-path.ts`, `org-scope.ts`, `user-id-validator.ts`, `audit.ts` | Context helpers reused across modules |
+| `build-context.ts`, `org-scope.ts`, `user-id-validator.ts`, `audit.ts` | Context helpers reused across modules *(`uns-path.ts` removed 2026-06-17 with the UNS/data-ingestion tear-out)* |
 | `idempotency.ts` | Offline-replay dedup via `x-client-op-id` header — checks `FilterEvent.attributes.clientOpId` for match; returns cached `current-state` on duplicate, so retries never produce duplicate cycles, double advances, or repeat checklist submissions |
 
 ## Workers (`src/workers/`)
 
-- **`ingestion.worker.ts`** — consumes the graphile-worker `ingestion` task on Postgres; validates telemetry, pushes to TimescaleDB via the batcher in `@digilog/db`.
-- **`maintenance.worker.ts`** — scheduled/periodic jobs (retention cleanup, PM-due computation, etc.).
+*(The `ingestion.worker.ts` + `maintenance.worker.ts` below were removed 2026-06-17 with the data-ingestion tear-out. The live worker tasks are `notification`, `pm_overdue_check`, and `session_sweep`.)*
 
-Start/stop helpers (`startIngestionWorker`, `startMaintenanceWorker`) are invoked from `app.ts`.
+- ~~**`ingestion.worker.ts`**~~ — *removed 2026-06-17 (consumed the `ingestion` task, pushed telemetry to TimescaleDB via `@digilog/db` — all gone).*
+- ~~**`maintenance.worker.ts`**~~ — *removed 2026-06-17 (retention cleanup gone; PM-due computation now runs as the `pm_overdue_check` graphile-worker task).*
 
-## Transport (`src/transport/`)
+## ~~Transport (`src/transport/`)~~ *(REMOVED 2026-06-17)*
 
-- `mqtt-client.ts` — connects the API process to Mosquitto 2.0 (outbound + internal pub/sub). Phase 1 of windows-friendly-rewrite swapped from EMQX. Mode-flag `USE_MOSQUITTO=true` selects the new path; legacy EMQX path conditionally available for compatibility.
-- `mqtt-handler.ts` — routes inbound device messages to the same ingestion pipeline as HTTP; enqueues via graphile-worker `addJob`.
-- `mosquitto-acl-generator.ts` + `mosquitto-refresh-routes.ts` — translate active `DeviceCredential` rows into Mosquitto v2 dynamic-security JSON, exposed via `POST /api/internal/mqtt/refresh-acl` (Bearer-auth via `MOSQUITTO_REFRESH_TOKEN`).
-- `mqtt-auth-routes.ts` — legacy EMQX webhook endpoints (`/api/internal/mqtt/auth`, `/acl`); conditionally registered when `USE_MOSQUITTO=false`. Slated for deletion in Phase 4 of the windows-friendly-rewrite.
-- `ws-handler.ts` — WebSocket multiplex for entity updates; per-entity Redis pub/sub fan-out.
+The entire transport layer was torn out with the data-ingestion tear-out — no MQTT broker (Mosquitto/EMQX) and no WebSocket handler remain.
+
+- ~~`mqtt-client.ts`~~ — *removed (connected the API to Mosquitto 2.0).*
+- ~~`mqtt-handler.ts`~~ — *removed (routed inbound device messages into the ingestion pipeline).*
+- ~~`mosquitto-acl-generator.ts` + `mosquitto-refresh-routes.ts`~~ — *removed (translated `DeviceCredential` rows into Mosquitto dynamic-security JSON).*
+- ~~`mqtt-auth-routes.ts`~~ — *removed (legacy EMQX webhook endpoints).*
+- ~~`ws-handler.ts`~~ — *removed (WebSocket multiplex; Redis pub/sub fan-out retired 2026-05-01).*
 
 ## Env vars (see `.env.example`)
 
 | Group | Keys |
 |---|---|
 | App DB (Prisma) | `DATABASE_URL` |
-| TimescaleDB | `TSDB_HOST`, `TSDB_PORT`, `TSDB_DATABASE`, `TSDB_USER`, `TSDB_PASSWORD`, `TSDB_POOL_MAX` |
-| MQTT / Mosquitto | `MQTT_ENABLED`, `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`, `USE_MOSQUITTO`, `MOSQUITTO_ADMIN_PASSWORD`, `MOSQUITTO_REFRESH_TOKEN`, `MOSQUITTO_DYNSEC_PATH` (optional). Legacy EMQX vars (`EMQX_ADMIN_PASSWORD`, `MQTT_AUTH_CALLBACK_URL`) only when `USE_MOSQUITTO=false`. |
-| Redis (optional, pub/sub only) | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` — queue moved to Postgres in Phase 2 |
+| ~~TimescaleDB~~ | *removed 2026-06-17 — `TSDB_*` gone with the TimescaleDB drop* |
+| ~~MQTT / Mosquitto~~ | *removed 2026-06-17 — `MQTT_*` / `MOSQUITTO_*` / `EMQX_*` gone with the MQTT broker tear-out* |
+| ~~Redis~~ | *removed 2026-05-01 — `REDIS_*` gone; queue on Postgres, pub/sub in-process* |
 | SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` |
-| UNS | `UNS_ROOT_PREFIX`, `UNS_VERSION` |
+| ~~UNS~~ | *removed 2026-06-17 — `UNS_ROOT_PREFIX` / `UNS_VERSION` gone with the UNS tear-out* |
 | JWT | `JWT_SECRET`, `VERIFICATION_TOKEN_SECRET`, `JWT_EXPIRES_IN` |
 | Server | `NODE_ENV`, `API_PORT`, `PORT` (read by `app.ts`), `API_HTTPS` (if `true`, loads `certs/server.{key,crt}`) |
 | CORS | `CORS_ORIGIN`, `ALLOWED_ORIGINS` |

@@ -93,6 +93,8 @@
 **Rationale:** Connection limits are template-level settings that users need to monitor per entity. Progress bars provide an instant visual indicator of capacity (green when under limit, red when at limit). Showing both total connections and parent connections separately reflects the dual limit system (maxConnections vs maxParentConnections). Cards are read-only since limits are set at the template level.
 
 ## 24. React Flow for Rule Chain Visual Editor
+> **⚠️ SUPERSEDED — rule-chain removed 2026-05-17; `reactflow` uninstalled.** The cleaning-profile pipeline editor (which had reused React Flow) now uses a **custom canvas**. Retained as a historical decision-record.
+
 **Decision:** Use React Flow library for the rule chain visual editor canvas (77 node types across 8 categories) rather than building a custom canvas solution.
 **Rationale:** React Flow provides production-ready node-based graph editing with drag-and-drop, zooming, panning, edge routing, and selection out of the box. Building a custom canvas would take weeks and wouldn't match the quality. React Flow integrates naturally with React state management. The node palette sidebar uses a simple drag-to-canvas pattern. Edge selection uses red highlight with animation for visibility. Also reused for the cleaning profile pipeline editor.
 
@@ -101,6 +103,8 @@
 **Rationale:** Large monolithic components are hard to maintain, test, and review. The extraction follows a clear separation: dialogs handle modal CRUD operations, tabs handle detail panel content, hooks encapsulate mutation logic and tree filtering. Each extracted component is self-contained with its own props interface. The pattern can be applied to other large pages (templates.tsx at ~1,410 lines).
 
 ## 26. Role-Based Alarm Column Visibility
+> **⚠️ SUPERSEDED — alarm subsystem + `/config/alarm-columns` page removed 2026-05-17.** Retained as a historical decision-record.
+
 **Decision:** Alarm dashboard columns are configurable per role via the `/config/alarm-columns` page. Each role can have different visible columns from the 11 available (severity, alarmType, entity, highLimit, lowLimit, generatedValue, clearedValue, status, generatedAt, clearedAt, actions).
 **Rationale:** Different roles need different alarm information. Operators may only need severity and status, while maintenance engineers need threshold details. Column definitions are centralized in `@digilog/shared` (ALARM_COLUMN_DEFINITIONS), and the frontend fetches the current user's visible columns via SWR. This avoids hardcoding column visibility and supports custom roles.
 
@@ -123,7 +127,7 @@
 
 ## Phase 2 Decisions
 
-- **Pipeline editor reuses ReactFlow**: Same React Flow library used for rule chain editor is reused for the cleaning profile pipeline editor, reducing learning curve and bundle impact
+- ~~**Pipeline editor reuses ReactFlow**~~: *(superseded 2026-05-17 — `reactflow` was uninstalled with the rule-chain tear-out; the cleaning-profile pipeline editor now uses a custom canvas)*
 - **Pipeline as graph, not linear list**: Chose directed graph (stages + connections) over linear array to support future branching, parallel paths, and conditional flows
 - **Checklist as pipeline node, not stage property**: Checklists are first-class CHECKLIST nodes in the graph, not attached to stages. This allows placing checklists between any stages, or multiple checklists in sequence
 - **Versioning via create-new + archive-old**: Updating a cleaning profile creates a new version and archives the old one, preserving historical data for completed cycles

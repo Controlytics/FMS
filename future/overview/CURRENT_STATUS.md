@@ -27,17 +27,17 @@
 
 ### Multi-tenant + super-admin
 - Organizations CRUD + per-org detail endpoints (users, entities, templates, assignments, visible-entities)
-- **Filter Data Management console at `/config/filter-data-management`** — 10 tabs each mirroring its user-facing page (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, retirements, replacements). **SUPER_ADMIN-only escape hatch with ZERO audit trail** — bypasses 21 CFR Part 11 audit chain by design for emergency data fixes.
+- **Filter Data Management console at `/config/filter-data-management`** — 9 tabs each mirroring its user-facing page (cycles, events, PM, audit, notifications, admin requests, block changes, retirements, replacements). **SUPER_ADMIN-only escape hatch with ZERO audit trail** — bypasses 21 CFR Part 11 audit chain by design for emergency data fixes. *(The alarms tab was removed 2026-05-17 with the alarm tear-out.)*
 - **Tablet access matrix** at `/config/access-matrix` — SUPER_ADMIN-only per-module role allowlist
 - **Dynamic backup/restore** covering **all 64 tables** via `pg_tables` + `jsonb_populate_recordset` (non-superuser compatible, two-pass self-ref fixup)
 
-### IoT platform
-- **Ingestion** (`apps/api/src/modules/data-ingestion/`, 11 files): HTTP, MQTT, binary, RPC, checklist, event endpoints under `/api/data`; entity-resolver, message-normalizer, pipeline-tracer, dlq-manager, connectivity-tracker, separate `debug-trace.routes.ts`
-- **Rule chain engine** (`apps/api/src/modules/rule-chain/`): 77 node types across 8 categories, VM-sandboxed `node:vm` execution, visual editor with `reactflow` 11, save / debug / replay; `nodes/` has 8 category files + email + sms specialized notification nodes
-- **Queries** (`apps/api/src/modules/queries/`, 4 sibling routes files): telemetry (latest, timeseries, keys), attributes (scoped + history), alarms (list, summary, acknowledge, clear), checklist (responses, history), exports (async jobs), retention (execute, execute-range, delete-keys, delete-records)
-- **UNS:** tree view, search, entity CRUD + move with confirm step
-- **Connectivity panel:** per-entity token mgmt + snippets + history
-- **Dashboards:** widgets + layouts + assignments + data adapters
+### IoT platform — *mostly REMOVED (rule-chain 2026-05-17; ingestion / queries / UNS / connectivity + TimescaleDB + MQTT 2026-06-17). Only Dashboards survive.*
+- ~~**Ingestion** (`apps/api/src/modules/data-ingestion/`)~~ *(removed 2026-06-17 with the data-ingestion tear-out)*
+- ~~**Rule chain engine** (`apps/api/src/modules/rule-chain/`)~~ *(removed 2026-05-17 with the rule-chain tear-out; the cleaning-profile pipeline editor now uses a custom canvas, not reactflow)*
+- ~~**Queries** (`apps/api/src/modules/queries/`)~~ *(removed 2026-06-17)*
+- ~~**UNS:** tree view, search, entity CRUD + move~~ *(removed 2026-06-17)*
+- ~~**Connectivity panel:** per-entity token mgmt + snippets + history~~ *(removed 2026-06-17)*
+- **Dashboards:** widgets + layouts + assignments + data adapters *(survives; the `timeseries_chart` widget returns `[]` cleanly post-TimescaleDB removal)*
 
 ### Digital Filter Management System
 - Asset templates with dynamic attribute schemas (validated via `ATTRIBUTE_DATA_TYPES` in shared)
@@ -104,9 +104,9 @@
 ## Known constraints / gotchas (verified in memory + code)
 
 ### Environment / infrastructure
-- **TimescaleDB name:** the telemetry DB is `digilog_tsdb`, **not** `digilog_db`. TSDB_* env vars pointed at the wrong DB fail silently or spectacularly.
-- **Redis is now optional, ≥5 only when used:** Phase 2 of windows-friendly-rewrite (commit `7832af1`) moved the job queue to graphile-worker on Postgres, so BullMQ + Redis are no longer required. Redis is still used for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracer, debug recorder); if you do install it, ≥5 is required (Redis 3 still crashes the API at boot). Phase 4 will move pub/sub to PG `LISTEN/NOTIFY` to drop the dependency entirely.
-- **MQTT broker is Mosquitto 2.0** (Phase 1 of windows-friendly-rewrite swapped from EMQX). Install via `scripts/install-mosquitto.ps1` from elevated PowerShell. SCM-managed broker has CWD=System32 and no stdout, so the install script rewrites the deployed conf with absolute paths + file logging — see `windowsIssues.md` § 3 for the live-discovered failure modes if the rewrite step is bypassed.
+- ~~**TimescaleDB name:** the telemetry DB is `digilog_tsdb`~~ *(REMOVED 2026-06-17 — `digilog_tsdb` + TimescaleDB dropped with the data-ingestion tear-out; only `digilog_db` remains, and it's vanilla Postgres with no TimescaleDB extension.)*
+- ~~**Redis is now optional…**~~ *(REMOVED 2026-05-01 — Redis/Memurai is gone entirely; the job queue is graphile-worker on Postgres and pub/sub is in-process (EventEmitter bus). `ioredis` was uninstalled and the pub/sub consumers torn out in Phase 6/7.)*
+- ~~**MQTT broker is Mosquitto 2.0**~~ *(REMOVED 2026-06-17 — MQTT broker (Mosquitto/EMQX) + `install-mosquitto.ps1` gone with the data-ingestion tear-out; no broker anymore.)*
 - **No server-side PDF/chart pipeline** — the `puppeteer-core` + Edge + `@napi-rs/canvas` reports engine was removed 2026-07-04. PDF export of the cleaning-record / filter-lifecycle pages is now client-side via `apps/web` `lib/pdf-report.ts` (jsPDF); no Chromium/Edge dependency.
 - **`API_HTTPS=true`:** without `certs/server.{key,crt}` (mkcert-generated, rooted by `certs/rootCA.pem`), the API crashes on startup.
 - **`tsx watch` for dev**, `tsc -p` then `node dist/app.js` for prod-style local builds. PM2 / EC2 are no longer used.
@@ -139,7 +139,7 @@
 
 - Phase 2/3/4/5 manual test cases — `tests/manual-test-cases/` was deleted in cleanup (Phase 1 only). Closest current coverage is `apps/api/src/e2e/` (also Phase 1 only). Need fresh cases for filter operations, RFID, offline replay, reports, block-change approval, PM My Tasks, admin requests.
 - Decision tape proposal — design + prototype if pipeline drift recurs (currently mitigated by `stageLookup`)
-- Monster-file split outstanding (bloat audit P0.2): `filter-list.tsx` 2433 LOC, `rule-chains/editor.tsx` 2140 LOC, `filter-operations.tsx` 1928 LOC, `filter-operations.service.ts` 1617 LOC, `pm-schedule.service.ts` 1042 LOC, `assets/templates.tsx` 1090 LOC, `template-form-editor.tsx` 1070 LOC, `debug/index.tsx` 1145 LOC, `checklist-form/index.tsx` 1561 LOC
+- Monster-file split outstanding (bloat audit P0.2): `filter-list.tsx` 2433 LOC, ~~`rule-chains/editor.tsx` 2140 LOC~~ *(removed 2026-05-17 with the rule-chain tear-out)*, `filter-operations.tsx` 1928 LOC, `filter-operations.service.ts` 1617 LOC, `pm-schedule.service.ts` 1042 LOC, `assets/templates.tsx` 1090 LOC, `template-form-editor.tsx` 1070 LOC, `debug/index.tsx` 1145 LOC, `checklist-form/index.tsx` 1561 LOC
 - Multi-filter batch checklist dialog opens for first item only (session 04-20 known follow-up)
 - Cleaning-profile version pinning in offline cache (currently surfaces as sync error rather than pre-validated)
 

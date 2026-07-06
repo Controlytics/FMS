@@ -7,9 +7,9 @@ These are real-world constraints verified from code + project memory, not specul
 ## Environment / infrastructure
 
 - **Use `tsx watch` for dev, compiled JS for prod-style builds.** PM2 / EC2 are no longer in scope (removed in commit `251be95`). Production-style local builds: `npx tsc -p apps/api/tsconfig.json` then `node apps/api/dist/app.js`.
-- **TimescaleDB database is `digilog_tsdb`, not `digilog_db`.** Connecting TSDB_* env vars to `digilog_db` fails silently on some queries and spectacularly on others.
-- **Redis is now optional, and only required ≥5 when used.** Phase 2 of windows-friendly-rewrite (commit `7832af1`) moved the job queue to graphile-worker on Postgres — BullMQ + Redis are no longer required for queue work. Redis is still used for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracer, debug recorder); if you do install it, ≥5 is required (old Redis 3 still crashes the API at boot). Memurai ≥5 is the supported Windows substitute. Phase 4 will move pub/sub to PG `LISTEN/NOTIFY` and drop the dependency entirely.
-- **MQTT broker is now Mosquitto 2.0**, not EMQX. Phase 1 of windows-friendly-rewrite swapped to Mosquitto for native Windows-service support. Install via `scripts/install-mosquitto.ps1` from an elevated PowerShell. After every `POST /api/internal/mqtt/refresh-acl`, copy `<repo>/mosquitto/dynamic-security.json` into `C:\Program Files\mosquitto\` and `Restart-Service mosquitto`.
+- ~~**TimescaleDB database is `digilog_tsdb`, not `digilog_db`.**~~ *(REMOVED 2026-06-17 — `digilog_tsdb` + TimescaleDB dropped with the data-ingestion tear-out; only `digilog_db` remains, vanilla Postgres with no TimescaleDB extension.)*
+- ~~**Redis is now optional…**~~ *(REMOVED 2026-05-01 — Redis/Memurai is gone entirely. The job queue is graphile-worker on Postgres and pub/sub is in-process (EventEmitter bus); `ioredis` uninstalled and pub/sub consumers torn out in Phase 6/7.)*
+- ~~**MQTT broker is now Mosquitto 2.0**~~ *(REMOVED 2026-06-17 — MQTT broker (Mosquitto/EMQX) + `install-mosquitto.ps1` + `/api/internal/mqtt/refresh-acl` all torn out with the data-ingestion tear-out; no broker anymore.)*
 - **PDF/chart pipeline is now puppeteer-core + Edge + @napi-rs/canvas**, not bundled-Chromium puppeteer + chartjs-node-canvas. Phase 3 swap dropped the ~150 MB Chromium download and the node-gyp/MSVC build chain. `PUPPETEER_EXECUTABLE_PATH` env var overrides the auto-detected Edge path.
 - **Fastify strips response fields not declared in the schema.** If a property "disappears" over the wire, the schema is the likely suspect, not the handler.
 - **Role permissions go stale after a DB restore.** `roles` table is rewritten — either reseed from `seed.ts` or `UPDATE` directly. Symptom: users suddenly lose access after a restore test.
@@ -43,7 +43,7 @@ These are real-world constraints verified from code + project memory, not specul
 
 ## Historical / not currently active
 
-- **Phase 1 IoT platform features** (UNS, rule chains, alarms) are still present but not the Phase-3/4 focus. Regressions there are still P1 because pharma deployments depend on them.
+- ~~**Phase 1 IoT platform features** (UNS, rule chains, alarms) are still present…~~ *(REMOVED — rule chains + alarms 2026-05-17; UNS + the rest of the ingestion layer 2026-06-17. None of these exist anymore.)*
 - **LDAP integration** is present but not widely tested in production environments — flag any issue here as P1 and attach the LDAP config (sanitised).
 
 ## Open, unresolved decisions

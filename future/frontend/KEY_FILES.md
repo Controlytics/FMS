@@ -70,7 +70,7 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 | `src/routes/checklist-form/*` | Standalone end-user checklist submission — intentionally outside AppLayout (renamed from `checklist/` in P1.4). |
 | `src/routes/checklist-admin/*` | Admin CRUD for checklist templates (renamed from `checklists/` in P1.4). |
 | `src/routes/cleaning-cycles/*` | History + timeline of cycles; reads DRY_IN dryerTemp from readings event. |
-| `src/routes/config/filter-cleaning-reasons.tsx`, `equipment-groups.tsx`, `cleaning-profile-assignment.tsx`, `ahu-filter-set-config.tsx`, `alarm-columns.tsx`, `audit-templates.tsx`, `access-matrix.tsx`, `tablet-access.tsx` | Filter-domain + governance config pages added in Phases 4-5. |
+| `src/routes/config/filter-cleaning-reasons.tsx`, `equipment-groups.tsx`, `cleaning-profile-assignment.tsx`, `ahu-filter-set-config.tsx`, `audit-templates.tsx`, `access-matrix.tsx`, `tablet-access.tsx` | Filter-domain + governance config pages added in Phases 4-5. *(`alarm-columns.tsx` removed 2026-05-17 with the alarm tear-out.)* |
 | `src/routes/pm-schedules/*` + `my-tasks/*` | PM schedule list + detail + per-user task views. PM QA approval workflow: PENDING/APPROVED/REJECTED with mandatory remarks; `getDueTasks` returns APPROVED only. |
 
 ## Admin / governance
@@ -80,7 +80,7 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 | `src/routes/admin-requests/index.tsx` | Admin request creation + approver view. Approvals execute the action server-side (create/unlock/reset/modify); requester Employee ID required and audited. |
 | `src/routes/approvals/index.tsx` | Approvals inbox (block-change + PM); remarks mandatory; mobile approvals view also has comment input. |
 | `src/routes/config/backup.tsx` | Dynamic backup/restore UI — covers all 64 tables. |
-| `src/routes/config/filter-data-management.tsx` | **SUPER_ADMIN-only data console with ZERO audit trail** — 10 tabs each mirroring its user-facing page (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, retirements, replacements). Bypasses 21 CFR audit chain by design for emergency data fixes. |
+| `src/routes/config/filter-data-management.tsx` | **SUPER_ADMIN-only data console with ZERO audit trail** — 9 tabs each mirroring its user-facing page (cycles, events, PM, audit, notifications, admin requests, block changes, retirements, replacements). Bypasses 21 CFR audit chain by design for emergency data fixes. *(The alarms tab was removed 2026-05-17 with the alarm tear-out.)* |
 | `src/routes/config/access-matrix.tsx` | SUPER_ADMIN-only per-module role allowlist; modules without an entry default to visible (back-compat). |
 | `src/routes/config/tablet-access.tsx` | Role × feature matrix gating tablet `/m` access; mobile-login enforces this. |
 | `src/routes/tenant/*` | Super-admin org management. |

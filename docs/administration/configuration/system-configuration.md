@@ -25,20 +25,20 @@
 | notification-telegram | Telegram bot integration |
 | pagination | Default page sizes and limits |
 | password-policy | Password complexity, expiration, history |
-| retention | Data retention policies per hypertable |
+| ~~retention~~ | ~~Data retention policies per hypertable~~ *(removed 2026-06-17 — Phase 7 tear-out; no hypertables)* |
 | role-privileges | Role-to-privilege mapping (52+ privileges) |
 | roles | Role hierarchy definitions |
 | session | Session timeout, idle warning, single-tab |
 | sidebar-config | Navigation sidebar structure |
-| uns | Unified Namespace settings |
+| ~~uns~~ | ~~Unified Namespace settings~~ *(removed 2026-06-17 — Phase 7 tear-out)* |
 | user-id | User ID format (prefix, sequential, etc.) |
 
 ## Categories
 - **Security:** Password Policy, Login Security, Session Management, Action Re-authentication
-- **Display:** DateTime Format, Branding, Pagination, Field IDs, Alarm Columns, Audit Templates
-- **Integrations:** Email (SMTP/OAuth2), SMS (AWS SNS/Twilio/Vonage), Telegram, Slack, Notification Rules, UNS
+- **Display:** DateTime Format, Branding, Pagination, Field IDs, ~~Alarm Columns~~ *(removed 2026-05-17)*, Audit Templates
+- **Integrations:** Email (SMTP/OAuth2), SMS (AWS SNS/Twilio/Vonage), Telegram, Slack, Notification Rules ~~, UNS~~ *(UNS removed 2026-06-17)*
 - **Filter Management:** Filter Cleaning Reasons, Filter Lifecycle States, Filter PM Schedule
-- **Advanced:** Data Retention, Backup & Restore, System Health, Help Articles, Debug Traces
+- **Advanced:** ~~Data Retention~~ *(removed 2026-06-17)*, Backup & Restore, System Health, Help Articles, Debug Traces
 
 ## API
 - `GET /api/config/registry/manifest` — List all config modules

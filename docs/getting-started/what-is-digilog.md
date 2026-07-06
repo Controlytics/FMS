@@ -5,14 +5,14 @@ DigiLog is a **21 CFR Part 11 compliant** IoT data logging platform designed for
 ## Core Capabilities
 
 ### Data Collection
-- **Real-time telemetry** from IoT devices via MQTT and HTTP
+- ~~**Real-time telemetry** from IoT devices via MQTT and HTTP~~ *(removed 2026-06-17 — Phase 7 tore out the data-ingestion pipeline, MQTT broker, and TimescaleDB)*
 - **Manual data entry** through mobile-friendly checklists with electronic signatures
 - **Binary data** support (images, audio, vibration waveforms)
 - **Bulk upload** for importing historical and batch data
 
 ### Data Processing
-- **77-node visual rule chain engine** for conditional processing, enrichment, and transformation across 8 categories (input, filter, enrichment, transformation, action, analytics, flow, external)
-- **Automatic alarm generation** with threshold, rate-of-change, and absence detection
+- ~~**77-node visual rule chain engine** for conditional processing, enrichment, and transformation across 8 categories (input, filter, enrichment, transformation, action, analytics, flow, external)~~ *(removed 2026-05-17 — rule-chain subsystem torn out)*
+- ~~**Automatic alarm generation** with threshold, rate-of-change, and absence detection~~ *(removed 2026-05-17 — Alarm subsystem torn out)*
 - **Multi-channel notifications** (in-app, email, SMS, Telegram, Slack) based on configurable rules
 
 ### Compliance
@@ -23,17 +23,17 @@ DigiLog is a **21 CFR Part 11 compliant** IoT data logging platform designed for
 
 ### Organization
 - **Entity hierarchy** following ISA-95 standard (Enterprise -> Site -> Area -> Line -> Equipment -> Sensor)
-- **Unified Namespace (UNS)** with MQTT wildcard support
+- ~~**Unified Namespace (UNS)** with MQTT wildcard support~~ *(removed 2026-06-17 — Phase 7 tear-out)*
 - **12 relationship types** between entities with cycle detection
 - **QR/RFID/NFC identifiers** for physical equipment tagging
 
 ## Architecture
 
 DigiLog uses a modern tech stack (verified 2026-04-29):
-- **Backend:** Fastify 5 (Node.js / TypeScript) with **37 API modules**
+- **Backend:** Fastify 5 (Node.js / TypeScript) with **33 API modules**
 - **Frontend:** React 19 + Vite 6 SPA with Tailwind CSS 4
-- **Database:** PostgreSQL 18 + Prisma 6 + TimescaleDB (time-series), **68 Prisma models, 21 enums**
-- **MQTT:** Mosquitto 2.0 (Phase 1 of windows-friendly-rewrite swapped from EMQX)
+- **Database:** PostgreSQL 18 + Prisma 6 (vanilla PG — TimescaleDB removed 2026-06-17), **61 Prisma models, 23 enums**
+- ~~**MQTT:** Mosquitto 2.0 (Phase 1 of windows-friendly-rewrite swapped from EMQX)~~ *(removed 2026-06-17 — Phase 7 tear-out; no MQTT broker)*
 - **Queue:** graphile-worker on PostgreSQL (Phase 2 swapped from BullMQ + Redis/Memurai). **No Redis dependency** — Phase 4 (2026-05-01) retired it; pub/sub moved to an in-process EventEmitter bus.
 - **PDF export:** client-side via `apps/web` `lib/pdf-report.ts` (jsPDF). *(The server-side `puppeteer-core` + Edge + `@napi-rs/canvas` reports engine was removed 2026-07-04.)*
 - **Config:** **35 config definitions** with auto-discovery at startup, **34** corresponding pages

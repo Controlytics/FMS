@@ -14,11 +14,11 @@ All text inputs are sanitized to strip HTML tags (XSS prevention) via lib/saniti
 - Unique access tokens per entity
 - Optional IP allowlists
 - Rate limiting (configurable per credential)
-- MQTT TLS support (port 8883)
+- ~~MQTT TLS support (port 8883)~~ *(removed 2026-06-17 — Phase 7 tear-out; no MQTT broker)*
 
 ## Data Security
 - PostgreSQL role-based access
-- TimescaleDB compression for data at rest
+- ~~TimescaleDB compression for data at rest~~ *(removed 2026-06-17 — Phase 7 tear-out; vanilla PostgreSQL 18)*
 - SHA-256 hash-chain audit trail
 - Backup integrity verification
 - Organization scoping ensures cross-tenant data isolation

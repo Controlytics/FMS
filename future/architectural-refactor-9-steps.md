@@ -86,7 +86,7 @@ For each step:
 
 **Investigation outcome:** They are different domains, not duplicates. **Closed without schema work.** Full findings: `tasks/STEP-5-CHECKLIST-INVESTIGATION.md`.
 
-- **System A (`AssetTemplate.checklistSchema`)** — generic per-entity inspection. Submitted via `POST /api/data/checklist`, persisted to `ts_checklist_responses` (TSDB hypertable, hash-bound) and opens a 3-step `ChecklistReview` (Performed → Checked → Verified) e-sig workflow for 21 CFR Part 11 attestation.
+- **System A (`AssetTemplate.checklistSchema`)** — generic per-entity inspection. Submitted via `POST /api/data/checklist`, persisted to `ts_checklist_responses` (TSDB hypertable, hash-bound) and opens a 3-step `ChecklistReview` (Performed → Checked → Verified) e-sig workflow for 21 CFR Part 11 attestation. *(Note added later: System A was entirely removed after this 2026-04-30 investigation — `/api/data/checklist` + `ts_checklist_responses` went 2026-06-17 with the data-ingestion/TimescaleDB tear-out, and the `ChecklistReview` table was dropped 2026-07-04. Only System B below survives.)*
 - **System B (`ChecklistProfile`+`ChecklistQuestion`)** — synchronous gate inside a cleaning cycle. Referenced by `FilterPipelineStage.configuration.checklistProfileId` for CHECKLIST nodes. Submitted via `POST /api/filters/:id/submit-checklist`, embedded in `FilterEvent` log, must be answered to unblock `advance()`.
 
 You cannot consolidate them without either forcing every cleaning checklist through a 3-step e-sig review (operationally a nightmare) or stripping the review workflow off System A (regulatorily damaging). Optional cosmetic cleanups documented in the findings doc; none are required.

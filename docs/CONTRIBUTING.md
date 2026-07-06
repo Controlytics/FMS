@@ -27,9 +27,9 @@ For every kind of code change, update every doc in the right column **in the sam
 | **New `config/static-routes/<surface>.routes.ts`** | `BACKEND_GUIDE.md` static-routes list, `PHASE_5_RECENT_WORK.md` § 9 |
 | **`PUBLIC_GET_PATHS` change** in `plugins/auth.ts` | `BACKEND_GUIDE.md`, `future/backend/README.md` "Public paths" |
 | **New `requireAnyPermission` / `enforceReauth` usage** | `BACKEND_GUIDE.md` rbac plugin entry, `future/backend/README.md` rbac entry |
-| **New rule-chain node** in `nodes/<category>.ts` | `BACKEND_GUIDE.md` Rule Chain table (77 count), `future/overview/CODEBASE_SUMMARY.md`, `README.md`, `CLAUDE.md`, `PROJECT_ARCHITECTURE.md`, `PROJECT_SUMMARY.md` |
-| **New data-ingestion file** | `BACKEND_GUIDE.md` Data Ingestion table |
-| **New `queries/*.routes.ts`** sibling | `BACKEND_GUIDE.md` Queries table, `future/backend/MODULES.md` |
+| ~~**New rule-chain node** in `nodes/<category>.ts`~~ | *(removed 2026-05-17 — rule-chain subsystem torn out; N/A)* |
+| ~~**New data-ingestion file**~~ | *(removed 2026-06-17 — data-ingestion module torn out, Phase 7; N/A)* |
+| ~~**New `queries/*.routes.ts`** sibling~~ | *(removed 2026-06-17 — queries module torn out, Phase 7; N/A)* |
 | **New `assets/{routes,services,repositories}/` file** | `BACKEND_GUIDE.md` Assets module structure, `future/backend/MODULES.md` |
 
 ### Database
@@ -105,7 +105,7 @@ Plus: write an e2e test, append to `CHANGELOG.md`, and update count claims in CL
 | **New PowerShell script** in `scripts/` | `PROJECT_ARCHITECTURE.md` Repo-level Infrastructure, `tasks/EXE-PACKAGING-PLAN.md`, `docs/PHARMA_DEPLOYMENT_21CFR.md` |
 | **TLS/cert change** in `certs/` | `CLAUDE.md` TLS notes, `PROJECT_ARCHITECTURE.md`, memory `reference_apk_tls_setup` |
 | **New env var** in `.env.example` | `BACKEND_GUIDE.md` Environment Variables, `LOCAL_SETUP_WINDOWS.md`, `future/backend/ENV_SETUP.md` |
-| **`tsdb-migration/init-hypertables.sql`** change | `PROJECT_ARCHITECTURE.md`, `LOCAL_SETUP_WINDOWS.md` |
+| ~~**`tsdb-migration/init-hypertables.sql`** change~~ | *(removed 2026-06-17 — `tsdb-migration/` + TimescaleDB gone, Phase 7; N/A)* |
 | **`turbo.json` / `vitest.workspace.ts` / per-workspace `vitest.config.ts`** change | `PROJECT_ARCHITECTURE.md` Build/test infra, `future/testing/README.md` |
 | **`.github/workflows/ci.yml`** change | `PROJECT_ARCHITECTURE.md` CI section, `future/testing/README.md` |
 

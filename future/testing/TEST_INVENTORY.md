@@ -4,23 +4,23 @@ Every automated test file in the repo, grouped by surface. Verified by `find app
 
 ## Backend e2e (`apps/api/src/e2e/`) — 15 suites
 
-Boot Fastify + hit a real DB. Point `DATABASE_URL` + `TSDB_*` at a test DB before running.
+Boot Fastify + hit a real DB. Point `DATABASE_URL` at a test DB before running. *(The `TSDB_*` requirement was dropped 2026-06-17 with the TimescaleDB tear-out.)*
 
 | Suite | Covers |
 |---|---|
 | `audit.test.ts` | List, read, delete, bulk-delete, hash-chain integrity |
 | `auth.test.ts` | Login / logout / refresh / reauth / forgot-password |
-| `checklist-submission.test.ts` | POST /api/data/checklist — end-to-end submission |
+| `checklist-submission.test.ts` | Answer-format data assertions (pure data, no HTTP). *(Originally hit `POST /api/data/checklist`, removed 2026-06-17; the HTTP portions were dropped and live cleaning-checklist flow now lives in `phase2-filter-operations.test.ts` / `ahu-completion-gate.e2e.test.ts`.)* |
 | `checklist-templates.test.ts` | Checklist profile CRUD + questions |
 | `config.test.ts` | Each config surface read/write, partial updates |
-| `connectivity.test.ts` | Per-entity tokens + snippets |
+| ~~`connectivity.test.ts`~~ | *removed 2026-06-17 with the connectivity module tear-out* |
 | `entities.test.ts` | Templates, instances, relationships, identifiers |
 | `health.test.ts` | `/api/health` |
 | `help-articles.test.ts` | CRUD + versioning |
 | `notifications.test.ts` | Inbox CRUD + bulk |
 | `qr-codes.test.ts` | Generation + lookup |
 | `roles.test.ts` | Role CRUD + creatable matrix |
-| `rule-chains.test.ts` | Chain CRUD + node/connection editing + save |
+| ~~`rule-chains.test.ts`~~ | *removed 2026-05-17 with the rule-chain tear-out* |
 | `system-health.test.ts` | Aggregate health + per-service probes |
 | `users.test.ts` | User CRUD + lockout + password reset |
 
@@ -54,8 +54,7 @@ Boot Fastify + hit a real DB. Point `DATABASE_URL` + `TSDB_*` at a test DB befor
 ### Config module — 2 files
 - `config.repository.test.ts`, `config.service.test.ts`
 
-### Data-ingestion module — 11 files
-- `checklist-answers.test.ts`, `checklist-normalizer.test.ts`, `connectivity-tracker.test.ts`, `dlq-manager.test.ts`, `entity-resolver.test.ts`, `ingestion-config.service.test.ts`, `ingestion.repository.test.ts`, `ingestion.service.test.ts`, `message-normalizer.test.ts`, `pipeline-tracer.test.ts`, `rpc-handler.test.ts`
+### ~~Data-ingestion module — 11 files~~ *(REMOVED 2026-06-17 with the data-ingestion tear-out)*
 
 ### Notifications — 2 files
 - `notification.repository.test.ts`, `notification.service.test.ts`
@@ -63,11 +62,9 @@ Boot Fastify + hit a real DB. Point `DATABASE_URL` + `TSDB_*` at a test DB befor
 ### Roles — 2 files
 - `role.repository.test.ts`, `role.service.test.ts`
 
-### Rule chain — 4 files
-- `debug-recorder.test.ts`, `default-chain-builder.test.ts`, `node-registry.test.ts`, `rule-engine.test.ts`
+### ~~Rule chain — 4 files~~ *(REMOVED 2026-05-17 with the rule-chain tear-out)*
 
-### UNS — 2 files
-- `uns-path-builder.test.ts`, `uns.service.test.ts`
+### ~~UNS — 2 files~~ *(REMOVED 2026-06-17 with the UNS tear-out)*
 
 ### Users — 2 files
 - `user.repository.test.ts`, `user.service.test.ts`
@@ -75,11 +72,9 @@ Boot Fastify + hit a real DB. Point `DATABASE_URL` + `TSDB_*` at a test DB befor
 ### Plugins — 3 files
 - `audit-logger.plugin.test.ts`, `auth.plugin.test.ts`, `rbac.plugin.test.ts`
 
-### Transport — 4 files
-- `mqtt-auth-routes.test.ts`, `mqtt-client.test.ts`, `mqtt-handler.test.ts`, `ws-handler.test.ts`
+### ~~Transport — 4 files~~ *(REMOVED 2026-06-17 — MQTT client/handler/auth + WS handler tests torn out with the data-ingestion tear-out)*
 
-### Workers — 2 files
-- `ingestion.worker.test.ts`, `maintenance.worker.test.ts`
+### ~~Workers — 2 files~~ *(REMOVED 2026-06-17 — `ingestion.worker` + `maintenance.worker` deleted with the data-ingestion tear-out)*
 
 ## Shared package (`packages/shared/src/**`)
 
@@ -89,20 +84,20 @@ Boot Fastify + hit a real DB. Point `DATABASE_URL` + `TSDB_*` at a test DB befor
 - `schemas/users.test.ts`
 - `types/audit-templates.test.ts`
 
-## DB package (`packages/db/src/__tests__/`)
+## ~~DB package (`packages/db/src/__tests__/`)~~ *(REMOVED 2026-06-17 — the `packages/db/` workspace was deleted with the TimescaleDB tear-out)*
 
-- `telemetry-batcher.test.ts`
+- ~~`telemetry-batcher.test.ts`~~
 
 ## Shell e2e scripts (`tests/e2e-scripts/`)
 
 - `e2e-full-test.sh` — full-flow happy path
 - `e2e-functional-test.sh` — functional coverage
-- `e2e-ingest.sh` — ingestion pipeline smoke
+- ~~`e2e-ingest.sh` — ingestion pipeline smoke~~ *(obsolete — the ingestion pipeline was removed 2026-06-17)*
 - `e2e-live-test.sh` — live-system smoke (run against a deployed instance)
 
 ## Manual test cases (`tests/manual-test-cases/`) — 25 files
 
-TC-01 through TC-25, one per module: authentication, user-mgmt, roles, entity templates, entity instances, relationships, identifiers, configuration, audit-trail, notifications, data-ingestion, rule-chains, UNS, telemetry-queries, alarms, export, retention, connectivity, QR-codes, help-articles, debug-traces, backup-restore, session-mgmt, uploads, 21-CFR-compliance.
+TC-01 through TC-25, one per module: authentication, user-mgmt, roles, entity templates, entity instances, relationships, identifiers, configuration, audit-trail, notifications, ~~data-ingestion, rule-chains, UNS, telemetry-queries, alarms, export, retention, connectivity~~ *(these 8 removed 2026-05-17..2026-06-17 with the rule-chain + data-ingestion tear-outs)*, QR-codes, help-articles, debug-traces, backup-restore, session-mgmt, uploads, 21-CFR-compliance.
 
 ## Execution guides (`tests/test-execution-guides/`) — 25 files
 
@@ -112,5 +107,5 @@ EG-01 through EG-25 pair 1:1 with the TC numbering above. These are the step-by-
 
 - **No frontend unit or component tests.** Any React change is verified by manual QA + Playwright traces (archived in `old/playwright-artifacts/`).
 - **No automated test for the offline sync engine.** Phase 3 gap.
-- **No load / concurrency tests for MQTT ingestion.**
-- **Phase 3/4 modules** (cleaning-profiles, filter-operations, pm-schedules, report-templates, reports, admin-requests, block-change-requests, equipment-groups, tenant-admin, super-admin, notification-delivery, notification-rules, connectivity, dashboards, queries, org-admin, entity-assignments, LDAP, filter-profiles, checklist-profiles, deployment-check) — **no dedicated module unit tests yet.** Coverage is currently via the general e2e suites and manual TCs.
+- ~~**No load / concurrency tests for MQTT ingestion.**~~ *(N/A — MQTT ingestion was removed 2026-06-17.)*
+- **Phase 3/4 modules** (cleaning-profiles, filter-operations, pm-schedules, report-templates, reports, admin-requests, block-change-requests, equipment-groups, tenant-admin, super-admin, notification-delivery, notification-rules, ~~connectivity~~ *(removed 2026-06-17)*, dashboards, ~~queries~~ *(removed 2026-06-17)*, org-admin, entity-assignments, LDAP, filter-profiles, checklist-profiles, deployment-check) — **no dedicated module unit tests yet.** Coverage is currently via the general e2e suites and manual TCs.

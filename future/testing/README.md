@@ -7,7 +7,7 @@ This project has four distinct test surfaces. Know which one to touch before you
 | Backend unit | `apps/api/src/lib/*.test.ts`, `apps/api/src/modules/**/__tests__/*.test.ts` | Vitest | Pure-function + repository tests |
 | Backend integration / e2e | `apps/api/src/e2e/*.test.ts` | Vitest + real DB | Per-module end-to-end API flows (15 suites; Phase 1 coverage only) |
 | Shared schema tests | `packages/shared/src/**/*.test.ts` | Vitest | Validation of Zod schemas + constants |
-| db package tests | `packages/db/src/__tests__/*.test.ts` | Vitest | telemetry-batcher unit tests |
+| ~~db package tests~~ | ~~`packages/db/src/__tests__/*.test.ts`~~ | — | *(REMOVED 2026-06-17 — the `packages/db/` workspace was deleted with the TimescaleDB tear-out)* |
 | Shell e2e scripts | `tests/e2e-scripts/*.sh` | bash + curl | Cross-system smoke (full-test, functional, ingest, live) |
 | Manual QA — golden paths | `future/testing/MANUAL_TEST_GUIDE.md` | Humans | 12 step-by-step golden-path scripts |
 
@@ -40,9 +40,9 @@ Vitest is configured via `vitest.workspace.ts` at the repo root — the workspac
 ## File counts (2026-04-29, verified by find/grep)
 
 - 9 backend lib unit tests under `apps/api/src/lib/__tests__/` (audit, build-context, error-schemas, errors, hash-chain, jwt, password, reauth-check, user-id-validator)
-- **15** e2e test suites in `apps/api/src/e2e/` (audit, auth, checklist-submission, checklist-templates, config, connectivity, entities, health, help-articles, notifications, qr-codes, roles, rule-chains, system-health, users)
+- e2e test suites in `apps/api/src/e2e/` (audit, auth, checklist-submission, checklist-templates, config, entities, health, help-articles, notifications, qr-codes, roles, system-health, users) — *the `connectivity` and `rule-chains` suites were removed with their subsystems (rule-chains 2026-05-17; connectivity 2026-06-17)*
 - ~7 schema test suites under `packages/shared/src/` (assets, auth, config, users, audit-templates, + more)
-- 1 repository test in `packages/db` (telemetry-batcher) — known to use 25 `as any` casts (acceptable for mocking)
+- ~~1 repository test in `packages/db` (telemetry-batcher)~~ *(removed 2026-06-17 — the `packages/db/` workspace was deleted with the TimescaleDB tear-out)*
 - Shell e2e scripts under `tests/e2e-scripts/`
 - 12 golden-path scenarios in `future/testing/MANUAL_TEST_GUIDE.md`
 
@@ -54,11 +54,11 @@ Known gaps — flag in PRs:
 - The frontend has **no component tests** or browser E2E tests in CI. QA is manual via `MANUAL_TEST_GUIDE.md` + Playwright traces (archived in `old/playwright-artifacts/`).
 - The offline sync engine has no automated integration test.
 - RFID native apps (`rfid_scan_app/` standalone + `apps/android/.../RfidPlugin.java` bundled in DigiLog APK) are manually tested on hardware.
-- No load / stress tests for MQTT ingestion.
+- ~~No load / stress tests for MQTT ingestion.~~ *(N/A — MQTT ingestion was removed 2026-06-17.)*
 
 ## What the e2e tests cover
 
-Located at `apps/api/src/e2e/`. Each one boots Fastify + hits a live DB (you need `DATABASE_URL` + `TSDB_*` pointing at a test instance — **do not** run these against production DBs).
+Located at `apps/api/src/e2e/`. Each one boots Fastify + hits a live DB (you need `DATABASE_URL` pointing at a test instance — **do not** run these against production DBs). *(The `TSDB_*` requirement was dropped 2026-06-17 with the TimescaleDB tear-out.)*
 
 | File | Covers |
 |---|---|
@@ -69,11 +69,11 @@ Located at `apps/api/src/e2e/`. Each one boots Fastify + hits a live DB (you nee
 | `audit.test.ts` | Hash-chain integrity, bulk delete |
 | `entities.test.ts` | Templates + instances + relationships + identifiers |
 | `checklist-templates.test.ts` + `checklist-submission.test.ts` | Profile CRUD + end-to-end submission |
-| `connectivity.test.ts` | Token issue/revoke + snippets |
+| ~~`connectivity.test.ts`~~ | *removed 2026-06-17 with the connectivity tear-out* |
 | `help-articles.test.ts` | Versioned help articles |
 | `notifications.test.ts` | Inbox + bulk actions |
 | `qr-codes.test.ts` | Generation + lookup |
-| `rule-chains.test.ts` | Chain CRUD + node/connection edits + save |
+| ~~`rule-chains.test.ts`~~ | *removed 2026-05-17 with the rule-chain tear-out* |
 | `system-health.test.ts` / `health.test.ts` | Aggregate + per-service probes |
 
 ## Where to read next

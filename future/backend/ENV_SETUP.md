@@ -5,9 +5,9 @@ For the full root-level setup (Windows dev box), the authoritative guide is **`L
 ## Prerequisites
 
 - Node 20+ / 22 + npm 11 (root `package.json` pins `"packageManager": "npm@11.6.2"`)
-- PostgreSQL 18 with two databases: `digilog_db` (app + graphile-worker schema) and `digilog_tsdb` (telemetry, TimescaleDB extension)
-- Mosquitto 2.0 — optional unless testing MQTT ingest. Install via `scripts/install-mosquitto.ps1` from elevated PowerShell. (Phase 1 of windows-friendly-rewrite swapped from EMQX.)
-- Redis / Memurai ≥5 — **optional**. Phase 2 of windows-friendly-rewrite moved the job queue onto Postgres via graphile-worker. Redis is still used for non-queue pub/sub (WebSocket events, RPC routing, pipeline tracer, debug recorder); if you skip it those features degrade silently. Don't use Redis 3 or earlier; BullMQ-era code paths will crash.
+- PostgreSQL 18 with a single database: `digilog_db` (app + graphile-worker schema). *(The `digilog_tsdb` telemetry DB + TimescaleDB extension were removed 2026-06-17 with the data-ingestion tear-out — no TimescaleDB anymore.)*
+- ~~Mosquitto 2.0 — optional unless testing MQTT ingest~~ *(removed 2026-06-17 — MQTT broker (Mosquitto/EMQX) + `install-mosquitto.ps1` gone; no broker anymore).*
+- ~~Redis / Memurai ≥5~~ *(removed 2026-05-01 — the job queue moved to graphile-worker on Postgres and pub/sub is now in-process; no Redis/Memurai dependency).*
 - ~~Microsoft Edge for PDF reports~~ — **no longer needed.** The server-side `puppeteer-core` + Edge reports PDF engine was removed 2026-07-04; PDF export is now client-side (`apps/web` `lib/pdf-report.ts`, jsPDF). No Edge/Chromium dependency.
 - JDK 21 + Android SDK (only if you also build the APK) — installed at `C:\Users\hello\` on the reference dev box.
 
@@ -20,11 +20,8 @@ npm install
 # copy and edit env
 cp .env.example .env
 # - fill in DATABASE_URL for digilog_db
-# - fill in TSDB_* for digilog_tsdb
+# - (TSDB_* / init-tsdb.sql removed 2026-06-17 — no TimescaleDB DB to bootstrap)
 # - generate JWT_SECRET + VERIFICATION_TOKEN_SECRET (see .env.example for node -e helper)
-
-# bootstrap TimescaleDB
-psql -U digilog -d digilog_tsdb -f init-tsdb.sql
 
 # run migrations against the app DB
 npm run db:migrate     # → cd apps/api && npx prisma migrate dev
@@ -68,13 +65,13 @@ After Phase 4 of the windows-friendly-rewrite the Fastify API serves both the SP
 
 ## Database tips
 
-- `digilog_tsdb` is the **telemetry** store (TimescaleDB hypertables created by `init-tsdb.sql`). Do not confuse it with `digilog_db` (the Prisma-managed app DB). Backups in `old/db-backups/` include both.
+- ~~`digilog_tsdb` is the **telemetry** store (TimescaleDB hypertables)~~ *(removed 2026-06-17 — `digilog_tsdb` + TimescaleDB dropped with the data-ingestion tear-out; only `digilog_db` (Prisma-managed app DB) remains).*
 - Restores rewrite the `roles` table — reseed (or `UPDATE`) after a restore to recover lost permissions.
 - Dynamic backup goes through `pg_tables` + `jsonb_populate_recordset` and handles all 64 tables without needing superuser.
 
-## Connecting locally with Memurai on Windows (optional)
+## ~~Connecting locally with Memurai on Windows (optional)~~ *(removed 2026-05-01)*
 
-Memurai appears as the "Memurai" service in Windows services. After Phase 2 of the windows-friendly-rewrite the **job queue lives on Postgres via graphile-worker**, so Memurai is no longer required for queue work. If you do install it, make sure the service is running before `npm run dev` so the non-queue pub/sub features (WebSocket events, RPC routing, pipeline tracer, debug recorder) wire up correctly.
+Redis/Memurai is no longer used at all. The job queue lives on Postgres via graphile-worker and pub/sub is now in-process (EventEmitter bus); `ioredis` was uninstalled 2026-05-01 and the remaining pub/sub consumers were torn out in Phase 6/7. There is no Memurai service to install or run.
 
 ## Android build (optional)
 

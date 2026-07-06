@@ -101,7 +101,7 @@ The main application file registers everything in this order:
 |---|---|---|---|
 | `config` | `/api/config` | 40+ | 35 config definitions (`config/defs/`), `dynamic-routes.ts` for registry-discovered surfaces + `static-routes/` per-tab files (split done in bloat audit P2.3) |
 
-**Static-routes split** (`apps/api/src/modules/config/static-routes/`, 11 files): `access-matrix.routes.ts`, `action-reauth.routes.ts`, `alarm-columns.routes.ts`, `audit-templates.routes.ts`, `branding.routes.ts`, `cleaning-profile-assignment.routes.ts`, `dashboard-cards.routes.ts`, `field-ids.routes.ts`, `roles.routes.ts`, `tablet-access.routes.ts`, `user-id.routes.ts`. Top-level `routes.ts` is now a registration loop (~170 LOC, was 1003).
+**Static-routes split** (`apps/api/src/modules/config/static-routes/`, 18 files): `access-matrix.routes.ts`, `action-reauth.routes.ts`, `ahu-completion-process.routes.ts`, `audit-templates.routes.ts`, `branding.routes.ts`, `cleaning-profile-assignment.routes.ts`, `dashboard-cards.routes.ts`, `export-options.routes.ts`, `field-ids.routes.ts`, `offline-cache.routes.ts`, `pm-schedule-filters.routes.ts`, `replacement-schedule-filters.routes.ts`, `report-labels.routes.ts`, `report-page-titles.routes.ts`, `report-signatories.routes.ts`, `roles.routes.ts`, `tablet-access.routes.ts`, `user-id.routes.ts` (`alarm-columns.routes.ts` removed 2026-05-17 with the rule-chain/alarm tear-out). Top-level `routes.ts` is now a registration loop (~170 LOC, was 1003).
 
 ### Infrastructure
 

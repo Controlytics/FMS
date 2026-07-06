@@ -99,19 +99,17 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 > cleaning-record + filter-lifecycle pages lives on those pages via `lib/pdf-report.ts`
 > (see the Libs table), not a dedicated route.
 
-### Rule Chains (lazy-loaded)
+### Rule Chains — REMOVED 2026-05-17
+
+> The `/rule-chains` + `/rule-chains/:id` routes (RuleChainsPage / RuleChainEditorPage), the `RULE_CHAIN_*` permissions, the rule-chain + alarm subsystems, and `reactflow` / `@monaco-editor/react` were all deleted in the rule-chain + alarm tear-out. The cleaning-profile pipeline editor now uses a custom canvas.
+
+### Notifications
 
 | Path | Page | Permission |
 |---|---|---|
-| `/rule-chains` | RuleChainsPage | RULE_CHAIN_VIEW |
-| `/rule-chains/:id` | RuleChainEditorPage | RULE_CHAIN_UPDATE |
-
-### Alarms & Notifications
-
-| Path | Page | Permission |
-|---|---|---|
-| `/alarms` | AlarmDashboardPage (lazy) | ALARM_VIEW |
 | `/notifications` | NotificationsPage | NOTIFICATION_VIEW |
+
+> The `/alarms` route (AlarmDashboardPage, `ALARM_VIEW`) was removed 2026-05-17 with the alarm subsystem.
 
 ### Audit & System
 
@@ -136,7 +134,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 
 `apps/web/src/main.tsx` ends with `<Route path="*" element={<Navigate to="/" replace />} />`. Any URL that doesn't match a registered route (e.g. an old `/organizations` bookmark, a typo, a deep link to a deleted page) redirects to the dashboard instead of rendering blank. Added 2026-04-30 in the post-MT-removal hardening pass.
 
-### Configuration (27 pages — verified by `ls apps/web/src/routes/config/*.tsx`; +1 from Step 1 of architectural refactor)
+### Configuration (34 pages — verified by `ls apps/web/src/routes/config/*.tsx`)
 
 | Path | Page | Permission / Notes |
 |---|---|---|
@@ -144,7 +142,6 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 | `/config/access-matrix` | AccessMatrixPage | SUPER_ADMIN — per-module role allowlist |
 | `/config/action-reauth` | ActionReauthPage | SUPER_ADMIN |
 | `/config/ahu-filter-set-config` | AhuFilterSetConfigPage | SUPER_ADMIN — `/my-tasks` per-AHU mode (BOTH/SET_A/SET_B/DISABLED) |
-| `/config/alarm-columns` | AlarmColumnsPage | CONFIG_UPDATE — column visibility + role-based |
 | `/config/audit-templates` | AuditTemplatesPage | SUPER_ADMIN — templates that hide UUIDs in audit UI |
 | `/config/backup` | BackupRestorePage | CONFIG_UPDATE — dynamic 64-table export |
 | `/config/branding` | BrandingConfigPage | SUPER_ADMIN — 10 color themes + logo |
@@ -240,7 +237,6 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 | `Card` | `ui/card.tsx` | Card container |
 | `Table` | `ui/table.tsx` | Data table with th/tr/td |
 | `Badge` | `ui/badge.tsx` | Status badges (success, error, warning) |
-| `AlarmBadge` | `ui/alarm-badge.tsx` | Alarm severity badges |
 | `Toast` | `ui/toast.tsx` | Notification toast (5s auto-dismiss) |
 | `HelpButton` | `ui/help-button.tsx` | Tooltip help |
 | `CodeSnippet` | `ui/code-snippet.tsx` | Formatted code display |

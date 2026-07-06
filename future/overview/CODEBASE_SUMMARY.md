@@ -16,10 +16,10 @@
 │   └── android/          Capacitor 8 wrapper that packages the web app into an APK
 ├── packages/
 │   ├── shared/           Zod schemas, role / permission / privilege / sidebar / audit constants
-│   ├── db/               Prisma client wrapper + TimescaleDB pg Pool + telemetry batcher
+│   ├── db/               (REMOVED 2026-06-17 — `packages/db/` workspace deleted with the TimescaleDB tear-out; was Prisma wrapper + TimescaleDB pg Pool + telemetry batcher)
 │   └── queue/            graphile-worker producer + runner over Postgres (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis)
 ├── rfid_scan_app/        Standalone native Kotlin app for KC-series UHF RFID readers
-├── tsdb-migration/       One-off SQL migration helpers for TimescaleDB hypertables
+├── tsdb-migration/       (REMOVED 2026-06-17 — TimescaleDB hypertable migration helpers deleted with the TimescaleDB tear-out)
 ├── docs/                 In-repo documentation tree (administration, compliance, user-guide, deployment-methods, etc.)
 ├── scripts/              Windows production deployment scripts (package, install, reset-cwh-cycles)
 ├── certs/                mkcert TLS infrastructure (rootCA.pem, server.{crt,key}, ssl.conf) for `API_HTTPS=true`
@@ -28,7 +28,7 @@
 ├── PROJECT_HANDOVER/     APPLICATION_FLOW.md + .docx + Mermaid diagrams
 ├── tasks/                Audit log (todo.md)
 ├── tests/e2e-scripts/    Bash + curl e2e smoke scripts
-├── init-tsdb.sql         Bootstraps TimescaleDB hypertables
+├── init-tsdb.sql         (REMOVED 2026-06-17 — TimescaleDB bootstrap SQL deleted with the TimescaleDB tear-out)
 ├── docker-compose.yml    Optional Docker dev stack
 ├── start-digilog.bat / stop-digilog.bat   Windows local-dev launchers
 ├── DigiLog-FilterOps.apk Built APK (after `gradlew assembleDebug`)
@@ -39,11 +39,11 @@
 ## Tech stack (verified against `package.json` files, 2026-04-29)
 
 ### Backend (`apps/api`, Node 22, `type: module`, root `packageManager: npm@11.6.2`)
-- **Framework:** Fastify 5.2 (`@fastify/cors`, `helmet`, `rate-limit`, `multipart`, `static`, `websocket`, `swagger`, `swagger-ui`)
+- **Framework:** Fastify 5.2 (`@fastify/cors`, `helmet`, `rate-limit`, `multipart`, `static`, `swagger`, `swagger-ui`; the `@fastify/websocket` plugin was removed 2026-07-03 with the pub/sub tear-out)
 - **Auth:** JWT via `jose` 6, bcrypt for passwords
-- **DB:** Prisma 6.3 (PostgreSQL 18) + raw `pg` pool for TimescaleDB telemetry
+- **DB:** Prisma 6.3 (PostgreSQL 18, single `digilog_db`, vanilla). *(The raw `pg` pool for TimescaleDB telemetry was removed 2026-06-17 with the TimescaleDB tear-out.)*
 - **Queue:** `graphile-worker` on PostgreSQL (Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis). Uses PG `LISTEN/NOTIFY`, `SELECT … FOR UPDATE SKIP LOCKED`, `pg_advisory_lock` for cron leader election, JSONB payloads.
-- **Transport:** `mqtt` (Mosquitto 2.0 — Phase 1 of windows-friendly-rewrite swapped from EMQX), native WebSocket via `@fastify/websocket`
+- ~~**Transport:** `mqtt` (Mosquitto 2.0), native WebSocket via `@fastify/websocket`~~ *(REMOVED 2026-06-17..2026-07-03 — MQTT broker + WebSocket transport torn out; no broker or WS layer anymore.)*
 - **LDAP:** `ldapts` 8.1
 - **Mail:** `nodemailer`
 - **Docs / export:** `qrcode`, `xlsx`, `csv-parse`, `adm-zip`. *(The server-side reports PDF/chart stack — `handlebars`, `puppeteer-core`, `chart.js`, `@napi-rs/canvas`, `chartjs-adapter-date-fns`, `dayjs` — was uninstalled 2026-07-04 with the reports generate/sign removal. PDF export is now client-side via `apps/web` `lib/pdf-report.ts` (jsPDF).)*
@@ -59,9 +59,9 @@
 - **UI primitives:** hand-rolled under `components/ui/` — no off-the-shelf library
 - **Styling:** TailwindCSS 4 (`@tailwindcss/vite`) + theme utility classes (`.text-theme-primary`, `.bg-theme-gradient`, etc.)
 - **Drag-and-drop:** `@dnd-kit/*` (dashboard layouts). *(The rule-chain builder was removed 2026-05-17 and the report template designer 2026-07-04.)*
-- **Graph editor:** `reactflow` 11 (rule-chain + cleaning-profile pipeline editor)
+- ~~**Graph editor:** `reactflow` 11 (rule-chain + cleaning-profile pipeline editor)~~ *(removed 2026-05-17 with the rule-chain tear-out; the cleaning-profile pipeline editor now uses a custom canvas, not reactflow)*
 - **Charts:** `recharts`
-- **Monaco code editor:** `@monaco-editor/react` (rule-chain script nodes)
+- ~~**Monaco code editor:** `@monaco-editor/react` (rule-chain script nodes)~~ *(removed 2026-05-17 with the rule-chain tear-out)*
 - **Signatures:** `signature_pad` (21 CFR Part 11 e-sig)
 - **QR:** `qrcode.react`
 - **PWA:** `vite-plugin-pwa`
@@ -77,11 +77,11 @@
 - Final build lives in repo root as `DigiLog-FilterOps.apk`
 
 ### Infrastructure (Windows-local-only; see `DEPLOY-WINDOWS.md`)
-- **Platform target:** Windows local install (PostgreSQL 18 + TimescaleDB extension, Mosquitto 2.0, optional Nginx as reverse proxy). Memurai/Redis is now optional — only required for non-queue pub/sub features.
-- **Databases:** PostgreSQL 18 (`digilog_db` for app + `graphile_worker` schema for queue, `digilog_tsdb` for telemetry with TimescaleDB)
-- **Broker:** Mosquitto 2.0 (MQTT 1883, no web dashboard — dynsec configured via API). Install via `scripts/install-mosquitto.ps1`.
+- **Platform target:** Windows local install (PostgreSQL 18 vanilla, optional Nginx as reverse proxy). *(No TimescaleDB, no Mosquitto/MQTT broker, no Memurai/Redis — all removed 2026-05 / 2026-06.)*
+- **Databases:** PostgreSQL 18 — single `digilog_db` (app + `graphile_worker` schema for queue). *(The `digilog_tsdb` telemetry DB + TimescaleDB were dropped 2026-06-17.)*
+- ~~**Broker:** Mosquitto 2.0 (MQTT 1883)~~ *(removed 2026-06-17 — no MQTT broker anymore)*
 - **Job queue:** graphile-worker on PostgreSQL (no separate queue service)
-- **Cache / pub-sub:** Memurai ≥5 / Redis (optional — WebSocket events, RPC routing, pipeline tracer, debug recorder only; queue moved to Postgres in Phase 2)
+- ~~**Cache / pub-sub:** Memurai ≥5 / Redis~~ *(removed 2026-05-01 — pub/sub is now in-process; queue is on Postgres)*
 - **Production deployment:** PowerShell scripts at `scripts/{package-for-production,install-on-target}.ps1`
 - **Optional:** `docker-compose.yml` for a containerized dev stack
 
@@ -103,13 +103,13 @@
 - Multi-tenant super-admin
 - LDAP integration
 
-### IoT data platform (Phase 2)
-- **Data ingestion** (`apps/api/src/modules/data-ingestion/`, 11 files): HTTP + MQTT + binary + RPC + checklist + event endpoints, `entity-resolver`, `message-normalizer`, `pipeline-tracer`, `connectivity-tracker`, `dlq-manager`, separate `debug-trace.routes.ts`
-- **Rule chain engine** (`apps/api/src/modules/rule-chain/`): 77 node types across 8 categories — `node-registry.ts`, VM-sandboxed `rule-engine.ts`, `default-chain-builder.ts`, `debug-recorder.ts`, `nodes/` (8 category files + email + sms specialized notification nodes)
-- **Queries** (`apps/api/src/modules/queries/`): split into `telemetry.routes.ts`, `alarm.routes.ts`, `export.routes.ts`, `retention.routes.ts`
-- **UNS tree:** Unified namespace with entity hierarchy and move/rename
-- **Alarms:** severity, acknowledge, clear, configurable columns
-- **Dashboards:** widget-based layouts with data adapters
+### IoT data platform (Phase 2) — *mostly REMOVED (rule-chain 2026-05-17; data-ingestion / UNS / queries / connectivity + TimescaleDB + MQTT 2026-06-17). Only Dashboards survive.*
+- ~~**Data ingestion** (`apps/api/src/modules/data-ingestion/`)~~ *(removed 2026-06-17 with the data-ingestion tear-out)*
+- ~~**Rule chain engine** (`apps/api/src/modules/rule-chain/`)~~ *(removed 2026-05-17 with the rule-chain tear-out)*
+- ~~**Queries** (`apps/api/src/modules/queries/`)~~ *(removed 2026-06-17)*
+- ~~**UNS tree:** Unified namespace~~ *(removed 2026-06-17)*
+- ~~**Alarms:** severity, acknowledge, clear, configurable columns~~ *(removed 2026-05-17 with the alarm tear-out)*
+- **Dashboards:** widget-based layouts with data adapters *(survives; the `timeseries_chart` widget returns `[]` cleanly post-TimescaleDB removal)*
 
 ### Digital Filter Management System (Phase 3 / 4)
 - **Asset templates + instances:** dynamic attribute schemas with validation; `assets/` is the largest module (sub-folders: `routes/`, `services/`, `repositories/`, `helpers/`)
@@ -136,7 +136,7 @@
 - **"Data Synced" indicator** in mobile header
 - **DRY_IN two-step flow** — SET_DURATION → SUBMIT_READINGS, "Currently Drying" countdown panel persisted across navigation/offline
 - **Skip Block removal** for `needsBlock: true` stages (compliance fix)
-- **Filter Data Management console** — 10 tabs each mirroring its user-facing page (cycles, events, alarms, PM, audit, notifications, admin requests, block changes, retirements, replacements). **SUPER_ADMIN escape hatch with ZERO audit trail** — bypasses 21 CFR Part 11 audit chain on purpose.
+- **Filter Data Management console** — 9 tabs each mirroring its user-facing page (cycles, events, PM, audit, notifications, admin requests, block changes, retirements, replacements). **SUPER_ADMIN escape hatch with ZERO audit trail** — bypasses 21 CFR Part 11 audit chain on purpose. *(The alarms tab was removed 2026-05-17 with the alarm tear-out.)*
 - **Decision-tape proposal** — future architecture to eliminate client/server pipeline drift (proposed, not yet implemented)
 
 ### Admin / governance
@@ -161,7 +161,7 @@ See `overview/CURRENT_STATUS.md` for the running punch list.
 1. Install prerequisites: Node 22, npm 11, PostgreSQL 18 (vanilla — no TimescaleDB), JDK 21 + Android SDK (only if building APK). *(No TimescaleDB/MQTT-broker/Redis/Edge needed anymore — TimescaleDB + Mosquitto removed 2026-06, Redis 2026-05, and the Edge-driven server-side PDF engine 2026-07-04.)*
 2. `npm install` at the repo root.
 3. Copy `.env.example` → `.env`, adjust DB URLs and secrets. Set `API_HTTPS=true` if connecting from APK.
-4. `psql -f init-tsdb.sql` on the TimescaleDB DB; or run `tsdb-migration/init-hypertables.sql`.
+4. ~~`psql -f init-tsdb.sql` on the TimescaleDB DB; or run `tsdb-migration/init-hypertables.sql`.~~ *(step removed 2026-06-17 — no TimescaleDB DB to bootstrap.)*
 5. `npm run db:migrate` then `npm run db:seed` (runs Prisma against `apps/api`).
 6. Use `start-digilog.bat` (Windows) or run services individually:
    - API: `cd apps/api && npm run dev`
@@ -180,7 +180,7 @@ Full detail: `LOCAL_SETUP_WINDOWS.md` at root.
 - Sidebar item → `packages/shared/src/types/sidebar-items.ts` (26 entries)
 - Audit action → `packages/shared/src/types/audit-actions.ts`
 - Audit-template (UUID-hiding) → `packages/shared/src/types/audit-templates.ts`
-- Alarm column metadata → `packages/shared/src/types/alarm-columns.ts`
+- ~~Alarm column metadata → `packages/shared/src/types/alarm-columns.ts`~~ *(removed 2026-05-17 with the alarm tear-out)*
 - DB schema → `apps/api/prisma/schema.prisma` (69 models, 23 enums)
 - Migrations → `apps/api/prisma/migrations/`
 - Config def → `apps/api/src/modules/config/defs/<name>.def.ts` (30 files)

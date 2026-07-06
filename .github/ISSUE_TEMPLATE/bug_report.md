@@ -22,11 +22,6 @@ assignees: ''
 - [ ] Audit Trail
 - [ ] Notifications
 - [ ] Notification Rules/Delivery
-- [ ] Data Ingestion (MQTT/HTTP)
-- [ ] Rule Chain Engine
-- [ ] Connectivity
-- [ ] UNS (Unified Namespace)
-- [ ] Queries (Telemetry/Alarms/Export)
 - [ ] Uploads
 - [ ] Backup
 - [ ] System Health
@@ -73,7 +68,7 @@ assignees: ''
 - **Browser:**
 - **OS:**
 - **API Version:**
-- **Database:** PostgreSQL 18 + Prisma + TimescaleDB
+- **Database:** PostgreSQL 18 + Prisma (vanilla PG — TimescaleDB removed 2026-06-17)
 - **Deployment:** EC2 / Local Windows
 
 ## Screenshots / Logs

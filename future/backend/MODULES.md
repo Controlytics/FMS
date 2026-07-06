@@ -31,22 +31,24 @@ Endpoint counts below come from `grep 'app.(get|post|put|patch|delete)'` on 2026
 
 | Module | Endpoints | What it does |
 |---|---|---|
-| `config` (static routes) | 40 | Typed config endpoints (password-policy, report-settings, pagination, user-id, branding, roles, field-ids, action-reauth, audit-templates, alarm-columns, tablet-access, access-matrix, cleaning-profile-assignment, dashboard-cards, datetime, my-config) |
+| `config` (static routes) | 40 | Typed config endpoints (password-policy, report-settings, pagination, user-id, branding, roles, field-ids, action-reauth, audit-templates, tablet-access, access-matrix, cleaning-profile-assignment, dashboard-cards, datetime, my-config) *(alarm-columns removed 2026-05-17 with the rule-chain/alarm tear-out)* |
 | `config` (dynamic routes) | 3 | `/registry/manifest` + per-module-key `GET|PUT /dynamic/:moduleKey` — driven by `config-discovery.ts` |
 
-## IoT platform
+## IoT platform *(REMOVED — see notes below)*
+
+> The IoT ingestion layer was torn out in two waves: **rule-chain 2026-05-17** and **data-ingestion / uns / connectivity / queries / retention 2026-06-11..2026-06-17 (Phase 7)**. TimescaleDB + MQTT went with it. Only the `debug-traces` inspector survives, repurposed onto `audit_trail`.
 
 | Module | Endpoints | What it does |
 |---|---|---|
-| `data-ingestion` | 11 | HTTP telemetry/attributes/checklist/binary/event/RPC endpoints (device token auth) |
-| `data-ingestion/debug-trace` | 4 | Trace inspector for ingestion pipeline debugging |
-| `rule-chain` | 14 | Rule chain CRUD + node/connection editing + `/save` compile + `/debug` replay + node-type catalog |
-| `queries/telemetry` | 8 | Latest value, timeseries, key list; per-scope attributes + history; checklist responses, history, and specific response |
-| `queries/export` | 5 | Async export jobs for telemetry, checklist, alarms, attributes, status |
-| `queries/alarm` | 5 | List, summary, per-entity, acknowledge, clear |
-| `queries/retention` | 6 | Retention config + `/execute`, `/execute-range`, `/delete-keys`, `/delete-records` |
-| `uns` | 7 | Tree view, search, entity CRUD + move with confirm |
-| `connectivity` | 6 | Per-entity snippets + test + token issue/revoke + history |
+| ~~`data-ingestion`~~ | — | *removed 2026-06-17* |
+| `debug-traces` | 4 | **SURVIVES** — repurposed 2026-06-12 onto `audit_trail` (was `data-ingestion/debug-trace`); `/api/debug/traces` renders each audited action as a single-stage trace |
+| ~~`rule-chain`~~ | — | *removed 2026-05-17* |
+| ~~`queries/telemetry`~~ | — | *removed 2026-06-17* |
+| ~~`queries/export`~~ | — | *removed 2026-06-17* |
+| ~~`queries/alarm`~~ | — | *removed 2026-05-17 (alarm subsystem) / 2026-06-17 (queries module)* |
+| ~~`queries/retention`~~ | — | *removed 2026-06-17* |
+| ~~`uns`~~ | — | *removed 2026-06-17* |
+| ~~`connectivity`~~ | — | *removed 2026-06-17* |
 | `qr-code` | 1 | QR generation |
 | `notifications` | 9 | Inbox list, counts, mark-read (single + bulk), delete |
 | `notification-delivery` | 18 | Email + SMS channel config, OAuth2 flows, templates, logs, send endpoint |

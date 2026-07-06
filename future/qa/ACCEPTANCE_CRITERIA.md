@@ -12,7 +12,7 @@ Per-feature "it's done when…" bullets. QA signs a feature off only when every 
 - Forgot-password issues a reset email (or, in dev, returns the reset link).
 - Change-password enforces the active password policy.
 - Reauth (`POST /api/auth/verify`) is required for every action listed in the reauth-config; the reauth window is configurable.
-- Public paths (login, forgot-password, beacon-logout, health, internal MQTT, WebSocket, device-token endpoints) authenticate per their own rules — no JWT needed.
+- Public paths (login, forgot-password, beacon-logout, health) authenticate per their own rules — no JWT needed. *(internal MQTT, WebSocket, and device-token endpoints were removed 2026-06-17..2026-07-03 with the MQTT/WebSocket/data-ingestion tear-out.)*
 
 ## Users & roles
 
@@ -49,21 +49,21 @@ Per-feature "it's done when…" bullets. QA signs a feature off only when every 
 - One identifier per entity is enforced — a second identifier request fails with a clear error.
 - Identifier lookup by value is O(1) and works both online and offline (via the cached identifier map).
 
-## Rule chain + ingestion
+## ~~Rule chain + ingestion~~ *(REMOVED — rule-chain 2026-05-17; data-ingestion / TimescaleDB / MQTT / retention 2026-06-17. All criteria below are obsolete.)*
 
-- 77 node types registered and returned by `/api/rule-chains/node-types`.
-- Chain save compiles without error for a valid graph and fails with a clear error for a cycle or disconnected node.
-- `/api/data/telemetry` with a valid device token inserts into TimescaleDB via the batcher.
-- MQTT ingestion reaches the same pipeline as HTTP (end-to-end verifiable by publishing a test message).
-- Debug trace endpoint shows every pipeline step for a message, including inputs/outputs per node.
-- Retention execute deletes rows older than the configured window; execute-range supports a custom range.
+- ~~77 node types registered and returned by `/api/rule-chains/node-types`.~~
+- ~~Chain save compiles without error for a valid graph…~~
+- ~~`/api/data/telemetry` with a valid device token inserts into TimescaleDB via the batcher.~~
+- ~~MQTT ingestion reaches the same pipeline as HTTP.~~
+- ~~Debug trace endpoint shows every pipeline step for a message…~~ *(the `/api/debug/traces` inspector SURVIVES but was repurposed 2026-06-12 onto `audit_trail` — it no longer shows ingestion pipeline steps.)*
+- ~~Retention execute deletes rows older than the configured window…~~
 
-## Queries & dashboards
+## Queries & dashboards *(only Dashboards survive)*
 
-- Telemetry latest returns the latest non-null value per key; timeseries respects `from`/`to`/`interval`.
-- Alarms list supports severity filter, per-entity filter, acknowledged/cleared filters.
-- Exports return a jobId; `/status/:jobId` polls to completion; download link is valid until expiry.
-- Dashboard widgets render with data from the adapter endpoint; widget catalog is complete.
+- ~~Telemetry latest returns the latest non-null value per key; timeseries respects `from`/`to`/`interval`.~~ *(removed 2026-06-17 with the queries/TimescaleDB tear-out)*
+- ~~Alarms list supports severity filter, per-entity filter, acknowledged/cleared filters.~~ *(removed 2026-05-17 with the alarm tear-out)*
+- ~~Exports return a jobId; `/status/:jobId` polls to completion…~~ *(the telemetry/alarm query-export jobs were removed 2026-06-17)*
+- Dashboard widgets render with data from the adapter endpoint; widget catalog is complete. *(survives; the `timeseries_chart` widget returns `[]` cleanly post-TimescaleDB removal.)*
 
 ## Cleaning cycle (Phase 3 core)
 
@@ -122,7 +122,7 @@ Per-feature "it's done when…" bullets. QA signs a feature off only when every 
 
 ## System health
 
-- `/api/system-health` returns green for Postgres, TimescaleDB, Mosquitto (or "skipped" when `MQTT_ENABLED=false`), ingestion worker (graphile-worker), maintenance worker (graphile-worker cron). Redis is reported only when configured (post-Phase-2 it's optional and only used for non-queue pub/sub).
+- `/api/system-health` returns green for Postgres + the graphile-worker queue. *(The TimescaleDB, Mosquitto/MQTT, ingestion-worker, maintenance-worker, and Redis checks were removed 2026-05..2026-06-17 with those subsystems.)*
 - The `/system-health` page renders per-service status cards, refresh on 15-s interval.
 
 ---

@@ -44,17 +44,17 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 - ☐ Field IDs (label + required overrides per field)
 - ☐ Action reauth (**81** reauth actions across 16 categories)
 - ☐ Audit templates (default + category + custom overrides)
-- ☐ Alarm columns (which columns appear in the alarm table)
+- ~~☐ Alarm columns (which columns appear in the alarm table)~~ *(removed 2026-05-17 with the alarm tear-out)*
 - ☐ Pagination (rows per page default)
 - ☐ Dashboard cards (which dashboard cards are visible)
 - ☐ Cleaning profile assignment (per-filter-set)
 - ☐ AHU filter-set config (mode select, overrides)
-- ☐ Filter data management (super-admin console — edit/delete cleaning cycles, events, alarms, notifications, admin-requests, block-change-requests, PM entries, audit trail)
+- ☐ Filter data management (super-admin console — edit/delete cleaning cycles, events, notifications, admin-requests, block-change-requests, PM entries, audit trail; *the alarms tab was removed 2026-05-17*)
 - ☐ Tablet access (per-feature toggles)
 - ☐ Report settings (header/footer/pagination/compact)
-- ☐ UNS (tree view, entity move-confirm)
+- ~~☐ UNS (tree view, entity move-confirm)~~ *(removed 2026-06-17 with the UNS tear-out)*
 - ☐ Help article manager (versioned)
-- ☐ Retention policies (execute, execute-range, delete-keys, delete-records)
+- ~~☐ Retention policies (execute, execute-range, delete-keys, delete-records)~~ *(removed 2026-06-17 with the data-ingestion tear-out)*
 - ☐ Backup / restore (dynamic — all 64 tables)
 - ☐ LDAP (config, test-connection, status)
 
@@ -83,20 +83,20 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 
 **Where:** `/assets`, `/assets/templates`, `/filter-list`, `/ahus/:id`.
 
-## 6. IoT ingestion + rule chain + queries
+## ~~6. IoT ingestion + rule chain + queries~~ *(REMOVED — rule-chain 2026-05-17; data-ingestion / UNS / queries / connectivity / TimescaleDB / MQTT 2026-06-17. This entire section is obsolete.)*
 
-- ☐ HTTP: `/api/data/telemetry`, `/attributes`, `/checklist`, `/binary`, `/event`, `/rpc` all accept device-token auth
-- ☐ MQTT: Mosquitto 2.0 dynamic-security regenerates via `POST /api/internal/mqtt/refresh-acl` (Bearer-auth via `MOSQUITTO_REFRESH_TOKEN`); telemetry topic posts hit the pipeline. (Legacy EMQX auth/ACL webhooks remain conditionally registered when `USE_MOSQUITTO=false`.)
-- ☐ Rule chain editor supports all **77 node types** (verify against `/api/rule-chains/node-types`)
-- ☐ Chain save compiles; `/debug` shows traces
-- ☐ Queries: telemetry latest/timeseries/keys, attributes + history, checklist responses + history + specific
-- ☐ Exports: async job returned; `/status/:jobId` polls
-- ☐ Alarms: list, summary, ack, clear, per-entity
-- ☐ Retention: config + execute + execute-range + delete-keys/records
-- ☐ UNS: tree, search, entity CRUD, move + confirm
-- ☐ Connectivity: per-entity snippets + token issue/revoke + history
+- ~~☐ HTTP: `/api/data/telemetry`, `/attributes`, `/checklist`, `/binary`, `/event`, `/rpc` device-token auth~~
+- ~~☐ MQTT: Mosquitto 2.0 dynamic-security via `POST /api/internal/mqtt/refresh-acl`~~
+- ~~☐ Rule chain editor supports all 77 node types~~
+- ~~☐ Chain save compiles; `/debug` shows traces~~
+- ~~☐ Queries: telemetry latest/timeseries/keys, attributes + history…~~
+- ~~☐ Exports: async job returned; `/status/:jobId` polls~~
+- ~~☐ Alarms: list, summary, ack, clear, per-entity~~
+- ~~☐ Retention: config + execute + execute-range + delete-keys/records~~
+- ~~☐ UNS: tree, search, entity CRUD, move + confirm~~
+- ~~☐ Connectivity: per-entity snippets + token issue/revoke + history~~
 
-**Where:** `/rule-chains`, `/alarms`, `/debug/traces`, `/config/retention`, `/config/uns`.
+**Where:** ~~`/rule-chains`, `/alarms`, `/debug/traces`, `/config/retention`, `/config/uns`~~ — *all removed. (The `/debug/traces` page survives but was repurposed 2026-06-12 onto `audit_trail`.)*
 
 ## 7. Cleaning cycle state machine (Phase 3 core)
 

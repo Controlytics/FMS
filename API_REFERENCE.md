@@ -132,8 +132,9 @@ GET /api/config/<key>                  Permission: CONFIG_READ
 PUT /api/config/<key>                  Permission: CONFIG_UPDATE
 
 Keys: password-policy, login-security, session, datetime, pagination,
-      branding, user-id, report-settings, tablet-access, cleaning-profile-assignment,
-      alarm-columns, audit-templates, action-reauth
+      branding, user-id, report-config, tablet-access, cleaning-profile-assignment,
+      audit-templates, action-reauth
+      (alarm-columns removed 2026-05-17 with the alarm subsystem)
 ```
 
 ### Public Config (no auth)
@@ -142,8 +143,7 @@ GET /api/config/password-policy/current
 GET /api/config/datetime/current
 GET /api/config/pagination/current
 GET /api/config/branding
-GET /api/config/report-settings/current
-GET /api/config/alarm-columns/current
+GET /api/config/report-config/current
 GET /api/config/audit-templates/current
 GET /api/config/action-reauth/check?action=CREATE_USER
 GET /api/config/action-reauth/my-actions
@@ -421,6 +421,8 @@ Common error codes:
 `REPORT_GENERATE`, `REPORT_EXPORT`, `REPORT_REVIEW_SUBMIT`, `REPORT_REVIEW`, `REPORT_APPROVE` (report generate/sign template perms `REPORT_TEMPLATE_*` / `REPORT_VIEW` / `REPORT_SIGN` / `REPORT_DELETE` removed 2026-07-04; `REPORT_GENERATE`/`REPORT_EXPORT` now gate the cleaning-record + lifecycle PDF export)
 
 ### Other
-`AUDIT_READ`, `AUDIT_EXPORT`, `EVENT_READ`, `CYCLE_READ`, `ALARM_VIEW`, `ALARM_ACKNOWLEDGE`, `ALARM_CLEAR`, `NOTIFICATION_VIEW`, `NOTIFICATION_CREATE`, `NOTIFICATION_UPDATE`, `NOTIFICATION_DELETE`, `NOTIFICATION_MANAGE`, `RULE_CHAIN_VIEW`, `RULE_CHAIN_CREATE`, `RULE_CHAIN_UPDATE`, `RULE_CHAIN_DELETE`, `DASHBOARD_CREATE`, `DASHBOARD_MANAGE`, `DASHBOARD_VIEW`, `DASHBOARD_ASSIGN`, `UNS_VIEW`, `UNS_MANAGE`, `READ_DEBUG_TRACE`, `MANAGE_DEBUG_TRACE`, `BLOCK_CHANGE_REQUEST`, `BLOCK_CHANGE_APPROVE`, `BACKUP_MANAGE`, `EG_VIEW`, `EG_CREATE`, `EG_EDIT`, `EG_DELETE`, `FP_READ`, `FP_CREATE`, `FP_UPDATE`, `FP_DELETE`, `FP_ASSIGN`
+`AUDIT_READ`, `AUDIT_EXPORT`, `EVENT_READ`, `CYCLE_READ`, `NOTIFICATION_VIEW`, `NOTIFICATION_CREATE`, `NOTIFICATION_UPDATE`, `NOTIFICATION_DELETE`, `NOTIFICATION_MANAGE`, `DASHBOARD_CREATE`, `DASHBOARD_MANAGE`, `DASHBOARD_VIEW`, `DASHBOARD_ASSIGN`, `READ_DEBUG_TRACE`, `MANAGE_DEBUG_TRACE`, `BLOCK_CHANGE_REQUEST`, `BLOCK_CHANGE_APPROVE`, `BACKUP_MANAGE`, `EG_VIEW`, `EG_CREATE`, `EG_EDIT`, `EG_DELETE`, `FP_READ`, `FP_CREATE`, `FP_UPDATE`, `FP_DELETE`, `FP_ASSIGN`
+
+> **Removed:** `ALARM_VIEW/ACKNOWLEDGE/CLEAR` + `RULE_CHAIN_VIEW/CREATE/UPDATE/DELETE` (rule-chain + alarm tear-out, 2026-05-17); `UNS_VIEW/UNS_MANAGE` (data-ingestion tear-out, 2026-06-17).
 
 > **Note (MT removal 2026-04-30):** `ORG_MANAGE`, `ORG_VIEW`, `ORG_CREATE`, `ORG_DELETE` permissions and the `/api/organizations` + `/api/org-admin` + `/api/tenant-admin` route prefixes were deleted. DigiLog is now single-tenant.

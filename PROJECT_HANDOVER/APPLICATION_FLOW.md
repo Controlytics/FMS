@@ -4,7 +4,7 @@
 **Version:** Phase 4 (2026-04-20) — **HISTORICAL SNAPSHOT** (paired with `APPLICATION_FLOW.docx` and the Mermaid `diagrams/`)
 
 > **2026-04-29 update — stack swaps in subsequent windows-friendly-rewrite phases not reflected below:**
-> - **Mermaid diagram boxes** (Sections 2 + 5) still show **Nginx**, **Memurai/Redis queue**, and **EMQX MQTT** because the .docx + .png renders match this prose verbatim and would have to be regenerated together. The current install path uses **Fastify-direct on `:3000` (HTTPS via mkcert)**, **graphile-worker on Postgres** for the queue (Phase 2, commit `7832af1`), and **Mosquitto 2.0** for MQTT (Phase 1). The reverse proxy is now optional / customer-choice.
+> - **Mermaid diagram boxes** (Sections 2 + 5) still show **Nginx**, **Memurai/Redis queue**, **EMQX MQTT**, and **TimescaleDB** — these are **all HISTORICAL/removed** and are kept only because the .docx + .png renders match this prose verbatim (they'd have to be regenerated together). Current reality: **Fastify-direct on `:3000` (HTTPS)** (Nginx optional), **graphile-worker on Postgres** for the queue (no Redis/Memurai — removed 2026-05-01), **no MQTT broker** (EMQX/Mosquitto removed 2026-06-17), and **no TimescaleDB** (removed 2026-06-11) — a single vanilla `digilog_db`. Ignore the MQTT/TimescaleDB/Memurai/Nginx boxes in the diagrams below.
 > - **Section 18 ("Permissions, 95 / 82 / 69")** is a release-time snapshot of Phase 4. Current totals are **102 permissions / 83 feature toggles / 92 reauth actions** — verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` etc.
 > - **Section 21 (Operations table)** mentions Memurai/EMQX/Nginx/PM2 — **all removed**. Redis/Memurai (2026-05-01), MQTT/EMQX/Mosquitto + TimescaleDB (2026-06), and Nginx + PM2 (Phase 4) are gone; the current stack is PostgreSQL 18 (single `digilog_db`) + one Node process, deployed via the `DigiLog-Setup.exe` installer (registers `DigiLogDB` + `DigiLogAPI` Windows services). See `docs/PHARMA_DEPLOYMENT_21CFR.md`.
 >
@@ -325,7 +325,7 @@ flowchart TD
 | Item | Value |
 |---|---|
 | Server | On-premises Windows Server (2019+) |
-| Application runtime | Node.js 20+, PostgreSQL 18, Memurai (Redis), EMQX |
+| Application runtime | Node.js 20+, PostgreSQL 18 (single `digilog_db`) — no Redis/Memurai (removed 2026-05-01), no EMQX/MQTT (removed 2026-06-17), no TimescaleDB (removed 2026-06-11) |
 | Web access | HTTPS via Nginx (port 443) |
 | Default URL | `http://<server>/` |
 | Default admin login | `admin / Admin@123` (**rotate on first install**) |

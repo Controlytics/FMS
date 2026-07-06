@@ -1,7 +1,7 @@
 # Frontend — Quick Tour
 
 **Location:** `apps/web/`
-**Tech:** React 19 + Vite 6 + TailwindCSS 4 + SWR 2 + React Router 7 + react-hook-form + zod 4. Plus `reactflow` 11, `@dnd-kit/*`, `recharts`, `@monaco-editor/react`, `signature_pad`, `qrcode.react`, `vite-plugin-pwa`.
+**Tech:** React 19 + Vite 6 + TailwindCSS 4 + SWR 2 + React Router 7 + react-hook-form + zod 4. Plus `@dnd-kit/*`, `recharts`, `signature_pad`, `qrcode.react`, `vite-plugin-pwa`. *(`reactflow` 11 + `@monaco-editor/react` were removed 2026-05-17 with the rule-chain tear-out; the cleaning-profile pipeline editor now uses a custom canvas.)*
 **Entry:** `apps/web/src/main.tsx` (**81 `<Route>` definitions**)
 **Dev:** `cd apps/web && npm run dev` → Vite on port 5173 (5175 on some configurations)
 **Build:** `npm run build` (tsc -b + vite build) → output to `apps/web/dist/`. The bundle is served by the Fastify API at `:3000` (Phase 4 of the windows-friendly-rewrite retired the bundled Nginx config; a reverse proxy is now optional / customer-choice). Capacitor 8 also packages `dist/` into the Android APK.
@@ -15,7 +15,7 @@ apps/web/src/
 ├── vite-env.d.ts       Vite ambient types
 ├── components/         (7 top-level + layout/ + ui/)
 │   ├── layout/          app-layout, header, sidebar (26 items, hamburger <lg)
-│   ├── ui/              alarm-badge, badge, button, card, code-snippet, connectivity-indicator, dialog, error-popup, help-button, input, select, table, toast
+│   ├── ui/              badge, button, card, code-snippet, connectivity-indicator, dialog, error-popup, help-button, input, select, table, toast  (alarm-badge removed 2026-05-17 with the alarm tear-out)
 │   ├── error-boundary.tsx, route-error-boundary.tsx
 │   ├── reauth-dialog.tsx           21 CFR reauth
 │   ├── report-page-wrapper.tsx     Consistent report header/footer/pagination driven by report settings
@@ -25,7 +25,7 @@ apps/web/src/
 │   ├── use-auth.ts                  Current user + login/logout + permissions
 │   ├── use-branding.ts              Applies theme CSS variables to :root
 │   ├── use-datetime-format.ts       User-configured date formatting
-│   ├── use-entity-websocket.ts      Subscribes to /api/ws for per-entity updates
+│   ├── use-entity-websocket.ts      (REMOVED 2026-07-03 — subscribed to the now-removed /api/ws WebSocket)
 │   ├── use-field-labels.ts          Config-driven field label overrides
 │   ├── use-offline.ts               `executeOrQueue()` + online/pending/syncing state
 │   ├── use-pagination-config.ts
@@ -58,8 +58,8 @@ apps/web/src/
 │   ├── assets/, filter-management/, cleaning-cycles/, my-tasks/, pm-schedules/
 │   ├── checklist-form/              End-user checklist submission (renamed from checklist/ in P1.4)
 │   ├── checklist-admin/             Admin CRUD for checklist templates (renamed from checklists/ in P1.4)
-│   ├── rule-chains/, report-templates/, reports/
-│   ├── alarms/, audit/, notifications/, system-health/, debug/
+│   ├── report-templates/, reports/  (rule-chains/ removed 2026-05-17 with the rule-chain tear-out)
+│   ├── audit/, notifications/, system-health/, debug/  (alarms/ removed 2026-05-17 with the alarm tear-out)
 │   ├── tenant/                      super-admin org management
 │   └── config/                      34 config pages (branding, role-access, field-ids, action-reauth, audit-templates, access-matrix, ahu-filter-set-config, cleaning-profile-assignment, filter-data-management, tablet-access, etc.)
 └── types/                           Ambient typings

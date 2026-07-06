@@ -56,7 +56,7 @@ This file is an **index** — for handler-level detail (request/response shapes,
 - Field IDs: `/field-ids`, `PUT /field-ids/:fieldId`
 - Action reauth: `/action-reauth`, `PUT`, `/action-reauth/check`, `/action-reauth/my-actions`
 - Audit templates: `/audit-templates`, `PUT`, `/audit-templates/current`
-- Alarm columns: `/alarm-columns`, `PUT`, `/alarm-columns/current`
+- ~~Alarm columns: `/alarm-columns`~~ *(removed 2026-05-17 with the rule-chain/alarm tear-out)*
 - Cleaning profile assignment: `/cleaning-profile-assignment`, `PUT`
 - Tablet access: `/tablet-access`, `PUT`, `/tablet-access/my-features`
 - Access matrix: `/access-matrix`, `PUT`, `/access-matrix/my-modules`
@@ -103,48 +103,22 @@ This file is an **index** — for handler-level detail (request/response shapes,
 - **Relationships** (`relationship.routes.ts`): `GET /relationships`, `POST`, `DELETE /relationships/:id`
 - **Identifiers** (`identifier.routes.ts`): `GET /identifiers`, `GET /identifiers/lookup/:value`, `POST /identifiers`, `DELETE /identifiers/:id`
 
-## Internal MQTT auth — `/api/internal/mqtt`
+## ~~Internal MQTT auth — `/api/internal/mqtt`~~ *(REMOVED 2026-06-17 with the MQTT broker tear-out)*
 
-- (`/refresh-acl` regenerates Mosquitto dynamic-security; legacy EMQX webhooks `/auth` + `/acl` remain conditionally registered when `USE_MOSQUITTO=false` — both are broker-facing, not UI-facing.)
+## ~~Data ingestion — `/api/data`~~ *(REMOVED 2026-06-17 with the data-ingestion tear-out)*
 
-## Data ingestion — `/api/data`
-
-- `POST /telemetry` · `POST /attributes` · `GET /attributes`
-- `POST /checklist`
-- `POST /binary` · `GET /binaries/:entityId` · `GET /binaries/:entityId/file` · `DELETE /binaries/:entityId`
-- `POST /event`
-- `POST /rpc` · `GET /rpc/response/:requestId`
-
-## Data-ingestion debug traces — `/api/debug/traces`
+## Debug traces — `/api/debug/traces` *(SURVIVES)*
 
 - `GET /` · `GET /stats` · `GET /:id` · `PUT /entity/:entityId/toggle`
+- *(Repurposed 2026-06-12: no longer an ingestion-pipeline inspector — now reads from `audit_trail`, rendering each audited action as a single-stage trace.)*
 
-## Rule chains — `/api/rule-chains`
+## ~~Rule chains — `/api/rule-chains`~~ *(REMOVED 2026-05-17 with the rule-chain tear-out)*
 
-- `GET /` · `GET /node-types` · `GET /:id`
-- `POST /` · `PUT /:id` · `DELETE /:id`
-- Nodes: `POST /:id/nodes`, `PUT /:id/nodes/:nodeId`, `DELETE /:id/nodes/:nodeId`
-- Connections: `POST /:id/connections`, `DELETE /:id/connections/:connectionId`
-- Save + debug: `POST /:id/save`, `GET /:id/debug`, `DELETE /:id/debug`
+## ~~UNS (unified namespace) — `/api/uns`~~ *(REMOVED 2026-06-17 with the UNS tear-out)*
 
-## UNS (unified namespace) — `/api/uns`
+## ~~Queries — `/api` (mounted at `/api/*` via `queriesModule`)~~ *(REMOVED 2026-06-17 — telemetry / export / retention / alarm query routes all torn out; alarms went 2026-05-17)*
 
-- `GET /tree` · `GET /search`
-- `GET /entity/:entityId` · `PUT /entity/:entityId` · `DELETE /entity/:entityId`
-- `POST /entity/:entityId/move` · `POST /entity/:entityId/move/confirm`
-
-## Queries — `/api` (mounted at `/api/*` via `queriesModule`)
-
-- **Telemetry** (`queries/telemetry.routes.ts`): `/telemetry/:entityId/latest`, `/timeseries`, `/keys`; `/attributes/:entityId/:scope`, `/attributes/:entityId/history`; `/checklist/:entityId/responses`, `/history`, `/responses/:checklistId`
-- **Export** (`queries/export.routes.ts`): `/telemetry/:entityId`, `/checklist/:entityId`, `/alarms`, `/attributes/:entityId`, `/status/:jobId`
-- **Retention** (`queries/retention.routes.ts`): `/config/retention`, `PUT`, `/retention/execute`, `/execute-range`, `/delete-keys`, `/delete-records`
-- **Alarms** (`queries/alarm.routes.ts`): `/`, `/summary`, `/:entityId`, `POST /:id/acknowledge`, `POST /:id/clear`
-
-## Connectivity — `/api/connectivity`
-
-- `GET /:entityId` · `POST /:entityId/test` · `GET /:entityId/snippets`
-- `POST /:entityId/token` · `DELETE /:entityId/token`
-- `GET /:entityId/history`
+## ~~Connectivity — `/api/connectivity`~~ *(REMOVED 2026-06-17 with the connectivity tear-out)*
 
 ## QR codes — `/api/qr`
 

@@ -12,9 +12,9 @@
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Node.js | 20.x or 22.x | Application runtime |
-| PostgreSQL | 18 | Primary database (Prisma ORM, **68 models, 21 enums**) — also hosts the graphile-worker queue schema |
-| TimescaleDB | latest for PG 18 | Time-series extension (database: digilog_tsdb, 7 hypertables) |
-| Mosquitto | 2.0.x | MQTT broker (Phase 1 of windows-friendly-rewrite swapped from EMQX). Install via `scripts/install-mosquitto.ps1`. |
+| PostgreSQL | 18 | Primary database (Prisma ORM, **61 models, 23 enums**) — also hosts the graphile-worker queue schema. Vanilla PG 18, no extensions required. |
+| ~~TimescaleDB~~ | REMOVED | ~~Time-series extension (database: digilog_tsdb, 7 hypertables)~~ *(removed 2026-06-17 — Phase 7 data-ingestion tear-out dropped `digilog_tsdb` + all hypertables; no TimescaleDB dependency)* |
+| ~~Mosquitto~~ | REMOVED | ~~MQTT broker~~ *(removed 2026-06-17 — Phase 7 tear-out removed the MQTT broker + data-ingestion pipeline; no MQTT dependency, `install-mosquitto.ps1` deleted)* |
 | ~~Microsoft Edge~~ | not needed | The server-side `puppeteer-core` + Edge reports PDF engine was removed 2026-07-04; PDF export is now client-side (jsPDF). No Edge/Chromium dependency. |
 | ~~Memurai (Redis)~~ | RETIRED | Phase 4 (2026-05-01): pub/sub moved in-process. Do NOT install. |
 | Reverse proxy (Nginx / IIS) | optional | Customer-choice; not bundled after Phase 4 of the windows-friendly-rewrite. Default is Fastify-direct on `:3000`. |
@@ -24,8 +24,8 @@
 | Component | Version | Notes |
 |-----------|---------|-------|
 | Node.js | 20.x or 22.x | Application runtime |
-| PostgreSQL | 18 | Primary database with TimescaleDB extension |
-| Mosquitto | 2.0.x | Optional unless testing MQTT ingest |
+| PostgreSQL | 18 | Primary database (vanilla PG 18 — TimescaleDB extension removed 2026-06-17, Phase 7) |
+| ~~Mosquitto~~ | REMOVED | ~~Optional unless testing MQTT ingest~~ *(removed 2026-06-17 — MQTT broker + ingestion gone)* |
 | ~~Memurai (Redis)~~ | RETIRED | Phase 4: not used by DigiLog anymore |
 | tsx | latest | API dev server (auto-reload) |
 | Vite | latest | Frontend dev server |
@@ -35,7 +35,7 @@
 apps/api/     — Fastify backend (TypeScript, port 3000)
 apps/web/     — React frontend (Vite SPA, Tailwind CSS)
 packages/shared/ — Shared types, schemas, constants
-packages/db/     — Prisma client + TimescaleDB pool + telemetry batcher
+# packages/db/ — REMOVED 2026-06-17 (Phase 7): was Prisma client + TimescaleDB pool + telemetry batcher
 packages/queue/  — graphile-worker job queue (Postgres-backed)
 ```
 
@@ -43,9 +43,9 @@ packages/queue/  — graphile-worker job queue (Postgres-backed)
 | Port | Service | Required |
 |------|---------|----------|
 | 3000 | Fastify API + SPA (HTTPS via mkcert) | Yes |
-| 5432 | PostgreSQL (app + tsdb + queue schema) | Internal |
+| 5432 | PostgreSQL (app + queue schema) | Internal |
 | ~~6379~~ | ~~Redis~~ | RETIRED (Phase 4 — 2026-05-01) |
-| 1883 | MQTT (Mosquitto, TCP) | For devices |
+| ~~1883~~ | ~~MQTT (Mosquitto, TCP)~~ | REMOVED (Phase 7 — 2026-06-17; no MQTT broker) |
 
 > Legacy ports — 80/443 (Nginx), 18083 (EMQX dashboard), 8883/8083/8084 (EMQX TLS / WS / WSS) — are no longer part of the standard install. Customers who add a reverse proxy in front of Fastify will reintroduce 80/443.
 
