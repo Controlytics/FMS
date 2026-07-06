@@ -22,14 +22,26 @@ function RoleLegendBadge({ role }: { role: RoleAccess }) {
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { data: matrix } = useSWR<{ roles: RoleAccess[] }>('/api/roles/access-matrix');
-  const { data: myConfig } = useSWR<{ sidebarItems?: string[] }>('/api/config/my-config');
-  const { data: qnn } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
+  const { data: matrix, mutate: mutateMatrix } = useSWR<{ roles: RoleAccess[] }>('/api/roles/access-matrix');
+  const { data: myConfig, mutate: mutateConfig } = useSWR<{ sidebarItems?: string[] }>('/api/config/my-config');
+  const { data: qnn, mutate: mutateQnn } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
   // Audit view: every module + every role permitted by the backend gate,
   // regardless of the viewer's or any role's sidebar. Default = the viewer's
   // own modules (mirrors their sidebar).
   const [auditView, setAuditView] = useState(false);
+
+  // Manual refresh — re-pull the live role matrix (+ sidebar/qnn config) so a
+  // role/permission change made elsewhere is reflected without leaving the page.
+  const [refreshing, setRefreshing] = useState(false);
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([mutateMatrix(), mutateConfig(), mutateQnn()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   const roles = matrix?.roles ?? [];
 
@@ -55,23 +67,41 @@ export default function HomePage() {
       <header className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="text-2xl font-bold text-slate-800">Module Guide</h1>
-          {/* View toggle: personalized vs full audit view. */}
-          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm" role="group" aria-label="Guide view">
+          <div className="flex items-center gap-2">
+            {/* View toggle: personalized vs full audit view. */}
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm" role="group" aria-label="Guide view">
+              <button
+                type="button"
+                onClick={() => setAuditView(false)}
+                aria-pressed={!auditView}
+                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${!auditView ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                My modules
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuditView(true)}
+                aria-pressed={auditView}
+                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${auditView ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                All modules (audit)
+              </button>
+            </div>
+            {/* Manual refresh of the live role matrix. */}
             <button
               type="button"
-              onClick={() => setAuditView(false)}
-              aria-pressed={!auditView}
-              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${!auditView ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Reload roles from the latest configuration"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
-              My modules
-            </button>
-            <button
-              type="button"
-              onClick={() => setAuditView(true)}
-              aria-pressed={auditView}
-              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${auditView ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              All modules (audit)
+              <svg
+                className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {refreshing ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>
