@@ -60,6 +60,13 @@ describe('rolesForStep', () => {
     expect(out).toEqual(['SUPER_ADMIN']);
   });
 
+  it('tolerates an undefined roles list without throwing (transient/loading state)', () => {
+    const step: FlowStep = { label: 'Advance', gate: ['FILTER_OPERATE'], kind: 'action' };
+    expect(() => rolesForStep(step, 'dashboard', undefined as unknown as RoleAccess[])).not.toThrow();
+    expect(rolesForStep(step, 'dashboard', undefined as unknown as RoleAccess[])).toEqual([]);
+    expect(rolesForGate(['FILTER_OPERATE'], 'dashboard', undefined as unknown as RoleAccess[])).toEqual([]);
+  });
+
   it('automatic/public/configured steps return null (chip, not roles)', () => {
     expect(rolesForStep({ label: 'x', gate: [], access: 'automatic', kind: 'system' }, 'dashboard', roles)).toBeNull();
     expect(rolesForStep({ label: 'x', gate: [], access: 'public', kind: 'action' }, 'dashboard', roles)).toBeNull();

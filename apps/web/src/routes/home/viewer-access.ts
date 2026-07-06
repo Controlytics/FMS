@@ -40,10 +40,11 @@ export function rolesForStep(
   ignoreSidebar = false,
 ): RoleAccess[] | null {
   if (step.access === 'automatic' || step.access === 'public' || step.access === 'configured') return null;
+  const all = roles ?? [];
   // Audit view (`ignoreSidebar`): every role permitted by the backend gate,
   // regardless of whether its sidebar hides the module — the true "who can
   // perform this operation". Default view keeps the sidebar+permission gate.
-  const visible = ignoreSidebar ? roles : roles.filter((r) => canRoleSeeModule(moduleId, r));
+  const visible = ignoreSidebar ? all : all.filter((r) => canRoleSeeModule(moduleId, r));
   if (step.access === 'authenticated') return visible;
   if (step.gate.length > 0) {
     return visible.filter((r) => r.name === 'SUPER_ADMIN' || step.gate.some((g) => r.permissions.includes(g)));
@@ -61,7 +62,8 @@ export function rolesForGate(
   roles: RoleAccess[],
   ignoreSidebar = false,
 ): RoleAccess[] {
-  const visible = ignoreSidebar ? roles : roles.filter((r) => canRoleSeeModule(moduleId, r));
+  const all = roles ?? [];
+  const visible = ignoreSidebar ? all : all.filter((r) => canRoleSeeModule(moduleId, r));
   return visible.filter((r) => r.name === 'SUPER_ADMIN' || gate.some((g) => r.permissions.includes(g)));
 }
 

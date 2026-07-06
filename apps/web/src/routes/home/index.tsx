@@ -22,7 +22,15 @@ function RoleLegendBadge({ role }: { role: RoleAccess }) {
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { data: matrix, mutate: mutateMatrix } = useSWR<{ roles: RoleAccess[] }>('/api/roles/access-matrix');
+  // Auto-refresh the live role matrix every 30s. Scoped to THIS key (used only
+  // by the Module Guide) so no other screen is affected, and SWR only polls
+  // while this page is mounted and the tab is visible — navigating away stops
+  // it. The shared config keys below are intentionally left without an interval
+  // (the sidebar also reads them); the manual Refresh reloads those.
+  const { data: matrix, mutate: mutateMatrix } = useSWR<{ roles: RoleAccess[] }>(
+    '/api/roles/access-matrix',
+    { refreshInterval: 30_000 },
+  );
   const { data: myConfig, mutate: mutateConfig } = useSWR<{ sidebarItems?: string[] }>('/api/config/my-config');
   const { data: qnn, mutate: mutateQnn } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
