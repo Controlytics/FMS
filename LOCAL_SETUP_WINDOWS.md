@@ -140,7 +140,7 @@ npx prisma generate
 npx prisma migrate deploy
 ```
 
-> This creates all 67 model tables including the Phase 2 filter management tables, equipment groups, and checklist profiles.
+> This creates all 61 model tables including the Phase 2 filter management tables, equipment groups, and checklist profiles.
 
 ### 6.3 Seed the Database
 ```bash
@@ -241,12 +241,12 @@ curl http://localhost:3000/api/health
 ├── apps/
 │   ├── api/                    # Fastify backend (TypeScript)
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma   # Database schema (65 models, 25 enums)
+│   │   │   ├── schema.prisma   # Database schema (61 models, 23 enums)
 │   │   │   ├── seed.ts         # Database seeder
 │   │   │   └── migrations/     # SQL migrations
 │   │   └── src/
 │   │       ├── app.ts          # Entry point
-│   │       ├── modules/        # 35 API modules
+│   │       ├── modules/        # 33 API modules
 │   │       ├── plugins/        # Auth, CORS, etc.
 │   │       └── lib/            # Shared utilities
 │   ├── web/                    # React frontend (Vite + Tailwind)

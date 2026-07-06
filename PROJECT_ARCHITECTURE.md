@@ -35,7 +35,7 @@
 │  │       ▼          DATA LAYER                          │        │
 │  │  ┌────────────────────────────────┐                   │        │
 │  │  │ PostgreSQL 18  :5432            │                   │        │
-│  │  │ 65 Prisma models · 25 enums     │                   │        │
+│  │  │ 61 Prisma models · 23 enums     │                   │        │
 │  │  │ digilog_db (app + queue schema) │                   │        │
 │  │  │ graphile-worker job queue       │                   │        │
 │  │  └────────────────────────────────┘                   │        │
@@ -55,6 +55,10 @@
 > (`lib/internal-bus.ts`) + `@fastify/websocket` were removed 2026-07-03 as
 > dead code — **no pub/sub layer remains**. (The device-RPC correlation cache
 > `lib/rpc-cache.ts` went 2026-07-01 with the Phase 7 data-ingestion tear-out.)
+> **2026-07-04: the reports generate/sign PDF engine was removed** — `puppeteer-core`,
+> `@napi-rs/canvas`, `chart.js`, `chartjs-adapter-date-fns`, and `dayjs` uninstalled with it;
+> no server-side PDF/Chromium stack remains (the surviving cleaning-record / filter-lifecycle
+> export renders client-side).
 
 ## Monorepo Package Architecture
 
@@ -64,13 +68,13 @@
 ├── apps/api/                      (Fastify backend)
 │   ├── src/
 │   │   ├── app.ts                 Entry point — registers all plugins, routes, handlers
-│   │   ├── modules/               35 feature modules (routes.ts + *.service.ts)
+│   │   ├── modules/               33 feature modules (routes.ts + *.service.ts)
 │   │   ├── plugins/               auth.ts, rbac.ts, audit-logger.ts
 │   │   ├── workers/               notification.worker.ts, pm-overdue.worker.ts, session-sweep.worker.ts (graphile-worker tasks)
 │   │   ├── lib/                   Shared utilities (audit, jwt, sanitize, prisma, etc.)
 │   │   └── types/                 TypeScript type definitions
 │   └── prisma/
-│       ├── schema.prisma          65 models, 25 enums
+│       ├── schema.prisma          61 models, 23 enums
 │       └── seed.ts                Default roles, superadmin, configs
 │
 ├── apps/web/                      (React SPA)
@@ -127,13 +131,13 @@
 
 | Path | Purpose |
 |---|---|
-| `apps/api/prisma/schema.prisma` | 65 models, 25 enums |
+| `apps/api/prisma/schema.prisma` | 61 models, 23 enums |
 | `apps/api/prisma/seed.ts` | Default roles, super-admin user, system configs |
 | `apps/api/prisma/migrations/` | Versioned Prisma migrations — `00000000000000_baseline` (squashed schema) + `20260701071802_drop_qrcode_latesttelemetry`, plus `migration_lock.toml` |
 | `apps/api/prisma/sql/extensions.sql` | Hand-written SQL — installs PostgreSQL extensions (e.g. `pg_trgm`, `uuid-ossp`) used by Prisma |
 | `apps/api/prisma/schema.prisma.bak` | **Stray backup file** — clean up |
 | `apps/api/uploads/photos/` | User-uploaded profile photos + checklist photos (served at `/uploads/`) |
-| `apps/api/uploads/reports/` | Generated report PDFs (created at runtime by reports module) |
+| `apps/api/uploads/reports/` | **Legacy/orphaned** — was written by the reports generate/sign module (removed 2026-07-04); nothing writes here now (the surviving PDF export is client-side) |
 
 ## Frontend public assets (`apps/web/public/`)
 
@@ -210,7 +214,7 @@ HTTPS Request → Fastify (:3000, mkcert TLS, serves SPA + /api/*)
 
 ### Module Structure
 
-Each of the 35 modules follows this pattern:
+Each of the 33 modules follows this pattern:
 
 ```
 modules/
@@ -233,7 +237,7 @@ modules/
 | **Filter Operations** | filter-operations, filter-profiles, cleaning-profiles, checklist-profiles, stage-approvals |
 | **Scheduling** | pm-schedules, equipment-groups, replacement-schedule |
 | **Approvals** | block-change-requests, admin-requests |
-| **Reports** | report-templates (CRUD + versioning), reports (generation engine + PDF + signatures), report-reviews |
+| **Reports** | report-reviews (ad-hoc submit/review/approve workflow). *(The `report-templates` designer + `reports` generate/sign engine were removed 2026-07-04.)* |
 | **Notifications** | notifications, notification-rules, notification-delivery |
 | **Config** | config (35 definitions with auto-discovery; monolith split into `static-routes/` per surface) |
 | **Support** | uploads, help, ldap |
@@ -354,11 +358,10 @@ Scheduling:
   EquipmentGroup → EquipmentGroupInstrument
   ChecklistProfile → ChecklistQuestion
   ChecklistProfileVersion (Phase A.1 — immutable snapshot table)
-  ChecklistReview → ElectronicSignature
 
 Reports:
-  ReportTemplate → ReportTemplateVersion
-  ReportInstance → ReportSignature
+  ReportReview (ad-hoc submit/review/approve; plain signer columns + audit_trail)
+  (ReportTemplate/ReportTemplateVersion/ReportInstance/ReportSignature removed 2026-07-04)
 
 Notifications:
   Notification, NotificationLog, NotificationTemplate
@@ -392,7 +395,7 @@ DigiLog runs with no Redis-protocol service. `ioredis` is not in `package.json`.
 │    └── Single active session per user               │
 │                                                     │
 │  Layer 3: Authorization                             │
-│    └── RBAC (109 permissions, role-based)            │
+│    └── RBAC (102 permissions, role-based)            │
 │    └── Re-authentication (102 sensitive actions)     │
 │                                                     │
 │  Layer 4: Input Validation                          │

@@ -63,8 +63,8 @@ For end-to-end details, start with `PROJECT_SUMMARY.md` (overview), `PROJECT_ARC
 ### Phase 4 — Permissions, Themes, Reports
 - **18 granular feature toggles** — Filters (6), Checklists (4), Cleaning Profiles (4), Equipment (4), PM (4)
 - **10 color themes** — CSS variables (`--theme-primary`, `--theme-gradient-from/to`)
-- **Report template designer** — visual editor + PDF generation engine + digital signatures
-- **Configurable report header/footer/layout** — `/config/report-settings`
+- ~~**Report template designer** — visual editor + PDF generation engine + digital signatures~~ *(removed 2026-07-04 — orphaned generate/sign engine torn out; the ad-hoc report-reviews workflow + client-side cleaning-record/lifecycle PDF export remain)*
+- **Configurable report page titles / labels / signatories** — `/config/report-config`
 - **Dynamic bulk upload** — CSV columns from template `attributeSchema`
 - **92 reauthentication actions** across 16 categories
 - **Block change request/approval** workflow with single-use consumption

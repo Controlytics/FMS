@@ -91,11 +91,13 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 
 | Path | Page | Permission |
 |---|---|---|
-| `/report-templates` | ReportTemplateListPage | REPORT_TEMPLATE_READ |
-| `/report-templates/:id/edit` | ReportTemplateEditorPage | REPORT_TEMPLATE_UPDATE |
-| `/reports` | ReportListPage | REPORT_VIEW |
-| `/reports/generate` | ReportGeneratePage | REPORT_GENERATE |
-| `/reports/:id` | ReportDetailPage | REPORT_VIEW |
+| `/report-reviews` | ReportReviewsPage | REPORT_REVIEW_SUBMIT / REPORT_REVIEW / REPORT_APPROVE |
+| `/filter-lifecycle-report` | FilterLifecycleReportPage | CYCLE_READ |
+
+> The `/report-templates` designer + `/reports` generate/sign/view routes were removed
+> 2026-06-08 (frontend) and the backing modules 2026-07-04. Client-side PDF export for the
+> cleaning-record + filter-lifecycle pages lives on those pages via `lib/pdf-report.ts`
+> (see the Libs table), not a dedicated route.
 
 ### Rule Chains (lazy-loaded)
 
@@ -160,7 +162,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 | `/config/notification-settings` | NotificationSettingsPage | CONFIG_UPDATE — email/SMS/Telegram/Slack |
 | `/config/pagination` | PaginationConfigPage | CONFIG_READ |
 | `/config/password-policy` | PasswordPolicyPage | SUPER_ADMIN |
-| `/config/report-settings` | ReportSettingsPage | CONFIG_UPDATE — header/footer/layout |
+| `/config/report-config` | ReportConfigPage | SUPER_ADMIN — report page titles / labels / signatories |
 | `/config/retention` | RetentionPage | RETENTION_VIEW |
 | `/config/role-access` | RoleAccessPage | ROLE_MANAGE |
 | `/config/tablet-access` | TabletAccessConfigPage | SUPER_ADMIN — role × feature matrix; controls `/m` access |

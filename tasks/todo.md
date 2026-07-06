@@ -1696,3 +1696,33 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   34 pages), apps/api/CLAUDE.md (35 files/defs), tasks/todo.md (this entry). Spec:
   docs/superpowers/specs/2026-07-01-ahu-completion-process-design.md. No manual browser UI
   verification performed this session.
+- 2026-07-04 — Reports (generate/sign) module tear-out COMPLETE (Phases A–F). Removed the orphaned
+  server-side report generate/sign engine (`modules/reports/`) + template-designer backend
+  (`modules/report-templates/`) — FE already gone 2026-06-08, reachable only by direct API. Dropped:
+  2 backend modules (35→33), 4 Prisma models + 2 enums (65→61 models, 25→23 enums; migration
+  `20260704121326_drop_reports_generate_sign`, drift PASS), 7 perms (109→102), 7 reauth (99→92),
+  9 tree nodes (feature-privileges 90→83 — net −7 after re-gating the 2 export nodes), 5 npm deps
+  (puppeteer-core, @napi-rs/canvas, chart.js, chartjs-adapter-date-fns, dayjs). Option A re-gate:
+  kept REPORT_EXPORT/REPORT_GENERATE, made cleaning_record.export/lifecycle.export configurable so
+  the active client PDF export stays grantable. KEPT: report-reviews workflow, report-config defs,
+  report-page-wrapper, FilterLifecycleReportPage. Fixed the misleading "live e-signature =
+  ReportSignature" claim (it's ReportReview + audit_trail). 21 CFR §11: REPORT_* audit-actions/
+  templates retained-but-unemitted. Phase F (this session, 2026-07-06) closed the remaining doc sync:
+  PHASE_5_RECENT_WORK.md §1 REMOVED banner + CHANGELOG.md tear-out entry + this audit entry. All live
+  counts re-verified vs code (modules/models/enums/perms/reauth) and vs the frozen snapshot
+  (feature-privileges 83). Plan: tasks/REMOVE-REPORTS-MODULE-PLAN.md. Pre-removal tag:
+  pre-reports-module-drop.
+  - **Discovered during the Phase F sweep (fixed):** the original reports doc-sync commit (c5c9660)
+    MISSED 3 active docs entirely — `apps/api/CLAUDE.md` (3 stale summary counts), `PROJECT_ARCHITECTURE.md`
+    (65/25/35/109 + Reports ERD + module row), and `FRONTEND_GUIDE.md` (whole "Reports (lazy-loaded)"
+    route block listed 5 routes deleted 2026-06-08). Also fixed a pre-existing rename
+    `/config/report-settings`→`/config/report-config` (FRONTEND_GUIDE + README). AGENTS.md brought fully
+    current (was 2026-04-29-era: 37 modules / 68 models / 106 perms + a stale 9-module list + harmful
+    multi-tenant review guidance that would flag correct single-tenant code) + LOCAL_SETUP_WINDOWS.md counts.
+  - **OPEN / FLAGGED (NOT fixed — needs its own careful pass):** `DEPLOY-WINDOWS.md` + `windowsIssues.md`
+    were never synced for **Phase 7** — they still instruct operators to install **TimescaleDB** (dropped
+    2026-06-11) and **Mosquitto/MQTT** (removed 2026-06-17), and reference the reports/Edge PDF stack
+    (removed 2026-07-04). DEPLOY-WINDOWS §2 (line ~66), §3 prereqs table (lines ~83–87: PostgreSQL Stack
+    Builder→TimescaleDB, Mosquitto row, Microsoft Edge row), the Server-Core note (~92–97), and the
+    troubleshooting row (~463) are all stale. This is a deploy-critical multi-subsystem remediation, left
+    for a dedicated pass so the runbook isn't half-corrected.

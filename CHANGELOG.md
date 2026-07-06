@@ -1,5 +1,64 @@
 # Changelog
 
+## [Unreleased] — Reports (generate/sign) module tear-out (2026-07-04)
+
+Branch: `RFID`. Removed the orphaned server-side report **generation + signing** engine
+(`modules/reports/`) and its **template-designer backend** (`modules/report-templates/`).
+Both were dead code: their frontend + 2 sidebar items were removed 2026-06-08, no active
+backend imported either module, and they were reachable only by direct API. Same spirit as the
+Phase 6 (rule-chain/alarm) and Phase 7 (data-ingestion/TSDB) tear-outs. Plan:
+`tasks/REMOVE-REPORTS-MODULE-PLAN.md`. Pre-removal git tag: `pre-reports-module-drop`. Landed
+across phases A–F (commits `655deaf`, `9c6defb`, `9189dc7`, `4df5bbc`, `c5c9660`, + this doc close).
+
+### Scope removed
+- **2 backend modules**: `apps/api/src/modules/reports/` (service, variable-resolver, 5 data-sources,
+  renderers incl. chart/pdf, `renderers/__tests__/`) + `apps/api/src/modules/report-templates/`.
+  Module count **35 → 33**. `app.ts`: 3 registration lines dropped.
+- **4 Prisma models**: `ReportTemplate`, `ReportTemplateVersion`, `ReportInstance`, `ReportSignature`
+  (tables `report_templates`, `report_template_versions`, `report_instances`, `report_signatures`) +
+  4 back-relation fields on `User` + 4 cascade-cleanup `deleteMany` lines in `user.repository.ts`.
+  Dropped via `prisma/migrations/20260704121326_drop_reports_generate_sign`; drift guard PASS. Model
+  count **65 → 61**. Hard-deleted data: `report_templates` (5 rows), `report_template_versions`
+  (27 rows) — belonged solely to the dead designer; `report_instances`/`report_signatures` were 0 rows.
+- **2 enums**: `ReportTemplateStatus`, `ReportStatus`. Enum count **25 → 23**.
+- **Shared package** (`packages/shared`): 7 permissions (`REPORT_TEMPLATE_{READ,CREATE,UPDATE,DELETE}`,
+  `REPORT_VIEW`, `REPORT_SIGN`, `REPORT_DELETE`; **109 → 102**), 7 reauth actions
+  (`{CREATE,UPDATE,DELETE}_REPORT_TEMPLATE`, `GENERATE_REPORT`, `SIGN_REPORT`, `REJECT_REPORT`,
+  `DELETE_REPORT`; **99 → 92**), 9 orphaned `PERMISSION_TREE` nodes in the `filter-lifecycle-report`
+  group (`report_templates.{view,create,edit,delete}` + `reports.{generate,view,sign,delete,export}`)
+  + their `CONFIGURABLE_PRIVILEGE_ORDER` entries. Derived feature-privileges **90 → 83** (−9 nodes,
+  +2 re-gated export nodes — see below). `legacy-maps-derived.test.ts` + `legacy-maps-snapshot.ts`
+  updated; frozen-snapshot / referential-integrity tests green.
+- **npm deps** (`apps/api/package.json`): `puppeteer-core`, `@napi-rs/canvas`, `chart.js`,
+  `chartjs-adapter-date-fns`, `dayjs` (all reports-only; verified no other importer). Drops the
+  Chromium-bindings + native-canvas transitive tree.
+- **Default roles** (`default-roles.ts`): stripped the 7 dropped perms from SUPER_ADMIN / ADMIN /
+  SUPERVISOR / MAINTENANCE / VIEWER grants; reconciled live `roles.permissions`.
+- **Tests**: deleted 3 renderer tests (`chart-renderer`, `edge-detector`, `pdf-renderer`); trimmed
+  the `/api/reports` registration + `POST /generate` blocks from `e2e/phase4-perms-themes-reports.test.ts`
+  and `tests/integration/windows-server-stack.test.ts` "Test 4".
+
+### Retained (active surfaces — NOT part of the generate/sign engine)
+- **report-reviews** — `modules/report-reviews/` + `ReportReview` model + `/report-reviews` FE: the
+  ad-hoc submit/review/approve workflow. Zero cross-import with the removed modules; no FK to dropped
+  tables. Perms `REPORT_REVIEW_SUBMIT`/`REPORT_REVIEW`/`REPORT_APPROVE` + reauth
+  `REVIEW_REPORT`/`APPROVE_REPORT` kept.
+- **Report-config defs** — `report-page-titles`, `report-labels`, `report-signatories` + `report-config.tsx`
+  + `report-page-wrapper.tsx` print chrome + `FilterLifecycleReportPage`.
+- **Client PDF export re-gate (Option A)** — kept the `REPORT_EXPORT` / `REPORT_GENERATE` perm
+  constants and made `cleaning_record.export` / `lifecycle.export` **configurable** with grant-set
+  `['REPORT_EXPORT','REPORT_GENERATE']`, so those active export toggles remain grantable via the
+  role-config picker after the orphaned `reports.generate`/`reports.export` toggles were removed.
+
+### Doc correction
+- Root `CLAUDE.md` previously claimed the *"live e-signature surface uses `ReportSignature`"* — wrong:
+  `ReportSignature`'s only writer was the removed `reports/service.ts`. The live e-signature surface is
+  `ReportReview` (plain signer columns) + the hash-chained `audit_trail`. Fixed in the doc sync.
+
+### 21 CFR §11 contract retained
+- `audit-actions.ts` / `audit-templates.ts` `REPORT_*` registry entries kept (retained-but-unemitted,
+  like the UNS / RULE_CHAIN / DEVICE_CREDENTIAL entries) so historic audit rows still render.
+
 ## [Unreleased] — AHU dialog: show the real stage, "Completed" only when the cycle finished (2026-07-02)
 
 The AHU interlock dialog labelled a filter "Completed" whenever it had `done=true`, but `done`

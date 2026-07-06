@@ -4,7 +4,28 @@ This doc captures the architecture and behavior changes that landed **after** th
 
 ---
 
-## 1. Reports Module (phases A–F complete)
+## 1. Reports Module (generate/sign engine — REMOVED 2026-07-04)
+
+> **REMOVED 2026-07-04.** The server-side report **generation + signing** engine
+> (`modules/reports/`) and its **template-designer backend** (`modules/report-templates/`)
+> were torn out as orphaned dead code — the frontend for both had already been removed
+> 2026-06-08, and no active backend imported either module. Dropped: the 2 backend modules,
+> 4 Prisma models (`ReportTemplate`, `ReportTemplateVersion`, `ReportInstance`,
+> `ReportSignature`), 2 enums (`ReportTemplateStatus`, `ReportStatus`), 7 permissions,
+> 7 reauth actions, 9 feature-privilege nodes, and 5 npm deps (`puppeteer-core`,
+> `@napi-rs/canvas`, `chart.js`, `chartjs-adapter-date-fns`, `dayjs`). See the CHANGELOG
+> "Reports (generate/sign) module tear-out" entry and `tasks/REMOVE-REPORTS-MODULE-PLAN.md`.
+>
+> **Not affected (still live):** the ad-hoc **report-reviews** submit/review/approve workflow
+> (`modules/report-reviews/` + `ReportReview` model), the report-config defs
+> (`report-page-titles` / `report-labels` / `report-signatories`), the `report-page-wrapper`
+> print chrome, the `FilterLifecycleReportPage`, and the client-side cleaning-record /
+> filter-lifecycle PDF **export** (re-gated onto the retained `REPORT_EXPORT` /
+> `REPORT_GENERATE` perms via the now-configurable `cleaning_record.export` /
+> `lifecycle.export` toggles). The live e-signature surface is `ReportReview` + the
+> hash-chained `audit_trail` — never `ReportSignature` (which only the removed engine wrote).
+>
+> The historical architecture below is retained for the *why*.
 
 Server-side report generation engine that resolves variable tags, renders HTML with charts, converts to PDF via Puppeteer, and serves downloadable reports.
 

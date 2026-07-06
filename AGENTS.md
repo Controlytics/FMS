@@ -3,16 +3,18 @@
 ## Project Context
 DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 compliance.
 Monorepo: Fastify API (apps/api), React SPA (apps/web), shared packages.
-Branch: DigitalFMS (active development).
+Branch: RFID (active development) → merges to DigitalFMS → main.
 
-## Current Module Count (verified 2026-04-29)
-- **Backend:** 37 API modules
-- **Frontend:** 22 route folders/files (~84 pages)
-- **Database:** 68 Prisma models, 21 enums
-- **Permissions:** 106 constants, 90 feature privileges, 87 reauth actions across 16 categories, 26 sidebar items (M1 + M2 audit fixes 2026-05-04 added `APPROVE_ADMIN_REQUEST` and `UPDATE_FILTER_LIFECYCLE` — distinguish admin-request approvals from generic user creation, and filter lifecycle moves from generic asset edits)
+## Current Module Count (verified 2026-07-06)
+- **Backend:** 33 API modules
+- **Frontend:** 76 routes in `apps/web/src/main.tsx`
+- **Database:** 61 Prisma models, 23 enums (single database `digilog_db`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
+- **Permissions:** 102 constants, 83 feature privileges, 92 reauth actions across 16 categories, 26 sidebar items
 
-## Backend Modules (37)
-admin-requests, assets (templates, instances, identifiers, relationships), audit, auth, backup, checklist-profiles, cleaning-profiles, config (with 30 auto-discovered defs), connectivity, dashboards, data-ingestion, deployment-check, entity-assignments, equipment-groups, filter-operations, filter-profiles, help, ldap, notification-delivery, notification-rules, notifications, org-admin, pm-schedules, qr-code, queries (telemetry/alarm/retention/export), report-templates, reports, roles, rule-chain, super-admin, system-health, tenant-admin, uns, uploads, user-groups, users — plus filter-set / filter-data-management surfaces under config.
+> Many modules/models were removed across 2026 tear-outs: multi-tenancy (`org-admin`/`tenant-admin` + org scoping, 2026-04-30), rule-chain + alarms (2026-05-17), data-ingestion + UNS + connectivity + queries + TimescaleDB (2026-06-11..17), qr-code (2026-06-06), and the reports generate/sign + report-templates engine (2026-07-04). See `CLAUDE.md` System Stats + `CHANGELOG.md`.
+
+## Backend Modules (33)
+admin-requests, assets (templates, instances, identifiers), audit, auth, backup, block-change-requests, checklist-profiles, cleaning-profiles, config (35 auto-discovered defs), dashboards, debug-traces, deployment-check, equipment-groups, filter-operations, filter-profiles, guest, help, hierarchy, ldap, notification-delivery, notification-rules, notifications, pm-schedules, replacement-schedule, report-reviews, roles, stage-approvals, super-admin, sync, system-health, uploads, user-groups, users.
 
 ## Review Focus Areas
 
@@ -22,14 +24,13 @@ admin-requests, assets (templates, instances, identifiers, relationships), audit
 - Authentication: JWT tokens with role-based access control
 - Audit trail: all data mutations must create audit log entries
 - No secrets or credentials in code
-- Organization scoping: multi-tenant queries must filter by orgId
 - Race conditions: use Prisma transactions for concurrent operations
+- **Single-tenant:** multi-tenancy was removed 2026-04-30 — there is no `orgId`/`tenantId` scoping; do NOT flag its absence. JWT `scope` is always `GLOBAL`.
 
 ### Backend (apps/api — Fastify + TypeScript)
 - Route handlers must validate input with Zod schemas
 - Services should use proper error handling with Fastify error codes
 - Database queries via Prisma ORM only against `digilog_db` (TimescaleDB / `digilog_tsdb` was dropped 2026-06-11 with the data-ingestion tear-out — see CHANGELOG Phase 7)
-- Check tenant isolation: multi-tenant queries must filter by orgId/tenantId
 - graphile-worker jobs must handle failures gracefully (Phase 2 of windows-friendly-rewrite swapped from BullMQ + Redis to Postgres-backed queue)
 - Filter operations must enforce checklist completion before stage advance
 - Pipeline validation: check graph connectivity, stateKeys, checklist profile references
