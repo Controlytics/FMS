@@ -1,6 +1,6 @@
 # System Requirements
 
-> **DigiLog runs on local Windows only as of Phase 5 (2026-04-29).** EC2 / Linux / PM2 production paths were retired in commit `251be95`. The historical production stack table is preserved below for archival reference; the canonical install path is `DEPLOY-WINDOWS.md` at the repo root.
+> **DigiLog runs on local Windows only as of Phase 5 (2026-04-29).** EC2 / Linux / PM2 production paths were retired in commit `251be95`. The historical production stack table is preserved below for archival reference; the canonical install path is the `DigiLog-Setup.exe` installer — see `docs/PHARMA_DEPLOYMENT_21CFR.md` (root `DEPLOY-WINDOWS.md` is a pointer to it).
 
 ## Server (current — Windows local)
 - **OS:** Windows Server 2019 / 2022 or Windows 10 / 11 Pro

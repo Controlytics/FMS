@@ -1759,3 +1759,14 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   redirected their "current runbook = DEPLOY-WINDOWS.md" pointers → PHARMA (bodies left as historical
   evaluation per the rule). Did NOT collapse the folder to a pointer — it's a 21 CFR decision record (the
   "why native Windows over Docker/IIS/cloud" rationale has archival value). All relative links verified.
+- 2026-07-06 — Swept the full active doc set for stale DEPLOY-WINDOWS references (now that it's a 40-line
+  pointer with no §-sections and isn't "the canonical guide"). Fixed the current-state cluster in 8 files:
+  the recurring "`DEPLOY-WINDOWS.md § 7` NSSM stopgap **until Phase 5 ships a managed launcher**" claim
+  (README §tech-stack, PROJECT_SUMMARY, BACKEND_GUIDE ×2, windowsIssues ×2, PROJECT_HANDOVER/APPLICATION_FLOW)
+  — the launcher SHIPPED (installer registers `DigiLogDB`+`DigiLogAPI` WinSW services via register-services.ps1);
+  "canonical deployment guide/runbook" + "canonical install path is DEPLOY-WINDOWS" (windowsIssues, docs/getting-started/
+  system-requirements) → PHARMA_DEPLOYMENT_21CFR.md; CONTRIBUTING Change→Docs map (new-script row) → EXE-PACKAGING-PLAN
+  + PHARMA; PHASE_5_RECENT_WORK "Production deployment artifacts" section got a SUPERSEDED banner (deleted scripts +
+  TSDB bullets retained as Phase-5 record). LEFT as dated/historical: CHANGELOG entries, docs/plans/2026-04-29-*,
+  windowsIssues §225 "Phase 4 status (2026-04-29)" footnote, tasks/todo.md audit log. NOTE (out of scope, flagged):
+  windowsIssues:280 still has stale counts "30 config defs + 27 pages + 106 perms" (should be 35/34/102).

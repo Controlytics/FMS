@@ -102,7 +102,7 @@ Plus: write an e2e test, append to `CHANGELOG.md`, and update count claims in CL
 | **New e2e test** in `apps/api/src/e2e/` | `BACKEND_GUIDE.md` E2E table, `future/testing/README.md` (suite count), `future/testing/TEST_INVENTORY.md` |
 | **New unit/schema test** | `future/testing/README.md`, `future/testing/TEST_INVENTORY.md` |
 | **New manual golden path** | `future/testing/MANUAL_TEST_GUIDE.md` |
-| **New PowerShell script** in `scripts/` | `PROJECT_ARCHITECTURE.md` Repo-level Infrastructure, `DEPLOY-WINDOWS.md`, `PHASE_5_RECENT_WORK.md` § 9 |
+| **New PowerShell script** in `scripts/` | `PROJECT_ARCHITECTURE.md` Repo-level Infrastructure, `tasks/EXE-PACKAGING-PLAN.md`, `docs/PHARMA_DEPLOYMENT_21CFR.md` |
 | **TLS/cert change** in `certs/` | `CLAUDE.md` TLS notes, `PROJECT_ARCHITECTURE.md`, memory `reference_apk_tls_setup` |
 | **New env var** in `.env.example` | `BACKEND_GUIDE.md` Environment Variables, `LOCAL_SETUP_WINDOWS.md`, `future/backend/ENV_SETUP.md` |
 | **`tsdb-migration/init-hypertables.sql`** change | `PROJECT_ARCHITECTURE.md`, `LOCAL_SETUP_WINDOWS.md` |

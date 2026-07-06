@@ -119,7 +119,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 - PowerShell-based automated installation via `scripts/install-on-target.ps1`
 - API serves SPA + `/api/*` directly on `:3000` over HTTPS (mkcert)
 - Reverse proxy (Nginx / IIS) is optional / customer-choice — not bundled after Phase 4 of the windows-friendly-rewrite
-- Managed Windows-service launcher is Phase 5 work; NSSM stopgap documented in `DEPLOY-WINDOWS.md` § 7
+- The `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as auto-start Windows services (WinSW, via `scripts/register-services.ps1`); see `docs/PHARMA_DEPLOYMENT_21CFR.md`
 - Firewall rules auto-configured (80, 443, 3000)
 
 ### Prerequisites

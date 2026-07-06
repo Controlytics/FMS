@@ -6,9 +6,9 @@
 > **2026-04-29 update — stack swaps in subsequent windows-friendly-rewrite phases not reflected below:**
 > - **Mermaid diagram boxes** (Sections 2 + 5) still show **Nginx**, **Memurai/Redis queue**, and **EMQX MQTT** because the .docx + .png renders match this prose verbatim and would have to be regenerated together. The current install path uses **Fastify-direct on `:3000` (HTTPS via mkcert)**, **graphile-worker on Postgres** for the queue (Phase 2, commit `7832af1`), and **Mosquitto 2.0** for MQTT (Phase 1). The reverse proxy is now optional / customer-choice.
 > - **Section 18 ("Permissions, 95 / 82 / 69")** is a release-time snapshot of Phase 4. Current totals are **109 permissions / 91 feature toggles / 81 reauth actions** — verified by `grep -cE "^\s+[A-Z_]+:\s*'" packages/shared/src/types/permissions.ts` etc.
-> - **Section 21 (Operations table)** mentions Memurai/EMQX/Nginx/PM2 — those are no longer required components. Memurai/Redis is optional (non-queue pub/sub only); EMQX → Mosquitto 2.0; Nginx → optional reverse proxy; PM2 → no managed launcher today (NSSM stopgap in `DEPLOY-WINDOWS.md` § 7 until Phase 5 ships one).
+> - **Section 21 (Operations table)** mentions Memurai/EMQX/Nginx/PM2 — **all removed**. Redis/Memurai (2026-05-01), MQTT/EMQX/Mosquitto + TimescaleDB (2026-06), and Nginx + PM2 (Phase 4) are gone; the current stack is PostgreSQL 18 (single `digilog_db`) + one Node process, deployed via the `DigiLog-Setup.exe` installer (registers `DigiLogDB` + `DigiLogAPI` Windows services). See `docs/PHARMA_DEPLOYMENT_21CFR.md`.
 >
-> For the current architecture refer to root `PROJECT_ARCHITECTURE.md`, `BACKEND_GUIDE.md`, `DEPLOY-WINDOWS.md`, and `PHASE_5_RECENT_WORK.md` § 12.
+> For the current architecture refer to root `PROJECT_ARCHITECTURE.md`, `BACKEND_GUIDE.md`, `docs/PHARMA_DEPLOYMENT_21CFR.md`, and `PHASE_5_RECENT_WORK.md` § 12.
 
 ---
 

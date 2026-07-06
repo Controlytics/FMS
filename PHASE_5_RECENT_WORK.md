@@ -298,6 +298,14 @@ Proposal only — not implemented. Current implementation still computes a `next
 - New `permission-categories.ts` groups perms for the role-access UI
 
 ### Production deployment artifacts (Windows)
+
+> **SUPERSEDED (2026-07).** This section records the Phase-5-era manual deployment scripts. They were
+> removed and replaced by the `DigiLog-Setup.exe` (Inno Setup) installer + the M-series scripts
+> (`build-installer` / `install` / `provision-db` / `register-services` / `upgrade`). `package-for-production.ps1`,
+> `install-on-target.ps1`, `install-mosquitto.ps1`, and the TimescaleDB `tsdb-migration/` bootstrap are all
+> gone (TimescaleDB/MQTT removed Phase 7; reports/Edge removed 2026-07-04). For the current runbook see
+> `docs/PHARMA_DEPLOYMENT_21CFR.md`. The bullets below are retained as the original Phase-5 record.
+
 - **`scripts/package-for-production.ps1`** — builds API (compiled JS) + Web (vite build) + shared package; bundles into `digilog-production.zip` ready for transport
 - **`scripts/install-on-target.ps1`** — run-once installer on target Windows machine. After Phase 4 of the windows-friendly-rewrite (commits `127f25d..60d3c90` on `feature/phase4-tooling`): assumes only Node.js 20+ and PostgreSQL 18 + TimescaleDB are pre-installed (Memurai is optional, only for non-queue pub/sub; EMQX no longer needed — Phase 1 swapped to Mosquitto); invokes `install-mosquitto.ps1` automatically (step 3/9); enables `LongPathsEnabled` registry key; probes for `msedge.exe` and warns if missing (puppeteer-core uses Edge for PDF rendering); runs `npm ci --omit=dev`, `prisma generate`, `prisma migrate deploy`, `prisma db seed`; opens Windows Firewall ports 80/443/3000/1883. **Does NOT register a managed service** — the API is launched manually for smoke-test (`cd api; node dist/app.js`). The proper service-registration installer is Phase 5 work; see `DEPLOY-WINDOWS.md` § 7 for the NSSM stopgap.
 - **`certs/`** — mkcert-generated TLS infrastructure for HTTPS API: `rootCA.pem` (install on tablet system cert store), `server.crt`/`server.key` (localhost), `ssl.conf` (OpenSSL config)

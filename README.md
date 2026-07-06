@@ -94,7 +94,7 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 | Job queue | graphile-worker on PostgreSQL (LISTEN/NOTIFY + SKIP LOCKED + advisory locks) |
 | Pub/sub (non-queue) | None — Phase 4 retired Redis; the in-process EventEmitter bus was later removed with its last WS/trace/debug consumer (Phase 6/7) |
 | Mobile | Capacitor Android APK + native Kotlin RFID app |
-| Reverse proxy | Optional / customer-choice (no longer bundled — Fastify on `:3000` direct is the default; see `DEPLOY-WINDOWS.md` § 7 for the NSSM stopgap until Phase 5 ships a managed-service launcher) |
+| Reverse proxy | Optional / customer-choice (no longer bundled — Fastify on `:3000` direct is the default). The `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as auto-start Windows services; see `docs/PHARMA_DEPLOYMENT_21CFR.md` |
 
 ---
 

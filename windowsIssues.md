@@ -1,6 +1,6 @@
 # Windows Server Deployment — Difficulty Audit
 
-Authoritative inventory of features and dependencies in the codebase that are **difficult or impossible to run cleanly on Windows Server**, with mitigations. Pair this with `DEPLOY-WINDOWS.md` (the canonical deployment guide) and `LOCAL_SETUP_WINDOWS.md` (local dev).
+Authoritative inventory of features and dependencies in the codebase that are **difficult or impossible to run cleanly on Windows Server**, with mitigations. Pair this with `docs/PHARMA_DEPLOYMENT_21CFR.md` (the canonical deployment runbook — root `DEPLOY-WINDOWS.md` is now a pointer to it) and `LOCAL_SETUP_WINDOWS.md` (local dev).
 
 **Last verified:** 2026-04-29 against commit `5f56cec` on branch `RFID`.
 
@@ -275,7 +275,7 @@ New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
 - PostgreSQL 18 itself (now also hosts the graphile-worker queue schema)
 - ~~`mqtt` npm package~~ — uninstalled 2026-06-17 with data-ingestion tear-out
 - HTTPS via mkcert (after the cert-import step in §6)
-- Windows Service registration via NSSM (stopgap until Phase 5 ships a managed-service launcher)
+- Windows Service registration — the `DigiLog-Setup.exe` installer registers `DigiLogDB` + `DigiLogAPI` as WinSW services (`scripts/register-services.ps1`); NSSM (`install-services-phase5.ps1`) remains for manual deploys
 - ~~Memurai (Redis substitute, paid)~~ — RETIRED in Phase 4 (2026-05-01); pub/sub now in-process
 - The 30 config defs + 27 config pages + 106 permissions — all pure JS
 
@@ -313,11 +313,11 @@ Phase 5 of the windows-friendly-rewrite did **not** close any of the 18 issue en
 - `tests/integration/windows-server-stack.test.ts` originally exercised Mosquitto round-trip → graphile-worker pickup → TimescaleDB hypertable insert → PDF magic bytes. **MQTT/TSDB portions stale post Phase-7 ingestion removal**; graphile-worker + PDF parts still valid.
 - `scripts/verify-windows-deployment.ps1` (Phase 5.2) gives an operator a one-shot smoke-check on a deployed box. **Mosquitto :1883 check stale post Phase-7** (service uninstalled).
 
-The two remaining open items — a managed Windows-service launcher (replaces the NSSM stopgap in `DEPLOY-WINDOWS.md` § 7) and end-to-end install-script proof on a fresh box — remain Phase 5+ work.
+The former open item — a managed Windows-service launcher — **shipped** with the `DigiLog-Setup.exe` installer: `scripts/register-services.ps1` registers `DigiLogDB` + `DigiLogAPI` as auto-start WinSW services (EXE-PACKAGING M4). End-to-end install-script proof on a fresh box remains a build/customer-machine gate — see `tasks/EXE-PACKAGING-PLAN.md`.
 
 ## Cross-references
 
-- `DEPLOY-WINDOWS.md` — the deployment runbook (mitigations encoded as commands)
+- `docs/PHARMA_DEPLOYMENT_21CFR.md` — the deployment runbook (root `DEPLOY-WINDOWS.md` is now a pointer to it)
 - `LOCAL_SETUP_WINDOWS.md` — local dev setup
 - `scripts/install-on-target.ps1` — the production installer that should enforce every mitigation here
 - `future/qa/KNOWN_ISSUES.md` — operator-facing gotcha summary
