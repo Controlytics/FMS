@@ -85,7 +85,10 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
   it can see that module's sidebar item AND holds the step's gate; SUPER_ADMIN
   always. Custom roles appear automatically with their own colour. Each viewer
   sees only the modules their own role can access (mirrors their sidebar), via
-  `routes/home/viewer-access.ts`. The catalog (`module-flows.ts`) carries each
+  `routes/home/viewer-access.ts`. A **"My modules | All modules (audit)" toggle**
+  switches to a full auditor view: every module + every role permitted by the
+  backend gate, ignoring any role's sidebar (`ignoreSidebar` flag on
+  `rolesForStep`/`rolesForGate`). The catalog (`module-flows.ts`) carries each
   step's real backend `gate` (traceable to routes/`PERMISSION_TREE`); the prior
   static `default-roles` map + drift-guard were retired for the live matrix.
 
