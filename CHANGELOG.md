@@ -7,21 +7,26 @@ Branch: `RFID`. Added a `/home` "Module Guide" page + a top-of-sidebar `home` na
 count **76 → 77** (`grep -cE "<Route" apps/web/src/main.tsx`); route folder count **22 → 23**.
 
 ### What it does
-Renders per-module workflow flowcharts as a data-driven vertical stepper (`FlowChart.tsx`,
-`module-flows.ts`) — no new dependencies, no reuse of the retired `reactflow` canvas. Each step
-shows the roles allowed to perform it, resolved from that step's real backend permission gate
-(`FlowStep.gate: Permission[]`) via `deriveRolesForGate()` — so role badges reflect actual
-`requireAnyPermission`/`requirePermission` enforcement, not aspirational documentation. Steps
-with an empty gate render as automatic/system-driven; steps intentionally open to any
-authenticated user render as such — there is no case where a SUPER_ADMIN-only action is
-mislabeled as available to any user.
+Renders per-module workflow flowcharts as **horizontal card-to-card flows** (`FlowChart.tsx`,
+`module-flows.ts`) — no new dependencies. Matches the cleaning-profile pipeline view: step cards
+run left→right joined by arrow connectors, branch operations (bypass/reject/terminate) drop below
+their card via a down-arrow, per-kind left accent, horizontal scroll per flow. Each step's real
+backend permission gate is carried in the catalog (`FlowStep.gate: Permission[]`, traceable to the
+module routes / `PERMISSION_TREE`); role-level (`gateRoles`) and non-permission access
+(`automatic`/`public`/`configured`/`authenticated`) are modelled explicitly (an integrity test
+requires every step + branch to resolve to exactly one, so a SUPER_ADMIN-only action can never
+render as "any user").
 
-### Roles: derived, drift-guarded
-Role → permission mapping is an embedded copy of `apps/api/prisma/default-roles.ts`
-(`routes/home/role-gates.ts`, `DEFAULT_ROLE_PERMISSIONS`), duplicated because the web app can't
-import across the workspace at runtime. `__tests__/role-gates.test.ts` asserts set-equality
-against the live seed file so the embedded copy cannot silently drift from the real default
-roles.
+### Roles: live from configuration, per-viewer module filter
+For each operation the guide shows the role(s) **configured live** to perform it, from
+`GET /api/roles/access-matrix` (new authenticated endpoint — active roles + permissions + per-role
+sidebar config; not `ROLE_MANAGE`-gated). A role shows on a step only if it can **see that
+module's sidebar item AND holds the step's gate**; SUPER_ADMIN always. Custom roles appear
+automatically with their own colour (e.g. on PM Schedules, a custom `Manager` reviews and `QA`
+approves). Each viewer sees only the **modules their own role can access** (mirrors their sidebar),
+via `routes/home/viewer-access.ts`. The earlier static `default-roles` copy + drift-guard were
+retired for this live matrix. Backend: `roleRepository.findActiveWithAccess` +
+`roleService.getAccessMatrix` + `GET /api/roles/access-matrix`.
 
 ### Sidebar item
 `home` is hardcoded in `sidebar.tsx` (`if (item.id === 'home') return true;`) — it is

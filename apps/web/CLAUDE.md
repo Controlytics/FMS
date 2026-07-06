@@ -75,11 +75,19 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 - Home / Module Guide (`/home`, `routes/home/`, 2026-07-06): a non-configurable
   `home` sidebar item hardcoded in `components/layout/sidebar.tsx` (not in
   `packages/shared/src/types/sidebar-items.ts`) — always visible at the top of
-  the sidebar to every authenticated user regardless of role. The page renders
-  per-module workflow flowcharts (data-driven vertical stepper, no new deps)
-  with the roles allowed at each step derived from an embedded copy of
-  `apps/api/prisma/default-roles.ts` (`routes/home/role-gates.ts`), kept honest
-  by a drift-guard test asserting set-equality against the live seed file.
+  the sidebar to every authenticated user. Renders per-module **horizontal
+  card-to-card flowcharts** (`FlowChart.tsx`, no new deps — mirrors the
+  cleaning-profile pipeline: cards joined by arrow connectors, branches drop
+  below via a down-arrow, horizontal scroll per flow). For each operation it
+  shows the role(s) **configured live** to perform it, from
+  `GET /api/roles/access-matrix` (active roles + permissions + per-role sidebar
+  config; authenticated, not ROLE_MANAGE-gated). A role shows on a step only if
+  it can see that module's sidebar item AND holds the step's gate; SUPER_ADMIN
+  always. Custom roles appear automatically with their own colour. Each viewer
+  sees only the modules their own role can access (mirrors their sidebar), via
+  `routes/home/viewer-access.ts`. The catalog (`module-flows.ts`) carries each
+  step's real backend `gate` (traceable to routes/`PERMISSION_TREE`); the prior
+  static `default-roles` map + drift-guard were retired for the live matrix.
 
 ## Theme
 - Unified light theme: bg-white cards, bg-slate-50 sections, border-slate-200
