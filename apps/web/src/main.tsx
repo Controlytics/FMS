@@ -14,6 +14,7 @@ import { ChangePasswordPage } from './routes/auth/change-password';
 import { ContactAdminPage } from './routes/auth/contact-admin';
 import { GuestRequestPage } from './routes/auth/guest-request';
 import { DashboardPage } from './routes/dashboard';
+import HomePage from './routes/home';
 // May 16 H18 bundle-split (2026-05-20): FilterOperationsPage is ~80k LOC
 // (2k LOC file + deep deps); AuditTrailPage pulls jspdf + jspdf-autotable
 // (+ ~250 KB gz). Lazy-load both so the main chunk shrinks meaningfully
@@ -177,6 +178,7 @@ createRoot(document.getElementById('root')!).render(
           {/* Protected routes */}
           <Route element={<RouteErrorBoundary><AppLayout /></RouteErrorBoundary>}>
             <Route path="/" element={<DashboardPage />} />
+            <Route path="/home" element={<HomePage />} />
             <Route path="/profile" element={<ProfilePage />} />
 
             {/* User management — permission-based */}
