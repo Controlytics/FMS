@@ -12,6 +12,7 @@ import { DryerDurationDialog } from './components/dryer-duration-dialog';
 import { ChecklistDialog } from './components/checklist-dialog';
 import { BlockChangeRequestDialog } from './components/block-change-request-dialog';
 import { DryingFiltersPanel } from './components/drying-filters-panel';
+import { buildAhuBlockMap, filtersInBlock } from '@/lib/ahu-block-map';
 import { useFilterOperationsOfflineCache } from './hooks/use-filter-operations-offline-cache';
 import { useRecentSubmissions } from './hooks/use-recent-submissions';
 import { CLEANING_STAGES_OPS } from '../../lib/filter-constants';
@@ -82,6 +83,15 @@ export function FilterOperationsPage() {
   );
   const { data: typedBlocksResp, error: typedBlocksError } = useSWR<PaginatedResponse<any>>(
     '/api/hierarchy/blocks',
+  );
+  // AHU→block resolution for the Dry In panel (scopes drying filters to the
+  // selected block). Filter rows carry only ahuId; these give ahu.blockId /
+  // area.blockId. Online-only — the panel's countdowns need the server anyway.
+  const { data: ahusResp } = useSWR<PaginatedResponse<any>>(online ? '/api/hierarchy/ahus' : null);
+  const { data: areasResp } = useSWR<PaginatedResponse<any>>(online ? '/api/hierarchy/areas' : null);
+  const ahuBlockMap = useMemo(
+    () => buildAhuBlockMap(ahusResp?.data ?? [], areasResp?.data ?? []),
+    [ahusResp, areasResp],
   );
   const { data: reasonsData } = useSWR<any>(online ? '/api/filters/reasons' : null);
   const { data: equipGroupsData } = useSWR<any>(online ? '/api/equipment-groups' : null);
@@ -1630,9 +1640,13 @@ export function FilterOperationsPage() {
           onClose={closeDialog}
           instances={instances}
         />
-        {activeStage.key === 'DRY_IN' && (
+        {activeStage.key === 'DRY_IN' && selectedBlock && (
           <DryingFiltersPanel
-            filters={allFilters.filter((f: any) => f.currentLifecycleState === 'DRY_IN')}
+            filters={filtersInBlock(
+              allFilters.filter((f: any) => f.currentLifecycleState === 'DRY_IN'),
+              selectedBlock?.id,
+              ahuBlockMap,
+            )}
             refreshFilters={refreshFilters}
             setToast={setToast}
             setPopupError={setPopupError}

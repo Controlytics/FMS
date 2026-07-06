@@ -37,7 +37,7 @@ export function DryingFiltersPanel({
   if (filters.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-2xl p-5 text-center text-sm text-slate-400">
-        No filters currently drying
+        No filters drying in this block
       </div>
     );
   }

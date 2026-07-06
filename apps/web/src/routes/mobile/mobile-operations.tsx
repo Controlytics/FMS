@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
@@ -11,6 +11,7 @@ import { ReauthDialog } from '../../components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { buildAhuBlockMap, filtersInBlock } from '@/lib/ahu-block-map';
 import { subscribeRfidTags } from '@/lib/rfid-bridge';
 // Phase 8.6 — shared executor + action-tape resolver + offline-cache helper.
 // All graph-walking decisions (next-stage, checklist-after-stage, cache
@@ -372,6 +373,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // Data — always fetch when online, cache for offline
   const { data: instancesData } = useSWR(online ? '/api/assets/instances' : null, { refreshInterval: 30000 });
   const { data: templatesData } = useSWR(online ? '/api/assets/templates' : null);
+  // AHU→block map to scope the "Currently Drying" panel to the selected block.
+  // Filter rows carry parentId (= their AHU); these give ahu.blockId /
+  // area.blockId. Online-only; when unavailable the panel safe-degrades to all.
+  const { data: ahusResp } = useSWR<any>(online ? '/api/hierarchy/ahus' : null);
+  const { data: areasResp } = useSWR<any>(online ? '/api/hierarchy/areas' : null);
+  const ahuBlockMap = useMemo(
+    () => buildAhuBlockMap(ahusResp?.data ?? [], areasResp?.data ?? []),
+    [ahusResp, areasResp],
+  );
   // Always attempt the reasons fetch (not gated on the `online` flag — that
   // flag is unreliable on Android WebViews and, when it flips false on an
   // actually-online device, left the cleaning-reason picker empty). Offline the
@@ -3225,8 +3235,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             )}
 
             {/* Currently Drying Panel — shows filters with active dryer timers */}
-            {activeStage.key === 'DRY_IN' && (() => {
-              const dryingFilters = allFilters.filter((f: any) => f.currentLifecycleState === 'DRY_IN');
+            {activeStage.key === 'DRY_IN' && selectedBlock && (() => {
+              // Scope to the selected block (rows carry parentId = their AHU).
+              const dryingFilters = filtersInBlock(
+                allFilters
+                  .filter((f: any) => f.currentLifecycleState === 'DRY_IN')
+                  .map((f: any) => ({ ...f, ahuId: f.ahuId ?? f.parentId })),
+                selectedBlock?.id,
+                ahuBlockMap,
+              );
               if (dryingFilters.length === 0) return null;
               return (
                 <div className="bg-white border border-amber-200 rounded-2xl overflow-hidden">

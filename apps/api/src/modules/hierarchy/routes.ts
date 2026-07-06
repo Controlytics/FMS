@@ -63,6 +63,10 @@ const ahuSchema = {
   properties: {
     ...commonNodeProps,
     areaId: { type: ['string', 'null'], nullable: true },
+    // An AHU sits directly under a block (blockId set, areaId null) or under an
+    // area (areaId set). The Module Guide / Dry-In block scoping needs blockId
+    // for the direct-under-block case — it was being stripped by the schema.
+    blockId: { type: ['string', 'null'], nullable: true },
     filters: { type: 'array', items: filterSchema },
   },
   additionalProperties: false,
