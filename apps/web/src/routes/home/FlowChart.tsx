@@ -1,5 +1,5 @@
 import type { Permission } from '@digilog/shared';
-import type { AccessKind, FlowStep } from './types';
+import type { AccessKind, FlowStep, StepKind } from './types';
 import { deriveRolesForGate, ROLE_META } from './role-gates';
 
 const ACCESS_COPY: Record<AccessKind, string> = {
@@ -7,6 +7,14 @@ const ACCESS_COPY: Record<AccessKind, string> = {
   public: 'Anyone — no login required',
   configured: 'Roles enabled in visibility config',
   authenticated: 'Any signed-in user',
+};
+
+/** Left-accent colour per step kind — echoes the cleaning-profile pipeline's
+ * colour-coded node cards, adapted to the light theme. */
+const KIND_ACCENT: Record<StepKind, string> = {
+  action: 'border-l-cyan-500',
+  decision: 'border-l-amber-400',
+  system: 'border-l-slate-400',
 };
 
 function RoleNameBadges({ names }: { names: string[] }) {
@@ -36,10 +44,9 @@ function AccessChip({ access }: { access: AccessKind }) {
 }
 
 /** Branch access is gate-only today — no branch in the catalog has an empty
- * or role-level gate (verified against module-flows.ts). */
+ * or role-level gate (verified against module-flows.ts + integrity test). */
 function RoleBadges({ gate }: { gate: Permission[] }) {
-  const roles = deriveRolesForGate(gate);
-  return <RoleNameBadges names={roles} />;
+  return <RoleNameBadges names={deriveRolesForGate(gate)} />;
 }
 
 /**
@@ -61,49 +68,77 @@ function StepAccess({ step }: { step: FlowStep }) {
   return <span className="text-xs font-semibold text-red-600">⚠ access unspecified</span>;
 }
 
-export function FlowChart({ steps }: { steps: FlowStep[] }) {
+/** Horizontal connector between two consecutive step cards: a line + arrowhead,
+ * vertically centred on the card row. */
+function ArrowConnector() {
   return (
-    <ol className="space-y-0">
-      {steps.map((step, i) => (
-        <li key={i} className="relative">
-          <div className="flex items-start gap-3">
-            {/* index bubble + connector */}
-            <div className="flex flex-col items-center">
-              <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
-                  step.kind === 'decision'
-                    ? 'border-amber-300 bg-amber-50 text-amber-700'
-                    : step.kind === 'system'
-                      ? 'border-slate-300 bg-slate-50 text-slate-500'
-                      : 'border-slate-300 bg-white text-slate-700'
-                }`}
-              >
-                {i + 1}
-              </span>
-              {i < steps.length - 1 && <span className="w-px flex-1 bg-slate-200 min-h-6" />}
-            </div>
-            {/* step card */}
-            <div className="flex-1 pb-5">
-              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium text-slate-800">{step.label}</span>
-                  <StepAccess step={step} />
-                </div>
-                {step.description && (
-                  <p className="mt-1 text-sm text-slate-500">{step.description}</p>
-                )}
-                {step.branch && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-2 py-1.5">
-                    <span className="text-xs font-medium text-slate-600">⤷</span>
-                    <span className="text-xs font-medium text-slate-600">{step.branch.label}</span>
-                    <RoleBadges gate={step.branch.gate} />
-                  </div>
-                )}
-              </div>
-            </div>
+    <div className="flex shrink-0 items-center px-0.5 text-slate-300" aria-hidden="true">
+      <span className="block h-px w-5 bg-slate-300" />
+      <svg className="-ml-1 h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 6l6 6-6 6" />
+      </svg>
+    </div>
+  );
+}
+
+/** Two-line clamp without depending on the line-clamp plugin. */
+const CLAMP_3: React.CSSProperties = {
+  display: '-webkit-box',
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+};
+
+function StepCard({ step, index }: { step: FlowStep; index: number }) {
+  return (
+    <div className="relative w-52 shrink-0">
+      <div className={`rounded-lg border border-l-4 border-slate-200 bg-white p-3 shadow-sm ${KIND_ACCENT[step.kind]}`}>
+        <div className="mb-1.5 flex items-start gap-2">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500">
+            {index + 1}
+          </span>
+          <span className="text-sm font-medium leading-tight text-slate-800">{step.label}</span>
+        </div>
+        <StepAccess step={step} />
+        {step.description && (
+          <p className="mt-2 text-xs text-slate-500" style={CLAMP_3} title={step.description}>
+            {step.description}
+          </p>
+        )}
+      </div>
+
+      {/* Branch drops below the card, connected by a down-arrow. Absolutely
+          positioned so it never shifts the horizontal main-flow alignment. */}
+      {step.branch && (
+        <div className="absolute left-1/2 top-full flex -translate-x-1/2 flex-col items-center">
+          <svg className="my-0.5 h-5 w-4 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 5v14m0 0l6-6m-6 6l-6-6" />
+          </svg>
+          <div className="w-48 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-2.5 shadow-sm">
+            <p className="mb-1 text-xs font-medium text-slate-600">{step.branch.label}</p>
+            <RoleBadges gate={step.branch.gate} />
           </div>
-        </li>
-      ))}
-    </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function FlowChart({ steps }: { steps: FlowStep[] }) {
+  const hasBranch = steps.some((s) => s.branch);
+  return (
+    <div className="overflow-x-auto">
+      {/* w-max lets the row take its intrinsic width so it overflows (and
+          scrolls) instead of squashing; extra bottom padding reserves room for
+          any branch cards that hang below. */}
+      <ol className={`flex w-max items-center pt-1 ${hasBranch ? 'pb-28' : 'pb-1'}`}>
+        {steps.map((step, i) => (
+          <li key={i} className="flex items-center">
+            <StepCard step={step} index={i} />
+            {i < steps.length - 1 && <ArrowConnector />}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
