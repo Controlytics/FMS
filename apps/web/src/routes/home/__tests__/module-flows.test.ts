@@ -57,4 +57,17 @@ describe('MODULE_FLOWS integrity', () => {
       }
     }
   });
+
+  // Anti-recurrence guard: branch.gate: [] would silently render as "any user"
+  // when actually the branch permission should be explicitly specified.
+  // Every step that has a branch must resolve a non-empty gate.
+  it('every branch resolves a non-empty gate', () => {
+    for (const m of MODULE_FLOWS) {
+      for (const s of m.steps) {
+        if (s.branch !== undefined) {
+          expect(s.branch.gate.length, `${m.id} → "${s.label}" branch gate must be non-empty`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
 });
