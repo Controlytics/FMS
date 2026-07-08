@@ -1,5 +1,5 @@
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { formatActionLabel } from '../audit-helpers';
+import { formatActionLabel, diffAuditValues, maskAuditValue, prettyFieldName } from '../audit-helpers';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -22,7 +22,6 @@ interface AuditDetailModalProps {
   onClose: () => void;
   isSuperAdmin: boolean;
   formatDateTime: (value: string) => string;
-  formatIfDate: (value: unknown) => string | null;
   getAuditSummary: (record: any, templates: Record<string, string>) => string;
   getAuditStatus: (action: string) => 'Success' | 'Fail';
   templates: Record<string, string>;
@@ -35,7 +34,6 @@ export function AuditDetailModal({
   onClose,
   isSuperAdmin,
   formatDateTime,
-  formatIfDate,
   getAuditSummary,
   getAuditStatus,
   templates,
@@ -137,54 +135,6 @@ export function AuditDetailModal({
                 </div>
               </div>
 
-              {/* Before/After Values — UUID-valued fields are filtered out */}
-              {(() => {
-                const beforeEntries = pruneUuids(selectedRecord.beforeValue);
-                const afterEntries = pruneUuids(selectedRecord.afterValue);
-                return (
-                  <>
-                    {beforeEntries.length > 0 && (
-                      <div className="rounded-xl border border-red-100 overflow-hidden">
-                        <div className="px-4 py-2 bg-red-50 border-b border-red-100">
-                          <p className="text-xs font-semibold text-red-700 uppercase tracking-wider">Previous Value</p>
-                        </div>
-                        <div className="p-4 bg-white space-y-2">
-                          {beforeEntries.map(([key, value]) => (
-                            <div key={key} className="flex items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
-                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] pt-0.5">
-                                {key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim()}
-                              </span>
-                              <span className="text-sm text-slate-800 break-all">
-                                {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : (formatIfDate(value) ?? String(value))}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {afterEntries.length > 0 && (
-                      <div className="rounded-xl border border-green-100 overflow-hidden">
-                        <div className="px-4 py-2 bg-green-50 border-b border-green-100">
-                          <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">New Value</p>
-                        </div>
-                        <div className="p-4 bg-white space-y-2">
-                          {afterEntries.map(([key, value]) => (
-                            <div key={key} className="flex items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
-                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] pt-0.5">
-                                {key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim()}
-                              </span>
-                              <span className="text-sm text-slate-800 break-all">
-                                {value === null || value === undefined ? '-' : typeof value === 'object' ? JSON.stringify(value) : (formatIfDate(value) ?? String(value))}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-
               {/* Checksum */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <div className="flex items-center gap-2 mb-2">
@@ -197,6 +147,65 @@ export function AuditDetailModal({
               </div>
             </>
           )}
+
+          {/* Before/After — visible to ALL roles. Changed-fields summary on top,
+              full previous/new record collapsible below. Secrets masked. */}
+          {(() => {
+            const changes = diffAuditValues(selectedRecord.beforeValue, selectedRecord.afterValue);
+            const beforeEntries = pruneUuids(selectedRecord.beforeValue);
+            const afterEntries = pruneUuids(selectedRecord.afterValue);
+            if (changes.length === 0 && beforeEntries.length === 0 && afterEntries.length === 0) return null;
+            return (
+              <div className="space-y-3">
+                {changes.length > 0 && (
+                  <div className="rounded-xl border border-indigo-100 overflow-hidden">
+                    <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-100">
+                      <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Changes</p>
+                    </div>
+                    <div className="p-4 bg-white space-y-2">
+                      {changes.map((c) => (
+                        <div key={c.field} className="flex items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
+                          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] pt-0.5">{c.field}</span>
+                          <span className="text-sm flex items-center gap-2 flex-wrap">
+                            <span className="text-red-600 line-through break-all">{c.from}</span>
+                            <span className="text-slate-400">→</span>
+                            <span className="text-green-700 font-medium break-all">{c.to}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(beforeEntries.length > 0 || afterEntries.length > 0) && (
+                  <details className="rounded-xl border border-slate-200 overflow-hidden">
+                    <summary className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none">
+                      Full record (previous / new)
+                    </summary>
+                    <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs font-semibold text-red-700 uppercase tracking-wider mb-2">Previous Value</p>
+                        {beforeEntries.length === 0 ? <p className="text-sm text-slate-400">—</p> : beforeEntries.map(([key, value]) => (
+                          <div key={key} className="py-1 text-sm">
+                            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-2">{prettyFieldName(key)}</span>
+                            <span className="text-slate-800 break-all">{maskAuditValue(key, value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-2">New Value</p>
+                        {afterEntries.length === 0 ? <p className="text-sm text-slate-400">—</p> : afterEntries.map(([key, value]) => (
+                          <div key={key} className="py-1 text-sm">
+                            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-2">{prettyFieldName(key)}</span>
+                            <span className="text-slate-800 break-all">{maskAuditValue(key, value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </details>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Reason — visible to all */}
           {selectedRecord.reason && (

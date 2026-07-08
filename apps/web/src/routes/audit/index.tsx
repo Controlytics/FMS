@@ -32,7 +32,7 @@ export function AuditTrailPage() {
   const can = useCan();
   const reauth = useReauth();
   const { toast } = useToast();
-  const { formatDate, formatTime, formatDateTime, formatIfDate } = useDatetimeFormat();
+  const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const { labelsFor } = useReportLabels();
   const auditL = labelsFor('audit-trail');
@@ -481,7 +481,6 @@ export function AuditTrailPage() {
         onClose={() => setSelectedRecord(null)}
         isSuperAdmin={can('audit.redact')}
         formatDateTime={formatDateTime}
-        formatIfDate={formatIfDate}
         getAuditSummary={getAuditSummary}
         getAuditStatus={getAuditStatus}
         templates={templates}
