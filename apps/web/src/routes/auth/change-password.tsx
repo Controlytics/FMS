@@ -27,6 +27,7 @@ const defaultPolicy: PasswordPolicyConfig = {
   cannotBeUserId: true,
   cannotContainUserId: true,
   passwordExpiryDays: 90,
+  expiryNotificationDays: 0,
   maxFailedAttempts: 5,
   autoLogoutEnabled: true,
   idleTimeoutMinutes: 15,

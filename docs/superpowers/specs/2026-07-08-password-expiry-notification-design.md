@@ -20,8 +20,10 @@ whose password is expiring receives these notifications.
 2. When `expiryNotificationDays = N` and `passwordExpiryDays > 0`, an affected
    non-SUPER_ADMIN user gets **one warning per day** on each of the `N` days
    before expiry (days `N, N-1, … 1` remaining).
-3. On the expiry day (0 days remaining / already expired), the user gets **one**
-   "password has expired" notice (fired once per expiry event, not daily).
+3. On the expiry day (0 days remaining / already expired), a **one-time** "password
+   has expired" notice is sent to **both the user and the ADMIN role** (the user is
+   blocked at login once expired and can't otherwise see it; the admin can reset it).
+   Fired once per expiry event, not daily; each side deduped independently.
 4. Notifications are **per-user** — `forUserId = username`. No other user sees
    them.
 5. SUPER_ADMIN is excluded (already exempt from expiry). `passwordExpiryDays = 0`
@@ -90,10 +92,11 @@ New `sweepPasswordExpiryNotifications()` (own lib module). Logic:
 - `crontab.txt`: `0 0 * * * password_expiry_check ?id=password_expiry_check&max=1&fill=0s`.
 - Register `password_expiry_check: passwordExpiryCheckTask` in `app.ts` taskList.
 
-### 6. Manual trigger (dev/test)
-The cron only fires when `USE_PG_QUEUE=true` (off in local dev). Add an
-admin-only endpoint (reauth not required; SUPER_ADMIN / CONFIG_UPDATE) that calls
-the same sweep — mirrors PM's `POST /api/pm-schedules/deviations/sweep`.
+### 6. Manual trigger (on demand)
+The single graphile-worker Runner (and crontab) starts with the API in `app.ts`
+with **no `USE_PG_QUEUE` gate**, so the daily cron fires in any running instance.
+An admin-only endpoint (CONFIG_UPDATE) runs the same sweep on demand (e.g. to test
+without waiting for midnight) — mirrors PM's `POST /api/pm-schedules/deviations/sweep`.
 
 ### 7. Error handling
 - Sweep never throws out of the worker (caught + warn-logged), matching the PM

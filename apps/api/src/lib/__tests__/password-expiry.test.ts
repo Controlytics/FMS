@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isPasswordExpired } from '../password-expiry.js';
+import { isPasswordExpired, daysUntilPasswordExpiry } from '../password-expiry.js';
 
 const day = 86_400_000;
 const daysAgo = (n: number) => new Date(Date.now() - n * day);
+const daysFromNow = (n: number) => new Date(Date.now() + n * day);
 
 describe('isPasswordExpired', () => {
   it('returns false when policy days is 0 (no expiry)', () => {
@@ -56,5 +57,50 @@ describe('isPasswordExpired', () => {
       expect(isPasswordExpired(daysAgo(10), daysAgo(20), 5, null)).toBe(true);
       expect(isPasswordExpired(daysAgo(2), daysAgo(20), 5, null)).toBe(false);
     });
+  });
+});
+
+describe('daysUntilPasswordExpiry', () => {
+  it('returns null when expiry is disabled (0 or undefined)', () => {
+    expect(daysUntilPasswordExpiry(daysAgo(10), daysAgo(10), 0, null)).toBeNull();
+    expect(daysUntilPasswordExpiry(daysAgo(10), daysAgo(10), undefined, null)).toBeNull();
+  });
+
+  it('counts whole days remaining, rounding up', () => {
+    // Changed 85 days ago, 90-day policy ⇒ expiry ~5 days out. ceil ⇒ 5.
+    expect(daysUntilPasswordExpiry(daysAgo(85), daysAgo(85), 90, null)).toBe(5);
+    // A password changed 4.5 days ago on a 10-day policy ⇒ 5.5 days left ⇒ 6.
+    const halfDay = day / 2;
+    const changed = new Date(Date.now() - (4 * day + halfDay));
+    expect(daysUntilPasswordExpiry(changed, changed, 10, null)).toBe(6);
+  });
+
+  it('is <= 0 exactly when isPasswordExpired is true (already expired)', () => {
+    // Changed 100 days ago, 90-day policy ⇒ expired.
+    expect(daysUntilPasswordExpiry(daysAgo(100), daysAgo(100), 90, null)).toBeLessThanOrEqual(0);
+    expect(isPasswordExpired(daysAgo(100), daysAgo(100), 90, null)).toBe(true);
+  });
+
+  it('falls back to createdAt when passwordChangedAt is null', () => {
+    expect(daysUntilPasswordExpiry(null, daysAgo(88), 90, null)).toBe(2);
+  });
+
+  it('applies the policyUpdatedAt grace floor (fresh window after a lowered policy)', () => {
+    // Old password (100d), policy just saved with a 5-day window ⇒ ~5 days left.
+    const savedJustNow = new Date(Date.now() - 60 * 1000);
+    expect(daysUntilPasswordExpiry(daysAgo(100), daysAgo(200), 5, savedJustNow)).toBe(5);
+  });
+
+  it('produces the expected warning window (days N..1)', () => {
+    // 90-day policy, warn window 5: eligible on days 85..89 after change.
+    const notifDays = 5;
+    for (let ageDays = 85; ageDays <= 89; ageDays++) {
+      const left = daysUntilPasswordExpiry(daysAgo(ageDays), daysAgo(ageDays), 90, null)!;
+      expect(left >= 1 && left <= notifDays).toBe(true);
+    }
+    // Day 84 (6 days left) is just outside the window.
+    expect(daysUntilPasswordExpiry(daysAgo(84), daysAgo(84), 90, null)).toBeGreaterThan(notifDays);
+    // Future-dated createdAt sanity (defensive): still non-null.
+    expect(daysUntilPasswordExpiry(daysFromNow(1), daysFromNow(1), 90, null)).not.toBeNull();
   });
 });

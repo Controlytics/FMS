@@ -49,6 +49,9 @@ export const passwordPolicySchema = z.object({
 
   // Password Expiry
   passwordExpiryDays: z.number().min(0).max(365).default(90), // 0 = disabled
+  // Days before expiry to start warning the affected user (one notification per
+  // day for the last N days, plus a one-time notice on the expiry day). 0 = off.
+  expiryNotificationDays: z.number().min(0).max(90).default(0),
 
   // Session Settings (moved from sessionConfigSchema)
   autoLogoutEnabled: z.boolean().default(true),

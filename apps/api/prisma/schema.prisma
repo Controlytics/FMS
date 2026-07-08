@@ -342,6 +342,9 @@ enum NotificationType {
   REPORT_REVIEW_REQUESTED
   REPORT_REVIEW_APPROVED
   REPORT_REVIEW_REJECTED
+  // Password expiry warnings — per-user daily warning window + expiry notice (2026-07-08)
+  PASSWORD_EXPIRY_WARNING
+  PASSWORD_EXPIRED_NOTICE
   // Cleaning stage interlock (QA approval after WASH_OUT/DRY_OUT) — 2026-06-12
   STAGE_APPROVAL_REQUESTED
   STAGE_APPROVAL_APPROVED

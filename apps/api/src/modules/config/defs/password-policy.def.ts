@@ -23,5 +23,6 @@ export const passwordPolicyDef: ModuleConfigDefinition = {
     { key: 'preventReuseCount', type: 'number', label: 'Prevent Reuse Count', min: 1, max: 24, default: 5, group: 'Reuse' },
     { key: 'maxFailedAttempts', type: 'number', label: 'Max Failed Attempts', min: 3, max: 10, default: 5, group: 'Lockout' },
     { key: 'passwordExpiryDays', type: 'number', label: 'Password Expiry (days)', min: 0, max: 365, default: 90, group: 'Expiry' },
+    { key: 'expiryNotificationDays', type: 'number', label: 'Password Expiry Notification (days)', min: 0, max: 90, default: 0, group: 'Expiry' },
   ],
 };

@@ -36,6 +36,8 @@ const typeColors: Record<string, string> = {
   USER_CREATED: 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white',
   USER_UPDATED: 'bg-gradient-to-r from-purple-500 to-violet-500 text-white',
   ROLE_CHANGED: 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white',
+  PASSWORD_EXPIRY_WARNING: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white',
+  PASSWORD_EXPIRED_NOTICE: 'bg-gradient-to-r from-red-500 to-rose-500 text-white',
 };
 
 const typeIcons: Record<string, React.ReactNode> = {
@@ -82,6 +84,16 @@ const typeIcons: Record<string, React.ReactNode> = {
   ROLE_CHANGED: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+    </svg>
+  ),
+  PASSWORD_EXPIRY_WARNING: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  PASSWORD_EXPIRED_NOTICE: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19H18.93a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.34 16a2 2 0 001.73 3z" />
     </svg>
   ),
 };

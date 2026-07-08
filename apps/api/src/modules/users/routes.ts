@@ -4,6 +4,7 @@ import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { userService } from './user.service.js';
+import { sweepPasswordExpiryNotifications } from '../auth/password-expiry-sweep.js';
 
 export default async function userRoutes(app: FastifyInstance) {
   // POST /api/users — Create user
@@ -390,5 +391,23 @@ export default async function userRoutes(app: FastifyInstance) {
     }
     await userService.resetPassword(id, parsed.data.newPassword, buildContext(req));
     return { success: true, message: 'Password reset successfully. User must change on next login.' };
+  });
+
+  // POST /api/users/password-expiry-sweep — run the password-expiry notification
+  // sweep now (on-demand; the daily 00:00 cron already runs with the API).
+  // Gated by CONFIG_UPDATE — the same permission that governs the password policy.
+  app.post('/password-expiry-sweep', {
+    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    schema: {
+      tags: ['Users'],
+      summary: 'Run the password-expiry notification sweep now',
+      description: 'Warns users whose passwords are nearing expiry and sends a one-time expiry notice. Idempotent.',
+      response: {
+        200: { type: 'object', properties: { warned: { type: 'integer' }, expired: { type: 'integer' } }, additionalProperties: false },
+        ...errorResponses,
+      },
+    },
+  }, async () => {
+    return sweepPasswordExpiryNotifications();
   });
 }

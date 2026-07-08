@@ -123,6 +123,7 @@ async function main() {
         preventReuseCount: 12, cannotBeUserId: true, cannotContainUserId: true,
         // Password expiry
         passwordExpiryDays: 90,
+        expiryNotificationDays: 0,
         // Login security settings
         maxFailedAttempts: 5,
         // Session settings

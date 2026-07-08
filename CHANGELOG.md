@@ -1,5 +1,49 @@
 # Changelog
 
+## [Unreleased] — Password expiry notifications (2026-07-08)
+
+Branch: `RFID`. Added a per-user password-expiry warning system driven by **one new
+admin setting** in *General & Password Settings → Expiry*: **`expiryNotificationDays`**
+(`0` = off, default `0`). When set to `N` and a password-expiry period is configured,
+each affected user gets **one in-app notification per day for the `N` days before their
+password expires** (per-user, `forUserId = username`), plus a **one-time "password expired"
+notice** on the expiry day sent to **both the user and the ADMIN role** (the user is blocked
+at login once expired and can't otherwise see it; the admin can reset it). The existing login
+block still enforces the actual expiry. **SUPER_ADMIN is excluded** (already exempt from expiry).
+
+### Touchpoints
+- **Config setting** — `expiryNotificationDays` added to `password-policy.def.ts` (Expiry
+  group), the zod schema (`packages/shared/src/schemas/config.ts`), the custom page
+  (`config/password-policy.tsx`), and the seed default (`prisma/seed.ts`). Defaults added to
+  the two web policy-literal fallbacks (`lib/password-utils.ts`, `auth/change-password.tsx`).
+- **Expiry math** — `daysUntilPasswordExpiry()` added to `lib/password-expiry.ts`, sharing
+  the SAME anchor (`max(passwordChangedAt‖createdAt, policyUpdatedAt)`) as `isPasswordExpired`
+  so warnings and the login block never disagree.
+- **Notification types** — 2 new `NotificationType` enum values (`PASSWORD_EXPIRY_WARNING`,
+  `PASSWORD_EXPIRED_NOTICE`) + migration `20260708050513_add_password_expiry_notification_types`
+  (`ALTER TYPE … ADD VALUE`; drift guard PASS). Frontend notification page (`routes/notifications`)
+  gets colour + icon entries for both (amber warning / red expired).
+- **Daily sweep** — `sweepPasswordExpiryNotifications()` (`modules/auth/password-expiry-sweep.ts`):
+  idempotent (warning deduped per-user-per-day; expiry notice per expiry event since the last
+  password change). Cron `password_expiry_check` (`packages/queue/crontab.txt`, daily `0 0 * * *`)
+  + worker `workers/password-expiry.worker.ts` registered in `app.ts` taskList (3 → 4 tasks).
+  The single graphile-worker Runner starts with the API (no `USE_PG_QUEUE` gate), so this cron
+  fires daily in any running instance.
+- **Manual trigger** — `POST /api/users/password-expiry-sweep` (gated `CONFIG_UPDATE`) runs the
+  same sweep on demand (e.g. testing without waiting for midnight).
+
+### Known / intentional behaviour
+Saving the password policy for any reason bumps its `updatedAt`, which is the grace floor for
+every user's expiry anchor (the 2026-05-25 mass-lockout fix). So right after enabling this
+feature, users whose passwords predate the save get a fresh window and won't be warned until it
+nears — consistent with the login block, which also won't expire them until then. In steady
+state (policy unchanged for a while) warnings fire exactly `N`…`1` days before real expiry.
+
+### Tests
+`lib/__tests__/password-expiry.test.ts` (+`daysUntilPasswordExpiry` cases),
+`modules/auth/__tests__/password-expiry-sweep.test.ts` (mocked-prisma branch coverage),
+`e2e/password-expiry-sweep.test.ts` (real digilog_test_db: warn/expire/skip + idempotency).
+
 ## [Unreleased] — Home / Module Guide page (2026-07-06)
 
 Branch: `RFID`. Added a `/home` "Module Guide" page + a top-of-sidebar `home` nav item

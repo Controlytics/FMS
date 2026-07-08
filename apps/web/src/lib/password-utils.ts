@@ -16,6 +16,7 @@ export const DEFAULT_PASSWORD_POLICY: PasswordPolicyConfig = {
   cannotContainUserId: true,
   maxFailedAttempts: 5,
   passwordExpiryDays: 90,
+  expiryNotificationDays: 0,
   autoLogoutEnabled: true,
   idleTimeoutMinutes: 15,
   warningMinutes: 2,

@@ -25,3 +25,7 @@
 # Session reaper — every 5 min. Terminates idle/expired sessions + records a
 # LOGOUT audit so app-close / window-close / crash logouts are captured.
 */5 * * * * session_sweep ?id=session_sweep&max=1&fill=0s
+# Password-expiry notifications — daily 00:00. Warns each user daily for the
+# configured window before their password expires + a one-time expiry notice.
+# Idempotent (one warning per user per day; expiry notice once per event).
+0 0 * * * password_expiry_check ?id=password_expiry_check&max=1&fill=0s

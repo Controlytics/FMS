@@ -305,13 +305,23 @@ export function PasswordPolicyPage() {
                 </div>
                 Password Expiry
               </h3>
-              <div className="max-w-md space-y-2">
-                <label className="text-sm font-medium text-slate-600">Password Expiry Period</label>
-                <div className="relative">
-                  <Input {...register('passwordExpiryDays', { valueAsNumber: true })} type="number" min={0} max={365} className="h-11 pr-16" />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">days</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-600">Password Expiry Period</label>
+                  <div className="relative">
+                    <Input {...register('passwordExpiryDays', { valueAsNumber: true })} type="number" min={0} max={365} className="h-11 pr-16" />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">days</span>
+                  </div>
+                  <p className="text-xs text-slate-500">Users must change their password after this many days. Set to 0 to disable password expiry. (0–365, default: 90)</p>
                 </div>
-                <p className="text-xs text-slate-500">Users must change their password after this many days. Set to 0 to disable password expiry. (0–365, default: 90)</p>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-600">Expiry Notification</label>
+                  <div className="relative">
+                    <Input {...register('expiryNotificationDays', { valueAsNumber: true })} type="number" min={0} max={90} className="h-11 pr-16" />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">days</span>
+                  </div>
+                  <p className="text-xs text-slate-500">Warn each user daily for this many days before their password expires (plus a one-time notice on the expiry day). Set to 0 to disable. Requires a password expiry period above. (0–90, default: 0)</p>
+                </div>
               </div>
             </div>
 

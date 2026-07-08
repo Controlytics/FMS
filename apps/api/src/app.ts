@@ -43,6 +43,7 @@ import notificationRulesRoutes from './modules/notification-rules/routes.js';
 
 import { notificationTask } from './workers/notification.worker.js';
 import { pmOverdueCheckTask } from './workers/pm-overdue.worker.js';
+import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
 import { sessionSweepTask } from './workers/session-sweep.worker.js';
 import { startJobRunner, stopJobRunner } from '@digilog/queue';
 import { AppError } from './lib/errors.js';
@@ -443,6 +444,7 @@ try {
         notification: notificationTask,
         
         pm_overdue_check: pmOverdueCheckTask,
+        password_expiry_check: passwordExpiryCheckTask,
         session_sweep: sessionSweepTask,
       },
       crontabPath,
