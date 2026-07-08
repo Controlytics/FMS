@@ -20,6 +20,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
+import { logReportExport } from '@/lib/report-export-log';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useReportLabels } from '../../hooks/use-report-labels';
@@ -278,8 +279,8 @@ export function AuditTrailPage() {
   // Record the export as an auditable event BEFORE the file is saved. Throws on
   // failure so the caller can block the download (fail-closed, 21 CFR §11).
   const logExport = async (format: 'PDF' | 'Excel', recordCount: number) => {
-    await apiClient.post('/api/audit/export-log', {
-      format, recordCount,
+    await logReportExport({
+      reportType: 'Audit Trail', format, recordCount,
       period: currentPeriod(),
       search: search || undefined,
       startDate: fromDateTime ? new Date(fromDateTime).toISOString() : undefined,

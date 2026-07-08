@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useReportLabels } from '@/hooks/use-report-labels';
 import { ReplacementSchedulePage } from './replacement-schedule';
 
@@ -96,6 +97,7 @@ export function ReplacementListPage() {
         formatDateTime: (d: string) => formatDate(d),
       });
       report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
+      await logReportExportOrWarn({ reportType: 'Replacement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
       report.save('replacement-list.pdf');
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
@@ -104,9 +106,10 @@ export function ReplacementListPage() {
     }
   };
 
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No replacements to include'); return; }
     try {
+      await logReportExportOrWarn({ reportType: 'Replacement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
       exportToExcel({ filename: 'replacement-list', sheetName: 'Replacements', head: reportHead, rows: reportRows() });
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the Excel file');

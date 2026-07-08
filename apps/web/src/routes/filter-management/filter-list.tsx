@@ -11,6 +11,7 @@ import { api } from '@/lib/api-client';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
@@ -1251,9 +1252,10 @@ export function FilterListPage() {
     return { headers, body, safeName };
   };
 
-  const exportFiltersExcel = () => {
+  const exportFiltersExcel = async () => {
     const { headers, body, safeName } = buildFiltersExport();
     if (body.length === 0) return;
+    await logReportExportOrWarn({ reportType: 'Filters', format: 'Excel', recordCount: body.length }, toast.warning);
     exportToExcel({ filename: `${safeName}-filters`, sheetName: 'Filters', head: headers, rows: body });
   };
 
@@ -1272,12 +1274,14 @@ export function FilterListPage() {
       body: body.map((r) => r.map((c) => String(c))),
       columnStyles: { 0: { halign: 'center', cellWidth: 14 } },
     });
-    return { report, safeName };
+    return { report, safeName, count: body.length };
   };
 
   const exportFiltersPdf = async () => {
     const built = await buildFiltersReport();
-    built?.report.save(`${built.safeName}-filters.pdf`);
+    if (!built) return;
+    await logReportExportOrWarn({ reportType: 'Filters', format: 'PDF', recordCount: built.count }, toast.warning);
+    built.report.save(`${built.safeName}-filters.pdf`);
   };
 
   const buildFiltersSnapshot = async () => { const built = await buildFiltersReport(); return built ? built.report.getSnapshot() : null; };

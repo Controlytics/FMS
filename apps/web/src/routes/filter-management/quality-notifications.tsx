@@ -3,11 +3,13 @@ import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
+import { useToast } from '@/hooks/use-toast';
 
 const QNN_COLS = ['sNo', 'qnn', 'action', 'ahu', 'message', 'by', 'dateTime'];
 
@@ -26,6 +28,7 @@ const PER_PAGE = 50;
 
 export function QualityNotificationsPage() {
   const { formatDateTime } = useDatetimeFormat();
+  const { toast } = useToast();
   const { labelsFor } = useReportLabels();
   const L = labelsFor('quality-notifications');
   const headLabels = QNN_COLS.map((k) => L.columns[k]);
@@ -71,23 +74,25 @@ export function QualityNotificationsPage() {
       formatDateTime,
     });
     report.addTable({ head: headLabels, body: r.body, columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 4: { cellWidth: 60 } } });
-    return report;
+    return { report, count: r.body.length };
   };
 
   const exportPdf = async () => {
     setDownloading(true);
     try {
-      const report = await buildQnnReport();
-      report.save(`quality-notifications-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const built = await buildQnnReport();
+      await logReportExportOrWarn({ reportType: 'Quality Notifications', format: 'PDF', recordCount: built.count }, toast.warning);
+      built.report.save(`quality-notifications-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
 
-  const buildQnnSnapshot = async () => (await buildQnnReport()).getSnapshot();
+  const buildQnnSnapshot = async () => (await buildQnnReport()).report.getSnapshot();
 
   const exportExcel = async () => {
     setDownloading(true);
     try {
       const r = await buildExport();
+      await logReportExportOrWarn({ reportType: 'Quality Notifications', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `quality-notifications-${new Date().toISOString().slice(0, 10)}`, sheetName: 'QNN', head: headLabels, rows: r.body });
     } finally { setDownloading(false); }
   };

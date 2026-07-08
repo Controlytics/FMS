@@ -10,10 +10,13 @@ import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useToast } from '@/hooks/use-toast';
 
 export function CleaningCycleTimelinePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const { formatDateTime, formatDate } = useDatetimeFormat();
   // 2026-05-26 audit fix (PA-CLEANUP-1): gate PDF export on
   // REPORT_EXPORT — pre-fix any CYCLE_READ user could PDF the timeline.
@@ -54,6 +57,7 @@ export function CleaningCycleTimelinePage() {
     setDownloading(true);
     try {
       const report = await buildCycleReport();
+      await logReportExportOrWarn({ reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: cycle.events?.length ?? 0 }, toast.warning);
       report.save(`cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}.pdf`);
     } finally { setDownloading(false); }
   };
@@ -62,7 +66,7 @@ export function CleaningCycleTimelinePage() {
 
   // Excel = the cycle's event timeline as a flat sheet (genesis "from" shown as
   // "To Be Cleaned", matching the PDF).
-  const exportExcel = () => {
+  const exportExcel = async () => {
     setDownloading(true);
     try {
       const events = cycle.events ?? [];
@@ -76,6 +80,7 @@ export function CleaningCycleTimelinePage() {
         formatDateTime(e.performedAt),
         e.remarks ?? '-',
       ]);
+      await logReportExportOrWarn({ reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: rows.length }, toast.warning);
       exportToExcel({ filename: `cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}`, sheetName: 'Cycle Detail', head, rows });
     } finally { setDownloading(false); }
   };

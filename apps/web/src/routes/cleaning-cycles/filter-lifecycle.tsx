@@ -10,6 +10,8 @@ import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useToast } from '@/hooks/use-toast';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
 // endpoints carry the parent id on each child: area.blockId, ahu.areaId,
@@ -373,6 +375,7 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
 
 export function FilterLifecycleReportPage() {
   const { formatDateTime, formatDate } = useDatetimeFormat();
+  const { toast } = useToast();
   // Phase 5C: lifecycle.export gate = ['REPORT_EXPORT','REPORT_GENERATE'] — SAME as old check.
   const can = useCan();
   const canExportPdf = can('lifecycle.export');
@@ -614,6 +617,7 @@ export function FilterLifecycleReportPage() {
       }
 
       if (asSnapshot) return report.getSnapshot();
+      await logReportExportOrWarn({ reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: totalCycles + totalEvents + totalManual }, toast.warning);
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       report.save(`lifecycle-${safeScope}.pdf`);
       return null;
@@ -668,6 +672,7 @@ export function FilterLifecycleReportPage() {
         });
       }
       if (rows.length === 0) { setDownloadMsg('No cleaning cycles or manual updates found for this selection and period.'); return; }
+      await logReportExportOrWarn({ reportType: 'Cleaning Lifecycle', format: 'Excel', recordCount: rows.length }, toast.warning);
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       exportToExcel({ filename: `lifecycle-${safeScope}`, sheetName: 'Cleaning Cycles', head, rows });
     } catch (e: any) {

@@ -8,6 +8,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
@@ -170,6 +171,7 @@ export function ReplacementSchedulePage() {
   const exportExcel = async () => {
     setExporting(true);
     try {
+      await logReportExportOrWarn({ reportType: 'Replacement Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
       const res = await fetch('/api/replacement-schedules/export.xlsx', { headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}` } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
@@ -194,7 +196,9 @@ export function ReplacementSchedulePage() {
     setExporting(true);
     try {
       const report = await buildReplacementReport();
-      report?.save('replacement-schedule.pdf');
+      if (!report) return;
+      await logReportExportOrWarn({ reportType: 'Replacement Schedule', format: 'PDF', recordCount: schedules.flatMap((s: any) => (s.entries ?? [])).length }, toast.warning);
+      report.save('replacement-schedule.pdf');
     } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not generate PDF'); } finally { setExporting(false); }
   };
 

@@ -6,6 +6,7 @@ import { useCan } from '@/hooks/use-can';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useReportLabels } from '@/hooks/use-report-labels';
 
 export function RetirementListPage() {
@@ -89,6 +90,7 @@ export function RetirementListPage() {
         formatDateTime: (d: string) => formatDate(d),
       });
       report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
+      await logReportExportOrWarn({ reportType: 'Retirement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
       report.save('retirement-list.pdf');
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
@@ -97,9 +99,10 @@ export function RetirementListPage() {
     }
   };
 
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No retirements to include'); return; }
     try {
+      await logReportExportOrWarn({ reportType: 'Retirement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
       exportToExcel({ filename: 'retirement-list', sheetName: 'Retirements', head: reportHead, rows: reportRows() });
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the Excel file');

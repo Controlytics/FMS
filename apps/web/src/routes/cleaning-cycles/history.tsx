@@ -10,6 +10,8 @@ import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useToast } from '@/hooks/use-toast';
 import { STATUS_LABELS } from '../filter-management/filter-list/constants';
 import { CycleDetailView } from './cycle-detail-view';
 import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
@@ -31,6 +33,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 
 export function CleaningCycleHistoryPage() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const { formatDateTime } = useDatetimeFormat();
   const { labelsFor } = useReportLabels();
   const ccL = labelsFor('cleaning-cycles');
@@ -178,7 +181,9 @@ export function CleaningCycleHistoryPage() {
     setDownloading(true);
     try {
       const report = await buildHistoryReport();
-      report?.save(`cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      if (!report) return;
+      await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'PDF', recordCount: cycles.length }, toast.warning);
+      report.save(`cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
 
@@ -188,6 +193,7 @@ export function CleaningCycleHistoryPage() {
     if (cycles.length === 0) return;
     setDownloading(true);
     try {
+      await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'Excel', recordCount: cycles.length }, toast.warning);
       exportToExcel({ filename: `cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Cleaning Record', head: ccHead, rows: buildCleaningRows() });
     } finally { setDownloading(false); }
   };

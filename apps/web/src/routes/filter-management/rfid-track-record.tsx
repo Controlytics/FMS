@@ -9,6 +9,8 @@ import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useToast } from '@/hooks/use-toast';
 
 const RFID_COLS = ['sNo', 'dateTime', 'event', 'rfid', 'filter', 'ahu', 'user', 'reason'];
 
@@ -27,6 +29,7 @@ const PER_PAGE = 50;
 
 export function RfidTrackRecordPage() {
   const can = useCan();
+  const { toast } = useToast();
   const { formatDateTime } = useDatetimeFormat();
   const { labelsFor } = useReportLabels();
   const L = labelsFor('rfid-track-record');
@@ -81,23 +84,25 @@ export function RfidTrackRecordPage() {
       formatDateTime,
     });
     report.addTable({ head: headLabels, body: r.body });
-    return report;
+    return { report, count: r.body.length };
   };
 
   const exportPdf = async () => {
     setDownloading(true);
     try {
-      const report = await buildRfidReport();
+      const { report, count } = await buildRfidReport();
+      await logReportExportOrWarn({ reportType: 'RFID Track Record', format: 'PDF', recordCount: count }, toast.warning);
       report.save(`rfid-track-record-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
 
-  const buildRfidSnapshot = async () => (await buildRfidReport()).getSnapshot();
+  const buildRfidSnapshot = async () => (await buildRfidReport()).report.getSnapshot();
 
   const exportExcel = async () => {
     setDownloading(true);
     try {
       const r = await buildRfidExport();
+      await logReportExportOrWarn({ reportType: 'RFID Track Record', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `rfid-track-record-${new Date().toISOString().slice(0, 10)}`, sheetName: 'RFID Track Record', head: headLabels, rows: r.body });
     } finally { setDownloading(false); }
   };

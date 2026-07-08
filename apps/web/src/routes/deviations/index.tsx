@@ -6,8 +6,10 @@ import { Pagination } from '@/components/ui/pagination';
 import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
+import { useToast } from '@/hooks/use-toast';
 
 interface DeviationRow {
   id: string;
@@ -75,6 +77,7 @@ function daysLabel(n: number | null | undefined): string {
 
 export function DeviationsPage() {
   const can = useCan();
+  const { toast } = useToast();
   const { formatDate, formatDateTime } = useDatetimeFormat();
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(1);
@@ -141,26 +144,29 @@ export function DeviationsPage() {
       formatDateTime,
     });
     report.addTable({ head: HEAD, body: r.body, headColor: [225, 29, 72] });
-    return report;
+    return { report, count: r.body.length };
   };
 
   const exportPdf = async () => {
     setDownloading(true); setDownloadMsg('');
     try {
-      const report = await buildDeviationsReport();
-      report?.save(`deviations-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const built = await buildDeviationsReport();
+      if (!built) return;
+      await logReportExportOrWarn({ reportType: 'Deviations', format: 'PDF', recordCount: built.count }, toast.warning);
+      built.report.save(`deviations-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (e: any) {
       setDownloadMsg(e?.message ?? 'Failed to generate the report.');
     } finally { setDownloading(false); }
   };
 
-  const buildDeviationsSnapshot = async () => { const report = await buildDeviationsReport(); return report ? report.getSnapshot() : null; };
+  const buildDeviationsSnapshot = async () => { const built = await buildDeviationsReport(); return built ? built.report.getSnapshot() : null; };
 
   const exportExcel = async () => {
     setDownloading(true); setDownloadMsg('');
     try {
       const r = await buildDeviationsExport();
       if (!r) return;
+      await logReportExportOrWarn({ reportType: 'Deviations', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `deviations-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Deviations', head: HEAD, rows: r.body });
     } catch (e: any) {
       setDownloadMsg(e?.message ?? 'Failed to generate the report.');

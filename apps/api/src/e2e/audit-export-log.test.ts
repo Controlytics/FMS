@@ -4,10 +4,10 @@ import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 
 /**
- * Bug fix (2026-07-08): downloading/exporting the audit trail must itself be an
- * auditable event. The export is client-side, so POST /api/audit/export-log is
- * the only place it's captured. This verifies the endpoint writes a
- * DATA_EXPORTED row with the format + record count.
+ * Bug fix (2026-07-08): downloading/generating any report must itself be an
+ * auditable event. The exports are client-side, so POST /api/audit/report-export-log
+ * is the only place they're captured. This verifies the endpoint writes a
+ * REPORT_GENERATED row with the report type, format + record count.
  */
 const TEST_USERNAME = 'audit_export_admin';
 const TEST_PASSWORD = 'AuditExport@Test1';
@@ -31,7 +31,7 @@ async function ensureUser() {
   });
 }
 
-describe('POST /api/audit/export-log', () => {
+describe('POST /api/audit/report-export-log', () => {
   let app: FastifyInstance;
   let token: string;
 
@@ -45,22 +45,25 @@ describe('POST /api/audit/export-log', () => {
     await app.close();
   });
 
-  it('writes a DATA_EXPORTED audit row capturing format + record count', async () => {
+  it('writes a REPORT_GENERATED audit row with the username, report type, format + count', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/api/audit/export-log',
+      url: '/api/audit/report-export-log',
       headers: { authorization: `Bearer ${token}` },
-      payload: { format: 'PDF', recordCount: 42, period: 'All Time' },
+      payload: { reportType: 'Audit Trail', format: 'PDF', recordCount: 42, period: 'All Time' },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ success: true });
 
     const row = await prisma.auditTrail.findFirst({
-      where: { action: 'DATA_EXPORTED', targetType: 'audit_trail', userRole: 'SUPER_ADMIN' },
+      where: { action: 'REPORT_GENERATED', targetType: 'Audit Trail', userRole: 'SUPER_ADMIN' },
       orderBy: { timestamp: 'desc' },
     });
     expect(row).toBeTruthy();
+    // userId must be the human username, NOT the UUID sub (the reported bug).
+    expect(row!.userId).toBe(TEST_USERNAME);
     const after = row!.afterValue as Record<string, unknown>;
+    expect(after.reportType).toBe('Audit Trail');
     expect(after.format).toBe('PDF');
     expect(after.recordCount).toBe(42);
   });
@@ -68,8 +71,8 @@ describe('POST /api/audit/export-log', () => {
   it('rejects an unauthenticated request (route is gated, not open)', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/api/audit/export-log',
-      payload: { format: 'Excel', recordCount: 1 },
+      url: '/api/audit/report-export-log',
+      payload: { reportType: 'Filters', format: 'Excel', recordCount: 1 },
     });
     expect(res.statusCode).toBe(401);
   });
@@ -77,9 +80,9 @@ describe('POST /api/audit/export-log', () => {
   it('rejects an invalid format', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/api/audit/export-log',
+      url: '/api/audit/report-export-log',
       headers: { authorization: `Bearer ${token}` },
-      payload: { format: 'CSV', recordCount: 1 },
+      payload: { reportType: 'Filters', format: 'CSV', recordCount: 1 },
     });
     expect(res.statusCode).toBe(400);
   });

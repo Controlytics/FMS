@@ -128,6 +128,10 @@ export const AUDIT_ACTIONS = {
 
   // Guest (unauthenticated) activity
   GUEST_CLEANING_REQUEST_SUBMITTED: 'GUEST_CLEANING_REQUEST_SUBMITTED',
+
+  // Report generation / export — emitted when a user downloads any report
+  // (audit trail, filters, PM schedule, cleaning records, etc.) as PDF/Excel.
+  REPORT_GENERATED: 'REPORT_GENERATED',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

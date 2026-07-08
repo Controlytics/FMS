@@ -14,6 +14,7 @@ import { createReport } from '../../lib/pdf-report';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
+import { logReportExportOrWarn } from '@/lib/report-export-log';
 
 interface UploadResult {
   imported: number;
@@ -251,24 +252,27 @@ export function PmScheduleListPage() {
       ]),
       columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 9: { cellWidth: 45 } },
     });
-    return report;
+    return { report, count: all.length };
   };
 
   const exportPdf = async () => {
     setExporting(true);
     try {
-      const report = await buildPmReport();
-      report?.save(`pm-schedule-${year}.pdf`);
+      const built = await buildPmReport();
+      if (!built) return;
+      await logReportExportOrWarn({ reportType: 'PM Schedule', format: 'PDF', recordCount: built.count }, toast.warning);
+      built.report.save(`pm-schedule-${year}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate PDF');
     } finally { setExporting(false); }
   };
 
-  const buildPmSnapshot = async () => { const report = await buildPmReport(); return report ? report.getSnapshot() : null; };
+  const buildPmSnapshot = async () => { const built = await buildPmReport(); return built ? built.report.getSnapshot() : null; };
 
   const exportExcel = async () => {
     setExporting(true);
     try {
+      await logReportExportOrWarn({ reportType: 'PM Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
       const base = (window as any).__API_BASE__ ?? '';
       const res = await fetch(`${base}/api/pm-schedules/entries/export.xlsx?year=${year}`, {
         headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}` },
