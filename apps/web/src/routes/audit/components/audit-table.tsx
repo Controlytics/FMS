@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
-import { formatActionLabel } from '../audit-helpers';
+import { formatActionLabel, diffAuditValues } from '../audit-helpers';
 
 type SortField = 'timestamp' | 'action' | 'userId' | 'userRole';
 
@@ -148,24 +148,45 @@ export function AuditTable({
                         const desc = getAuditSummary(record, templates);
                         const isTruncated = desc.length > 70;
                         const shown = isTruncated ? desc.slice(0, 67) + '...' : desc;
+                        // Inline field changes (old -> new) shown directly in the
+                        // description for edits, so operators see WHAT changed
+                        // without opening the detail popup. Only when both before
+                        // and after exist (a real edit) — creates/deletes skip it.
+                        const changes = record.beforeValue && record.afterValue
+                          ? diffAuditValues(record.beforeValue, record.afterValue)
+                          : [];
                         // Styled hover popup for truncated descriptions.
                         // The native `title` tooltip is OS-themed and slow
                         // (~1s delay on most platforms); the custom popup
                         // fires immediately and uses the app's color scheme.
                         return (
-                          <span className="relative inline-block group">
-                            <span className="text-sm text-slate-700 cursor-default">
-                              {shown}
-                            </span>
-                            {isTruncated && (
-                              <span
-                                className="pointer-events-none absolute left-0 bottom-full mb-2 z-50 hidden group-hover:block w-[28rem] max-w-[36rem] bg-white text-slate-800 text-xs leading-snug rounded-lg border border-slate-200 shadow-xl px-3 py-2 whitespace-normal break-words"
-                                role="tooltip"
-                              >
-                                {desc}
+                          <div className="min-w-[15rem]">
+                            <span className="relative inline-block group">
+                              <span className="text-sm text-slate-700 cursor-default">
+                                {shown}
                               </span>
+                              {isTruncated && (
+                                <span
+                                  className="pointer-events-none absolute left-0 bottom-full mb-2 z-50 hidden group-hover:block w-[28rem] max-w-[36rem] bg-white text-slate-800 text-xs leading-snug rounded-lg border border-slate-200 shadow-xl px-3 py-2 whitespace-normal break-words"
+                                  role="tooltip"
+                                >
+                                  {desc}
+                                </span>
+                              )}
+                            </span>
+                            {changes.length > 0 && (
+                              <div className="mt-1.5 space-y-1 border-l-2 border-slate-200 pl-2.5">
+                                {changes.map((c) => (
+                                  <div key={c.field} className="text-xs flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-medium text-slate-500">{c.field}:</span>
+                                    <span className="text-red-600 line-through break-all">{c.from}</span>
+                                    <span className="text-slate-400">&rarr;</span>
+                                    <span className="text-green-700 font-medium break-all">{c.to}</span>
+                                  </div>
+                                ))}
+                              </div>
                             )}
-                          </span>
+                          </div>
                         );
                       })()}
                     </TableCell>
