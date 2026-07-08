@@ -8,6 +8,16 @@ import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
 import { invalidatePasswordPolicyCache } from '../../plugins/auth.js';
+import { sanitizeAuditValue } from '../../lib/audit-diff.js';
+import { configRegistry } from '../../lib/config-registry.js';
+
+/** Drop top-level keys named in `secretKeys` from a config value (for audit snapshots). */
+export function redactConfigSecrets(value: any, secretKeys: Set<string>): any {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) if (!secretKeys.has(k)) out[k] = v;
+  return out;
+}
 
 /**
  * Reverse-map a role's permission constants to feature privilege booleans.
@@ -102,10 +112,18 @@ export const configService = {
     // effect on the next request instead of after up to 60s of TTL lag.
     if (key === 'password-policy') invalidatePasswordPolicyCache();
 
+    const secretKeys = new Set(
+      (configRegistry.get(key)?.settings ?? [])
+        .filter((s) => s.type === 'secret')
+        .map((s) => s.key),
+    );
+    const auditBefore = sanitizeAuditValue(redactConfigSecrets(beforeValue, secretKeys));
+    const auditAfter = sanitizeAuditValue(redactConfigSecrets(parsed.data, secretKeys));
+
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',
       targetType: 'config', targetId: key,
-      beforeValue: beforeValue as any, afterValue: parsed.data,
+      beforeValue: auditBefore as any, afterValue: auditAfter,
       signatureMeaning: `System configuration modified: ${key}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
