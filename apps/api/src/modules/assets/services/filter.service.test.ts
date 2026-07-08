@@ -51,4 +51,17 @@ describe('filterService.update — audit before/after', () => {
     expect(entry.beforeValue).toMatchObject({ name: 'OLD', filterSet: 'SET_A', attributes: { micronSize: '3' }, templateKind: 'FILTER' });
     expect(entry.afterValue).toMatchObject({ name: 'NEW', templateKind: 'FILTER' });
   });
+
+  it('keeps name/filterSet symmetric on an attributes-only edit', async () => {
+    vi.mocked(prisma.filter.findUnique).mockResolvedValue({ id: 'f1', name: 'OLD', attributes: { micronSize: '3' } } as any);
+    vi.mocked(prisma.filterDetails.findUnique).mockResolvedValue({ filterSet: 'SET_A' } as any);
+
+    await filterService.update('f1', { micronSize: '9' } as any, ctx); // NO name, NO filterSet
+
+    const e = vi.mocked(auditLog).mock.calls[0][0];
+    expect(e.afterValue.name).toBe(e.beforeValue.name);
+    expect(e.afterValue.filterSet).toBe(e.beforeValue.filterSet);
+    expect(e.afterValue.name).toBe('OLD');
+    expect(e.afterValue.filterSet).toBe('SET_A');
+  });
 });

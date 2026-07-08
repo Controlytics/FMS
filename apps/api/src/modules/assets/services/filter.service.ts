@@ -81,7 +81,7 @@ export const filterService = {
   // sync. No asset-template / attributeSchema. Field-option values are
   // re-validated against the live config and replace the attributes JSON.
   async update(id: string, input: FilterFieldInput & { name?: string; filterSet?: 'A' | 'B' }, ctx: RequestContext) {
-    const existing = await prisma.filter.findUnique({ where: { id }, select: { id: true, name: true, attributes: true } });
+    const existing = await prisma.filter.findUnique({ where: { id }, select: { name: true, attributes: true } });
     if (!existing) throw new ValidationError('Filter not found');
     const existingDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { filterSet: true } });
 
@@ -117,7 +117,7 @@ export const filterService = {
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_UPDATED', targetType: 'asset_instance', targetId: id,
       beforeValue: sanitizeAuditValue({ name: existing.name, filterSet: existingDetails?.filterSet, attributes: existing.attributes, templateKind: 'FILTER' }),
-      afterValue: sanitizeAuditValue({ name: data.name, filterSet: filterSetEnum, attributes, templateKind: 'FILTER' }),
+      afterValue: sanitizeAuditValue({ name: data.name ?? existing.name, filterSet: filterSetEnum ?? existingDetails?.filterSet, attributes, templateKind: 'FILTER' }),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return updated;
