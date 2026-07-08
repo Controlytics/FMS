@@ -256,3 +256,38 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const name = nonUuid(targetName) || nonUuid(targetUser);
   return name ? `${label} — "${name}" by ${actor}` : `${label} by ${actor}`;
 }
+// Sensitive audit keys — kept in sync with apps/api/src/lib/audit-diff.ts.
+const SENSITIVE_KEY_RE = /password|secret|token|apikey|api[_-]?key|private[_-]?key|credential/i;
+const DIFF_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function prettyFieldName(key: string): string {
+  return key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function maskAuditValue(key: string, value: unknown): string {
+  if (SENSITIVE_KEY_RE.test(key)) return '••••••';
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+export interface AuditFieldChange { field: string; from: string; to: string; }
+
+/** Changed fields only, old → new. Skips id/uuid keys; masks sensitive values. */
+export function diffAuditValues(before: any, after: any): AuditFieldChange[] {
+  const b = before && typeof before === 'object' ? before : {};
+  const a = after && typeof after === 'object' ? after : {};
+  const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)]));
+  const changes: AuditFieldChange[] = [];
+  for (const key of keys) {
+    if (/(^|[^a-z])id$/i.test(key)) continue;
+    const bv = b[key];
+    const av = a[key];
+    if (typeof bv === 'string' && DIFF_UUID_RE.test(bv)) continue;
+    if (typeof av === 'string' && DIFF_UUID_RE.test(av)) continue;
+    if (JSON.stringify(bv) === JSON.stringify(av)) continue;
+    changes.push({ field: prettyFieldName(key), from: maskAuditValue(key, bv), to: maskAuditValue(key, av) });
+  }
+  return changes;
+}

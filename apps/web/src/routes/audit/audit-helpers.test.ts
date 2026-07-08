@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getAuditSummary, formatActionLabel, friendlyTargetType } from './audit-helpers';
+import { getAuditSummary, formatActionLabel, friendlyTargetType, diffAuditValues, maskAuditValue, prettyFieldName } from './audit-helpers';
 import { getDefaultTemplates } from '@digilog/shared';
 
 const T = getDefaultTemplates();
@@ -54,5 +54,32 @@ describe('audit-helpers — Block/Area/AHU/Filter rendering', () => {
     expect(friendlyTargetType({ targetType: 'asset_instance', afterValue: { templateKind: 'BLOCK' } })).toBe('Block');
     expect(friendlyTargetType({ targetType: 'asset_instance', afterValue: {} })).toBe('Record');
     expect(friendlyTargetType({ targetType: 'asset_relationship' })).toBe('Hierarchy Link');
+  });
+});
+describe('audit-helpers — before/after diff', () => {
+  it('returns only the fields that changed, old → new', () => {
+    expect(diffAuditValues({ name: 'A', filterSize: '10' }, { name: 'A', filterSize: '12' }))
+      .toEqual([{ field: 'Filter Size', from: '10', to: '12' }]);
+  });
+
+  it('returns empty when nothing changed', () => {
+    expect(diffAuditValues({ name: 'A' }, { name: 'A' })).toEqual([]);
+  });
+
+  it('masks sensitive values', () => {
+    expect(diffAuditValues({ password: 'old' }, { password: 'new' }))
+      .toEqual([{ field: 'Password', from: '••••••', to: '••••••' }]);
+  });
+
+  it('skips id / uuid-valued keys', () => {
+    const before = { userId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'A' };
+    const after = { userId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', name: 'B' };
+    expect(diffAuditValues(before, after)).toEqual([{ field: 'Name', from: 'A', to: 'B' }]);
+  });
+
+  it('maskAuditValue handles null and objects', () => {
+    expect(maskAuditValue('name', null)).toBe('-');
+    expect(maskAuditValue('meta', { a: 1 })).toBe('{"a":1}');
+    expect(prettyFieldName('current_lifecycle_state')).toBe('Current Lifecycle State');
   });
 });
