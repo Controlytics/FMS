@@ -172,6 +172,14 @@ export function AuditTable({
                         const changes = FIELD_DIFF_ACTIONS.has(record.action) && record.beforeValue && record.afterValue
                           ? diffAuditValues(record.beforeValue, record.afterValue)
                           : [];
+                        // AHU context for records that don't name a record in the
+                        // summary (e.g. PM schedule review/approve/upload) — surface
+                        // the AHU(s) captured in afterValue so operators see which
+                        // AHUs the action covered.
+                        const av = record.afterValue || {};
+                        const ahus: string[] = av.ahuName
+                          ? [av.ahuName]
+                          : Array.isArray(av.ahuNames) ? av.ahuNames.filter(Boolean) : [];
                         // Styled hover popup for truncated descriptions.
                         // The native `title` tooltip is OS-themed and slow
                         // (~1s delay on most platforms); the custom popup
@@ -201,6 +209,12 @@ export function AuditTable({
                                     <span className="text-green-700 font-medium break-all">{c.to}</span>
                                   </div>
                                 ))}
+                              </div>
+                            )}
+                            {ahus.length > 0 && (
+                              <div className="mt-1 text-xs">
+                                <span className="font-medium text-slate-500">AHU{ahus.length > 1 ? 's' : ''}:</span>{' '}
+                                <span className="text-slate-700 break-all">{ahus.join(', ')}</span>
                               </div>
                             )}
                           </div>

@@ -196,7 +196,7 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_IMPORTED',
     targetType: 'pm_schedule', targetId: 'bulk',
-    afterValue: { imported: imported.length, skipped: skipped.length },
+    afterValue: { imported: imported.length, skipped: skipped.length, ahuNames: [...new Set(imported.map((i) => i.ahuName))] },
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
   });
 

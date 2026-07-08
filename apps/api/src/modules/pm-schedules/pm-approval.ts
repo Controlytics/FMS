@@ -145,7 +145,7 @@ export async function reviewEntries(
         },
       });
       qnns.push(await mintQnn('REVIEW', entry, ahuName, ctx, 'Reviewed (sent for approval)'));
-      await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REVIEWED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { remarks }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+      await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REVIEWED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { remarks, ahuName }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     } else {
       await prisma.pmScheduleEntry.update({
         where: { id: entry.id },
@@ -204,7 +204,7 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
       },
     });
     qnns.push(await mintQnn('APPROVE', entry, ahuNames.get(entry.id) ?? '?', ctx, 'Approved'));
-    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_APPROVED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { comment, hasPendingEdit }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_APPROVED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { comment, hasPendingEdit, ahuName: ahuNames.get(entry.id) ?? '?' }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     results.push(`${entry.id}: approved`);
   }
   return { processed: results.length, results, qnns };
