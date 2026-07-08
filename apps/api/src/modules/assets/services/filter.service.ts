@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
+import { sanitizeAuditValue } from '../../../lib/audit-diff.js';
 import { ValidationError } from '../../../lib/errors.js';
 import { validateAndBuildFilterAttributes, type FilterFieldInput } from './filter-fields.service.js';
 import { identifierService } from './identifier.service.js';
@@ -80,8 +81,9 @@ export const filterService = {
   // sync. No asset-template / attributeSchema. Field-option values are
   // re-validated against the live config and replace the attributes JSON.
   async update(id: string, input: FilterFieldInput & { name?: string; filterSet?: 'A' | 'B' }, ctx: RequestContext) {
-    const existing = await prisma.filter.findUnique({ where: { id }, select: { id: true } });
+    const existing = await prisma.filter.findUnique({ where: { id }, select: { id: true, name: true, attributes: true } });
     if (!existing) throw new ValidationError('Filter not found');
+    const existingDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { filterSet: true } });
 
     const data: Record<string, unknown> = { updatedBy: ctx.userId };
     if (input.name !== undefined) {
@@ -114,7 +116,8 @@ export const filterService = {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_UPDATED', targetType: 'asset_instance', targetId: id,
-      afterValue: { name: data.name, filterSet: filterSetEnum, attributes, templateKind: 'FILTER' },
+      beforeValue: sanitizeAuditValue({ name: existing.name, filterSet: existingDetails?.filterSet, attributes: existing.attributes, templateKind: 'FILTER' }),
+      afterValue: sanitizeAuditValue({ name: data.name, filterSet: filterSetEnum, attributes, templateKind: 'FILTER' }),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return updated;
