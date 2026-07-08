@@ -738,6 +738,25 @@ export class FilterOperationsService {
       newName = oldName + '-01';
     }
 
+    // Guard (2026-07-08): refuse the replacement when the computed new name is
+    // already used by another ACTIVE filter. replace() blindly increments the
+    // trailing suffix, so replacing "…/00-00" produces "…/00-01" — which collides
+    // when "…/00-01" already exists as its own filter, silently creating two
+    // filters with the same name. Per user decision: on collision, do NOT replace.
+    // This runs BEFORE retire() so nothing is mutated when we abort. Retired
+    // filters keep their names by design, so we only check active FILTER instances.
+    const nameClash = await prisma.assetInstance.findFirst({
+      where: { name: newName, isActive: true, template: { templateKind: 'FILTER' } },
+      select: { id: true },
+    });
+    if (nameClash) {
+      throw new AppError(
+        409,
+        'DUPLICATE_FILTER_NAME',
+        `Cannot replace "${oldName}": a filter named "${newName}" already exists. Rename or retire that filter first.`,
+      );
+    }
+
     // Snapshot the old filter's FilterDetails BEFORE retire() clears them.
     // We need filterSet + filterProfileId to copy onto the replacement.
     const oldDetails = await prisma.filterDetails.findUnique({
