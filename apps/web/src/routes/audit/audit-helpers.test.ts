@@ -82,4 +82,11 @@ describe('audit-helpers — before/after diff', () => {
     expect(maskAuditValue('meta', { a: 1 })).toBe('{"a":1}');
     expect(prettyFieldName('current_lifecycle_state')).toBe('Current Lifecycle State');
   });
+
+  it('skips camelCase *Id keys even when the value is not a UUID', () => {
+    // filterId is a non-UUID (numeric) id — must be skipped by key name, not just value.
+    expect(diffAuditValues({ filterId: 5, name: 'A' }, { filterId: 6, name: 'A' })).toEqual([]);
+    expect(diffAuditValues({ blockId: 'X1', name: 'A' }, { blockId: 'X2', name: 'B' }))
+      .toEqual([{ field: 'Name', from: 'A', to: 'B' }]);
+  });
 });

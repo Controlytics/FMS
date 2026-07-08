@@ -281,7 +281,7 @@ export function diffAuditValues(before: any, after: any): AuditFieldChange[] {
   const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)]));
   const changes: AuditFieldChange[] = [];
   for (const key of keys) {
-    if (/(^|[^a-z])id$/i.test(key)) continue;
+    if (/^id$|[_-]id$|Id$/.test(key)) continue;
     const bv = b[key];
     const av = a[key];
     if (typeof bv === 'string' && DIFF_UUID_RE.test(bv)) continue;
