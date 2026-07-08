@@ -2,6 +2,8 @@ import { type FastifyInstance } from 'fastify';
 import { configRegistry } from '../../lib/config-registry.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { sanitizeAuditValue } from '../../lib/audit-diff.js';
+import { redactConfigSecrets } from './config.service.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 
@@ -130,11 +132,18 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
         },
       });
 
+      // Strip declared-secret fields (def type:'secret') so credentials on
+      // dynamically-rendered config pages are never persisted in the audit
+      // trail or shown in the now-all-roles before/after view.
+      const secretKeys = new Set(
+        (def.settings ?? []).filter((s) => s.type === 'secret').map((s) => s.key),
+      );
       await auditLog({
         userId: ctx.userId, userRole: ctx.userRole,
         action: 'CONFIG_CHANGED',
         targetType: 'config', targetId: def.moduleKey,
-        beforeValue: oldValue, afterValue: newValue,
+        beforeValue: sanitizeAuditValue(redactConfigSecrets(oldValue, secretKeys)) as any,
+        afterValue: sanitizeAuditValue(redactConfigSecrets(newValue, secretKeys)),
         signatureMeaning: `${def.moduleName} configuration updated`,
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
         sessionId: ctx.sessionId,
