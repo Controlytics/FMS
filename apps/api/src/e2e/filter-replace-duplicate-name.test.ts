@@ -62,8 +62,9 @@ describe('Filter replace — duplicate-name guard', () => {
   let app: FastifyInstance;
   let token: string;
   let testUserId: string;
-  let filterA: string; // "<PREFIX>-00" — the one we try to replace
+  let filterA: string; // "<PREFIX>-00" — the one we try to replace (collides with B)
   let filterB: string; // "<PREFIX>-01" — the pre-existing collision target
+  let filterC: string; // "<PREFIX>-90" — replaced successfully (no "<PREFIX>-91" exists)
 
   beforeAll(async () => {
     app = await buildTestApp();
@@ -99,6 +100,7 @@ describe('Filter replace — duplicate-name guard', () => {
     };
     filterA = await mk(`${PREFIX}-00`);
     filterB = await mk(`${PREFIX}-01`);
+    filterC = await mk(`${PREFIX}-90`); // increments to -91, which is free
 
     const loginRes = await app.inject({
       method: 'POST', url: '/api/auth/login',
@@ -110,12 +112,17 @@ describe('Filter replace — duplicate-name guard', () => {
   });
 
   afterAll(async () => {
-    // Guard aborts before retire(), so A/B are untouched — just delete them.
-    await prisma.assetRelationship.deleteMany({
-      where: { OR: [{ sourceAssetId: { in: [filterA, filterB] } }, { targetAssetId: { in: [filterA, filterB] } }] },
+    // Delete every instance this file created (A/B + C + the "<PREFIX>-91"
+    // replacement C spawns) by name prefix, plus their relationships/details.
+    const mine = await prisma.assetInstance.findMany({
+      where: { name: { startsWith: PREFIX } }, select: { id: true },
     });
-    await prisma.filterDetails.deleteMany({ where: { assetInstanceId: { in: [filterA, filterB] } } });
-    await prisma.assetInstance.deleteMany({ where: { id: { in: [filterA, filterB] } } });
+    const ids = mine.map((m) => m.id);
+    await prisma.assetRelationship.deleteMany({
+      where: { OR: [{ sourceAssetId: { in: ids } }, { targetAssetId: { in: ids } }] },
+    });
+    await prisma.filterDetails.deleteMany({ where: { assetInstanceId: { in: ids } } });
+    await prisma.assetInstance.deleteMany({ where: { id: { in: ids } } });
     await prisma.session.updateMany({ where: { userId: testUserId }, data: { isActive: false, terminationReason: 'dupname_test_cleanup' } });
     try {
       await prisma.user.delete({ where: { id: testUserId } });
@@ -144,5 +151,29 @@ describe('Filter replace — duplicate-name guard', () => {
     expect(a?.status).toBe('Active');
     const dupes = await prisma.assetInstance.count({ where: { name: `${PREFIX}-01`, isActive: true } });
     expect(dupes).toBe(1);
+  });
+
+  it('replaces successfully when the incremented name is free', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/filters/${filterC}/replace`,
+      headers: { authorization: `Bearer ${token}`, 'x-reauth-password': TEST_PASSWORD },
+      payload: { remarks: 'replace into a free name' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.newFilterName).toBe(`${PREFIX}-91`);
+
+    // Old filter retired, new filter active — exactly one active copy of the new name.
+    const old = await prisma.assetInstance.findUnique({ where: { id: filterC } });
+    expect(old?.isActive).toBe(false);
+    expect(old?.status).toBe('Retired');
+    const created = await prisma.assetInstance.findUnique({ where: { id: body.newFilterId } });
+    expect(created?.name).toBe(`${PREFIX}-91`);
+    expect(created?.isActive).toBe(true);
+    const active91 = await prisma.assetInstance.count({ where: { name: `${PREFIX}-91`, isActive: true } });
+    expect(active91).toBe(1);
   });
 });
