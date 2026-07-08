@@ -168,6 +168,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     //   - targetId when targetType='filter' OR 'asset_instance'
     const filterIds = new Set<string>();
     const cycleIds = new Set<string>();
+    const pmEntryIds = new Set<string>();
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     for (const r of records as any[]) {
       const af = (r.afterValue ?? {}) as Record<string, unknown>;
@@ -181,7 +182,24 @@ export default async function auditRoutes(app: FastifyInstance) {
           filterIds.add(r.targetId);
         }
         if (r.targetType === 'cleaning_cycle') cycleIds.add(r.targetId);
+        // PM schedule entry rows (reviewed/approved/rejected): rows written
+        // before AHU capture lack afterValue.ahuName. Resolve the AHU at read
+        // time via the entry's schedule (entityId = AHU asset instance) — the
+        // stored row is never modified (checksum still verifies vs. the original).
+        if (r.targetType === 'pm_schedule_entry' && !af.ahuName) pmEntryIds.add(r.targetId);
       }
+    }
+    // Resolve PM entries -> their schedule's AHU id, and fold those AHU ids into
+    // the asset-instance name lookup below so we get the AHU's display name.
+    const pmEntries = pmEntryIds.size > 0
+      ? await prisma.pmScheduleEntry.findMany({
+          where: { id: { in: Array.from(pmEntryIds) } },
+          select: { id: true, schedule: { select: { entityId: true } } },
+        })
+      : [];
+    const ahuIdByPmEntry = new Map<string, string>();
+    for (const e of pmEntries) {
+      if (e.schedule?.entityId) { ahuIdByPmEntry.set(e.id, e.schedule.entityId); filterIds.add(e.schedule.entityId); }
     }
     const [filters, cycles] = await Promise.all([
       filterIds.size > 0
@@ -245,6 +263,11 @@ export default async function auditRoutes(app: FastifyInstance) {
             enriched.cycleCode = enriched.cycleCode ?? c.cycleCode;
           }
         }
+      }
+      // Old PM review/approve rows: resolve AHU name from the entry's schedule.
+      if (record.targetType === 'pm_schedule_entry' && !enriched.ahuName) {
+        const ahuId = ahuIdByPmEntry.get(record.targetId);
+        if (ahuId && filterNameById.has(ahuId)) enriched.ahuName = filterNameById.get(ahuId);
       }
 
       return {
