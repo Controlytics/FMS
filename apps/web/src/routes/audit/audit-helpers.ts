@@ -287,6 +287,19 @@ export function diffAuditValues(before: any, after: any): AuditFieldChange[] {
     if (typeof bv === 'string' && DIFF_UUID_RE.test(bv)) continue;
     if (typeof av === 'string' && DIFF_UUID_RE.test(av)) continue;
     if (JSON.stringify(bv) === JSON.stringify(av)) continue;
+    if (bv && av && typeof bv === 'object' && typeof av === 'object' && !Array.isArray(bv) && !Array.isArray(av)) {
+      const subKeys = Array.from(new Set([...Object.keys(bv), ...Object.keys(av)]));
+      for (const sk of subKeys) {
+        if (/^id$|[_-]id$|Id$/.test(sk)) continue;
+        const sbv = (bv as any)[sk];
+        const sav = (av as any)[sk];
+        if (typeof sbv === 'string' && DIFF_UUID_RE.test(sbv)) continue;
+        if (typeof sav === 'string' && DIFF_UUID_RE.test(sav)) continue;
+        if (JSON.stringify(sbv) === JSON.stringify(sav)) continue;
+        changes.push({ field: prettyFieldName(sk), from: maskAuditValue(sk, sbv), to: maskAuditValue(sk, sav) });
+      }
+      continue;
+    }
     changes.push({ field: prettyFieldName(key), from: maskAuditValue(key, bv), to: maskAuditValue(key, av) });
   }
   return changes;

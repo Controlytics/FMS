@@ -89,4 +89,10 @@ describe('audit-helpers — before/after diff', () => {
     expect(diffAuditValues({ blockId: 'X1', name: 'A' }, { blockId: 'X2', name: 'B' }))
       .toEqual([{ field: 'Name', from: 'A', to: 'B' }]);
   });
+
+  it('flattens object-valued fields one level (attributes → per-field)', () => {
+    expect(diffAuditValues({ attributes: { micronSize: '3', filterSize: '10' } },
+                           { attributes: { micronSize: '5', filterSize: '10' } }))
+      .toEqual([{ field: 'Micron Size', from: '3', to: '5' }]);
+  });
 });
