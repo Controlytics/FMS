@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased] — Bug fixes: optional email on user edit + audit-export logging (2026-07-08)
+
+Branch: `RFID`. Two reported bugs fixed.
+
+### 1. Email wrongly required when editing a user (e.g. changing role)
+Editing an emailless user rejected the save as if email were mandatory. Root cause spanned
+three layers — fixed all:
+- **Zod** (`packages/shared/src/schemas/users.ts`): `updateUserSchema.email` was
+  `z.string().email().optional()` (`.optional()` allows only `undefined`, not `''`/`null`).
+  Now `z.union([z.literal(''), z.string().email().max(100)]).nullish()` — accepts `''`, `null`,
+  a valid email, or omitted; still rejects a malformed address. (Mirrors `createUserSchema`.)
+- **Fastify** (`apps/api/src/modules/users/routes.ts` PUT body): dropped `format: 'email'` and
+  made the field `type: ['string','null']` (the create route already omits `format` for the same
+  reason) — the format check was 400-ing `''` before the handler ran.
+- **Service** (`user.service.ts` `update`): normalizes a blank email to `NULL` (mirrors `create`)
+  so multiple no-email users don't collide on the `@unique` index; blank no longer triggers the
+  duplicate-email probe.
+- **Frontend** (`apps/web/src/routes/users/edit.tsx`): form seeds `email: userData.email ?? ''`.
+
+### 2. Audit-trail download not recorded in the audit trail
+Exporting the Audit Trail (PDF/Excel) was **100% client-side**, so no `DATA_EXPORTED` row was ever
+written — the download left no trace. Also, the export only included the **currently visible page**.
+- **New endpoint** `POST /api/audit/export-log` (gated `AUDIT_EXPORT`) writes a `DATA_EXPORTED`
+  audit row (who / format / record count / active filters). `DATA_EXPORTED` already had an
+  audit-templates entry, so it renders correctly.
+- **Frontend** (`audit/index.tsx`): Export now fetches **all filtered records** (pages through the
+  200-cap list API) and records the export **before** saving the file — **fail-closed**: if logging
+  fails, the download is cancelled with an error toast (21 CFR §11). "Send for Review" now also
+  snapshots the full filtered set (was page-only).
+
+### Tests
+`schemas/users.test.ts` (+empty/null email), `user.service.test.ts` (+blank→null normalize),
+`e2e/users.test.ts` (+empty-email PUT end-to-end through Fastify+zod+service),
+`e2e/audit-export-log.test.ts` (DATA_EXPORTED row written + auth/validation gates).
+
 ## [Unreleased] — Password expiry notifications (2026-07-08)
 
 Branch: `RFID`. Added a per-user password-expiry warning system driven by **one new

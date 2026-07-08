@@ -70,7 +70,9 @@ export function EditUserPage() {
     resolver: zodResolver(updateUserSchema),
     values: userData ? {
       fullName: userData.fullName,
-      email: userData.email,
+      // Coerce null → '' so the (optional) email field is always a string; the
+      // form submits '' for emailless users, which the schema now accepts.
+      email: userData.email ?? '',
       department: userData.department ?? '',
       role: userData.role,
       status: userData.status,

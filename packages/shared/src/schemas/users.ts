@@ -18,7 +18,10 @@ export const createUserSchema = z.object({
 
 export const updateUserSchema = z.object({
   fullName: z.string().min(1).max(100).optional(),
-  email: z.string().email().max(100).optional(),
+  // Email is optional on update (mirrors create). Must be a valid email when a
+  // non-empty value is given; '' and null (an emailless user's edit form) are
+  // both accepted so a role-only change isn't blocked by the email field.
+  email: z.union([z.literal(''), z.string().email('Invalid email address').max(100)]).nullish(),
   department: z.string().max(50).optional(),
   role: z.string().min(1).optional(),
   status: z.enum(["ENABLED", "DISABLED"]).optional(),

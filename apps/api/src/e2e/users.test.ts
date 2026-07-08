@@ -229,6 +229,22 @@ describe('Users endpoints', () => {
         const body = JSON.parse(res.body);
         expect(body.fullName).toBe('Updated Test User');
       });
+
+      // Reported bug (2026-07-08): editing a user (e.g. changing role) with a
+      // blank email was rejected as if email were mandatory. Email is optional —
+      // an empty string must update cleanly and clear the stored email to NULL.
+      it('accepts an empty email (email is optional) and clears it to null', async () => {
+        const res = await authPut(app, `/api/users/${createdUserId}`, adminToken, {
+          fullName: 'Updated Test User',
+          email: '',
+        }, ADMIN_PASSWORD);
+        expect(res.statusCode).toBe(200);
+
+        const check = await authGet(app, `/api/users/${createdUserId}`, adminToken);
+        const body = JSON.parse(check.body);
+        // Stored as NULL (serialized as null/absent/'' — never a validation error).
+        expect(body.email == null || body.email === '').toBe(true);
+      });
     });
 
     // ---- 4. POST /api/users/:id/disable — Disable user ----

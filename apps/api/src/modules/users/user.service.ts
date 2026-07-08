@@ -161,6 +161,13 @@ export const userService = {
       }
     }
 
+    // Normalize email: store NULL (not '') when blank, so the @unique index
+    // doesn't collide across multiple no-email users (mirrors create()). Only
+    // touch it when the caller actually sent an email field.
+    if ('email' in data) {
+      data.email = (data.email ?? '').trim() || null;
+    }
+
     if (data.email && data.email !== existing.email) {
       const dup = await userRepository.findByEmail(data.email);
       if (dup) throw new ConflictError('Email already exists');

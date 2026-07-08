@@ -8,6 +8,7 @@ import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { apiClient, api } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
+import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { getDefaultTemplates } from '@digilog/shared';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
@@ -29,6 +30,7 @@ export function AuditTrailPage() {
   const { user } = useAuth();
   const can = useCan();
   const reauth = useReauth();
+  const { toast } = useToast();
   const { formatDate, formatTime, formatDateTime, formatIfDate } = useDatetimeFormat();
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const { labelsFor } = useReportLabels();
@@ -241,53 +243,105 @@ export function AuditTrailPage() {
     return formatDateTime(datetime);
   };
 
-  const buildAuditExport = (): { body: string[][]; period: string; total: number } | null => {
-    const records = data?.data;
-    if (!records || records.length === 0) return null;
-    const period = fromDateTime || toDateTime
+  const currentPeriod = (): string =>
+    fromDateTime || toDateTime
       ? `${fromDateTime ? formatDateTime(fromDateTime) : 'Start'} to ${toDateTime ? formatDateTime(toDateTime) : 'Now'}`
       : 'All Time';
-    const body = records.map((r: any) => [
+
+  const mapAuditRows = (records: any[]): string[][] =>
+    records.map((r: any) => [
       formatDateTime(r.timestamp), r.action?.replace(/_/g, ' ') ?? '-', r.userId ?? '-',
       r.userRole ?? '-', r.targetType ?? '-', getAuditSummary(r, templates).substring(0, 80), r.ipAddress ?? '-',
     ]);
-    return { body, period, total: records.length };
+
+  // Fetch ALL records matching the active filters (not just the visible page).
+  // The list API caps each request at 200, so page through until exhausted.
+  const fetchAllFilteredRecords = async (): Promise<any[]> => {
+    const all: any[] = [];
+    const LIMIT = 200;
+    let pageN = 1;
+    for (;;) {
+      const qs = new URLSearchParams({ page: String(pageN), limit: String(LIMIT), sortBy, sortOrder });
+      if (search) qs.set('search', search);
+      if (fromDateTime) qs.set('startDate', new Date(fromDateTime).toISOString());
+      if (toDateTime) qs.set('endDate', new Date(toDateTime).toISOString());
+      const res = await apiClient.get<{ data?: any[]; total?: number }>(`/api/audit?${qs}`);
+      const rows = res?.data ?? [];
+      all.push(...rows);
+      const total = res?.total ?? all.length;
+      if (rows.length === 0 || all.length >= total || pageN > 500) break;
+      pageN++;
+    }
+    return all;
   };
 
-  // Builds the audit report doc (shared by Download PDF + Send for Review).
-  const buildAuditReport = async () => {
-    const r = buildAuditExport();
-    if (!r) return null;
-    const report = await createReport({ reportKey: 'audit-trail',
-      title: auditL.title,
-      subtitle: auditL.subtitle || `Period: ${r.period}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${r.total} record(s)  |  21 CFR Part 11 Compliant`,
-      orientation: 'landscape',
-      formatDateTime,
+  // Record the export as an auditable event BEFORE the file is saved. Throws on
+  // failure so the caller can block the download (fail-closed, 21 CFR §11).
+  const logExport = async (format: 'PDF' | 'Excel', recordCount: number) => {
+    await apiClient.post('/api/audit/export-log', {
+      format, recordCount,
+      period: currentPeriod(),
+      search: search || undefined,
+      startDate: fromDateTime ? new Date(fromDateTime).toISOString() : undefined,
+      endDate: toDateTime ? new Date(toDateTime).toISOString() : undefined,
     });
-    report.addTable({ head: auditHead, body: r.body, columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
-    return report;
   };
 
   const exportPdf = async () => {
     setDownloading(true);
     try {
-      const report = await buildAuditReport();
-      report?.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const records = await fetchAllFilteredRecords();
+      if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
+      const report = await createReport({ reportKey: 'audit-trail',
+        title: auditL.title,
+        subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
+        orientation: 'landscape',
+        formatDateTime,
+      });
+      report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
+      // Fail-closed: if the export can't be recorded, cancel the download.
+      try {
+        await logExport('PDF', records.length);
+      } catch (e: any) {
+        toast.error('Export blocked', `Could not record this download in the audit trail: ${e?.message ?? 'unknown error'}. Download cancelled.`);
+        return;
+      }
+      report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e: any) {
+      toast.error('Export failed', e?.message ?? 'Could not export the audit trail. Please try again.');
     } finally { setDownloading(false); }
   };
 
-  // Snapshot for the review workflow — same build, captured instead of saved.
+  // Snapshot for the review workflow — same build over all filtered records,
+  // captured instead of saved (no export-log; nothing is downloaded here).
   const buildAuditSnapshot = async () => {
-    const report = await buildAuditReport();
-    return report ? report.getSnapshot() : null;
+    const records = await fetchAllFilteredRecords();
+    if (records.length === 0) return null;
+    const report = await createReport({ reportKey: 'audit-trail',
+      title: auditL.title,
+      subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
+      orientation: 'landscape',
+      formatDateTime,
+    });
+    report.addTable({ head: auditHead, body: mapAuditRows(records), columnStyles: { 0: { cellWidth: 35 }, 5: { cellWidth: 65 } } });
+    return report.getSnapshot();
   };
 
   const exportExcel = async () => {
-    const r = buildAuditExport();
-    if (!r) return;
     setDownloading(true);
     try {
-      exportToExcel({ filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead, rows: r.body });
+      const records = await fetchAllFilteredRecords();
+      if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
+      // Fail-closed: if the export can't be recorded, cancel the download.
+      try {
+        await logExport('Excel', records.length);
+      } catch (e: any) {
+        toast.error('Export blocked', `Could not record this download in the audit trail: ${e?.message ?? 'unknown error'}. Download cancelled.`);
+        return;
+      }
+      exportToExcel({ filename: `audit-trail-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Audit Trail', head: auditHead, rows: mapAuditRows(records) });
+    } catch (e: any) {
+      toast.error('Export failed', e?.message ?? 'Could not export the audit trail. Please try again.');
     } finally { setDownloading(false); }
   };
 

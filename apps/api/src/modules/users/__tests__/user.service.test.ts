@@ -171,6 +171,19 @@ describe('userService', () => {
       mockUserRepo.findByIdFull.mockResolvedValue(null);
       await expect(userService.update('bad', {}, ctx)).rejects.toThrow('not found');
     });
+
+    it('normalizes a blank email to null (no @unique collision across no-email users)', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', fullName: 'Old', email: 'old@t.com', role: 'OP', status: 'ENABLED', department: null, username: 'u1' });
+      mockUserRepo.update.mockResolvedValue({ id: '1', fullName: 'Old', email: null, role: 'OP', status: 'ENABLED', username: 'u1' });
+
+      // The reported bug's core: an emailless user's edit form submits an empty
+      // email. Update must succeed and store NULL, not '' (which would collide
+      // on the @unique index across multiple no-email users).
+      await userService.update('1', { email: '' }, ctx);
+      expect(mockUserRepo.update).toHaveBeenCalledWith('1', expect.objectContaining({ email: null }));
+      // The blank email must NOT trigger the duplicate-email probe.
+      expect(mockUserRepo.findByEmail).not.toHaveBeenCalled();
+    });
   });
 
   // ── delete ──

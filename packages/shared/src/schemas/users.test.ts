@@ -86,6 +86,21 @@ describe('updateUserSchema', () => {
     expect(updateUserSchema.safeParse({ email: 'bad' }).success).toBe(false);
   });
 
+  // Email is OPTIONAL on update — an emailless user's edit form submits '' or
+  // null. Both must pass so a role-only change isn't blocked by the email field.
+  it('accepts empty-string email', () => {
+    expect(updateUserSchema.safeParse({ email: '' }).success).toBe(true);
+  });
+
+  it('accepts null email', () => {
+    expect(updateUserSchema.safeParse({ email: null }).success).toBe(true);
+  });
+
+  it('accepts a role change with a blank/null email (the reported bug)', () => {
+    expect(updateUserSchema.safeParse({ role: 'ADMIN', email: '' }).success).toBe(true);
+    expect(updateUserSchema.safeParse({ role: 'ADMIN', email: null }).success).toBe(true);
+  });
+
   it('rejects invalid status value', () => {
     expect(updateUserSchema.safeParse({ status: 'LOCKED' }).success).toBe(false);
   });

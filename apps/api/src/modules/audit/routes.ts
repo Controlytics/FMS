@@ -332,6 +332,56 @@ export default async function auditRoutes(app: FastifyInstance) {
     };
   });
 
+  // POST /api/audit/export-log — record an audit-trail export/download as an
+  // auditable 21 CFR §11 event. The export itself is client-side (jsPDF / Excel
+  // over fetched rows), so this is the ONLY place the download is captured. The
+  // frontend calls this BEFORE saving the file and blocks the download if it
+  // fails (fail-closed), so a successful download is always logged.
+  // Gated by AUDIT_EXPORT — the same permission that reveals the Export button.
+  app.post('/export-log', {
+    preHandler: [app.requirePermission('AUDIT_EXPORT')],
+    schema: {
+      tags: ['Audit'],
+      summary: 'Record an audit-trail export/download as an auditable event',
+      description: 'Writes a DATA_EXPORTED audit row capturing who exported the audit trail, the format, the record count, and the active filters.',
+      body: {
+        type: 'object',
+        required: ['format', 'recordCount'],
+        properties: {
+          format: { type: 'string', enum: ['PDF', 'Excel'] },
+          recordCount: { type: 'integer', minimum: 0 },
+          period: { type: 'string' },
+          search: { type: 'string' },
+          startDate: { type: 'string' },
+          endDate: { type: 'string' },
+        },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' } }, additionalProperties: false },
+        ...errorResponses,
+      },
+    },
+  }, async (req) => {
+    const { format, recordCount, period, search, startDate, endDate } =
+      req.body as { format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string };
+    await auditLog({
+      userId: req.user.sub, userRole: req.user.role,
+      action: 'DATA_EXPORTED',
+      targetType: 'audit_trail',
+      afterValue: {
+        format, recordCount,
+        period: period ?? 'All Time',
+        search: search ?? null,
+        startDate: startDate ?? null,
+        endDate: endDate ?? null,
+      },
+      reason: `Exported audit trail (${recordCount} record(s)) as ${format}`,
+      signatureMeaning: `${req.user.role} exported ${recordCount} audit trail record(s) as ${format}`,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
+    return { success: true };
+  });
+
   // DELETE /api/audit/:id — delete single audit record (SUPER_ADMIN only)
   // POST /api/audit/:id/redact — redact a single audit record (SUPER_ADMIN only).
   // Replaces DELETE per delta-audit §C1 / May 16 §1.2: physical deletion broke

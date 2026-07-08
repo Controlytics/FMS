@@ -273,7 +273,10 @@ export default async function userRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         properties: {
-          fullName: { type: 'string' }, email: { type: 'string', format: 'email' },
+          // Email is optional — no `format: 'email'` (so '' passes the Fastify
+          // layer) and nullable (an emailless user's edit form submits ''/null).
+          // Format is enforced by updateUserSchema (Zod) only when non-empty.
+          fullName: { type: 'string' }, email: { type: ['string', 'null'] },
           department: { type: 'string' }, role: { type: 'string' },
           status: { type: 'string', enum: ['ENABLED', 'DISABLED'] },
         },
