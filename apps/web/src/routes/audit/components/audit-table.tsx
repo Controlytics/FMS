@@ -5,6 +5,23 @@ import { formatActionLabel, diffAuditValues } from '../audit-helpers';
 
 type SortField = 'timestamp' | 'action' | 'userId' | 'userRole';
 
+// Actions that mean "a record's fields were edited" — for these the summary
+// ("… updated") doesn't say WHAT changed, so we show the inline old -> new diff.
+// Self-descriptive status/workflow actions (account unlock/lock, enable/disable,
+// status/lifecycle changes, retire/replace, cycle steps, approvals) are NOT
+// listed: their summary line already tells the whole story, so no field diff.
+const FIELD_DIFF_ACTIONS = new Set([
+  'ASSET_UPDATED',
+  'ASSET_TEMPLATE_UPDATED',
+  'USER_UPDATED',
+  'ROLE_UPDATED',
+  'PROFILE_UPDATED',
+  'CONFIG_CHANGED',
+  'EQUIPMENT_GROUP_UPDATED',
+  'UPDATED',
+  'EDITED',
+]);
+
 interface AuditTableProps {
   data: any;
   isLoading: boolean;
@@ -152,7 +169,7 @@ export function AuditTable({
                         // description for edits, so operators see WHAT changed
                         // without opening the detail popup. Only when both before
                         // and after exist (a real edit) — creates/deletes skip it.
-                        const changes = record.beforeValue && record.afterValue
+                        const changes = FIELD_DIFF_ACTIONS.has(record.action) && record.beforeValue && record.afterValue
                           ? diffAuditValues(record.beforeValue, record.afterValue)
                           : [];
                         // Styled hover popup for truncated descriptions.
