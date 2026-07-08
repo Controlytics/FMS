@@ -115,7 +115,7 @@ export const instanceService = {
     // For filter-kind templates, also eagerly create the FilterDetails 1:1 sidecar
     // (Step 6 — keeps cycle-state writes from needing a "row exists?" check downstream).
     const isFilterKind = (template as any).templateKind === 'FILTER';
-    const { instance, containsRel, containedInRel } = await prisma.$transaction(async (tx) => {
+    const { instance } = await prisma.$transaction(async (tx) => {
       const inst = await tx.assetInstance.create({
         data: {
           name: data.name,
@@ -174,28 +174,30 @@ export const instanceService = {
       return { instance: inst, containsRel: cRel, containedInRel: ciRel };
     });
 
-    if (data.parentId && containsRel) {
-      const parentEntity = await instanceRepository.findByIdWithName(data.parentId);
-
-      await auditLog({
-        userId: ctx.userId, userRole: ctx.userRole,
-        action: 'ASSET_RELATIONSHIP_CREATED',
-        targetType: 'asset_relationship',
-        targetId: containsRel.id,
-        afterValue: { sourceName: parentEntity?.name || data.parentId, name: instance.name, relationship: containsRel, inverse: containedInRel },
-        reason: `Auto-created: "${parentEntity?.name || data.parentId}" CONTAINS "${instance.name}"`,
-        signatureMeaning: `CONTAINS relationship auto-created between parent "${parentEntity?.name}" and new child "${instance.name}"`,
-        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-      });
-    }
+    // Creating a child under a parent is ONE action → ONE audit record. We fold
+    // the parent into the single ASSET_CREATED row ("created under <parentKind>
+    // <parentName>") instead of emitting a separate ASSET_RELATIONSHIP_CREATED.
+    // The CONTAINS/CONTAINED_IN rows are still written in the transaction above;
+    // only the redundant second audit row is removed. (A later parent *change*
+    // via update() still audits the move as its own relationship event.)
+    const parentEntity = data.parentId ? await instanceRepository.findByIdWithName(data.parentId) : null;
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_CREATED',
       targetType: 'asset_instance',
       targetId: instance.id,
-      afterValue: instance,
-      reason: data.parentId ? `Entity created as child of parent ${data.parentId}` : 'Entity created',
+      afterValue: {
+        ...instance,
+        templateKind: template.templateKind,
+        ...(parentEntity ? { parentName: parentEntity.name, parentKind: parentEntity.template?.templateKind } : {}),
+      },
+      reason: parentEntity
+        ? `${template.templateKind} created under "${parentEntity.name}"`
+        : `${template.templateKind} created`,
+      signatureMeaning: parentEntity
+        ? `${template.templateKind} "${instance.name}" created under "${parentEntity.name}"`
+        : `${template.templateKind} "${instance.name}" created`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 
@@ -305,6 +307,11 @@ export const instanceService = {
       }
     }
 
+    // This record's kind (Block / Area / AHU / Filter), for audit readability.
+    const selfKind = existing.templateId
+      ? ((await templateRepository.findById(existing.templateId)) as any)?.templateKind
+      : undefined;
+
     if (parentIdChanging) {
       if (existing.parentId) {
         const oldParent = await instanceRepository.findByIdWithName(existing.parentId);
@@ -312,10 +319,10 @@ export const instanceService = {
           userId: ctx.userId, userRole: ctx.userRole,
           action: 'ASSET_RELATIONSHIP_DELETED',
           targetType: 'asset_relationship', targetId: id,
-          beforeValue: { sourceAssetId: existing.parentId, targetAssetId: id, relationshipType: 'CONTAINS', sourceName: oldParent?.name || existing.parentId, name: existing.name },
+          beforeValue: { sourceAssetId: existing.parentId, targetAssetId: id, relationshipType: 'CONTAINS', sourceName: oldParent?.name || existing.parentId, sourceKind: oldParent?.template?.templateKind, name: existing.name, targetKind: selfKind },
           afterValue: { deleted: true },
-          reason: `Parent changed: removed CONTAINS from "${oldParent?.name || existing.parentId}"`,
-          signatureMeaning: `CONTAINS relationship removed: "${oldParent?.name || existing.parentId}" → "${existing.name}"`,
+          reason: `Parent changed: "${existing.name}" removed from under "${oldParent?.name || existing.parentId}"`,
+          signatureMeaning: `"${existing.name}" removed from under parent "${oldParent?.name || existing.parentId}"`,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         });
       }
@@ -326,9 +333,9 @@ export const instanceService = {
           userId: ctx.userId, userRole: ctx.userRole,
           action: 'ASSET_RELATIONSHIP_CREATED',
           targetType: 'asset_relationship', targetId: newContains.id,
-          afterValue: { sourceName: newParent?.name || data.parentId, name: instance.name, relationship: newContains, inverse: newContainedIn },
-          reason: `Parent changed: "${newParent?.name || data.parentId}" now CONTAINS "${instance.name}"`,
-          signatureMeaning: `Parent changed: "${newParent?.name || data.parentId}" now CONTAINS "${instance.name}"`,
+          afterValue: { sourceName: newParent?.name || data.parentId, sourceKind: newParent?.template?.templateKind, name: instance.name, targetKind: selfKind, relationshipType: 'CONTAINS', relationship: newContains, inverse: newContainedIn },
+          reason: `Parent changed: "${instance.name}" now placed under "${newParent?.name || data.parentId}"`,
+          signatureMeaning: `"${instance.name}" now placed under parent "${newParent?.name || data.parentId}"`,
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         });
       }
@@ -340,9 +347,9 @@ export const instanceService = {
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_UPDATED',
       targetType: 'asset_instance', targetId: id,
-      beforeValue, afterValue: instance,
-      reason: instanceChanges.length > 0 ? instanceChanges.join('; ') : 'Entity updated',
-      signatureMeaning: `Entity "${instance.name}" updated: ${instanceChanges.length > 0 ? instanceChanges.join(', ') : 'updated'}`,
+      beforeValue, afterValue: { ...instance, templateKind: selfKind },
+      reason: instanceChanges.length > 0 ? instanceChanges.join('; ') : `${selfKind ?? 'Record'} updated`,
+      signatureMeaning: `${selfKind ?? 'Record'} "${instance.name}" updated: ${instanceChanges.length > 0 ? instanceChanges.join(', ') : 'updated'}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 
@@ -362,14 +369,18 @@ export const instanceService = {
       updatedBy: ctx.userId,
     });
 
+    const kind = existing.templateId
+      ? ((await templateRepository.findById(existing.templateId)) as any)?.templateKind
+      : undefined;
+
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_STATUS_CHANGED',
       targetType: 'asset_instance', targetId: id,
       beforeValue: { status: existing.status },
-      afterValue: { status: instance.status },
+      afterValue: { status: instance.status, templateKind: kind },
       reason: `Status: "${existing.status}" → "${instance.status}"${remarks ? ` — ${remarks}` : ''}`,
-      signatureMeaning: `Entity "${instance.name}" status changed from "${existing.status}" to "${instance.status}"`,
+      signatureMeaning: `${kind ?? 'Record'} "${instance.name}" status changed from "${existing.status}" to "${instance.status}"`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 
@@ -556,6 +567,11 @@ export const instanceService = {
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
 
+    // Kind (Block / Area / AHU / Filter) for audit readability.
+    const delKind = existing.templateId
+      ? ((await templateRepository.findById(existing.templateId)) as any)?.templateKind
+      : undefined;
+
     const descendantIds = await collectDescendantIds(id);
     const allIds = [id, ...descendantIds];
 
@@ -574,9 +590,9 @@ export const instanceService = {
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_DELETED',
       targetType: 'asset_instance', targetId: id,
-      beforeValue: { name: existing.name, status: existing.status, isActive: existing.isActive },
-      afterValue: { isActive: false, cascadeDeactivated: descendantIds.length },
-      signatureMeaning: `Entity "${existing.name}" and ${descendantIds.length} children deactivated`,
+      beforeValue: { name: existing.name, status: existing.status, isActive: existing.isActive, templateKind: delKind },
+      afterValue: { isActive: false, cascadeDeactivated: descendantIds.length, templateKind: delKind },
+      signatureMeaning: `${delKind ?? 'Record'} "${existing.name}" and ${descendantIds.length} under it deactivated`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 

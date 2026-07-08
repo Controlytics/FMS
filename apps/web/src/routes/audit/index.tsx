@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { getDefaultTemplates } from '@digilog/shared';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
-import { ACTION_COLORS, getAuditStatus, getAuditSummary } from './audit-helpers';
+import { ACTION_COLORS, getAuditStatus, getAuditSummary, friendlyTargetType } from './audit-helpers';
 import { AuditFilters } from './components/audit-filters';
 import { AuditTable } from './components/audit-table';
 import { AuditDetailModal } from './components/audit-detail-modal';
@@ -252,7 +252,7 @@ export function AuditTrailPage() {
   const mapAuditRows = (records: any[]): string[][] =>
     records.map((r: any) => [
       formatDateTime(r.timestamp), r.action?.replace(/_/g, ' ') ?? '-', r.userId ?? '-',
-      r.userRole ?? '-', r.targetType ?? '-', getAuditSummary(r, templates).substring(0, 80), r.ipAddress ?? '-',
+      r.userRole ?? '-', friendlyTargetType(r), getAuditSummary(r, templates).substring(0, 80), r.ipAddress ?? '-',
     ]);
 
   // Fetch ALL records matching the active filters (not just the visible page).

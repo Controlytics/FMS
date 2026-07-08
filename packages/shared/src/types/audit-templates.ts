@@ -12,7 +12,7 @@ export const AUDIT_TEMPLATE_CATEGORIES = [
   'Role Management',
   'Backup',
   'Data & Approvals',
-  'Entity Management',
+  'Hierarchy & Filters',
   'Filter Management',
   'Filter Operations',
   'Cleaning Profiles',
@@ -248,70 +248,76 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     placeholders: ['actor'],
   },
 
-  // Entity Template Management
+  // Template Management (Block / Area / AHU / Filter type definitions)
   ASSET_TEMPLATE_CREATED: {
-    label: 'Entity Template Created',
-    category: 'Entity Management',
-    template: 'New entity template "{targetName}" created with attribute schema, telemetry, and lifecycle configuration by {actor}',
+    label: 'Template Created',
+    category: 'Hierarchy & Filters',
+    template: 'New template "{targetName}" created with its fields and settings by {actor}',
     placeholders: ['actor', 'targetName'],
   },
   ASSET_TEMPLATE_UPDATED: {
-    label: 'Entity Template Updated',
-    category: 'Entity Management',
-    template: 'Entity template "{targetName}" updated (new version {version}) by {actor}',
+    label: 'Template Updated',
+    category: 'Hierarchy & Filters',
+    template: 'Template "{targetName}" updated (new version {version}) by {actor}',
     placeholders: ['actor', 'targetName', 'version'],
   },
   ASSET_TEMPLATE_DELETED: {
-    label: 'Entity Template Deactivated',
-    category: 'Entity Management',
-    template: 'Entity template "{targetName}" deactivated (soft-deleted) by {actor}',
+    label: 'Template Deactivated',
+    category: 'Hierarchy & Filters',
+    template: 'Template "{targetName}" deactivated by {actor}',
     placeholders: ['actor', 'targetName'],
   },
   ASSET_TEMPLATE_VERSION_CREATED: {
     label: 'Template Version Created',
-    category: 'Entity Management',
-    template: 'Version {version} snapshot of entity template "{targetName}" created by {actor}',
+    category: 'Hierarchy & Filters',
+    template: 'Version {version} snapshot of template "{targetName}" created by {actor}',
     placeholders: ['actor', 'targetName', 'version'],
   },
 
-  // Entity Instance Management
+  // Block / Area / AHU / Filter records. {entityKind} resolves to the specific
+  // kind (Block / Area / AHU / Filter) from the row's data; older rows without
+  // a kind fall back to a neutral word.
   ASSET_CREATED: {
-    label: 'Entity Created',
-    category: 'Entity Management',
-    template: 'New entity "{targetName}" created from template by {actor}',
-    placeholders: ['actor', 'targetName'],
+    label: 'Created',
+    category: 'Hierarchy & Filters',
+    // {parentClause} is ' under <ParentKind> "<ParentName>"' when created under a
+    // parent, else empty — a create-under-parent is ONE audit row (no separate
+    // relationship row). E.g. 'New AHU "L8" created under Block "B1" by EMP-004'.
+    template: 'New {entityKind} "{targetName}" created{parentClause} by {actor}',
+    placeholders: ['actor', 'entityKind', 'targetName', 'parentClause'],
   },
   ASSET_UPDATED: {
-    label: 'Entity Updated',
-    category: 'Entity Management',
-    template: 'Entity "{targetName}" attributes and configuration updated by {actor}',
-    placeholders: ['actor', 'targetName'],
+    label: 'Updated',
+    category: 'Hierarchy & Filters',
+    template: '{entityKind} "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'entityKind', 'targetName'],
   },
   ASSET_STATUS_CHANGED: {
-    label: 'Entity Status Changed',
-    category: 'Entity Management',
-    template: 'Entity "{targetName}" status changed from "{beforeStatus}" to "{afterStatus}" by {actor}',
-    placeholders: ['actor', 'targetName', 'beforeStatus', 'afterStatus'],
+    label: 'Status Changed',
+    category: 'Hierarchy & Filters',
+    template: '{entityKind} "{targetName}" status changed from "{beforeStatus}" to "{afterStatus}" by {actor}',
+    placeholders: ['actor', 'entityKind', 'targetName', 'beforeStatus', 'afterStatus'],
   },
   ASSET_DELETED: {
-    label: 'Entity Deactivated',
-    category: 'Entity Management',
-    template: 'Entity "{targetName}" and its descendants deactivated (cascade soft-delete) by {actor}',
-    placeholders: ['actor', 'targetName'],
+    label: 'Deactivated',
+    category: 'Hierarchy & Filters',
+    template: '{entityKind} "{targetName}" and everything under it deactivated by {actor}',
+    placeholders: ['actor', 'entityKind', 'targetName'],
   },
 
-  // Entity Relationships
+  // Hierarchy links (a child placed under its parent). {sourceName}/{sourceKind}
+  // is the parent; {targetName}/{targetKind} is the child that was placed under it.
   ASSET_RELATIONSHIP_CREATED: {
-    label: 'Entity Relationship Created',
-    category: 'Entity Management',
-    template: 'Relationship created: "{sourceName}" linked to "{targetName}" by {actor}',
-    placeholders: ['actor', 'sourceName', 'targetName'],
+    label: 'Placed Under Parent',
+    category: 'Hierarchy & Filters',
+    template: '{targetKind} "{targetName}" placed under {sourceKind} "{sourceName}" by {actor}',
+    placeholders: ['actor', 'sourceKind', 'sourceName', 'targetKind', 'targetName'],
   },
   ASSET_RELATIONSHIP_DELETED: {
-    label: 'Entity Relationship Deleted',
-    category: 'Entity Management',
-    template: 'Relationship removed: "{sourceName}" unlinked from "{targetName}" by {actor}',
-    placeholders: ['actor', 'sourceName', 'targetName'],
+    label: 'Removed From Parent',
+    category: 'Hierarchy & Filters',
+    template: '{targetKind} "{targetName}" removed from under {sourceKind} "{sourceName}" by {actor}',
+    placeholders: ['actor', 'sourceKind', 'sourceName', 'targetKind', 'targetName'],
   },
 
   // Entity Identifiers
@@ -331,13 +337,13 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
   // Alarm Management
   ALARM_ACKNOWLEDGED: {
     label: 'Alarm Acknowledged',
-    category: 'Entity Management',
+    category: 'Hierarchy & Filters',
     template: 'Alarm "{targetName}" acknowledged by {actor}',
     placeholders: ['actor', 'targetName'],
   },
   ALARM_CLEARED: {
     label: 'Alarm Cleared',
-    category: 'Entity Management',
+    category: 'Hierarchy & Filters',
     template: 'Alarm "{targetName}" cleared by {actor}',
     placeholders: ['actor', 'targetName'],
   },

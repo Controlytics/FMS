@@ -92,7 +92,9 @@ export const instanceRepository = {
   async findByIdWithName(id: string) {
     return prisma.assetInstance.findUnique({
       where: { id },
-      select: { name: true },
+      // templateKind lets audit rows name the specific kind (Block / Area / AHU /
+      // Filter) of the parent/child in a hierarchy-link audit.
+      select: { name: true, template: { select: { templateKind: true } } },
     });
   },
 

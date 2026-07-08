@@ -25,7 +25,7 @@ describe('AUDIT_TEMPLATE_CATEGORIES', () => {
       'Role Management',
       'Backup',
       'Data & Approvals',
-      'Entity Management',
+      'Hierarchy & Filters',
       'Filter Management',
       'Filter Operations',
       'Cleaning Profiles',
@@ -98,7 +98,7 @@ describe('AUDIT_TEMPLATE_DEFAULTS', () => {
     }
   });
 
-  it('contains Entity Management actions', () => {
+  it('contains Hierarchy & Filters actions', () => {
     const entityActions = [
       'ASSET_TEMPLATE_CREATED', 'ASSET_TEMPLATE_UPDATED', 'ASSET_TEMPLATE_DELETED', 'ASSET_TEMPLATE_VERSION_CREATED',
       'ASSET_CREATED', 'ASSET_UPDATED', 'ASSET_STATUS_CHANGED', 'ASSET_DELETED',
@@ -106,8 +106,16 @@ describe('AUDIT_TEMPLATE_DEFAULTS', () => {
     ];
     for (const action of entityActions) {
       expect(AUDIT_TEMPLATE_DEFAULTS[action], `missing ${action}`).toBeDefined();
-      expect(AUDIT_TEMPLATE_DEFAULTS[action].category).toBe('Entity Management');
+      expect(AUDIT_TEMPLATE_DEFAULTS[action].category).toBe('Hierarchy & Filters');
     }
+    // The Block/Area/AHU/Filter create + link templates name the kind via a
+    // placeholder ({entityKind}/{sourceKind}/{targetKind}) and use plain wording.
+    // (Word-ban on the RENDERED output is verified in the web audit-helpers test —
+    // the placeholder name {entityKind} itself contains "entity" by construction.)
+    expect(AUDIT_TEMPLATE_DEFAULTS['ASSET_CREATED'].template).toContain('{entityKind}');
+    expect(AUDIT_TEMPLATE_DEFAULTS['ASSET_CREATED'].template).not.toContain('from template');
+    expect(AUDIT_TEMPLATE_DEFAULTS['ASSET_RELATIONSHIP_CREATED'].template).toContain('placed under');
+    expect(AUDIT_TEMPLATE_DEFAULTS['ASSET_RELATIONSHIP_CREATED'].template).not.toMatch(/linked to/i);
   });
 
   it('contains Filter Management actions (identifier assign/remove)', () => {

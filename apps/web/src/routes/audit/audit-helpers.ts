@@ -93,6 +93,11 @@ export function getAuditStatus(action: string): 'Success' | 'Fail' {
  * key (STATE_TRANSITION → "State Transition") so badges always render
  * presentably even when a new action key lands without an explicit override.
  */
+// Block / Area / AHU / Filter kind → display label. Rows carry the kind on
+// afterValue.templateKind (new rows) or afterValue.kind (typed filter rows).
+const KIND_LABELS: Record<string, string> = { BLOCK: 'Block', AREA: 'Area', AHU: 'AHU', FILTER: 'Filter' };
+const kindLabel = (k: unknown): string => (typeof k === 'string' && KIND_LABELS[k]) || '';
+
 const ACTION_BADGE_OVERRIDES: Record<string, (after: any, before: any) => string> = {
   ASSET_IDENTIFIER_CREATED: (after) => {
     const t = (after?.identifierType as string) || '';
@@ -102,6 +107,13 @@ const ACTION_BADGE_OVERRIDES: Record<string, (after: any, before: any) => string
     const t = (after?.identifierType as string) || (before?.identifierType as string) || '';
     return t ? `${t} Removed` : 'Identifier Removed';
   },
+  // Block / Area / AHU / Filter lifecycle — badge names the specific kind when known.
+  ASSET_CREATED: (after) => `${kindLabel(after?.templateKind ?? after?.kind) || 'Record'} Created`,
+  ASSET_UPDATED: (after) => `${kindLabel(after?.templateKind ?? after?.kind) || 'Record'} Updated`,
+  ASSET_STATUS_CHANGED: (after, before) => `${kindLabel(after?.templateKind ?? before?.templateKind ?? after?.kind) || 'Record'} Status Changed`,
+  ASSET_DELETED: (after, before) => `${kindLabel(after?.templateKind ?? before?.templateKind ?? after?.kind) || 'Record'} Deactivated`,
+  ASSET_RELATIONSHIP_CREATED: () => 'Placed Under Parent',
+  ASSET_RELATIONSHIP_DELETED: () => 'Removed From Parent',
 };
 
 function titleCase(snake: string): string {
@@ -116,6 +128,20 @@ export function formatActionLabel(action: string, afterValue?: any, beforeValue?
   const override = ACTION_BADGE_OVERRIDES[action];
   if (override) return override(afterValue ?? {}, beforeValue ?? {});
   return titleCase(action);
+}
+
+/**
+ * Human-friendly "target" label for a row (used in the exported report column),
+ * avoiding internal words like "asset_instance". Names the Block / Area / AHU /
+ * Filter kind when the row carries it; hierarchy links read as "Hierarchy Link".
+ */
+export function friendlyTargetType(record: any): string {
+  const tt = record?.targetType;
+  const after = record?.afterValue || {};
+  const before = record?.beforeValue || {};
+  if (tt === 'asset_instance') return kindLabel(after.templateKind ?? after.kind ?? before.templateKind) || 'Record';
+  if (tt === 'asset_relationship') return 'Hierarchy Link';
+  return tt ? titleCase(String(tt)) : '-';
 }
 
 export function getAuditSummary(record: any, templates: Record<string, string>): string {
@@ -137,6 +163,16 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const configKey = nonUuid(record.targetId) || targetType || '';
   const version = after.versionNumber || after.version || before.versionNumber || before.version || '';
   const sourceName = after.sourceName || before.sourceName || '';
+  // Block / Area / AHU / Filter kind labels. entityKind = this record's kind;
+  // sourceKind = the parent in a hierarchy link; targetKind = the child. Older
+  // rows lack these → fall back to neutral, jargon-free words.
+  const entityKind = kindLabel(after.templateKind ?? before.templateKind ?? after.kind ?? before.kind) || 'record';
+  const sourceKind = kindLabel(after.sourceKind ?? before.sourceKind) || 'parent';
+  const targetKind = kindLabel(after.targetKind ?? before.targetKind ?? after.templateKind ?? after.kind) || 'item';
+  // A create-under-parent is a single ASSET_CREATED row carrying the parent:
+  // {parentClause} => ' under <ParentKind> "<ParentName>"' (or '' when no parent).
+  const parentName = after.parentName || before.parentName || '';
+  const parentClause = parentName ? ` under ${kindLabel(after.parentKind ?? before.parentKind) || 'parent'} "${parentName}"` : '';
   const beforeStatus = before.status || '';
   const afterStatus = after.status || '';
   const identifierType = after.identifierType || before.identifierType || '';
@@ -183,6 +219,10 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{configKey\}/g, configKey)
       .replace(/\{targetType\}/g, targetType || 'Data')
       .replace(/\{version\}/g, String(version))
+      .replace(/\{entityKind\}/g, entityKind)
+      .replace(/\{parentClause\}/g, parentClause)
+      .replace(/\{sourceKind\}/g, sourceKind)
+      .replace(/\{targetKind\}/g, targetKind)
       .replace(/\{sourceName\}/g, sourceName)
       .replace(/\{beforeStatus\}/g, beforeStatus)
       .replace(/\{afterStatus\}/g, afterStatus)

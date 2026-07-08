@@ -118,7 +118,7 @@ export function AuditTemplatesConfigPage() {
     'User Management': 'from-blue-500 to-indigo-600',
     'Authentication': 'from-emerald-500 to-teal-600',
     'Configuration': 'from-purple-500 to-violet-600',
-    'Entity Management': 'from-orange-500 to-amber-600',
+    'Hierarchy & Filters': 'from-orange-500 to-amber-600',
     'Role Management': 'from-violet-500 to-purple-600',
     'Backup': 'from-teal-500 to-emerald-600',
     'Data & Approvals': 'from-rose-500 to-pink-600',

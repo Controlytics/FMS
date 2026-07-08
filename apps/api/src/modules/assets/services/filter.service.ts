@@ -114,7 +114,7 @@ export const filterService = {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_UPDATED', targetType: 'asset_instance', targetId: id,
-      afterValue: { name: data.name, filterSet: filterSetEnum, attributes },
+      afterValue: { name: data.name, filterSet: filterSetEnum, attributes, templateKind: 'FILTER' },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return updated;
@@ -129,7 +129,7 @@ export const filterService = {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_DELETED', targetType: 'asset_instance', targetId: id,
-      beforeValue: { name: existing.name }, afterValue: { isActive: false },
+      beforeValue: { name: existing.name }, afterValue: { isActive: false, templateKind: 'FILTER' },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return updated;

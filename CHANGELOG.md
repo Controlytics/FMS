@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased] — Readable audit trail for Block / Area / AHU / Filter (2026-07-08)
+
+Branch: `RFID`. Hierarchy/filter audit rows were generic and jargon-y — *New entity "MF3"
+created from template*, *Relationship created: "MF3" linked to "L8"* — you couldn't tell which
+was a Block/Area/AHU/Filter or how they related. Now they name the specific kind and read plainly,
+with **no "entity"/"asset"/"relationship" wording** (per request):
+- *New **Filter** "MF3" created by EMP-004*
+- ***Filter** "MF3" placed under **AHU** "L8" by EMP-004*
+
+**One row per create.** Creating a record *under a parent* previously wrote **two** audit rows (the
+create + a separate hierarchy-link). It's one action, so it's now **one** row that folds the parent
+in: *New **AHU** "L8" created under **Block** "B1" by EMP-004* (`{parentClause}` placeholder;
+`instance.service.create` no longer emits the second `ASSET_RELATIONSHIP_CREATED`). The physical
+CONTAINS links are still written; moving an existing record to a new parent via edit still audits
+the move as its own event.
+
+### How
+- **Backend `afterValue` enrichment** (new rows; old immutable rows unaffected):
+  `instance.service` + `filter.service` now attach `templateKind` (Block/Area/AHU/Filter) to every
+  create/update/status/delete audit, and `sourceKind`/`targetKind` + `relationshipType` to the
+  hierarchy-link audits. `instance.repository.findByIdWithName` now also selects `template.templateKind`
+  so the parent's kind is known.
+- **Templates** (`packages/shared/src/types/audit-templates.ts`): reworded every `ASSET_*` entry to
+  kind-aware, jargon-free wording — `New {entityKind} "{targetName}" created by {actor}`,
+  `{targetKind} "{targetName}" placed under {sourceKind} "{sourceName}" by {actor}`, etc. Category
+  `Entity Management` → `Hierarchy & Filters`; the `Entity Template` labels → `Template`.
+- **Frontend** (`audit-helpers.ts`): resolves `{entityKind}`/`{sourceKind}`/`{targetKind}`
+  (BLOCK→Block, AHU→AHU, …) with a graceful, jargon-free fallback for old rows; kind-aware badge
+  labels (*Filter Created*, *Placed Under Parent*, …); `friendlyTargetType()` remaps the exported
+  `targetType` column off `asset_instance`/`asset_relationship`.
+
+### Notes
+- Templates render at **view time**, so all historical rows re-render with the new wording (stored
+  record + hash-chain checksum untouched — compliance intact). Old rows lacking a kind fall back to a
+  neutral word ("record"/"item"), never "entity"/"asset".
+- `audit-templates` config is not seeded, so the code defaults surface (verified: no saved override).
+
+### Tests
+`packages/shared/.../audit-templates.test.ts` (category + structure), new
+`apps/web/src/routes/audit/audit-helpers.test.ts` (kind rendering, hierarchy link, fallback,
+`friendlyTargetType`). Verified end-to-end against `digilog_test_db` through the real
+`instance.service.create`. Full API suite 885/0, web 419/0.
+
 ## [Unreleased] — Bug fixes: optional email on user edit + audit-export logging (2026-07-08)
 
 Branch: `RFID`. Two reported bugs fixed.
