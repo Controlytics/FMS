@@ -66,5 +66,10 @@ export async function resolvePendingChecklistDialog(
   if (rows.length === 0 || rows.every((c) => (c.questions?.length ?? 0) === 0)) {
     rows = (await getCachedPendingChecklists(filterId)) as PendingChecklist[];
   }
-  return rows.length > 0 ? rows : null;
+  if (rows.length === 0) return null;
+  // Guarantee every row carries a `questions` array before it reaches either
+  // page's checklist dialog (both do `cl.questions.map(...)` on render). A
+  // stale-shaped cache row could otherwise arrive with `questions` undefined
+  // and crash the whole page (the `?.` above already anticipates this).
+  return rows.map((r) => ({ ...r, questions: Array.isArray(r.questions) ? r.questions : [] }));
 }

@@ -476,7 +476,16 @@ export async function cacheServerStateResponse(
  */
 export async function getCachedPendingChecklists(filterId: string): Promise<any[]> {
   const row = await getCachedData<CachedFilterState>(`filter-state-${filterId}`);
-  return Array.isArray(row?.pendingChecklist) ? row!.pendingChecklist! : [];
+  if (!Array.isArray(row?.pendingChecklist)) return [];
+  // Normalize `questions` to an array on every row. Older app builds cached
+  // pendingChecklist rows in a shape without a `questions` key; when the
+  // resolver falls back to this cache (empty inline tape questions), such a
+  // row would reach the checklist dialog which does `cl.questions.map(...)`
+  // and crash the whole page. Guarantee the invariant at the source.
+  return row!.pendingChecklist!.map((r: any) => ({
+    ...r,
+    questions: Array.isArray(r?.questions) ? r.questions : [],
+  }));
 }
 
 /**
