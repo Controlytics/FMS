@@ -40,6 +40,17 @@ export function reauthActionsForItems(items: BulkOpItem[]): string[] {
  * Orchestrate a batch of cleaning ops. Each item runs via the existing single-op
  * service method (own transaction, own audit row, all gates). Per-item try/catch
  * -> partial success: a failed filter does not affect the others.
+ *
+ * Notes matching the single-op paths (parity, not gaps):
+ * - start-and-advance's advance half is intentionally NOT ADVANCE_FILTER_STAGE-
+ *   reauth-gated (reauthActionsForItems maps it to START_CLEANING_CYCLE only) —
+ *   the single-filter path also treats /advance as non-reauth (see use-offline.ts
+ *   "/advance is NOT in the reauth config"). Only matters if an admin ever gates
+ *   ADVANCE_FILTER_STAGE.
+ * - idempotency: item.clientOpId correlates request<->response; per-item replay
+ *   dedup relies on the tapeVersion staleness guard (advance/submit-checklist) and
+ *   CYCLE_ACTIVE (start-and-advance), not on a threaded clientOpId — acceptable for
+ *   the online-only bulk path. A lost-response retry is caught by those guards.
  */
 export async function bulkOperate(
   service: FilterOperationsService,

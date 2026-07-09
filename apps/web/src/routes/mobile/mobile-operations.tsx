@@ -49,27 +49,6 @@ import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 // Task 3 — batch the ONLINE mid-cycle advances into one /bulk-operate POST.
 import { bulkOperate, type BulkClientItem, type BulkClientResult } from '@/lib/filter-ops/bulk-operate';
 
-// Perf (2026-07-09): run an async worker over `items` with a bounded number of
-// simultaneous in-flight calls. Used to prime per-filter /current-state after a
-// batch submit WITHOUT firing 50–100 heavy requests + IDB writes at once — that
-// unbounded stampede is what tripped the tablet rate-limiter → 429 → OOM (see
-// the tablet rate-limit note). Order of completion doesn't matter here; every
-// task is best-effort and independent.
-async function runWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<void>,
-): Promise<void> {
-  let cursor = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const idx = cursor++;
-      await worker(items[idx]);
-    }
-  });
-  await Promise.all(runners);
-}
-
 type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'approvals' | 'cycles';
 
 // Build identifier→filter map from identifiers list
@@ -2225,12 +2204,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           value: formatByLeastCount(readings[i.id], i.leastCount),
           uom: i.uom as string,
         }));
-      setStageSubmitRecap({
-        stage: equipStage,
-        filterName: equipFiltName,
-        readings: recap,
-        submittedAt: formatTime(new Date()),
-      });
+      // Don't show the readings recap for the first filter if it specifically
+      // failed the batch (its checklist won't open; showing its recap misleads).
+      if (!firstFilterFailed) {
+        setStageSubmitRecap({
+          stage: equipStage,
+          filterName: equipFiltName,
+          readings: recap,
+          submittedAt: formatTime(new Date()),
+        });
+      }
       const queued = !executed;
       // Skip the first-filter success toast + recent-ops entry when THAT filter
       // failed in an online batch (its failure is already surfaced via setError);
@@ -2621,21 +2604,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         } else {
           setSuccess(`Checklist submitted for ${success} filter(s)`);
         }
-        // Robust refresh: a plain mutate() is deduped by SWR's dedupingInterval,
-        // so completed filters lingered in the cleaning view and the operator
-        // re-submitted → ALREADY_SUBMITTED. Force a hard revalidate AND re-prime
-        // each submitted filter's /current-state cache so finished cycles drop
-        // out immediately. Mirrors the dryer batch refresh in handleSubmitQueue.
-        if (online) {
-          await mutate('/api/assets/instances', undefined, { revalidate: true });
-          // Perf (2026-07-09): bounded prime — see runWithConcurrency note above.
-          await runWithConcurrency(batch, 6, async (b) => {
-            try {
-              const st = await apiClient.get<any>(`/api/filters/${b.filterId}/current-state`);
-              if (st) await cache(`filter-state-${b.filterId}`, st, 24 * 60 * 60 * 1000);
-            } catch { /* best-effort per-filter prime */ }
-          });
-        }
+        // (Online batch submits are handled by the earlier runBulkOnline branch,
+        // which returns before reaching here — so this branch is offline-only and
+        // needs no online /current-state re-prime.)
         // Terminal checklist completed the cycles → nothing left to do. Clear the
         // scan queue so the finished filters don't linger and a re-submit can't
         // re-process them. (DRY_IN / non-terminal keeps the queue for its replay.)

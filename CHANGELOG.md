@@ -18,8 +18,10 @@ serial round-trips over WiFi/HTTPS. That serial network time *was* the wait, sca
 - **Client** (`routes/mobile/mobile-operations.tsx`): a shared `runBulkOnline` helper posts ONE batch
   and primes caches from the response. **Three** online call-sites now feed it — mid-cycle advances
   (`handleSubmitQueue`), batch cycle-starts (`handleEquipSubmit`), and batch checklist submits
-  (`handleChecklistSubmit`). **Offline path is byte-for-byte unchanged** (bulk is `online`-gated); a
-  transport failure or a declined reauth keeps the scan queue for retry.
+  (`handleChecklistSubmit`). The **offline sync engine is untouched** and every bulk path is
+  `online`-gated, so offline submit behavior is unchanged (the earlier perf commit consolidated the
+  offline *repaint cadence* — one repaint vs N — but not sync behavior); a transport failure or a
+  declined reauth keeps the scan queue for retry.
 - **`useReauth.executeWithResult`** (`hooks/use-reauth.ts`): a returning reauth variant (the existing
   `execute()` returns void + defers) so a reauth-gated batch gets ONE password dialog and its results
   back. Backward-compatible.
