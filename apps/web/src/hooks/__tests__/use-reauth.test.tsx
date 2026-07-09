@@ -59,4 +59,23 @@ describe('useReauth.executeWithResult', () => {
     act(() => { result.current.cancel(); });
     await expect(promise!).rejects.toEqual({ error: 'REAUTH_CANCELLED' });
   });
+
+  it('supersedes a still-pending gated promise (rejects it) when a second dialog opens', async () => {
+    h.actions = ['GATED'];
+    const { result } = renderHook(() => useReauth());
+
+    let first: Promise<unknown> | undefined;
+    act(() => { first = result.current.executeWithResult('GATED', async () => 'first'); });
+    await waitFor(() => expect(result.current.isOpen).toBe(true));
+
+    // A second gated call takes the single dialog slot — the first must not leak.
+    let second: Promise<unknown> | undefined;
+    act(() => { second = result.current.executeWithResult('GATED', async (password?: string) => ({ password })); });
+    await expect(first!).rejects.toEqual({ error: 'REAUTH_SUPERSEDED' });
+
+    // The second promise still completes normally via confirm.
+    act(() => { result.current.setPassword('pw2'); });
+    await act(async () => { await result.current.confirm(); });
+    await expect(second!).resolves.toEqual({ password: 'pw2' });
+  });
 });

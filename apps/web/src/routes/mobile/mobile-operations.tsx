@@ -823,35 +823,24 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // Post one batch of resolved ops to /bulk-operate (online only). Primes each ok
   // filter's cache from its returned snapshot and exposes the per-filter
   // post-write `actions` tape so the callers' existing post-loop checklist
-  // dispatch keeps working. Re-throws REAUTH so the caller's outer catch surfaces
-  // the "re-authenticate and re-submit" message; returns 'transport_error' on a
-  // wholesale failure so the caller can keep its queue and let the operator retry.
+  // dispatch keeps working.
   //
-  // NOTE (integration): the brief's Step 2 wrapped this in `reauth.execute(...)`,
-  // but this codebase's `reauth.execute` is a DIALOG-DRIVER that returns void,
-  // swallows non-REAUTH errors (catch → onError, no re-throw), and DEFERS the
-  // callback to a confirm handler when reauth is needed — so it cannot return the
-  // batch results synchronously the way runBulkOnline needs. `bulkOperate` is
-  // already reauth-transparent (postWithReauth when a password is present, plain
-  // post otherwise) and throws REAUTH / transport exactly as the brief's catch
-  // assumes, so we call it directly. Advances ship reauth-OFF (action-reauth
-  // seeds `{}`) and the current mid-cycle leaf posts WITHOUT a password, so this
-  // is behaviorally identical for Task 3. `reauthAction` is retained for the
-  // shared signature (Tasks 4/5); wiring an actual reauth DIALOG for batch ops
-  // needs a returning reauth variant and is out of scope here (see report).
+  // Reauth: wraps the ONE batch POST in reauth.executeWithResult — for a
+  // reauth-gated action (START_CLEANING_CYCLE / SUBMIT_CHECKLIST_WITH_SIGNATURE for
+  // the enabled role) it opens the password dialog and resolves with the POST
+  // result once the operator confirms; for reauth-off actions (advance) it posts
+  // inline. Returns 'cancelled' if the operator declines the dialog and
+  // 'transport_error' on a wholesale failure — both keep the caller's queue for
+  // retry (the operator re-submits).
   const runBulkOnline = async (
     ops: BulkClientItem[],
     reauthAction: string,
-  ): Promise<{ results: BulkClientResult[]; actionsByFilter: Map<string, any[]>; okCount: number; failures: string[] } | 'transport_error'> => {
+  ): Promise<{ results: BulkClientResult[]; actionsByFilter: Map<string, any[]>; okCount: number; failures: string[] } | 'transport_error' | 'cancelled'> => {
     let resp: { results: BulkClientResult[] };
     try {
-      // executeWithResult opens the password dialog when `reauthAction` is a
-      // reauth-gated action (START_CLEANING_CYCLE / SUBMIT_CHECKLIST_WITH_SIGNATURE
-      // for the enabled role) and resolves with the POST result once the operator
-      // confirms; for reauth-off actions (advance) it posts inline. Cancel/transport
-      // failures reject → treated as a batch no-op that keeps the queue for retry.
       resp = await reauth.executeWithResult(reauthAction, (password?: string) => bulkOperate(ops, password));
-    } catch {
+    } catch (e: any) {
+      if (e?.error === 'REAUTH_CANCELLED') return 'cancelled';
       return 'transport_error';
     }
     const actionsByFilter = new Map<string, any[]>();
@@ -1309,6 +1298,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // retry (per-item STALE_TAPE/validation failures surface as `failures`).
     if (online && bulkOps.length > 0) {
       const out = await runBulkOnline(bulkOps, 'ADVANCE_FILTER_STAGE');
+      if (out === 'cancelled') return; // operator declined reauth — keep queue, no error banner
       if (out === 'transport_error') {
         setError('Could not reach the server to submit the batch. Please try Submit again.');
         return; // keep scanQueue intact for retry — do NOT clear it (finally clears loading)

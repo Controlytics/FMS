@@ -60,6 +60,7 @@ export function useReauth() {
       options?: { onSuccess?: () => void; onError?: (err: unknown) => void },
     ) => {
       if (needsReauth(action)) {
+        pendingAction.current?.reject?.({ error: 'REAUTH_SUPERSEDED' });
         pendingAction.current = {
           action,
           callback,
@@ -104,15 +105,21 @@ export function useReauth() {
   const executeWithResult = useCallback(
     <T,>(action: string, callback: (password?: string) => Promise<T>): Promise<T> => {
       const openDialog = (resolve: (v: T) => void, reject: (e: unknown) => void) => {
+        // Supersede any still-pending dialog promise so it can't leak unsettled if
+        // a second gated call ever races this shared single-slot ref (no live
+        // caller does today, but this keeps the shared primitive safe).
+        pendingAction.current?.reject?.({ error: 'REAUTH_SUPERSEDED' });
         pendingAction.current = { action, callback, resolve, reject };
         setState({ isOpen: true, password: '', error: '', isVerifying: false });
       };
       if (needsReauth(action)) {
         return new Promise<T>((resolve, reject) => openDialog(resolve, reject));
       }
-      // Not gated per SWR — run inline, but fall back to the dialog if the backend
-      // still demands reauth (stale SWR), and rethrow any other error.
-      return callback().catch((err: any) => {
+      // Not gated per SWR — run inline (Promise.resolve guards a synchronous throw
+      // from a non-async callback), fall back to the dialog if the backend still
+      // demands reauth (stale SWR), and rethrow any other error so the caller
+      // handles transport failures itself.
+      return Promise.resolve().then(() => callback()).catch((err: any) => {
         if (err?.error === 'REAUTH_REQUIRED') {
           return new Promise<T>((resolve, reject) => openDialog(resolve, reject));
         }
