@@ -1409,7 +1409,16 @@ export function FilterOperationsPage() {
       ahuSetChoiceRef.current = chosen;
     }
 
-    const { ahus } = await checkAhuCompletionBatch(ahuMode, filterIds, online, set);
+    const { ahus, failed } = await checkAhuCompletionBatch(ahuMode, filterIds, online, set);
+    // Fail-safe: the INTERLOCK gate exists to BLOCK completion while sibling
+    // filters are unfinished. A FAILED check returns no AHUs — reading that as
+    // "all done → proceed" would silently defeat the interlock. Stop and tell
+    // the operator to retry instead of walking into a server-side 422 at submit.
+    // (POPUP is advisory-only, so a failed check there proceeds — already logged.)
+    if (failed && ahuMode === 'INTERLOCK') {
+      setPopupError('Could not verify AHU completion status. Check your connection and try again.');
+      return 'blocked';
+    }
     if (ahus.filter((a) => !a.allAtFinal).length === 0) return 'proceed';
     const proceed = await new Promise<boolean>((resolve) => {
       ahuDialogResolveRef.current = resolve;

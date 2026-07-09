@@ -63,11 +63,27 @@ export interface AhuBatchCard {
   filters: AhuFilterRow[];
 }
 
+export interface AhuBatchStatus {
+  ahus: AhuBatchCard[];
+  /**
+   * True when the completion-status call ERRORED (network / server / auth),
+   * as opposed to legitimately returning no pending AHUs. The caller must
+   * distinguish these: an empty `ahus` from a *failed* check must not be read
+   * as "all siblings done" — for INTERLOCK that would silently defeat the gate.
+   */
+  failed: boolean;
+}
+
 /**
  * 2026-07-02: batch variant — one completion-status block per distinct AHU in a
- * submission batch. Powers the multi-AHU carousel. Non-fatal: returns no AHUs on
- * NONE / INTERLOCK-offline / any error (the server 422 still guards INTERLOCK on
- * submit).
+ * submission batch. Powers the multi-AHU carousel.
+ *
+ * Returns `{ ahus: [], failed: false }` for the legitimate no-check cases
+ * (NONE / INTERLOCK-offline). On an actual error it LOGS and returns
+ * `failed: true` so the caller can fail-safe rather than silently proceed
+ * (2026-07-09 QA fix — previously any error was swallowed to `{ ahus: [] }`,
+ * indistinguishable from "no siblings pending"). The server 422
+ * (`assertAhuInterlockSatisfied`) remains the backstop for INTERLOCK.
  */
 export async function checkAhuCompletionBatch(
   mode: 'NONE' | 'POPUP' | 'INTERLOCK',
@@ -75,17 +91,18 @@ export async function checkAhuCompletionBatch(
   online: boolean,
   /** Operator's runtime filter-set choice; omitted / 'ALL' = every filter. */
   set?: 'ALL' | 'SET_A' | 'SET_B',
-): Promise<{ ahus: AhuBatchCard[] }> {
-  if (mode === 'NONE' || filterIds.length === 0) return { ahus: [] };
-  if (mode === 'INTERLOCK' && !online) return { ahus: [] };
+): Promise<AhuBatchStatus> {
+  if (mode === 'NONE' || filterIds.length === 0) return { ahus: [], failed: false };
+  if (mode === 'INTERLOCK' && !online) return { ahus: [], failed: false };
   try {
     const res = await apiClient.post<{ ahus: AhuBatchCard[] }>(
       '/api/filters/ahu-completion-status/batch',
       { filterIds, ...(set && set !== 'ALL' ? { set } : {}) },
     );
-    return { ahus: res?.ahus ?? [] };
-  } catch {
-    return { ahus: [] };
+    return { ahus: res?.ahus ?? [], failed: false };
+  } catch (e) {
+    console.error('[ahu-completion] batch completion-status check failed', e);
+    return { ahus: [], failed: true };
   }
 }
 
@@ -108,7 +125,11 @@ export async function checkAhuHasBothSets(
       { filterIds },
     );
     return res?.hasBothSets === true;
-  } catch {
+  } catch (e) {
+    // Fail-safe: `false` skips the A/B chooser → the completion check proceeds
+    // as ALL, the STRICTER requirement (every filter must be at final), so a
+    // failure here can't loosen the gate. Log it rather than swallow silently.
+    console.error('[ahu-completion] set-availability check failed; defaulting to ALL', e);
     return false;
   }
 }

@@ -2194,7 +2194,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       ahuSetChoiceRef.current = chosen;
     }
 
-    const { ahus } = await checkAhuCompletionBatch(ahuMode, filterIds, online, set);
+    const { ahus, failed } = await checkAhuCompletionBatch(ahuMode, filterIds, online, set);
+    // Fail-safe: a FAILED completion check must not read as "all siblings done"
+    // for INTERLOCK — that silently defeats the gate. Block + surface it so the
+    // operator retries rather than hitting the server 422 at submit. POPUP is
+    // advisory, so a failed check there proceeds (already logged in the helper).
+    if (failed && ahuMode === 'INTERLOCK') {
+      setError('Could not verify AHU completion status. Check your connection and try again.');
+      return 'blocked';
+    }
     if (ahus.filter((a) => !a.allAtFinal).length === 0) return 'proceed';
     const proceed = await new Promise<boolean>((resolve) => {
       ahuDialogResolveRef.current = resolve;
