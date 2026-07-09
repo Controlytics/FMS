@@ -19,6 +19,7 @@ import { submitChecklistImpl } from './cycle-write/submit-checklist.js';
 import { advanceImpl } from './cycle-write/advance.js';
 import { startCycleImpl } from './cycle-write/start-cycle.js';
 import { getCurrentStateImpl, getBatchStatesImpl } from './current-state.js';
+import { bulkOperate, type BulkOpItem } from './cycle-write/bulk-operate.js';
 
 // Note: the legacy local `assertTapeVersionFresh` was removed in Phase 8.5
 // Commit 4. All four write methods now go through the shared
@@ -84,6 +85,16 @@ export class FilterOperationsService {
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async bypass(ctx: RequestContext, filterId: string, data: any) {
     return bypassImpl(this, ctx, filterId, data);
+  }
+
+  /**
+   * Batch: dispatch a list of advance / start-and-advance / submit-checklist
+   * ops, one per filter. Each item runs via its own single-op method (own
+   * transaction, own audit row, all gates) — a failed item does not affect
+   * the others (partial success).
+   */
+  async bulkOperate(ctx: RequestContext, items: BulkOpItem[]) {
+    return bulkOperate(this, ctx, items);
   }
 
   /** @param query - Validated by Fastify JSON schema before reaching this method */

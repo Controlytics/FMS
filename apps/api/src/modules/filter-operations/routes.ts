@@ -9,6 +9,7 @@ import { enforceReauth } from '../../lib/reauth-check.js';
 import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
 import { getCleaningReasons } from './filter-resolver.js';
 import { computeAhuCompletionStatus, computeAhuBatchStatus, computeAhuSetAvailability, findProfilesWithoutFinalChecklist } from './ahu-completion-gate.js';
+import { reauthActionsForItems, type BulkOpItem } from './cycle-write/bulk-operate.js';
 
 // Input bounds (2026-07-09 QA — "unbounded free-text / object" finding): cap every
 // free-text and open-object field at the schema edge so an oversized payload is
@@ -455,6 +456,55 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.bypass(ctx, id, req.body);
+  });
+
+  app.post('/bulk-operate', {
+    preHandler: [app.requirePermission('FILTER_OPERATE')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'Batch cleaning ops (advance / start-and-advance / submit-checklist) in one request',
+      body: {
+        type: 'object',
+        required: ['items'],
+        properties: {
+          items: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 200,
+            items: {
+              type: 'object',
+              required: ['clientOpId', 'filterId', 'kind'],
+              properties: {
+                clientOpId: { type: 'string', maxLength: 100 },
+                filterId: { type: 'string', format: 'uuid' },
+                kind: { type: 'string', enum: ['advance', 'start-and-advance', 'submit-checklist'] },
+                payload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS },
+                cyclePayload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS },
+                advancePayload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS },
+              },
+            },
+          },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            results: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { items } = req.body as { items: BulkOpItem[] };
+    const { ok } = await enforceReauth(reauthActionsForItems(items), req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    return service.bulkOperate(ctx, items);
   });
 
   // ── Retire a filter ──
