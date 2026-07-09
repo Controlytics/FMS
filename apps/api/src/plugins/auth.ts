@@ -101,6 +101,16 @@ const userAuthCache = new Map<string, { user: CachedUser; cachedAt: number }>();
 const sessionAuthCache = new Map<string, { session: CachedSession; cachedAt: number }>();
 const AUTH_CACHE_TTL_MS = 30_000;
 
+// Debounce the sliding-window session write (lastActiveAt + expiresAt). Writing
+// the session row on EVERY authenticated request is a per-request DB write that
+// saturates the pool under a tablet fleet. We write at most once per
+// SESSION_TOUCH_INTERVAL_MS per session. Safe: an active user still gets a write
+// every ~60s, each extending expiresAt by hours, so an active session never
+// expires mid-use; an idle session (no requests) still ages out normally.
+// See the 2026-07-09 auth review.
+const sessionTouchTimes = new Map<string, number>();
+const SESSION_TOUCH_INTERVAL_MS = 60_000;
+
 async function getCachedSession(sessionId: string): Promise<CachedSession | null> {
   const cached = sessionAuthCache.get(sessionId);
   if (cached && Date.now() - cached.cachedAt < AUTH_CACHE_TTL_MS) return cached.session;
@@ -146,6 +156,22 @@ export function invalidateUserAuthCache(userId: string): void {
  * force-logout + session-expiry + password-reset paths. */
 export function invalidateSessionAuthCache(sessionId: string): void {
   sessionAuthCache.delete(sessionId);
+  sessionTouchTimes.delete(sessionId);
+}
+
+/**
+ * Match a request URL against a public-path allowlist with a SEGMENT BOUNDARY,
+ * not a bare prefix. `startsWith('/api/health')` would wrongly make
+ * `/api/health-evil` public; this matches only when the path equals the prefix,
+ * is a true sub-path (prefix + '/'), or — for directory prefixes already ending
+ * in '/' — starts with it. Query string is ignored. Exported for unit testing.
+ */
+export function matchesPublicPath(url: string, prefixes: string[]): boolean {
+  const path = url.split('?')[0];
+  return prefixes.some((p) => {
+    if (p.endsWith('/')) return path.startsWith(p);
+    return path === p || path.startsWith(p + '/');
+  });
 }
 
 
@@ -169,11 +195,11 @@ const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current'
 
 async function authPlugin(app: FastifyInstance) {
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    // Fully public paths (all methods)
-    if (PUBLIC_PATHS.some((p) => req.url.startsWith(p))) return;
+    // Fully public paths (all methods). Segment-boundary match, not bare prefix.
+    if (matchesPublicPath(req.url, PUBLIC_PATHS)) return;
 
     // Paths that are public only for GET requests
-    if (req.method === 'GET' && PUBLIC_GET_PATHS.some((p) => req.url.startsWith(p))) return;
+    if (req.method === 'GET' && matchesPublicPath(req.url, PUBLIC_GET_PATHS)) return;
 
     // M1 (SERVE_WEB): when the API also serves the built web UI, static assets
     // and SPA navigations must load WITHOUT a token — the login page itself is
@@ -335,15 +361,21 @@ async function authPlugin(app: FastifyInstance) {
         }
       }
 
-      // Update last active + extend session expiry (sliding window)
-      const durationHours = await getSessionDurationHours();
-      await prisma.session.update({
-        where: { id: session.id },
-        data: {
-          lastActiveAt: new Date(),
-          expiresAt: new Date(Date.now() + durationHours * 60 * 60 * 1000),
-        },
-      });
+      // Update last active + extend session expiry (sliding window), DEBOUNCED
+      // to at most once per SESSION_TOUCH_INTERVAL_MS per session (see the map
+      // declaration above for why this is safe).
+      const lastTouch = sessionTouchTimes.get(session.id) ?? 0;
+      if (Date.now() - lastTouch >= SESSION_TOUCH_INTERVAL_MS) {
+        sessionTouchTimes.set(session.id, Date.now());
+        const durationHours = await getSessionDurationHours();
+        await prisma.session.update({
+          where: { id: session.id },
+          data: {
+            lastActiveAt: new Date(),
+            expiresAt: new Date(Date.now() + durationHours * 60 * 60 * 1000),
+          },
+        });
+      }
 
       // Audit 2026-05-04 fix C1: verify offline-replay grant token (if any).
       //

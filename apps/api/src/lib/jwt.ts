@@ -46,7 +46,10 @@ export async function signToken(payload: JwtPayload, expirationHours = JWT_MAX_E
 }
 
 export async function verifyToken(token: string): Promise<JwtPayload> {
-  const { payload } = await jose.jwtVerify(token, JWT_SECRET);
+  // Pin the algorithm (defense-in-depth): jose already rejects `alg:none` and
+  // won't accept an asymmetric alg against a symmetric key, but an explicit
+  // allowlist removes any dependence on library defaults across upgrades.
+  const { payload } = await jose.jwtVerify(token, JWT_SECRET, { algorithms: ['HS256'] });
   return payload as unknown as JwtPayload;
 }
 
@@ -59,6 +62,6 @@ export async function signVerificationToken(userId: string): Promise<string> {
 }
 
 export async function verifyVerificationToken(token: string): Promise<{ sub: string }> {
-  const { payload } = await jose.jwtVerify(token, VERIFY_SECRET);
+  const { payload } = await jose.jwtVerify(token, VERIFY_SECRET, { algorithms: ['HS256'] });
   return { sub: payload.sub as string };
 }

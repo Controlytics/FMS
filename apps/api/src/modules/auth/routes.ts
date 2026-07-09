@@ -348,10 +348,11 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION', message: 'User ID is required' });
     }
 
-    const result = await authService.forgotPassword(body.username, req.ip, req.headers['user-agent']);
-    if (result === 'pending') {
-      return { success: true, message: 'A password reset request is already pending. Please contact your administrator.' };
-    }
+    // Always return the SAME generic message — a differential response (the old
+    // distinct "already pending" branch) let an attacker enumerate usernames by
+    // submitting twice, defeating this endpoint's own anti-enumeration goal.
+    // Server-side dedup still happens inside forgotPassword().
+    await authService.forgotPassword(body.username, req.ip, req.headers['user-agent']);
     return { success: true, message: 'If the user ID exists, a password reset request has been submitted.' };
   });
 

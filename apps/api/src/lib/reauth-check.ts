@@ -36,6 +36,8 @@ async function verifyReauthPassword(
 // In-memory cache with TTL to avoid DB hit on every mutation
 let configCache: { data: ActionReauthConfig; fetchedAt: number } | null = null;
 const CACHE_TTL_MS = 10_000; // 10 seconds
+// Warn at most once per process when the legacy (reauth-OFF) config shape is seen.
+let legacyShapeWarned = false;
 
 export async function getActionReauthConfig(): Promise<ActionReauthConfig> {
   const now = Date.now();
@@ -87,7 +89,15 @@ function normalizeActionReauthConfig(raw: unknown): ActionReauthConfig {
   if (looksLegacy) {
     // Legacy data was non-functional — return empty so behavior matches the
     // de-facto reauth-OFF state. Operators must re-save via the UI to
-    // (re)establish a policy.
+    // (re)establish a policy. LOUD warning (once per process) so a bad restore
+    // / migration that silently disables ALL re-auth on a 21 CFR system doesn't
+    // go unnoticed — the previous silent `{}` was itself a finding.
+    if (!legacyShapeWarned) {
+      legacyShapeWarned = true;
+      console.warn(
+        '[reauth] action-reauth config is in the legacy nested shape — ALL re-authentication gates are currently DISABLED. Re-save the policy via the Action Re-auth config page to restore enforcement.',
+      );
+    }
     return {};
   }
   // Already in flat shape (or empty). Drop any non-array values defensively.

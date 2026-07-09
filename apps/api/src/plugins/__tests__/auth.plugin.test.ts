@@ -16,7 +16,35 @@ const { mockVerifyToken, mockPrisma } = vi.hoisted(() => ({
 vi.mock('../../lib/jwt.js', () => ({ verifyToken: mockVerifyToken }));
 vi.mock('../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
-import authPlugin, { invalidatePasswordPolicyCache, invalidateUserAuthCache, invalidateSessionAuthCache } from '../auth.js';
+import authPlugin, { invalidatePasswordPolicyCache, invalidateUserAuthCache, invalidateSessionAuthCache, matchesPublicPath } from '../auth.js';
+
+describe('matchesPublicPath — segment-boundary public-path matching', () => {
+  const PUBLIC = ['/api/auth/login', '/api/health', '/api/roles/active'];
+  const DIRS = ['/uploads/photos/', '/uploads/branding/'];
+
+  it('matches exact public paths (and ignores the query string)', () => {
+    expect(matchesPublicPath('/api/health', PUBLIC)).toBe(true);
+    expect(matchesPublicPath('/api/health?x=1', PUBLIC)).toBe(true);
+    expect(matchesPublicPath('/api/auth/login', PUBLIC)).toBe(true);
+  });
+
+  it('matches true sub-paths', () => {
+    expect(matchesPublicPath('/uploads/photos/abc.jpg', DIRS)).toBe(true);
+    expect(matchesPublicPath('/api/auth/login/callback', PUBLIC)).toBe(true);
+  });
+
+  it('does NOT match a shadowing sibling (the bug being fixed)', () => {
+    // The old `startsWith` would have made these public.
+    expect(matchesPublicPath('/api/health-evil', PUBLIC)).toBe(false);
+    expect(matchesPublicPath('/api/auth/login-history', PUBLIC)).toBe(false);
+    expect(matchesPublicPath('/api/roles/active-secrets', PUBLIC)).toBe(false);
+  });
+
+  it('does not match unrelated protected paths', () => {
+    expect(matchesPublicPath('/api/users', PUBLIC)).toBe(false);
+    expect(matchesPublicPath('/api/filters/x/advance', PUBLIC)).toBe(false);
+  });
+});
 
 function makeReq(overrides: Record<string, any> = {}) {
   return {
