@@ -1309,14 +1309,25 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const out = await runBulkOnline(bulkOps, 'ADVANCE_FILTER_STAGE');
       if (out === 'transport_error') {
         setError('Could not reach the server to submit the batch. Please try Submit again.');
-        setLoading(false);
-        return; // keep scanQueue intact for retry — do NOT clear it
+        return; // keep scanQueue intact for retry — do NOT clear it (finally clears loading)
       }
       successCount += out.okCount;
-      failed.push(...out.failures);
       for (const [fid, actions] of out.actionsByFilter) serverActionsByFilter.set(fid, actions);
       for (const r of out.results) {
-        if (r.status === 'ok') setRecentOps(prev => [{ stage: activeStage.key, filter: scanQueueSnapshot.find(q => q.filterId === r.filterId)?.filterName ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+        // Surface the operator-facing filter NAME (not the raw UUID) in both the
+        // recent-ops list and the failure banner, matching every other message
+        // in this handler. BulkClientItem carries no name, so map via the queue.
+        const fname = scanQueueSnapshot.find(q => q.filterId === r.filterId)?.filterName ?? r.filterId;
+        if (r.status === 'ok') {
+          // DRY_IN SET_DURATION entries read as "Dryer Started" like every other
+          // dryer-start path (offline batch + single) so the recent-ops icon +
+          // per-stage list stay consistent online and offline.
+          const op = bulkOps.find(o => o.filterId === r.filterId);
+          const stageLabel = op?.payload?.dryerAction === 'SET_DURATION' ? 'Dryer Started' : activeStage.key;
+          setRecentOps(prev => [{ stage: stageLabel, filter: fname, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+        } else {
+          failed.push(`${fname}: ${r.error?.message ?? 'failed'}`);
+        }
       }
     }
     // Offline parity: if any advanced item now has a pending checklist (per
