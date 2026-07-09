@@ -1824,8 +1824,101 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
     }
 
-    // No equipment groups — fire the compound op. START_CLEANING_CYCLE is
-    // reauth-gated for ADMIN role; wrap so the password dialog appears.
+    // 2026-07-09 fix: multi-filter no-equipment-group batch cycle-start. The
+    // single-filter path below only ever started `reasonDialog.filterId` and
+    // DROPPED `remainingBatch` — so a Wash In batch on a block WITHOUT an
+    // equipment group started only the first filter. Handle the whole batch here
+    // (mirrors handleEquipSubmit's cycle-start split); the single-filter path
+    // below is left untouched.
+    const noEqBatch = reasonDialog.remainingBatch ?? [];
+    if (noEqBatch.length > 0) {
+      const allFilters = [{ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName }, ...noEqBatch];
+      const stageLabel = reasonDialog.stage.replace(/_/g, ' ');
+      const nameById = new Map(allFilters.map(f => [f.filterId, f.filterName]));
+      const cycleStartActions = new Map<string, any[]>();
+      const advanceFor = (fname: string) => ({ targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${stageLabel} - ${fname}` });
+      try {
+        if (online) {
+          // ONE /bulk-operate covering every filter (no readings for a
+          // no-equipment block). runBulkOnline handles reauth internally.
+          const ops: BulkClientItem[] = allFilters.map(f => ({
+            clientOpId: crypto.randomUUID(),
+            filterId: f.filterId,
+            kind: 'start-and-advance' as const,
+            cyclePayload,
+            advancePayload: advanceFor(f.filterName),
+          }));
+          const out = await runBulkOnline(ops, 'START_CLEANING_CYCLE');
+          if (out === 'cancelled') { setLoading(false); return; }
+          if (out === 'transport_error') { setError('Could not reach the server to start the cycles. Please try again.'); setLoading(false); return; }
+          for (const [fid, actions] of out.actionsByFilter) cycleStartActions.set(fid, actions);
+          for (const r of out.results) {
+            if (r.status === 'ok') setRecentOps(prev => [{ stage: reasonDialog.stage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+          }
+          const failMsgs = out.results.flatMap(r => r.status === 'failed' ? [`${nameById.get(r.filterId) ?? r.filterId}: ${r.error?.message ?? 'failed'}`] : []);
+          if (failMsgs.length > 0) setError(failMsgs.join('; '));
+          if (out.okCount > 0) { setSuccess(`Started ${out.okCount} cycle(s)`); mutate('/api/assets/instances'); }
+        } else {
+          // Offline: per-filter start-and-advance, skipping the in-core checklist
+          // dispatch so the unified dialog below covers the whole batch.
+          for (const f of allFilters) {
+            try {
+              const res = await core.startAndAdvance({
+                filterId: f.filterId,
+                filterName: f.filterName,
+                cyclePayload,
+                advancePayload: advanceFor(f.filterName),
+                targetState: reasonDialog.stage,
+                cleaningAreaId: selectedBlock?.id,
+                skipChecklistDispatch: true,
+              });
+              if (res.executed && Array.isArray((res.result as any)?.actions)) cycleStartActions.set(f.filterId, (res.result as any).actions);
+              setRecentOps(prev => [{ stage: reasonDialog.stage, filter: f.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
+            } catch (e: any) {
+              setError(`${f.filterName}: ${e?.message ?? 'cycle-start failed'}`);
+            }
+          }
+          setSuccess(`Queued ${allFilters.length} cycle(s)`);
+        }
+        setScanValue(''); setRemarks('');
+        // Unified checklist dispatch — ONE dialog for all same-signature filters
+        // (same pattern as handleEquipSubmit). Close the reason dialog otherwise.
+        const sigOf = (rows: any[]) => rows.map((r: any) => `${r.checklistProfileId}@${r.profileVersion ?? 0}`).sort().join('|');
+        type Pending = { item: { filterId: string; filterName: string }; checklists: any[]; signature: string };
+        const pending: Pending[] = [];
+        for (const f of allFilters) {
+          try {
+            const checklists = await resolvePendingChecklistDialog(f.filterId, cycleStartActions.get(f.filterId) ?? undefined);
+            if (checklists && checklists.length > 0) pending.push({ item: f, checklists, signature: sigOf(checklists) });
+          } catch { /* per-filter resolver failure shouldn't poison the batch */ }
+        }
+        if (pending.length > 0) {
+          const groups = new Map<string, Pending[]>();
+          for (const p of pending) { const arr = groups.get(p.signature) ?? []; arr.push(p); groups.set(p.signature, arr); }
+          let chosen: Pending[] = [];
+          for (const arr of groups.values()) if (arr.length > chosen.length) chosen = arr;
+          const primary = chosen[0];
+          const batchMembers = chosen.map(p => p.item);
+          if ((await gateAhuBeforeChecklist(batchMembers.map(m => m.filterId))) === 'proceed') {
+            setPendingBatch(batchMembers);
+            core.dispatch({ type: 'open_checklist', filterId: primary.item.filterId, filterName: batchMembers.length > 1 ? `${batchMembers.length} filter(s)` : primary.item.filterName, checklists: primary.checklists });
+            setChecklistAnswers({});
+          } else {
+            core.dispatch({ type: 'close' }); // AHU gate dialog is showing; drop the reason dialog
+          }
+        } else {
+          core.dispatch({ type: 'close' }); // no checklist → close the reason dialog
+        }
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to start cycles');
+        core.dispatch({ type: 'close' });
+      }
+      setLoading(false);
+      return;
+    }
+
+    // No equipment groups, SINGLE filter — fire the compound op. START_CLEANING_CYCLE
+    // is reauth-gated for ADMIN role; wrap so the password dialog appears.
     await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
       const { executed: cycleExecuted } = await core.startAndAdvance({
         filterId: reasonDialog.filterId,
