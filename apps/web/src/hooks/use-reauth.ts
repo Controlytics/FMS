@@ -38,9 +38,12 @@ export function useReauth() {
 
   const pendingAction = useRef<{
     action: string;
-    callback: (password?: string) => Promise<void>;
+    callback: (password?: string) => Promise<any>;
     onSuccess?: () => void;
     onError?: (err: unknown) => void;
+    // Set only by executeWithResult — lets confirm/cancel settle the awaited promise.
+    resolve?: (value: any) => void;
+    reject?: (err: unknown) => void;
   } | null>(null);
 
   const needsReauth = useCallback(
@@ -89,13 +92,44 @@ export function useReauth() {
     [needsReauth],
   );
 
+  /**
+   * Like `execute`, but RETURNS the callback's result — for flows that need the
+   * response value (e.g. a batch POST). When the action needs reauth it opens the
+   * password dialog and resolves once the operator confirms (the callback runs
+   * with the password inside `confirm`); rejects with `{ error: 'REAUTH_CANCELLED' }`
+   * if the operator cancels. Unlike `execute`, it does NOT swallow non-REAUTH
+   * errors — they reject so the caller can handle transport failures itself.
+   * Existing `execute` callers are unaffected.
+   */
+  const executeWithResult = useCallback(
+    <T,>(action: string, callback: (password?: string) => Promise<T>): Promise<T> => {
+      const openDialog = (resolve: (v: T) => void, reject: (e: unknown) => void) => {
+        pendingAction.current = { action, callback, resolve, reject };
+        setState({ isOpen: true, password: '', error: '', isVerifying: false });
+      };
+      if (needsReauth(action)) {
+        return new Promise<T>((resolve, reject) => openDialog(resolve, reject));
+      }
+      // Not gated per SWR — run inline, but fall back to the dialog if the backend
+      // still demands reauth (stale SWR), and rethrow any other error.
+      return callback().catch((err: any) => {
+        if (err?.error === 'REAUTH_REQUIRED') {
+          return new Promise<T>((resolve, reject) => openDialog(resolve, reject));
+        }
+        throw err;
+      });
+    },
+    [needsReauth],
+  );
+
   const confirm = useCallback(async () => {
     if (!pendingAction.current || !state.password) return;
 
     setState((s) => ({ ...s, isVerifying: true, error: '' }));
     try {
-      await pendingAction.current.callback(state.password);
+      const result = await pendingAction.current.callback(state.password);
       pendingAction.current.onSuccess?.();
+      pendingAction.current.resolve?.(result);
       setState({ isOpen: false, password: '', error: '', isVerifying: false });
       pendingAction.current = null;
     } catch (err: any) {
@@ -114,6 +148,7 @@ export function useReauth() {
         }));
       } else {
         pendingAction.current?.onError?.(err);
+        pendingAction.current?.reject?.(err);
         setState({ isOpen: false, password: '', error: '', isVerifying: false });
         pendingAction.current = null;
       }
@@ -121,6 +156,8 @@ export function useReauth() {
   }, [state.password]);
 
   const cancel = useCallback(() => {
+    // Settle any executeWithResult promise so an awaiting caller unblocks.
+    pendingAction.current?.reject?.({ error: 'REAUTH_CANCELLED' });
     setState({ isOpen: false, password: '', error: '', isVerifying: false });
     pendingAction.current = null;
   }, []);
@@ -132,6 +169,7 @@ export function useReauth() {
   return {
     needsReauth,
     execute,
+    executeWithResult,
     confirm,
     cancel,
     setPassword,

@@ -843,13 +843,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     ops: BulkClientItem[],
     reauthAction: string,
   ): Promise<{ results: BulkClientResult[]; actionsByFilter: Map<string, any[]>; okCount: number; failures: string[] } | 'transport_error'> => {
-    void reauthAction; // reauth-dialog wiring deferred — see note above.
     let resp: { results: BulkClientResult[] };
     try {
-      resp = await bulkOperate(ops);
-    } catch (e: any) {
-      const code = e?.error ?? e?.code;
-      if (code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED') throw e;
+      // executeWithResult opens the password dialog when `reauthAction` is a
+      // reauth-gated action (START_CLEANING_CYCLE / SUBMIT_CHECKLIST_WITH_SIGNATURE
+      // for the enabled role) and resolves with the POST result once the operator
+      // confirms; for reauth-off actions (advance) it posts inline. Cancel/transport
+      // failures reject → treated as a batch no-op that keeps the queue for retry.
+      resp = await reauth.executeWithResult(reauthAction, (password?: string) => bulkOperate(ops, password));
+    } catch {
       return 'transport_error';
     }
     const actionsByFilter = new Map<string, any[]>();
