@@ -2095,15 +2095,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const cycleStartActionsByFilter = new Map<string, any[]>();
       if (pendingCyclePayload) {
         const cyclePayloadSnap = pendingCyclePayload;
-        // For multi-filter cycle-start: skip the in-core dispatch entirely
-        // and let the post-loop unified-batch dispatch handle it. Same shape
-        // as the multi-filter DRY_IN SET_DURATION path (handleSubmitQueue
-        // line ~890). For single-filter, no batchRest, normal dispatch.
-        const useUnifiedBatch = batchRest.length > 0;
-        await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
-          const res = await core.startAndAdvance({
-            filterId: equipFiltId,
-            filterName: equipFiltName,
+        if (online && batchRest.length > 0) {
+          // Task 4 (2026-07-09) batch cycle-start via /bulk-operate: online
+          // multi-filter fires ONE request covering the first filter + every
+          // batched filter, replacing the first core.startAndAdvance PLUS the
+          // per-filter batchRest loop below. runBulkOnline is reauth-capable
+          // (opens the password dialog for a reauth-gated role, posts inline
+          // otherwise) so NO reauth.execute wrapper is needed here. Single-filter
+          // online AND all offline stay on the core.startAndAdvance path in the
+          // else branch — byte-identical to before (single isn't a batch; core's
+          // in-dispatch keeps opening its checklist gate).
+          const allBatchFilters = [{ filterId: equipFiltId, filterName: equipFiltName }, ...batchRest];
+          const ops: BulkClientItem[] = allBatchFilters.map(f => ({
+            clientOpId: crypto.randomUUID(),
+            filterId: f.filterId,
+            kind: 'start-and-advance' as const,
             cyclePayload: cyclePayloadSnap,
             advancePayload: {
               targetState,
@@ -2111,25 +2117,76 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               equipmentGroupId: selectedEquipGroup.id,
               instrumentReadings: readings,
               ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
-              remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${equipFiltName}`,
+              remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${f.filterName}`,
             },
-            targetState,
-            cleaningAreaId: selectedBlock?.id,
-            password,
-            skipChecklistDispatch: useUnifiedBatch,
-          });
-          executed = res.executed;
-          dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
-          if (useUnifiedBatch && executed && Array.isArray((res.result as any)?.actions)) {
-            cycleStartActionsByFilter.set(equipFiltId, (res.result as any).actions);
+          }));
+          const out = await runBulkOnline(ops, 'START_CLEANING_CYCLE');
+          // Operator declined reauth — keep the dialog + state, no error banner.
+          if (out === 'cancelled') { setLoading(false); return; }
+          // Wholesale transport failure — keep state so the operator can retry.
+          if (out === 'transport_error') {
+            setError('Could not reach the server to start the cycles. Please try again.');
+            setLoading(false);
+            return;
           }
-        });
-        setPendingCyclePayload(null);
-        // If reauth dialog was cancelled or failed, `executed` stays undefined —
-        // bail out without proceeding into the post-advance state mgmt below.
-        if (typeof executed !== 'boolean') {
-          setLoading(false);
-          return;
+          setPendingCyclePayload(null);
+          executed = out.okCount > 0;
+          // Feed the unified checklist dispatch (below) the authoritative
+          // per-filter server actions, exactly as the per-filter loop did.
+          for (const [fid, actions] of out.actionsByFilter) cycleStartActionsByFilter.set(fid, actions);
+          // Recent-ops parity with the offline per-filter loop: one entry per
+          // batched filter that succeeded (the first filter's entry is added by
+          // the shared setRecentOps below). A start-and-advance that FAILS on the
+          // advance half may have CREATED a cycle (server guards a re-start with
+          // CYCLE_ACTIVE 409) — surface it via setError; operator re-scans to retry.
+          const nameById = new Map(allBatchFilters.map(f => [f.filterId, f.filterName]));
+          for (const r of out.results) {
+            if (r.filterId === equipFiltId) continue;
+            if (r.status === 'ok') {
+              setRecentOps(prev => [{ stage: equipStage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+            }
+          }
+          const failMsgs = out.results
+            .filter(r => r.status === 'failed')
+            .map(r => `${nameById.get(r.filterId) ?? r.filterId}: ${(r as any).error?.message ?? 'failed'}`);
+          if (failMsgs.length > 0) setError(failMsgs.join('; '));
+        } else {
+          // For multi-filter cycle-start: skip the in-core dispatch entirely
+          // and let the post-loop unified-batch dispatch handle it. Same shape
+          // as the multi-filter DRY_IN SET_DURATION path (handleSubmitQueue
+          // line ~890). For single-filter, no batchRest, normal dispatch.
+          const useUnifiedBatch = batchRest.length > 0;
+          await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+            const res = await core.startAndAdvance({
+              filterId: equipFiltId,
+              filterName: equipFiltName,
+              cyclePayload: cyclePayloadSnap,
+              advancePayload: {
+                targetState,
+                cleaningAreaId: selectedBlock?.id,
+                equipmentGroupId: selectedEquipGroup.id,
+                instrumentReadings: readings,
+                ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+                remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${equipFiltName}`,
+              },
+              targetState,
+              cleaningAreaId: selectedBlock?.id,
+              password,
+              skipChecklistDispatch: useUnifiedBatch,
+            });
+            executed = res.executed;
+            dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
+            if (useUnifiedBatch && executed && Array.isArray((res.result as any)?.actions)) {
+              cycleStartActionsByFilter.set(equipFiltId, (res.result as any).actions);
+            }
+          });
+          setPendingCyclePayload(null);
+          // If reauth dialog was cancelled or failed, `executed` stays undefined —
+          // bail out without proceeding into the post-advance state mgmt below.
+          if (typeof executed !== 'boolean') {
+            setLoading(false);
+            return;
+          }
         }
       } else {
         const res = await core.advance({
@@ -2173,44 +2230,53 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // (not parallel) so each cycle's auditTrail row is ordered + the
       // optimistic UI state stays consistent.
       if (batchRest.length > 0 && pendingCyclePayload) {
-        const cyclePayloadSnap = pendingCyclePayload;
-        const equipGroupSnap = selectedEquipGroup;
-        const readingsSnap = readings;
-        for (const rest of batchRest) {
-          try {
-            await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
-              const restRes = await core.startAndAdvance({
-                filterId: rest.filterId,
-                filterName: rest.filterName,
-                cyclePayload: cyclePayloadSnap,
-                advancePayload: {
+        // OFFLINE multi-filter: replay the SAME reason payload + equipment +
+        // readings per remaining filter via core.startAndAdvance. ONLINE
+        // multi-filter is already fully handled by the ONE runBulkOnline call
+        // above (both the first filter AND every batchRest filter), so this
+        // per-filter network loop is offline-only now. The unified checklist
+        // dispatch that follows runs for BOTH paths (fed by
+        // cycleStartActionsByFilter, populated online from out.actionsByFilter).
+        if (!online) {
+          const cyclePayloadSnap = pendingCyclePayload;
+          const equipGroupSnap = selectedEquipGroup;
+          const readingsSnap = readings;
+          for (const rest of batchRest) {
+            try {
+              await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+                const restRes = await core.startAndAdvance({
+                  filterId: rest.filterId,
+                  filterName: rest.filterName,
+                  cyclePayload: cyclePayloadSnap,
+                  advancePayload: {
+                    targetState,
+                    cleaningAreaId: selectedBlock?.id,
+                    equipmentGroupId: equipGroupSnap.id,
+                    instrumentReadings: readingsSnap,
+                    ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+                    remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${rest.filterName}`,
+                  },
                   targetState,
                   cleaningAreaId: selectedBlock?.id,
-                  equipmentGroupId: equipGroupSnap.id,
-                  instrumentReadings: readingsSnap,
-                  ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
-                  remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${rest.filterName}`,
-                },
-                targetState,
-                cleaningAreaId: selectedBlock?.id,
-                password,
-                // 2026-05-26: all batch iterations skip in-core dispatch.
-                // Unified-batch dispatch fires AFTER this loop completes,
-                // grouping all filters into one dialog. Replaces the old
-                // per-filter remainingBatch cycling pattern that dropped
-                // checklists when the operator didn't see/answer every
-                // sequential dialog.
-                skipChecklistDispatch: true,
+                  password,
+                  // 2026-05-26: all batch iterations skip in-core dispatch.
+                  // Unified-batch dispatch fires AFTER this loop completes,
+                  // grouping all filters into one dialog. Replaces the old
+                  // per-filter remainingBatch cycling pattern that dropped
+                  // checklists when the operator didn't see/answer every
+                  // sequential dialog.
+                  skipChecklistDispatch: true,
+                });
+                if (restRes.executed && Array.isArray((restRes.result as any)?.actions)) {
+                  cycleStartActionsByFilter.set(rest.filterId, (restRes.result as any).actions);
+                }
               });
-              if (restRes.executed && Array.isArray((restRes.result as any)?.actions)) {
-                cycleStartActionsByFilter.set(rest.filterId, (restRes.result as any).actions);
-              }
-            });
-            setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
-          } catch (batchErr: any) {
-            // eslint-disable-next-line no-console
-            console.warn(`[batch-cycle-start] ${rest.filterName} failed:`, batchErr);
-            setError(`${rest.filterName}: ${batchErr?.message ?? 'cycle-start failed'}`);
+              setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+            } catch (batchErr: any) {
+              // eslint-disable-next-line no-console
+              console.warn(`[batch-cycle-start] ${rest.filterName} failed:`, batchErr);
+              setError(`${rest.filterName}: ${batchErr?.message ?? 'cycle-start failed'}`);
+            }
           }
         }
         setSuccess(`Started ${batchRest.length + 1} cycles successfully`);
