@@ -59,6 +59,14 @@ describe('audit-helpers — Block/Area/AHU/Filter rendering', () => {
     expect(getAuditSummary(pm, T)).toBe('PM Schedule "AHU-9" deleted by EMP-004');
   });
 
+  it('omits empty quotes when a record has no name (PM review/approve)', () => {
+    const rev = { action: 'PM_SCHEDULE_REVIEWED', userId: 'EMP-123', targetType: 'pm_schedule', afterValue: { ahuName: 'AHU-024' } };
+    expect(getAuditSummary(rev, T)).toBe('PM schedule reviewed by EMP-123');
+    expect(getAuditSummary(rev, T)).not.toContain('""');
+    const app = { action: 'PM_SCHEDULE_APPROVED', userId: 'EMP-003', targetType: 'pm_schedule', afterValue: { ahuName: 'AHU-88' } };
+    expect(getAuditSummary(app, T)).toBe('PM schedule approved by EMP-003');
+  });
+
   it('renders newly-added specific templates (no more raw title-case)', () => {
     const dev = { action: 'DEVIATION_OPENED', userId: 'EMP-004', targetType: 'deviation', afterValue: { ahuName: 'L8', name: 'L8' } };
     expect(getAuditSummary(dev, T)).toBe('Overdue-PM deviation opened for AHU "L8" by EMP-004');

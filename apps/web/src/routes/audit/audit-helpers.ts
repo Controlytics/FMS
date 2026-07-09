@@ -217,8 +217,8 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const rejectToStateKey = rejectToStateKeyRaw ? titleCase(rejectToStateKeyRaw) : '';
   const filterName = (after.filterName as string) || (before.filterName as string) || '';
 
-  const replacePlaceholders = (tpl: string) =>
-    tpl
+  const replacePlaceholders = (tpl: string) => {
+    const filled = tpl
       .replace(/\{actor\}/g, actor)
       .replace(/\{targetUser\}/g, targetUser || actor)
       .replace(/\{targetName\}/g, targetName)
@@ -242,6 +242,13 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{stageKey\}/g, stageKey)
       .replace(/\{filterName\}/g, filterName)
       .replace(/\{rejectToStateKey\}/g, rejectToStateKey);
+    // Drop empty quoted placeholders: an unnamed record (e.g. a PM schedule
+    // review/approve row carries no name — the AHU is shown separately) would
+    // otherwise render 'PM schedule "" reviewed by EMP-123'. An empty "" is
+    // always a missing-value artifact, never intentional, so collapse it and
+    // tidy the resulting whitespace.
+    return filled.replace(/\s*""/g, '').replace(/[ \t]{2,}/g, ' ').trim();
+  };
 
   // Self-action handling: check for _SELF variant
   const selfActions = ['USER_UPDATED', 'PROFILE_UPDATED', 'PASSWORD_CHANGED'];
