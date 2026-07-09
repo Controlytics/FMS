@@ -14,6 +14,74 @@ import { invalidateSessionAuthCache } from '../../plugins/auth.js';
 
 const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6';
 
+/**
+ * Record a failed password verification and apply the account-lockout policy.
+ * Shared by login AND the re-authentication surface (reauth-check.ts + /verify)
+ * so a reauth password-guessing attack counts toward the SAME lockout as login.
+ * Closes the 2026-07-09 security-review gap where a holder of a valid session
+ * could grind the password via reauth without the account ever locking.
+ *
+ * SUPER_ADMIN is lockout-exempt (documented 21 CFR §11.10(g) trade-off, per user
+ * 2026-05-25). Returns whether the account is now LOCKED. Emits the ACCOUNT_LOCKED
+ * audit + notifications only when the threshold trips; the caller owns its own
+ * action-specific audit (LOGIN_FAILED / reauth) for the non-locking case.
+ */
+export async function applyFailedPasswordAttempt(
+  user: { id: string; username: string; fullName: string | null; role: string; failedLoginAttempts: number },
+  ip: string,
+  userAgent: string | undefined,
+): Promise<{ locked: boolean }> {
+  if (user.role === 'SUPER_ADMIN') return { locked: false };
+
+  const loginSecurity = await authRepository.getLoginSecurityConfig();
+  const passwordPolicy = await authRepository.getPasswordPolicyConfig();
+  const maxAttempts = (passwordPolicy.maxFailedAttempts as number) ?? 5;
+  const lockoutType = loginSecurity.lockoutType ?? 'TEMPORARY';
+  const lockoutDurationMinutes = loginSecurity.lockoutDurationMinutes ?? 30;
+  const newAttempts = user.failedLoginAttempts + 1;
+
+  if (newAttempts < maxAttempts) {
+    await authRepository.updateUser(user.id, { failedLoginAttempts: newAttempts });
+    return { locked: false };
+  }
+
+  const lockoutData: Record<string, unknown> = {
+    failedLoginAttempts: newAttempts, status: 'LOCKED' as const, lockedAt: new Date(),
+  };
+  if (lockoutType === 'TEMPORARY') {
+    lockoutData.lockoutUntil = new Date(Date.now() + lockoutDurationMinutes * 60 * 1000);
+  }
+  await authRepository.updateUser(user.id, lockoutData);
+
+  await auditLog({
+    userId: user.username, userRole: user.role, action: 'ACCOUNT_LOCKED',
+    targetType: 'user', targetId: user.id,
+    afterValue: { username: user.username, fullName: user.fullName },
+    ipAddress: ip, userAgent,
+  });
+  await createNotification({
+    type: 'ACCOUNT_LOCKED', title: 'Account Locked',
+    message: `User ${user.fullName} (${user.username}) has been locked due to multiple failed login attempts.`,
+    targetUserId: user.username, forRole: 'ADMIN',
+  });
+  await createNotification({
+    type: 'ACCOUNT_LOCKED', title: 'Your Account Has Been Locked',
+    message: `Your account has been locked due to multiple failed login attempts. Please contact an administrator.`,
+    targetUserId: user.username, forUserId: user.username,
+  });
+  dispatchNotification({
+    eventType: 'USER_LOCKED',
+    context: {},
+    variables: {
+      username: user.username, fullName: user.fullName ?? user.username,
+      reason: 'Multiple failed login attempts', failedAttempts: String(newAttempts),
+      ipAddress: ip ?? 'N/A', timestamp: new Date().toISOString(),
+    },
+  }).catch(err => console.error('[UserLocked] Notification dispatch failed:', err.message));
+
+  return { locked: true };
+}
+
 export const authService = {
   async login(username: string, password: string, ip: string, userAgent: string | undefined, force?: boolean) {
     let user = await authRepository.findUserByUsername(username);
@@ -109,54 +177,13 @@ export const authService = {
         throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
       }
 
-      const loginSecurity = await authRepository.getLoginSecurityConfig();
-      const passwordPolicy = await authRepository.getPasswordPolicyConfig();
-      const maxAttempts = (passwordPolicy.maxFailedAttempts as number) ?? 5;
-      const lockoutType = loginSecurity.lockoutType ?? 'TEMPORARY';
-      const lockoutDurationMinutes = loginSecurity.lockoutDurationMinutes ?? 30;
-      const newAttempts = user.failedLoginAttempts + 1;
-
-      if (newAttempts >= maxAttempts) {
-        const lockoutData: Record<string, unknown> = {
-          failedLoginAttempts: newAttempts, status: 'LOCKED' as const, lockedAt: new Date(),
-        };
-        if (lockoutType === 'TEMPORARY') {
-          lockoutData.lockoutUntil = new Date(Date.now() + lockoutDurationMinutes * 60 * 1000);
-        }
-        await authRepository.updateUser(user.id, lockoutData);
-
-        await auditLog({
-          userId: user.username, userRole: user.role, action: 'ACCOUNT_LOCKED',
-          targetType: 'user', targetId: user.id,
-          afterValue: { username: user.username, fullName: user.fullName },
-          ipAddress: ip, userAgent,
-        });
-
-        await createNotification({
-          type: 'ACCOUNT_LOCKED', title: 'Account Locked',
-          message: `User ${user.fullName} (${user.username}) has been locked due to multiple failed login attempts.`,
-          targetUserId: user.username, forRole: 'ADMIN',
-        });
-        await createNotification({
-          type: 'ACCOUNT_LOCKED', title: 'Your Account Has Been Locked',
-          message: `Your account has been locked due to multiple failed login attempts. Please contact an administrator.`,
-          targetUserId: user.username, forUserId: user.username,
-        });
-
-       // Dispatch USER_LOCKED notification
-        dispatchNotification({
-          eventType: "USER_LOCKED",
-          context: {},
-          variables: {
-            username: user.username, fullName: user.fullName ?? user.username,
-            reason: "Multiple failed login attempts", failedAttempts: String(newAttempts),
-            ipAddress: ip ?? "N/A", timestamp: new Date().toISOString(),
-          },
-        }).catch(err => console.error("[UserLocked] Notification dispatch failed:", err.message));
+      // Shared lockout policy (also used by the reauth surface — see
+      // applyFailedPasswordAttempt). Emits ACCOUNT_LOCKED audit + notifications
+      // when the threshold trips.
+      const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
+      if (locked) {
         throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');
       }
-
-      await authRepository.updateUser(user.id, { failedLoginAttempts: newAttempts, lastLogin: undefined });
 
       await auditLog({
         userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
@@ -405,11 +432,21 @@ export const authService = {
     });
   },
 
-  async verify(userId: string, password: string) {
+  async verify(userId: string, password: string, ip: string, userAgent: string | undefined) {
     const user = await authRepository.findUserById(userId);
     if (!user) throw new NotFoundError('User not found');
     const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect');
+    if (!valid) {
+      // Reauth password guesses count toward the SAME lockout as login.
+      const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
+      if (locked) throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed attempts. Contact administrator.');
+      throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect');
+    }
+    // Successful password proof clears the consecutive-failure streak (guarded
+    // so the common already-zero case pays no write).
+    if (user.failedLoginAttempts > 0) {
+      await authRepository.updateUser(user.id, { failedLoginAttempts: 0 });
+    }
     return await signVerificationToken(user.id);
   },
 

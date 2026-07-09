@@ -1,7 +1,37 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from './prisma.js';
 import { verifyPassword } from './password.js';
+import { applyFailedPasswordAttempt } from '../modules/auth/auth.service.js';
 import type { ActionReauthConfig } from '@digilog/shared';
+
+/**
+ * Reauth password verification shared by enforceReauth / enforceReauthAlways.
+ * Runs the SAME account-lockout policy as login (2026-07-09 security review) so
+ * a valid-session attacker can't grind the password via reauth without locking.
+ * Returns null on success (streak reset if any), or a REAUTH_FAILED reply payload
+ * on failure (with a LOCKED code once the threshold trips).
+ */
+async function verifyReauthPassword(
+  req: FastifyRequest,
+  password: string,
+): Promise<{ error: string; message: string } | null> {
+  const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+  if (!user) return { error: 'REAUTH_FAILED', message: 'User not found.' };
+  const valid = await verifyPassword(password, user.passwordHash);
+  if (!valid) {
+    const { locked } = await applyFailedPasswordAttempt(user, req.ip, req.headers['user-agent']);
+    return locked
+      ? { error: 'ACCOUNT_LOCKED', message: 'Account locked due to multiple failed attempts. Contact administrator.' }
+      : { error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' };
+  }
+  // Clear the consecutive-failure streak on a successful password proof
+  // (guarded so the common already-zero case pays no write). failedLoginAttempts
+  // is not an auth-cache field, so no cache invalidation is needed.
+  if (user.failedLoginAttempts > 0) {
+    await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0 } });
+  }
+  return null;
+}
 
 // In-memory cache with TTL to avoid DB hit on every mutation
 let configCache: { data: ActionReauthConfig; fetchedAt: number } | null = null;
@@ -126,15 +156,9 @@ export async function enforceReauth(
     return { ok: false };
   }
 
-  const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
-  if (!user) {
-    reply.code(401).send({ error: 'REAUTH_FAILED', message: 'User not found.' });
-    return { ok: false };
-  }
-
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
-    reply.code(401).send({ error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' });
+  const failure = await verifyReauthPassword(req, password);
+  if (failure) {
+    reply.code(failure.error === 'ACCOUNT_LOCKED' ? 403 : 401).send(failure);
     return { ok: false };
   }
 
@@ -168,14 +192,9 @@ export async function enforceReauthAlways(
     reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'This action requires password re-authentication.', action });
     return { ok: false };
   }
-  const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
-  if (!user) {
-    reply.code(401).send({ error: 'REAUTH_FAILED', message: 'User not found.' });
-    return { ok: false };
-  }
-  const valid = await verifyPassword(password, user.passwordHash);
-  if (!valid) {
-    reply.code(401).send({ error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' });
+  const failure = await verifyReauthPassword(req, password);
+  if (failure) {
+    reply.code(failure.error === 'ACCOUNT_LOCKED' ? 403 : 401).send(failure);
     return { ok: false };
   }
   if (body?._currentPassword) delete body._currentPassword;

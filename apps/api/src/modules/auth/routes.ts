@@ -313,7 +313,7 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION', message: 'Password is required' });
     }
 
-    const verificationToken = await authService.verify(req.user.sub, body.password);
+    const verificationToken = await authService.verify(req.user.sub, body.password, req.ip, req.headers['user-agent']);
     return { success: true, verificationToken };
   });
 
