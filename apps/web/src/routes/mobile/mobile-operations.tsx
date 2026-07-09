@@ -2209,8 +2209,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
   const handleChecklistSubmit = async () => {
     if (!checklistDialog) return;
-    const checklists = checklistDialog.checklists as any[];
-    for (const cl of checklists) { for (const q of cl.questions) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
+    const checklists = (checklistDialog.checklists as any[]) ?? [];
+    // Block an empty-questions checklist (failed/stale load) from posting an
+    // empty answer set — the server rejects a real required checklist, so this
+    // would dead-end the operator. Point to recovery instead. (The pipeline
+    // never gates on a genuinely question-less checklist.)
+    if (checklists.some((cl: any) => !Array.isArray(cl.questions) || cl.questions.length === 0)) {
+      setError('This checklist could not load its questions. Reconnect and refresh, then reopen it before submitting.');
+      return;
+    }
+    for (const cl of checklists) { for (const q of (cl.questions ?? [])) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
 
     // 2026-07-03: a TERMINAL checklist (e.g. Storage Out → cycle completes) has
@@ -3447,11 +3455,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                   )}
                 </div>
               )}
-              {(checklistDialog.checklists as any[]).map((cl: any) => (
+              {((checklistDialog.checklists as any[]) ?? []).map((cl: any) => (
                 <div key={cl.pipelineNodeId}>
                   <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wider mb-3">{cl.checklistProfileName}</h3>
                   <div className="space-y-4">
-                    {cl.questions.map((q: any, qi: number, arr: any[]) => {
+                    {(!Array.isArray(cl.questions) || cl.questions.length === 0) && (
+                      <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                        Couldn't load this checklist's questions. Reconnect and refresh, then reopen this checklist before submitting.
+                      </div>
+                    )}
+                    {(cl.questions ?? []).map((q: any, qi: number, arr: any[]) => {
                       const prevSection = qi > 0 ? arr[qi - 1].section : null;
                       const showSection = q.section && q.section !== prevSection;
                       const val = checklistAnswers[q.id] ?? '';

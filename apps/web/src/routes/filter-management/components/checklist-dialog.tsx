@@ -75,9 +75,18 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
   const displayError = error || internalError;
 
   const handleSubmit = () => {
+    // A pending checklist that resolved to ZERO questions means the questions
+    // failed to load (a stale/degraded cache — the pipeline never gates on a
+    // genuinely question-less checklist). Submitting would post an empty answer
+    // set; the server rejects a real required checklist, dead-ending the
+    // operator with no explanation. Block it and point to recovery instead.
+    if (dialog.checklists.some((cl) => !Array.isArray(cl.questions) || cl.questions.length === 0)) {
+      setInternalError('This checklist could not load its questions. Reconnect and refresh, then reopen it before submitting.');
+      return;
+    }
     // Validate required questions
     for (const cl of dialog.checklists) {
-      for (const q of cl.questions) {
+      for (const q of (cl.questions ?? [])) {
         if (q.required && (answers[q.id] === undefined || answers[q.id] === '')) {
           setInternalError(`Please answer: "${q.question}"`);
           return;
@@ -160,7 +169,12 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
             <div key={cl.pipelineNodeId}>
               <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wider mb-3">{cl.checklistProfileName}</h3>
               <div className="space-y-4">
-                {cl.questions.map((q, qi, arr) => {
+                {(!Array.isArray(cl.questions) || cl.questions.length === 0) && (
+                  <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                    Couldn't load this checklist's questions. Reconnect and refresh, then reopen this checklist before submitting.
+                  </div>
+                )}
+                {(cl.questions ?? []).map((q, qi, arr) => {
                   const prevSection = qi > 0 ? arr[qi - 1].section : null;
                   const showSection = q.section && q.section !== prevSection;
                   return (
