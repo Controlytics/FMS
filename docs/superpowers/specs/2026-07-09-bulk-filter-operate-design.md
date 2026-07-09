@@ -91,7 +91,16 @@ Registered in `apps/api/src/modules/filter-operations/routes.ts`, gated by
 ### 4.2 Processing
 
 ```
-enforceReauth('BULK_FILTER_OPERATE', req, reply)   // once for the whole batch
+// Reauth once for the batch, reusing the EXISTING per-op reauth actions.
+// enforceReauth accepts an array and prompts if ANY is config-required for the
+// role (its documented multi-action behavior). Mid-cycle advance is not
+// reauth-gated; start-cycle + submit-checklist are. So the batch prompts iff it
+// contains an op kind that individually would — no new reauth action needed.
+reauthActions = union of:
+  'advance'           -> 'ADVANCE_FILTER_STAGE'
+  'start-and-advance' -> 'START_CLEANING_CYCLE'         // the reauth-gated half of the pair
+  'submit-checklist'  -> 'SUBMIT_CHECKLIST_WITH_SIGNATURE'
+enforceReauth(reauthActions, req, reply)           // once for the whole batch
 ctx = buildContext(req)
 results = []
 for (item of items) {
@@ -187,11 +196,14 @@ are inherited:
 | E-signatures | Not weakened | operator re-auths for the batch; each checklist submit still writes its signed audit row — equivalent to today's 10s reauth cache spanning many submits |
 | Idempotency | Preserved | per-item `clientOpId` dedup in the services |
 | Atomicity | Unchanged (per-filter) | each filter's state + audit atomic together; no giant tx |
+| Reauth | Existing actions + config, honored | `enforceReauth([...])` over the actions the batch's op kinds imply; prompts once iff any is config-required |
 
-**Only new compliance-surface item:** a new reauth action `BULK_FILTER_OPERATE`
-(`packages/shared/src/types/reauth-actions.ts`, `{ label: 'Bulk Filter Cleaning
-Operations', category: 'Filter Management' }`; count 92→93) + reauth config default. One
-password prompt gates the batch — matching current effective behavior.
+**No new compliance-surface item.** Reauth reuses the existing per-op actions
+(`ADVANCE_FILTER_STAGE` / `START_CLEANING_CYCLE` / `SUBMIT_CHECKLIST_WITH_SIGNATURE`) and the
+existing admin `action-reauth` config, enforced once for the batch via
+`enforceReauth(actions[], …)`. No new reauth action, no count change, no config seeding.
+This is a change from the initial design (which proposed `BULK_FILTER_OPERATE`), adopted
+during planning because it is both simpler and more faithful to current per-op reauth policy.
 
 **Guardrails:** batch cap 200; `bypass` excluded.
 
@@ -218,17 +230,18 @@ before/after wall-clock. Then APK rebuild + one real tablet timing.
 ## 8. Rollout & rollback
 
 1. Backend endpoint + tests — additive, nothing calls it yet → zero risk. Shippable alone.
-2. Reauth action registration + config + doc counts.
+   (Reauth reuses existing actions — no shared/config change.)
+2. Client `bulkOperate` helper + test.
 3. Client wiring (online only), old per-item loop retained as fallback. Verify in browser.
 4. Measure on tablet; confirm the win.
 
-**Rollback:** Steps 1–2 additive/harmless; Step 3 keeps the old path as fallback → rollback =
+**Rollback:** Step 1 additive/harmless; Steps 2–3 keep the old path as fallback → rollback =
 revert the client-wiring commit.
 
 ## 9. Doc sync on completion
 
 `CHANGELOG.md`; `API_REFERENCE.md` (new endpoint); root + `apps/api` `CLAUDE.md` endpoint
-lists; reauth count 92→93 across the doc set; memory note.
+lists; memory note. (No reauth-count change — reauth reuses existing actions, see §6.)
 
 ## 10. File touchpoints
 
@@ -238,9 +251,7 @@ lists; reauth count 92→93 across the doc set; memory note.
   `bulkOperate` orchestration method (or inline in the route)
 - `apps/api/src/modules/filter-operations/cycle-write/__tests__/` — new e2e test file
 
-**Shared:**
-- `packages/shared/src/types/reauth-actions.ts` — `BULK_FILTER_OPERATE`
-- reauth config default registration (wherever new reauth actions are seeded)
+**Shared:** none — reauth reuses existing actions (see §6).
 
 **Frontend:**
 - `apps/web/src/routes/mobile/mobile-operations.tsx` — `handleSubmitQueue` +
