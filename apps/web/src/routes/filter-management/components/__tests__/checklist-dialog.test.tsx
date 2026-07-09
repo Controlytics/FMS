@@ -59,3 +59,33 @@ describe('ChecklistDialog — empty-questions guard', () => {
     expect(onSubmit).toHaveBeenCalledWith({ q1: 'Yes' });
   });
 });
+
+describe('ChecklistDialog — accessibility + escape guard', () => {
+  it('marks the selected answer with aria-pressed AND a non-color indicator (WCAG 1.4.1)', () => {
+    render(<ChecklistDialog dialog={mkDialog([q()])} onClose={() => {}} onSubmit={() => {}} loading={false} error="" />);
+    const yes = screen.getByRole('button', { name: 'Yes' });
+    const no = screen.getByRole('button', { name: 'No' });
+    expect(yes).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(yes);
+    expect(yes).toHaveAttribute('aria-pressed', 'true');
+    expect(no).toHaveAttribute('aria-pressed', 'false');
+    // Non-color cue: the selected button carries a checkmark the unselected one lacks.
+    expect(yes.querySelector('svg')).not.toBeNull();
+    expect(no.querySelector('svg')).toBeNull();
+  });
+
+  it('Escape closes an untouched checklist', () => {
+    const onClose = vi.fn();
+    render(<ChecklistDialog dialog={mkDialog([q()])} onClose={onClose} onSubmit={() => {}} loading={false} error="" />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('Escape does NOT discard a half-filled checklist', () => {
+    const onClose = vi.fn();
+    render(<ChecklistDialog dialog={mkDialog([q()])} onClose={onClose} onSubmit={() => {}} loading={false} error="" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' })); // enter an answer
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

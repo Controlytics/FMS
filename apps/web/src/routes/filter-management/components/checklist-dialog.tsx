@@ -9,14 +9,26 @@ function OptionButtons({ options, value, onChange, colorFn }: {
   const defaultColor = (opt: string, selected: boolean) =>
     selected ? 'bg-cyan-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
   const getColor = colorFn ?? defaultColor;
+  // a11y (WCAG 1.4.1): selection must not be conveyed by color alone. The
+  // selected option carries a checkmark + bold weight + an inset ring, and
+  // aria-pressed so assistive tech announces the state.
   return (
-    <div className="flex gap-2">
-      {options.map(opt => (
-        <button key={opt} onClick={() => onChange(opt)}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${getColor(opt, value === opt)}`}>
-          {opt}
-        </button>
-      ))}
+    <div className="flex gap-2" role="group">
+      {options.map(opt => {
+        const selected = value === opt;
+        return (
+          <button key={opt} type="button" onClick={() => onChange(opt)}
+            aria-pressed={selected}
+            className={`flex-1 py-2 rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5 ${selected ? 'font-bold ring-2 ring-inset ring-white/70' : 'font-medium'} ${getColor(opt, selected)}`}>
+            {selected && (
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+            {opt}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -63,12 +75,20 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
     }
   }, [dialog]);
 
-  // Close on Escape key
+  // Close on Escape — but NOT once answers are entered. This checklist is a
+  // mandatory, non-dismissible gate (no backdrop dismiss, no skip); a stray
+  // Escape must not silently discard a half-filled compliance form. Escape only
+  // closes an untouched dialog; once anything is answered the operator must use
+  // the explicit Cancel button (a deliberate act).
   useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (Object.keys(answers).length > 0) return;
+      onClose();
+    };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [onClose]);
+  }, [onClose, answers]);
 
   if (!dialog) return null;
 

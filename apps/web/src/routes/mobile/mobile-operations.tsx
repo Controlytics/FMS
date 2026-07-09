@@ -3491,15 +3491,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                             <div className="ml-7">
                               {q.questionType === 'YES_NO' ? (
                                 <div className="flex gap-2">
-                                  {['Yes', 'No'].map(opt => <button key={opt} onClick={() => setVal(opt)} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 transition-colors ${val === opt ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200'}`}>{opt}</button>)}
+                                  {['Yes', 'No'].map(opt => <button key={opt} type="button" onClick={() => setVal(opt)} aria-pressed={val === opt} className={`flex-1 py-2.5 rounded-xl text-sm border-2 transition-colors inline-flex items-center justify-center gap-1 ${val === opt ? 'font-bold bg-cyan-600 text-white border-cyan-600' : 'font-medium bg-white text-slate-600 border-slate-200'}`}>{val === opt && <span aria-hidden="true">✓</span>}{opt}</button>)}
                                 </div>
                               ) : q.questionType === 'YES_NO_NA' ? (
                                 <div className="flex gap-2">
-                                  {['Yes', 'No', 'N/A'].map(opt => <button key={opt} onClick={() => setVal(opt)} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 transition-colors ${val === opt ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200'}`}>{opt}</button>)}
+                                  {['Yes', 'No', 'N/A'].map(opt => <button key={opt} type="button" onClick={() => setVal(opt)} aria-pressed={val === opt} className={`flex-1 py-2.5 rounded-xl text-sm border-2 transition-colors inline-flex items-center justify-center gap-1 ${val === opt ? 'font-bold bg-cyan-600 text-white border-cyan-600' : 'font-medium bg-white text-slate-600 border-slate-200'}`}>{val === opt && <span aria-hidden="true">✓</span>}{opt}</button>)}
                                 </div>
                               ) : q.questionType === 'PASS_FAIL' ? (
                                 <div className="flex gap-2">
-                                  {['Pass', 'Fail'].map(opt => <button key={opt} onClick={() => setVal(opt)} className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 transition-colors ${val === opt ? (opt === 'Pass' ? 'bg-green-600 text-white border-green-600' : 'bg-red-600 text-white border-red-600') : 'bg-white text-slate-600 border-slate-200'}`}>{opt}</button>)}
+                                  {['Pass', 'Fail'].map(opt => <button key={opt} type="button" onClick={() => setVal(opt)} aria-pressed={val === opt} className={`flex-1 py-2.5 rounded-xl text-sm border-2 transition-colors inline-flex items-center justify-center gap-1 ${val === opt ? `font-bold text-white ${opt === 'Pass' ? 'bg-green-600 border-green-600' : 'bg-red-600 border-red-600'}` : 'font-medium bg-white text-slate-600 border-slate-200'}`}>{val === opt && <span aria-hidden="true">✓</span>}{opt}</button>)}
                                 </div>
                               ) : q.questionType === 'DROPDOWN' ? (
                                 <select value={val} onChange={e => setVal(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none">
@@ -3512,7 +3512,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                                     const optVal = typeof opt === 'string' ? opt : opt.value;
                                     const optLabel = typeof opt === 'string' ? opt : opt.label;
                                     const selected = Array.isArray(val) && val.includes(optVal);
-                                    return <button key={i} onClick={() => { const arr = Array.isArray(val) ? [...val] : []; setVal(selected ? arr.filter((v: string) => v !== optVal) : [...arr, optVal]); }} className={`px-3 py-2 rounded-xl text-sm font-medium border-2 transition-colors ${selected ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-200'}`}>{optLabel}</button>;
+                                    return <button key={i} type="button" aria-pressed={selected} onClick={() => { const arr = Array.isArray(val) ? [...val] : []; setVal(selected ? arr.filter((v: string) => v !== optVal) : [...arr, optVal]); }} className={`px-3 py-2 rounded-xl text-sm border-2 transition-colors inline-flex items-center gap-1 ${selected ? 'font-bold bg-cyan-600 text-white border-cyan-600' : 'font-medium bg-white text-slate-600 border-slate-200'}`}>{selected && <span aria-hidden="true">✓</span>}{optLabel}</button>;
                                   })}
                                 </div>
                               ) : q.questionType === 'NUMERIC' ? (
