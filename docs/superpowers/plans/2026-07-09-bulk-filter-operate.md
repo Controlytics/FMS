@@ -415,131 +415,183 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 3: Wire the online `handleSubmitQueue` batch to `bulkOperate`
+> **REVISED 2026-07-09 (post-stall re-plan).** The original Tasks 3–4 assumed the
+> tablet had two online batch write-sites; a code trace found **three**, in
+> **three separate handlers** of `mobile-operations.tsx`, plus a subtle ordering
+> dependency and an insufficient review gate. Corrected decomposition below.
+> All three sites POST the SAME endpoint and share ONE helper. Verified call-sites:
+> - **`handleSubmitQueue`** (~L824) — mid-cycle **advances** (`executeOrQueue('advance')` leaf ~L1160; DRY_IN `SET_DURATION` `core.advance` ~L1100). Post-loop **checklist dispatch (~L1230)** consumes `serverActionsByFilter` populated *during* the loop.
+> - **`handleEquipSubmit`** (~L1941) — batch **cycle-starts**: first `core.startAndAdvance` (~L2000) + a `for (const rest of batchRest)` loop (~L2075), each `reauth.execute('START_CLEANING_CYCLE')`. Post-loop **unified checklist dispatch (~L2114)** consumes `cycleStartActionsByFilter`.
+> - **`handleChecklistSubmit`** (~L2267) — batch branch `for (const item of batch)` (~L2324) of `core.submitChecklist`.
+> - NOT in scope: `handleReasonSubmit` (~L1706) fires a **single-filter** `startAndAdvance` (no batch loop) — one round-trip, not a batch-perf concern. Leave it on `core.startAndAdvance`.
+> **Gate note:** a diff-review CANNOT verify the early-return gates still behave — only a real mixed-batch run can. Behavioral verification (Task 6) is the true gate; do not treat green typecheck + clean diff-review as "correct."
+
+### Task 3: Shared `runBulkOnline` helper + wire `handleSubmitQueue` advances
 
 **Files:**
-- Modify: `apps/web/src/routes/mobile/mobile-operations.tsx` — `handleSubmitQueue` (~line 823–1300) and its post-loop priming.
+- Modify: `apps/web/src/routes/mobile/mobile-operations.tsx` — add a `runBulkOnline` helper inside the component; wire `handleSubmitQueue` (~L824) + delete its post-loop `/current-state` priming.
 
 **Interfaces:**
-- Consumes: `bulkOperate(items, password?)` from Task 2; `reauth.execute` (already used in this file).
-- Produces: no new exports; behavior change only.
+- Consumes: `bulkOperate(items, password?)` + `BulkClientItem`/`BulkClientResult` (Task 2); `reauth.execute`, `cache` (already in scope).
+- Produces (used by Tasks 4 & 5): `runBulkOnline(ops: BulkClientItem[], reauthAction: string): Promise<BulkOnlineOutcome | 'transport_error'>` where `BulkOnlineOutcome = { results: BulkClientResult[]; actionsByFilter: Map<string, any[]>; okCount: number; failures: string[] }`. It wraps the ONE bulk POST in `reauth.execute`, re-throws `REAUTH_REQUIRED`/`REAUTH_FAILED`, returns `'transport_error'` on any other throw, and for each `ok` result primes `filter-state-<id>` cache + records `snapshot.actions` in `actionsByFilter`.
 
-**This is the delicate integration. Change the leaf, preserve every gate.** The precise transformation:
-
-- [ ] **Step 1:** At the top of `handleSubmitQueue`, add an accumulator alongside the existing snapshot vars:
-
+- [ ] **Step 1:** Add the import at the top of the file:
 ```typescript
-    const bulkOps: import('@/lib/filter-ops/bulk-operate').BulkClientItem[] = [];
+import { bulkOperate, type BulkClientItem, type BulkClientResult } from '@/lib/filter-ops/bulk-operate';
 ```
 
-- [ ] **Step 2:** Inside the loop, at each place that currently performs a network write **when `online`**, instead of awaiting the per-filter call, **push a resolved op** and `continue`. Concretely:
-  - The mid-cycle advance leaf (`executeOrQueue('advance', …)` at ~line 1115): when `online`, push `{ clientOpId, filterId: item.filterId, kind: 'advance', payload: { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks, tapeVersion } }` and `continue`. (Offline: leave the existing `executeOrQueue` path exactly as-is.)
-  - The DRY_IN `SET_DURATION` advance (`core.advance({ … dryerAction:'SET_DURATION' … })` at ~line 1059): when `online`, push `{ clientOpId, filterId, kind: 'advance', payload: { targetState:'DRY_IN', cleaningAreaId, dryerAction:'SET_DURATION', dryerDurationMinutes: dur, remarks, tapeVersion } }` and `continue`.
-  - The cycle-start path is dialog-driven and returns early (reason/equipment dialog); it re-enters via the equipment-submit handler which is a separate flow — leave it to Task 4-adjacent follow-up **only if** it currently posts per filter online; if it already batches via the reason dialog's `remainingBatch`, push `{ kind:'start-and-advance', cyclePayload, advancePayload }` at the point it would post.
+- [ ] **Step 2:** Add the shared helper inside `MobileOperationsPage` (near the other async handlers, e.g. just above `handleSubmitQueue`):
+```typescript
+  // Post one batch of resolved ops to /bulk-operate (online only), wrapped in a
+  // single reauth prompt. Primes each ok filter's cache from its returned
+  // snapshot and exposes the per-filter post-write `actions` tape so the callers'
+  // existing post-loop checklist dispatch keeps working. Re-throws REAUTH so the
+  // password dialog stays open; returns 'transport_error' on a wholesale failure
+  // so the caller can keep its queue and let the operator retry.
+  const runBulkOnline = async (
+    ops: BulkClientItem[],
+    reauthAction: string,
+  ): Promise<{ results: BulkClientResult[]; actionsByFilter: Map<string, any[]>; okCount: number; failures: string[] } | 'transport_error'> => {
+    let resp: { results: BulkClientResult[] };
+    try {
+      resp = await reauth.execute(reauthAction, (password?: string) => bulkOperate(ops, password));
+    } catch (e: any) {
+      const code = e?.error ?? e?.code;
+      if (code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED') throw e;
+      return 'transport_error';
+    }
+    const actionsByFilter = new Map<string, any[]>();
+    const failures: string[] = [];
+    let okCount = 0;
+    for (const r of resp.results) {
+      if (r.status === 'ok') {
+        okCount++;
+        if (r.snapshot) {
+          await cache(`filter-state-${r.filterId}`, r.snapshot, 24 * 60 * 60 * 1000);
+          if (Array.isArray((r.snapshot as any).actions)) actionsByFilter.set(r.filterId, (r.snapshot as any).actions);
+        }
+      } else {
+        failures.push(`${r.filterId}: ${r.error?.message ?? 'failed'}`);
+      }
+    }
+    return { results: resp.results, actionsByFilter, okCount, failures };
+  };
+```
 
-  `clientOpId` for each: reuse the same client-op-id generation the offline queue uses (a `crypto.randomUUID()` per op) so replay/idempotency is consistent.
+- [ ] **Step 3:** In `handleSubmitQueue`, add `const bulkOps: BulkClientItem[] = [];` next to `serverActionsByFilter`. At the two ONLINE advance leaves, instead of the network call, push a resolved op and `continue`:
+  - Mid-cycle advance leaf (`executeOrQueue('advance', …)`, ~L1160): read that call's exact payload and mirror it — `bulkOps.push({ clientOpId: crypto.randomUUID(), filterId: item.filterId, kind: 'advance', payload: { targetState: activeStage.key, cleaningAreaId: selectedBlock?.id, remarks: remarks || \`${activeStage.label} - ${item.filterName}\`, tapeVersion: <same source the current call uses> } })`.
+  - DRY_IN `SET_DURATION` (`core.advance({… dryerAction:'SET_DURATION' …})`, ~L1100): mirror its payload into `kind:'advance'` with `dryerAction:'SET_DURATION'`, `dryerDurationMinutes: dur`.
+  - **Offline (`!online`): leave both leaves EXACTLY as-is** (`executeOrQueue`/`core.advance`). Only the `online` branch accumulates.
+  - **Read the current call to find the `tapeVersion` source** (cache `filter-state-<id>`'s `tapeVersion`/`currentCycle`, or the resolved actions). Mirror it; do not invent it. If genuinely unclear, DONE_WITH_CONCERNS.
 
-- [ ] **Step 3:** After the loop, replace the online post-loop block (the `if (online) { await mutate(...); await runWithConcurrency(queuedIds, 6, … /current-state …) }` at ~line 1261-1272) with a single bulk dispatch when `bulkOps.length > 0`:
-
+- [ ] **Step 4:** After the loop, BEFORE the existing post-loop checklist-dispatch block (the `if (successCount > 0 || failed.length > 0)` block, ~L1220), dispatch the batch and feed `serverActionsByFilter` from the response so that block keeps working unchanged:
 ```typescript
     if (online && bulkOps.length > 0) {
-      let resp: { results: any[] };
-      try {
-        resp = await reauth.execute(
-          bulkOps.some(o => o.kind === 'submit-checklist') ? 'SUBMIT_CHECKLIST_WITH_SIGNATURE'
-            : bulkOps.some(o => o.kind === 'start-and-advance') ? 'START_CLEANING_CYCLE'
-            : 'ADVANCE_FILTER_STAGE',
-          (password?: string) => bulkOperate(bulkOps, password),
-        );
-      } catch (e: any) {
-        const code = e?.error ?? e?.code;
-        if (code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED') throw e;
-        // Transport-level failure → fall back to the legacy per-item loop for this submit.
-        await submitQueuePerItemFallback(scanQueueSnapshot);  // see Step 5
-        return;
+      const out = await runBulkOnline(bulkOps, 'ADVANCE_FILTER_STAGE');
+      if (out === 'transport_error') {
+        setError('Could not reach the server to submit the batch. Please try Submit again.');
+        setLoading(false);
+        return; // keep scanQueue intact for retry — do NOT clear it
       }
-      // Apply results: prime caches from each ok snapshot; collect failures.
-      for (const r of resp.results) {
-        if (r.status === 'ok' && r.snapshot) {
-          await cache(`filter-state-${r.filterId}`, r.snapshot, 24 * 60 * 60 * 1000);
-          setRecentOps(prev => [{ stage: activeStage.label, filter: r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
-        } else if (r.status === 'failed') {
-          failed.push(`${r.filterId}: ${r.error?.message ?? 'failed'}`);
-        }
+      successCount += out.okCount;
+      failed.push(...out.failures);
+      for (const [fid, actions] of out.actionsByFilter) serverActionsByFilter.set(fid, actions);
+      for (const r of out.results) {
+        if (r.status === 'ok') setRecentOps(prev => [{ stage: activeStage.label, filter: bulkOps.find(o => o.filterId === r.filterId) ? scanQueueSnapshot.find(q => q.filterId === r.filterId)?.filterName ?? r.filterId : r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
       }
-      await mutate('/api/assets/instances', undefined, { revalidate: true });
     }
 ```
+  (The existing post-loop checklist-dispatch block then runs unchanged, reading `serverActionsByFilter`.)
 
-  (Keep the existing `successCount`/`failed` messaging that follows. Use the response's `ok` count for `successCount`.)
+- [ ] **Step 5:** DELETE the now-dead post-loop online priming block (`if (online) { await mutate('/api/assets/instances', …); await runWithConcurrency(queuedIds, 6, …/current-state…) }`, ~L1305) — snapshots came from the response. Replace it with a single `if (online) await mutate('/api/assets/instances', undefined, { revalidate: true });`. **Keep the `runWithConcurrency` helper** (still used elsewhere) and the trailing `refreshOfflineData()`.
 
-- [ ] **Step 4:** **Delete** the now-dead post-loop `runWithConcurrency(queuedIds, 6, …/current-state…)` priming block — the snapshots come from the bulk response. (Leave `runWithConcurrency` in the file; the checklist path in Task 4 and the offline path may still use it.)
+- [ ] **Step 6:** No per-item fallback extraction (dropped — the reused service methods make a per-item fallback low-value and fragile; `'transport_error'` keeps the queue for retry, which is the safety net).
 
-- [ ] **Step 5:** Extract the **existing** online per-item loop body into a `submitQueuePerItemFallback(queue)` function (a near-verbatim copy of today's loop that posts per filter) so Step 3's fallback can call it. This preserves the old behavior exactly as the safety net. Do not delete the offline path.
+- [ ] **Step 7: Typecheck + tests + commit**
 
-- [ ] **Step 6: Typecheck**
-
-Run: `cd apps/web && npx tsc --noEmit -p tsconfig.json`
-Expected: no errors.
-
-- [ ] **Step 7: Run existing filter-ops web tests** (ensure no regression):
-
-Run: `cd apps/web && npx vitest run src/lib/filter-ops`
-Expected: all PASS.
-
-- [ ] **Step 8: Commit**
-
+Run: `cd apps/web && npx tsc --noEmit -p tsconfig.json && npx vitest run src/lib/filter-ops` → clean + PASS.
 ```bash
 git add apps/web/src/routes/mobile/mobile-operations.tsx
-git commit -m "feat(mobile-ops): route online batch submit through bulk-operate
-
-handleSubmitQueue accumulates resolved ops and posts one /bulk-operate
-request instead of N per-filter calls; primes caches from the response;
-deletes the post-loop current-state storm. Offline path unchanged;
-legacy per-item loop retained as a transport-level fallback.
+git commit -m "feat(mobile-ops): batch advances via bulk-operate + shared runBulkOnline
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 4: Wire the batch checklist submit to `bulkOperate`
+### Task 4: Wire `handleEquipSubmit` batch cycle-start to `bulkOperate`
 
 **Files:**
-- Modify: `apps/web/src/routes/mobile/mobile-operations.tsx` — `handleChecklistSubmit` batch branch (~line 2274-2321).
+- Modify: `apps/web/src/routes/mobile/mobile-operations.tsx` — `handleEquipSubmit` (~L1941).
 
-**Interfaces:**
-- Consumes: `bulkOperate` (Task 2), `reauth.execute`.
+**Interfaces:** Consumes `runBulkOnline` (Task 3), `bulkOperate`, `BulkClientItem`.
 
-- [ ] **Step 1:** In the batch branch (the `for (const item of batch)` loop that calls `core.submitChecklist` per member, ~line 2275-2288), when `online`, build a `submit-checklist` bulk op per member instead of awaiting per item:
-
+- [ ] **Step 1:** In the `if (pendingCyclePayload)` branch (~L1992), when `online`, replace BOTH the first `core.startAndAdvance` (~L2000) AND the `for (const rest of batchRest)` loop (~L2075) with ONE bulk call. Build the ops array from `[{ filterId: equipFiltId, filterName: equipFiltName }, ...batchRest]`, each `kind:'start-and-advance'` with `cyclePayload: pendingCyclePayload` and the SAME `advancePayload` shape the current call builds (targetState, cleaningAreaId, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: readings, dryerAction when DRY_IN, remarks), `clientOpId: crypto.randomUUID()`:
 ```typescript
-      const ops = batch.map(item => ({
+      const ops: BulkClientItem[] = [{ filterId: equipFiltId, filterName: equipFiltName }, ...batchRest].map(f => ({
         clientOpId: crypto.randomUUID(),
-        filterId: item.filterId,
-        kind: 'submit-checklist' as const,
-        payload: { answers: checklistAnswers, tapeVersion: /* the member's current tapeVersion */ item.tapeVersion },
+        filterId: f.filterId,
+        kind: 'start-and-advance' as const,
+        cyclePayload: pendingCyclePayload,
+        advancePayload: {
+          targetState,
+          cleaningAreaId: selectedBlock?.id,
+          equipmentGroupId: selectedEquipGroup.id,
+          instrumentReadings: readings,
+          ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+          remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${f.filterName}`,
+        },
       }));
-      const resp = await reauth.execute('SUBMIT_CHECKLIST_WITH_SIGNATURE',
-        (password?: string) => bulkOperate(ops, password));
-      const failedNames: string[] = [];
-      for (const r of resp.results) {
-        if (r.status === 'ok' && r.snapshot) await cache(`filter-state-${r.filterId}`, r.snapshot, 24 * 60 * 60 * 1000);
-        else if (r.status === 'failed') failedNames.push(r.filterId);
-      }
+      const out = await runBulkOnline(ops, 'START_CLEANING_CYCLE');
+      if (out === 'transport_error') { setError('Could not reach the server to start the cycles. Please try again.'); setLoading(false); return; }
+      setPendingCyclePayload(null);
+      executed = out.okCount > 0;
+      out.failures.forEach(f => setError(f));
+      for (const [fid, actions] of out.actionsByFilter) cycleStartActionsByFilter.set(fid, actions);
+```
+  - **OFFLINE (`!online`): keep the existing per-filter `core.startAndAdvance` + `batchRest` loop EXACTLY as-is.** Gate the new bulk path on `online`; the old code stays in the `else`.
+  - Preserve `cycleStartActionsByFilter` population (now from `out.actionsByFilter`) so the **unified checklist dispatch (~L2114)** downstream keeps working unchanged.
+  - Preserve `dialogOpenedByCore`, `setStageSubmitRecap`, `setRecentOps` messaging, and the `if (typeof executed !== 'boolean')` bail semantics as closely as possible (the reauth cancel now surfaces via `runBulkOnline` throwing REAUTH; a cancelled reauth leaves the dialog open — verify this matches current UX in Task 6).
+  - **Known semantic (ledger):** a `start-and-advance` item that fails on the advance half may have CREATED a cycle; server guards a re-start with `CYCLE_ACTIVE` 409. Surface the failure; the operator retries by re-scanning. Note in report.
+
+- [ ] **Step 2: Typecheck + tests + commit**
+
+Run: `cd apps/web && npx tsc --noEmit -p tsconfig.json && npx vitest run src/lib/filter-ops` → clean + PASS.
+```bash
+git add apps/web/src/routes/mobile/mobile-operations.tsx
+git commit -m "feat(mobile-ops): batch cycle-start via bulk-operate
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
-  (Preserve the terminal-checklist detection + `willComplete` queue-clear that follows; replace only the per-item POST loop. Offline branch — unchanged.)
+---
 
-- [ ] **Step 2:** Replace the batch branch's post-loop `Promise.all(batch.map(... /current-state ...))` prime (~line 2315) — no longer needed; snapshots come from `resp.results`.
+### Task 5: Wire `handleChecklistSubmit` batch to `bulkOperate`
 
-- [ ] **Step 3: Typecheck + tests**
+**Files:**
+- Modify: `apps/web/src/routes/mobile/mobile-operations.tsx` — `handleChecklistSubmit` batch branch (~L2324).
 
-Run: `cd apps/web && npx tsc --noEmit -p tsconfig.json && npx vitest run src/lib/filter-ops`
-Expected: no errors; tests PASS.
+**Interfaces:** Consumes `runBulkOnline`, `bulkOperate`, `BulkClientItem`.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 1:** In the batch branch's `for (const item of batch)` loop (~L2324), when `online`, replace the per-member `core.submitChecklist` calls with ONE bulk call of `kind:'submit-checklist'` items:
+```typescript
+        const ops: BulkClientItem[] = batch.map(item => ({
+          clientOpId: crypto.randomUUID(),
+          filterId: item.filterId,
+          kind: 'submit-checklist' as const,
+          payload: { answers: checklistAnswers, tapeVersion: <same source the current core.submitChecklist call uses for this member> },
+        }));
+        const out = await runBulkOnline(ops, 'SUBMIT_CHECKLIST_WITH_SIGNATURE');
+        if (out === 'transport_error') { setError('Could not reach the server to submit the checklist. Please try again.'); setLoading(false); return; }
+        out.failures.forEach(f => setError(f));
+```
+  - **RESOLVE-BY-READING (critical):** read exactly how the current `core.submitChecklist({...})` call in this branch obtains `tapeVersion` for each member (it may read `filter-state-<id>` cache, `pendingBatch` item field, or resolved actions). Mirror that EXACT source per member. The submit-checklist backend requires `tapeVersion` (409 STALE_TAPE otherwise). If you cannot determine the per-member source with confidence, return **DONE_WITH_CONCERNS** documenting the ambiguity — do NOT guess.
+  - **OFFLINE: keep the existing per-member loop as-is.** Gate the bulk path on `online`.
+  - Preserve the terminal-checklist `willComplete` detection + queue-clear that follows, and any post-branch state cleanup. Replace the batch branch's post-loop `Promise.all(batch.map(...current-state...))` prime — snapshots come from the response.
 
+- [ ] **Step 2: Typecheck + tests + commit**
+
+Run: `cd apps/web && npx tsc --noEmit -p tsconfig.json && npx vitest run src/lib/filter-ops` → clean + PASS.
 ```bash
 git add apps/web/src/routes/mobile/mobile-operations.tsx
 git commit -m "feat(mobile-ops): batch checklist submit via bulk-operate
@@ -549,39 +601,33 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 5: Real end-to-end verification + measurement
+### Task 6: Behavioral verification — the real gate (do NOT skip)
 
-**Files:** none (verification only).
+**Files:** none. **This is the gate for Tasks 3–5** — the diff-reviews cannot prove the early-return gates still behave.
 
-- [ ] **Step 1:** Rebuild web + start API. `cd apps/api && npx tsx watch src/app.ts` (restart — tsx watch is stale-prone on Windows). `cd apps/web && npx vite --host`.
-
-- [ ] **Step 2:** Confirm TLS: `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` returns a code.
-
-- [ ] **Step 3:** Use the `manual-tester` skill (or Playwright) to drive `http://localhost:5175/m`: log in, select a block, scan/enter ~30–50 filters at a stage (mix of new-cycle + mid-cycle), Submit. Confirm: one `POST /api/filters/bulk-operate` in the network tab (not N calls); all filters land in the correct state; the Currently-Drying panel populates; failures (if any) show per-filter.
-
-- [ ] **Step 4:** Verify audit integrity: `curl -sk https://localhost:3000/api/audit/verify-chain -H "Authorization: Bearer <token>"` → valid; one ordered audit row per submitted op.
-
-- [ ] **Step 5:** Measure: record wall-clock for the 50-filter submit before (git stash the client wiring) vs after. Note the numbers in the CHANGELOG entry (Task 6). No console errors, no unstyled UI.
-
-- [ ] **Step 6 (tablet):** Rebuild APK (`cd apps/web && npx vite build; cd ../android && npx cap copy android && cd android && ./gradlew assembleDebug`), sideload, and take one real tablet timing.
+- [ ] **Step 1:** Restart API (`cd apps/api && npx tsx watch src/app.ts` — tsx watch is stale-prone on Windows) + Vite (`cd apps/web && npx vite --host`). Confirm TLS: `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health`.
+- [ ] **Step 2:** Use the `manual-tester` skill / Playwright against `http://localhost:5175/m`. Log in, pick a block. Run these batches and confirm ONE `POST /api/filters/bulk-operate` per Submit (network tab), correct final states, no console errors:
+  - **Mid-cycle batch** — several filters at the same mid-cycle stage → advance.
+  - **Cycle-start batch** — several filters with no active cycle at WASH_IN (equipment dialog) → start.
+  - **Checklist batch** — a stage whose profile has a checklist → shared dialog answered once → all submit.
+  - **Mixed batch** — cycle-start + mid-cycle together (the user's real case).
+  - **Gate preservation** — confirm the cross-block dialog, reason dialog, AHU pre-flight, and DRY_IN duration flow still trigger correctly.
+  - **Partial failure** — force one stale filter; confirm it reports failed while others succeed and the queue behavior is sane.
+- [ ] **Step 3:** Audit integrity: `GET /api/audit/verify-chain` valid; one ordered audit row per submitted op; each row's action is the correct granular action.
+- [ ] **Step 4:** Measure wall-clock for a ~50-filter mixed submit (before via `git stash` the wiring, after). Record numbers for the CHANGELOG.
+- [ ] **Step 5 (tablet):** `cd apps/web && npx vite build; cd ../android && npx cap copy android && cd android && ./gradlew assembleDebug`; sideload; one real tablet timing.
+- [ ] **If any check fails:** fix before proceeding — do not mark the client work done on a red behavioral run.
 
 ---
 
-### Task 6: Doc sync + memory
+### Task 7: Doc sync + memory
 
-**Files:**
-- Modify: `CHANGELOG.md`, `API_REFERENCE.md`, `CLAUDE.md` (root), `apps/api/CLAUDE.md` (endpoint list).
-- Create: a memory note.
+**Files:** `CHANGELOG.md`, `API_REFERENCE.md`, `CLAUDE.md` (root), `apps/api/CLAUDE.md`; new memory note.
 
-- [ ] **Step 1:** Add the endpoint to `API_REFERENCE.md` and the "Key API Endpoints (filter operations)" block in root `CLAUDE.md` + `apps/api/CLAUDE.md`:
-  `POST /api/filters/bulk-operate — Batch advance / start-and-advance / submit-checklist in one request (partial success)`.
-
-- [ ] **Step 2:** Add a `CHANGELOG.md` entry with the measured before/after numbers from Task 5.
-
-- [ ] **Step 3:** Write a memory file `project_bulk_filter_operate_2026_07_09.md` (+ `MEMORY.md` pointer): what the endpoint is, that it reuses the single-op service methods, reauth-via-existing-actions, offline untouched, fallback retained.
-
+- [ ] **Step 1:** Add to `API_REFERENCE.md` + the "Key API Endpoints (filter operations)" block in root + `apps/api` `CLAUDE.md`: `POST /api/filters/bulk-operate — Batch advance / start-and-advance / submit-checklist in one request (partial success)`.
+- [ ] **Step 2:** `CHANGELOG.md` entry with the measured before/after numbers from Task 6.
+- [ ] **Step 3:** Memory file `project_bulk_filter_operate_2026_07_09.md` (+ `MEMORY.md` pointer): endpoint reuses single-op service methods; reauth via existing actions; THREE client call-sites (handleSubmitQueue/handleEquipSubmit/handleChecklistSubmit) share `runBulkOnline`; offline untouched; transport-error keeps queue for retry.
 - [ ] **Step 4: Commit**
-
 ```bash
 git add CHANGELOG.md API_REFERENCE.md CLAUDE.md apps/api/CLAUDE.md
 git commit -m "docs: bulk filter-operate endpoint + measured perf numbers
@@ -593,6 +639,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Notes for the implementer
 
-- **Tasks 3 & 4 are the risk.** `handleSubmitQueue`/`handleChecklistSubmit` carry hard-won behavior (DRY_IN replay via `pendingBatchReplayRef`, terminal-checklist suppression, cross-block gate, AHU pre-flight). Preserve every branch; change only the execute-leaf. If a branch's exact tapeVersion/payload source is unclear, read how the current `core.advance`/`core.submitChecklist` call at that spot builds its payload and mirror it into the bulk op.
-- **Do not touch** the offline `executeOrQueue` branches, `sync-engine.ts`, or `OFFLINE_SYNC_ARCHITECTURE.md`.
-- **After Task 1**, the endpoint is live and testable with `curl` before any client change — verify it there first.
+- **Tasks 3–5 all edit `mobile-operations.tsx` and share `runBulkOnline`.** Do them in order (3 defines the helper). Each touches a different handler.
+- **Change only the ONLINE execute-leaf; preserve every early-return gate** (DRY_IN replay via `pendingBatchReplayRef`, terminal-checklist suppression, cross-block gate, AHU pre-flight, reason/equipment dialogs). If a payload/`tapeVersion` source is unclear, READ the current call at that spot and mirror it — never invent a compliance-relevant field; DONE_WITH_CONCERNS if truly unclear.
+- **Do not touch** the offline `executeOrQueue`/`core.*` branches, `sync-engine.ts`, or `OFFLINE_SYNC_ARCHITECTURE.md`. The bulk path is `online`-gated; offline stays byte-for-byte.
+- **The diff-review is not the gate for Tasks 3–5 — Task 6's behavioral run is.** A clean typecheck + green unit tests are necessary, not sufficient.
+- **After Task 1**, the endpoint is live and testable with `curl` before any client change.
