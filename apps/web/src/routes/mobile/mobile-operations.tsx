@@ -46,6 +46,8 @@ import { RemainingFiltersDialog } from '../filter-management/components/remainin
 import { AhuSetChooserDialog, type FilterSetChoice } from '../filter-management/components/ahu-set-chooser-dialog';
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
+// Task 3 — batch the ONLINE mid-cycle advances into one /bulk-operate POST.
+import { bulkOperate, type BulkClientItem, type BulkClientResult } from '@/lib/filter-ops/bulk-operate';
 
 // Perf (2026-07-09): run an async worker over `items` with a bounded number of
 // simultaneous in-flight calls. Used to prime per-filter /current-state after a
@@ -818,6 +820,55 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setDryerDurations(prev => { const next = { ...prev }; delete next[filterId]; return next; });
   };
 
+  // Post one batch of resolved ops to /bulk-operate (online only). Primes each ok
+  // filter's cache from its returned snapshot and exposes the per-filter
+  // post-write `actions` tape so the callers' existing post-loop checklist
+  // dispatch keeps working. Re-throws REAUTH so the caller's outer catch surfaces
+  // the "re-authenticate and re-submit" message; returns 'transport_error' on a
+  // wholesale failure so the caller can keep its queue and let the operator retry.
+  //
+  // NOTE (integration): the brief's Step 2 wrapped this in `reauth.execute(...)`,
+  // but this codebase's `reauth.execute` is a DIALOG-DRIVER that returns void,
+  // swallows non-REAUTH errors (catch → onError, no re-throw), and DEFERS the
+  // callback to a confirm handler when reauth is needed — so it cannot return the
+  // batch results synchronously the way runBulkOnline needs. `bulkOperate` is
+  // already reauth-transparent (postWithReauth when a password is present, plain
+  // post otherwise) and throws REAUTH / transport exactly as the brief's catch
+  // assumes, so we call it directly. Advances ship reauth-OFF (action-reauth
+  // seeds `{}`) and the current mid-cycle leaf posts WITHOUT a password, so this
+  // is behaviorally identical for Task 3. `reauthAction` is retained for the
+  // shared signature (Tasks 4/5); wiring an actual reauth DIALOG for batch ops
+  // needs a returning reauth variant and is out of scope here (see report).
+  const runBulkOnline = async (
+    ops: BulkClientItem[],
+    reauthAction: string,
+  ): Promise<{ results: BulkClientResult[]; actionsByFilter: Map<string, any[]>; okCount: number; failures: string[] } | 'transport_error'> => {
+    void reauthAction; // reauth-dialog wiring deferred — see note above.
+    let resp: { results: BulkClientResult[] };
+    try {
+      resp = await bulkOperate(ops);
+    } catch (e: any) {
+      const code = e?.error ?? e?.code;
+      if (code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED') throw e;
+      return 'transport_error';
+    }
+    const actionsByFilter = new Map<string, any[]>();
+    const failures: string[] = [];
+    let okCount = 0;
+    for (const r of resp.results) {
+      if (r.status === 'ok') {
+        okCount++;
+        if (r.snapshot) {
+          await cache(`filter-state-${r.filterId}`, r.snapshot, 24 * 60 * 60 * 1000);
+          if (Array.isArray((r.snapshot as any).actions)) actionsByFilter.set(r.filterId, (r.snapshot as any).actions);
+        }
+      } else {
+        failures.push(`${r.filterId}: ${r.error?.message ?? 'failed'}`);
+      }
+    }
+    return { results: resp.results, actionsByFilter, okCount, failures };
+  };
+
   // Submit all queued filters for the active stage (batch advance for mid-cycle stages).
   // Each item is validated against the cached pipeline graph + block assignment BEFORE
   // being queued — this is the same strict offline gate applied in handleSubmit.
@@ -836,6 +887,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // recompute (which depends on cache state that the post-loop /current-
     // state prime overwrites before the dispatch runs).
     const serverActionsByFilter = new Map<string, any[]>();
+    // Task 3: ONLINE advance leaves accumulate a resolved op here instead of
+    // firing a per-filter network call. After the loop, all of these post in ONE
+    // /bulk-operate request (see the runBulkOnline dispatch below). Offline leaves
+    // are untouched — they still go through executeOrQueue/core.advance.
+    const bulkOps: BulkClientItem[] = [];
     // 2026-05-26: filters whose dialog was ALREADY dispatched inside the
     // loop by core.advance/startAndAdvance's resolveAndDispatchChecklist.
     // The post-loop dispatch must SKIP these — otherwise it tries to open
@@ -1082,6 +1138,31 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               failed.push(`${item.filterName}: pick a dryer duration in the queue row first`);
               continue;
             }
+            // Task 3 (online): accumulate the SET_DURATION advance into the batch
+            // instead of firing core.advance per-filter. Mirrors the offline
+            // core.advance payload below exactly (targetState/cleaningAreaId/
+            // dryerAction/dryerDurationMinutes/remarks) + the tapeVersion that
+            // executeOrQueue would have merged from the cached filter-state row.
+            // `skipChecklistDispatch` is a client-only dialog-control flag (not a
+            // server field) so it's intentionally omitted. The post-loop
+            // runBulkOnline dispatch owns successCount / setRecentOps /
+            // serverActionsByFilter for these.
+            if (online) {
+              bulkOps.push({
+                clientOpId: crypto.randomUUID(),
+                filterId: item.filterId,
+                kind: 'advance',
+                payload: {
+                  targetState: 'DRY_IN',
+                  cleaningAreaId: selectedBlock?.id,
+                  dryerAction: 'SET_DURATION',
+                  dryerDurationMinutes: dur,
+                  remarks: remarks || `Dryer started (${dur} min) - ${item.filterName}`,
+                  ...(typeof cachedState.tapeVersion === 'number' ? { tapeVersion: cachedState.tapeVersion } : {}),
+                },
+              });
+              continue;
+            }
             // Has duration: fire SET_DURATION advance directly. Same payload
             // shape as handleDryerDurationSubmit, but called per-filter from
             // the batch loop instead of via the modal dialog.
@@ -1152,6 +1233,27 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           }
         }
 
+        // Task 3 (online): accumulate the mid-cycle advance into the batch
+        // instead of calling executeOrQueue per-filter. The payload mirrors the
+        // offline executeOrQueue call below exactly (targetState/cleaningAreaId/
+        // remarks) plus the tapeVersion executeOrQueue would have merged from the
+        // cached filter-state row (only when it is a number — same guard as
+        // use-offline.ts). Post-loop runBulkOnline owns successCount /
+        // setRecentOps / serverActionsByFilter for these.
+        if (online) {
+          bulkOps.push({
+            clientOpId: crypto.randomUUID(),
+            filterId: item.filterId,
+            kind: 'advance',
+            payload: {
+              targetState: activeStage.key,
+              cleaningAreaId: selectedBlock?.id,
+              remarks: remarks || `${activeStage.label} - ${item.filterName}`,
+              ...(typeof cachedState.tapeVersion === 'number' ? { tapeVersion: cachedState.tapeVersion } : {}),
+            },
+          });
+          continue;
+        }
         const { executed, result } = await executeOrQueue('advance', item.filterId, item.filterName, {
           targetState: activeStage.key, cleaningAreaId: selectedBlock?.id,
           remarks: remarks || `${activeStage.label} - ${item.filterName}`,
@@ -1195,6 +1297,26 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           throw e;
         }
         failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+      }
+    }
+    // Task 3: dispatch every ONLINE advance accumulated above in ONE
+    // /bulk-operate POST (one reauth prompt for the whole batch). Runs AFTER the
+    // loop but BEFORE the post-loop checklist dispatch, and feeds
+    // serverActionsByFilter from the response so that block keeps working
+    // unchanged. A wholesale transport failure keeps the scanQueue intact for
+    // retry (per-item STALE_TAPE/validation failures surface as `failures`).
+    if (online && bulkOps.length > 0) {
+      const out = await runBulkOnline(bulkOps, 'ADVANCE_FILTER_STAGE');
+      if (out === 'transport_error') {
+        setError('Could not reach the server to submit the batch. Please try Submit again.');
+        setLoading(false);
+        return; // keep scanQueue intact for retry — do NOT clear it
+      }
+      successCount += out.okCount;
+      failed.push(...out.failures);
+      for (const [fid, actions] of out.actionsByFilter) serverActionsByFilter.set(fid, actions);
+      for (const r of out.results) {
+        if (r.status === 'ok') setRecentOps(prev => [{ stage: activeStage.key, filter: scanQueueSnapshot.find(q => q.filterId === r.filterId)?.filterName ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
       }
     }
     // Offline parity: if any advanced item now has a pending checklist (per
@@ -1289,36 +1411,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // didn't see the panel until the next reload because offlineFilters
     // was stale; the per-filter cache write was correct but allFilters
     // doesn't pull from there.
-    // 2026-05-20: force a hard revalidation for the instances list AND for
-    // each queued filter's /current-state endpoint. Pre-fix: only one
-    // countdown card surfaced after batch dryer-start because:
-    //   (a) `mutate(key)` was deduped by the global SWR config
-    //       (dedupingInterval: 5000) when a prior fetch was in-flight; and
-    //   (b) DryingFilterCard does its OWN apiClient.get for current-state on
-    //       mount + 15s interval — no SWR cache key, so global mutate didn't
-    //       touch it. The card for the FIRST filter (still mounted from a
-    //       previous flow) kept its stale cycleData until the 15s tick.
     //
-    // Fix: revalidate with explicit `{ revalidate: true }` for the list,
-    // then prime each per-filter card's cycleData directly via apiClient
-    // so the panel paints with all countdowns immediately, no 15s wait.
-    const queuedIds = scanQueueSnapshot.map(q => q.filterId);
-    if (online) {
-      await mutate('/api/assets/instances', undefined, { revalidate: true });
-      // Prime per-filter cache so when DryingFilterCard remounts/refetches,
-      // the data is already in the in-memory store. We also write to the
-      // offline-store cache so an OFFLINE remount sees the same data.
-      // Perf (2026-07-09): bounded concurrency (6) instead of an unbounded
-      // Promise.all. At 50–100 tags the old code fired that many heavy
-      // "full server snapshot" GETs + IDB writes simultaneously — the exact
-      // request storm that tripped the tablet rate-limiter → 429 → OOM.
-      await runWithConcurrency(queuedIds, 6, async (fid) => {
-        try {
-          const st = await apiClient.get<any>(`/api/filters/${fid}/current-state`);
-          if (st) await cache(`filter-state-${fid}`, st, 24 * 60 * 60 * 1000);
-        } catch { /* per-filter prime is best-effort */ }
-      });
-    }
+    // Task 3: the old per-filter /current-state prime is gone. Each ok filter's
+    // filter-state cache was already written from its server snapshot inside
+    // runBulkOnline (the bulk snapshot IS the /current-state response — the
+    // service returns getCurrentState(...) for each ok item), so re-fetching
+    // /current-state per filter would be redundant work + a rate-limit risk.
+    // Just force a hard revalidation of the instances list so allFilters sees
+    // the new lifecycle states.
+    if (online) await mutate('/api/assets/instances', undefined, { revalidate: true });
     refreshOfflineData();
     } catch (e: any) {
       // REAUTH bubbled out of the inner loop — the reauth dialog stays open
