@@ -47,6 +47,27 @@ import { AhuSetChooserDialog, type FilterSetChoice } from '../filter-management/
 
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 
+// Perf (2026-07-09): run an async worker over `items` with a bounded number of
+// simultaneous in-flight calls. Used to prime per-filter /current-state after a
+// batch submit WITHOUT firing 50–100 heavy requests + IDB writes at once — that
+// unbounded stampede is what tripped the tablet rate-limiter → 429 → OOM (see
+// the tablet rate-limit note). Order of completion doesn't matter here; every
+// task is best-effort and independent.
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await worker(items[idx]);
+    }
+  });
+  await Promise.all(runners);
+}
+
 type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'approvals' | 'cycles';
 
 // Build identifier→filter map from identifiers list
@@ -821,6 +842,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // open_checklist from awaiting_checklist and the state-machine guard
     // throws (caught offline DRY_IN SET_DURATION repro on 2026-05-26).
     const dialogDispatchedInLoop = new Set<string>();
+    // Perf (2026-07-09): read the ENTIRE cached-filter store ONCE, up front,
+    // and index it by id. Pre-fix each loop iteration called getOfflineFilters()
+    // — a full IDB scan of every cached filter — just to .find() its own row,
+    // so a 50–100 tag batch did 50–100 full-store reads (O(N²)). Distinct
+    // filterIds per queue item mean a single snapshot is correct; each row is
+    // that filter's own state and no item depends on another item's row.
+    const allCachedFilters = await getOfflineFilters();
+    const cachedFilterById = new Map<string, any>(
+      (allCachedFilters ?? []).map((f: any) => [f.id, f]),
+    );
     // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
     // always clears even when REAUTH or OFFLINE_CACHE_RECOMPUTE_FAILED bubble
     // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
@@ -828,8 +859,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     try {
     for (const item of scanQueue) {
       try {
-        const cachedFilters = await getOfflineFilters();
-        const cached = cachedFilters.find((f: any) => f.id === item.filterId);
+        const cached = cachedFilterById.get(item.filterId);
         const cachedState = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
         const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
         const cycleInProgress = !!(cachedState.currentCycle?.id || cached?.currentCycleId);
@@ -889,7 +919,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // (offline cross-block is already caught by validateOfflineGate above).
         // Same-block / already-approved (MATCH / APPROVED) fall straight through
         // — normal cleaning is unaffected.
-        if (online && selectedBlock?.id) {
+        //
+        // Perf (2026-07-09): when this filter's cached home block IS the selected
+        // block, it can never be a cross-block op, so the approval status can't be
+        // CONFIRM/REQUIRED — skip the whole per-filter /current-state round-trip.
+        // In the common batch workflow (operator scans filters belonging to the
+        // block they picked) this eliminates one serial network call per filter,
+        // roughly halving online submit time for 50–100 tags. Cold cache
+        // (homeBlock unknown) falls through to the GET, unchanged.
+        const sameHomeBlock =
+          !!cachedState.homeBlock?.id && cachedState.homeBlock.id === selectedBlock?.id;
+        if (online && selectedBlock?.id && !sameHomeBlock) {
           let bcStatus: string | null | undefined = cachedState.blockChangeStatus;
           let homeBlk: { id: string; name: string } | null | undefined = cachedState.homeBlock;
           // Refresh against the SELECTED block — the cached status may have been
@@ -1117,8 +1157,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           remarks: remarks || `${activeStage.label} - ${item.filterName}`,
         }, activeStage.key);
         if (!executed) {
+          // Perf (2026-07-09): recompute this filter's cache row per item, but do
+          // NOT refreshOfflineData() here. That call re-reads the whole IDB
+          // filter store and setState-repaints the entire filter list; firing it
+          // once per queued tag meant 50–100 full re-renders for an offline
+          // batch. A single refreshOfflineData() after the loop (below) repaints
+          // everything once.
           await recomputeAndCacheFilterState(item.filterId, activeStage.key, false, selectedBlock?.id ?? null);
-          refreshOfflineData();
         }
         // 2026-05-26: stash server tape so post-loop dispatch passes the
         // authoritative actions to resolvePendingChecklistDialog. The
@@ -1263,12 +1308,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Prime per-filter cache so when DryingFilterCard remounts/refetches,
       // the data is already in the in-memory store. We also write to the
       // offline-store cache so an OFFLINE remount sees the same data.
-      await Promise.all(queuedIds.map(async fid => {
+      // Perf (2026-07-09): bounded concurrency (6) instead of an unbounded
+      // Promise.all. At 50–100 tags the old code fired that many heavy
+      // "full server snapshot" GETs + IDB writes simultaneously — the exact
+      // request storm that tripped the tablet rate-limiter → 429 → OOM.
+      await runWithConcurrency(queuedIds, 6, async (fid) => {
         try {
           const st = await apiClient.get<any>(`/api/filters/${fid}/current-state`);
           if (st) await cache(`filter-state-${fid}`, st, 24 * 60 * 60 * 1000);
         } catch { /* per-filter prime is best-effort */ }
-      }));
+      });
     }
     refreshOfflineData();
     } catch (e: any) {
@@ -2312,12 +2361,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // out immediately. Mirrors the dryer batch refresh in handleSubmitQueue.
         if (online) {
           await mutate('/api/assets/instances', undefined, { revalidate: true });
-          await Promise.all(batch.map(async b => {
+          // Perf (2026-07-09): bounded prime — see runWithConcurrency note above.
+          await runWithConcurrency(batch, 6, async (b) => {
             try {
               const st = await apiClient.get<any>(`/api/filters/${b.filterId}/current-state`);
               if (st) await cache(`filter-state-${b.filterId}`, st, 24 * 60 * 60 * 1000);
             } catch { /* best-effort per-filter prime */ }
-          }));
+          });
         }
         // Terminal checklist completed the cycles → nothing left to do. Clear the
         // scan queue so the finished filters don't linger and a re-submit can't
