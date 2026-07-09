@@ -101,7 +101,8 @@ afterEach(() => {
   vi.resetModules();
 });
 
-import { syncPendingOperations } from '../sync-engine';
+import { syncPendingOperations, withReplayTimeout } from '../sync-engine';
+import { SYNC_OP_REPLAY_TIMEOUT_MS } from '../timing-constants';
 
 function queueOp(overrides: Partial<{
   type: string;
@@ -524,5 +525,50 @@ describe('sync-engine — Phase 8.3 tape-version handling', () => {
       .filter(([id]: any[]) => id === mockOfflineStore.__ops[2].id);
     expect(persistedOp2.length).toBeGreaterThanOrEqual(1);
     expect(persistedOp3.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('sync-engine — per-op replay timeout (hung-request hardening)', () => {
+  it('withReplayTimeout resolves a fast promise and clears its timer', async () => {
+    await expect(withReplayTimeout(Promise.resolve('ok'), 1000, 'F')).resolves.toBe('ok');
+  });
+
+  it('withReplayTimeout rejects with OP_TIMEOUT when the promise never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = withReplayTimeout(new Promise<never>(() => {}), 5000, 'F-hung');
+      const assertion = expect(p).rejects.toMatchObject({ code: 'OP_TIMEOUT' });
+      await vi.advanceTimersByTimeAsync(5001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a hung replay returns the op to pending WITHOUT burning retry budget, and the drain finishes', async () => {
+    vi.useFakeTimers();
+    try {
+      const op = queueOp({ type: 'advance', tapeVersion: 1005, retryCount: 1 });
+      // The advance POST hangs forever; refresh + health probe still resolve.
+      mockApiClient.post.mockImplementation((url: string) => {
+        if (url === '/api/auth/refresh') return Promise.resolve({ token: 'fresh' });
+        if (url.includes('/advance')) return new Promise(() => {}); // never resolves
+        return Promise.resolve({});
+      });
+
+      const drain = syncPendingOperations();
+      // Let the pre-drain awaits settle, then fire the per-op timeout.
+      await vi.advanceTimersByTimeAsync(SYNC_OP_REPLAY_TIMEOUT_MS + 100);
+      const result = await drain;
+
+      // Reclaimed, not stranded in 'syncing' — the exact freeze we're preventing.
+      expect(op.status).toBe('pending');
+      // Interrupted replay is not a failure — retry budget preserved.
+      expect(op.retryCount).toBe(1);
+      expect(result.failed).toBe(1);
+      expect(result.synced).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

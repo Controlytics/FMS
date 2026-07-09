@@ -37,7 +37,29 @@ import {
   SYNC_AFTER_ONLINE_DELAY_MS,
   SYNC_AFTER_VISIBILITY_DELAY_MS,
   SYNC_INITIAL_DELAY_MS,
+  SYNC_OP_REPLAY_TIMEOUT_MS,
 } from './timing-constants';
+
+/**
+ * Bound a replay op's wall-clock wait. Rejects with an `OP_TIMEOUT`-coded error
+ * if `p` hasn't settled within `ms`. It does NOT abort the underlying request —
+ * CapacitorHttp on the APK ignores AbortSignal, so a race is the portable
+ * mechanism, and the op's clientOpId makes a late-completing request an
+ * idempotent no-op. The point is to release the drain loop (which resets the
+ * module `syncing` flag) so a hung request can't freeze all sync until the app
+ * restarts. Exported for direct unit-testing.
+ */
+export function withReplayTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const err: any = new Error(`Replay timed out after ${ms}ms — ${label}`);
+      err.code = 'OP_TIMEOUT';
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([p, timeout]).finally(() => { if (timer) clearTimeout(timer); });
+}
 
 /**
  * Audit 2026-05-04 fix C1: read the offline-replay grant token from session
@@ -472,7 +494,9 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
     try {
       await updateOperationStatus(op.id, 'syncing');
       notifyStage('sending-ops', { current: synced + 1, total: pending.length, message: op.filterName });
-      await executeOperation(op);
+      // Hard-bound the replay so a hung request (no reliable transport timeout
+      // on CapacitorHttp) can't strand this op in 'syncing' and freeze the drain.
+      await withReplayTimeout(executeOperation(op), SYNC_OP_REPLAY_TIMEOUT_MS, op.filterName);
       await updateOperationStatus(op.id, 'synced');
       synced++;
       notify({ type: 'progress', synced, total: pending.length });
@@ -532,6 +556,25 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       // Extract error message — apiClient throws plain objects for API errors
       const errMsg = e?.message ?? e?.error ?? 'Sync failed';
       const msg = String(errMsg).toLowerCase();
+
+      // Per-op replay hard timeout (OP_TIMEOUT): the request hung past
+      // SYNC_OP_REPLAY_TIMEOUT_MS. A hang is not the op's fault (slow/dead
+      // transport with no request timeout), and it's ambiguous whether the
+      // request actually reached the server — so keep the op 'pending' WITHOUT
+      // burning retry budget (mirrors the interrupted-replay rule) and STOP the
+      // drain. Breaking lets the loop finish so the module `syncing` flag resets
+      // below — the whole point, since otherwise a hung request freezes all sync
+      // until app restart. A late-completing request dedups on clientOpId, and
+      // the whole batch (incl. any dependents) simply retries on the next tick.
+      // MUST precede the start-cycle-failure / network / generic branches: a
+      // timeout is not a definitive start failure and must not fall through to
+      // the retry-burning generic handler.
+      if (e?.code === 'OP_TIMEOUT') {
+        await updateOperationStatus(op.id, 'pending'); // no error arg → retryCount preserved
+        failed++;
+        notify({ type: 'interrupted', error: 'Sync timed out — will retry shortly' });
+        break;
+      }
 
       // 2026-06-06: a failed start-cycle means no cycle was created — record the
       // filter so its dependent advance/checklist/bypass ops are skipped (see

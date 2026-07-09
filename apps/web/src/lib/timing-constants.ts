@@ -59,6 +59,17 @@ export const SYNC_AFTER_VISIBILITY_DELAY_MS = 1_000;
  */
 export const SYNC_INITIAL_DELAY_MS = 3_000;
 
+/**
+ * Per-op replay hard timeout (sync-engine `executeOperation`). Some transports
+ * — notably CapacitorHttp on the APK — have no reliable request timeout, so a
+ * hung replay would leave the op stuck in `syncing` AND the drain's module-level
+ * `syncing` flag stuck true, freezing all further sync until the app restarts.
+ * Bounding each op's wall-clock wait releases the drain; a late-completing
+ * request is harmless (the op's clientOpId makes the server dedup it). Generous
+ * so legitimately-slow requests never trip it — only a genuine hang does.
+ */
+export const SYNC_OP_REPLAY_TIMEOUT_MS = 45_000;
+
 // ─── Versioned-cache sync (lib/sync-since.ts) ───────────────────────────
 
 /**
