@@ -23,6 +23,7 @@ import {
   prettyStageLabel,
   collectChecklistsAfterStage,
   resolveChecklistQuestions,
+  toLocalDateString,
 } from '../helpers.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 import { assertAhuInterlockSatisfied } from '../ahu-completion-gate.js';
@@ -248,7 +249,9 @@ export async function submitChecklistImpl(
         where: { assetInstanceId: filterId },
         data: { currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' },
       });
-      const cleanDate = completedAt.toISOString().slice(0, 10);
+      // LOCAL calendar day (not UTC) so a completion near local midnight isn't
+      // stamped a day early — see toLocalDateString.
+      const cleanDate = toLocalDateString(completedAt);
       await tx.$executeRaw`UPDATE filters SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{lastCleaningDate}', to_jsonb(${cleanDate}::text), true) WHERE id = ${filterId}::uuid`;
       const completeEvent = {
         filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,

@@ -13,6 +13,23 @@ export function computeChecksum(data: Record<string, unknown>): string {
   return createHash('sha256').update(canonical).digest('hex');
 }
 
+/**
+ * Format a Date as its LOCAL calendar day 'YYYY-MM-DD' — server-local is the
+ * site's local time on this single-site local-Windows deployment.
+ *
+ * Used for the filter's `lastCleaningDate` stamp. `toISOString().slice(0,10)`
+ * yields the UTC day, which is off-by-one for the operator near local midnight:
+ * a cleaning completed 02:00 IST (UTC+5:30) has an ISO instant of the PREVIOUS
+ * calendar day, so "Last Cleaned" recorded yesterday. `getFullYear/getMonth/
+ * getDate` read local-time components, so this reflects the operator's real day.
+ */
+export function toLocalDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 /** Pretty-print a stateKey like "WASH_IN" → "Wash In" for operator-facing error messages. */
 export function prettyStageLabel(stateKey: string | null | undefined): string {
   if (!stateKey) return 'this stage';

@@ -15,7 +15,7 @@ import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempoten
 import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
-import { computeChecksum, collectChecklistsAfterStage, prettyStageLabel } from '../helpers.js';
+import { computeChecksum, collectChecklistsAfterStage, prettyStageLabel, toLocalDateString } from '../helpers.js';
 import { lockAndVerifyFilterState } from './locking.js';
 import { validateAdvanceBlock } from '../filter-resolver.js';
 import {
@@ -501,7 +501,9 @@ export async function advanceImpl(
       // (not server-now) for offline replay, per the dryer-anchor rule. jsonb_set
       // merges — other field-option attributes are preserved. The filters→
       // asset_instances mirror trigger keeps the legacy row in sync.
-      const cleanDate = completedAt.toISOString().slice(0, 10);
+      // LOCAL calendar day (not toISOString/UTC) so a completion near local
+      // midnight isn't stamped a day early — see toLocalDateString.
+      const cleanDate = toLocalDateString(completedAt);
       await tx.$executeRaw`UPDATE filters SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{lastCleaningDate}', to_jsonb(${cleanDate}::text), true) WHERE id = ${filterId}::uuid`;
 
       const completeEvent = {
