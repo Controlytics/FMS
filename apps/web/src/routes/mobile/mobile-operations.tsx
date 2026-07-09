@@ -2079,6 +2079,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // The start-cycle half is reauth-gated (START_CLEANING_CYCLE for ADMIN role) — wrap.
       // The plain-advance branch is NOT reauth-gated (POST /advance has no enforceReauth).
       let executed: boolean | undefined;
+      // Bulk online path only: did the FIRST scanned filter (which drives the
+      // shared success toast + recent-ops entry below) specifically fail? Keyed
+      // separately from `executed` because okCount>0 would paint a false
+      // "Success"/"(queued)" for that filter inside a partially-failed batch.
+      let firstFilterFailed = false;
       // 2026-05-26: track whether core.startAndAdvance / core.advance opened
       // a checklist dialog. The trailing "close stale equipment dialog"
       // logic at the end of this handler used to read core.dialogState.kind
@@ -2130,7 +2135,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             return;
           }
           setPendingCyclePayload(null);
+          // `executed` gates the instances mutate below: true if ANY filter
+          // succeeded. The first-filter success toast is keyed separately on that
+          // filter's OWN result (firstFilterFailed) so a partial/total failure
+          // doesn't falsely claim equipFiltName succeeded or was queued offline.
           executed = out.okCount > 0;
+          firstFilterFailed = out.results.find(r => r.filterId === equipFiltId)?.status === 'failed';
           // Feed the unified checklist dispatch (below) the authoritative
           // per-filter server actions, exactly as the per-filter loop did.
           for (const [fid, actions] of out.actionsByFilter) cycleStartActionsByFilter.set(fid, actions);
@@ -2146,9 +2156,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               setRecentOps(prev => [{ stage: equipStage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
             }
           }
-          const failMsgs = out.results
-            .filter(r => r.status === 'failed')
-            .map(r => `${nameById.get(r.filterId) ?? r.filterId}: ${(r as any).error?.message ?? 'failed'}`);
+          const failMsgs = out.results.flatMap(r =>
+            r.status === 'failed'
+              ? [`${nameById.get(r.filterId) ?? r.filterId}: ${r.error?.message ?? 'failed'}`]
+              : []);
           if (failMsgs.length > 0) setError(failMsgs.join('; '));
         } else {
           // For multi-filter cycle-start: skip the in-core dispatch entirely
@@ -2221,8 +2232,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         submittedAt: formatTime(new Date()),
       });
       const queued = !executed;
-      setSuccess(`${equipFiltName} → ${equipStage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
-      setRecentOps(prev => [{ stage: equipStage, filter: equipFiltName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
+      // Skip the first-filter success toast + recent-ops entry when THAT filter
+      // failed in an online batch (its failure is already surfaced via setError);
+      // otherwise it falsely reads as "Success"/"(queued)".
+      if (!firstFilterFailed) {
+        setSuccess(`${equipFiltName} → ${equipStage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
+        setRecentOps(prev => [{ stage: equipStage, filter: equipFiltName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
+      }
 
       // 2026-05-20 batch cycle-start continuation. After the first filter's
       // start-and-advance completes, replay the SAME reason payload +
