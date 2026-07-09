@@ -2493,9 +2493,90 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         expectedProfileVersions[cl.checklistProfileId] = cl.profileVersion;
       }
     }
+    // Task 5 (2026-07-09): ONLINE batch checklist submit via /bulk-operate — ONE
+    // request covering every batch member, ONE reauth prompt. runBulkOnline is
+    // reauth-capable (opens the password dialog for a reauth-gated role, posts
+    // inline otherwise) so NO reauth.execute wrapper is used here — nesting it
+    // inside reauth.execute would double-prompt. OFFLINE batch + every single
+    // submit stay on the core.submitChecklist path in the reauth.execute block
+    // below (byte-identical to before). Mirrors the Task 4 cycle-start split.
+    const isBatchSubmit = !!(
+      pendingBatch && pendingBatch.length > 0 &&
+      pendingBatch.some(p => p.filterId === checklistDialog.filterId)
+    );
+    if (isBatchSubmit && online) {
+      const batch = pendingBatch!;
+      const nameById = new Map(batch.map(b => [b.filterId, b.filterName]));
+      // Mirror executeOrQueue/use-offline.ts (L114-123): submit-checklist is
+      // cycle-bound, so the server needs each filter's tapeVersion (409
+      // STALE_TAPE otherwise). Read it from the SAME per-filter
+      // `filter-state-<id>` cache row executeOrQueue reads, guarded to a number
+      // — include only when present (same source as the Task 3 advance leaf,
+      // L1243). expectedProfileVersions (SCHEMA_DRIFT 409) + filterSet (AHU
+      // terminal-completion scope) are carried forward exactly as the current
+      // core.submitChecklist call passes them. `password` is NOT in the payload:
+      // it flows through runBulkOnline → reauth.executeWithResult → bulkOperate.
+      const ops: BulkClientItem[] = await Promise.all(batch.map(async (item) => {
+        const cachedState = await getCache<any>(`filter-state-${item.filterId}`).catch(() => null);
+        return {
+          clientOpId: crypto.randomUUID(),
+          filterId: item.filterId,
+          kind: 'submit-checklist' as const,
+          payload: {
+            answers: checklistAnswers,
+            expectedProfileVersions,
+            ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
+            ...(typeof cachedState?.tapeVersion === 'number' ? { tapeVersion: cachedState.tapeVersion } : {}),
+          },
+        };
+      }));
+      const out = await runBulkOnline(ops, 'SUBMIT_CHECKLIST_WITH_SIGNATURE');
+      // Operator declined reauth — keep the dialog + state, no error banner.
+      if (out === 'cancelled') { setLoading(false); return; }
+      if (out === 'transport_error') {
+        setError('Could not reach the server to submit the checklist. Please try again.');
+        setLoading(false);
+        return;
+      }
+      // core never dispatched a close (no per-member core.submitChecklist), so
+      // close the checklist dialog explicitly — same transition the loop relied
+      // on. Ordering (close → state resets → mutate → setLoading) is kept
+      // byte-identical to the loop branch so the batch-replay effect (L1454),
+      // which keys off awaiting_checklist → none, behaves the same.
+      if (core.dialogState.kind === 'awaiting_checklist') core.dispatch({ type: 'close' });
+      setPendingBatch(null);
+      setChecklistAnswers({});
+      setStageSubmitRecap(null);
+      // Surface per-filter results by NAME (not the raw UUID out.failures carry)
+      // — batch members carry filterName; map through it.
+      const success = out.okCount;
+      const failed = out.results
+        .filter((r): r is Extract<BulkClientResult, { status: 'failed' }> => r.status === 'failed')
+        .map(r => `${nameById.get(r.filterId) ?? r.filterId}: ${r.error?.message ?? 'failed'}`);
+      if (failed.length > 0 && success === 0) {
+        setError(failed.join('\n'));
+      } else if (failed.length > 0) {
+        setError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+      } else {
+        setSuccess(`Checklist submitted for ${success} filter(s)`);
+      }
+      // runBulkOnline already re-primed each filter's `filter-state-<id>` cache
+      // from the bulk snapshot, so the per-filter /current-state prime the loop
+      // branch did is unnecessary here. Still hard-revalidate the instances list
+      // so completed cycles drop out of the view immediately.
+      await mutate('/api/assets/instances', undefined, { revalidate: true });
+      // Terminal checklist completed the cycles → clear the scan queue so the
+      // finished filters don't linger and a re-submit can't re-process them.
+      // (DRY_IN / non-terminal keeps the queue for its replay — see L1454.)
+      if (willComplete) { setScanQueue([]); setDryerDurations({}); }
+      setLoading(false);
+      return;
+    }
+
     // SUBMIT_CHECKLIST_WITH_SIGNATURE is reauth-gated for ADMIN role
     // (per system_config['action-reauth']). Wrap so the password dialog
-    // appears when policy demands it.
+    // appears when policy demands it. OFFLINE batch reaches the batch branch
+    // inside (online-batch is handled above); single submits use the else path.
     await reauth.execute('SUBMIT_CHECKLIST_WITH_SIGNATURE', async (password?) => {
       // 2026-05-26: unified-batch branch. When pendingBatch is set AND the
       // open dialog's primary filter is part of that batch, submit the same
