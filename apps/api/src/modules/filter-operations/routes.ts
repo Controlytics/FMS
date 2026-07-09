@@ -20,6 +20,16 @@ import { computeAhuCompletionStatus, computeAhuBatchStatus, computeAhuSetAvailab
 const MAX_TEXT_LEN = 2000;      // remarks / justification / short free-text keys
 const MAX_OBJECT_PROPS = 500;   // parameters / checklistData / instrumentReadings / answers key counts
 
+// Stage stateKeys are free-form in the cleaning-profile schema but are only ever
+// created from a fixed dropdown (CLEANING_STAGES) as UPPER_SNAKE identifiers
+// (WASH_IN … STORAGE_OUT). Constrain advance/bypass targetState to that shape at
+// the schema edge so garbage (spaces / lowercase / injection / oversized) is
+// rejected up front — while still accepting any conventionally-named stage,
+// including future ones, so it can't regress. The service
+// (assertTargetStateReachable / assertTargetStateExists) stays the authoritative
+// check against the profile's ACTUAL states. 64-char ceiling (max real key = 11).
+const STATE_KEY_PATTERN = '^[A-Z][A-Z0-9_]{0,63}$';
+
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
 
@@ -263,7 +273,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['targetState', 'tapeVersion'],
         properties: {
-          targetState: { type: 'string' },
+          targetState: { type: 'string', pattern: STATE_KEY_PATTERN },
           parameters: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
           equipmentId: { type: 'string', format: 'uuid' },
           cleaningAreaId: { type: 'string', format: 'uuid' },
@@ -401,7 +411,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['targetState', 'justification', 'tapeVersion'],
         properties: {
-          targetState: { type: 'string' },
+          targetState: { type: 'string', pattern: STATE_KEY_PATTERN },
           justification: { type: 'string', minLength: 10, maxLength: MAX_TEXT_LEN },
           parameters: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
