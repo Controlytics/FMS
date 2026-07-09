@@ -157,13 +157,42 @@ export function useOffline() {
       } catch (e: any) {
         const code = e?.code || e?.error;
         if (code !== 'STALE_TAPE') throw e;
-        let fresh: number | undefined;
+        // STALE_TAPE: this cycle's tape moved. Re-fetch the live state to get a
+        // fresh tapeVersion for a single retry.
+        let cs: any;
         try {
-          const cs = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
-          if (typeof cs?.tapeVersion === 'number') fresh = cs.tapeVersion;
+          cs = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
         } catch { throw e; }
+        const fresh = typeof cs?.tapeVersion === 'number' ? cs.tapeVersion : undefined;
         if (fresh === undefined) throw e;
-        return await onlinePost<T>(url, { ...body, tapeVersion: fresh });
+        try {
+          return await onlinePost<T>(url, { ...body, tapeVersion: fresh });
+        } catch (retryErr: any) {
+          // The retry against the FRESH tape STILL failed. For the common
+          // false-positive (single operator, lagging cache) the retry SUCCEEDS
+          // — so a failure here means the filter's state genuinely moved under
+          // us: another operator advanced this cycle (or an earlier action of
+          // ours already applied). The raw retry error reads as the operator's
+          // OWN mistake — e.g. OUT_OF_SEQUENCE "Cannot move to WASH_OUT from
+          // WASH_OUT" — which is exactly wrong in a two-device race. Re-label
+          // it as the concurrent change it actually is. Refresh the local cache
+          // from the state we just fetched so the operator's next render shows
+          // the current reality (the UI also self-heals via /current-state
+          // polling, but this makes it immediate). STATE_CHANGED / CYCLE_CHANGED
+          // on a FIRST attempt already carry a clean server message and never
+          // reach here.
+          try {
+            const { cacheServerStateResponse } = await import('../lib/offline-cache');
+            if (typeof cs?.tapeVersion === 'number') await cacheServerStateResponse(filterId, cs);
+          } catch { /* best-effort cache refresh */ }
+          const conflict: any = new Error(
+            'This filter has already moved on — its cleaning state changed since you opened it (another operator may have advanced it). Refresh to see the current state, then continue if needed.',
+          );
+          conflict.code = 'CONCURRENT_EDIT';
+          conflict.status = 409;
+          conflict.cause = retryErr;
+          throw conflict;
+        }
       }
     };
 
