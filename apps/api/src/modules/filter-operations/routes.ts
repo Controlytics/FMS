@@ -31,6 +31,43 @@ const MAX_OBJECT_PROPS = 500;   // parameters / checklistData / instrumentReadin
 // check against the profile's ACTUAL states. 64-char ceiling (max real key = 11).
 const STATE_KEY_PATTERN = '^[A-Z][A-Z0-9_]{0,63}$';
 
+// bulk-operate's item schema shares one `payload`/`cyclePayload`/`advancePayload`
+// object across all three op kinds (advance | start-and-advance | submit-checklist),
+// so this is the union of every free-text/constrained field from the single-item
+// /:id/advance, /:id/start-cycle, and /:id/submit-checklist body schemas above —
+// each field's bound copied verbatim from its single-route sibling. See the
+// 2026-07-09 review comment above MAX_TEXT_LEN/MAX_OBJECT_PROPS for why this
+// matters: without it, batch payloads could carry unbounded free-text into the
+// audit_trail / filter_event rows via a path the single-item routes already close.
+const BULK_PAYLOAD_PROPERTIES = {
+  // shared with /:id/advance and /:id/bypass
+  targetState: { type: 'string', pattern: STATE_KEY_PATTERN },
+  // shared with /:id/advance, /:id/bypass, /:id/terminate-cycle
+  remarks: { type: 'string', maxLength: MAX_TEXT_LEN },
+  justification: { type: 'string', minLength: 10, maxLength: MAX_TEXT_LEN },
+  // /:id/start-cycle
+  cleaningReasonKey: { type: 'string', maxLength: MAX_TEXT_LEN },
+  cleaningJustification: { type: 'string', maxLength: MAX_TEXT_LEN },
+  cleaningAreaId: { type: 'string', format: 'uuid' },
+  equipmentGroupId: { type: 'string', format: 'uuid' },
+  acknowledgeBlockChange: { type: 'boolean' },
+  // /:id/advance
+  parameters: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
+  equipmentId: { type: 'string', format: 'uuid' },
+  checklistData: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
+  instrumentReadings: { type: 'object', additionalProperties: { type: 'number' }, maxProperties: MAX_OBJECT_PROPS },
+  dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
+  dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
+  // /:id/submit-checklist
+  answers: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS },
+  expectedProfileVersions: { type: 'object', additionalProperties: { type: 'integer' }, maxProperties: MAX_OBJECT_PROPS },
+  filterSet: { type: 'string', enum: ['ALL', 'SET_A', 'SET_B'] },
+  // shared staleness guard across all write routes
+  tapeVersion: { type: 'integer' },
+  offlinePerformedAt: { type: 'string', format: 'date-time' },
+  clientOpId: { type: 'string' },
+};
+
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
 
@@ -478,9 +515,17 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
                 clientOpId: { type: 'string', maxLength: 100 },
                 filterId: { type: 'string', format: 'uuid' },
                 kind: { type: 'string', enum: ['advance', 'start-and-advance', 'submit-checklist'] },
-                payload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS },
-                cyclePayload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS },
-                advancePayload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS },
+                // Each of payload / cyclePayload / advancePayload is a superset schema
+                // covering the union of fields the single-item /advance, /start-cycle,
+                // and /submit-checklist routes accept (a batch item's actual shape
+                // depends on `kind`). additionalProperties:true + maxProperties stays
+                // as a backstop for fields not enumerated below, but every free-text /
+                // constrained field is bounded here exactly as its single-route sibling
+                // bounds it, so an oversized batch payload can't reach the immutable
+                // audit_trail / filter_event rows any more than a single-item call can.
+                payload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS, properties: BULK_PAYLOAD_PROPERTIES },
+                cyclePayload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS, properties: BULK_PAYLOAD_PROPERTIES },
+                advancePayload: { type: 'object', additionalProperties: true, maxProperties: MAX_OBJECT_PROPS, properties: BULK_PAYLOAD_PROPERTIES },
               },
             },
           },

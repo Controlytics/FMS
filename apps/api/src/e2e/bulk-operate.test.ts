@@ -20,33 +20,23 @@ import { AppError } from '../lib/errors.js';
  */
 
 // Mock the service so the test controls each method's return + can assert dispatch.
+// `bulkOperate` itself delegates to the REAL orchestration function (imported
+// below) instead of a hand-copied duplicate of its loop — otherwise the real
+// `bulkOperate()` in cycle-write/bulk-operate.ts is exercised by nothing and
+// a bug in the actual dispatch/try-catch logic would never surface here.
 const advance = vi.fn();
 const startCycle = vi.fn();
 const submitChecklist = vi.fn();
-vi.mock('../modules/filter-operations/filter-operations.service.js', () => ({
-  FilterOperationsService: vi.fn().mockImplementation(() => ({
-    advance, startCycle, submitChecklist,
-    // Real orchestration over the mocked single methods — mirrors
-    // bulk-operate.ts's own dispatch/try-catch shape so this test exercises
-    // the route layer (schema validation, RBAC, reauth, dispatch) without
-    // depending on the real service's DB-backed methods.
-    bulkOperate: async (_ctx: any, items: any[]) => {
-      const results = [];
-      for (const it of items) {
-        try {
-          let snapshot;
-          if (it.kind === 'advance') snapshot = await advance(_ctx, it.filterId, it.payload);
-          else if (it.kind === 'start-and-advance') { await startCycle(_ctx, it.filterId, it.cyclePayload); snapshot = await advance(_ctx, it.filterId, it.advancePayload); }
-          else snapshot = await submitChecklist(_ctx, it.filterId, it.payload);
-          results.push({ clientOpId: it.clientOpId, filterId: it.filterId, status: 'ok', snapshot });
-        } catch (e: any) {
-          results.push({ clientOpId: it.clientOpId, filterId: it.filterId, status: 'failed', error: { code: e?.code ?? 'OP_FAILED', message: e?.message } });
-        }
-      }
-      return { results };
-    },
-  })),
-}));
+vi.mock('../modules/filter-operations/filter-operations.service.js', async () => {
+  const { bulkOperate: realBulkOperate } = await import('../modules/filter-operations/cycle-write/bulk-operate.js');
+  return {
+    FilterOperationsService: vi.fn().mockImplementation(() => ({
+      advance, startCycle, submitChecklist,
+      bulkOperate: async (ctx: any, items: any[]) =>
+        realBulkOperate({ advance, startCycle, submitChecklist } as any, ctx, items),
+    })),
+  };
+});
 
 // Routes are imported AFTER the mock. They construct `new FilterOperationsService()`
 // inside `routes.ts`, which now resolves to the mocked class (vi.mock is hoisted).
