@@ -14,6 +14,12 @@ const { mockPrisma } = vi.hoisted(() => ({
 
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
+const { mockInvalidateSession } = vi.hoisted(() => ({ mockInvalidateSession: vi.fn() }));
+vi.mock('../../../plugins/auth.js', () => ({
+  invalidateUserAuthCache: vi.fn(),
+  invalidateSessionAuthCache: mockInvalidateSession,
+}));
+
 import { authRepository } from '../auth.repository.js';
 
 describe('auth.repository', () => {
@@ -58,18 +64,35 @@ describe('auth.repository', () => {
   });
 
   describe('terminateActiveSessions', () => {
-    it('deactivates all user sessions', async () => {
+    it('deactivates all user sessions AND evicts each from the auth cache', async () => {
+      mockPrisma.session.findMany.mockResolvedValue([{ id: 's1' }, { id: 's2' }]);
       mockPrisma.session.updateMany.mockResolvedValue({ count: 2 });
       const result = await authRepository.terminateActiveSessions('u1', 'logout');
       expect(result.count).toBe(2);
+      // The fix: terminated sessions must be evicted from sessionAuthCache so
+      // they can't keep passing auth for the 30s cache TTL.
+      expect(mockInvalidateSession).toHaveBeenCalledWith('s1');
+      expect(mockInvalidateSession).toHaveBeenCalledWith('s2');
     });
   });
 
   describe('terminateSession', () => {
-    it('deactivates a single session', async () => {
+    it('deactivates a single session and evicts it from the auth cache', async () => {
       mockPrisma.session.update.mockResolvedValue({ id: 's1', isActive: false });
       const result = await authRepository.terminateSession('s1', 'logout');
       expect(result.isActive).toBe(false);
+      expect(mockInvalidateSession).toHaveBeenCalledWith('s1');
+    });
+  });
+
+  describe('terminateOtherSessions', () => {
+    it('deactivates other sessions and evicts them from the auth cache', async () => {
+      mockPrisma.session.findMany.mockResolvedValue([{ id: 's2' }]);
+      mockPrisma.session.updateMany.mockResolvedValue({ count: 1 });
+      const result = await authRepository.terminateOtherSessions('u1', 's1', 'password_changed');
+      expect(result.count).toBe(1);
+      expect(mockInvalidateSession).toHaveBeenCalledWith('s2');
+      expect(mockInvalidateSession).not.toHaveBeenCalledWith('s1');
     });
   });
 

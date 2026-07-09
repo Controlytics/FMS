@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { invalidateUserAuthCache } from '../../plugins/auth.js';
+import { invalidateUserAuthCache, invalidateSessionAuthCache } from '../../plugins/auth.js';
 import { createHash } from 'node:crypto';
 
 export const authRepository = {
@@ -75,17 +75,31 @@ export const authRepository = {
   },
 
   async terminateActiveSessions(userId: string, reason: string) {
-    return prisma.session.updateMany({
+    // Capture the ids first so we can evict them from the 30s sessionAuthCache
+    // in plugins/auth — otherwise the killed session keeps passing auth for up
+    // to the cache TTL (force-login / single-tab bypass). See
+    // feedback_auth_cache_invalidation_gap line 28.
+    const sessions = await prisma.session.findMany({
+      where: { userId, isActive: true },
+      select: { id: true },
+    });
+    const result = await prisma.session.updateMany({
       where: { userId, isActive: true },
       data: { isActive: false, terminationReason: reason },
     });
+    for (const s of sessions) invalidateSessionAuthCache(s.id);
+    return result;
   },
 
   async terminateSession(sessionId: string, reason: string) {
-    return prisma.session.update({
+    const result = await prisma.session.update({
       where: { id: sessionId },
       data: { isActive: false, terminationReason: reason },
     });
+    // Self-evict so every terminate path clears its own cache entry (callers
+    // like logout() also call this, now redundantly-but-safely).
+    invalidateSessionAuthCache(sessionId);
+    return result;
   },
 
   async findSessionById(sessionId: string) {
@@ -176,13 +190,18 @@ export const authRepository = {
   },
 
   async terminateOtherSessions(userId: string, excludeSessionId: string, reason: string) {
-    return prisma.session.updateMany({
-      where: {
-        userId,
-        isActive: true,
-        id: { not: excludeSessionId },
-      },
+    // Evict the terminated sessions from the auth cache — the whole point of
+    // this call (on password change) is to immediately kill potentially-
+    // compromised sessions; the 30s cache would otherwise keep them alive.
+    const sessions = await prisma.session.findMany({
+      where: { userId, isActive: true, id: { not: excludeSessionId } },
+      select: { id: true },
+    });
+    const result = await prisma.session.updateMany({
+      where: { userId, isActive: true, id: { not: excludeSessionId } },
       data: { isActive: false, terminationReason: reason },
     });
+    for (const s of sessions) invalidateSessionAuthCache(s.id);
+    return result;
   },
 };
