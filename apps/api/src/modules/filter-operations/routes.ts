@@ -10,6 +10,16 @@ import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
 import { getCleaningReasons } from './filter-resolver.js';
 import { computeAhuCompletionStatus, computeAhuBatchStatus, computeAhuSetAvailability, findProfilesWithoutFinalChecklist } from './ahu-completion-gate.js';
 
+// Input bounds (2026-07-09 QA — "unbounded free-text / object" finding): cap every
+// free-text and open-object field at the schema edge so an oversized payload is
+// rejected with 400 BEFORE it can reach the immutable, hash-chained audit_trail /
+// filter_event rows. Unbounded input is a storage-growth + payload-DoS vector, and
+// unlike an ordinary table a bloated audit row can't be cleaned up afterward.
+// Generous — real operator input is a sentence or two; only abuse or a bug hits the
+// ceiling. `justification` fields keep their own minLength alongside this max.
+const MAX_TEXT_LEN = 2000;      // remarks / justification / short free-text keys
+const MAX_OBJECT_PROPS = 500;   // parameters / checklistData / instrumentReadings / answers key counts
+
 export default async function filterOperationsRoutes(app: FastifyInstance) {
   const service = new FilterOperationsService();
 
@@ -209,8 +219,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['cleaningReasonKey'],
         properties: {
-          cleaningReasonKey: { type: 'string' },
-          cleaningJustification: { type: 'string' },
+          cleaningReasonKey: { type: 'string', maxLength: MAX_TEXT_LEN },
+          cleaningJustification: { type: 'string', maxLength: MAX_TEXT_LEN },
           cleaningAreaId: { type: 'string', format: 'uuid' },
           equipmentGroupId: { type: 'string', format: 'uuid' },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
@@ -254,13 +264,13 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         required: ['targetState', 'tapeVersion'],
         properties: {
           targetState: { type: 'string' },
-          parameters: { type: 'object' },
+          parameters: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
           equipmentId: { type: 'string', format: 'uuid' },
           cleaningAreaId: { type: 'string', format: 'uuid' },
-          remarks: { type: 'string' },
-          checklistData: { type: 'object' },
+          remarks: { type: 'string', maxLength: MAX_TEXT_LEN },
+          checklistData: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
           equipmentGroupId: { type: 'string', format: 'uuid' },
-          instrumentReadings: { type: 'object', additionalProperties: { type: 'number' } },
+          instrumentReadings: { type: 'object', additionalProperties: { type: 'number' }, maxProperties: MAX_OBJECT_PROPS },
           dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
           dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
@@ -324,6 +334,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           answers: {
             type: 'object',
             additionalProperties: true,
+            maxProperties: MAX_OBJECT_PROPS,
             description: 'Map of questionId -> answer value',
           },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
@@ -331,6 +342,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           expectedProfileVersions: {
             type: 'object',
             additionalProperties: { type: 'integer' },
+            maxProperties: MAX_OBJECT_PROPS,
             description: 'Phase A.1: client-cached version per checklistProfileId. Server returns 409 SCHEMA_DRIFT if any version mismatches the cycle pin.',
           },
           // Phase 8.7 cutover (decision-tape architecture): required staleness
@@ -390,8 +402,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         required: ['targetState', 'justification', 'tapeVersion'],
         properties: {
           targetState: { type: 'string' },
-          justification: { type: 'string', minLength: 10 },
-          parameters: { type: 'object' },
+          justification: { type: 'string', minLength: 10, maxLength: MAX_TEXT_LEN },
+          parameters: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
           // Phase 8.7 cutover (decision-tape architecture): required staleness guard.
@@ -447,7 +459,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         required: ['remarks'],
-        properties: { remarks: { type: 'string', minLength: 1 } },
+        properties: { remarks: { type: 'string', minLength: 1, maxLength: MAX_TEXT_LEN } },
       },
       response: {
         200: {
@@ -477,7 +489,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         required: ['remarks'],
-        properties: { remarks: { type: 'string', minLength: 1 } },
+        properties: { remarks: { type: 'string', minLength: 1, maxLength: MAX_TEXT_LEN } },
       },
       response: {
         200: {
@@ -544,7 +556,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['justification', 'tapeVersion'],
         properties: {
-          justification: { type: 'string', minLength: 10 },
+          justification: { type: 'string', minLength: 10, maxLength: MAX_TEXT_LEN },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
           // Phase 8.7 cutover (decision-tape architecture): required staleness guard.
