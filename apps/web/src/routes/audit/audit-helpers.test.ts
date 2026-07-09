@@ -50,12 +50,29 @@ describe('audit-helpers — Block/Area/AHU/Filter rendering', () => {
     expect(s).not.toMatch(/entity|asset/i);
   });
 
+  it('renders generic CREATED/UPDATED by record type from targetType', () => {
+    const cp = { action: 'CREATED', userId: 'EMP-004', targetType: 'cleaning_profile', afterValue: { name: 'CP-1' } };
+    expect(getAuditSummary(cp, T)).toBe('New Cleaning Profile "CP-1" created by EMP-004');
+    const fp = { action: 'UPDATED', userId: 'EMP-004', targetType: 'filter_profile', afterValue: { name: 'FP-1' } };
+    expect(getAuditSummary(fp, T)).toBe('Filter Profile "FP-1" updated by EMP-004');
+    const pm = { action: 'DELETED', userId: 'EMP-004', targetType: 'pm_schedule', afterValue: { name: 'AHU-9' } };
+    expect(getAuditSummary(pm, T)).toBe('PM Schedule "AHU-9" deleted by EMP-004');
+  });
+
+  it('renders newly-added specific templates (no more raw title-case)', () => {
+    const dev = { action: 'DEVIATION_OPENED', userId: 'EMP-004', targetType: 'deviation', afterValue: { ahuName: 'L8', name: 'L8' } };
+    expect(getAuditSummary(dev, T)).toBe('Overdue-PM deviation opened for AHU "L8" by EMP-004');
+    const help = { action: 'HELP_ARTICLE_CREATED', userId: 'EMP-004', targetType: 'help_article', afterValue: { name: 'Getting Started' } };
+    expect(getAuditSummary(help, T)).toBe('Help article "Getting Started" created by EMP-004');
+  });
+
   it('friendlyTargetType avoids internal "asset" words', () => {
     expect(friendlyTargetType({ targetType: 'asset_instance', afterValue: { templateKind: 'BLOCK' } })).toBe('Block');
     expect(friendlyTargetType({ targetType: 'asset_instance', afterValue: {} })).toBe('Record');
     expect(friendlyTargetType({ targetType: 'asset_relationship' })).toBe('Hierarchy Link');
   });
 });
+
 describe('audit-helpers — before/after diff', () => {
   it('returns only the fields that changed, old → new', () => {
     expect(diffAuditValues({ name: 'A', filterSize: '10' }, { name: 'A', filterSize: '12' }))

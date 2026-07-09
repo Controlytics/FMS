@@ -98,6 +98,11 @@ export function getAuditStatus(action: string): 'Success' | 'Fail' {
 const KIND_LABELS: Record<string, string> = { BLOCK: 'Block', AREA: 'Area', AHU: 'AHU', FILTER: 'Filter' };
 const kindLabel = (k: unknown): string => (typeof k === 'string' && KIND_LABELS[k]) || '';
 
+// Human record type for {recordType} (generic CREATED/UPDATED/DELETED rows).
+// Title-cases the targetType (cleaning_profile → "Cleaning Profile") with a few
+// acronym overrides so PM/AHU read correctly.
+const RECORD_TYPE_OVERRIDES: Record<string, string> = { pm_schedule: 'PM Schedule' };
+
 const ACTION_BADGE_OVERRIDES: Record<string, (after: any, before: any) => string> = {
   ASSET_IDENTIFIER_CREATED: (after) => {
     const t = (after?.identifierType as string) || '';
@@ -173,6 +178,7 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   // {parentClause} => ' under <ParentKind> "<ParentName>"' (or '' when no parent).
   const parentName = after.parentName || before.parentName || '';
   const parentClause = parentName ? ` under ${kindLabel(after.parentKind ?? before.parentKind) || 'parent'} "${parentName}"` : '';
+  const recordType = targetType ? (RECORD_TYPE_OVERRIDES[targetType] || titleCase(targetType)) : 'record';
   const beforeStatus = before.status || '';
   const afterStatus = after.status || '';
   const identifierType = after.identifierType || before.identifierType || '';
@@ -220,6 +226,7 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{targetType\}/g, targetType || 'Data')
       .replace(/\{version\}/g, String(version))
       .replace(/\{entityKind\}/g, entityKind)
+      .replace(/\{recordType\}/g, recordType)
       .replace(/\{parentClause\}/g, parentClause)
       .replace(/\{sourceKind\}/g, sourceKind)
       .replace(/\{targetKind\}/g, targetKind)
@@ -256,6 +263,7 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const name = nonUuid(targetName) || nonUuid(targetUser);
   return name ? `${label} — "${name}" by ${actor}` : `${label} by ${actor}`;
 }
+
 // Sensitive audit keys — kept in sync with apps/api/src/lib/audit-diff.ts.
 const SENSITIVE_KEY_RE = /password|secret|token|apikey|api[_-]?key|private[_-]?key|credential/i;
 const DIFF_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

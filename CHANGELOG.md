@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — Audit text templates reconciled with the app (2026-07-08)
+
+Branch: `RFID`. Reconciled `packages/shared/src/types/audit-templates.ts` against every action the
+app actually emits. **~40 real actions had no template and were rendering as bare title-case**
+("Dryer Started", "Deviation Opened", "Pm Schedule Approved"); added proper templates for all of
+them (PM deviations + approval workflow, dryer/lifecycle ops, replacement-schedule workflow, help
+articles, notification rules, LDAP/email/SMS config, dashboards, user groups, password-reset
+approve/reject, guest cleaning requests, report-review, audit self-admin delete/redact, etc.).
+
+- **Entity CRUD read plainly now.** Cleaning/Filter/Checklist **profiles** and **PM schedules**
+  log generic `CREATED`/`UPDATED`/`DELETED`/`ARCHIVED`/`ASSIGNED` (disambiguated by `targetType`).
+  Added templates for those verbs using a new `{recordType}` placeholder (title-cased `targetType`,
+  with `pm_schedule`→"PM Schedule") → *New **Cleaning Profile** "CP-1" created by EMP-004*. Fixes
+  historical rows too (no backend change).
+- **Removed 10 dead templates** (never emitted, no historical subsystem): `DATA_VIEWED`,
+  `PARAMETER_CAPTURE`, `SESSION_TIMEOUT`, `UNAUTHORIZED_ACTION_ATTEMPT`, `APPROVAL_GRANTED/REJECTED/REQUESTED`,
+  `ROLE_ASSIGNED`, `CYCLE_COMPLETED`, `PM_EXECUTION_COMPLETED`. **Kept** the historical ones
+  (`ALARM_*`, `RULE_CHAIN_*`, `RETENTION_*`, `UNS_*`, `DEVICE_CREDENTIAL_*`, `DATA_EXPORTED`) and the
+  `_SELF` variants (used by the self-action renderer).
+- Template count 75 → 116; every emitted (non-test) action now has a template.
+
+Tests: `apps/web/src/routes/audit/audit-helpers.test.ts` covers the generic `{recordType}` render
+and sample new templates; `packages/shared/.../audit-templates.test.ts` updated. Full API 885/0, web 423/0.
+
 ## [Unreleased] — Readable audit trail for Block / Area / AHU / Filter (2026-07-08)
 
 Branch: `RFID`. Hierarchy/filter audit rows were generic and jargon-y — *New entity "MF3"

@@ -91,7 +91,7 @@ describe('AUDIT_TEMPLATE_DEFAULTS', () => {
   });
 
   it('contains Authentication actions', () => {
-    const authActions = ['LOGIN_SUCCESS', 'LOGIN', 'LOGIN_FAILED', 'LOGOUT', 'SESSION_TIMEOUT', 'FORCED_LOGOUT'];
+    const authActions = ['LOGIN_SUCCESS', 'LOGIN', 'LOGIN_FAILED', 'LOGOUT', 'FORCED_LOGOUT'];
     for (const action of authActions) {
       expect(AUDIT_TEMPLATE_DEFAULTS[action], `missing ${action}`).toBeDefined();
       expect(AUDIT_TEMPLATE_DEFAULTS[action].category).toBe('Authentication');
