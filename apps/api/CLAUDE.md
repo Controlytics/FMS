@@ -185,6 +185,7 @@ POST /api/filters/:id/start-cycle    — Start cleaning cycle
 POST /api/filters/:id/advance        — Advance to next stage
 POST /api/filters/:id/submit-checklist — Submit checklist answers
 POST /api/filters/:id/bypass         — Bypass stage (deviation)
+POST /api/filters/bulk-operate       — Batch advance / start-and-advance / submit-checklist in ONE request (partial success; reuses the single-op service methods per item)
 GET  /api/filters/:id/current-state  — Get filter state + next actions
 GET  /api/filters/cycles             — List cleaning cycles (events-routes.ts mounts /cycles + /events under the shared /api/filters prefix)
 GET  /api/filters/events             — List filter events

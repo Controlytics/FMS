@@ -235,6 +235,18 @@ Body: { answers: { [questionId]: answer },
 Response 409 SCHEMA_DRIFT (Phase A.1) — body.details.drift = [{ profileId, expected, current }]
 when client's expectedProfileVersions don't match the cycle's pinned versions.
 
+POST /api/filters/bulk-operate          Permission: FILTER_OPERATE
+Body: { items: [ { clientOpId, filterId, kind, payload?/cyclePayload?/advancePayload? } ] }  // 1–200 items
+  kind = 'advance' | 'start-and-advance' | 'submit-checklist'  (bypass NOT supported)
+  payloads carry the SAME fields (+ bounds) as the single /advance, /start-cycle, /submit-checklist routes.
+Reauth: enforced ONCE over the union of the actions the batch's kinds imply
+  (advance→ADVANCE_FILTER_STAGE, start-and-advance→START_CLEANING_CYCLE, submit-checklist→SUBMIT_CHECKLIST_WITH_SIGNATURE).
+Processing: loops the existing single-op service methods, one transaction + one ordered audit row
+  per item (hash chain intact). PARTIAL SUCCESS — one item failing does not affect the others.
+Response 200: { results: [ { clientOpId, filterId, status: 'ok', snapshot } | { status: 'failed', error: { code, message } } ] }
+  Each ok snapshot is the same post-write state (actions[] + tapeVersion) the single routes return.
+Purpose: collapses the tablet's 50–100 tag batch submit from N sequential round-trips to ONE.
+
 GET  /api/checklist-profiles/:id/versions          List archived versions
 GET  /api/checklist-profiles/:id/versions/:n       Fetch immutable snapshot at version n
 ```

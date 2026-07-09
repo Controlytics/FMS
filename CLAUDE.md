@@ -161,6 +161,7 @@ POST /api/filters/:id/advance           — Advance to next stage
 POST /api/filters/:id/submit-checklist  — Submit checklist answers
 POST /api/filters/:id/bypass            — Bypass stage (deviation)
 POST /api/filters/:id/terminate         — Terminate cycle (with reason)
+POST /api/filters/bulk-operate          — Batch advance / start-and-advance / submit-checklist in ONE request (partial success; per-item tx + audit; reauth once). Tablet 50–100 tag submit.
 GET  /api/filters/:id/current-state     — Filter state + next actions (full server snapshot)
 GET  /api/filters/cycles                — List cleaning cycles (mounted by filter-operations/events-routes.ts under the /api/filters prefix)
 GET  /api/filters/events                — List filter events

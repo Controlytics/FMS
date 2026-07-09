@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] — Bulk filter-operate: one request for a 50–100 tag batch submit (2026-07-09)
+
+Branch: `RFID`. The tablet batch submit (scan 50–100 RFID tags → Submit) was **N sequential HTTP
+round-trips** — one `/advance` per mid-cycle filter, and up to **3** per fresh-cycle filter
+(`/start-cycle` → `/current-state` → `/advance`) — so a "mix of both" batch of 50 filters was ~100+
+serial round-trips over WiFi/HTTPS. That serial network time *was* the wait, scaling linearly.
+
+- **New endpoint `POST /api/filters/bulk-operate`** (`filter-operations/routes.ts` +
+  `cycle-write/bulk-operate.ts`): an orchestrator that **loops the existing
+  `service.advance/startCycle/submitChecklist` per item**, each in its own transaction with its own
+  ordered audit row — the tamper-evident hash chain stays sequential, and **partial success** is
+  preserved (one bad tag doesn't reject the tray). `items[]` with `kind` advance / start-and-advance
+  / submit-checklist (bypass excluded), cap 200. Reauth enforced **once** over the union of the
+  actions the batch implies — reuses existing reauth actions, **no new constant**. Payloads bounded
+  per-kind to match the single routes.
+- **Client** (`routes/mobile/mobile-operations.tsx`): a shared `runBulkOnline` helper posts ONE batch
+  and primes caches from the response. **Three** online call-sites now feed it — mid-cycle advances
+  (`handleSubmitQueue`), batch cycle-starts (`handleEquipSubmit`), and batch checklist submits
+  (`handleChecklistSubmit`). **Offline path is byte-for-byte unchanged** (bulk is `online`-gated); a
+  transport failure or a declined reauth keeps the scan queue for retry.
+- **`useReauth.executeWithResult`** (`hooks/use-reauth.ts`): a returning reauth variant (the existing
+  `execute()` returns void + defers) so a reauth-gated batch gets ONE password dialog and its results
+  back. Backward-compatible.
+- Also (same session, `db64376`): client-side per-filter overhead cut on the same handler (O(N²) IDB
+  read → one Map; skip the same-block block-change GET; bounded post-submit priming).
+- **Measured before/after: _<pending tablet verification>_.** Compliance preserved throughout —
+  identical audit rows, e-signatures, RBAC, per-filter atomicity.
+
 ## [Unreleased] — Audit text templates reconciled with the app (2026-07-08)
 
 Branch: `RFID`. Reconciled `packages/shared/src/types/audit-templates.ts` against every action the
