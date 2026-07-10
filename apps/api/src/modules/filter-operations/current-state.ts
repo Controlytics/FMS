@@ -45,15 +45,18 @@ import type { FilterOperationsService } from './filter-operations.service.js';
  * user for segregation-of-duties to mean anything).
  */
 async function resolveStagePerformer(cycleId: string, stageKey: string): Promise<{ sub: string; name: string; enteredOffline: boolean }> {
+  // Match the event that moved the filter INTO this stage via EITHER a normal
+  // advance (STATE_TRANSITION) or a bypass (BYPASS_DEVIATION) — a filter can reach
+  // a gated stage by either path, and both must be exemptable when offline.
   const entry = await prisma.filterEvent.findFirst({
-    where: { cycleId, eventType: 'STATE_TRANSITION', toState: stageKey },
+    where: { cycleId, eventType: { in: ['STATE_TRANSITION', 'BYPASS_DEVIATION'] }, toState: stageKey },
     orderBy: { performedAt: 'desc' },
     select: { performedBy: true, attributes: true },
   });
-  // Was the advance INTO this gated stage performed offline? (advance.ts stamps
-  // attributes.offline=true on offline-performed entries.) Offline work is never
-  // interlock-gated, so the self-heal must not create an approval for it.
-  const enteredOffline = (entry?.attributes as any)?.offline === true;
+  // Was the entry INTO this gated stage performed offline? (advance.ts / bypass.ts
+  // stamp attributes.__offlineEntry=true on offline-performed entries.) Offline
+  // work is never interlock-gated, so the self-heal must not create an approval.
+  const enteredOffline = (entry?.attributes as any)?.__offlineEntry === true;
   const starter = entry
     ? null
     : await prisma.filterEvent.findFirst({

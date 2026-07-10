@@ -93,7 +93,10 @@ export async function bypassImpl(
     eventType: 'BYPASS_DEVIATION' as const,
     fromState, toState: targetState,
     performedBy: ctx.userSub,
-    attributes: withClientOpId(parameters ?? {}, clientOpId),
+    // 2026-07-10 (per user): mark an OFFLINE bypass into a gated stage so the
+    // interlock self-heal (current-state.ts) exempts it — same carve-out as the
+    // advance path. Reserved key so it can't collide with an admin param key.
+    attributes: withClientOpId({ ...(parameters ?? {}), ...(offlineTime ? { __offlineEntry: true } : {}) }, clientOpId),
     deviationDetails: { type: 'BYPASS', fromState, toState: targetState, justification },
     remarks: justification,
   };

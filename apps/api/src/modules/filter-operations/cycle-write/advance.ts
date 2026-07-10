@@ -333,7 +333,9 @@ export async function advanceImpl(
     // stage interlock never gates offline work, so the self-heal in
     // current-state.ts reads this to avoid manufacturing a PENDING approval when
     // an online poll catches a filter that reached a gated stage offline.
-    ...(offlineTime ? { offline: true } : {}),
+    // Reserved key (double-underscore) so it can never collide with a free-form
+    // admin-configured PARAM_CAPTURE parameter key.
+    ...(offlineTime ? { __offlineEntry: true } : {}),
   }, clientOpId);
 
   // Dryer-readings submission is recorded as a STATE_TRANSITION row but
