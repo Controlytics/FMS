@@ -92,9 +92,11 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const b = req.body as { ids: string[]; action: 'approve' | 'reject'; remarks?: string };
-    // Rejection remarks are mandatory (mirror the single /reject route).
-    if (b.action === 'reject' && !b.remarks?.trim()) {
-      return reply.code(400).send({ error: 'REMARKS_REQUIRED', message: 'Rejection remarks are required.' });
+    // Rejection remarks are mandatory, min 3 chars — match reject()'s own bar so
+    // a short-remarks batch fails fast (400) instead of burning the reauth
+    // signature and then failing every item inside bulkDecide.
+    if (b.action === 'reject' && (b.remarks?.trim().length ?? 0) < 3) {
+      return reply.code(400).send({ error: 'REMARKS_REQUIRED', message: 'Rejection remarks are required (min 3 characters).' });
     }
     const { ok } = await enforceReauthAlways(
       b.action === 'approve' ? 'APPROVE_CLEANING_STAGE' : 'REJECT_CLEANING_STAGE', req, reply);

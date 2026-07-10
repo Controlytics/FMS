@@ -79,6 +79,8 @@ export function StageApprovalsPage() {
     const action = bulkDlg;
     const ids = queue.filter((q) => selected.has(q.id)).map((q) => q.id);
     if (ids.length === 0) { setBulkDlg(null); return; }
+    // Backend caps the batch at 200 — give a clear message instead of a raw 400.
+    if (ids.length > 200) { toast.error('Too many selected', 'Approve/reject at most 200 at a time.'); return; }
     if (action === 'reject' && remarks.trim().length < 3) { toast.error('Remarks required', 'Add at least 3 characters.'); return; }
     const cleanRemarks = remarks.trim() || undefined;
     const reauthAction = action === 'approve' ? 'APPROVE_CLEANING_STAGE' : 'REJECT_CLEANING_STAGE';
