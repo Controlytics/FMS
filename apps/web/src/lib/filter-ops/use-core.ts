@@ -36,7 +36,7 @@ import { resolvePendingChecklistDialog } from './resolve-pending-checklist';
 import { findNextPendingChecklist, type PendingChecklistBatchItem } from './next-pending-checklist';
 import { getCurrentActions } from '@/lib/action-tape';
 import { recomputeAndCacheFilterState, appendChecklistCompletion } from '@/lib/offline-cache';
-import { cacheData, getCachedData, OFFLINE_TTL_MS } from '@/lib/offline-store';
+import { cacheData, getCachedData, clearOfflineCycleId, OFFLINE_TTL_MS } from '@/lib/offline-store';
 
 /**
  * Advance args — accepts the full payload the page constructs.
@@ -480,14 +480,40 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           const clearedRow = { ...cs, pendingChecklist: [] };
           await cacheData(`filter-state-${args.filterId}`, clearedRow, OFFLINE_TTL_MS);
           const tape = await getCurrentActions(args.filterId, null);
-          const newAllowed = tape
-            .filter((a) => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
-            .map((a) => (a as { params: { targetState: string } }).params.targetState);
-          await cacheData(
-            `filter-state-${args.filterId}`,
-            { ...clearedRow, nextAllowedStages: newAllowed, actions: tape },
-            OFFLINE_TTL_MS,
-          );
+          // A terminal checklist (the last gate before END) completes the cycle.
+          // The recomputed tape carries COMPLETE_CYCLE in that case (the executor
+          // emits it when the stage leadsToEnd with no reachable stages). Mirror
+          // the advance path's cycleComplete handling: clear the cycle so the
+          // next scan starts a FRESH cycle instead of tripping
+          // validateOfflineGate's "in-cycle but no next stage cached — re-sync"
+          // (the back-to-back offline-cycle bug — 2026-07-10). Without this the
+          // filter stayed parked at the terminal stage, in-cycle, until an
+          // online re-sync re-fetched the server-completed state.
+          const willComplete = tape.some((a) => a.type === 'COMPLETE_CYCLE');
+          if (willComplete) {
+            await cacheData(
+              `filter-state-${args.filterId}`,
+              {
+                ...clearedRow,
+                currentState: null,
+                currentCycle: null,
+                nextAllowedStages: [],
+                actions: [],
+                checklistCompletions: [],
+              },
+              OFFLINE_TTL_MS,
+            );
+            await clearOfflineCycleId(args.filterId);
+          } else {
+            const newAllowed = tape
+              .filter((a) => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+              .map((a) => (a as { params: { targetState: string } }).params.targetState);
+            await cacheData(
+              `filter-state-${args.filterId}`,
+              { ...clearedRow, nextAllowedStages: newAllowed, actions: tape },
+              OFFLINE_TTL_MS,
+            );
+          }
         } catch {
           /* IDB failure non-fatal — the next /current-state fetch will
              repopulate. Without this swallow, a transient IDB hiccup would

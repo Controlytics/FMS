@@ -43,6 +43,7 @@ const {
   mockAppendCompletion,
   mockGetCachedData,
   mockCacheData,
+  mockClearCycle,
 } = vi.hoisted(() => ({
   mockExecuteOrQueue: vi.fn(),
   mockResolvePending: vi.fn(),
@@ -52,6 +53,7 @@ const {
   mockAppendCompletion: vi.fn(),
   mockGetCachedData: vi.fn(),
   mockCacheData: vi.fn(),
+  mockClearCycle: vi.fn(),
 }));
 
 vi.mock('../../../hooks/use-offline', () => ({
@@ -78,6 +80,7 @@ vi.mock('@/lib/offline-cache', () => ({
 vi.mock('@/lib/offline-store', () => ({
   getCachedData: mockGetCachedData,
   cacheData: mockCacheData,
+  clearOfflineCycleId: mockClearCycle,
   OFFLINE_TTL_MS: 86_400_000,
 }));
 
@@ -583,6 +586,38 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
       }),
       expect.any(Number),
     );
+  });
+
+  it('submitChecklist() offline completes the cycle when the tape carries COMPLETE_CYCLE (terminal checklist)', async () => {
+    mockResolvePending.mockResolvedValueOnce([{ id: 'cl-f1', questions: [] }]);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'STORAGE_OUT' });
+    });
+
+    mockExecuteOrQueue.mockResolvedValueOnce({ executed: false });
+    mockGetCachedData.mockResolvedValueOnce({ existing: 'data', currentState: 'STORAGE_OUT', currentCycle: { id: 'cyc-1' }, pendingChecklist: [{ id: 'cl' }] });
+    // Terminal checklist → after clearing the gate the executor emits COMPLETE_CYCLE.
+    mockGetCurrentActions.mockResolvedValueOnce([
+      { type: 'COMPLETE_CYCLE', params: {} },
+      { type: 'TERMINATE_CYCLE', params: {} },
+    ]);
+
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
+    });
+
+    // Second cacheData call clears the cycle (currentState/currentCycle nulled)
+    // so a re-scan starts a fresh cycle — no "in-cycle but no next stage" gate.
+    expect(mockCacheData).toHaveBeenNthCalledWith(
+      2,
+      'filter-state-f1',
+      expect.objectContaining({ currentState: null, currentCycle: null, nextAllowedStages: [], actions: [] }),
+      expect.any(Number),
+    );
+    // And the offline cycle id is cleared on the filter row.
+    expect(mockClearCycle).toHaveBeenCalledWith('f1');
   });
 
   it('submitChecklist() offline cache-clear failure is swallowed — does NOT throw OFFLINE_CACHE_RECOMPUTE_FAILED', async () => {
