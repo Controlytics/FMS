@@ -128,33 +128,41 @@ export async function appendChecklistCompletion(
  * (it only fires when the profile actually has CHECKLIST nodes after the
  * stage, so empty here is consistent with "no gate").
  */
+/**
+ * Ids of CHECKLIST profiles that fire after `newStage` — the "is there a
+ * checklist gate here?" question, independent of whether that checklist's
+ * QUESTIONS can be resolved from the checklist-profiles cache. Prefers the
+ * server-computed stageLookup (B.7 — authoritative), else walks the cached
+ * profile graph via the shared executor.
+ *
+ * recomputeAndCacheFilterState uses this to fail CLOSED: if the graph says a
+ * checklist exists after the stage but buildPendingChecklistFromProfile can't
+ * resolve its questions from cache, the cycle must NOT auto-complete (that
+ * skips a required checklist and rolls into a fresh cycle — 21 CFR §11).
+ */
+function expectedChecklistIdsAfterStage(
+  graph: { stages?: any[]; connections?: any[] } | null | undefined,
+  stageLookup: Record<string, any> | null | undefined,
+  newStage: string,
+): string[] {
+  const lookupHit = stageLookup?.[newStage]?.pendingChecklistProfileIds;
+  if (Array.isArray(lookupHit)) return lookupHit;
+  if (graph?.stages && graph?.connections) {
+    const stageNode = graph.stages.find((s: any) => s.stateKey === newStage);
+    if (!stageNode) return [];
+    return collectChecklistsAfterStage(stageNode, graph.stages, graph.connections)
+      .map((n) => (n.configuration as { checklistProfileId?: string })?.checklistProfileId)
+      .filter((id): id is string => Boolean(id));
+  }
+  return [];
+}
+
 async function buildPendingChecklistFromProfile(
   graph: { stages?: any[]; connections?: any[] } | null | undefined,
   stageLookup: Record<string, any> | null | undefined,
   newStage: string,
 ): Promise<any[]> {
-  // Collect CHECKLIST profile-ids that fire after `newStage`. Prefer the
-  // server-computed stageLookup (B.7 — authoritative) when present, else
-  // walk the cached profile graph via the shared executor.
-  let profileIds: string[] = [];
-  const lookupHit = stageLookup?.[newStage]?.pendingChecklistProfileIds;
-  if (Array.isArray(lookupHit)) {
-    profileIds = lookupHit;
-  } else if (graph?.stages && graph?.connections) {
-    const stageNode = graph.stages.find((s: any) => s.stateKey === newStage);
-    if (!stageNode) return [];
-    const checklistNodes = collectChecklistsAfterStage(
-      stageNode,
-      graph.stages,
-      graph.connections,
-    );
-    profileIds = checklistNodes
-      .map((n) => (n.configuration as { checklistProfileId?: string })?.checklistProfileId)
-      .filter((id): id is string => Boolean(id));
-  } else {
-    return [];
-  }
-
+  const profileIds = expectedChecklistIdsAfterStage(graph, stageLookup, newStage);
   if (profileIds.length === 0) return [];
 
   const cachedProfiles = (await getCachedData<any[]>('checklist-profiles')) ?? [];
@@ -261,11 +269,27 @@ export async function recomputeAndCacheFilterState(
       newStage,
     );
 
+    // 21 CFR fail-closed. The graph/stageLookup may say a CHECKLIST fires after
+    // `newStage` while buildPendingChecklistFromProfile returned [] because the
+    // checklist's questions couldn't be resolved from cache (profile not synced /
+    // stale / a custom role couldn't read /api/checklist-profiles). In that case
+    // pendingChecklist.length===0 does NOT mean "no checklist" — treating it as
+    // such silently skips a required checklist AND, at a terminal stage, marks
+    // the cycle complete and rolls the filter into a fresh cycle (exactly the
+    // STORAGE_OUT bug: checklist vanished, WASH_IN of a new cycle started, then
+    // the server rejected the un-checklisted cycle on sync). Block instead: keep
+    // the filter parked at `newStage` until it re-syncs online and the server
+    // re-resolves the gate. Online recompute has no checklist-profiles cache
+    // dependency, so it self-heals on reconnect.
+    const expectedChecklistIds = expectedChecklistIdsAfterStage(graph, stageLookup, newStage);
+    const checklistUnresolved =
+      expectedChecklistIds.length > 0 && pendingChecklist.length === 0;
+
     // Reachable advance targets — graph wins, linear pipeline fallback.
     let nextAllowed: string[] = [];
     let hasGraphData = false;
-    if (pendingChecklist.length > 0) {
-      // Checklist gate blocks until answered.
+    if (pendingChecklist.length > 0 || checklistUnresolved) {
+      // Checklist gate blocks until answered (or, when unresolved, until sync).
       nextAllowed = [];
       hasGraphData = !!graph;
     } else if (graph?.stages && graph?.connections) {
@@ -281,7 +305,23 @@ export async function recomputeAndCacheFilterState(
       hasGraphData &&
       nextAllowed.length === 0 &&
       pendingChecklist.length === 0 &&
+      !checklistUnresolved &&
       !cycleStarted;
+
+    if (checklistUnresolved) {
+      // Structured warning so the operator knows to reconnect rather than
+      // seeing a silently-stuck stage. Not thrown — the advance itself was
+      // valid; only the downstream checklist gate is unresolvable offline.
+      // eslint-disable-next-line no-console -- intentional structured log
+      console.warn(
+        '[offline-cache] checklist gate unresolved offline for',
+        filterId,
+        'at',
+        newStage,
+        '— parked (needs online sync to load checklist questions). expected profiles:',
+        expectedChecklistIds,
+      );
+    }
 
     // Mid-write: stamp the cache with the new lifecycle state, the new
     // legacy mirrors, and a placeholder for actions[]. The executor read

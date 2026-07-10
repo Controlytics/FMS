@@ -181,3 +181,80 @@ describe('withDerivedPendingChecklist — offline checklist gate derivation', ()
     expect(out.pendingChecklist).toBeUndefined();
   });
 });
+
+/**
+ * 21 CFR fail-closed (2026-07-10) — the STORAGE_OUT offline bug.
+ *
+ * Reproduction: a cleaning profile has a CHECKLIST node after STORAGE_OUT.
+ * Offline, buildPendingChecklistFromProfile could not resolve the checklist's
+ * questions (checklist-profiles cache miss), so it returned []. The old
+ * cycleComplete logic then read "no pending checklist + terminal stage" as
+ * "cycle done", cleared the offline cycle id, and the next scan rolled the
+ * filter into a fresh WASH_IN cycle — the required checklist silently skipped.
+ * On sync the server correctly rejected the un-checklisted cycle.
+ *
+ * The guard: when stageLookup/graph says a checklist fires after the stage but
+ * it couldn't be resolved, the cycle must NOT complete — park the filter until
+ * it re-syncs online.
+ */
+describe('recomputeAndCacheFilterState — fail-closed on unresolved checklist gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockOfflineStore.cacheData.mockResolvedValue(undefined);
+    mockOfflineStore.updateFilterStateLocally.mockResolvedValue(undefined);
+    mockOfflineStore.clearOfflineCycleId.mockResolvedValue(undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('does NOT complete the cycle when a checklist is expected but unresolvable offline', async () => {
+    mockOfflineStore.getCachedData.mockImplementation(async (key: string) => {
+      if (key === 'checklist-profiles') return []; // cannot resolve cl-1's questions
+      if (key.startsWith('filter-state-')) {
+        return {
+          currentState: 'STORAGE_IN',
+          currentCycle: { id: 'cyc-1', status: 'IN_PROGRESS' },
+          stageLookup: {
+            STORAGE_OUT: { nextStages: [], pendingChecklistProfileIds: ['cl-1'], leadsToEnd: true, interlockGated: false },
+          },
+          pipelineStages: [{ stateKey: 'STORAGE_OUT', sortOrder: 5 }],
+        };
+      }
+      return null;
+    });
+
+    const { recomputeAndCacheFilterState } = await import('../offline-cache');
+    await recomputeAndCacheFilterState('filter-uuid-9', 'STORAGE_OUT', false, null);
+
+    // Cycle must NOT be completed → the offline cycle id must NOT be cleared,
+    // and the filter stays parked at STORAGE_OUT (not rolled into a new cycle).
+    expect(mockOfflineStore.clearOfflineCycleId).not.toHaveBeenCalled();
+    const firstWrite = mockOfflineStore.cacheData.mock.calls[0];
+    expect(firstWrite[1].currentState).toBe('STORAGE_OUT');
+    expect(firstWrite[1].currentCycle).not.toBeNull();
+  });
+
+  it('DOES complete the cycle at a terminal stage that genuinely has no checklist', async () => {
+    mockOfflineStore.getCachedData.mockImplementation(async (key: string) => {
+      if (key === 'checklist-profiles') return [];
+      if (key.startsWith('filter-state-')) {
+        return {
+          currentState: 'STORAGE_IN',
+          currentCycle: { id: 'cyc-1', status: 'IN_PROGRESS' },
+          stageLookup: {
+            STORAGE_OUT: { nextStages: [], pendingChecklistProfileIds: [], leadsToEnd: true, interlockGated: false },
+          },
+          pipelineStages: [{ stateKey: 'STORAGE_OUT', sortOrder: 5 }],
+        };
+      }
+      return null;
+    });
+
+    const { recomputeAndCacheFilterState } = await import('../offline-cache');
+    await recomputeAndCacheFilterState('filter-uuid-10', 'STORAGE_OUT', false, null);
+
+    // No checklist expected → terminal stage completes normally (no regression).
+    expect(mockOfflineStore.clearOfflineCycleId).toHaveBeenCalledWith('filter-uuid-10');
+    const firstWrite = mockOfflineStore.cacheData.mock.calls[0];
+    expect(firstWrite[1].currentState).toBeNull();
+  });
+});
