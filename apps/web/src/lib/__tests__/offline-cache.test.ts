@@ -119,3 +119,65 @@ describe('recomputeAndCacheFilterState — D3 deep-review fix', () => {
     });
   });
 });
+
+/**
+ * Offline checklist regression (2026-07-10).
+ *
+ * The offline sync caches /batch-states + /current-state responses verbatim.
+ * Post-Phase-8.7 the server no longer emits `pendingChecklist` — only the
+ * `actions[]` tape carries the checklist gate. An empty `pendingChecklist` in
+ * the cached row makes `synthesizeEvents` Tier 2 read the gate as "already
+ * submitted" and the local executor recompute drops SUBMIT_CHECKLIST → the
+ * offline checklist dialog never appears (see local-context.test #13/#14).
+ *
+ * `withDerivedPendingChecklist` must fill `pendingChecklist` from the tape so
+ * the synced cache matches what `cacheServerStateResponse` produces online.
+ */
+describe('withDerivedPendingChecklist — offline checklist gate derivation', () => {
+  const submitAction = {
+    type: 'SUBMIT_CHECKLIST',
+    label: 'Submit Checklist: Post-Wash',
+    params: {
+      afterStage: 'WASH_OUT',
+      checklistProfileId: 'cl-prof-1',
+      versionPin: 2,
+      questions: [
+        { id: 'q1', question: 'Temp OK?', questionType: 'YES_NO', required: true, sortOrder: 0 },
+      ],
+    },
+  } as any;
+
+  it('derives pendingChecklist (with questions) from the tape when the field is absent', async () => {
+    const { withDerivedPendingChecklist } = await import('../offline-cache');
+    const raw = { currentState: 'WASH_OUT', actions: [submitAction] }; // no pendingChecklist (batch-states shape)
+
+    const out = withDerivedPendingChecklist(raw as any);
+
+    expect(Array.isArray(out.pendingChecklist)).toBe(true);
+    expect(out.pendingChecklist).toHaveLength(1);
+    expect(out.pendingChecklist![0].checklistProfileId).toBe('cl-prof-1');
+    expect(out.pendingChecklist![0].questions).toHaveLength(1);
+    // Other fields preserved untouched.
+    expect(out.currentState).toBe('WASH_OUT');
+  });
+
+  it('leaves an already-populated pendingChecklist untouched', async () => {
+    const { withDerivedPendingChecklist } = await import('../offline-cache');
+    const existing = [{ checklistProfileId: 'x', questions: [] }];
+    const raw = { actions: [submitAction], pendingChecklist: existing };
+
+    const out = withDerivedPendingChecklist(raw as any);
+
+    expect(out.pendingChecklist).toBe(existing);
+  });
+
+  it('does not fabricate a checklist when the tape has no SUBMIT_CHECKLIST', async () => {
+    const { withDerivedPendingChecklist } = await import('../offline-cache');
+    const raw = { actions: [{ type: 'ADVANCE_TO_STAGE', label: 'x', params: { targetState: 'DRY_IN' } }] };
+
+    const out = withDerivedPendingChecklist(raw as any);
+
+    // No SUBMIT_CHECKLIST → no pendingChecklist added (stays absent, not []).
+    expect(out.pendingChecklist).toBeUndefined();
+  });
+});

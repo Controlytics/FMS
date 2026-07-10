@@ -27,6 +27,7 @@ import {
   cacheAhus,
   cacheFiltersTyped,
 } from './offline-store';
+import { withDerivedPendingChecklist } from './offline-cache';
 
 export interface SyncProgress {
   step: string;
@@ -142,7 +143,11 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
       if (batchResult?.states) {
         const stateEntries = Object.entries(batchResult.states);
         for (const [filterId, stateObj] of stateEntries) {
-          await cacheItem(`filter-state-${filterId}`, stateObj);
+          // Derive pendingChecklist from the tape before caching — the server
+          // stopped emitting it post-Phase-8.7, and an empty one makes the
+          // offline executor silently skip required checklists. See
+          // withDerivedPendingChecklist docblock (offline-cache.ts).
+          await cacheItem(`filter-state-${filterId}`, withDerivedPendingChecklist(stateObj));
         }
       }
     } catch (err) {
@@ -168,7 +173,7 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
       for (const f of filters) {
         try {
           const st = await apiClient.get<any>(`/api/filters/${f.id}/current-state`);
-          await cacheItem(`filter-state-${f.id}`, st);
+          await cacheItem(`filter-state-${f.id}`, withDerivedPendingChecklist(st));
         } catch { perFilterMisses++; }
       }
       if (perFilterMisses > 0) {

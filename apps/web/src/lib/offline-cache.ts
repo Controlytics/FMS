@@ -466,6 +466,39 @@ export async function cacheServerStateResponse(
 }
 
 /**
+ * Attach a derived `pendingChecklist[]` to a raw /current-state (or
+ * /batch-states) response BEFORE the offline sync caches it verbatim.
+ *
+ * 2026-07-10 — offline checklist regression. The offline sync
+ * (`offline-sync-service.ts`) caches the server state object with a raw
+ * `cacheItem(...)`, bypassing `cacheServerStateResponse`. Post-Phase-8.7 the
+ * server no longer emits `pendingChecklist` — only the `actions[]` tape carries
+ * the checklist gate. So the synced cache row ends up with an EMPTY
+ * `pendingChecklist`, and `loadLocalContextFromCache` → `synthesizeEvents`
+ * Tier 2 reads "empty pendingChecklist + profile has a CHECKLIST node after the
+ * current stage" as "operator already submitted" → synthesizes a fake
+ * CHECKLIST_COMPLETED → the LOCAL tape recompute (the path the offline
+ * interlock exemption + any stale/absent cached tape take) drops the
+ * SUBMIT_CHECKLIST action → the checklist dialog never appears offline and a
+ * required checklist is silently skipped (21 CFR §11). See local-context.test
+ * cases #13/#14 for the exact executor behaviour this feeds.
+ *
+ * This mirrors the derivation `cacheServerStateResponse` already applies for
+ * the online operations page. Every other field is preserved untouched; only a
+ * missing/empty `pendingChecklist` is filled from the tape.
+ */
+export function withDerivedPendingChecklist<
+  T extends { actions?: Action[] | null; pendingChecklist?: any[] },
+>(state: T): T {
+  if (Array.isArray(state?.pendingChecklist) && state.pendingChecklist.length > 0) {
+    return state;
+  }
+  const derived = pendingChecklistFromActions(state?.actions);
+  if (derived.length === 0) return state;
+  return { ...state, pendingChecklist: derived };
+}
+
+/**
  * Read the cached pending-checklist payload that the ChecklistDialog expects.
  * Returns the raw cache row's `pendingChecklist` array (already in dialog
  * shape — see PendingChecklist interface on filter-operations.tsx).
