@@ -114,8 +114,18 @@ export const stageApprovalService = {
   async list(ctx: RequestContext, opts: { status?: string }) {
     const where: Record<string, unknown> = {};
     if (opts.status) where.status = opts.status;
-    // Non-super-admins only ever see approvals routed to their role.
-    if (ctx.userRole !== 'SUPER_ADMIN') where.approverRole = ctx.userRole;
+    // Non-super-admins see approvals routed to their role (to act on) AND
+    // approvals they themselves REQUESTED (to track the status of their own
+    // requests — the tablet operator who advanced into a gated stage needs to
+    // see whether QA approved/rejected it). Without the requestedBy arm the
+    // operator saw an empty approvals screen because stage approvals are routed
+    // to the QA/approver role, never to OPERATOR.
+    if (ctx.userRole !== 'SUPER_ADMIN') {
+      where.OR = [
+        { approverRole: ctx.userRole },
+        { requestedBy: ctx.userSub },
+      ];
+    }
     return prisma.cleaningStageApproval.findMany({
       where,
       orderBy: { requestedAt: 'desc' },
