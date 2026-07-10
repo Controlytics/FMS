@@ -2640,6 +2640,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       setPendingBatch(null);
       setChecklistAnswers({});
       setStageSubmitRecap(null);
+      setRemarks(''); // B1/B2: clear remarks after a checklist-gated submit too
       // Surface per-filter results by NAME (not the raw UUID out.failures carry)
       // — batch members carry filterName; map through it.
       const success = out.okCount;
@@ -2707,6 +2708,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         setPendingBatch(null);
         setChecklistAnswers({});
         setStageSubmitRecap(null);
+        setRemarks(''); // B1/B2: clear remarks after a checklist-gated submit too
         if (failed.length > 0 && success === 0) {
           setError(failed.join('\n'));
         } else if (failed.length > 0) {
@@ -2735,6 +2737,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         });
         setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
         setChecklistAnswers({});
+        setRemarks(''); // B1/B2: clear remarks after a checklist-gated submit too
         // Combined-screen UX: once the checklist is submitted, the stage flow
         // for this filter is fully complete — drop the recap so the next stage
         // doesn't show last cycle's data.
