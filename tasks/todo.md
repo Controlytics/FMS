@@ -1817,8 +1817,8 @@ Order: A → B1,B2 → B3/C2 → C5 → C1 → C3,C4 → B-offline.
 - [x] B3/C2. Where submitted filters display after submit, split into two sections: Success | Failure.
 - [x] C5. Batch submit progress = spinner "Submitting N filters…" (option 1: keep bulk fast, NO 1/N counter).
 - [x] C1. Remove the 20-item cap in cleaning-stage submitted list.
-- [ ] C3. Tablet Approvals screen: show stage-approval status + filter All/Pending/Approved/Rejected.
-- [ ] C4. My Tasks: show each filter's cleaning status next to it under the AHU.
+- [x] C3. Tablet Approvals screen: show stage-approval status + filter All/Pending/Approved/Rejected.
+- [x] C4. My Tasks: show each filter's cleaning status next to it under the AHU.
 - [ ] B-offline. Offline checklists not appearing — separate investigation.
 
 ### Progress 2026-07-10 (tablet UX batch)
