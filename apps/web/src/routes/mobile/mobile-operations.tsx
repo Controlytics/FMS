@@ -1384,6 +1384,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       } catch { /* ignore — user can re-scan to trigger */ }
     }
     setScanQueue([]); setDryerDurations({});
+    // B1 (2026-07-10): clear the remarks box after a stage submit completes so the
+    // note doesn't linger and get silently reused on the operator's next op (which
+    // also surfaced as a checklist-gated advance carrying stale remarks).
+    setRemarks('');
     if (successCount > 0) setSuccess(`${successCount} filter(s) → ${activeStage.label}${failed.length > 0 ? ` (${failed.length} failed)` : ''}`);
     if (failed.length > 0) setError(failed.join('\n'));
     // 2026-05-20: refresh BOTH the SWR cache (so allFilters sees the new
