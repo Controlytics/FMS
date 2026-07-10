@@ -44,12 +44,16 @@ import type { FilterOperationsService } from './filter-operations.service.js';
  * fabricate an approval we can't attribute, since requestedBy must be a real
  * user for segregation-of-duties to mean anything).
  */
-async function resolveStagePerformer(cycleId: string, stageKey: string): Promise<{ sub: string; name: string }> {
+async function resolveStagePerformer(cycleId: string, stageKey: string): Promise<{ sub: string; name: string; enteredOffline: boolean }> {
   const entry = await prisma.filterEvent.findFirst({
     where: { cycleId, eventType: 'STATE_TRANSITION', toState: stageKey },
     orderBy: { performedAt: 'desc' },
-    select: { performedBy: true },
+    select: { performedBy: true, attributes: true },
   });
+  // Was the advance INTO this gated stage performed offline? (advance.ts stamps
+  // attributes.offline=true on offline-performed entries.) Offline work is never
+  // interlock-gated, so the self-heal must not create an approval for it.
+  const enteredOffline = (entry?.attributes as any)?.offline === true;
   const starter = entry
     ? null
     : await prisma.filterEvent.findFirst({
@@ -58,9 +62,9 @@ async function resolveStagePerformer(cycleId: string, stageKey: string): Promise
         select: { performedBy: true },
       });
   const sub = entry?.performedBy ?? starter?.performedBy ?? '';
-  if (!sub) return { sub: '', name: 'unknown' };
+  if (!sub) return { sub: '', name: 'unknown', enteredOffline };
   const u = await prisma.user.findUnique({ where: { id: sub }, select: { username: true } });
-  return { sub, name: u?.username ?? 'unknown' };
+  return { sub, name: u?.username ?? 'unknown', enteredOffline };
 }
 
 /**
@@ -148,7 +152,13 @@ export async function getCurrentStateImpl(
     // after the filter has already moved past the gated stage.
     if (!interlockLatest && !ctx.isOfflineReplay) {
       const performer = await resolveStagePerformer(currentCycle.id, stageKey);
-      if (performer.sub) {
+      // OFFLINE EXEMPTION (2026-07-10, per user): never self-heal an approval for a
+      // filter that reached this gated stage OFFLINE. Closes the sync-window race
+      // where an online poll catches a filter transiently parked at the gate
+      // between two offline-op replays and manufactures a PENDING approval the
+      // operator never needed. Online-reached stages (incl. interlock-enabled-
+      // after-advance) still self-heal normally.
+      if (performer.sub && !performer.enteredOffline) {
         const snapshot = await collectFilterApprovalDetails(filterId);
         const approverRole = getApproverRoleForStage(stageKey, interlockConfig);
         const created = await prisma.$transaction(async (tx) => {

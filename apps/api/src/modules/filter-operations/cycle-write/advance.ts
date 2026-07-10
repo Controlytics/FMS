@@ -329,6 +329,11 @@ export async function advanceImpl(
     ...(validatedReadings ? { instrumentReadings: validatedReadings } : {}),
     ...(dryerAction === 'SET_DURATION' ? { action: 'DRYER_STARTED', dryerDurationMinutes, dryerStartedAt: dryerStartedAt!.toISOString() } : {}),
     ...(dryerAction === 'SUBMIT_READINGS' ? { action: 'DRYER_READINGS_SUBMITTED' } : {}),
+    // 2026-07-10 (per user): durably mark a stage-entry performed OFFLINE. The
+    // stage interlock never gates offline work, so the self-heal in
+    // current-state.ts reads this to avoid manufacturing a PENDING approval when
+    // an online poll catches a filter that reached a gated stage offline.
+    ...(offlineTime ? { offline: true } : {}),
   }, clientOpId);
 
   // Dryer-readings submission is recorded as a STATE_TRANSITION row but

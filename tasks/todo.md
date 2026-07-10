@@ -1805,3 +1805,18 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
   refs (removed 2026-05-17) at CODEBASE_SUMMARY:62 etc., and MQTT/Mosquitto (removed 2026-06-17) at
   CURRENT_STATUS:109 etc. — pure non-reports staleness, not touched. Also docs/CONFIG_AUDIT:137 (@napi-rs/canvas
   dep-upgrade row) + incidental @napi-rs/canvas mentions in EXE_PACKAGING_FEASIBILITY:15/93/117 left as dated records.
+
+## 2026-07-10 — Tablet cleaning UX batch (confirmed with user)
+Order: A → B1,B2 → B3/C2 → C5 → C1 → C3,C4 → B-offline.
+- [ ] A. Offline interlock exemption — offline stage-entries never create stage-approval requests.
+      Root cause: current-state.ts self-heal manufactures PENDING approval during sync race.
+      Fix: stamp `offline:true` on the entry event (advance.ts) when offlineTime set; self-heal skips
+      when the gated-stage entry was offline (current-state.ts resolveStagePerformer → enteredOffline).
+- [ ] B1. Clear remarks box after successful submit (cleaning stages).
+- [ ] B2. Checklist answer bleeding into stage remarks — keep separate.
+- [ ] B3/C2. Where submitted filters display after submit, split into two sections: Success | Failure.
+- [ ] C5. Batch submit progress = spinner "Submitting N filters…" (option 1: keep bulk fast, NO 1/N counter).
+- [ ] C1. Remove the 20-item cap in cleaning-stage submitted list.
+- [ ] C3. Tablet Approvals screen: show stage-approval status + filter All/Pending/Approved/Rejected.
+- [ ] C4. My Tasks: show each filter's cleaning status next to it under the AHU.
+- [ ] B-offline. Offline checklists not appearing — separate investigation.
