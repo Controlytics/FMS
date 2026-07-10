@@ -71,4 +71,34 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
     const row = await svc.reject(buildContext(req), id, b.remarks);
     return { id: row.id, status: row.status };
   });
+
+  // Bulk approve/reject — ONE request + ONE signature covers the whole selection,
+  // instead of N sequential POSTs. Loops the existing approve/reject per id
+  // (own tx + own audit e-signature each); PARTIAL SUCCESS. Reauth-always
+  // enforced once for the batch, exactly as the single routes.
+  app.post('/bulk-decide', {
+    preHandler: [app.requirePermission('STAGE_APPROVAL_DECIDE')],
+    schema: {
+      tags: ['Stage Approvals'], summary: 'Batch approve/reject cleaning stages (partial success)',
+      body: {
+        type: 'object', required: ['ids', 'action'],
+        properties: {
+          ids: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'string', format: 'uuid' } },
+          action: { type: 'string', enum: ['approve', 'reject'] },
+          remarks: { type: 'string' },
+          _currentPassword: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const b = req.body as { ids: string[]; action: 'approve' | 'reject'; remarks?: string };
+    // Rejection remarks are mandatory (mirror the single /reject route).
+    if (b.action === 'reject' && !b.remarks?.trim()) {
+      return reply.code(400).send({ error: 'REMARKS_REQUIRED', message: 'Rejection remarks are required.' });
+    }
+    const { ok } = await enforceReauthAlways(
+      b.action === 'approve' ? 'APPROVE_CLEANING_STAGE' : 'REJECT_CLEANING_STAGE', req, reply);
+    if (!ok) return;
+    return svc.bulkDecide(buildContext(req), b.ids, b.action, b.remarks);
+  });
 }

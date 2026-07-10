@@ -86,29 +86,26 @@ export function StageApprovalsPage() {
     setBusy(true);
     bulkFailures.current = [];
     // One password signs the whole batch. The callback may run TWICE: first with
-    // pw=undefined (when reauth isn't pre-configured the first item 401s and we
-    // re-throw to pop the dialog), then with pw set. It MUST be idempotent on the
-    // restart — the loop aborts on the first REAUTH error, so no item is acted on
-    // twice; only on the password-bearing pass does the full loop complete.
+    // pw=undefined (the always-on reauth gate 401s the WHOLE request before any
+    // decision is made, and the REAUTH error re-throws to pop the dialog), then
+    // with pw set. Idempotent: the passwordless pass acts on nothing, so the
+    // password-bearing retry can't double-apply.
     reauth.execute(reauthAction, async (pw?: string) => {
-      const failures: { name: string; msg: string }[] = [];
-      for (const id of ids) {
-        const item = queue.find((q) => q.id === id);
-        const name = item?.detailsSnapshot?.filterName ?? item?.filterId ?? id;
-        try {
-          const url = `/api/stage-approvals/${id}/${action}`;
-          const body: Record<string, unknown> = { remarks: cleanRemarks };
-          if (pw) await apiClient.postWithReauth(url, body, pw);
-          else await apiClient.post(url, body);
-        } catch (e: any) {
-          // REAUTH errors must escape so useReauth can open/keep the dialog.
-          // api-client throws either an { error } shape or a constructed Error
-          // with { code } — check both.
-          if (e?.error === 'REAUTH_REQUIRED' || e?.error === 'REAUTH_FAILED' || e?.code === 'REAUTH_REQUIRED' || e?.code === 'REAUTH_FAILED') throw e;
-          failures.push({ name, msg: e?.message ?? 'Failed' });
-        }
-      }
-      bulkFailures.current = failures;
+      // ONE /bulk-decide request signs + processes the whole selection instead of
+      // N sequential POSTs. Per-item failures come back in results[]; REAUTH errors
+      // propagate (not caught) so useReauth opens/keeps the password dialog.
+      const url = '/api/stage-approvals/bulk-decide';
+      const body: Record<string, unknown> = { ids, action, remarks: cleanRemarks };
+      type BulkResp = { results: { id: string; status: string; error?: { message?: string } }[] };
+      const resp = pw
+        ? await apiClient.postWithReauth<BulkResp>(url, body, pw)
+        : await apiClient.post<BulkResp>(url, body);
+      bulkFailures.current = (resp?.results ?? [])
+        .filter((r) => r.status === 'failed')
+        .map((r) => {
+          const item = queue.find((q) => q.id === r.id);
+          return { name: item?.detailsSnapshot?.filterName ?? item?.filterId ?? r.id, msg: r.error?.message ?? 'Failed' };
+        });
     }, {
       onSuccess: () => {
         const failed = bulkFailures.current.length;

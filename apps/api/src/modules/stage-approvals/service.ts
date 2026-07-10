@@ -322,6 +322,34 @@ export const stageApprovalService = {
 
     return updated;
   },
+
+  /**
+   * Batch approve/reject N cleaning-stage approvals in ONE request. Loops the
+   * existing approve()/reject() per id — each keeps its own transaction, audit
+   * row (the e-signature) and operator notification, so the tamper-evident trail
+   * is byte-identical to N single decisions. Per-item try/catch → PARTIAL SUCCESS:
+   * one failed decision neither rolls back nor blocks the others. Reauth (the
+   * digital signature) is enforced ONCE at the route before this runs, exactly as
+   * one operator signing the whole selection. Batch size is capped at the route.
+   */
+  async bulkDecide(
+    ctx: RequestContext,
+    ids: string[],
+    action: 'approve' | 'reject',
+    remarks?: string,
+  ): Promise<{ results: Array<{ id: string; status: 'ok' | 'failed'; error?: { code: string; message: string } }> }> {
+    const results: Array<{ id: string; status: 'ok' | 'failed'; error?: { code: string; message: string } }> = [];
+    for (const id of ids) {
+      try {
+        if (action === 'approve') await stageApprovalService.approve(ctx, id, remarks);
+        else await stageApprovalService.reject(ctx, id, remarks);
+        results.push({ id, status: 'ok' });
+      } catch (e: any) {
+        results.push({ id, status: 'failed', error: { code: e?.code ?? 'DECISION_FAILED', message: e?.message ?? 'Failed' } });
+      }
+    }
+    return { results };
+  },
 };
 
 /** Best-effort notification to the operator who requested the approval. */
