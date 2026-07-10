@@ -14,8 +14,13 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
   });
 
   // Broader list — ?status=APPROVED|REJECTED|PENDING.
+  // FILTER_OPERATE is accepted so any operating role can see the status of the
+  // stage-approval requests IT raised (svc.list scopes non-SA to
+  // approverRole=role OR requestedBy=self). Without it, operating roles that
+  // lack STAGE_APPROVAL_VIEW (e.g. SUPERVISOR on live) got a 403 and the tablet
+  // Approvals screen was empty even for their own requests.
   app.get('/', {
-    preHandler: [app.requirePermission('STAGE_APPROVAL_VIEW')],
+    preHandler: [app.requireAnyPermission('STAGE_APPROVAL_VIEW', 'FILTER_OPERATE')],
     schema: {
       tags: ['Stage Approvals'], summary: 'List stage approvals',
       querystring: { type: 'object', properties: { status: { type: 'string' } } },
