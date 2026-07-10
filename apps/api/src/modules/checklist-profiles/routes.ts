@@ -8,7 +8,15 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   const service = new ChecklistProfileService();
 
   app.get('/', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE', 'VERSION_HISTORY_VIEW')],
+    // FILTER_OPERATE is accepted here because the mobile tablet's offline sync
+    // fetches this endpoint (expand=questions) to cache the checklist payload
+    // so operators can answer checklists offline. An operator who can OPERATE a
+    // filter MUST be able to read the checklists they'll fill — without this,
+    // roles that hold FILTER_OPERATE but not FCP_READ (e.g. the OPERATOR role
+    // as configured on live) get a 403 on sync, the checklist cache is left
+    // empty, and the offline executor silently skips required checklists
+    // (2026-07-10 root cause of "checklist not appearing offline").
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CHECKLIST_TOGGLE', 'VERSION_HISTORY_VIEW', 'FILTER_OPERATE')],
     // expand=questions inlines questions[] on each row — used by the mobile
     // tablet to cache the full checklist payload for offline use. Without
     // adding this to the schema, Fastify strips the unknown query param.
