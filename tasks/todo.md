@@ -1808,15 +1808,25 @@ with `digilog_tsdb`). The page GET-renders fine but the submit 404s.
 
 ## 2026-07-10 — Tablet cleaning UX batch (confirmed with user)
 Order: A → B1,B2 → B3/C2 → C5 → C1 → C3,C4 → B-offline.
-- [ ] A. Offline interlock exemption — offline stage-entries never create stage-approval requests.
+- [x] A. Offline interlock exemption — offline stage-entries never create stage-approval requests.
       Root cause: current-state.ts self-heal manufactures PENDING approval during sync race.
       Fix: stamp `offline:true` on the entry event (advance.ts) when offlineTime set; self-heal skips
       when the gated-stage entry was offline (current-state.ts resolveStagePerformer → enteredOffline).
-- [ ] B1. Clear remarks box after successful submit (cleaning stages).
+- [x] B1. Clear remarks box after successful submit (cleaning stages).
 - [ ] B2. Checklist answer bleeding into stage remarks — keep separate.
-- [ ] B3/C2. Where submitted filters display after submit, split into two sections: Success | Failure.
-- [ ] C5. Batch submit progress = spinner "Submitting N filters…" (option 1: keep bulk fast, NO 1/N counter).
-- [ ] C1. Remove the 20-item cap in cleaning-stage submitted list.
+- [x] B3/C2. Where submitted filters display after submit, split into two sections: Success | Failure.
+- [x] C5. Batch submit progress = spinner "Submitting N filters…" (option 1: keep bulk fast, NO 1/N counter).
+- [x] C1. Remove the 20-item cap in cleaning-stage submitted list.
 - [ ] C3. Tablet Approvals screen: show stage-approval status + filter All/Pending/Approved/Rejected.
 - [ ] C4. My Tasks: show each filter's cleaning status next to it under the AHU.
 - [ ] B-offline. Offline checklists not appearing — separate investigation.
+
+### Progress 2026-07-10 (tablet UX batch)
+DONE + committed: A (1da0f07+628f34a offline interlock incl. bypass, reviewed), B1 (d4cfab9 remarks clear),
+B3/C2+C1+C5 (e7e0e46 success/failure sections + cap 20→200 + "Submitting N filters…" spinner).
+APK rebuilt 13:37 (MD5 a1bc5601) with this batch — user testing (esp. offline interlock: offline clean→sync→no approvals).
+C3 SCOPE DISCOVERY: tablet Approvals view (mobile-operations.tsx view==='approvals', ~L3278) shows BLOCK-CHANGE
+requests only (/api/block-change-requests), with an existing PENDING/APPROVED/REJECTED/ALL filter. STAGE approvals
+(/api/stage-approvals, interlock QA) are NOT on the tablet. C3 = add them. Fork: (a) read-only status list+filter
+vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject, mirrors desktop stage-approvals
++ the new bulk-decide). Awaiting user scope decision.

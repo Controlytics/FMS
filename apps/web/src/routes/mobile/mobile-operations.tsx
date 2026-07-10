@@ -430,6 +430,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: approvalsData, mutate: mutateApprovals, isLoading: approvalsLoading } =
     useSWR<any>(approvalsKey, { refreshInterval: 30000 });
 
+  // C3 (2026-07-10): read-only stage-approval (interlock QA) status on the tablet
+  // Approvals screen, honoring the same status filter. Approve/reject stays on
+  // desktop. Fails silently (empty) for roles without STAGE_APPROVAL_VIEW.
+  const stageApprovalsKey = (online && view === 'approvals')
+    ? `/api/stage-approvals${approvalsFilter !== 'ALL' ? `?status=${approvalsFilter}` : ''}`
+    : null;
+  const { data: stageApprovalsData } = useSWR<any>(stageApprovalsKey, { refreshInterval: 30000 });
+  const stageApprovals: any[] = stageApprovalsData?.data ?? [];
+
   // Issue #7 fix (2026-05-18): Cleaning Cycles list on mobile. Desktop has a
   // full /cleaning-cycles/history page but tablets had no equivalent — after
   // an offline sync, operators couldn't view the resulting cycle data without
@@ -3317,7 +3326,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               </div>
             )}
 
-            {online && !approvalsLoading && approvals.length === 0 && (
+            {online && !approvalsLoading && approvals.length === 0 && stageApprovals.length === 0 && (
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                 <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
                 <div className="p-10 text-center">
@@ -3428,6 +3437,34 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 </div>
               );
             })}
+            {/* C3 (2026-07-10): Stage Approvals (interlock QA) — READ-ONLY on the
+                tablet, honoring the same status filter. Approve/reject is done on
+                the desktop. */}
+            {online && stageApprovals.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Stage Approvals · QA</h3>
+                {stageApprovals.map((sa: any) => {
+                  const st = sa.status === 'APPROVED'
+                    ? { label: 'Approved', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
+                    : sa.status === 'REJECTED'
+                    ? { label: 'Rejected', badge: 'bg-rose-50 text-rose-700 border-rose-100' }
+                    : { label: 'Pending', badge: 'bg-amber-50 text-amber-700 border-amber-100' };
+                  return (
+                    <div key={sa.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-slate-800 truncate">{sa.detailsSnapshot?.filterName ?? sa.filterId}</span>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${st.badge}`}>{st.label}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                        <span>Stage: {interlockStageLabel(sa.stageKey)}</span>
+                        {sa.requestedByName && <span>By: {sa.requestedByName}</span>}
+                        {sa.status !== 'PENDING' && sa.decidedByName && <span>{sa.status === 'APPROVED' ? 'Approved' : 'Rejected'} by {sa.decidedByName}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
