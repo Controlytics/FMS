@@ -293,6 +293,30 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         pushDebug(`key="${e.key}" gap=${gap}ms target=${(e.target as HTMLElement)?.tagName ?? '?'}`);
       }
 
+      // 2026-07-10: leave keystrokes destined for ANOTHER editable field alone
+      // (checklist question inputs, remarks textarea, search boxes, selects).
+      // This global capture-phase trap catches USB keyboard-wedge RFID input
+      // when the scan field isn't focused — but fast HUMAN typing (2 chars
+      // within RFID_INTERVAL_MS) was latching captureMode, mirroring the
+      // keystrokes into the scan box AND preventDefault-ing them away from the
+      // field the operator was typing in (the "checklist answer shows up in the
+      // scan box" bug). Hardware RFID scans arrive via the native RfidPlugin
+      // bridge (subscribeRfidTags), not this keyboard fallback, so nothing is
+      // lost by skipping here. The scan input itself stays trapped below.
+      const tgt = e.target as HTMLElement | null;
+      if (
+        tgt && tgt !== scanInputRef.current &&
+        (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' ||
+         tgt.tagName === 'SELECT' || tgt.isContentEditable)
+      ) {
+        // Drop any stale wedge state so a later real scan into the scan input
+        // starts clean.
+        buffer = '';
+        captureMode = false;
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+        return;
+      }
+
       // Enter or Tab terminates an RFID burst — most readers append CR/LF/TAB.
       // Submit immediately on terminator. Zero wait.
       if (e.key === 'Enter' || e.key === 'Tab') {
