@@ -3257,9 +3257,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                                 f.status === 'cleaned_in_window' ? 'Cleaned'
                                 : f.status === 'in_progress' ? 'In progress'
                                 : 'Pending';
+                              // 2026-07-10: also show WHICH cleaning stage the filter is
+                              // currently in (Wash In / Wash Out / Dry In / …). Resolve via
+                              // the shared STAGES catalog so only a REAL cleaning stage shows
+                              // — lifecycle markers like CLEANING_CYCLE_COMPLETED / idle
+                              // (which aren't in STAGES) resolve to null and are omitted.
+                              const stageLabel = f.currentStage
+                                ? (STAGES.find((s: any) => s.key === f.currentStage)?.label ?? null)
+                                : null;
                               return (
                                 <span key={f.filterId} className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border font-semibold ${cls}`}>
                                   {f.filterName}
+                                  {stageLabel && <span className="font-normal opacity-70">· {stageLabel}</span>}
                                   <span className="font-normal opacity-70">· {statusLabel}</span>
                                 </span>
                               );

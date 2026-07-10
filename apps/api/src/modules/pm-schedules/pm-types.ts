@@ -11,6 +11,8 @@ export interface DueFilterRow {
   filterId: string;
   filterName: string;
   status: DueFilterStatus;
+  /** Current cleaning lifecycle stage (WASH_IN / WASH_OUT / … ) or null when idle. */
+  currentStage: string | null;
   lastCycleCompletedAt: Date | null;
 }
 

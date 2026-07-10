@@ -155,11 +155,12 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       isActive: true,
       status: { not: 'Retired' },
     },
-    select: { id: true, name: true, parentId: true, filterDetails: { select: { filterSet: true } } },
+    select: { id: true, name: true, parentId: true, filterDetails: { select: { filterSet: true, currentLifecycleState: true } } },
   });
   const allChildFilters = allChildFiltersRaw.map(f => ({
     id: f.id, name: f.name, parentId: f.parentId,
     filterSet: f.filterDetails?.filterSet ?? null,
+    currentStage: f.filterDetails?.currentLifecycleState ?? null,
   }));
   const filtersByAhu = new Map<string, typeof allChildFilters>();
   for (const f of allChildFilters) {
@@ -252,6 +253,9 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
         filterId: f.id,
         filterName: f.name,
         status,
+        // Current cleaning lifecycle stage (WASH_IN / WASH_OUT / DRY_IN / …) so
+        // the tablet My Tasks view can show which stage each filter is in.
+        currentStage: f.currentStage ?? null,
         lastCycleCompletedAt: cleaned?.completedAt ?? cycles[0]?.completedAt ?? null,
       };
     });
