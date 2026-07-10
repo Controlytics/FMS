@@ -3216,9 +3216,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                                 f.status === 'cleaned_in_window' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                                 : f.status === 'in_progress' ? 'bg-cyan-50 text-cyan-700 border-cyan-100'
                                 : 'bg-amber-50 text-amber-700 border-amber-100';
+                              // C4 (2026-07-10): show the filter's cleaning status as a
+                              // readable label, not just the pill colour.
+                              const statusLabel =
+                                f.status === 'cleaned_in_window' ? 'Cleaned'
+                                : f.status === 'in_progress' ? 'In progress'
+                                : 'Pending';
                               return (
-                                <span key={f.filterId} className={`inline-flex text-[10px] px-2 py-1 rounded-md border font-semibold ${cls}`}>
+                                <span key={f.filterId} className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border font-semibold ${cls}`}>
                                   {f.filterName}
+                                  <span className="font-normal opacity-70">· {statusLabel}</span>
                                 </span>
                               );
                             })}
