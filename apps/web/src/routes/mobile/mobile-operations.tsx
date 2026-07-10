@@ -116,7 +116,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [recentOps, setRecentOps] = useState<Array<{ stage: string; filter: string; time: string; queued?: boolean }>>([]);
+  const [recentOps, setRecentOps] = useState<Array<{ stage: string; filter: string; time: string; queued?: boolean; status?: 'ok' | 'failed'; msg?: string }>>([]);
   // 2026-05-25: combined-screen UX. When a stage submit triggers a follow-up
   // checklist dialog (resolveAndDispatchChecklist auto-opens it), we want the
   // operator to see the stage readings they just submitted at the top of the
@@ -1161,7 +1161,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               if (dryerExec && Array.isArray((dryerRes.result as any)?.actions)) {
                 serverActionsByFilter.set(item.filterId, (dryerRes.result as any).actions);
               }
-              setRecentOps(prev => [{ stage: 'Dryer Started', filter: item.filterName, time: formatTime(new Date()), queued: !dryerExec }, ...prev].slice(0, 20));
+              setRecentOps(prev => [{ stage: 'Dryer Started', filter: item.filterName, time: formatTime(new Date()), queued: !dryerExec }, ...prev].slice(0, 200));
               // 2026-05-20 explicit IDB filters-store write — guarantees the
               // Currently Drying panel sees DRY_IN for this filter regardless
               // of whether core.advance's recomputeAndCacheFilterState ran
@@ -1247,7 +1247,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           serverActionsByFilter.set(item.filterId, result.actions);
         }
         successCount++;
-        setRecentOps(prev => [{ stage: activeStage.key, filter: item.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
+        setRecentOps(prev => [{ stage: activeStage.key, filter: item.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 200));
       } catch (e: any) {
         // Deep-review fix D6 (2026-05-17): REAUTH errors must NOT be swallowed
         // into the per-filter failure list — the reauth dialog needs to stay
@@ -1267,6 +1267,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           throw e;
         }
         failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+        // B3/C2: record failures too so they render in the Failure section.
+        setRecentOps(prev => [{ stage: activeStage.key, filter: item.filterName, time: formatTime(new Date()), status: 'failed' as const, msg: e.message ?? 'failed' }, ...prev].slice(0, 200));
       }
     }
     // Task 3: dispatch every ONLINE advance accumulated above in ONE
@@ -1295,9 +1297,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           // per-stage list stay consistent online and offline.
           const op = bulkOps.find(o => o.filterId === r.filterId);
           const stageLabel = op?.payload?.dryerAction === 'SET_DURATION' ? 'Dryer Started' : activeStage.key;
-          setRecentOps(prev => [{ stage: stageLabel, filter: fname, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+          setRecentOps(prev => [{ stage: stageLabel, filter: fname, time: formatTime(new Date()), queued: false, status: 'ok' as const }, ...prev].slice(0, 200));
         } else {
           failed.push(`${fname}: ${r.error?.message ?? 'failed'}`);
+          // B3/C2: record failures too so they render in the Failure section.
+          setRecentOps(prev => [{ stage: activeStage.key, filter: fname, time: formatTime(new Date()), status: 'failed' as const, msg: r.error?.message ?? 'failed' }, ...prev].slice(0, 200));
         }
       }
     }
@@ -1774,7 +1778,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         remarks: remarks || `${activeStage.label} - ${filterName}`,
       });
       setSuccess(`${filterName || state.filterName} → ${activeStage.label}${executed ? '' : ' (queued)'}`);
-      setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
+      setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 200));
       setScanValue(''); setRemarks('');
       if (executed) mutate('/api/assets/instances');
     } catch (e: any) {
@@ -1857,7 +1861,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           if (out === 'transport_error') { setError('Could not reach the server to start the cycles. Please try again.'); setLoading(false); return; }
           for (const [fid, actions] of out.actionsByFilter) cycleStartActions.set(fid, actions);
           for (const r of out.results) {
-            if (r.status === 'ok') setRecentOps(prev => [{ stage: reasonDialog.stage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+            if (r.status === 'ok') setRecentOps(prev => [{ stage: reasonDialog.stage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 200));
           }
           const failMsgs = out.results.flatMap(r => r.status === 'failed' ? [`${nameById.get(r.filterId) ?? r.filterId}: ${r.error?.message ?? 'failed'}`] : []);
           if (failMsgs.length > 0) setError(failMsgs.join('; '));
@@ -1877,7 +1881,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 skipChecklistDispatch: true,
               });
               if (res.executed && Array.isArray((res.result as any)?.actions)) cycleStartActions.set(f.filterId, (res.result as any).actions);
-              setRecentOps(prev => [{ stage: reasonDialog.stage, filter: f.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 20));
+              setRecentOps(prev => [{ stage: reasonDialog.stage, filter: f.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 200));
             } catch (e: any) {
               setError(`${f.filterName}: ${e?.message ?? 'cycle-start failed'}`);
             }
@@ -1936,7 +1940,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
       const stageLabel = reasonDialog.stage.replace(/_/g, ' ');
       setSuccess(`${reasonDialog.filterName} → ${stageLabel}${cycleExecuted ? '' : ' (queued)'}`);
-      setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: !cycleExecuted }, ...prev].slice(0, 20));
+      setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: !cycleExecuted }, ...prev].slice(0, 200));
       setScanValue(''); setRemarks('');
       if (cycleExecuted) mutate('/api/assets/instances');
       // Dialog close + checklist dispatch handled by core.startAndAdvance
@@ -1970,7 +1974,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         remarks: remarks || `Dryer started (${minutes} min) - ${filterName}`,
       });
       setSuccess(`${filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}`);
-      setRecentOps(prev => [{ stage: 'Dryer Started', filter: filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 20));
+      setRecentOps(prev => [{ stage: 'Dryer Started', filter: filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 200));
       // Cache dryer timing + equipmentGroup (offline + navigation persistence).
       // This is supplemental cache data (timer + group) beyond what
       // recomputeAndCacheFilterState covers; keep it here.
@@ -2014,7 +2018,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               dryerDurationMinutes: minutes,
               remarks: remarks || `Dryer started (${minutes} min) - ${rest.filterName}`,
             });
-            setRecentOps(prev => [{ stage: 'Dryer Started', filter: rest.filterName, time: formatTime(new Date()), queued: !restExecuted }, ...prev].slice(0, 20));
+            setRecentOps(prev => [{ stage: 'Dryer Started', filter: rest.filterName, time: formatTime(new Date()), queued: !restExecuted }, ...prev].slice(0, 200));
             // Mirror the dryer-timing cache write for each batched filter.
             try {
               const cached = await getCache<any>(`filter-state-${rest.filterId}`) ?? {};
@@ -2229,7 +2233,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           for (const r of out.results) {
             if (r.filterId === equipFiltId) continue;
             if (r.status === 'ok') {
-              setRecentOps(prev => [{ stage: equipStage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+              setRecentOps(prev => [{ stage: equipStage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 200));
             }
           }
           const failMsgs = out.results.flatMap(r =>
@@ -2317,7 +2321,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // otherwise it falsely reads as "Success"/"(queued)".
       if (!firstFilterFailed) {
         setSuccess(`${equipFiltName} → ${equipStage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
-        setRecentOps(prev => [{ stage: equipStage, filter: equipFiltName, time: formatTime(new Date()), queued }, ...prev].slice(0, 20));
+        setRecentOps(prev => [{ stage: equipStage, filter: equipFiltName, time: formatTime(new Date()), queued }, ...prev].slice(0, 200));
       }
 
       // 2026-05-20 batch cycle-start continuation. After the first filter's
@@ -2367,7 +2371,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                   cycleStartActionsByFilter.set(rest.filterId, (restRes.result as any).actions);
                 }
               });
-              setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 20));
+              setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 200));
             } catch (batchErr: any) {
               // eslint-disable-next-line no-console
               console.warn(`[batch-cycle-start] ${rest.filterName} failed:`, batchErr);
@@ -3630,7 +3634,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                     button is disabled until at least one filter is queued. */}
                 <button onClick={handleSubmitQueue} disabled={loading || scanQueue.length === 0}
                   className={`w-full py-4 bg-gradient-to-r ${activeStage.gradient} text-white rounded-2xl font-bold text-base disabled:opacity-40 active:opacity-90 flex items-center justify-center gap-2 shadow-lg`}>
-                  {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>✓ Submit {scanQueue.length > 0 ? `All (${scanQueue.length})` : ''}</>}
+                  {loading
+                    ? <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Submitting{scanQueue.length > 0 ? ` ${scanQueue.length} filter${scanQueue.length === 1 ? '' : 's'}` : ''}…</span></>
+                    : <>✓ Submit {scanQueue.length > 0 ? `All (${scanQueue.length})` : ''}</>}
                 </button>
               </div>
             )}
@@ -3669,18 +3675,42 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               );
             })()}
 
-            {/* Stage Recent */}
-            {recentOps.filter(op => op.stage === activeStage.key).length > 0 && (
-              <div className="space-y-1 mt-2">
-                <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Recent {activeStage.label}</h3>
-                {recentOps.filter(op => op.stage === activeStage.key).map((op, i) => (
-                  <div key={i} className="flex items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2">
-                    <span className="text-xs text-slate-700 font-medium">{op.filter}</span>
-                    <span className="text-[10px] text-slate-400">{op.time} {op.queued ? '⏳' : '✓'}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Stage Recent — split into Success / Failure (B3/C2), all shown (no 20 cap) */}
+            {(() => {
+              const stageOps = recentOps.filter(op => op.stage === activeStage.key);
+              if (stageOps.length === 0) return null;
+              const successOps = stageOps.filter(op => op.status !== 'failed');
+              const failureOps = stageOps.filter(op => op.status === 'failed');
+              return (
+                <div className="space-y-3 mt-2">
+                  {successOps.length > 0 && (
+                    <div className="space-y-1">
+                      <h3 className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider">Submitted · {successOps.length}</h3>
+                      {successOps.map((op, i) => (
+                        <div key={`s${i}`} className="flex items-center justify-between bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                          <span className="text-xs text-slate-700 font-medium">{op.filter}</span>
+                          <span className="text-[10px] text-slate-400">{op.time} {op.queued ? '⏳' : '✓'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {failureOps.length > 0 && (
+                    <div className="space-y-1">
+                      <h3 className="text-[10px] font-semibold text-red-600 uppercase tracking-wider">Failed · {failureOps.length}</h3>
+                      {failureOps.map((op, i) => (
+                        <div key={`f${i}`} className="flex items-start justify-between gap-2 bg-white border border-red-200 rounded-lg px-3 py-2">
+                          <div className="min-w-0">
+                            <span className="block text-xs text-slate-700 font-medium">{op.filter}</span>
+                            {op.msg && <span className="block text-[10px] text-red-500 truncate">{op.msg}</span>}
+                          </div>
+                          <span className="text-[10px] text-slate-400 shrink-0">{op.time} ✕</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
