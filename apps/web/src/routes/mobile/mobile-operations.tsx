@@ -2681,6 +2681,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       if (pendingBatch && pendingBatch.length > 0 && pendingBatch.some(p => p.filterId === checklistDialog.filterId)) {
         const batch = pendingBatch;
         let success = 0;
+        let queued = 0; // offline-queued is a NORMAL outcome, NOT a failure
         const failed: string[] = [];
         for (const item of batch) {
           try {
@@ -2693,7 +2694,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               password,
             });
             success++;
-            if (!executed) failed.push(`${item.filterName}: queued for sync`);
+            // `executed === false` means "accepted + queued for offline sync"
+            // — the offline happy path. Do NOT push it into `failed`; that was
+            // showing each queued filter as BOTH succeeded AND failed (the
+            // "3 succeeded, 3 failed" error popup the operator saw offline).
+            if (!executed) queued++;
           } catch (e: any) {
             // Re-throw REAUTH so the reauth.execute wrapper surfaces it.
             const errCode = e?.error ?? e?.code;
@@ -2713,6 +2718,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setError(failed.join('\n'));
         } else if (failed.length > 0) {
           setError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+        } else if (queued > 0) {
+          // Offline: everything accepted and queued — success, not an error.
+          setSuccess(`Checklist queued for ${success} filter(s) — will sync when online`);
         } else {
           setSuccess(`Checklist submitted for ${success} filter(s)`);
         }
