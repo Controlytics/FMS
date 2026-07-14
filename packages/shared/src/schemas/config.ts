@@ -124,6 +124,26 @@ export const paginationConfigSchema = z.object({
   path: ['options'],
 });
 
+// Export Limit Configuration Schema (SUPER_ADMIN-only).
+//
+// Guards report/export size. Client-side PDF (jsPDF) / Excel (xlsx) generation
+// builds the whole file in the browser tab's memory and OOMs past tens of
+// thousands of rows. `maxRecords` is the configurable SOFT limit; the zod
+// `.max()` is the HARD ceiling the admin can never exceed (set below the
+// observed ~50–60k failure point). `message` is the user-facing text shown when
+// an export is blocked — `{count}` (attempted rows) and `{max}` (the limit) are
+// substituted at render time; either placeholder may be omitted safely.
+export const EXPORT_LIMIT_HARD_CEILING = 50000;
+export const EXPORT_LIMIT_DEFAULT_MAX = 10000;
+export const EXPORT_LIMIT_DEFAULT_MESSAGE =
+  'The current filters match {count} records, which exceeds the maximum export limit of {max}. Please narrow your date range or filters and try again.';
+
+export const exportLimitConfigSchema = z.object({
+  maxRecords: z.number().int().min(1).max(EXPORT_LIMIT_HARD_CEILING).default(EXPORT_LIMIT_DEFAULT_MAX),
+  message: z.string().min(1).max(500).default(EXPORT_LIMIT_DEFAULT_MESSAGE),
+});
+export type ExportLimitConfig = z.infer<typeof exportLimitConfigSchema>;
+
 // Offline Cache Configuration Schema (SUPER_ADMIN-only).
 //
 // `cacheStalenessHours` — TTL applied to client-side snapshot caches

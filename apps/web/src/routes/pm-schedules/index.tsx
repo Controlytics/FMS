@@ -15,6 +15,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 
 interface UploadResult {
   imported: number;
@@ -80,6 +81,7 @@ function findPastDates(rows: Array<Record<string, string>>): PastDateEntry[] {
 export function PmScheduleListPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const { formatDate, formatDateTime } = useDatetimeFormat();
   const [exporting, setExporting] = useState(false);
   const reauth = useReauth();
@@ -235,6 +237,7 @@ export function PmScheduleListPage() {
   const buildPmReport = async () => {
     const all = await fetchAllEntries();
     if (all.length === 0) { toast.error('Nothing to export', `No PM schedule entries for ${year}`); return null; }
+    if (all.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(all.length)); return null; }
     const report = await createReport({ reportKey: 'pm-schedule',
       title: `PM Schedule ${year}`,
       subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`,
@@ -272,6 +275,7 @@ export function PmScheduleListPage() {
   const exportExcel = async () => {
     setExporting(true);
     try {
+      if (allEntries.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(allEntries.length)); return; }
       await logReportExportOrWarn({ reportType: 'PM Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
       const base = (window as any).__API_BASE__ ?? '';
       const res = await fetch(`${base}/api/pm-schedules/entries/export.xlsx?year=${year}`, {

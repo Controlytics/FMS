@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useToast } from '@/hooks/use-toast';
@@ -78,6 +79,7 @@ function daysLabel(n: number | null | undefined): string {
 export function DeviationsPage() {
   const can = useCan();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const { formatDate, formatDateTime } = useDatetimeFormat();
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(1);
@@ -121,6 +123,7 @@ export function DeviationsPage() {
       return t >= fromT && t <= toT;
     });
     if (filtered.length === 0) { setDownloadMsg('No deviations in the selected period.'); return null; }
+    if (filtered.length > exportLimit.maxRecords) { setDownloadMsg(exportLimit.tooLargeMessage(filtered.length)); return null; }
 
     const period = fromDate || toDate
       ? `${fromDate ? formatDate(fromDate) : 'Start'} to ${toDate ? formatDate(toDate) : 'Now'}`

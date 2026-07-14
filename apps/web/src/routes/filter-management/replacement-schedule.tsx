@@ -9,6 +9,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
@@ -104,6 +105,7 @@ const APPROVAL_CHIP: Record<string, { label: string; cls: string }> = {
 export function ReplacementSchedulePage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const { formatDate } = useDatetimeFormat();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const perms = user?.permissions ?? [];
@@ -171,6 +173,7 @@ export function ReplacementSchedulePage() {
   const exportExcel = async () => {
     setExporting(true);
     try {
+      if (allEntries.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(allEntries.length)); return; }
       await logReportExportOrWarn({ reportType: 'Replacement Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
       const res = await fetch('/api/replacement-schedules/export.xlsx', { headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}` } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -183,6 +186,7 @@ export function ReplacementSchedulePage() {
   const buildReplacementReport = async () => {
     const all = schedules.flatMap((s: any) => (s.entries ?? []));
     if (all.length === 0) { toast.error('Nothing to export', 'No replacement entries'); return null; }
+    if (all.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(all.length)); return null; }
     const report = await createReport({ reportKey: 'replacement-schedule', title: 'Replacement Schedule', subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`, orientation: 'landscape', formatDateTime: (d: string) => formatDate(d) });
     report.addTable({
       head: ['S.No', 'AHU', 'Micron', 'Filter Dimensions', 'Qty', 'Date', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By'],

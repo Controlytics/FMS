@@ -12,6 +12,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { ManualEntryBadge } from '@/components/manual-entry-badge';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 import { STATUS_LABELS } from '../filter-management/filter-list/constants';
 import { CycleDetailView } from './cycle-detail-view';
@@ -35,6 +36,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 export function CleaningCycleHistoryPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const { formatDateTime } = useDatetimeFormat();
   const { labelsFor } = useReportLabels();
   const ccL = labelsFor('cleaning-cycles');
@@ -164,6 +166,7 @@ export function CleaningCycleHistoryPage() {
 
   const buildHistoryReport = async () => {
     if (cycles.length === 0) return null;
+    if (cycles.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(cycles.length)); return null; }
     const period = fromDate || toDate
       ? `${fromDate ? formatDateTime(fromDate) : 'Start'} to ${toDate ? formatDateTime(toDate) : 'Now'}`
       : 'All Time';
@@ -192,6 +195,7 @@ export function CleaningCycleHistoryPage() {
 
   const exportExcel = async () => {
     if (cycles.length === 0) return;
+    if (cycles.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(cycles.length)); return; }
     setDownloading(true);
     try {
       await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'Excel', recordCount: cycles.length }, toast.warning);

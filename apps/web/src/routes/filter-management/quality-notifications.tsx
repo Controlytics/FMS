@@ -4,6 +4,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { api } from '../../lib/api-client';
@@ -29,6 +30,7 @@ const PER_PAGE = 50;
 export function QualityNotificationsPage() {
   const { formatDateTime } = useDatetimeFormat();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const { labelsFor } = useReportLabels();
   const L = labelsFor('quality-notifications');
   const headLabels = QNN_COLS.map((k) => L.columns[k]);
@@ -67,6 +69,7 @@ export function QualityNotificationsPage() {
 
   const buildQnnReport = async () => {
     const r = await buildExport();
+    if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return null; }
     const report = await createReport({ reportKey: 'quality-notifications',
       title: L.title,
       subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} notification(s)`,
@@ -81,17 +84,19 @@ export function QualityNotificationsPage() {
     setDownloading(true);
     try {
       const built = await buildQnnReport();
+      if (!built) return;
       await logReportExportOrWarn({ reportType: 'Quality Notifications', format: 'PDF', recordCount: built.count }, toast.warning);
       built.report.save(`quality-notifications-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
 
-  const buildQnnSnapshot = async () => (await buildQnnReport()).report.getSnapshot();
+  const buildQnnSnapshot = async () => { const b = await buildQnnReport(); return b ? b.report.getSnapshot() : null; };
 
   const exportExcel = async () => {
     setDownloading(true);
     try {
       const r = await buildExport();
+      if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return; }
       await logReportExportOrWarn({ reportType: 'Quality Notifications', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `quality-notifications-${new Date().toISOString().slice(0, 10)}`, sheetName: 'QNN', head: headLabels, rows: r.body });
     } finally { setDownloading(false); }

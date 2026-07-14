@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema } from '@digilog/shared';
+import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema } from '@digilog/shared';
 import { verifyPassword } from '../../lib/password.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
@@ -143,6 +143,7 @@ export default async function configRoutes(app: FastifyInstance) {
   configEndpoint('session', sessionConfigSchema, true);
   configEndpoint('datetime', datetimeConfigSchema, true);
   configEndpoint('pagination', paginationConfigSchema, false);
+  configEndpoint('export-limit', exportLimitConfigSchema, false);
 
   // Public reads — all authenticated users (no admin permission required).
   app.get('/password-policy/current', {
@@ -176,5 +177,19 @@ export default async function configRoutes(app: FastifyInstance) {
     },
   }, async () => {
     return configService.getConfig('datetime', datetimeConfigSchema);
+  });
+
+  // Public read — all authenticated users. Every export page (operators
+  // included) reads the configured limit here so a raised limit reaches every
+  // role, not just admins who can hit the CONFIG_READ-gated endpoint above.
+  app.get('/export-limit/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Get current export-limit settings',
+      description: 'Retrieve the current export record limit and message. Available to all authenticated users.',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    return configService.getConfig('export-limit', exportLimitConfigSchema);
   });
 }

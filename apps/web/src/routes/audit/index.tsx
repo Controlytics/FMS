@@ -21,6 +21,7 @@ import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExport } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useReportLabels } from '../../hooks/use-report-labels';
@@ -32,6 +33,7 @@ export function AuditTrailPage() {
   const can = useCan();
   const reauth = useReauth();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const { labelsFor } = useReportLabels();
@@ -293,6 +295,10 @@ export function AuditTrailPage() {
     try {
       const records = await fetchAllFilteredRecords();
       if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
+      if (records.length > exportLimit.maxRecords) {
+        toast.error('Export too large', exportLimit.tooLargeMessage(records.length));
+        return;
+      }
       const report = await createReport({ reportKey: 'audit-trail',
         title: auditL.title,
         subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
@@ -333,6 +339,10 @@ export function AuditTrailPage() {
     try {
       const records = await fetchAllFilteredRecords();
       if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
+      if (records.length > exportLimit.maxRecords) {
+        toast.error('Export too large', exportLimit.tooLargeMessage(records.length));
+        return;
+      }
       // Fail-closed: if the export can't be recorded, cancel the download.
       try {
         await logExport('Excel', records.length);

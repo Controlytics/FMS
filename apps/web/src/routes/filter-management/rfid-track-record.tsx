@@ -10,6 +10,7 @@ import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 
 const RFID_COLS = ['sNo', 'dateTime', 'event', 'rfid', 'filter', 'ahu', 'user', 'reason'];
@@ -30,6 +31,7 @@ const PER_PAGE = 50;
 export function RfidTrackRecordPage() {
   const can = useCan();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const { formatDateTime } = useDatetimeFormat();
   const { labelsFor } = useReportLabels();
   const L = labelsFor('rfid-track-record');
@@ -77,6 +79,7 @@ export function RfidTrackRecordPage() {
 
   const buildRfidReport = async () => {
     const r = await buildRfidExport();
+    if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return null; }
     const report = await createReport({ reportKey: 'rfid-track-record',
       title: L.title,
       subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} event(s)`,
@@ -90,18 +93,20 @@ export function RfidTrackRecordPage() {
   const exportPdf = async () => {
     setDownloading(true);
     try {
-      const { report, count } = await buildRfidReport();
-      await logReportExportOrWarn({ reportType: 'RFID Track Record', format: 'PDF', recordCount: count }, toast.warning);
-      report.save(`rfid-track-record-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const built = await buildRfidReport();
+      if (!built) return;
+      await logReportExportOrWarn({ reportType: 'RFID Track Record', format: 'PDF', recordCount: built.count }, toast.warning);
+      built.report.save(`rfid-track-record-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
 
-  const buildRfidSnapshot = async () => (await buildRfidReport()).report.getSnapshot();
+  const buildRfidSnapshot = async () => { const b = await buildRfidReport(); return b ? b.report.getSnapshot() : null; };
 
   const exportExcel = async () => {
     setDownloading(true);
     try {
       const r = await buildRfidExport();
+      if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return; }
       await logReportExportOrWarn({ reportType: 'RFID Track Record', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `rfid-track-record-${new Date().toISOString().slice(0, 10)}`, sheetName: 'RFID Track Record', head: headLabels, rows: r.body });
     } finally { setDownloading(false); }

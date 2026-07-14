@@ -11,6 +11,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
@@ -376,6 +377,7 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
 export function FilterLifecycleReportPage() {
   const { formatDateTime, formatDate } = useDatetimeFormat();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   // Phase 5C: lifecycle.export gate = ['REPORT_EXPORT','REPORT_GENERATE'] — SAME as old check.
   const can = useCan();
   const canExportPdf = can('lifecycle.export');
@@ -672,6 +674,7 @@ export function FilterLifecycleReportPage() {
         });
       }
       if (rows.length === 0) { setDownloadMsg('No cleaning cycles or manual updates found for this selection and period.'); return; }
+      if (rows.length > exportLimit.maxRecords) { setDownloadMsg(exportLimit.tooLargeMessage(rows.length)); return; }
       await logReportExportOrWarn({ reportType: 'Cleaning Lifecycle', format: 'Excel', recordCount: rows.length }, toast.warning);
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       exportToExcel({ filename: `lifecycle-${safeScope}`, sheetName: 'Cleaning Cycles', head, rows });

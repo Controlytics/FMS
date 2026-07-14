@@ -12,6 +12,7 @@ import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
@@ -62,6 +63,7 @@ function flattenTypedTree(blocks: any[]): any[] {
 export function FilterListPage() {
   const { formatDate, formatDateTime } = useDatetimeFormat();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const reauth = useReauth();
   const can = useCan();
   const canCreate = can('filters.hierarchy_create');
@@ -1255,6 +1257,7 @@ export function FilterListPage() {
   const exportFiltersExcel = async () => {
     const { headers, body, safeName } = buildFiltersExport();
     if (body.length === 0) return;
+    if (body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(body.length)); return; }
     await logReportExportOrWarn({ reportType: 'Filters', format: 'Excel', recordCount: body.length }, toast.warning);
     exportToExcel({ filename: `${safeName}-filters`, sheetName: 'Filters', head: headers, rows: body });
   };
@@ -1262,6 +1265,7 @@ export function FilterListPage() {
   const buildFiltersReport = async () => {
     const { headers, body, safeName } = buildFiltersExport();
     if (body.length === 0) return null;
+    if (body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(body.length)); return null; }
     const report = await createReport({ reportKey: 'filters',
       title: 'Filters',
       subtitle: `Block: ${selectedBlockName || 'All'}  |  Total: ${body.length} filter(s)`,

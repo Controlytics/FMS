@@ -8,12 +8,14 @@ import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { useReportLabels } from '@/hooks/use-report-labels';
 import { ReplacementSchedulePage } from './replacement-schedule';
 
 export function ReplacementListPage() {
   const { formatDate } = useDatetimeFormat();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const { user } = useAuth();
   const perms = user?.permissions ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -87,6 +89,7 @@ export function ReplacementListPage() {
 
   const downloadReport = async () => {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No replacements to include'); return; }
+    if (filtered.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(filtered.length)); return; }
     setExporting(true);
     try {
       const report = await createReport({
@@ -108,6 +111,7 @@ export function ReplacementListPage() {
 
   const downloadExcel = async () => {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No replacements to include'); return; }
+    if (filtered.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(filtered.length)); return; }
     try {
       await logReportExportOrWarn({ reportType: 'Replacement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
       exportToExcel({ filename: 'replacement-list', sheetName: 'Replacements', head: reportHead, rows: reportRows() });

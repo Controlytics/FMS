@@ -7,11 +7,13 @@ import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { useExportLimit } from '@/hooks/use-export-limit';
 import { useReportLabels } from '@/hooks/use-report-labels';
 
 export function RetirementListPage() {
   const { formatDate } = useDatetimeFormat();
   const { toast } = useToast();
+  const exportLimit = useExportLimit();
   const can = useCan();
   const { data, isLoading } = useSWR('/api/filters/retirements', { refreshInterval: 30000 });
 
@@ -80,6 +82,7 @@ export function RetirementListPage() {
 
   const downloadReport = async () => {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No retirements to include'); return; }
+    if (filtered.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(filtered.length)); return; }
     setExporting(true);
     try {
       const report = await createReport({
@@ -101,6 +104,7 @@ export function RetirementListPage() {
 
   const downloadExcel = async () => {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No retirements to include'); return; }
+    if (filtered.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(filtered.length)); return; }
     try {
       await logReportExportOrWarn({ reportType: 'Retirement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
       exportToExcel({ filename: 'retirement-list', sheetName: 'Retirements', head: reportHead, rows: reportRows() });
