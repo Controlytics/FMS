@@ -1,8 +1,27 @@
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { AppError } from '../../lib/errors.js';
+import { verifyToken } from '../../lib/jwt.js';
 import { roleService } from './role.service.js';
+
+/**
+ * Best-effort caller role for the PUBLIC /active endpoint (auth hook skips it,
+ * so req.user is never populated). Decodes the Bearer token if one was sent so
+ * a SUPER_ADMIN caller still sees the SUPER_ADMIN role; anonymous/other callers
+ * resolve to undefined → SUPER_ADMIN is hidden. No session check needed — this
+ * only decides whether one role name is included in a read-only list.
+ */
+async function optionalCallerRole(req: FastifyRequest): Promise<string | undefined> {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return undefined;
+  try {
+    const payload = await verifyToken(auth.slice(7));
+    return payload.role;
+  } catch {
+    return undefined;
+  }
+}
 
 export default async function roleRoutes(app: FastifyInstance) {
   // GET /api/roles — List all roles
@@ -33,8 +52,8 @@ export default async function roleRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async () => {
-    return roleService.listAll();
+  }, async (req) => {
+    return roleService.listAll(buildContext(req).userRole);
   });
 
   // GET /api/roles/active — List only active roles (for dropdowns)
@@ -59,8 +78,8 @@ export default async function roleRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async () => {
-    return roleService.listActive();
+  }, async (req) => {
+    return roleService.listActive(await optionalCallerRole(req));
   });
 
   // GET /api/roles/access-matrix — active roles + their permissions + per-role
@@ -94,8 +113,8 @@ export default async function roleRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async () => {
-    return roleService.getAccessMatrix();
+  }, async (req) => {
+    return roleService.getAccessMatrix(buildContext(req).userRole);
   });
 
   // GET /api/roles/permissions/all — Get all available permissions

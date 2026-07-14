@@ -4,6 +4,7 @@ const { mockRoleRepo, mockAuditLog } = vi.hoisted(() => ({
   mockRoleRepo: {
     findAll: vi.fn(),
     findActive: vi.fn(),
+    findActiveWithAccess: vi.fn(),
     findByName: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -40,6 +41,46 @@ describe('roleService', () => {
       mockRoleRepo.findActive.mockResolvedValue([{ name: 'ADMIN' }]);
       const result = await roleService.listActive();
       expect(result).toHaveLength(1);
+    });
+  });
+
+  // SUPER_ADMIN must be invisible to every non-SA caller (and anonymous callers,
+  // callerRole=undefined) across all role listings; a SUPER_ADMIN caller still sees it.
+  describe('SUPER_ADMIN hiding by caller role', () => {
+    const withSA = () => [{ name: 'SUPER_ADMIN' }, { name: 'ADMIN' }, { name: 'OPERATOR' }];
+
+    it('listAll hides SUPER_ADMIN from a non-SA caller', async () => {
+      mockRoleRepo.findAll.mockResolvedValue(withSA());
+      const result = await roleService.listAll('ADMIN');
+      expect(result.map((r: any) => r.name)).not.toContain('SUPER_ADMIN');
+      expect(result).toHaveLength(2);
+    });
+
+    it('listAll hides SUPER_ADMIN from an anonymous caller (undefined role)', async () => {
+      mockRoleRepo.findAll.mockResolvedValue(withSA());
+      const result = await roleService.listAll(undefined);
+      expect(result.map((r: any) => r.name)).not.toContain('SUPER_ADMIN');
+    });
+
+    it('listAll keeps SUPER_ADMIN for a SUPER_ADMIN caller', async () => {
+      mockRoleRepo.findAll.mockResolvedValue(withSA());
+      const result = await roleService.listAll('SUPER_ADMIN');
+      expect(result.map((r: any) => r.name)).toContain('SUPER_ADMIN');
+      expect(result).toHaveLength(3);
+    });
+
+    it('listActive hides SUPER_ADMIN from a non-SA caller but keeps it for SA', async () => {
+      mockRoleRepo.findActive.mockResolvedValue(withSA());
+      expect((await roleService.listActive('OPERATOR')).map((r: any) => r.name)).not.toContain('SUPER_ADMIN');
+      expect((await roleService.listActive('SUPER_ADMIN')).map((r: any) => r.name)).toContain('SUPER_ADMIN');
+    });
+
+    it('getAccessMatrix hides SUPER_ADMIN from a non-SA caller but keeps it for SA', async () => {
+      mockRoleRepo.findActiveWithAccess.mockResolvedValue(withSA());
+      const nonSa = await roleService.getAccessMatrix('SUPERVISOR');
+      expect(nonSa.roles.map((r: any) => r.name)).not.toContain('SUPER_ADMIN');
+      const sa = await roleService.getAccessMatrix('SUPER_ADMIN');
+      expect(sa.roles.map((r: any) => r.name)).toContain('SUPER_ADMIN');
     });
   });
 
@@ -130,6 +171,57 @@ describe('roleService', () => {
     it('throws NotFoundError', async () => {
       mockRoleRepo.findByName.mockResolvedValue(null);
       await expect(roleService.delete('NOPE', ctx)).rejects.toThrow('not found');
+    });
+  });
+
+  // A non-SUPER_ADMIN ROLE_MANAGE holder must not be able to escalate privilege
+  // via role create/update (grant unheld perms, raise hierarchy, edit own/higher role).
+  describe('privilege boundary (role escalation)', () => {
+    const adminCtx = { ...ctx, userRole: 'ADMIN' };
+    // caller ADMIN holds a modest permission set at hierarchyLevel 5.
+    const ADMIN_ROLE = { name: 'ADMIN', hierarchyLevel: 5, isSystem: true, permissions: ['USER_READ', 'USER_CREATE', 'ROLE_MANAGE'] };
+    const byName: Record<string, any> = {
+      ADMIN: ADMIN_ROLE,
+      SUPER_ADMIN: { name: 'SUPER_ADMIN', hierarchyLevel: 6, isSystem: true, permissions: ['AUDIT_DELETE'] },
+      VIEWER: { name: 'VIEWER', hierarchyLevel: 1, isSystem: true, permissions: ['USER_READ', 'AUDIT_READ'] },
+    };
+
+    it('ADMIN cannot self-grant a permission its own role does not hold', async () => {
+      mockRoleRepo.findByName.mockImplementation((n: string) => Promise.resolve(byName[n] ?? null));
+      // Editing its own ADMIN role is blocked first (own role), so target a lower role
+      // and try to grant AUDIT_DELETE which ADMIN does not hold.
+      await expect(roleService.update('VIEWER', { permissions: ['USER_READ', 'AUDIT_DELETE'] }, adminCtx))
+        .rejects.toThrow(/cannot grant permissions/i);
+      expect(mockRoleRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN cannot modify its own role', async () => {
+      mockRoleRepo.findByName.mockImplementation((n: string) => Promise.resolve(byName[n] ?? null));
+      await expect(roleService.update('ADMIN', { color: '#123456' }, adminCtx))
+        .rejects.toThrow(/your own role/i);
+      expect(mockRoleRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN cannot modify a role at or above its hierarchy level', async () => {
+      mockRoleRepo.findByName.mockImplementation((n: string) => Promise.resolve(byName[n] ?? null));
+      await expect(roleService.update('SUPER_ADMIN', { permissions: ['USER_READ'] }, adminCtx))
+        .rejects.toThrow(/at or above your own hierarchy level/i);
+      expect(mockRoleRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN cannot create a role at or above its hierarchy level', async () => {
+      mockRoleRepo.findByName.mockImplementation((n: string) => Promise.resolve(n === 'NEW_ROLE' ? null : byName[n] ?? null));
+      await expect(roleService.create({ name: 'NEW_ROLE', displayName: 'New', hierarchyLevel: 5, permissions: ['USER_READ'] }, adminCtx))
+        .rejects.toThrow(/at or above your own/i);
+      expect(mockRoleRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN CAN edit a lower role, keeping its grandfathered permissions', async () => {
+      mockRoleRepo.findByName.mockImplementation((n: string) => Promise.resolve(byName[n] ?? null));
+      mockRoleRepo.update.mockResolvedValue({ name: 'VIEWER', color: '#abcabc' });
+      // AUDIT_READ is already on VIEWER (grandfathered) and ADMIN lacks it — must NOT block a color edit.
+      await roleService.update('VIEWER', { color: '#abcabc', permissions: ['USER_READ', 'AUDIT_READ'] }, adminCtx);
+      expect(mockRoleRepo.update).toHaveBeenCalled();
     });
   });
 

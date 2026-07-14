@@ -419,10 +419,24 @@ export default async function authRoutes(app: FastifyInstance) {
     const { verifyPassword } = await import('../../lib/password.js');
     const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) {
+      // Password guesses here count toward the SAME lockout as login/reauth, so a
+      // stolen-session holder can't use this endpoint as a non-locking brute-force oracle.
+      const { applyFailedPasswordAttempt } = await import('./auth.service.js');
+      const { locked } = await applyFailedPasswordAttempt(user, req.ip, req.headers['user-agent']);
+      if (locked) {
+        return reply.code(403).send({
+          error: 'ACCOUNT_LOCKED',
+          message: 'Account locked due to multiple failed attempts. Contact administrator.',
+        });
+      }
       return reply.code(401).send({
         error: 'REAUTH_FAILED',
         message: 'Incorrect password. Please try again.',
       });
+    }
+    // Successful proof clears the consecutive-failure streak (guarded write).
+    if (user.failedLoginAttempts > 0) {
+      await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0 } });
     }
 
     const grant = await signOfflineReplayToken(req.user.sub, req.user.sessionId);

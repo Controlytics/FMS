@@ -301,6 +301,9 @@ async function verifyBackupAuditChain(rows: Array<Record<string, any>>): Promise
       afterValue: row.after_value ?? undefined,
       checksum: row.checksum,
       previousChecksum: row.previous_checksum ?? null,
+      // Route keyed-era rows (v3) to the HMAC path; old backups lack the column
+      // (undefined → legacy V1/V2 verify, unchanged).
+      checksumVersion: (row as { checksum_version?: number | null }).checksum_version ?? null,
     });
     if (!perRowOk) {
       throw {

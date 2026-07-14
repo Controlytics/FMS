@@ -71,6 +71,24 @@ describe('MODULE_FLOWS integrity', () => {
     }
   });
 
+  // A branch (Bypass / Reject) only makes sense inside an ordered workflow.
+  // If a module has any branch step it MUST render as a 'sequence' (arrowed
+  // flow), never as a non-sequential capability list.
+  it('any module with a branch step is layout "sequence"', () => {
+    for (const m of MODULE_FLOWS) {
+      const hasBranch = m.steps.some((s) => s.branch !== undefined);
+      if (hasBranch) {
+        expect(m.layout, `${m.id} has a branch step so it must be layout: 'sequence'`).toBe('sequence');
+      }
+    }
+  });
+
+  it('layout is only ever "sequence" or "actions" when set', () => {
+    for (const m of MODULE_FLOWS) {
+      if (m.layout !== undefined) expect(['sequence', 'actions']).toContain(m.layout);
+    }
+  });
+
   it('every gateRoles entry contains SUPER_ADMIN', () => {
     for (const m of MODULE_FLOWS) {
       for (const s of m.steps) {

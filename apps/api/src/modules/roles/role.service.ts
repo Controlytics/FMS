@@ -6,6 +6,52 @@ import type { RequestContext } from '../../types/context.js';
 import { roleRepository } from './role.repository.js';
 
 // ---------------------------------------------------------------------------
+// Privilege boundary
+// ---------------------------------------------------------------------------
+
+/**
+ * Guards role create/update against privilege escalation by a non-SUPER_ADMIN
+ * caller. Any ROLE_MANAGE holder (ADMIN holds it by default) could otherwise:
+ *   - grant its OWN system role permissions it doesn't hold (AUDIT_DELETE,
+ *     BACKUP_RESTORE, USER_RESET_PASSWORD, …) and re-login with them,
+ *   - create/raise a role at or above its own hierarchy level, or
+ *   - edit a higher-privilege role.
+ * SUPER_ADMIN is exempt (top of the hierarchy). Only NEWLY-added permissions are
+ * subset-checked, so editing a lower role's label/color that already holds a
+ * permission the caller lacks is not falsely blocked.
+ */
+async function assertRoleWithinCallerPrivilege(
+  ctx: RequestContext,
+  incoming: { hierarchyLevel?: number; permissions?: string[] },
+  target?: { name: string; hierarchyLevel: number; permissions: string[] },
+) {
+  if (ctx.userRole === 'SUPER_ADMIN') return;
+  const caller = await roleRepository.findByName(ctx.userRole);
+  if (!caller) throw new AppError(403, 'FORBIDDEN', 'Your role is not recognized');
+
+  if (target) {
+    if (target.name === ctx.userRole) {
+      throw new AppError(403, 'FORBIDDEN', 'You cannot modify your own role');
+    }
+    if (target.hierarchyLevel >= caller.hierarchyLevel) {
+      throw new AppError(403, 'FORBIDDEN', 'You cannot modify a role at or above your own hierarchy level');
+    }
+  }
+  if (incoming.hierarchyLevel !== undefined && incoming.hierarchyLevel >= caller.hierarchyLevel) {
+    throw new AppError(403, 'FORBIDDEN', 'You cannot assign a hierarchy level at or above your own');
+  }
+  if (incoming.permissions && incoming.permissions.length > 0) {
+    const held = new Set((caller.permissions as string[]) ?? []);
+    const grandfathered = new Set(target?.permissions ?? []);
+    const escalating = incoming.permissions.filter((p) => !held.has(p) && !grandfathered.has(p));
+    if (escalating.length > 0) {
+      const shown = escalating.slice(0, 5).join(', ');
+      throw new AppError(403, 'FORBIDDEN', `You cannot grant permissions your own role does not hold: ${shown}${escalating.length > 5 ? ', …' : ''}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
 
@@ -159,15 +205,23 @@ const ALL_PERMISSIONS = Object.values(PERMISSIONS).map(key => ({
 // Service
 // ---------------------------------------------------------------------------
 
+// Only a SUPER_ADMIN caller may see the SUPER_ADMIN role in any role list /
+// dropdown / matrix. Every other caller (and anonymous callers on the public
+// /active endpoint) gets it filtered out — SUPER_ADMIN is invisible to lower
+// roles across the whole app (mirrors the Users-page hiding in user.service).
+function hideSuperAdminFor<T extends { name: string }>(rows: T[], callerRole?: string): T[] {
+  return callerRole === 'SUPER_ADMIN' ? rows : rows.filter((r) => r.name !== 'SUPER_ADMIN');
+}
+
 export const roleService = {
-  /** List all roles ordered by hierarchy level. */
-  async listAll() {
-    return roleRepository.findAll();
+  /** List all roles ordered by hierarchy level. SUPER_ADMIN hidden from non-SA callers. */
+  async listAll(callerRole?: string) {
+    return hideSuperAdminFor(await roleRepository.findAll(), callerRole);
   },
 
-  /** List only active roles (minimal fields for dropdowns). */
-  async listActive() {
-    return roleRepository.findActive();
+  /** List only active roles (minimal fields for dropdowns). SUPER_ADMIN hidden from non-SA callers. */
+  async listActive(callerRole?: string) {
+    return hideSuperAdminFor(await roleRepository.findActive(), callerRole);
   },
 
   /**
@@ -175,10 +229,11 @@ export const roleService = {
    * permissions + per-role sidebar override. Lets the guide compute, per
    * module operation, which roles are configured to perform it. Any
    * authenticated user may read it (no ROLE_MANAGE) — it exposes the RBAC
-   * structure the guide documents, nothing more.
+   * structure the guide documents, nothing more. SUPER_ADMIN is hidden from
+   * non-SA callers so the guide never surfaces the SA role to lower roles.
    */
-  async getAccessMatrix() {
-    const roles = await roleRepository.findActiveWithAccess();
+  async getAccessMatrix(callerRole?: string) {
+    const roles = hideSuperAdminFor(await roleRepository.findActiveWithAccess(), callerRole);
     return { roles };
   },
 
@@ -203,6 +258,8 @@ export const roleService = {
     if (existing) {
       throw new ConflictError('Role name already exists');
     }
+
+    await assertRoleWithinCallerPrivilege(ctx, { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions });
 
     const role = await roleRepository.create({
       name: parsed.data.name,
@@ -240,6 +297,12 @@ export const roleService = {
     if (!existing) {
       throw new NotFoundError('Role not found');
     }
+
+    await assertRoleWithinCallerPrivilege(
+      ctx,
+      { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions },
+      { name: existing.name, hierarchyLevel: (existing as any).hierarchyLevel, permissions: ((existing as any).permissions as string[]) ?? [] },
+    );
 
     let role;
 

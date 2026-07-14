@@ -10,6 +10,7 @@ import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
+import { ManualEntryBadge } from '@/components/manual-entry-badge';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useToast } from '@/hooks/use-toast';
 import { STATUS_LABELS } from '../filter-management/filter-list/constants';
@@ -428,7 +429,7 @@ export function CleaningCycleHistoryPage() {
                   <tr key={c.id} className="hover:bg-cyan-50/30 transition-colors group">
                     <td className="px-4 py-3 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * perPage + idx + 1}</td>
                     <td className="px-4 py-3">
-                      <div className="text-[13px] font-semibold text-slate-800">{c.filterName ?? '-'}</div>
+                      <div className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-800">{c.filterName ?? '-'}<ManualEntryBadge manual={c.manualEntry} /></div>
                       {c.filterSet && (
                         <span className={`text-[10px] font-semibold ${c.filterSet === 'SET_A' ? 'text-indigo-500' : 'text-purple-500'}`}>
                           Set {c.filterSet.replace('SET_', '')}

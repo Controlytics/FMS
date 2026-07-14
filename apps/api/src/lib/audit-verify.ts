@@ -73,6 +73,7 @@ interface AuditRow {
   checksum: string;
   previous_checksum: string | null;
   redacted_at: Date | null;
+  checksum_version: number | null;
 }
 
 export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<VerifyChainResult> {
@@ -87,7 +88,7 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
     SELECT id, chain_position, timestamp, user_id, user_name, user_role, action,
            target_type, target_id, before_value, after_value, reason,
            ip_address, user_agent, session_id, signature_meaning,
-           checksum, previous_checksum, redacted_at
+           checksum, previous_checksum, redacted_at, checksum_version
     FROM audit_trail
     WHERE chain_position >= ${fromPos}
       AND chain_position <= ${toPos}
@@ -135,6 +136,9 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
       // this, a chain-preserving REDACT (after_value nulled, checksum kept)
       // false-FAILs verify-chain while GET /api/audit shows the row valid.
       redactedAt: row.redacted_at ?? undefined,
+      // Keyed-era (v3) rows must verify against the HMAC; legacy rows (NULL)
+      // keep using the unkeyed V1/V2 fallback in verifyAuditChecksum.
+      checksumVersion: row.checksum_version,
     });
     if (!perRowOk) {
       anomalies.push({

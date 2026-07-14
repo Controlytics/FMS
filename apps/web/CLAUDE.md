@@ -72,13 +72,29 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 - Cleaning-profile pipeline editor (STAGE / CHECKLIST nodes on a custom canvas)
 - Notification system (email/SMS/Telegram/Slack)
 - Debug trace page for pipeline visibility
-- Home / Module Guide (`/home`, `routes/home/`, 2026-07-06): a non-configurable
-  `home` sidebar item hardcoded in `components/layout/sidebar.tsx` (not in
-  `packages/shared/src/types/sidebar-items.ts`) — always visible at the top of
-  the sidebar to every authenticated user. Renders per-module **horizontal
-  card-to-card flowcharts** (`FlowChart.tsx`, no new deps — mirrors the
-  cleaning-profile pipeline: cards joined by arrow connectors, branches drop
-  below via a down-arrow, horizontal scroll per flow). For each operation it
+- Home / Module Guide (`/home`, `routes/home/`, 2026-07-06): a `home` sidebar
+  item defined in `components/layout/sidebar.tsx`'s `allNavItems` AND registered
+  in `packages/shared/src/types/sidebar-items.ts` (first entry). **2026-07-13:**
+  Home was made a normal, Roles-&-Access-managed sidebar item — the previous
+  `if (item.id === 'home') return true` force-show in `sidebar.tsx` was removed,
+  so it now follows the same per-role/user `config.sidebarItems` governance as
+  every other item (visible-to-all by permission since it has no `PERMISSION_TREE`
+  group; toggleable per role on Config → Roles & Access → Sidebar; SUPER_ADMIN
+  still bypasses). Existing role_configs were backfilled with `home` at the front
+  so nothing regressed. NOT added to the Permissions/Feature-Privileges tab — it
+  grants no capability, so visibility is governed on the Sidebar tab only.
+  Renders per-module cards via `FlowChart.tsx` (no new deps) in one of **two
+  layouts** chosen by each module's `layout` field in `module-flows.ts`
+  (2026-07-13): `'sequence'` — a true ordered workflow (the 7 modules with
+  review/approve `branch` steps: filter-operations, filter-replacements,
+  pm-schedules, approvals, stage-approvals, report-reviews, admin-requests) —
+  numbered cards joined by arrow connectors, branches drop below via a
+  down-arrow, horizontal scroll + "Scroll for more" cue; `'actions'` (the
+  default when omitted, all other modules) — INDEPENDENT capabilities
+  (Create / Edit / Delete) as a wrapping grid of cards with **no arrows and no
+  step numbers**, so the layout never implies a false order. A test guard
+  (`module-flows.test.ts`) enforces that any module with a `branch` step is
+  `layout: 'sequence'`. For each operation it
   shows the role(s) **configured live** to perform it, from
   `GET /api/roles/access-matrix` (active roles + permissions + per-role sidebar
   config; authenticated, not ROLE_MANAGE-gated). A role shows on a step only if

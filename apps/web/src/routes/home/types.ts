@@ -38,4 +38,17 @@ export interface ModuleFlow {
   /** One-line "what it does". */
   summary: string;
   steps: FlowStep[];
+  /** Optional caveat shown as an info callout above the flow — e.g. "the real
+   * stages depend on the cleaning profile assigned to each filter". */
+  note?: string;
+  /**
+   * How the steps relate to each other, which decides the rendering:
+   * - 'sequence' — an ordered, step-by-step workflow (Start → Wash → …). Rendered
+   *   as a left-to-right arrowed flow with numbered cards. Use for true workflows
+   *   (the ones with review/approve branches).
+   * - 'actions' (default when omitted) — INDEPENDENT capabilities (Create / Edit /
+   *   Delete). Rendered as a wrapping grid of cards, no arrows, no numbers, so the
+   *   layout doesn't imply a false step order.
+   */
+  layout?: 'sequence' | 'actions';
 }

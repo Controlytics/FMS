@@ -1,5 +1,162 @@
 # Changelog
 
+## [Unreleased] — Security: finish audit security phase + fix a 3rd Critical (2026-07-13)
+
+Resumed the enterprise audit's **Security phase** (the 12 VAPT sweeps + adversarial
+verify that died in the partial run) as a fresh focused workflow `wf_45c246d1-1ee`
+on Claude Fable 5 — 12/12 sweeps + verify completed (27 agents, 0 errors). **53
+findings: 1 Critical, 6 High, 16 Medium, 19 Low, 11 Info** in
+`scratchpad/audit/security-findings.json` + `SECURITY-PHASE-REPORT.md`.
+
+- **C3 — ADMIN→SUPER_ADMIN takeover via password-reset-request approval** (CVSS 9.1,
+  CONFIRMED by both adversarial skeptics) — `apps/api/src/modules/users/user.service.ts`
+  `processResetRequest()` was the ONE user-mutating method the C2 fix missed: no
+  `assertCanManageTarget()` guard. Chain: public `POST /api/auth/forgot-password`
+  creates a PENDING reset for `superadmin` → an ADMIN with USER_RESET_PASSWORD approves
+  it with an attacker-chosen password (reauth only checks the ADMIN's own password) →
+  SA takeover. Fixed by adding the same hierarchy guard after the target lookup,
+  covering both the approve and reject branches. 3 regression tests added
+  (`user.service.test.ts`, 31/31 pass); typecheck clean.
+
+Additional confirmed findings from the sweep, now FIXED + tested (all with regression tests):
+- **Role create/update privilege boundary** (`role.service.ts`): new `assertRoleWithinCallerPrivilege()`
+  — a non-SUPER_ADMIN caller can no longer grant permissions its own role lacks, create/raise a role
+  at or above its hierarchy level, or edit its own / a higher role. SUPER_ADMIN exempt; only newly-added
+  permissions are subset-checked (grandfathers a target's existing perms). 5 regression tests.
+- **Session termination on admin reset/unlock** (`user.service.ts`): `resetPassword()`/`unlock()` now
+  call `terminateSessions()` + `invalidateUserAuthCache()` (mirrors `disable()`), so a stolen session
+  can't survive a compromise-response reset. 2 regression tests.
+- **Account-lockout on the two brute-force oracles**: `changePassword()` (`auth.service.ts`) and the
+  `offline-grant` route (`auth/routes.ts`) now call `applyFailedPasswordAttempt()` on a bad password,
+  so a session holder can't grind the password without ever locking. 1 regression test + reset-on-success.
+
+Affected suites green: user 33, roles 26, auth 28 (127 total across the 7 files). Typecheck clean.
+
+**Dependency CVE remediation (all verified):**
+- `fastify` 5.7.4 → **5.10.0** (GHSA-247c-9743-5963 body-schema-validation bypass). Typecheck + 26 auth
+  e2e green under 5.10.
+- `nodemailer` 8.0.2 → **9.0.3** (SMTP/CRLF header injection advisories). API stable across 8→9
+  (`createTransport`/`sendMail` unchanged); typecheck + tests green.
+- `xlsx` 0.18.5 **removed**, replaced with **`exceljs`** in `apps/web` (`lib/excel-export.ts`) — the
+  SheetJS prototype-pollution + ReDoS advisory is unpatchable on the npm registry. `exportToExcel()` is
+  now async and loads exceljs via a **dynamic import**, so it's a separate 940 kB lazy chunk (only fetched
+  when a user clicks Export — zero initial-bundle cost). All 10 callers unchanged (fire-and-forget). Vite
+  build + web typecheck + 464 web tests green.
+- `@fastify/static` (our direct dep, serves the SPA + uploads + `reply.sendFile` downloads) 9.0.0 →
+  **10.1.0** (GHSA-pr96 path traversal + GHSA-x428 route-guard bypass via encoded separators). App boots
+  + auth e2e green.
+- **Accepted residual:** `@fastify/swagger-ui@5.2.5` still pulls `@fastify/static@9.0.0` transitively for
+  the `/docs` Swagger UI's own bundled assets (fixed paths, internal surface). No swagger-ui release yet
+  depends on static@10, and an npm `overrides` pin conflicts with the direct ^10 dep, so it wouldn't apply
+  cleanly. Low risk; left as-is rather than force a swagger-ui major bump on a docs-only surface.
+
+**Audit hash-chain: keyed HMAC (V3) — the last High from the sweep, now implemented + verified.**
+The chain was unkeyed SHA-256, so a DB-level actor could recompute a fully self-consistent forged chain
+that passes verify-chain. Added a keyed **HMAC-SHA256 (V3)** path, gated on a new `AUDIT_CHAIN_KEY` env
+secret held outside the DB:
+- `lib/hash-chain.ts` — `computeChecksumV3` / `computeChainedChecksumV3` (HMAC over the V2 recursive
+  canonical form) + `getAuditChainKey()`. `verifyAuditChecksum` now REQUIRES the key + an HMAC match for
+  `checksum_version = 3` rows and never accepts the unkeyed formula for them (a downgrade-to-unkeyed forge
+  breaks the forward chain link, which re-linking needs the key). Legacy rows (version NULL) keep verifying
+  via the V1/V2 fallback, so all historical audit history stays valid.
+- `lib/audit.ts` — write path uses V3 + stamps `checksum_version = 3` when `AUDIT_CHAIN_KEY` is set;
+  otherwise stays on unkeyed V2 (version NULL) so an un-keyed install still works.
+- Migration `20260713180000_add_audit_checksum_version` — additive nullable `audit_trail.checksum_version
+  SMALLINT` (no backfill, no data loss). Applied to dev + test DBs; drift guard PASS.
+- `AUDIT_CHAIN_KEY` documented in `.env` + `.env.example` (must be stable + backed up outside the DB;
+  losing it makes v3 rows permanently unverifiable). Left UNSET on dev → dev stays on the working legacy chain.
+- Verified: 33 hash-chain unit tests (keyed verify, no-key/wrong-key/tamper/downgrade all rejected, legacy
+  still valid); audit-chain e2e passes both WITHOUT and WITH the key (mixed v2+v3 chain verifies); DB shows
+  v3 rows stamped `checksum_version = 3`. 204 tests green across users/roles/auth/audit/backup/hash-chain.
+
+All enterprise-audit security findings triaged this session are now addressed. None yet folded into
+`ENTERPRISE-AUDIT-REPORT.md` (the full re-audit workflow `wf_42314da7-827` is producing a fresh report).
+
+## [Unreleased] — Security: fix 2 Critical auth/authz findings (2026-07-13)
+
+From the enterprise audit (`wf_6ea8254c-3b2`). Both fixed + verified same day.
+- **C1 — LDAP sentinel auth bypass** (`apps/api/src/modules/auth/auth.service.ts`):
+  a `passwordHash === 'LDAP_EXTERNAL_AUTH'` user used to set `skipPasswordCheck = true`
+  unconditionally, so ANY password logged them in when LDAP was disabled or for a
+  SUPER_ADMIN-role LDAP user. Now a sentinel-hash user is denied unless an LDAP bind
+  actually succeeded this request. Normal local login unaffected (200; wrong pw 401).
+- **C2 — ADMIN→SUPER_ADMIN account takeover** (`apps/api/src/modules/users/user.service.ts`):
+  `resetPassword`/`unlock` (and `update`/`disable`/`enable`) had no target-role guard,
+  so an ADMIN could set a SUPER_ADMIN's password. Added shared `assertCanManageTarget()`
+  (SUPER_ADMIN short-circuits; otherwise reject when the target's hierarchy level exceeds
+  the caller's) on all five privileged mutations. Also closes 2 related High findings.
+  4 regression tests added (`user.service.test.ts`); 28/28 user + 75/75 auth+user pass.
+
+The audit was a PARTIAL run (session limit killed the 12 VAPT sweeps, 4 cross-cutting
+lenses, 12 frontend areas, and synthesis) — 38 High + 158 Medium findings remain open;
+report + findings JSON under `scratchpad/audit/`. Resume: `resumeFromRunId: wf_6ea8254c-3b2`.
+
+## [Unreleased] — Hide SUPER_ADMIN role from non-SA users app-wide (2026-07-13)
+
+Branch: `RFID`. The SUPER_ADMIN **role** is now filtered out of every role
+list / dropdown / access-matrix for any non–SUPER_ADMIN caller (extends the
+pre-existing Users-page hiding to the whole app). Done at the source in
+`apps/api/src/modules/roles/`: `role.service.ts` gains a caller-aware
+`hideSuperAdminFor()` used by `listAll` / `listActive` / `getAccessMatrix`;
+`routes.ts` passes the caller role — authenticated on `/api/roles` +
+`/api/roles/access-matrix`, and via an optional Bearer-token decode
+(`optionalCallerRole`) on the PUBLIC `/api/roles/active`. SUPER_ADMIN callers
+still see the role everywhere. Covers Module Guide, Role Assignments, Sidebar
+config, Roles table, and all `/active`-fed pickers at once. Verified via curl
+(anonymous/SUPERVISOR excluded, SA included) + browser (Supervisor Module Guide
+legend no longer lists Super Admin); 5 regression tests in `role.service.test.ts`.
+
+Also this session (branch `RFID`): `/home` Module Guide flowcharts redesigned
+(roomier cards, branches in normal flow, scroll cues, full-width); Filter
+Operations flow notes that real stages vary by cleaning profile; `home` made a
+normal Roles-&-Access-managed sidebar item (`SIDEBAR_ITEMS` 26→27, force-show
+removed, role_configs backfilled).
+
+## [Unreleased] — Manual record Create in Filter Data Management (2026-07-10)
+
+Branch: `RFID`. The SUPER_ADMIN-only **Filter Data Management** console
+(`apps/web/src/routes/config/filter-data-management.tsx`) already let an admin **edit** rows silently
+(no audit trail) on six data surfaces. This adds the mirror-image **Create** capability — insert brand
+new rows with any date/time (past **or** future). Requested by the operator, who was warned about the
+21 CFR §11 backdating/fabrication implications and chose to proceed; consistent with the existing silent
+edit, the create endpoints are also **not written to the audit trail**.
+
+- **6 new endpoints `POST /api/super-admin/data/<entity>`** (`super-admin/routes.ts`), one per
+  edit-capable surface: `cleaning-cycles`, `filter-events`, `pm-entries`, `notifications`,
+  `admin-requests`, `block-change-requests`. Each mirrors the sibling `PUT`'s field whitelist but calls
+  `prisma.<model>.create`; same `SUPER_ADMIN` + `SUPER_ADMIN_DATA_EDIT` reauth guard.
+- **Required NOT-NULL columns the edit form hides are auto-filled**: cycle → `cycleCode` (`MANUAL-…`) /
+  `sequenceNumber` (count+1) / `profileVersion` (from the chosen profile) / `cleaningReasonKey` (slug of
+  label) / `startedAt` (now); event → `performedBy` (caller) / `ipAddress` / `checksum`
+  (`computeChecksum`); pm-entry adds `scheduleId`; block-change requires full filter + from/to block
+  identity, requester defaults to the caller. Unique-index violations (one-in-progress-per-filter,
+  `cycle_code`, `[scheduleId, month]`) return a friendly **409**.
+- **Audit Trail tab intentionally has NO Create** — it exposes no editable columns to mirror, and
+  appending fabricated rows would break the tamper-evident SHA-256 hash chain. Every other listed tab is
+  covered.
+- **Frontend**: `Field` gains name-based dropdown support (`optionObjs`); a "+ Create" button appears per
+  supported tab; a create modal mirrors each tab's edit columns plus the required FK pickers (filter /
+  cleaning-profile / PM-schedule) and enum selects (event type, notification type). New records
+  revalidate the same SWR keys as edit, so they appear on both the data-mgmt tab and the matching
+  user-facing page.
+- **Note**: a manually-created **IN_PROGRESS** cleaning cycle does not set
+  `FilterDetails.currentCycleId`, so it won't drive the tablet/operations active-cycle view — use
+  **COMPLETED** for historical records (the modal defaults + hint steer this way).
+
+- **"Manual entry" badge (2026-07-10 follow-up)**: a new `manual_entry BOOLEAN NOT NULL DEFAULT false`
+  column on all 6 tables (migration `20260710120000_add_manual_entry_flag`; drift guard PASS; existing
+  rows correctly `false`) is set `true` by every create handler. A shared `<ManualEntryBadge>`
+  (`apps/web/src/components/manual-entry-badge.tsx`) renders an amber pill on those rows in the Filter
+  Data Management console (all 6 tabs) and on the user-facing Cleaning Cycles history page — so
+  back-/future-dated records are visually distinguishable from natively-captured ones. (`manualEntry`
+  flows through untouched: the list endpoints spread full rows and use `data: array` / `additionalProperties`
+  response schemas, so Fastify doesn't strip it.)
+
+Verified: `tsc` clean (api + web), `vite build` clean, routes live, migration drift guard PASS, and
+Prisma-direct inserts confirmed a back-dated cycle + event survive the DB triggers, unique index, enum
+and checksum (cross-filter consistency trigger correctly rejects a mismatched event), and that a created
+row round-trips with `manualEntry = true`.
+
 ## [Unreleased] — Bulk filter-operate: one request for a 50–100 tag batch submit (2026-07-09)
 
 Branch: `RFID`. The tablet batch submit (scan 50–100 RFID tags → Submit) was **N sequential HTTP

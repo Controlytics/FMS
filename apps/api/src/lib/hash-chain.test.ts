@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   computeChecksum,
   computeChainedChecksum,
   computeChainedChecksumV2,
+  computeChecksumV3,
+  computeChainedChecksumV3,
   verifyAuditChecksum,
+  __setAuditChainKeyForTest,
 } from './hash-chain.js';
 
 describe('computeChecksum (V1 — top-level key sort)', () => {
@@ -454,5 +457,89 @@ describe('verifyAuditChecksum — redacted rows', () => {
       checksum: 'does-not-matter',
       redactedAt: new Date(),
     })).toBe(true);
+  });
+});
+
+describe('V3 keyed checksum (HMAC-SHA256)', () => {
+  const KEY = 'super-secret-audit-chain-key';
+  const row = {
+    timestamp: '2025-01-01T00:00:00.000Z',
+    userId: 'u1',
+    userName: 'User One',
+    userRole: 'ADMIN',
+    action: 'PASSWORD_RESET',
+    targetType: 'user',
+    targetId: 't1',
+    beforeValue: undefined,
+    afterValue: { status: 'ENABLED' },
+    reason: undefined,
+    ipAddress: '127.0.0.1',
+    userAgent: 'test',
+    sessionId: 's1',
+    signatureMeaning: 'Administrator reset user password',
+  };
+  const fields = {
+    timestamp: row.timestamp, userId: row.userId, userName: row.userName, userRole: row.userRole,
+    action: row.action, targetType: row.targetType, targetId: row.targetId,
+    beforeValue: undefined, afterValue: row.afterValue, reason: undefined,
+    ipAddress: row.ipAddress, userAgent: row.userAgent, sessionId: row.sessionId,
+    signatureMeaning: row.signatureMeaning,
+  };
+
+  afterEach(() => __setAuditChainKeyForTest(undefined)); // reset the cached key
+
+  it('produces a 64-char hex HMAC that differs from the unkeyed SHA-256', () => {
+    const hmac = computeChecksumV3(fields, KEY);
+    expect(hmac).toMatch(/^[a-f0-9]{64}$/);
+    expect(hmac).not.toBe(computeChecksum(fields));
+  });
+
+  it('depends on the key — a different key yields a different checksum', () => {
+    expect(computeChecksumV3(fields, KEY)).not.toBe(computeChecksumV3(fields, 'other-key'));
+  });
+
+  it('verifies a v3 row when the correct key is configured', () => {
+    __setAuditChainKeyForTest(KEY);
+    const checksum = computeChainedChecksumV3(fields, null, KEY);
+    expect(verifyAuditChecksum({ ...row, checksum, previousChecksum: null, checksumVersion: 3 })).toBe(true);
+  });
+
+  it('REJECTS a v3 row when no key is configured (fail loud, not silently valid)', () => {
+    const checksum = computeChainedChecksumV3(fields, null, KEY);
+    __setAuditChainKeyForTest(null); // key unset
+    expect(verifyAuditChecksum({ ...row, checksum, previousChecksum: null, checksumVersion: 3 })).toBe(false);
+  });
+
+  it('REJECTS a v3 row verified under the wrong key', () => {
+    const checksum = computeChainedChecksumV3(fields, null, KEY);
+    __setAuditChainKeyForTest('WRONG-KEY');
+    expect(verifyAuditChecksum({ ...row, checksum, previousChecksum: null, checksumVersion: 3 })).toBe(false);
+  });
+
+  it('REJECTS a v3 row whose field was tampered', () => {
+    __setAuditChainKeyForTest(KEY);
+    const checksum = computeChainedChecksumV3(fields, null, KEY);
+    expect(verifyAuditChecksum({ ...row, action: 'TAMPERED', checksum, previousChecksum: null, checksumVersion: 3 })).toBe(false);
+  });
+
+  it('does NOT accept an unkeyed SHA-256 checksum for a v3 row (no downgrade)', () => {
+    __setAuditChainKeyForTest(KEY);
+    // An attacker recomputes with the unkeyed formula but stamps version 3.
+    const unkeyed = computeChainedChecksumV2(fields, null);
+    expect(verifyAuditChecksum({ ...row, checksum: unkeyed, previousChecksum: null, checksumVersion: 3 })).toBe(false);
+  });
+
+  it('still verifies legacy (unkeyed) rows even when a key is configured', () => {
+    __setAuditChainKeyForTest(KEY);
+    const legacy = computeChainedChecksumV2(fields, null);
+    // checksumVersion null/absent → legacy path, no key required.
+    expect(verifyAuditChecksum({ ...row, checksum: legacy, previousChecksum: null, checksumVersion: null })).toBe(true);
+  });
+
+  it('verifies a chained (non-genesis) v3 row', () => {
+    __setAuditChainKeyForTest(KEY);
+    const prev = 'a'.repeat(64);
+    const checksum = computeChainedChecksumV3(fields, prev, KEY);
+    expect(verifyAuditChecksum({ ...row, checksum, previousChecksum: prev, checksumVersion: 3 })).toBe(true);
   });
 });

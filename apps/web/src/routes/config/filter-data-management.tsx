@@ -5,6 +5,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { ManualEntryBadge } from '@/components/manual-entry-badge';
 
 // Helpers copied from cleaning-cycles/history.tsx + filter-traceability.tsx so
 // the data-management view renders rows identically to the user-facing pages.
@@ -113,20 +114,32 @@ function Field(props: {
   textarea?: boolean;
   select?: boolean;
   options?: string[];
+  // Object-valued dropdown (value ≠ label) — used by the Create modal's FK
+  // pickers so a SUPER_ADMIN picks a filter/profile/schedule by name, not UUID.
+  optionObjs?: { value: string; label: string }[];
+  placeholder?: string;
+  required?: boolean;
 }) {
-  const { label, value, onChange, type = 'text', textarea, select, options } = props;
+  const { label, value, onChange, type = 'text', textarea, select, options, optionObjs, placeholder, required } = props;
   const cls = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none';
   return (
     <div>
-      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">{label}</label>
-      {select ? (
+      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {optionObjs ? (
+        <select value={value ?? ''} onChange={e => onChange(e.target.value)} className={cls}>
+          <option value="">{placeholder ?? 'Select…'}</option>
+          {optionObjs.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      ) : select ? (
         <select value={value ?? ''} onChange={e => onChange(e.target.value)} className={cls}>
           {(options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       ) : textarea ? (
         <textarea value={value ?? ''} onChange={e => onChange(e.target.value)} rows={2} className={cls} />
       ) : (
-        <input type={type} value={value ?? ''} onChange={e => onChange(e.target.value)} className={cls} />
+        <input type={type} value={value ?? ''} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={cls} />
       )}
     </div>
   );
@@ -142,6 +155,23 @@ interface ReplacementRecord {
   newFilterId: string; newFilterName: string;
   remarks: string | null; replacedAt: string; performedBy: string;
 }
+
+// The six data surfaces that support inline edit AND (new) create.
+type RowEntity = 'cycle' | 'event' | 'pm-entry' | 'notification' | 'admin-request' | 'block-change';
+// Tab key → create entity (tabs not listed here have no create support:
+// retirements/replacements own their workflows; audit-trail is immutable).
+const TAB_CREATE_ENTITY: Record<string, RowEntity> = {
+  'cleaning-cycles': 'cycle',
+  'filter-events': 'event',
+  'pm-entries': 'pm-entry',
+  'notifications': 'notification',
+  'admin-requests': 'admin-request',
+  'block-changes': 'block-change',
+};
+// Enum option lists (mirror the Prisma enums) so create-modal selects can't
+// submit an invalid value the DB would reject.
+const FILTER_EVENT_TYPES = ['STATE_TRANSITION', 'PARAMETER_CAPTURE', 'CHECKLIST_COMPLETED', 'BYPASS_DEVIATION', 'EQUIPMENT_LINKED', 'REMARK_ADDED', 'APPROVAL_GRANTED', 'SCRIPT_EXECUTED', 'CYCLE_STARTED', 'CYCLE_COMPLETED', 'CYCLE_TERMINATED'];
+const NOTIFICATION_TYPES = ['ACCOUNT_LOCKED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'PASSWORD_RESET_REQUEST', 'PASSWORD_RESET_APPROVED', 'PASSWORD_RESET_REJECTED', 'USER_CREATED', 'USER_UPDATED', 'ROLE_CHANGED', 'USER_CREATION_REQUEST_SUBMITTED', 'USER_CREATION_REQUEST_APPROVED', 'USER_CREATION_REQUEST_REJECTED', 'USER_LOGIN', 'USER_LOCKED', 'CHECKLIST_SUBMITTED', 'CHECKLIST_APPROVED', 'CHECKLIST_REJECTED', 'SYSTEM_ERROR', 'PM_OVERDUE', 'PM_OVERDUE_COMPLETED', 'PM_SCHEDULE_QNN', 'GUEST_CLEANING_REQUEST', 'REPORT_REVIEW_REQUESTED', 'REPORT_REVIEW_APPROVED', 'REPORT_REVIEW_REJECTED', 'PASSWORD_EXPIRY_WARNING', 'PASSWORD_EXPIRED_NOTICE', 'STAGE_APPROVAL_REQUESTED', 'STAGE_APPROVAL_APPROVED', 'STAGE_APPROVAL_REJECTED'];
 
 export function FilterDataManagementPage() {
   const { user } = useAuth();
@@ -161,9 +191,16 @@ export function FilterDataManagementPage() {
   //   dryerDurationMinutes, dryerStartedAt
   // For filter_events:  eventType, fromState, toState, performedAt, remarks
   // (checksum deliberately excluded — editing would break the SHA-256 hash chain)
-  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: 'cycle' | 'event' | 'pm-entry' | 'notification' | 'admin-request' | 'block-change'; rowName: string } | null>(null);
+  const [rowEditDialog, setRowEditDialog] = useState<{ id: string; entity: RowEntity; rowName: string } | null>(null);
   const [rowEditFields, setRowEditFields] = useState<Record<string, any>>({});
   const [rowEditSaving, setRowEditSaving] = useState(false);
+  // Create-row modal — a mirror of the edit modal that INSERTS a new row into
+  // the tab's underlying table (manual / back-dated records). Same columns as
+  // edit plus the required FKs a fresh row can't exist without (filter,
+  // profile, schedule…), surfaced as name-based dropdowns.
+  const [createDialog, setCreateDialog] = useState<{ entity: RowEntity } | null>(null);
+  const [createFields, setCreateFields] = useState<Record<string, any>>({});
+  const [createSaving, setCreateSaving] = useState(false);
   const [unretireDialog, setUnretireDialog] = useState<{ id: string; name: string; preRetireParentId: string | null; preRetireParentName: string | null } | null>(null);
   const [unretireParentId, setUnretireParentId] = useState('');
 
@@ -269,6 +306,22 @@ export function FilterDataManagementPage() {
       || (e.approvedByName ?? '').toLowerCase().includes(q)
       || (e.notes ?? '').toLowerCase().includes(q);
   });
+
+  // ─── Create-modal dropdown sources ───────────────────────────────
+  // Fetched only while a create dialog that needs them is open, so opening
+  // other tabs stays cheap. Filters anchor cycles/events/block-changes;
+  // profiles anchor cycles; PM-schedule options are derived from the already
+  // loaded entries (there is no flat /pm-schedules list endpoint).
+  const needFilterOpts = !!createDialog && (createDialog.entity === 'cycle' || createDialog.entity === 'event' || createDialog.entity === 'block-change');
+  const createFiltersData = useSWR<any>(needFilterOpts ? '/api/hierarchy/filters' : null);
+  const createProfilesData = useSWR<any>(createDialog?.entity === 'cycle' ? '/api/filter-cleaning-profiles?limit=200' : null);
+  const createSchedulesData = useSWR<any>(createDialog?.entity === 'pm-entry' ? '/api/super-admin/data/pm-schedules' : null);
+  const filterOpts: { value: string; label: string }[] = (createFiltersData.data?.data ?? []).map((f: any) => ({ value: f.id, label: f.name ?? f.id }));
+  const profileOpts: { value: string; label: string }[] = (createProfilesData.data?.data ?? []).map((p: any) => ({ value: p.id, label: `${p.name ?? p.id}${p.version ? ` (v${p.version})` : ''}` }));
+  const scheduleOpts: { value: string; label: string }[] = (createSchedulesData.data?.data ?? []).map((s: any) => ({
+    value: s.id,
+    label: `${s.entityName ?? `Entity ${String(s.entityId).slice(0, 8)}`} — ${s.year}${s.version ? ` (v${s.version})` : ''}`,
+  }));
 
   if (user?.role !== 'SUPER_ADMIN') {
     return (
@@ -480,6 +533,71 @@ export function FilterDataManagementPage() {
     setRowEditSaving(false);
   };
 
+  // Revalidate every cache key touched by a given entity — shared by edit +
+  // create so a new/edited row shows up on the data-mgmt tab AND the matching
+  // user-facing page immediately.
+  const revalidateEntity = (entity: RowEntity) => {
+    if (entity === 'cycle') {
+      globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/cycles') || key.startsWith('/api/super-admin/data/cleaning-cycles')));
+    } else if (entity === 'event') {
+      globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/events') || key.startsWith('/api/super-admin/data/filter-events')));
+    } else if (entity === 'pm-entry') {
+      globalMutate('/api/super-admin/data/pm-entries?limit=100');
+    } else if (entity === 'notification') {
+      globalMutate('/api/super-admin/data/notifications?limit=100');
+    } else if (entity === 'admin-request') {
+      globalMutate('/api/admin-requests');
+    } else if (entity === 'block-change') {
+      globalMutate('/api/block-change-requests?page=1&limit=50&status=ALL');
+    }
+  };
+
+  const openCreate = (entity: RowEntity) => {
+    // Seed status/type defaults so required selects aren't blank on open.
+    const seed: Record<string, any> = {};
+    if (entity === 'cycle') seed.status = 'COMPLETED';
+    if (entity === 'admin-request') seed.status = 'PENDING';
+    if (entity === 'block-change') seed.status = 'PENDING';
+    setCreateFields(seed);
+    setCreateDialog({ entity });
+  };
+
+  const submitCreate = async () => {
+    if (!createDialog || createSaving) return;
+    setCreateSaving(true);
+    try {
+      const endpointMap: Record<RowEntity, string> = {
+        'cycle': '/api/super-admin/data/cleaning-cycles',
+        'event': '/api/super-admin/data/filter-events',
+        'pm-entry': '/api/super-admin/data/pm-entries',
+        'notification': '/api/super-admin/data/notifications',
+        'admin-request': '/api/super-admin/data/admin-requests',
+        'block-change': '/api/super-admin/data/block-change-requests',
+      };
+      const numericKeys = new Set(['sequenceNumber', 'dryerDurationMinutes', 'month', 'toleranceDays', 'profileVersion']);
+      const booleanKeys = new Set(['isRead']);
+      const body: Record<string, any> = {};
+      for (const [k, v] of Object.entries(createFields)) {
+        if (v === '' || v === null || v === undefined) continue;
+        if (numericKeys.has(k)) { const n = Number(v); if (Number.isFinite(n)) body[k] = n; }
+        else if (booleanKeys.has(k)) body[k] = v === 'true' || v === true;
+        else body[k] = v;
+      }
+      await apiClient.post(endpointMap[createDialog.entity], body);
+      const labelMap: Record<RowEntity, string> = {
+        'cycle': 'Cleaning cycle', 'event': 'Filter event', 'pm-entry': 'PM entry',
+        'notification': 'Notification', 'admin-request': 'Admin request', 'block-change': 'Block change',
+      };
+      toast.success('Created', `${labelMap[createDialog.entity]} added`);
+      revalidateEntity(createDialog.entity);
+      setCreateDialog(null);
+      setCreateFields({});
+    } catch (e: any) {
+      toast.error('Create failed', e?.message ?? 'Could not create record');
+    }
+    setCreateSaving(false);
+  };
+
   const handleDeleteGeneric = async (id: string) => {
     // Resolve endpoint from active tab. The dedicated cleaning-cycles +
     // filter-events tabs aren't in genericTabs but still hit the super-admin
@@ -583,12 +701,22 @@ export function FilterDataManagementPage() {
             </button>
           ))}
         </div>
-        <div className="relative">
-          <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..."
-            className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 w-52 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" />
+        <div className="flex items-center gap-2">
+          {TAB_CREATE_ENTITY[tab] && (
+            <button
+              onClick={() => openCreate(TAB_CREATE_ENTITY[tab])}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold shadow-sm hover:from-cyan-500 hover:to-blue-500">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              Create
+            </button>
+          )}
+          <div className="relative">
+            <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..."
+              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 w-52 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" />
+          </div>
         </div>
       </div>
 
@@ -863,7 +991,7 @@ export function FilterDataManagementPage() {
                   return (
                     <tr key={c.id} className="hover:bg-slate-50/50 group">
                       <td className="px-3 py-2.5 text-[12px] text-slate-400 tabular-nums">{idx + 1}</td>
-                      <td className="px-3 py-2.5 text-[12px] font-semibold text-slate-800">{c.filterName ?? '-'}</td>
+                      <td className="px-3 py-2.5 text-[12px] font-semibold text-slate-800"><span className="inline-flex items-center gap-1.5">{c.filterName ?? '-'}<ManualEntryBadge manual={c.manualEntry} /></span></td>
                       <td className="px-3 py-2.5 text-[12px] text-slate-600">{attrs.micronSize ?? '-'}</td>
                       <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'air pressure')}</td>
                       <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'ro water')}</td>
@@ -911,7 +1039,7 @@ export function FilterDataManagementPage() {
               {filteredEnrichedEvents.map((e: any) => (
                 <div key={e.id} className={`group bg-white border-l-4 rounded-lg p-4 hover:bg-slate-50/50 ${e.eventType === 'BYPASS_DEVIATION' ? 'border-red-500' : 'border-cyan-600'}`}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-semibold text-slate-800">{e.eventType?.replace(/_/g, ' ')}</span>
+                    <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">{e.eventType?.replace(/_/g, ' ')}<ManualEntryBadge manual={e.manualEntry} /></span>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-400">{formatDateTime(e.performedAt)}</span>
                       <button onClick={() => openRowEdit(e, 'event', e.eventType ?? 'Event')}
@@ -953,8 +1081,9 @@ export function FilterDataManagementPage() {
                 return (
                   <div key={entry.id} className={`group bg-white border rounded-xl p-4 ${st.cardBorder}`}>
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-lg font-semibold text-slate-800">
+                      <span className="inline-flex items-center gap-2 text-lg font-semibold text-slate-800">
                         {PM_MONTHS[(entry.month ?? 1) - 1] ?? `Month ${entry.month}`}
+                        <ManualEntryBadge manual={entry.manualEntry} />
                       </span>
                       <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${st.bg} ${st.text} ${st.border}`}>{st.label}</span>
                     </div>
@@ -1070,6 +1199,7 @@ export function FilterDataManagementPage() {
                         <div className="flex items-center gap-2 mb-1">
                           <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold border ${tCol}`}>{n.type?.replace(/_/g, ' ')}</span>
                           {!n.isRead && <span className="text-[10px] text-cyan-600 font-bold">UNREAD</span>}
+                          <ManualEntryBadge manual={n.manualEntry} />
                         </div>
                         <div className="text-[13px] font-semibold text-slate-800">{n.title}</div>
                         {n.message && <div className="text-[12px] text-slate-500 mt-0.5">{n.message}</div>}
@@ -1116,7 +1246,7 @@ export function FilterDataManagementPage() {
                   return (
                     <tr key={req.id} className="hover:bg-slate-50/50 group">
                       <td className="px-5 py-3.5">
-                        <div className="text-[13px] font-semibold text-slate-800">{req.requesterName}</div>
+                        <div className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-800">{req.requesterName}<ManualEntryBadge manual={req.manualEntry} /></div>
                         {req.requesterEmployeeId && <div className="text-[11px] text-slate-400">{req.requesterEmployeeId}</div>}
                       </td>
                       <td className="px-5 py-3.5">
@@ -1161,6 +1291,7 @@ export function FilterDataManagementPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3 mb-2">
                             <h3 className="text-base font-bold text-slate-800">{r.filterName ?? '-'}</h3>
+                            <ManualEntryBadge manual={r.manualEntry} />
                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full ${sc.bg} ${sc.text}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                               {sc.label}
@@ -1472,6 +1603,130 @@ export function FilterDataManagementPage() {
               <button onClick={submitRowEdit} disabled={rowEditSaving}
                 className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
                 {rowEditSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create-row Dialog — inserts a new record into the active tab's table */}
+      {createDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="h-1.5 bg-gradient-to-r from-cyan-500 to-blue-500" />
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-[15px] font-bold text-slate-800">
+                  Create {(() => {
+                    const titleMap: Record<RowEntity, string> = {
+                      'cycle': 'Cleaning Cycle', 'event': 'Filter Event', 'pm-entry': 'PM Entry',
+                      'notification': 'Notification', 'admin-request': 'Admin Request', 'block-change': 'Block Change Request',
+                    };
+                    return titleMap[createDialog.entity];
+                  })()}
+                </h3>
+                <p className="text-[12px] text-slate-400 mt-0.5">New record — not written to the audit trail</p>
+              </div>
+              <button onClick={() => { setCreateDialog(null); setCreateFields({}); }} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-3 max-h-[60vh] overflow-y-auto">
+              {createDialog.entity === 'cycle' ? (
+                <>
+                  <Field label="Filter" required optionObjs={filterOpts} placeholder={createFiltersData.isLoading ? 'Loading…' : 'Select a filter'} value={createFields.filterId} onChange={v => setCreateFields(p => ({ ...p, filterId: v }))} />
+                  <Field label="Cleaning Profile" required optionObjs={profileOpts} placeholder={createProfilesData.isLoading ? 'Loading…' : 'Select a profile'} value={createFields.profileId} onChange={v => setCreateFields(p => ({ ...p, profileId: v }))} />
+                  <Field label="Cleaning Reason" required value={createFields.cleaningReasonLabel} onChange={v => setCreateFields(p => ({ ...p, cleaningReasonLabel: v }))} />
+                  <Field label="Status" select options={['COMPLETED', 'IN_PROGRESS', 'TERMINATED']} value={createFields.status} onChange={v => setCreateFields(p => ({ ...p, status: v }))} />
+                  <Field label="Cycle Code" placeholder="Auto-generated if blank" value={createFields.cycleCode} onChange={v => setCreateFields(p => ({ ...p, cycleCode: v }))} />
+                  <Field label="Sequence Number" type="number" placeholder="Auto if blank" value={createFields.sequenceNumber} onChange={v => setCreateFields(p => ({ ...p, sequenceNumber: v }))} />
+                  <Field label="Started At" type="datetime-local" value={createFields.startedAt} onChange={v => setCreateFields(p => ({ ...p, startedAt: v }))} />
+                  <Field label="Completed At" type="datetime-local" value={createFields.completedAt} onChange={v => setCreateFields(p => ({ ...p, completedAt: v }))} />
+                  <Field label="Terminated At" type="datetime-local" value={createFields.terminatedAt} onChange={v => setCreateFields(p => ({ ...p, terminatedAt: v }))} />
+                  <Field label="Termination Reason" textarea value={createFields.terminationReason} onChange={v => setCreateFields(p => ({ ...p, terminationReason: v }))} />
+                  <Field label="Dryer Duration (min)" type="number" value={createFields.dryerDurationMinutes} onChange={v => setCreateFields(p => ({ ...p, dryerDurationMinutes: v }))} />
+                  <Field label="Dryer Started At" type="datetime-local" value={createFields.dryerStartedAt} onChange={v => setCreateFields(p => ({ ...p, dryerStartedAt: v }))} />
+                  <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    A blank cycle code / sequence is generated automatically. Only ONE in-progress cycle is allowed per filter — use COMPLETED for historical records.
+                  </p>
+                </>
+              ) : createDialog.entity === 'event' ? (
+                <>
+                  <Field label="Filter" required optionObjs={filterOpts} placeholder={createFiltersData.isLoading ? 'Loading…' : 'Select a filter'} value={createFields.filterId} onChange={v => setCreateFields(p => ({ ...p, filterId: v }))} />
+                  <Field label="Event Type" required select options={['', ...FILTER_EVENT_TYPES]} value={createFields.eventType} onChange={v => setCreateFields(p => ({ ...p, eventType: v }))} />
+                  <Field label="Cycle ID (optional)" placeholder="Must belong to the selected filter" value={createFields.cycleId} onChange={v => setCreateFields(p => ({ ...p, cycleId: v }))} />
+                  <Field label="From State" value={createFields.fromState} onChange={v => setCreateFields(p => ({ ...p, fromState: v }))} />
+                  <Field label="To State" value={createFields.toState} onChange={v => setCreateFields(p => ({ ...p, toState: v }))} />
+                  <Field label="Performed At" type="datetime-local" value={createFields.performedAt} onChange={v => setCreateFields(p => ({ ...p, performedAt: v }))} />
+                  <Field label="Remarks" textarea value={createFields.remarks} onChange={v => setCreateFields(p => ({ ...p, remarks: v }))} />
+                  <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    Performed-by, IP and the SHA-256 checksum are stamped automatically.
+                  </p>
+                </>
+              ) : createDialog.entity === 'pm-entry' ? (
+                <>
+                  {(scheduleOpts.length > 0 || createSchedulesData.isLoading) ? (
+                    <Field label="PM Schedule" required optionObjs={scheduleOpts} placeholder={createSchedulesData.isLoading ? 'Loading…' : 'Select a schedule'} value={createFields.scheduleId} onChange={v => setCreateFields(p => ({ ...p, scheduleId: v }))} />
+                  ) : (
+                    <Field label="PM Schedule ID" required placeholder="No PM schedules exist yet — paste a schedule UUID" value={createFields.scheduleId} onChange={v => setCreateFields(p => ({ ...p, scheduleId: v }))} />
+                  )}
+                  <Field label="Month (1-12)" required type="number" value={createFields.month} onChange={v => setCreateFields(p => ({ ...p, month: v }))} />
+                  <Field label="Planned Date" required type="datetime-local" value={createFields.plannedDate} onChange={v => setCreateFields(p => ({ ...p, plannedDate: v }))} />
+                  <Field label="Window Start" type="datetime-local" placeholder="Defaults to planned date" value={createFields.windowStart} onChange={v => setCreateFields(p => ({ ...p, windowStart: v }))} />
+                  <Field label="Window End" type="datetime-local" placeholder="Defaults to planned date" value={createFields.windowEnd} onChange={v => setCreateFields(p => ({ ...p, windowEnd: v }))} />
+                  <Field label="Tolerance Days" type="number" value={createFields.toleranceDays} onChange={v => setCreateFields(p => ({ ...p, toleranceDays: v }))} />
+                  <Field label="Approval Status" select options={['', 'PENDING', 'APPROVED', 'REJECTED']} value={createFields.approvalStatus} onChange={v => setCreateFields(p => ({ ...p, approvalStatus: v }))} />
+                  <Field label="Approval Remarks" textarea value={createFields.approvalRemarks} onChange={v => setCreateFields(p => ({ ...p, approvalRemarks: v }))} />
+                  <Field label="Notes" textarea value={createFields.notes} onChange={v => setCreateFields(p => ({ ...p, notes: v }))} />
+                </>
+              ) : createDialog.entity === 'notification' ? (
+                <>
+                  <Field label="Type" required select options={['', ...NOTIFICATION_TYPES]} value={createFields.type} onChange={v => setCreateFields(p => ({ ...p, type: v }))} />
+                  <Field label="Title" required value={createFields.title} onChange={v => setCreateFields(p => ({ ...p, title: v }))} />
+                  <Field label="Message" required textarea value={createFields.message} onChange={v => setCreateFields(p => ({ ...p, message: v }))} />
+                  <Field label="Target User ID" value={createFields.targetUserId} onChange={v => setCreateFields(p => ({ ...p, targetUserId: v }))} />
+                  <Field label="For User ID" placeholder="Blank = admins" value={createFields.forUserId} onChange={v => setCreateFields(p => ({ ...p, forUserId: v }))} />
+                  <Field label="For Role" value={createFields.forRole} onChange={v => setCreateFields(p => ({ ...p, forRole: v }))} />
+                  <Field label="Created At" type="datetime-local" placeholder="Defaults to now" value={createFields.createdAt} onChange={v => setCreateFields(p => ({ ...p, createdAt: v }))} />
+                  <Field label="Read" select options={['false', 'true']} value={createFields.isRead} onChange={v => setCreateFields(p => ({ ...p, isRead: v }))} />
+                  <Field label="Read At" type="datetime-local" value={createFields.readAt} onChange={v => setCreateFields(p => ({ ...p, readAt: v }))} />
+                </>
+              ) : createDialog.entity === 'admin-request' ? (
+                <>
+                  <Field label="Request Type" required select options={['', 'CREATE_USER', 'RESET_PASSWORD', 'UNLOCK_USER', 'MODIFY_USER']} value={createFields.requestType} onChange={v => setCreateFields(p => ({ ...p, requestType: v }))} />
+                  <Field label="Status" select options={['PENDING', 'APPROVED', 'REJECTED']} value={createFields.status} onChange={v => setCreateFields(p => ({ ...p, status: v }))} />
+                  <Field label="Requester Name" required value={createFields.requesterName} onChange={v => setCreateFields(p => ({ ...p, requesterName: v }))} />
+                  <Field label="Requester Employee ID" value={createFields.requesterEmployeeId} onChange={v => setCreateFields(p => ({ ...p, requesterEmployeeId: v }))} />
+                  <Field label="Requester Email" value={createFields.requesterEmail} onChange={v => setCreateFields(p => ({ ...p, requesterEmail: v }))} />
+                  <Field label="Requested At" type="datetime-local" placeholder="Defaults to now" value={createFields.requestedAt} onChange={v => setCreateFields(p => ({ ...p, requestedAt: v }))} />
+                  <Field label="Requester Remarks" textarea value={createFields.remarks} onChange={v => setCreateFields(p => ({ ...p, remarks: v }))} />
+                  <Field label="Admin Remarks" textarea value={createFields.adminRemarks} onChange={v => setCreateFields(p => ({ ...p, adminRemarks: v }))} />
+                </>
+              ) : (
+                <>
+                  <Field label="Filter" required optionObjs={filterOpts} placeholder={createFiltersData.isLoading ? 'Loading…' : 'Select a filter'} value={createFields.filterId} onChange={v => setCreateFields(p => ({ ...p, filterId: v }))} />
+                  <Field label="Filter Name" required value={createFields.filterName} onChange={v => setCreateFields(p => ({ ...p, filterName: v }))} />
+                  <Field label="From Block ID" required value={createFields.fromBlockId} onChange={v => setCreateFields(p => ({ ...p, fromBlockId: v }))} />
+                  <Field label="From Block Name" required value={createFields.fromBlockName} onChange={v => setCreateFields(p => ({ ...p, fromBlockName: v }))} />
+                  <Field label="To Block ID" required value={createFields.toBlockId} onChange={v => setCreateFields(p => ({ ...p, toBlockId: v }))} />
+                  <Field label="To Block Name" required value={createFields.toBlockName} onChange={v => setCreateFields(p => ({ ...p, toBlockName: v }))} />
+                  <Field label="Status" select options={['PENDING', 'APPROVED', 'REJECTED', 'CONSUMED']} value={createFields.status} onChange={v => setCreateFields(p => ({ ...p, status: v }))} />
+                  <Field label="Reason" textarea value={createFields.reason} onChange={v => setCreateFields(p => ({ ...p, reason: v }))} />
+                  <Field label="Processed Comment" textarea value={createFields.processedComment} onChange={v => setCreateFields(p => ({ ...p, processedComment: v }))} />
+                  <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    Requester defaults to you. Block IDs/names are entered manually (no block picker here).
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => { setCreateDialog(null); setCreateFields({}); }}
+                className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">
+                Cancel
+              </button>
+              <button onClick={submitCreate} disabled={createSaving}
+                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
+                {createSaving ? 'Creating…' : 'Create Record'}
               </button>
             </div>
           </div>

@@ -4,7 +4,7 @@ import { prisma } from './prisma.js';
 // so new audit rows hash with JSONB-safe canonical form (nested keys sorted
 // recursively, not just top-level). Verifier tries V2 first, falls back to V1
 // for historical rows. See lib/hash-chain.ts for the full versioning story.
-import { computeChainedChecksumV2 } from './hash-chain.js';
+import { computeChainedChecksumV2, computeChainedChecksumV3, getAuditChainKey } from './hash-chain.js';
 
 export interface AuditEntry {
   userId?: string;
@@ -164,7 +164,16 @@ async function writeAuditRow(
     LIMIT 1
   `;
   const previousChecksum: string | null = prior[0]?.checksum ?? null;
-  const checksum = computeChainedChecksumV2(baseFields, previousChecksum);
+
+  // Keyed (V3, HMAC) checksum when AUDIT_CHAIN_KEY is configured, else the
+  // unkeyed V2 fallback so an un-keyed install still writes a valid chain.
+  // checksum_version = 3 marks keyed rows; NULL marks legacy V2/V1 rows so the
+  // verifier picks the right formula and never accepts unkeyed for a v3 row.
+  const chainKey = getAuditChainKey();
+  const checksum = chainKey
+    ? computeChainedChecksumV3(baseFields, previousChecksum, chainKey)
+    : computeChainedChecksumV2(baseFields, previousChecksum);
+  const checksumVersion: number | null = chainKey ? 3 : null;
 
   // Insert via raw SQL so we can write the new chain columns without
   // depending on a regenerated Prisma client (the dev server may be
@@ -175,7 +184,7 @@ async function writeAuditRow(
       timestamp, user_id, user_name, user_role, action,
       target_type, target_id, before_value, after_value,
       reason, ip_address, user_agent, session_id,
-      checksum, previous_checksum, signature_meaning
+      checksum, previous_checksum, signature_meaning, checksum_version
     ) VALUES (
       ${timestamp},
       ${entry.userId ?? null},
@@ -192,7 +201,8 @@ async function writeAuditRow(
       ${entry.sessionId ?? null},
       ${checksum},
       ${previousChecksum},
-      ${entry.signatureMeaning ?? null}
+      ${entry.signatureMeaning ?? null},
+      ${checksumVersion}
     )
   `;
 }

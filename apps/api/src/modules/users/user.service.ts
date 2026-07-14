@@ -13,6 +13,25 @@ import { dispatchNotification } from '../notification-delivery/notification-disp
 // change takes effect immediately instead of after the 30s TTL (audit M-7).
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
 
+/**
+ * Privilege-boundary guard for user-mutating operations (audit C2 fix).
+ * A caller may only manage a target user whose role is at or below the caller's
+ * hierarchy level — mirroring the `>` semantics already in create()/update() so
+ * peer management still works. SUPER_ADMIN (top of hierarchy) manages everyone;
+ * nobody below may reset/unlock/update/disable/enable a SUPER_ADMIN (or any role
+ * above their own). Fails CLOSED if a role can't be resolved.
+ */
+async function assertCanManageTarget(callerRole: string, targetRoleName: string) {
+  if (callerRole === 'SUPER_ADMIN') return; // top of the hierarchy — can manage anyone
+  const caller = await userRepository.findRole(callerRole);
+  if (!caller) throw new ForbiddenError('Your role is not recognized');
+  const target = await userRepository.findRole(targetRoleName);
+  if (!target) throw new ForbiddenError('Target user role is not recognized');
+  if (target.hierarchyLevel > caller.hierarchyLevel) {
+    throw new ForbiddenError('You cannot manage a user whose role is higher than yours');
+  }
+}
+
 export const userService = {
   async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; callerRole?: string }) {
     const where: Record<string, unknown> = {};
@@ -147,6 +166,8 @@ export const userService = {
 
     const existing = await userRepository.findByIdFull(id);
     if (!existing) throw new NotFoundError('User not found');
+    // Privilege boundary: can't manage a target above your own role (audit C2).
+    await assertCanManageTarget(ctx.userRole, (existing as any).role);
 
     // Cannot change own role (prevent self-escalation)
     if (existing.id === ctx.userSub && data.role && data.role !== existing.role) {
@@ -271,6 +292,7 @@ export const userService = {
   async enable(id: string, ctx: RequestContext) {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
+    await assertCanManageTarget(ctx.userRole, (user as any).role);
 
     await userRepository.update(id, { status: 'ENABLED', updatedBy: ctx.userId });
     invalidateUserAuthCache(id);
@@ -298,6 +320,7 @@ export const userService = {
   async disable(id: string, ctx: RequestContext) {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
+    await assertCanManageTarget(ctx.userRole, (user as any).role);
 
     await userRepository.update(id, { status: 'DISABLED', updatedBy: ctx.userId });
     await userRepository.terminateSessions(id, 'account_disabled');
@@ -326,11 +349,16 @@ export const userService = {
   async unlock(id: string, newPassword: string, ctx: RequestContext) {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
+    await assertCanManageTarget(ctx.userRole, (user as any).role);
 
     const newHash = await hashPassword(newPassword);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
 
     await userRepository.unlockUser(id, newHash, passwordExpiresAt, ctx.userId);
+    // Compromise-response: evict any live sessions/JWTs held for this user so a
+    // stolen session can't survive the reset (mirrors disable()).
+    await userRepository.terminateSessions(id, 'account_unlocked');
+    invalidateUserAuthCache(id);
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'ACCOUNT_UNLOCKED',
@@ -345,11 +373,16 @@ export const userService = {
   async resetPassword(id: string, newPassword: string, ctx: RequestContext) {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
+    await assertCanManageTarget(ctx.userRole, (user as any).role);
 
     const newHash = await hashPassword(newPassword);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
 
     await userRepository.resetPassword(id, newHash, passwordExpiresAt, ctx.userId);
+    // Compromise-response: evict any live sessions/JWTs held for this user so a
+    // stolen session can't survive the reset (mirrors disable()).
+    await userRepository.terminateSessions(id, 'password_reset');
+    invalidateUserAuthCache(id);
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'PASSWORD_RESET',
@@ -412,6 +445,11 @@ export const userService = {
     // everywhere downstream.
     const user = await userRepository.findById(resetRequest.userId);
     if (!user) throw new NotFoundError('User not found');
+    // Same hierarchy guard as resetPassword/unlock/update/disable/enable: an
+    // approval sets an attacker-chosen password on the target, so a lower-privilege
+    // caller must not be able to process (approve OR reject) a reset request for a
+    // higher-privilege user (e.g. ADMIN taking over a SUPER_ADMIN account).
+    await assertCanManageTarget(ctx.userRole, (user as any).role);
 
     if (action === 'approve') {
       if (!newPassword || newPassword.length < 8) throw new ValidationError('New password must be at least 8 characters');

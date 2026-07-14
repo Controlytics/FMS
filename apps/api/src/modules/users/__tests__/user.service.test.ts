@@ -260,6 +260,30 @@ describe('userService', () => {
       await userService.unlock('1', 'TempPass@1', ctx);
       expect(mockUserRepo.unlockUser).toHaveBeenCalled();
     });
+
+    it('terminates the target user\'s active sessions (compromise response)', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', status: 'LOCKED', failedLoginAttempts: 5 });
+      mockHashPassword.mockResolvedValue('new-hash');
+      mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
+      mockUserRepo.unlockUser.mockResolvedValue([]);
+      mockUserRepo.terminateSessions.mockResolvedValue({ count: 2 });
+
+      await userService.unlock('1', 'TempPass@1', ctx);
+      expect(mockUserRepo.terminateSessions).toHaveBeenCalledWith('1', 'account_unlocked');
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('terminates the target user\'s active sessions (compromise response)', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', status: 'ENABLED' });
+      mockHashPassword.mockResolvedValue('new-hash');
+      mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
+      mockUserRepo.resetPassword.mockResolvedValue([]);
+      mockUserRepo.terminateSessions.mockResolvedValue({ count: 1 });
+
+      await userService.resetPassword('1', 'NewPass@1', ctx);
+      expect(mockUserRepo.terminateSessions).toHaveBeenCalledWith('1', 'password_reset');
+    });
   });
 
   // ── processResetRequest ──
@@ -289,6 +313,74 @@ describe('userService', () => {
 
       await expect(userService.processResetRequest('req-1', 'approve', 'pass', undefined, ctx))
         .rejects.toThrow('already been processed');
+    });
+  });
+
+  // ── privilege boundary (audit C2 fix) ──
+  // A non-SUPER_ADMIN caller must not be able to reset/unlock/disable a user
+  // whose role is higher than theirs (the ADMIN -> SUPER_ADMIN takeover).
+  describe('privilege boundary (audit C2)', () => {
+    const adminCtx = { ...ctx, userRole: 'ADMIN' };
+    const levels: Record<string, number> = { ADMIN: 5, SUPER_ADMIN: 6, OPERATOR: 2 };
+    const byLevel = (name: string) => Promise.resolve({ name, hierarchyLevel: levels[name], isActive: true });
+
+    beforeEach(() => {
+      mockUserRepo.findRole.mockImplementation((n: string) => byLevel(n));
+      mockHashPassword.mockResolvedValue('new-hash');
+      mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
+      mockUserRepo.resetPassword.mockResolvedValue([]);
+      mockUserRepo.unlockUser.mockResolvedValue([]);
+      mockUserRepo.update.mockResolvedValue({ id: 'sa', username: 'superadmin' });
+    });
+
+    it('ADMIN cannot resetPassword a SUPER_ADMIN', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: 'sa', username: 'superadmin', fullName: 'SA', role: 'SUPER_ADMIN', status: 'ENABLED' });
+      await expect(userService.resetPassword('sa', 'NewPass@1', adminCtx)).rejects.toThrow(/higher than yours/);
+      expect(mockUserRepo.resetPassword).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN cannot unlock a SUPER_ADMIN', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: 'sa', username: 'superadmin', fullName: 'SA', role: 'SUPER_ADMIN', status: 'LOCKED', failedLoginAttempts: 5 });
+      await expect(userService.unlock('sa', 'NewPass@1', adminCtx)).rejects.toThrow(/higher than yours/);
+      expect(mockUserRepo.unlockUser).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN cannot disable a SUPER_ADMIN', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: 'sa', username: 'superadmin', fullName: 'SA', role: 'SUPER_ADMIN', status: 'ENABLED' });
+      await expect(userService.disable('sa', adminCtx)).rejects.toThrow(/higher than yours/);
+      expect(mockUserRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN CAN resetPassword a lower-level user', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: 'op', username: 'op1', fullName: 'Op', role: 'OPERATOR', status: 'ENABLED' });
+      await userService.resetPassword('op', 'NewPass@1', adminCtx);
+      expect(mockUserRepo.resetPassword).toHaveBeenCalled();
+    });
+
+    // The C2 remediation missed processResetRequest — the reset-request approval
+    // path also sets an attacker-chosen password on the target. A PENDING request
+    // for a SUPER_ADMIN can be created via the public forgot-password flow, so an
+    // ADMIN approving it would be a second ADMIN -> SUPER_ADMIN takeover door.
+    it('ADMIN cannot approve a reset request for a SUPER_ADMIN', async () => {
+      mockUserRepo.findResetRequestById.mockResolvedValue({ id: 'req-1', userId: 'sa', status: 'PENDING' });
+      mockUserRepo.findById.mockResolvedValue({ id: 'sa', username: 'superadmin', role: 'SUPER_ADMIN' });
+      await expect(userService.processResetRequest('req-1', 'approve', 'NewPass@1', undefined, adminCtx)).rejects.toThrow(/higher than yours/);
+      expect(mockUserRepo.approveResetRequest).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN cannot reject a reset request for a SUPER_ADMIN', async () => {
+      mockUserRepo.findResetRequestById.mockResolvedValue({ id: 'req-1', userId: 'sa', status: 'PENDING' });
+      mockUserRepo.findById.mockResolvedValue({ id: 'sa', username: 'superadmin', role: 'SUPER_ADMIN' });
+      await expect(userService.processResetRequest('req-1', 'reject', undefined, 'no', adminCtx)).rejects.toThrow(/higher than yours/);
+      expect(mockUserRepo.rejectResetRequest).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN CAN approve a reset request for a lower-level user', async () => {
+      mockUserRepo.findResetRequestById.mockResolvedValue({ id: 'req-1', userId: 'op', status: 'PENDING' });
+      mockUserRepo.findById.mockResolvedValue({ id: 'op', username: 'op1', role: 'OPERATOR' });
+      mockUserRepo.approveResetRequest.mockResolvedValue([]);
+      await userService.processResetRequest('req-1', 'approve', 'NewPass@1', undefined, adminCtx);
+      expect(mockUserRepo.approveResetRequest).toHaveBeenCalled();
     });
   });
 });

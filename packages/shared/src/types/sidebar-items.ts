@@ -16,6 +16,7 @@ export interface SidebarItem {
  * in the Sidebar Configuration page for role/user visibility settings.
  */
 export const SIDEBAR_ITEMS: SidebarItem[] = [
+  { id: 'home', label: 'Home', icon: '\u{1F3E0}', description: 'Module Guide — how each module works, step by step' },
   { id: 'dashboard', label: 'Dashboard', icon: '\u{1F3E0}', description: 'Main dashboard view' },
   { id: 'users', label: 'Users', icon: '\u{1F465}', description: 'User management' },
   { id: 'admin-requests', label: 'Admin Requests', icon: '\u{1F4CB}', description: 'Review and process user requests' },

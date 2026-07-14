@@ -34,6 +34,15 @@ export default function HomePage() {
   const { data: myConfig, mutate: mutateConfig } = useSWR<{ sidebarItems?: string[] }>('/api/config/my-config');
   const { data: qnn, mutate: mutateQnn } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
+  // Live count of ACTIVE cleaning profiles, to make the Filter Operations note
+  // concrete ("N active cleaning profiles configured"). Only fetched when the
+  // viewer can read profiles (FCP_READ / Super Admin) so no 403 hits the
+  // console for operators — the note still renders, just without the number.
+  const canReadProfiles = (user?.role === 'SUPER_ADMIN') || (user?.permissions ?? []).includes('FCP_READ');
+  const { data: cpData } = useSWR<any>(canReadProfiles ? '/api/filter-cleaning-profiles?limit=200' : null);
+  const cpList: any[] = Array.isArray(cpData) ? cpData : (Array.isArray(cpData?.data) ? cpData.data : []);
+  const activeProfileCount = cpList.filter((p) => p?.status === 'ACTIVE').length;
+
   // Audit view: every module + every role permitted by the backend gate,
   // regardless of the viewer's or any role's sidebar. Default = the viewer's
   // own modules (mirrors their sidebar).
@@ -71,7 +80,7 @@ export default function HomePage() {
   const loading = !user || !matrix;
 
   return (
-    <div className="mx-auto max-w-5xl p-4 sm:p-6">
+    <div className="w-full p-4 sm:p-6">
       <header className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="text-2xl font-bold text-slate-800">Module Guide</h1>
@@ -126,13 +135,20 @@ export default function HomePage() {
         </div>
       ) : (
         <>
-          {/* Live role legend */}
+          {/* Live role legend + step-type key */}
           <section className="mb-8 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Roles</h2>
             <div className="flex flex-wrap gap-2">
               {roles.map((r) => (
                 <RoleLegendBadge key={r.name} role={r} />
               ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-200 pt-3 text-xs text-slate-500">
+              <span className="font-semibold uppercase tracking-wide text-slate-400">Step type</span>
+              <span className="flex items-center gap-1.5"><span className="h-3 w-1 rounded bg-cyan-500" />Action</span>
+              <span className="flex items-center gap-1.5"><span className="h-3 w-1 rounded bg-amber-400" />Decision</span>
+              <span className="flex items-center gap-1.5"><span className="h-3 w-1 rounded bg-slate-400" />System / automatic</span>
+              <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded border border-dashed border-amber-300 bg-amber-50" />Branch (e.g. Bypass / Reject)</span>
             </div>
           </section>
 
@@ -168,7 +184,20 @@ export default function HomePage() {
                       <article key={m.id} id={slug(m.id)} className="scroll-mt-6">
                         <h3 className="text-base font-semibold text-slate-800">{m.title}</h3>
                         <p className="mb-3 text-sm text-slate-500">{m.summary}</p>
-                        <FlowChart steps={m.steps} moduleId={m.id} roles={roles} auditMode={auditView} />
+                        {m.note && (
+                          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+                            <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>
+                              {m.note}
+                              {m.id === 'filter-operations' && canReadProfiles && activeProfileCount > 0 && (
+                                <> {' '}<span className="font-semibold">{activeProfileCount} active cleaning {activeProfileCount === 1 ? 'profile is' : 'profiles are'} configured.</span></>
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        <FlowChart steps={m.steps} moduleId={m.id} roles={roles} auditMode={auditView} layout={m.layout} />
                       </article>
                     ))}
                   </div>

@@ -251,6 +251,7 @@ model AdminRequest {
   remarks             String?   @db.VarChar(500) // Requester's reason
   adminRemarks        String?   @map("admin_remarks") @db.VarChar(500) // Admin notes on approve/reject
   processedBy         String?   @map("processed_by") @db.VarChar(100)
+  manualEntry         Boolean   @default(false) @map("manual_entry") // manual data-mgmt insert
   requestedAt         DateTime  @default(now()) @map("requested_at") @db.Timestamptz
   processedAt         DateTime? @map("processed_at") @db.Timestamptz
 
@@ -276,6 +277,12 @@ model AuditTrail {
   userAgent        String?  @map("user_agent")
   sessionId        String?  @map("session_id") @db.VarChar(100)
   checksum         String   @db.VarChar(64)
+  // Checksum formula version. NULL = legacy unkeyed SHA-256 (V1/V2, all rows
+  // written before the keyed-chain cutover). 3 = keyed HMAC-SHA256 (V3) written
+  // when AUDIT_CHAIN_KEY is set. The verifier REQUIRES the key + an HMAC match
+  // for version-3 rows (never accepts the unkeyed formula for them), so a
+  // DB-level actor cannot forge or downgrade a keyed row. See lib/hash-chain.ts.
+  checksumVersion  Int?     @map("checksum_version") @db.SmallInt
   // Audit 2026-05-04 fix C3: tamper-evident hash chain. Each new row carries
   // the prior row's checksum (under a Postgres advisory lock during write so
   // the chain is monotonic across concurrent writers). Existing rows written
@@ -364,6 +371,7 @@ model Notification {
   metadata     Json?            @db.JsonB // Additional context data
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
   createdBy    String?          @map("created_by") @db.VarChar(50)
+  manualEntry  Boolean          @default(false) @map("manual_entry") // manual data-mgmt insert
 
   @@index([forUserId])
   @@index([forRole])
@@ -1123,6 +1131,8 @@ model PmScheduleEntry {
   pendingEditBy        String?   @map("pending_edit_by") @db.Uuid
   pendingEditAt        DateTime? @map("pending_edit_at") @db.Timestamptz
 
+  manualEntry Boolean @default(false) @map("manual_entry") // manual data-mgmt insert
+
   schedule   PmSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   executions PmExecution[]
 
@@ -1500,6 +1510,11 @@ model CleaningCycle {
   dryerStartedAt         DateTime? @map("dryer_started_at") @db.Timestamptz
   dryerReadingsSubmitted Boolean   @default(false) @map("dryer_readings_submitted")
 
+  // True for rows inserted manually via the SUPER_ADMIN data-management Create
+  // tool (back-/future-dated records) — drives a "Manual entry" badge so they
+  // are visually distinguishable from natively-captured records.
+  manualEntry Boolean @default(false) @map("manual_entry")
+
   // Phase A.1: pinned ChecklistProfile versions at cycle start.
   // Shape: { [checklistProfileId: string]: versionNumber: int }
   // All checklist resolution during this cycle reads through these pins,
@@ -1543,6 +1558,7 @@ model FilterEvent {
   telemetrySnapshot Json            @default("{}") @map("telemetry_snapshot") @db.JsonB
   remarks           String?
   deviationDetails  Json?           @map("deviation_details") @db.JsonB
+  manualEntry       Boolean         @default(false) @map("manual_entry") // manual data-mgmt insert
   checksum          String          @db.VarChar(64)
   ipAddress         String          @map("ip_address") @db.VarChar(45)
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz
@@ -1748,6 +1764,7 @@ model BlockChangeRequest {
   processedByName  String?           @map("processed_by_name") @db.VarChar(255)
   processedComment String?           @map("processed_comment")
   processedAt      DateTime?         @map("processed_at") @db.Timestamptz
+  manualEntry      Boolean           @default(false) @map("manual_entry") // manual data-mgmt insert
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz
 

@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { readSuperAdminApiEnabledUncached, setSuperAdminApiEnabled } from '../../lib/super-admin-lock.js';
 import { auditLog } from '../../lib/audit.js';
+import { computeChecksum } from '../filter-operations/helpers.js';
 
 /**
  * Super Admin routes â€” SUPER_ADMIN only, platform management
@@ -395,6 +396,46 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.cleaningCycle.update({ where: { id }, data });
   });
 
+  // Create a cleaning cycle (manual/back-dated record — no audit trail, mirrors
+  // the silent edit above). Requires the real FKs a cycle can't exist without
+  // (filter + profile) and fills the remaining NOT-NULL columns with sensible
+  // derived defaults so a SUPER_ADMIN only has to supply what they care about.
+  app.post('/data/cleaning-cycles', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Create cleaning cycle'), body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+    const body = req.body as any;
+    const data: any = {};
+    const stringFields = ['status', 'cycleCode', 'cleaningReasonKey', 'cleaningReasonLabel', 'cleaningJustification', 'terminationReason'];
+    const dateFields = ['startedAt', 'completedAt', 'terminatedAt', 'dryerStartedAt'];
+    const numFields = ['sequenceNumber', 'profileVersion', 'dryerDurationMinutes'];
+    const uuidFields = ['filterId', 'profileId', 'cleaningAreaId', 'equipmentGroupId'];
+    for (const f of stringFields) { if (body[f] !== undefined && body[f] !== '') data[f] = body[f]; }
+    for (const f of dateFields) { if (body[f]) data[f] = new Date(body[f]); }
+    for (const f of numFields) { if (body[f] !== undefined && body[f] !== '' && body[f] !== null) data[f] = Number(body[f]); }
+    for (const f of uuidFields) { if (body[f]) data[f] = body[f]; }
+    if (!data.filterId) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'A filter must be selected.' });
+    if (!data.profileId) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'A cleaning profile must be selected.' });
+    if (!data.cleaningReasonLabel) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Cleaning reason is required.' });
+    if (!data.cleaningReasonKey) data.cleaningReasonKey = String(data.cleaningReasonLabel).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'manual';
+    if (data.profileVersion === undefined) {
+      const prof = await prisma.filterCleaningProfile.findUnique({ where: { id: data.profileId }, select: { version: true } });
+      data.profileVersion = prof?.version ?? 1;
+    }
+    if (data.sequenceNumber === undefined) {
+      data.sequenceNumber = (await prisma.cleaningCycle.count({ where: { filterId: data.filterId } })) + 1;
+    }
+    if (!data.cycleCode) data.cycleCode = `MANUAL-${data.sequenceNumber}-${Date.now().toString(36).toUpperCase()}`;
+    if (!data.startedAt) data.startedAt = new Date();
+    data.manualEntry = true;
+    try {
+      return await prisma.cleaningCycle.create({ data });
+    } catch (e: any) {
+      const msg = String(e?.message ?? '');
+      if (e?.code === 'P2002' || msg.includes('unique') || msg.includes('23505') || msg.includes('one_in_progress')) {
+        return reply.code(409).send({ error: 'CONFLICT', message: 'Duplicate cycle code, or this filter already has an in-progress cycle. Set status to COMPLETED/TERMINATED or change the cycle code.' });
+      }
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: msg || 'Could not create cleaning cycle.' });
+    }
+  });
+
   app.delete('/data/cleaning-cycles/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete cleaning cycle'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
     const { id } = req.params as any;
     const existing = await prisma.cleaningCycle.findUnique({ where: { id } });
@@ -426,6 +467,29 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (body.performedAt !== undefined) data.performedAt = new Date(body.performedAt);
     if (body.attributes !== undefined) data.attributes = body.attributes;
     return prisma.filterEvent.update({ where: { id }, data });
+  });
+
+  // Create a filter event (manual record — no audit trail). performedBy, the
+  // SHA-256 checksum and the caller IP are stamped server-side; a cycleId, if
+  // given, must belong to the same filter (DB trg_filter_event_consistency).
+  app.post('/data/filter-events', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Create filter event'), body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+    const body = req.body as any;
+    const data: any = {};
+    for (const f of ['eventType', 'fromState', 'toState', 'remarks']) { if (body[f] !== undefined && body[f] !== '') data[f] = body[f]; }
+    for (const f of ['filterId', 'cycleId', 'cleaningAreaId', 'equipmentId', 'blockId']) { if (body[f]) data[f] = body[f]; }
+    if (body.attributes !== undefined) data.attributes = body.attributes;
+    if (!data.filterId) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'A filter must be selected.' });
+    if (!data.eventType) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Event type is required.' });
+    data.performedBy = body.performedBy || (req.user as any)?.sub;
+    data.performedAt = body.performedAt ? new Date(body.performedAt) : new Date();
+    data.ipAddress = req.ip || '0.0.0.0';
+    data.checksum = body.checksum || computeChecksum({ filterId: data.filterId, cycleId: data.cycleId ?? null, eventType: data.eventType, performedBy: data.performedBy, performedAt: data.performedAt.toISOString() });
+    data.manualEntry = true;
+    try {
+      return await prisma.filterEvent.create({ data });
+    } catch (e: any) {
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: String(e?.message ?? 'Could not create filter event.') });
+    }
   });
 
   app.delete('/data/filter-events/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete filter event'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
@@ -463,6 +527,26 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.notification.update({ where: { id }, data });
   });
 
+  // Create a notification (manual record — no audit trail).
+  app.post('/data/notifications', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Create notification'), body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+    const body = req.body as any;
+    const data: any = {};
+    for (const f of ['type', 'title', 'message', 'forUserId', 'forRole', 'targetUserId', 'createdBy']) { if (body[f] !== undefined && body[f] !== '') data[f] = body[f]; }
+    if (body.isRead !== undefined) data.isRead = body.isRead === true || body.isRead === 'true';
+    if (body.readAt) data.readAt = new Date(body.readAt);
+    if (body.createdAt) data.createdAt = new Date(body.createdAt);
+    if (!data.type) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Type is required.' });
+    if (!data.title) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Title is required.' });
+    if (!data.message) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Message is required.' });
+    if (!data.createdBy) data.createdBy = (req.user as any)?.sub;
+    data.manualEntry = true;
+    try {
+      return await prisma.notification.create({ data });
+    } catch (e: any) {
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: String(e?.message ?? 'Could not create notification.') });
+    }
+  });
+
   app.delete('/data/notifications/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete notification'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
     const { id } = req.params as any;
     await prisma.notification.delete({ where: { id } }).catch(() => null);
@@ -486,6 +570,23 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     }
     if (body.requestData !== undefined) data.requestData = body.requestData;
     return prisma.adminRequest.update({ where: { id }, data });
+  });
+
+  // Create an admin request (manual record — no audit trail).
+  app.post('/data/admin-requests', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Create admin request'), body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+    const body = req.body as any;
+    const data: any = {};
+    for (const f of ['requestType', 'status', 'requesterName', 'requesterEmployeeId', 'requesterEmail', 'remarks', 'adminRemarks', 'processedBy']) { if (body[f] !== undefined && body[f] !== '') data[f] = body[f]; }
+    for (const f of ['requestedAt', 'processedAt']) { if (body[f]) data[f] = new Date(body[f]); }
+    if (body.requestData !== undefined) data.requestData = body.requestData;
+    if (!data.requestType) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Request type is required.' });
+    if (!data.requesterName) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Requester name is required.' });
+    data.manualEntry = true;
+    try {
+      return await prisma.adminRequest.create({ data });
+    } catch (e: any) {
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: String(e?.message ?? 'Could not create admin request.') });
+    }
   });
 
   app.delete('/data/admin-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete admin request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
@@ -515,6 +616,28 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return prisma.blockChangeRequest.update({ where: { id }, data });
   });
 
+  // Create a block-change request (manual record — no audit trail). Needs the
+  // full filter + from/to block identity a request can't exist without; the
+  // requester defaults to the acting SUPER_ADMIN when not supplied.
+  app.post('/data/block-change-requests', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Create block change request'), body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+    const body = req.body as any;
+    const data: any = {};
+    for (const f of ['status', 'reason', 'filterName', 'fromBlockName', 'toBlockName', 'requestedByName', 'processedByName', 'processedComment']) { if (body[f] !== undefined && body[f] !== '') data[f] = body[f]; }
+    for (const f of ['filterId', 'fromBlockId', 'toBlockId', 'requestedBy', 'processedBy']) { if (body[f]) data[f] = body[f]; }
+    for (const f of ['processedAt', 'createdAt']) { if (body[f]) data[f] = new Date(body[f]); }
+    for (const f of ['filterId', 'filterName', 'fromBlockId', 'fromBlockName', 'toBlockId', 'toBlockName']) {
+      if (!data[f]) return reply.code(400).send({ error: 'MISSING_FIELD', message: `${f} is required.` });
+    }
+    if (!data.requestedBy) data.requestedBy = (req.user as any)?.sub;
+    if (!data.requestedByName) data.requestedByName = (req.user as any)?.username ?? 'Manual Entry';
+    data.manualEntry = true;
+    try {
+      return await prisma.blockChangeRequest.create({ data });
+    } catch (e: any) {
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: String(e?.message ?? 'Could not create block change request.') });
+    }
+  });
+
   app.delete('/data/block-change-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
     const { id } = req.params as any;
     await prisma.blockChangeRequest.delete({ where: { id } }).catch(() => null);
@@ -522,6 +645,17 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   });
 
   // â”€â”€â”€ PM Schedule Entries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Flat list of PM schedules (name-resolved via the owning entity) — powers
+  // the create-PM-entry schedule picker so a new entry can be attached even
+  // when no entries exist yet. Read-only; SUPER_ADMIN.
+  app.get('/data/pm-schedules', { preHandler: dataPreHandler, schema: dataSchema('List PM schedules') }, async () => {
+    const schedules = await prisma.pmSchedule.findMany({ orderBy: [{ year: 'desc' }, { updatedAt: 'desc' }], take: 500 });
+    const entityIds = [...new Set(schedules.map(s => s.entityId))];
+    const entities = await prisma.assetInstance.findMany({ where: { id: { in: entityIds } }, select: { id: true, name: true } });
+    const nameById = new Map(entities.map(e => [e.id, e.name]));
+    return { data: schedules.map(s => ({ id: s.id, entityId: s.entityId, entityName: nameById.get(s.entityId) ?? null, year: s.year, version: s.version, status: s.status })) };
+  });
+
   app.get('/data/pm-entries', { preHandler: dataPreHandler, schema: dataSchema('List PM schedule entries') }, async (req) => {
     return paginatedList(prisma.pmScheduleEntry, req.query, { plannedDate: 'desc' }, { schedule: true });
   });
@@ -536,6 +670,33 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     for (const f of ['approvalStatus', 'approvalRemarks', 'submittedByName', 'approvedByName', 'notes']) { if (body[f] !== undefined) data[f] = body[f]; }
     for (const f of ['plannedDate', 'windowStart', 'windowEnd', 'approvedAt']) { if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null; }
     return prisma.pmScheduleEntry.update({ where: { id }, data });
+  });
+
+  // Create a PM schedule entry (manual record — no audit trail). Needs its
+  // parent scheduleId (unlike edit); the coverage window defaults to the
+  // planned date when not supplied. [scheduleId, month] is unique.
+  app.post('/data/pm-entries', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Create PM schedule entry'), body: { type: 'object', additionalProperties: true } } }, async (req, reply) => {
+    const body = req.body as any;
+    const data: any = {};
+    for (const f of ['month', 'toleranceDays']) { if (body[f] !== undefined && body[f] !== '' && body[f] !== null) data[f] = Number(body[f]); }
+    for (const f of ['approvalStatus', 'approvalRemarks', 'submittedByName', 'approvedByName', 'notes']) { if (body[f] !== undefined && body[f] !== '') data[f] = body[f]; }
+    for (const f of ['plannedDate', 'windowStart', 'windowEnd', 'approvedAt']) { if (body[f]) data[f] = new Date(body[f]); }
+    if (body.scheduleId) data.scheduleId = body.scheduleId;
+    if (!data.scheduleId) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'A PM schedule must be selected.' });
+    if (data.month === undefined) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Month (1–12) is required.' });
+    if (!data.plannedDate) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Planned date is required.' });
+    if (!data.windowStart) data.windowStart = data.plannedDate;
+    if (!data.windowEnd) data.windowEnd = data.plannedDate;
+    data.manualEntry = true;
+    try {
+      return await prisma.pmScheduleEntry.create({ data });
+    } catch (e: any) {
+      const msg = String(e?.message ?? '');
+      if (e?.code === 'P2002' || msg.includes('unique') || msg.includes('23505')) {
+        return reply.code(409).send({ error: 'CONFLICT', message: 'A PM entry for this schedule and month already exists.' });
+      }
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: msg || 'Could not create PM entry.' });
+    }
   });
 
   app.delete('/data/pm-entries/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete PM schedule entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {

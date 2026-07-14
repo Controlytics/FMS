@@ -268,10 +268,6 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
 
   // Filter items based on configuration AND permissions
   const filteredItems = allNavItems.filter((item) => {
-    // Home is ungated documentation — always visible, and cannot be hidden by a
-    // role's custom sidebarItems config.
-    if (item.id === 'home') return true;
-
     // SUPER_ADMIN sees everything
     if (user?.role === 'SUPER_ADMIN') return true;
 

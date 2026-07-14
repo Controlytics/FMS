@@ -384,4 +384,21 @@ describe('authService', () => {
       expect(mockRepo.createResetRequest).not.toHaveBeenCalled();
     });
   });
+
+  describe('changePassword', () => {
+    it('a wrong current password counts toward account lockout (not a silent oracle)', async () => {
+      mockRepo.findUserById.mockResolvedValue({
+        id: 'u1', username: 'op1', fullName: 'Op', role: 'OPERATOR',
+        isTemporaryPassword: false, failedLoginAttempts: 0, passwordHash: 'hash',
+      });
+      mockVerifyPassword.mockResolvedValue(false); // wrong current password
+      mockRepo.getPasswordPolicyConfig.mockResolvedValue({ maxFailedAttempts: 5 });
+      mockRepo.getLoginSecurityConfig.mockResolvedValue({ maxFailedAttempts: 5 });
+
+      await expect(authService.changePassword('u1', 'WrongCurrent', 'NewPass@1', '127.0.0.1', 'agent', 'sess-1'))
+        .rejects.toThrow(/current password is incorrect/i);
+      // The failed attempt was recorded (increment), so repeated guesses eventually lock.
+      expect(mockRepo.updateUser).toHaveBeenCalledWith('u1', expect.objectContaining({ failedLoginAttempts: 1 }));
+    });
+  });
 });

@@ -1,4 +1,92 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+
+// ---------------------------------------------------------------------------
+// V3 keyed checksum — HMAC-SHA256 (audit finding: unkeyed chain is forgeable)
+// ---------------------------------------------------------------------------
+//
+// V1/V2 hash the audit fields with a plain SHA-256. The checksum and
+// previous_checksum live in the same audit_trail table they protect, so a
+// DB-level actor (the exact threat the immutability triggers + chain defend
+// against — triggers can be disabled) can recompute a fully self-consistent
+// forged chain that passes verify-chain. V3 mixes in a secret key
+// (AUDIT_CHAIN_KEY, held OUTSIDE the database in the API service's env), so an
+// actor with DB write access but no key cannot forge a passing checksum.
+//
+// Versioning (mirrors the V1→V2 philosophy — never rewrite immutable history):
+//   - New rows are stamped audit_trail.checksum_version = 3 and written with
+//     the keyed HMAC when AUDIT_CHAIN_KEY is set; when it is unset the writer
+//     falls back to V2 (version NULL) so an un-keyed install still works.
+//   - The verifier REQUIRES the key + an HMAC match for version-3 rows and does
+//     NOT accept the unkeyed V1/V2 formulas for them — otherwise a DB actor
+//     could downgrade a row to unkeyed and still pass. Downgrading a stored v3
+//     row to unkeyed breaks the FORWARD chain link (the next v3 row's
+//     previous_checksum no longer matches), and re-linking the whole forward
+//     chain needs the key — so the downgrade attack surfaces on a chain walk.
+//   - Legacy rows (version NULL / 1 / 2) keep verifying via the unkeyed V1/V2
+//     fallback, so all historical audit history stays valid across the cutover.
+
+let auditChainKey: string | null | undefined; // undefined = not yet resolved
+
+/**
+ * The audit-chain HMAC key from `AUDIT_CHAIN_KEY`, or null when unset/blank.
+ * Resolved once and cached. When null, the writer stays on unkeyed V2 (no
+ * security improvement, but the app still works) and v3 rows cannot be verified.
+ */
+export function getAuditChainKey(): string | null {
+  if (auditChainKey === undefined) {
+    const k = process.env.AUDIT_CHAIN_KEY;
+    auditChainKey = k && k.trim().length > 0 ? k.trim() : null;
+  }
+  return auditChainKey;
+}
+
+/** Test-only override for the cached key (both to set and to clear). */
+export function __setAuditChainKeyForTest(key: string | null | undefined): void {
+  auditChainKey = key;
+}
+
+let auditChainKeyedFrom: number | null | undefined;
+
+/**
+ * The keyed-era start `chain_position` from `AUDIT_CHAIN_KEYED_FROM`, or null
+ * when unset. This is the OUT-OF-BAND anchor (it lives where AUDIT_CHAIN_KEY
+ * lives — the env, NOT the mutable DB) that makes the keyed chain actually
+ * tamper-evident: any row at/after this position MUST be a valid v3 (HMAC) row.
+ *
+ * Without it, a DB-level actor could relabel a v3 row `checksum_version = NULL`,
+ * recompute it with the unkeyed formula, cascade-relink the forward chain
+ * unkeyed, and pass verification — no key needed. Enforcing "position >= cutover
+ * ⟹ must be v3" catches that downgrade because the downgraded row's version is
+ * no longer 3. The operator sets this to the HEAD chain_position captured at the
+ * moment AUDIT_CHAIN_KEY is first enabled (verify-chain reports headPosition).
+ */
+export function getAuditChainKeyedFrom(): number | null {
+  if (auditChainKeyedFrom === undefined) {
+    const raw = process.env.AUDIT_CHAIN_KEYED_FROM;
+    const n = raw != null && raw.trim() !== '' ? Number(raw) : NaN;
+    auditChainKeyedFrom = Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+  }
+  return auditChainKeyedFrom;
+}
+
+/** Test-only override for the cached keyed-era boundary. */
+export function __setAuditChainKeyedFromForTest(from: number | null | undefined): void {
+  auditChainKeyedFrom = from;
+}
+
+/** V3 per-row checksum: keyed HMAC-SHA256 over the V2 recursive canonical form. */
+export function computeChecksumV3(data: Record<string, unknown>, key: string): string {
+  return createHmac('sha256', key).update(canonicalize(data)).digest('hex');
+}
+
+/** V3 chained checksum: binds the row to its predecessor under the keyed HMAC. */
+export function computeChainedChecksumV3(
+  data: Record<string, unknown>,
+  previousChecksum: string | null,
+  key: string,
+): string {
+  return computeChecksumV3({ ...data, previousChecksum }, key);
+}
 
 /**
  * V1 canonical form: sorts only top-level keys, then JSON.stringify.
@@ -173,6 +261,7 @@ export function verifyAuditChecksum(record: {
   checksum: string;
   previousChecksum?: string | null;
   redactedAt?: Date | string | null;
+  checksumVersion?: number | null;
 }): boolean {
   // Audit 2026-05-20 §C1 fix: redacted rows preserve the original checksum +
   // chain link, but beforeValue + afterValue are NULLed. Recomputing would
@@ -221,8 +310,33 @@ export function verifyAuditChecksum(record: {
     afterValue: record.afterValue ?? undefined,
   };
 
+  // V3 (keyed) rows: REQUIRE the key + an HMAC match. Do NOT fall back to the
+  // unkeyed V1/V2 formulas — accepting them would let a DB actor downgrade a
+  // row to unkeyed and still pass, defeating the point of the key. A missing
+  // key makes v3 rows unverifiable (fail loud) rather than silently "valid".
+  if (record.checksumVersion === 3) {
+    const key = getAuditChainKey();
+    if (!key) return false;
+    return matchesStoredChecksumV3(expandedFields, record.checksum, record.previousChecksum, key)
+        || matchesStoredChecksumV3(reducedFields, record.checksum, record.previousChecksum, key);
+  }
+
   return matchesStoredChecksum(expandedFields, record.checksum, record.previousChecksum)
       || matchesStoredChecksum(reducedFields, record.checksum, record.previousChecksum);
+}
+
+/** V3 keyed variant of matchesStoredChecksum (chain row, then genesis). */
+function matchesStoredChecksumV3(
+  fields: Record<string, unknown>,
+  checksum: string,
+  previousChecksum: string | null | undefined,
+  key: string,
+): boolean {
+  if (previousChecksum != null) {
+    return computeChainedChecksumV3(fields, previousChecksum, key) === checksum;
+  }
+  return computeChainedChecksumV3(fields, null, key) === checksum
+      || computeChecksumV3(fields, key) === checksum;
 }
 
 /**

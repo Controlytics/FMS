@@ -9,7 +9,9 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     id: 'filter-operations',
     title: 'Filter Operations',
     category: 'Operations',
+    layout: 'sequence',
     summary: 'Run a filter through its cleaning cycle: start, wash, dry, store, with checklists gating each advance.',
+    note: 'The stages below are the full teaching flow. The actual stages a filter goes through depend on the cleaning profile assigned to it — a profile may skip Wash, Dry or Storage stages, so some steps may not appear for a given filter.',
     steps: [
       { label: 'Start Cleaning Cycle', kind: 'action', gate: ['FILTER_OPERATE'],
         description: 'Select a cleaning reason and profile; profile is locked for the whole cycle.' },
@@ -63,6 +65,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     id: 'filter-replacements',
     title: 'Replacement List',
     category: 'Operations',
+    layout: 'sequence',
     summary: 'Upload a replacement schedule, review and approve entries, then replace the physical filter when an entry falls due.',
     steps: [
       { label: 'Upload Replacement Schedule', kind: 'action', gate: ['REPLACEMENT_SCHEDULE_UPLOAD'],
@@ -125,6 +128,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     id: 'pm-schedules',
     title: 'PM Schedules',
     category: 'Operations',
+    layout: 'sequence',
     summary: 'Schedule preventive-maintenance cleaning entries, route them through review and approval, then execute on the due date.',
     steps: [
       { label: 'Create / Upload PM Schedule', kind: 'action', gate: ['PM_CREATE', 'PM_UPLOAD'],
@@ -159,6 +163,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     id: 'approvals',
     title: 'Approvals (Block Change)',
     category: 'Governance & Compliance',
+    layout: 'sequence',
     summary: 'Request to move a filter to a different Block, then route the request through a role-gated approve/reject decision.',
     steps: [
       { label: 'Submit Block Change Request', kind: 'action', gate: ['BLOCK_CHANGE_REQUEST'],
@@ -174,6 +179,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     id: 'stage-approvals',
     title: 'Stage Approvals',
     category: 'Governance & Compliance',
+    layout: 'sequence',
     summary: 'Approver-side release gate for cleaning stages configured with an interlock: an operator is held at the stage until an approver signs off.',
     steps: [
       { label: 'View my approval queue', kind: 'system', gate: ['STAGE_APPROVAL_VIEW'],
@@ -187,6 +193,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     id: 'report-reviews',
     title: 'Report Reviews',
     category: 'Governance & Compliance',
+    layout: 'sequence',
     summary: 'Ad-hoc three-stage sign-off for a generated report snapshot: submit, review, then final approve.',
     steps: [
       { label: 'Submit report for review', kind: 'action', gate: ['REPORT_REVIEW_SUBMIT'],
@@ -269,6 +276,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     id: 'admin-requests',
     title: 'Admin Requests',
     category: 'Admin',
+    layout: 'sequence',
     summary: 'Public self-service intake for create-user / modify-user / unlock / forgot-password requests, routed to an admin for approval or rejection.',
     steps: [
       { label: 'Submit a request (public, unauthenticated)', kind: 'action', gate: [], access: 'public',

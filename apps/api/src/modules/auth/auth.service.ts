@@ -158,9 +158,17 @@ export const authService = {
       }
     }
 
-    // Also skip if user was just auto-provisioned via LDAP (passwordHash is sentinel)
-    if (user.passwordHash === 'LDAP_EXTERNAL_AUTH') {
-      skipPasswordCheck = true;
+    // SECURITY (audit C1): a sentinel-hash user has NO local password — they can
+    // ONLY be authenticated by a successful LDAP bind THIS request (the block
+    // above sets skipPasswordCheck on a successful bind). The sentinel must NEVER
+    // be a free pass: if no bind succeeded — LDAP disabled, bind failed, or the
+    // user is SUPER_ADMIN (whom the LDAP branch above deliberately excludes) —
+    // deny, because otherwise `verifyPassword(anything, sentinel)` combined with a
+    // stale sentinel would let ANY password log them in. Previously this block
+    // unconditionally set skipPasswordCheck = true, which was the bypass.
+    if (user.passwordHash === 'LDAP_EXTERNAL_AUTH' && !skipPasswordCheck) {
+      await verifyPassword(password, DUMMY_HASH); // keep timing shape constant
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
     }
 
     const valid = skipPasswordCheck || await verifyPassword(password, user.passwordHash);
@@ -373,7 +381,13 @@ export const authService = {
     if (!user.isTemporaryPassword) {
       if (!currentPassword) throw new AppError(400, 'INVALID_PASSWORD', 'Current password is required');
       const valid = await verifyPassword(currentPassword, user.passwordHash);
-      if (!valid) throw new AppError(400, 'INVALID_PASSWORD', 'Current password is incorrect');
+      if (!valid) {
+        // Current-password guesses count toward the SAME lockout as login/reauth,
+        // so this endpoint isn't a non-locking brute-force oracle for a session holder.
+        const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
+        if (locked) throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed attempts. Contact administrator.');
+        throw new AppError(400, 'INVALID_PASSWORD', 'Current password is incorrect');
+      }
     }
 
     const policy = await authRepository.getPasswordPolicyConfig();

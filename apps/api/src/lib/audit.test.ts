@@ -26,6 +26,11 @@ vi.mock('./hash-chain.js', () => ({
   // The mock variable name is unchanged for assertion-call-site stability.
   computeChainedChecksumV2: mockComputeChainedChecksum,
   computeChecksum: mockComputeChecksum,
+  computeChainedChecksumV3: vi.fn(() => 'hmac-chained'),
+  // Default: no AUDIT_CHAIN_KEY → audit.ts stays on the V2 (unkeyed) path, so
+  // these tests exercise the unchanged legacy write. A dedicated case below
+  // overrides this to assert the keyed (v3) path.
+  getAuditChainKey: vi.fn(() => null),
 }));
 
 import { auditLog } from './audit.js';
