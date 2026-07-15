@@ -20,16 +20,35 @@ Per-finding evidence and the decision record: `ENTERPRISE-AUDIT-HIGHS-TRIAGE-202
 | **Critical** | 3 | 3 | **3** | 0 |
 | **High** | 38 | 38 | **35** | 0 (3 vetoed as authorized design) |
 | **Medium (high-signal)** | 62 | 62 | **54** | 0 (2 already fixed, 3 by-design, 3 refuted) |
-| **Medium (low-signal)** | ~96 | in triage | — | in triage |
-| **Low** | 248 | in triage | — | in triage |
+| **Medium (low-signal)** | ~91 | 16 | **13** | **75 UNVERIFIED** — a fan-out stalled; they are NOT cleared |
+| **Low** | 248 | 248 | **5** | 0 (1 was a false alarm; ~242 correctly Low) |
 | **Info** | 89 | 0 | — | not triaged (informational) |
 | **Dependencies** | 17 prod advisories | 17 | **13** | 4 (unreachable, no in-range fix) |
 
-Suites: **apps/api 1083 / 0 / 12** (102 files) · **apps/web 464 / 0** (35 files) · shared 332.
-~40 tests added, several mutation-verified.
+Suites: **apps/api 1092 / 0 / 12** (104 files) · **apps/web 517 / 0** (40 files) · shared 332.
+~90 tests added, many mutation-verified.
 
-**Everything actionable at Critical/High/high-signal-Medium is closed.** What remains is
-either a user data decision, physical tablet verification, or the low-signal tail.
+**Everything actionable at Critical / High / high-signal-Medium is closed**, plus the
+5 Lows that mattered and 13 of the 16 low-signal Mediums that were reached. The
+**75 unverified low-signal Mediums are the honest gap** — an agent's subagent
+fan-out stalled and it correctly refused to stamp REFUTED on findings it never
+checked.
+
+### Later rounds — what the tail actually contained
+
+| Finding | Filed as | Reality |
+|---|---|---|
+| **Crontab scheduled 3 DELETED tasks** (`dlq_check`/`connectivity_check` every minute) | Medium | **51,806 orphan jobs, 16 MB, since 2026-05-10.** Cleared; leak stopped; drift guard added. `app.ts` already documented this exact failure for `notification` — fixed at the producer, crontab never checked. |
+| **Bulk retire/replace/status hit HIDDEN filters** | Medium | Select-all under search A, retype B, confirm → invisible filters retired. Wider than filed (block + diagram + search; bulk-status too). |
+| **Naive datetimes** (M75/M60/M61/M77) | 4 Mediums | **One bug class.** M75 overstated (only fires if the field is touched) but found 6 save paths not 4; **M60 understated** — not "18.5h dropped" but a ZERO-WIDTH window: a single-day report returned 0 records for a day holding 15. |
+| **`uploadRole` never enforced** | Low | **LIVE** — SoD step 1 decorative while 2 and 3 were enforced; MANAGER/QA/OPERATOR could upload against a SUPERVISOR-only config. |
+| **Audit Details required DESTROY rights** | Medium | Privilege inversion; an inspector who may READ couldn't open a row. Backend was innocent — frontend prop overload. |
+| **Operators "fabricating" instrument readings** | *"arguably High — the one a regulator would care about"* | **FALSE ALARM.** Fixed 3-slot instrument template; DRY_IN is always exactly 1. The branch is unreachable and the scenario cannot exist. |
+
+Verification reversed or corrected the reported severity in **both directions**,
+repeatedly. Three of four briefs in one batch were wrong about the *cause* while
+right about the symptom (M49's rationale false, M67 named the wrong file, M71
+blamed the backend).
 
 ---
 
@@ -100,7 +119,7 @@ Confirmed as real code behaviour, left alone by explicit operator decision:
 
 | # | Item | Impact |
 |---|---|---|
-| 1 | **Block MUPS has 2 active equipment groups** ("Testing", "Testing 2") | **Live**: operators there get `MULTIPLE_EQUIPMENT_GROUPS` on readings; unpinned cycles resolve zero instruments. Also blocks the partial unique index that would properly close the equipment-group race (the in-tx count only narrows it — READ COMMITTED lets two txs both count 0). Fix via UI so it's audited. |
+| 0 | **Block MUPS has 2 active equipment groups** ("Testing", "Testing 2") | **The only pending item actively breaking something today.** Operators in MUPS get `MULTIPLE_EQUIPMENT_GROUPS` on readings; unpinned cycles resolve zero instruments. Also blocks the partial unique index that would properly close the equipment-group race (the in-tx count only narrows it — READ COMMITTED lets two txs both count 0). Fix via UI so it's audited. |
 | 2 | **Filter `CWH/F1/AHU-0B/SA/05/06-01`** is Set A, should be Set B | Corrupted 2026-07-14 by the Edit-dialog enum bug (live since 04-20). 91 earlier edits are forensically invisible — before/after audit capture only landed 07-08. Fix via UI so the correction is audited. |
 | 3 | **Static IP `192.168.1.55`** + tablet Server Address `https://192.168.1.55:3000` | Machine drifted to `.124`, which the cert doesn't cover. `.55` is already in the cert SANs — no regen, no root-CA reinstall. APK is built and baked for it. |
 | 4 | **Tablet verification** | Bulk filter-operate (pending since 07-09) and the new `sync/since` authz gate (protected surface). |
@@ -114,7 +133,23 @@ Confirmed as real code behaviour, left alone by explicit operator decision:
 - **4 dependency advisories remain** (`tar`, `uuid`) — neither reachable, neither fixable in-range. ⚠ **Do not run `npm audit fix --force`**: npm's "fix" for uuid is a **major downgrade of exceljs 4.4.0 → 3.4.0**, which would partially undo the 07-13 xlsx CVE migration.
 - **LDAP audit unverified** — no directory available; covered by unit tests only.
 - **`AuditEntry.action` is typed `string`** — investigated; the obvious fix is wrong (see §2). Typing against TEMPLATE keys would be the correct form, but there is no live defect behind it.
-- **~96 low-signal Mediums + 248 Lows + 89 Info** — triage in flight / not started.
+- **75 low-signal Mediums remain UNVERIFIED** — an agent's subagent fan-out stalled
+  and it (correctly) refused to mark them REFUTED without checking. They are
+  *unverified, not cleared*. Re-runs must forbid test execution — the stall was
+  caused by prompts that invited `npm test` / EXPLAIN / curl.
+- **89 Info** — not triaged (informational by definition).
+- **The export-limit guard is inert on Cleaning Record export** for a second reason:
+  the server caps its merge index at 5000 while `EXPORT_LIMIT_DEFAULT_MAX` is 10000,
+  so under default config the guard cannot fire and >5000 cycles truncate. A
+  truncation notice was added rather than pretending it's fixed.
+- **`datetime-local` is minute-precision**, so editing a timestamp truncates seconds
+  (`12:05:22.003Z` → `12:05:00.000Z`). Pre-existing (the old `.slice(0,16)` did the
+  same) and not the −5:30 defect, but it IS real loss on a §11 record. `step="1"`
+  would fix it.
+- **The generic `POST /api/assets/instances` still can't gate by kind** — a
+  hierarchy-only holder could create a FILTER by passing a FILTER templateId. The
+  filter-specific routes were fixed; closing this needs a kind-aware check in the
+  handler.
 
 ---
 
