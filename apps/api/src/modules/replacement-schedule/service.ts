@@ -12,7 +12,7 @@ import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { AppError } from '../../lib/errors.js';
 import { FilterOperationsService } from '../filter-operations/filter-operations.service.js';
-import { getReplacementWorkflowConfig, generateQnn } from '../pm-schedules/pm-workflow.js';
+import { getReplacementWorkflowConfig, assertPmRole, generateQnn } from '../pm-schedules/pm-workflow.js';
 
 export interface RowError { row: number; column?: string; value?: string; error: string; }
 export interface UploadOutcome {
@@ -160,6 +160,21 @@ export async function processUpload(
   ctx: RequestContext,
   opts: { validateOnly?: boolean } = {},
 ): Promise<UploadOutcome> {
+  // Enforce the configured uploadRole — step 1 of the segregation-of-duties
+  // chain. Steps 2 and 3 assert their roles (workflow.ts: reviewRole,
+  // approvalRole), but `cfg.uploadRole` was read by NO code, so Step 1 was
+  // decorative: the config def promises "Role allowed to upload replacement
+  // schedules" and the UI shows it as workflow Step 1, while any holder of
+  // REPLACEMENT_SCHEDULE_UPLOAD could upload regardless. LIVE at the time of
+  // the fix — uploadRole was SUPERVISOR while MANAGER, QA and OPERATOR all held
+  // the permission.
+  //
+  // Applies to the dry-run too: being able to validate an upload you may not
+  // perform is pointless, and assertPmRole no-ops when uploadRole is unset, so
+  // an unconfigured workflow stays permissive.
+  const wf = await getReplacementWorkflowConfig();
+  assertPmRole(ctx.userRole, wf.uploadRole, 'upload', 'replacement schedules');
+
   const parsed = await parseWorkbook(buffer);
   if (parsed.error) return { results: [{ row: 1, status: 'error', error: parsed.error }], created: 0, failed: 1 };
   const rows = parsed.rows;
@@ -273,7 +288,7 @@ export async function processUpload(
 
   // Workflow ON → uploads land in PENDING_REVIEW (review + approval required
   // before they become due tasks). OFF → APPROVED immediately (current behaviour).
-  const wf = await getReplacementWorkflowConfig();
+  // `wf` is fetched once at the top of this function (see the uploadRole guard).
   const approvalStatus = wf.workflowEnabled ? 'PENDING_REVIEW' as const : 'APPROVED' as const;
 
   const schedule = await prisma.$transaction(async (tx) => {

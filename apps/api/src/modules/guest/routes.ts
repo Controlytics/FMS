@@ -88,7 +88,14 @@ export default async function guestRoutes(app: FastifyInstance) {
       userRole: 'GUEST',
       action: 'GUEST_CLEANING_REQUEST_SUBMITTED',
       targetType: 'guest_cleaning_request',
-      afterValue: { name, employeeId, block, area, ahu, filter },
+      // `guestName`, not `name`: the audit template renders 'Guest cleaning
+      // request submitted for filter "{targetName}"', and the resolver takes
+      // {targetName} from `after.name` first — so this row used to read
+      // 'submitted for filter "Ravi Kumar"', naming the PERSON as the filter
+      // while the real filter sat unread in `after.filter`. Renaming the key
+      // lets the resolver's existing fallback reach `filterName`. The guest is
+      // still identified by userId/userName above.
+      afterValue: { guestName: name, employeeId, block, area, ahu, filter, filterName: filter },
       reason: `Guest filter cleaning request — ${block} / ${area} / ${ahu} / ${filter}`,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],

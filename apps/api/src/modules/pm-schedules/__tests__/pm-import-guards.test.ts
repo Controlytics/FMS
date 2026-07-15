@@ -16,6 +16,11 @@ vi.mock('../pm-shared.js', () => ({ checkPmEnabled: vi.fn(async () => {}) }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: vi.fn() }));
 vi.mock('../pm-workflow.js', () => ({
   getPmWorkflowConfig: vi.fn(),
+  // These fixtures mock a workflow config with no uploadRole, and the real
+  // assertPmRole no-ops when the configured role is unset — so a bare stub
+  // matches production behaviour here. uploadRole enforcement itself is covered
+  // in upload-role.test.ts against the real implementation.
+  assertPmRole: vi.fn(),
   generateQnn: vi.fn(async () => 'QNN-0001'),
 }));
 

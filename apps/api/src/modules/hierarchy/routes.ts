@@ -309,7 +309,14 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
   });
 
   app.post('/filters', {
-    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_CREATE', 'FILTER_HIERARCHY_CREATE')],
+    // FILTER_HIERARCHY_CREATE is deliberately NOT accepted here. Its toggle is
+    // labelled "Create Block / Area / AHU" (permission-tree.ts) — a SEPARATE
+    // grant from "Create Filters". Accepting it on a filter-specific route let a
+    // role granted only the hierarchy toggle create filters via the API while
+    // useCan() correctly hid the button: frontend-gated only. It remains valid on
+    // POST /api/assets/instances, which is the generic create a Block actually
+    // goes through.
+    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_CREATE')],
     schema: {
       tags: ['Hierarchy'],
       summary: 'Create a filter (typed)',
@@ -343,7 +350,8 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
   });
 
   app.put('/filters/:id', {
-    preHandler: [app.requireAnyPermission('ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT')],
+    // See POST /filters above — the hierarchy toggle must not edit filters.
+    preHandler: [app.requireAnyPermission('ASSET_UPDATE', 'FILTER_EDIT')],
     schema: {
       tags: ['Hierarchy'],
       summary: 'Update a filter (typed)',
@@ -376,7 +384,8 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
   });
 
   app.delete('/filters/:id', {
-    preHandler: [app.requireAnyPermission('ASSET_DELETE', 'FILTER_DELETE', 'FILTER_HIERARCHY_DELETE')],
+    // See POST /filters above — the hierarchy toggle must not delete filters.
+    preHandler: [app.requireAnyPermission('ASSET_DELETE', 'FILTER_DELETE')],
     schema: {
       tags: ['Hierarchy'],
       summary: 'Soft-delete a filter (typed)',

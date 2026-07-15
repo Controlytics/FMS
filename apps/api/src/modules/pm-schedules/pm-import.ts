@@ -17,7 +17,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled } from './pm-shared.js';
-import { getPmWorkflowConfig, generateQnn } from './pm-workflow.js';
+import { getPmWorkflowConfig, assertPmRole, generateQnn } from './pm-workflow.js';
 
 interface ParsedRow {
   rowNum: number;
@@ -80,6 +80,16 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   // 3-step workflow: when enabled, uploads land in PENDING_REVIEW (no auto-approve,
   // even for SUPER_ADMIN) and must be reviewed + approved before generating tasks.
   const wf = await getPmWorkflowConfig();
+
+  // Enforce the configured uploadRole — step 1 of the SoD chain. Steps 2 and 3
+  // assert their roles (pm-approval.ts: reviewRole, approvalRole), but
+  // `wf.uploadRole` was read by NO code, so Step 1 was decorative even though the
+  // config def promises "Role allowed to upload PM schedules" and the UI presents
+  // it as workflow Step 1. Not currently exploitable on this path (only SUPERVISOR
+  // and SUPER_ADMIN hold PM_UPLOAD/PM_CREATE, which happens to match the configured
+  // role) — unlike the replacement path, where it WAS live. assertPmRole no-ops when
+  // uploadRole is unset, so an unconfigured workflow stays permissive.
+  assertPmRole(ctx.userRole, wf.uploadRole, 'upload');
 
   const imported: Array<{ row: number; ahuName: string; plannedDate: string; scheduleId: string; entryId: string }> = [];
   const skipped: Array<{ row: number; reason: string; data?: any }> = [];
