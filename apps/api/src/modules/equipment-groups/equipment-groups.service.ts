@@ -322,11 +322,64 @@ export class EquipmentGroupsService {
   }
 
   /**
+   * Lock every group in a block for the rest of the transaction. The
+   * "block keeps at least one active group" invariant spans rows, so it cannot
+   * be expressed in a single-row WHERE. Under READ COMMITTED two concurrent
+   * deactivations of different groups in one block would each see the other
+   * still active and both proceed, landing the block on zero. Locking the whole
+   * block serializes them.
+   */
+  private async lockBlockGroups(tx: any, blockId: string) {
+    await tx.$queryRaw`SELECT id FROM equipment_groups WHERE block_id = ${blockId}::uuid FOR UPDATE`;
+  }
+
+  /**
+   * Guards the isActive=false mutation that BOTH `delete()` (a soft delete) and
+   * `setActive(ctx, id, false)` perform. Must run inside `tx`, after
+   * lockBlockGroups().
+   */
+  private async assertSafeToDeactivate(tx: any, group: { id: string; blockId: string; isActive: boolean }, verb: string) {
+    const activeCycles = await tx.cleaningCycle.count({
+      where: { equipmentGroupId: group.id, status: 'IN_PROGRESS' },
+    });
+    if (activeCycles > 0) {
+      throw new AppError(409, 'IN_USE', `Cannot ${verb}: equipment group is used by active cleaning cycles`);
+    }
+
+    // Already inactive — deactivating again changes nothing to protect.
+    if (!group.isActive) return;
+
+    // Cycles that never bound a group resolve one from the block's ACTIVE groups
+    // at advance() time. ZERO active is the only breaking count: advance's
+    // assertSingleEquipmentGroupPerBlock rejects only >1, and a lone remaining
+    // group simply binds — so dropping a block from 2 groups to 1 is safe (it is
+    // how an operator legitimately switches groups). Dropping it to zero strands
+    // those cycles on NO_EQUIPMENT_GROUP, an error that surfaces far from here.
+    const remainingActive = await tx.equipmentGroup.count({
+      where: { blockId: group.blockId, isActive: true, id: { not: group.id } },
+    });
+    if (remainingActive > 0) return;
+
+    const unboundCycles = await tx.cleaningCycle.count({
+      where: { cleaningAreaId: group.blockId, equipmentGroupId: null, status: 'IN_PROGRESS' },
+    });
+    if (unboundCycles > 0) {
+      throw new AppError(
+        409,
+        'IN_USE',
+        `Cannot ${verb}: this is the last active equipment group for this block and ${unboundCycles} in-progress cycle(s) have not yet bound a group — they would be unable to advance.`,
+      );
+    }
+  }
+
+  /**
    * Enable / disable an equipment group. ENABLING enforces the single-active-
    * group-per-block invariant: every OTHER group in the same block is flipped
    * inactive in the same transaction, so the cleaning runtime always resolves
    * exactly one group per block (no MULTIPLE_EQUIPMENT_GROUPS). Disabling just
-   * flips this one off (a block may legitimately have zero active groups).
+   * flips this one off (a block may legitimately have zero active groups), and
+   * is refused (409 IN_USE) while active cycles reference the group — the same
+   * guard delete() applies to the same mutation.
    *
    * Mirrors `delete()` — this does NOT snapshot-then-bump (isActive flips are
    * not versioned; the next real edit captures the active state in its
@@ -337,6 +390,21 @@ export class EquipmentGroupsService {
     if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
 
     await prisma.$transaction(async (tx) => {
+      // Deactivating IS the same mutation delete() performs (delete is a soft
+      // delete: isActive=false), so it takes the same guard — an EG_EDIT holder
+      // must not do via PATCH /:id/active what delete() refuses EG_DELETE
+      // holders (ADMIN and SUPERVISOR hold edit but not delete).
+      //
+      // ENABLING is deliberately unguarded: it turns THIS group on, so the block
+      // always ends with exactly one active group — the zero-active state the
+      // guard exists to prevent is unreachable from this branch. The siblings it
+      // flips off may carry in-progress cycles, but those are pinned
+      // (equipmentGroupId set) and resolve their config from the version
+      // snapshot regardless of isActive, so they are unaffected.
+      if (!isActive) {
+        await this.lockBlockGroups(tx, existing.blockId);
+        await this.assertSafeToDeactivate(tx, existing, 'disable');
+      }
       if (isActive) {
         // Flip every other group in this block off, then turn this one on.
         await tx.equipmentGroup.updateMany({
@@ -532,17 +600,16 @@ export class EquipmentGroupsService {
     });
     if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
 
-    // Check if any active cycles reference this group
-    const activeCycles = await prisma.cleaningCycle.count({
-      where: { equipmentGroupId: id, status: 'IN_PROGRESS' },
-    });
-    if (activeCycles > 0) {
-      throw new AppError(409, 'IN_USE', 'Cannot delete: equipment group is used by active cleaning cycles');
-    }
-
-    await prisma.equipmentGroup.update({
-      where: { id },
-      data: { isActive: false },
+    // Soft delete == deactivate, so it takes the identical guard as
+    // setActive(false) — including the block-fallback check, which delete() also
+    // lacked (its cycle check only ever saw PINNED cycles, which are immune).
+    await prisma.$transaction(async (tx) => {
+      await this.lockBlockGroups(tx, existing.blockId);
+      await this.assertSafeToDeactivate(tx, existing, 'delete');
+      await tx.equipmentGroup.update({
+        where: { id },
+        data: { isActive: false },
+      });
     });
 
     await auditLog({

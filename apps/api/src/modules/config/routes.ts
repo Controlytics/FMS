@@ -29,6 +29,7 @@ import { replacementScheduleFiltersRoutes } from './static-routes/replacement-sc
 import { pmScheduleFiltersRoutes } from './static-routes/pm-schedule-filters.routes.js';
 import { reportSignatoriesRoutes } from './static-routes/report-signatories.routes.js';
 import { ahuCompletionProcessRoutes } from './static-routes/ahu-completion-process.routes.js';
+import { blockChangeApprovalRoutes } from './static-routes/block-change-approval.routes.js';
 
 // Map config keys to reauth action names (consumed by the generic configEndpoint factory).
 const CONFIG_KEY_TO_ACTION: Record<string, string> = {
@@ -58,6 +59,7 @@ export default async function configRoutes(app: FastifyInstance) {
   await reportLabelsRoutes(app);
   await offlineCacheRoutes(app);
   await ahuCompletionProcessRoutes(app);
+  await blockChangeApprovalRoutes(app);
 
   // Generic CRUD factory for configs whose only work is get/update a typed blob.
   // Used for: password-policy, login-security, session, datetime, pagination.

@@ -15,6 +15,7 @@ import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
 import { Pagination } from '@/components/ui/pagination';
 import { themeButton } from '@/lib/theme-styles';
+import { apiUrl } from '@/lib/url-utils';
 
 // Show "NA" when a value wasn't entered (null/empty/whitespace) or was a stray
 // "[object Object]" from a non-text spreadsheet cell.
@@ -175,7 +176,7 @@ export function ReplacementSchedulePage() {
     try {
       if (allEntries.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(allEntries.length)); return; }
       await logReportExportOrWarn({ reportType: 'Replacement Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
-      const res = await fetch('/api/replacement-schedules/export.xlsx', { headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}` } });
+      const res = await fetch(apiUrl('/api/replacement-schedules/export.xlsx'), { headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}` } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -245,7 +246,7 @@ export function ReplacementSchedulePage() {
 
   const downloadTemplate = async () => {
     try {
-      const res = await fetch('/api/replacement-schedules/template.xlsx', { headers: { Authorization: `Bearer ${token()}` } });
+      const res = await fetch(apiUrl('/api/replacement-schedules/template.xlsx'), { headers: { Authorization: `Bearer ${token()}` } });
       if (!res.ok) { toast.error('Download failed', res.status === 401 ? 'Session expired.' : `HTTP ${res.status}`); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -262,7 +263,7 @@ export function ReplacementSchedulePage() {
     setFile(f); setError(''); setResults([]);
     try {
       const fd = new FormData(); fd.append('file', f);
-      const res = await fetch('/api/replacement-schedules/validate', { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: fd });
+      const res = await fetch(apiUrl('/api/replacement-schedules/validate'), { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: fd });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setError(d.message || `Could not read file (HTTP ${res.status})`); return; }
       setRows(d.rows || []); setResults(d.results || []); setStep('preview');
@@ -274,7 +275,7 @@ export function ReplacementSchedulePage() {
     setStep('uploading');
     try {
       const fd = new FormData(); fd.append('file', file);
-      const res = await fetch('/api/replacement-schedules', { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: fd });
+      const res = await fetch(apiUrl('/api/replacement-schedules'), { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: fd });
       const d = await res.json().catch(() => ({}));
       if (!res.ok && !Array.isArray(d.results)) { setError(d.message || `Upload failed (HTTP ${res.status})`); setStep('preview'); return; }
       setResults(d.results || []); setCreated(d.created || 0); setFailed(d.failed || 0); setStep('results');

@@ -229,9 +229,13 @@ export function FilterOperationsPage() {
   const ackedBlockFiltersRef = useRef<Set<string>>(new Set());
   // 2026-06-09: cross-block mode is configurable (config block-change-approval.mode):
   // CONFIRM = operator self-confirm; APPROVAL = submit a request an approver approves.
-  const { data: bcCfg } = useSWR<any>('/api/config/dynamic/block-change-approval');
-  const blockChangeMode: 'CONFIRM' | 'APPROVAL' =
-    (bcCfg?.mode ?? bcCfg?.value?.mode ?? bcCfg?.data?.mode) === 'APPROVAL' ? 'APPROVAL' : 'CONFIRM';
+  // Reads the authenticated-only /current mirror — the SUPER_ADMIN-gated
+  // dynamic route 403'd for every operator role, silently defaulting to CONFIRM.
+  // NONE needs no branch here: the dialog only opens when the SERVER reports
+  // blockChangeStatus CONFIRM/REQUIRED, and under NONE current-state.ts reports
+  // MATCH. This mode only picks the wording/flow once a dialog is warranted.
+  const { data: bcCfg } = useSWR<any>('/api/config/block-change-approval/current');
+  const blockChangeMode: 'CONFIRM' | 'APPROVAL' = bcCfg?.mode === 'APPROVAL' ? 'APPROVAL' : 'CONFIRM';
   // Saved cycle-start payload when equipment dialog is opened before cycle is started (offline flow)
   const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
   // Task 7 + 2026-07-02: AHU remaining-filters dialog state + Promise resolve ref.

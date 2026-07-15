@@ -17,6 +17,7 @@ import { UploadValidationResult } from '@/components/upload-validation-result';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { isoToDateInput } from '@/lib/datetime-input';
+import { apiUrl } from '@/lib/url-utils';
 
 interface UploadResult {
   imported: number;
@@ -346,7 +347,7 @@ export function PmScheduleListPage() {
         const token = sessionStorage.getItem('access_token') ?? '';
         const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
         if (password) headers['x-reauth-password'] = password;
-        const res = await fetch('/api/pm-schedules/upload', { method: 'POST', headers, body: form });
+        const res = await fetch(apiUrl('/api/pm-schedules/upload'), { method: 'POST', headers, body: form });
         const body = await res.json().catch(() => null);
         if (!res.ok) {
           // Throw with the server's structured error so reauth.execute can

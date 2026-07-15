@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { apiUrl } from '@/lib/url-utils';
 
 interface ValidationResult {
   valid: boolean;
@@ -114,7 +115,7 @@ export function BackupRestorePage() {
       const token = sessionStorage.getItem('access_token');
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       if (password) headers['x-reauth-password'] = password;
-      const response = await fetch(`/api/backup/export?format=${selectedFormat}`, { headers });
+      const response = await fetch(apiUrl(`/api/backup/export?format=${selectedFormat}`), { headers });
       if (!response.ok) throw new Error('Export failed');
 
       const blob = await response.blob();
@@ -152,7 +153,7 @@ export function BackupRestorePage() {
       formData.append('file', file);
 
       const token = sessionStorage.getItem('access_token');
-      const response = await fetch('/api/backup/validate', {
+      const response = await fetch(apiUrl('/api/backup/validate'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -183,7 +184,7 @@ export function BackupRestorePage() {
       const token = sessionStorage.getItem('access_token');
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       if (password) headers['x-reauth-password'] = password;
-      const response = await fetch('/api/backup/restore', {
+      const response = await fetch(apiUrl('/api/backup/restore'), {
         method: 'POST',
         headers,
         body: formData,

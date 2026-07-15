@@ -13,6 +13,9 @@ vi.mock('../../../lib/audit.js', () => ({
 }));
 
 vi.mock('./filter-fields.service.js', () => ({
+  // update() walks this list to spot explicitly-cleared fields, so the mock
+  // must export it alongside the builder.
+  FILTER_ATTRIBUTE_FIELDS: ['ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate'],
   validateAndBuildFilterAttributes: vi.fn(async () => ({ attributes: { micronSize: '5' }, errors: [] })),
 }));
 

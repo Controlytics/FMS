@@ -225,189 +225,196 @@ async function authPlugin(app: FastifyInstance) {
       return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Missing token' });
     }
 
+    // ONLY the token verification is guarded. Everything below it does DB I/O,
+    // and a catch-all here reported any Postgres fault — pool exhaustion, a
+    // restart, a lock timeout — as "invalid or expired token", which logs the
+    // operator out and hides the outage from the logs entirely. Infrastructure
+    // errors now fall through to the global handler (app.ts setErrorHandler),
+    // which logs them and returns 500. verifyToken is pure jose, no I/O.
+    let payload: JwtPayload;
     try {
-      const payload = await verifyToken(header.slice(7));
-      req.user = payload;
+      payload = await verifyToken(header.slice(7));
+    } catch {
+      return reply.code(401).send({ error: 'TOKEN_EXPIRED', message: 'Invalid or expired token' });
+    }
+    req.user = payload;
 
-      const session = await getCachedSession(payload.sessionId);
+    const session = await getCachedSession(payload.sessionId);
 
-      if (!session) {
-        return reply.code(401).send({ error: 'SESSION_INVALID', message: 'Session terminated' });
-      }
+    if (!session) {
+      return reply.code(401).send({ error: 'SESSION_INVALID', message: 'Session terminated' });
+    }
 
-      if (session.expiresAt < new Date()) {
-        // Evict cache + persist invalidation in same step.
-        invalidateSessionAuthCache(session.id);
-        await prisma.session.update({
-          where: { id: session.id },
-          data: { isActive: false, terminationReason: 'expired' },
+    if (session.expiresAt < new Date()) {
+      // Evict cache + persist invalidation in same step.
+      invalidateSessionAuthCache(session.id);
+      await prisma.session.update({
+        where: { id: session.id },
+        data: { isActive: false, terminationReason: 'expired' },
+      });
+      return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session expired' });
+    }
+
+    // Enforce absolute session timeout (max 24h regardless of activity)
+    const MAX_ABSOLUTE_SESSION_MS = 24 * 60 * 60 * 1000;
+    if (Date.now() - session.createdAt.getTime() > MAX_ABSOLUTE_SESSION_MS) {
+      invalidateSessionAuthCache(session.id);
+      await prisma.session.update({
+        where: { id: session.id },
+        data: { isActive: false, terminationReason: 'absolute_timeout' },
+      });
+      return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session exceeded maximum duration. Please log in again.' });
+    }
+
+    // Check user status and sync role from DB (cached)
+    const user = await getCachedUser(payload.sub);
+    if (!user || user.status !== 'ENABLED') {
+      // If user was just disabled, evict so next request sees the change.
+      invalidateUserAuthCache(payload.sub);
+      return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
+    }
+
+    // Patch req.user with authoritative DB values
+    req.user = {
+      ...req.user,
+      role: user.role,
+      username: user.username,
+    };
+
+    // Paths allowed when forcePasswordChange is true
+    const PASSWORD_CHANGE_ALLOWED = [
+      '/api/auth/change-password',
+      '/api/auth/logout',
+      '/api/auth/me',
+      '/api/config/password-policy',
+      // The tablet login gate (mobile-login.tsx checkTabletAccess) reads the
+      // operator's OWN allowlist here before deciding whether to admit them.
+      // Without this exemption it returned 403 for any forced-change user, the
+      // fail-closed check read that as "no tablet access", and the operator
+      // was bounced off login and never reached /change-password — i.e. a
+      // temp-password / reset / expired user could not set a new password from
+      // the tablet at all (reported 2026-05-30). Read-only, own-config only.
+      '/api/config/tablet-access/my-features',
+    ];
+
+    // Check password expiry (server-side enforcement). Derived from
+    // passwordChangedAt + the live policy + policy save time (which acts
+    // as a grace-period floor — lowering the policy doesn't mass-lock
+    // every account whose password is older than the new window). See
+    // lib/password-expiry.ts.
+    //
+    // SUPER_ADMIN is exempt — same posture as the LOCKED / EXPIRED auto-
+    // recovery in auth.service.login(). Weakens 21 CFR §11.10(g) for
+    // privileged accounts; documented trade-off per user request 2026-05-25.
+    let passwordExpired = false;
+    if (user.role !== 'SUPER_ADMIN') {
+      const policy = await getPasswordPolicy();
+      passwordExpired = isPasswordExpired(
+        user.passwordChangedAt,
+        user.createdAt,
+        policy.passwordExpiryDays,
+        policy.policyUpdatedAt,
+      );
+    }
+
+    if (passwordExpired && !user.forcePasswordChange) {
+      await prisma.user.update({
+        where: { id: payload.sub },
+        data: { forcePasswordChange: true },
+      });
+      // Mutate the cached object in place so this request sees the new state,
+      // and evict so the next request re-reads from DB.
+      user.forcePasswordChange = true;
+      invalidateUserAuthCache(payload.sub);
+    }
+
+    // Enforce forcePasswordChange server-side (§11.10(f))
+    if (user.forcePasswordChange) {
+      const isAllowed = PASSWORD_CHANGE_ALLOWED.some((p) => req.url.startsWith(p));
+      if (!isAllowed) {
+        const errorCode = passwordExpired ? 'PASSWORD_EXPIRED' : 'FORCE_PASSWORD_CHANGE';
+        return reply.code(403).send({
+          error: errorCode,
+          message: errorCode === 'PASSWORD_EXPIRED'
+            ? 'Your password has expired. Please change your password.'
+            : 'You must change your password before continuing.',
         });
-        return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session expired' });
       }
+    }
 
-      // Enforce absolute session timeout (max 24h regardless of activity)
-      const MAX_ABSOLUTE_SESSION_MS = 24 * 60 * 60 * 1000;
-      if (Date.now() - session.createdAt.getTime() > MAX_ABSOLUTE_SESSION_MS) {
-        invalidateSessionAuthCache(session.id);
-        await prisma.session.update({
-          where: { id: session.id },
-          data: { isActive: false, terminationReason: 'absolute_timeout' },
-        });
-        return reply.code(401).send({ error: 'SESSION_EXPIRED', message: 'Session exceeded maximum duration. Please log in again.' });
-      }
-
-      // Check user status and sync role from DB (cached)
-      const user = await getCachedUser(payload.sub);
-      if (!user || user.status !== 'ENABLED') {
-        // If user was just disabled, evict so next request sees the change.
-        invalidateUserAuthCache(payload.sub);
-        return reply.code(401).send({ error: 'ACCOUNT_INACTIVE', message: 'Account is not active' });
-      }
-
-      // Patch req.user with authoritative DB values
-      req.user = {
-        ...req.user,
-        role: user.role,
-        username: user.username,
-      };
-
-      // Paths allowed when forcePasswordChange is true
-      const PASSWORD_CHANGE_ALLOWED = [
-        '/api/auth/change-password',
-        '/api/auth/logout',
-        '/api/auth/me',
-        '/api/config/password-policy',
-        // The tablet login gate (mobile-login.tsx checkTabletAccess) reads the
-        // operator's OWN allowlist here before deciding whether to admit them.
-        // Without this exemption it returned 403 for any forced-change user, the
-        // fail-closed check read that as "no tablet access", and the operator
-        // was bounced off login and never reached /change-password — i.e. a
-        // temp-password / reset / expired user could not set a new password from
-        // the tablet at all (reported 2026-05-30). Read-only, own-config only.
-        '/api/config/tablet-access/my-features',
-      ];
-
-      // Check password expiry (server-side enforcement). Derived from
-      // passwordChangedAt + the live policy + policy save time (which acts
-      // as a grace-period floor — lowering the policy doesn't mass-lock
-      // every account whose password is older than the new window). See
-      // lib/password-expiry.ts.
-      //
-      // SUPER_ADMIN is exempt — same posture as the LOCKED / EXPIRED auto-
-      // recovery in auth.service.login(). Weakens 21 CFR §11.10(g) for
-      // privileged accounts; documented trade-off per user request 2026-05-25.
-      let passwordExpired = false;
-      if (user.role !== 'SUPER_ADMIN') {
-        const policy = await getPasswordPolicy();
-        passwordExpired = isPasswordExpired(
-          user.passwordChangedAt,
-          user.createdAt,
-          policy.passwordExpiryDays,
-          policy.policyUpdatedAt,
-        );
-      }
-
-      if (passwordExpired && !user.forcePasswordChange) {
-        await prisma.user.update({
-          where: { id: payload.sub },
-          data: { forcePasswordChange: true },
-        });
-        // Mutate the cached object in place so this request sees the new state,
-        // and evict so the next request re-reads from DB.
-        user.forcePasswordChange = true;
-        invalidateUserAuthCache(payload.sub);
-      }
-
-      // Enforce forcePasswordChange server-side (§11.10(f))
-      if (user.forcePasswordChange) {
-        const isAllowed = PASSWORD_CHANGE_ALLOWED.some((p) => req.url.startsWith(p));
-        if (!isAllowed) {
-          const errorCode = passwordExpired ? 'PASSWORD_EXPIRED' : 'FORCE_PASSWORD_CHANGE';
+    // Super Admin API kill-switch (2026-06-11). When the global
+    // `super-admin-api-access` flag is OFF, a SUPER_ADMIN is frozen to the
+    // SA_LOCK_ALLOWED allowlist below. This neutralises the all-powerful
+    // SUPER_ADMIN account on demand; ADMIN/operator users are unaffected
+    // (the check only runs for role === SUPER_ADMIN, so it adds zero DB reads
+    // for everyone else). Login is in PUBLIC_PATHS and never reaches here, so
+    // the SA can always log back in; logout + me + refresh + change-password +
+    // the toggle endpoint stay reachable so he can re-enable it. Default ON /
+    // fail-open — see lib/super-admin-lock.ts.
+    if (user.role === 'SUPER_ADMIN') {
+      const enabled = await isSuperAdminApiEnabled();
+      if (!enabled) {
+        const SA_LOCK_ALLOWED = [
+          '/api/auth/me',
+          '/api/auth/logout',
+          '/api/auth/refresh',
+          '/api/auth/change-password',
+          '/api/config/password-policy', // public policy read used by the shell
+          '/api/super-admin/api-lock',   // read state + flip the switch (reauth on flip)
+        ];
+        if (!SA_LOCK_ALLOWED.some((p) => req.url.startsWith(p))) {
           return reply.code(403).send({
-            error: errorCode,
-            message: errorCode === 'PASSWORD_EXPIRED'
-              ? 'Your password has expired. Please change your password.'
-              : 'You must change your password before continuing.',
+            error: 'SUPER_ADMIN_API_LOCKED',
+            message: 'Super Admin API access is currently disabled. Re-enable it to continue.',
           });
         }
       }
+    }
 
-      // Super Admin API kill-switch (2026-06-11). When the global
-      // `super-admin-api-access` flag is OFF, a SUPER_ADMIN is frozen to the
-      // SA_LOCK_ALLOWED allowlist below. This neutralises the all-powerful
-      // SUPER_ADMIN account on demand; ADMIN/operator users are unaffected
-      // (the check only runs for role === SUPER_ADMIN, so it adds zero DB reads
-      // for everyone else). Login is in PUBLIC_PATHS and never reaches here, so
-      // the SA can always log back in; logout + me + refresh + change-password +
-      // the toggle endpoint stay reachable so he can re-enable it. Default ON /
-      // fail-open — see lib/super-admin-lock.ts.
-      if (user.role === 'SUPER_ADMIN') {
-        const enabled = await isSuperAdminApiEnabled();
-        if (!enabled) {
-          const SA_LOCK_ALLOWED = [
-            '/api/auth/me',
-            '/api/auth/logout',
-            '/api/auth/refresh',
-            '/api/auth/change-password',
-            '/api/config/password-policy', // public policy read used by the shell
-            '/api/super-admin/api-lock',   // read state + flip the switch (reauth on flip)
-          ];
-          if (!SA_LOCK_ALLOWED.some((p) => req.url.startsWith(p))) {
-            return reply.code(403).send({
-              error: 'SUPER_ADMIN_API_LOCKED',
-              message: 'Super Admin API access is currently disabled. Re-enable it to continue.',
-            });
-          }
+    // Update last active + extend session expiry (sliding window), DEBOUNCED
+    // to at most once per SESSION_TOUCH_INTERVAL_MS per session (see the map
+    // declaration above for why this is safe).
+    const lastTouch = sessionTouchTimes.get(session.id) ?? 0;
+    if (Date.now() - lastTouch >= SESSION_TOUCH_INTERVAL_MS) {
+      sessionTouchTimes.set(session.id, Date.now());
+      const durationHours = await getSessionDurationHours();
+      await prisma.session.update({
+        where: { id: session.id },
+        data: {
+          lastActiveAt: new Date(),
+          expiresAt: new Date(Date.now() + durationHours * 60 * 60 * 1000),
+        },
+      });
+    }
+
+    // Audit 2026-05-04 fix C1: verify offline-replay grant token (if any).
+    //
+    // Tablets in offline-replay mode send `x-offline-replay-token: <jwt>`.
+    // We verify it here in onRequest so the result is available to ALL
+    // downstream code (buildContext, enforceReauth, route handlers, the
+    // offlinePerformedAt validator) without making 146 buildContext sites
+    // async. Rejecting bare `x-offline-replay: true` (the legacy boolean
+    // header) here makes the upgrade fail loud, not silent.
+    const replayToken = req.headers[OFFLINE_REPLAY_TOKEN_HEADER];
+    if (replayToken) {
+      try {
+        await verifyOfflineReplayToken(
+          Array.isArray(replayToken) ? replayToken[0] : replayToken,
+          req.user.sub,
+          req.user.sessionId,
+        );
+        req.offlineReplayVerified = true;
+      } catch (err: any) {
+        if (err instanceof OfflineReplayTokenError) {
+          return reply.code(401).send({ error: err.code, message: err.message });
         }
+        throw err;
       }
-
-      // Update last active + extend session expiry (sliding window), DEBOUNCED
-      // to at most once per SESSION_TOUCH_INTERVAL_MS per session (see the map
-      // declaration above for why this is safe).
-      const lastTouch = sessionTouchTimes.get(session.id) ?? 0;
-      if (Date.now() - lastTouch >= SESSION_TOUCH_INTERVAL_MS) {
-        sessionTouchTimes.set(session.id, Date.now());
-        const durationHours = await getSessionDurationHours();
-        await prisma.session.update({
-          where: { id: session.id },
-          data: {
-            lastActiveAt: new Date(),
-            expiresAt: new Date(Date.now() + durationHours * 60 * 60 * 1000),
-          },
-        });
-      }
-
-      // Audit 2026-05-04 fix C1: verify offline-replay grant token (if any).
-      //
-      // Tablets in offline-replay mode send `x-offline-replay-token: <jwt>`.
-      // We verify it here in onRequest so the result is available to ALL
-      // downstream code (buildContext, enforceReauth, route handlers, the
-      // offlinePerformedAt validator) without making 146 buildContext sites
-      // async. Rejecting bare `x-offline-replay: true` (the legacy boolean
-      // header) here makes the upgrade fail loud, not silent.
-      const replayToken = req.headers[OFFLINE_REPLAY_TOKEN_HEADER];
-      if (replayToken) {
-        try {
-          await verifyOfflineReplayToken(
-            Array.isArray(replayToken) ? replayToken[0] : replayToken,
-            req.user.sub,
-            req.user.sessionId,
-          );
-          req.offlineReplayVerified = true;
-        } catch (err: any) {
-          if (err instanceof OfflineReplayTokenError) {
-            return reply.code(401).send({ error: err.code, message: err.message });
-          }
-          throw err;
-        }
-      } else if (req.headers[LEGACY_OFFLINE_REPLAY_HEADER] === 'true') {
-        return reply.code(401).send({
-          error: 'OFFLINE_REPLAY_HEADER_DEPRECATED',
-          message: 'Bare `x-offline-replay: true` is no longer accepted. Obtain an offline-replay grant via POST /api/auth/offline-grant and send it as `x-offline-replay-token`.',
-        });
-      }
-    } catch {
-      return reply.code(401).send({ error: 'TOKEN_EXPIRED', message: 'Invalid or expired token' });
+    } else if (req.headers[LEGACY_OFFLINE_REPLAY_HEADER] === 'true') {
+      return reply.code(401).send({
+        error: 'OFFLINE_REPLAY_HEADER_DEPRECATED',
+        message: 'Bare `x-offline-replay: true` is no longer accepted. Obtain an offline-replay grant via POST /api/auth/offline-grant and send it as `x-offline-replay-token`.',
+      });
     }
   });
 }

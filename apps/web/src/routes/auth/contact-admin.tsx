@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useBranding } from '@/hooks/use-branding';
+import { apiUrl } from '@/lib/url-utils';
 
 const REQUEST_TYPES = [
   { value: 'CREATE_USER', label: 'Create User Account' },
@@ -47,7 +48,7 @@ export function ContactAdminPage() {
     setRequesterLookupError('');
     setRequesterUser(null);
     try {
-      const res = await fetch(`/api/admin-requests/user-lookup?username=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(apiUrl(`/api/admin-requests/user-lookup?username=${encodeURIComponent(trimmed)}`));
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setRequesterLookupError(data.message ?? `Lookup failed (${res.status})`);
@@ -108,7 +109,7 @@ export function ContactAdminPage() {
     setLookupError('');
     setLookupUser(null);
     try {
-      const res = await fetch(`/api/admin-requests/user-lookup?username=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(apiUrl(`/api/admin-requests/user-lookup?username=${encodeURIComponent(trimmed)}`));
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setLookupError(data.message ?? `Lookup failed (${res.status})`);
@@ -141,7 +142,7 @@ export function ContactAdminPage() {
   // Fetch available roles for Create User
   const [roles, setRoles] = useState<{ name: string; displayName: string }[]>([]);
   useEffect(() => {
-    fetch('/api/roles/active')
+    fetch(apiUrl('/api/roles/active'))
       .then(r => r.json())
       .then(d => {
         const list = Array.isArray(d) ? d : d.data ?? [];
@@ -231,7 +232,7 @@ export function ContactAdminPage() {
         requestData: buildRequestData(),
         remarks: remarks.trim(),
       };
-      const res = await fetch('/api/admin-requests', {
+      const res = await fetch(apiUrl('/api/admin-requests'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

@@ -20,6 +20,12 @@ export interface FilterFieldInput {
   lastCleaningDate?: string | null; // 'NA' | 'YYYY-MM-DD' | '' | null
 }
 
+// The attribute keys `validateAndBuildFilterAttributes` owns. update() walks
+// this list to tell "field omitted → don't touch" apart from "field sent empty
+// → clear it"; the builder itself cannot report that (both look like an absent
+// key in its output).
+export const FILTER_ATTRIBUTE_FIELDS = ['ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate'] as const;
+
 export interface FilterFieldError { field: string; value: string; message: string; }
 export interface FilterFieldResult { attributes: Record<string, unknown>; errors: FilterFieldError[]; }
 

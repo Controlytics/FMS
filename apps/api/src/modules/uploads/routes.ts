@@ -22,8 +22,25 @@ export default async function uploadRoutes(app: FastifyInstance) {
   await ensureDirectories();
 
   // POST /api/uploads/photo - Upload profile photo (authenticated users only)
+  //
+  // Deliberately has no permission preHandler: this is self-service by
+  // construction — the file is named after the CALLER's own id and the route
+  // returns a URL, touching no other user's record. It was gated on USER_UPDATE
+  // ("Edit Users"), an admin capability that 6 of 8 seeded roles don't hold, so
+  // every non-admin got a 403 setting their own photo from the Profile page.
+  // Auth comes from the global onRequest hook (/api/* is not in the public
+  // allowlist; only GET /uploads/photos/ is, so images render in <img>).
   app.post('/photo', {
-    preHandler: [app.requirePermission('USER_UPDATE')],
+    // Nothing here ever unlinks a file and there is no quota, so each call
+    // permanently costs up to MAX_FILE_SIZE of disk. Dropping the permission
+    // gate above widened who can spend that from USER_UPDATE-holders to every
+    // authenticated user, so bound the loop: 30/hour is far above real use
+    // (a photo is set occasionally) and far below a disk-exhaustion rate.
+    // Keyed by IP, not user — @fastify/rate-limit registers its onRequest hook
+    // before the auth plugin's, so req.user isn't populated when the key is
+    // computed. This bounds the surface; it is not the orphan-file GC, which
+    // remains a separate open finding.
+    config: { rateLimit: { max: 30, timeWindow: '1 hour' } },
     schema: {
       tags: ['Uploads'],
       summary: 'Upload a profile photo',

@@ -333,3 +333,88 @@ describe('authPlugin', () => {
     expect(reply.code).toHaveBeenCalledWith(401);
   });
 });
+
+/**
+ * A catch-all around the whole hook turned any DB fault into
+ * 401 "Invalid or expired token": Postgres falls over, every operator is told
+ * their session died, and the real error never reaches the logs or the global
+ * error handler. Only the token check may answer 401; infrastructure faults
+ * must propagate so app.ts's setErrorHandler logs them and returns 500.
+ */
+describe('authPlugin — infrastructure faults are not auth failures', () => {
+  let onRequestHook: Function;
+  const payload = { sub: 'u1', username: 'admin', role: 'ADMIN', sessionId: 's1' };
+
+  const liveSession = () => ({
+    id: 's1',
+    isActive: true,
+    createdAt: new Date(Date.now() - 60_000),
+    expiresAt: new Date(Date.now() + 3_600_000),
+  });
+  const liveUser = () => ({
+    id: 'u1',
+    role: 'ADMIN',
+    username: 'admin',
+    status: 'ENABLED',
+    forcePasswordChange: false,
+    passwordChangedAt: new Date(),
+    createdAt: new Date(),
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    invalidatePasswordPolicyCache();
+    invalidateUserAuthCache('u1');
+    invalidateSessionAuthCache('s1');
+    const app = {
+      addHook: vi.fn((event: string, handler: Function) => {
+        if (event === 'onRequest') onRequestHook = handler;
+      }),
+    } as any;
+    await authPlugin(app, {});
+    mockVerifyToken.mockResolvedValue(payload);
+  });
+
+  it('propagates a session-lookup DB failure instead of answering 401', async () => {
+    const dbErr = new Error('Connection terminated unexpectedly');
+    mockPrisma.session.findFirst.mockRejectedValue(dbErr);
+
+    const reply = makeReply();
+    await expect(onRequestHook(makeReq(), reply)).rejects.toThrow(dbErr);
+    // The tell: a swallowed outage looks exactly like a dead session.
+    expect(reply.code).not.toHaveBeenCalledWith(401);
+  });
+
+  it('propagates a user-lookup DB failure instead of answering 401', async () => {
+    mockPrisma.session.findFirst.mockResolvedValue(liveSession());
+    const dbErr = new Error('remaining connection slots are reserved');
+    mockPrisma.user.findUnique.mockRejectedValue(dbErr);
+
+    const reply = makeReply();
+    await expect(onRequestHook(makeReq(), reply)).rejects.toThrow(dbErr);
+    expect(reply.code).not.toHaveBeenCalledWith(401);
+  });
+
+  it('propagates a password-policy read failure instead of answering 401', async () => {
+    mockPrisma.session.findFirst.mockResolvedValue(liveSession());
+    mockPrisma.user.findUnique.mockResolvedValue(liveUser());
+    const dbErr = new Error('canceling statement due to lock timeout');
+    mockPrisma.systemConfig.findUnique.mockRejectedValue(dbErr);
+
+    const reply = makeReply();
+    await expect(onRequestHook(makeReq(), reply)).rejects.toThrow(dbErr);
+    expect(reply.code).not.toHaveBeenCalledWith(401);
+  });
+
+  it('still answers 401 — not 500 — for a genuinely bad token', async () => {
+    // The narrowing must not cost us the real auth rejection.
+    mockVerifyToken.mockRejectedValue(new Error('signature verification failed'));
+
+    const reply = makeReply();
+    await expect(onRequestHook(makeReq(), reply)).resolves.not.toThrow();
+    expect(reply.code).toHaveBeenCalledWith(401);
+    expect(reply.send).toHaveBeenCalledWith(
+      expect.objectContaining({ error: 'TOKEN_EXPIRED' }),
+    );
+  });
+});

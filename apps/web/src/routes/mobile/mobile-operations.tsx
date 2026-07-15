@@ -437,8 +437,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: myReauthActionsData } = useSWR(online && user ? '/api/config/action-reauth/my-actions' : null);
 
   // 2026-06-09: cross-block mode (NONE no-check | CONFIRM self-confirm | APPROVAL request).
-  const { data: bcCfg } = useSWR<any>(online ? '/api/config/dynamic/block-change-approval' : null);
-  const bcModeRaw = (bcCfg?.mode ?? bcCfg?.value?.mode ?? bcCfg?.data?.mode);
+  // Reads the authenticated-only /current mirror — the SUPER_ADMIN-gated
+  // dynamic route 403'd for every operator role, silently defaulting to CONFIRM.
+  const { data: bcCfg } = useSWR<any>(online ? '/api/config/block-change-approval/current' : null);
+  const bcModeRaw = bcCfg?.mode;
   const blockChangeMode: 'NONE' | 'CONFIRM' | 'APPROVAL' =
     bcModeRaw === 'NONE' ? 'NONE' : bcModeRaw === 'APPROVAL' ? 'APPROVAL' : 'CONFIRM';
 

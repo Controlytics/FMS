@@ -292,7 +292,7 @@ function checkFilesystem(): SubCheck[] {
 }
 
 // ── Check 10: Environment ─────────────────────────────────────────────
-function checkEnvironment(): SubCheck[] {
+export function checkEnvironment(): SubCheck[] {
   const checks: SubCheck[] = [];
   const isProd = process.env.NODE_ENV === 'production';
 
@@ -313,7 +313,6 @@ function checkEnvironment(): SubCheck[] {
   // Required env vars (Phase 4: REDIS_HOST removed — Redis retired)
   const required: Array<{ key: string; warn?: boolean }> = [
     { key: 'DATABASE_URL' },
-    { key: 'API_PORT', warn: true },
   ];
 
   for (const { key, warn } of required) {
@@ -323,6 +322,26 @@ function checkEnvironment(): SubCheck[] {
         ? { name: key, status: 'PASS', found: key === 'DATABASE_URL' ? '***set***' : val }
         : { name: key, status: warn ? 'WARN' : 'FAIL', message: 'Not set' },
     );
+  }
+
+  // Listen port. app.ts binds `process.env.PORT ?? '3000'` — PORT is the only
+  // variable that moves the port. API_PORT is read by nothing (it survives in
+  // .env, and this check used to validate it), so checking API_PORT reported
+  // PASS on an install that listens somewhere else entirely and WARN on a
+  // correct one — scripts/install.ps1 writes PORT, not API_PORT.
+  const portVal = process.env.PORT;
+  const apiPortVal = process.env.API_PORT;
+  if (portVal) {
+    checks.push({ name: 'PORT', status: 'PASS', found: portVal });
+  } else if (apiPortVal) {
+    checks.push({
+      name: 'PORT',
+      status: 'WARN',
+      found: '3000',
+      message: `Not set — listening on the 3000 default. API_PORT=${apiPortVal} is set but nothing reads it; use PORT instead.`,
+    });
+  } else {
+    checks.push({ name: 'PORT', status: 'WARN', found: '3000', message: 'Not set — listening on the 3000 default' });
   }
 
   // CORS check

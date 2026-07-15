@@ -358,6 +358,11 @@ export const userService = {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
     await assertCanManageTarget(ctx.userRole, (user as any).role);
+    // Administrator-set temporary passwords are held to the same configured
+    // complexity policy as create()/self-service change. The route's minLength 8
+    // is not the policy — it's a floor. (History reuse is deliberately not checked
+    // here: the target is forced to change this password at next login anyway.)
+    await validatePasswordPolicy(newPassword, user.username);
 
     const newHash = await hashPassword(newPassword);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
@@ -382,6 +387,8 @@ export const userService = {
     const user = await userRepository.findByIdFull(id);
     if (!user) throw new NotFoundError('User not found');
     await assertCanManageTarget(ctx.userRole, (user as any).role);
+    // Same policy parity as unlock()/create() — see note in unlock().
+    await validatePasswordPolicy(newPassword, user.username);
 
     const newHash = await hashPassword(newPassword);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
@@ -460,7 +467,10 @@ export const userService = {
     await assertCanManageTarget(ctx.userRole, (user as any).role);
 
     if (action === 'approve') {
-      if (!newPassword || newPassword.length < 8) throw new ValidationError('New password must be at least 8 characters');
+      if (!newPassword) throw new ValidationError('New password is required');
+      // Was a bare `length < 8` check, which ignored the configured policy —
+      // same parity fix as unlock()/resetPassword().
+      await validatePasswordPolicy(newPassword, user.username);
 
       const newHash = await hashPassword(newPassword);
       const passwordExpiresAt = await userRepository.getPasswordExpiresAt();

@@ -418,4 +418,59 @@ describe('userService', () => {
       expect(mockUserRepo.approveResetRequest).toHaveBeenCalled();
     });
   });
+
+  // ── password-policy parity on administrator-set credentials ──
+  // create() has always called validatePasswordPolicy; unlock/resetPassword/
+  // approve did not, so the configured complexity policy was silently bypassed
+  // for every admin-set temporary password (the route's minLength 8 is a floor,
+  // not the policy). These run the REAL validator against the test DB's policy
+  // (minLength 8, all complexity flags on) rather than a mock, so they assert
+  // enforcement and not merely that a function was called.
+  describe('password policy on admin-set credentials', () => {
+    // 8 chars, lowercase only: passes the route's minLength, fails the policy.
+    const WEAK = 'weakpass';
+
+    beforeEach(() => {
+      mockUserRepo.findRole.mockResolvedValue({ name: 'OPERATOR', hierarchyLevel: 2, isActive: true });
+      mockHashPassword.mockResolvedValue('new-hash');
+      mockUserRepo.getPasswordExpiresAt.mockResolvedValue(new Date());
+      mockUserRepo.unlockUser.mockResolvedValue([]);
+      mockUserRepo.resetPassword.mockResolvedValue([]);
+      mockUserRepo.approveResetRequest.mockResolvedValue([]);
+    });
+
+    it('unlock rejects a password that violates the policy', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', role: 'OPERATOR', status: 'LOCKED', failedLoginAttempts: 5 });
+      await expect(userService.unlock('1', WEAK, ctx)).rejects.toThrow(/uppercase letter/);
+      expect(mockUserRepo.unlockUser).not.toHaveBeenCalled();
+    });
+
+    it('resetPassword rejects a password that violates the policy', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', role: 'OPERATOR', status: 'ENABLED' });
+      await expect(userService.resetPassword('1', WEAK, ctx)).rejects.toThrow(/uppercase letter/);
+      expect(mockUserRepo.resetPassword).not.toHaveBeenCalled();
+    });
+
+    it('processResetRequest approve rejects a password that violates the policy', async () => {
+      mockUserRepo.findResetRequestById.mockResolvedValue({ id: 'req-1', userId: 'user-1', status: 'PENDING' });
+      mockUserRepo.findById.mockResolvedValue({ id: 'user-1', username: 'u1', role: 'OPERATOR' });
+      await expect(userService.processResetRequest('req-1', 'approve', WEAK, undefined, ctx))
+        .rejects.toThrow(/uppercase letter/);
+      expect(mockUserRepo.approveResetRequest).not.toHaveBeenCalled();
+    });
+
+    it('resetPassword rejects a password containing the target User ID', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'emp001', fullName: 'F', role: 'OPERATOR', status: 'ENABLED' });
+      // Policy-complex but built around the username — the check the bare
+      // minLength floor could never make.
+      await expect(userService.resetPassword('1', 'Emp001@2026', ctx)).rejects.toThrow(/cannot contain User ID/);
+      expect(mockUserRepo.resetPassword).not.toHaveBeenCalled();
+    });
+
+    it('still accepts a policy-compliant password', async () => {
+      mockUserRepo.findByIdFull.mockResolvedValue({ id: '1', username: 'u1', fullName: 'F', role: 'OPERATOR', status: 'ENABLED' });
+      await userService.resetPassword('1', 'NewPass@1', ctx);
+      expect(mockUserRepo.resetPassword).toHaveBeenCalled();
+    });
+  });
 });

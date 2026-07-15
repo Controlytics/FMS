@@ -38,6 +38,7 @@ import { EditFilterDialog } from './filter-list/dialogs/EditFilterDialog';
 import { DeleteFilterDialog } from './filter-list/dialogs/DeleteFilterDialog';
 import { BulkUploadDialog } from './filter-list/dialogs/BulkUploadDialog';
 import { findMissingRequiredAttributes } from './filter-list/lib/validate-template-attributes';
+import { apiUrl } from '@/lib/url-utils';
 
 // A-01 T2.2: flatten the typed /api/hierarchy/tree (blocks → areas → ahus →
 // filters, + direct-under-block ahus) into the legacy flat "instance" shape the
@@ -989,21 +990,24 @@ export function FilterListPage() {
     setEditFilterError('');
     const id = editFilterDialog.id;
     await reauth.execute('EDIT_FILTER', async (password?: string) => {
-      // Typed-direct update (A-01 T2.3) — concrete fields only. Cleared field-
-      // option values are omitted, so filterService rebuilds the attributes
-      // without them (i.e. clearing works). No templateId/generic attributes.
+      // Typed-direct update (A-01 T2.3) — concrete fields only. No templateId /
+      // generic attributes. filter.service.ts overlays onto the stored
+      // attributes: an OMITTED field means "don't touch", so a cleared field
+      // must be sent as an explicit '' to clear it (omitting it would silently
+      // keep the old value).
       const body: any = {
         name: editFilterName.trim(),
-        // Omit when unset — filter.service.ts treats undefined as "don't touch",
-        // so a set-less filter stays set-less instead of being assigned Set A.
+        // filterSet is the exception — enum-only, no '' clear on the wire. Omit
+        // when unset; filter.service.ts treats undefined as "don't touch", so a
+        // set-less filter stays set-less instead of being assigned Set A.
         ...(editFilterSet && { filterSet: editFilterSet }),
-        ...(editFilterAhuType && { ahuType: editFilterAhuType }),
-        ...(editFilterFilterType && { filterType: editFilterFilterType }),
-        ...(editFilterMicronSize && { micronSize: editFilterMicronSize }),
-        ...(editFilterFilterSize && { filterSize: editFilterFilterSize }),
+        ahuType: editFilterAhuType || '',
+        filterType: editFilterFilterType || '',
+        micronSize: editFilterMicronSize || '',
+        filterSize: editFilterFilterSize || '',
+        // encode returns undefined for "no date and not NA" — i.e. cleared.
+        lastCleaningDate: encodeLastCleaningDate(editFilterLastCleaning) ?? '',
       };
-      const lastEnc = encodeLastCleaningDate(editFilterLastCleaning);
-      if (lastEnc !== undefined) body.lastCleaningDate = lastEnc;
       if (password) await api.putWithReauth(`/api/hierarchy/filters/${id}`, body, password);
       else await api.put(`/api/hierarchy/filters/${id}`, body);
     }, {
@@ -1144,7 +1148,7 @@ export function FilterListPage() {
       formData.append('ahuId', bulkUploadAhu);
       if (selectedBlock) formData.append('blockId', selectedBlock);
       const token = sessionStorage.getItem('access_token');
-      const res = await fetch('/api/assets/instances/bulk-upload-filters/validate', {
+      const res = await fetch(apiUrl('/api/assets/instances/bulk-upload-filters/validate'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -1189,7 +1193,7 @@ export function FilterListPage() {
           const token = sessionStorage.getItem('access_token');
           const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
           if (password) headers['x-reauth-password'] = password;
-          const res = await fetch('/api/assets/instances/bulk-upload-filters', {
+          const res = await fetch(apiUrl('/api/assets/instances/bulk-upload-filters'), {
             method: 'POST',
             headers,
             body: formData,
@@ -1239,7 +1243,7 @@ export function FilterListPage() {
     // and no stale client copy.
     try {
       const token = sessionStorage.getItem('access_token');
-      const res = await fetch('/api/assets/instances/filter-upload-template.xlsx', {
+      const res = await fetch(apiUrl('/api/assets/instances/filter-upload-template.xlsx'), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {

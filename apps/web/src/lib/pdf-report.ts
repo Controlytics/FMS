@@ -26,8 +26,13 @@ let cachedLogo: { data: string; w: number; h: number } | null = null;
 async function loadLogo(): Promise<{ data: string; w: number; h: number } | null> {
   if (cachedLogo) return cachedLogo;
   try {
-    const res = await fetch('/api/config/branding');
+    const res = await fetch(`${getApiBase()}/api/config/branding`);
     const branding = await res.json();
+    // NOTE: logoUrl is deliberately NOT prefixed — the '/logo.jpg' default is a
+    // bundled static asset that resolves against the app's own origin. A
+    // DB-stored '/uploads/...' logo would need the API base (getPhotoUrl
+    // semantics), but that asset-base question spans sidebar.tsx +
+    // report-page-wrapper.tsx too and wants one policy, not a local prefix here.
     const logoUrl = branding?.logoUrl || '/logo.jpg';
     const imgRes = await fetch(logoUrl);
     if (!imgRes.ok) return null;
@@ -55,7 +60,7 @@ async function loadBranding(): Promise<{ companyName: string; appName: string }>
   let appName = 'DigiLog';
   // Base identity from Branding (public endpoint).
   try {
-    const data = await fetch('/api/config/branding').then((r) => r.json());
+    const data = await fetch(`${getApiBase()}/api/config/branding`).then((r) => r.json());
     if (data?.companyName) companyName = data.companyName;
     if (data?.appName) appName = data.appName;
   } catch { /* keep defaults */ }

@@ -147,10 +147,15 @@ export class CleaningProfileService {
   async update(ctx: RequestContext, id: string, data: any) {
     const existing = await this.getById(ctx, id);
 
-    // Validate new pipeline if stages provided
-    if (data.stages) {
-      this.validatePipeline(data.stages, data.connections ?? []);
-    }
+    // Validate what will actually be PERSISTED, not just what was sent. The
+    // writes below fall back to the existing stages/connections, so validating
+    // only `data.*` let a body of `{connections: []}` skip validation entirely
+    // (no `data.stages` → no call) and publish a new ACTIVE version carrying the
+    // old stages and zero edges. Mirrors the `?? existing` fallbacks used below.
+    this.validatePipeline(
+      data.stages ?? existing.stages,
+      data.connections ?? this.toIndexedConnections(existing.connections, existing.stages),
+    );
 
     // Wrap entire versioning in a transaction for consistency
     const result = await prisma.$transaction(async (tx) => {
@@ -424,6 +429,24 @@ export class CleaningProfileService {
   // bulk-assign UI was ever built. validatePipeline() (the internal helper
   // called by create + update) is preserved.
 
+  /**
+   * Restate stored connections as {fromIndex,toIndex} in the sortOrder index
+   * space. A stored row references stage UUIDs of the version it belongs to, so
+   * it only resolves against that version's stages — validating it against an
+   * incoming `data.stages` (whose nodes carry no ids yet) would resolve to -1
+   * and reject a valid edit. sortOrder is the index space the persist path
+   * below already remaps through (old id → sortOrder → new id).
+   */
+  private toIndexedConnections(connections: any[], stages: any[]) {
+    const idToIndex = new Map<string, number>();
+    stages.forEach((s: any, i: number) => idToIndex.set(s.id, s.sortOrder ?? i));
+    return (connections ?? []).map((c: any) => ({
+      fromIndex: idToIndex.get(c.fromStageId) ?? -1,
+      toIndex: idToIndex.get(c.toStageId) ?? -1,
+      label: c.label,
+    }));
+  }
+
   private validatePipeline(stages: any[], connections: any[]) {
     if (!stages || stages.length < 2) {
       throw new AppError(400, 'VALIDATION_ERROR', 'Pipeline must have at least 2 stages (START and END)');
@@ -451,36 +474,42 @@ export class CleaningProfileService {
       if (!cn.configuration?.checklistProfileId) throw new AppError(400, 'VALIDATION_ERROR', 'All CHECKLIST nodes must have a checklist profile assigned');
     }
 
-    if (connections && connections.length > 0) {
-      // Build a UUID-to-index map so connections with fromStageId/toStageId can be normalized
-      const stageIdToIndex = new Map<string, number>();
-      stages.forEach((s: any, i: number) => {
-        if (s.id) stageIdToIndex.set(s.id, i);
-      });
+    // An edgeless graph used to skip every check below, so a profile with no
+    // connections saved as ACTIVE and any cycle started against it could never
+    // advance (the stage chain is walked over connections). There is no draft
+    // state to accommodate — create() always writes status ACTIVE.
+    if (!connections || connections.length === 0) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Pipeline must have at least one connection — a profile with no connections cannot be traversed, so cycles started against it could never advance');
+    }
 
-      const hasIncoming = new Set<number>();
-      const hasOutgoing = new Set<number>();
-      connections.forEach((c: any) => {
-        const fromIdx = c.fromIndex ?? (c.fromStageId ? stageIdToIndex.get(c.fromStageId) : undefined) ?? -1;
-        const toIdx = c.toIndex ?? (c.toStageId ? stageIdToIndex.get(c.toStageId) : undefined) ?? -1;
-        hasOutgoing.add(fromIdx);
-        hasIncoming.add(toIdx);
-      });
+    // Build a UUID-to-index map so connections with fromStageId/toStageId can be normalized
+    const stageIdToIndex = new Map<string, number>();
+    stages.forEach((s: any, i: number) => {
+      if (s.id) stageIdToIndex.set(s.id, i);
+    });
 
-      // START must have outgoing
-      const startIdx = stages.findIndex((s: any) => s.nodeType === 'START');
-      if (!hasOutgoing.has(startIdx)) throw new AppError(400, 'VALIDATION_ERROR', 'START node must have at least one outgoing connection');
+    const hasIncoming = new Set<number>();
+    const hasOutgoing = new Set<number>();
+    connections.forEach((c: any) => {
+      const fromIdx = c.fromIndex ?? (c.fromStageId ? stageIdToIndex.get(c.fromStageId) : undefined) ?? -1;
+      const toIdx = c.toIndex ?? (c.toStageId ? stageIdToIndex.get(c.toStageId) : undefined) ?? -1;
+      hasOutgoing.add(fromIdx);
+      hasIncoming.add(toIdx);
+    });
 
-      // END must have incoming
-      const endIdx = stages.findIndex((s: any) => s.nodeType === 'END');
-      if (!hasIncoming.has(endIdx)) throw new AppError(400, 'VALIDATION_ERROR', 'END node must have at least one incoming connection');
+    // START must have outgoing
+    const startIdx = stages.findIndex((s: any) => s.nodeType === 'START');
+    if (!hasOutgoing.has(startIdx)) throw new AppError(400, 'VALIDATION_ERROR', 'START node must have at least one outgoing connection');
 
-      // Check for disconnected nodes
-      for (let i = 0; i < stages.length; i++) {
-        if (stages[i].nodeType === 'START' || stages[i].nodeType === 'END') continue;
-        if (!hasIncoming.has(i) && !hasOutgoing.has(i)) {
-          throw new AppError(400, 'VALIDATION_ERROR', 'Disconnected node found: ' + (stages[i].stateKey || stages[i].nodeType));
-        }
+    // END must have incoming
+    const endIdx = stages.findIndex((s: any) => s.nodeType === 'END');
+    if (!hasIncoming.has(endIdx)) throw new AppError(400, 'VALIDATION_ERROR', 'END node must have at least one incoming connection');
+
+    // Check for disconnected nodes
+    for (let i = 0; i < stages.length; i++) {
+      if (stages[i].nodeType === 'START' || stages[i].nodeType === 'END') continue;
+      if (!hasIncoming.has(i) && !hasOutgoing.has(i)) {
+        throw new AppError(400, 'VALIDATION_ERROR', 'Disconnected node found: ' + (stages[i].stateKey || stages[i].nodeType));
       }
     }
   }

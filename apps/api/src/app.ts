@@ -291,6 +291,13 @@ app.addHook('onRequest', (_req, _reply, done) => {
 // (operation-tracer onResponse/onError hooks removed — see import comment above)
 
 // Health check
+// Job-runner state, reported by /api/health. Set once at boot (below). Without
+// this the runner could die at startup and the API still reported itself
+// healthy, so the notification / PM-overdue / password-expiry / session sweeps
+// stopped with nothing to notice it — the session sweep writes the LOGOUT audit
+// rows, so its silent death is a §11 gap.
+let jobRunnerStatus: 'starting' | 'running' | 'failed' = 'starting';
+
 app.get('/api/health', {
   schema: {
     tags: ['Health'],
@@ -303,6 +310,10 @@ app.get('/api/health', {
         properties: {
           status: { type: 'string', example: 'ok' },
           timestamp: { type: 'string', format: 'date-time' },
+          // `db` was already being returned by the handler but was silently
+          // dropped by fast-json-stringify because it wasn't declared here.
+          db: { type: 'string', example: 'connected' },
+          jobRunner: { type: 'string', example: 'running' },
         },
       },
     },
@@ -311,7 +322,11 @@ app.get('/api/health', {
   try {
     const { prisma } = await import('./lib/prisma.js');
     await prisma.$queryRaw`SELECT 1`;
-    return { status: 'ok', db: 'connected' };
+    // Deliberately still 200 when the job runner is down: the HTTP surface is
+    // fine, and the tablet treats a non-2xx /api/health as "server unreachable"
+    // (apps/web/src/lib/connectivity.ts probeServer) — a 503 here would flip
+    // every tablet into offline mode over a background-job fault.
+    return { status: 'ok', db: 'connected', jobRunner: jobRunnerStatus };
   } catch (err) {
     return reply.code(503 as any).send({ status: 'error', db: 'disconnected' });
   }
@@ -449,10 +464,19 @@ try {
       },
       crontabPath,
     });
+    jobRunnerStatus = 'running';
     app.log.info('graphile-worker job runner started');
   } catch (runnerErr) {
-    app.log.warn('graphile-worker job runner failed to start — server continuing');
-    app.log.warn(runnerErr);
+    // Not fatal — the HTTP surface is still usable and this is a single-process
+    // local API, so exiting would take the whole app down over background jobs.
+    // But it IS an error, not a warning: every scheduled job (notifications, the
+    // PM-overdue sweep, password-expiry warnings, the LOGOUT-writing session
+    // sweep) is dead until this is fixed. /api/health reports `jobRunner`.
+    jobRunnerStatus = 'failed';
+    app.log.error(
+      { err: runnerErr },
+      'graphile-worker job runner FAILED to start — all scheduled jobs (notifications, PM overdue, password expiry, session sweep) will not run. Server continuing.',
+    );
   }
 } catch (err) {
   app.log.error(err);
