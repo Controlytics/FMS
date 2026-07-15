@@ -67,10 +67,45 @@ describe('userService', () => {
 
     it('passes search and role filters', async () => {
       mockUserRepo.findMany.mockResolvedValue({ users: [], total: 0 });
-      await userService.list({ page: 1, limit: 10, role: 'ADMIN', search: 'john' });
+      // callerRole matters now: the route (routes.ts) always stamps it from the
+      // JWT, and an explicit ?role= must be intersected with the caller's
+      // hidden-role exclusions rather than replacing them.
+      await userService.list({ page: 1, limit: 10, role: 'ADMIN', search: 'john', callerRole: 'SUPER_ADMIN' });
       const where = mockUserRepo.findMany.mock.calls[0][0];
       expect(where.role).toBe('ADMIN');
       expect(where.OR).toBeDefined();
+    });
+
+    it('does not let ?role= bypass the SUPER_ADMIN hiding for an ADMIN caller', async () => {
+      mockUserRepo.findMany.mockResolvedValue({ users: [], total: 0 });
+      await userService.list({ page: 1, limit: 10, role: 'SUPER_ADMIN', callerRole: 'ADMIN' });
+      const where = mockUserRepo.findMany.mock.calls[0][0];
+      // Previously `where.role = query.role` — asking for the hidden role handed
+      // it straight over. It must now match nothing.
+      expect(where.role).toEqual({ in: [] });
+    });
+
+    it('still hides SUPER_ADMIN from an ADMIN caller when no role filter is given', async () => {
+      mockUserRepo.findMany.mockResolvedValue({ users: [], total: 0 });
+      await userService.list({ page: 1, limit: 10, callerRole: 'ADMIN' });
+      const where = mockUserRepo.findMany.mock.calls[0][0];
+      expect(where.role).toEqual({ notIn: ['SUPER_ADMIN'] });
+    });
+
+    it('narrows to a permitted role for an ADMIN caller', async () => {
+      mockUserRepo.findMany.mockResolvedValue({ users: [], total: 0 });
+      await userService.list({ page: 1, limit: 10, role: 'OPERATOR', callerRole: 'ADMIN' });
+      const where = mockUserRepo.findMany.mock.calls[0][0];
+      expect(where.role).toBe('OPERATOR');
+    });
+
+    it('honours ?role= for a SUPER_ADMIN caller (nothing is excluded)', async () => {
+      mockUserRepo.findMany.mockResolvedValue({ users: [], total: 0 });
+      // Regression: with no exclusions the role filter used to be dropped
+      // entirely, so a SUPER_ADMIN filtering by role silently saw everyone.
+      await userService.list({ page: 1, limit: 10, role: 'OPERATOR', callerRole: 'SUPER_ADMIN' });
+      const where = mockUserRepo.findMany.mock.calls[0][0];
+      expect(where.role).toBe('OPERATOR');
     });
   });
 

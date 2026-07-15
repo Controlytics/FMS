@@ -46,6 +46,34 @@ describe('notificationService', () => {
       expect(result.data).toHaveLength(1);
       expect(result.total).toBe(1);
     });
+
+    /**
+     * Enterprise-audit finding (2026-07-13): the ADMIN visibility filter used a
+     * top-level `NOT: { forRole: 'SUPER_ADMIN' }`, which compiles to
+     * `NOT (for_role = 'SUPER_ADMIN')`. For a row with for_role IS NULL that
+     * evaluates to NULL — not TRUE — so Postgres excluded it. Since the NOT was
+     * ANDed over the whole OR, it silently killed two of the three branches:
+     * ADMINs saw neither their own personally-addressed notifications nor any
+     * general ones. Assert the exclusion is null-safe.
+     */
+    it('does not exclude null-forRole rows from an ADMIN (null-safe SUPER_ADMIN filter)', async () => {
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+
+      await notificationService.list({ page: 1, limit: 20 }, 'ADMIN', 'someadmin');
+      const where = mockNotifRepo.findMany.mock.calls[0][0];
+      const normal = (where.OR as any[])[0].AND[1];
+
+      // The three visibility branches survive...
+      expect(normal.OR).toEqual([
+        { forUserId: 'someadmin' },
+        { forRole: 'ADMIN' },
+        { forRole: null, forUserId: null },
+      ]);
+      // ...and SUPER_ADMIN is excluded without swallowing forRole IS NULL rows.
+      expect(normal.NOT).toBeUndefined();
+      expect(normal.AND).toEqual([{ OR: [{ forRole: null }, { forRole: { not: 'SUPER_ADMIN' } }] }]);
+    });
   });
 
   describe('getUnreadCount', () => {

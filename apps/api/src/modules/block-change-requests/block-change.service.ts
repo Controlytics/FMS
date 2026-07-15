@@ -33,9 +33,21 @@ export const blockChangeService = {
     });
     if (existing) throw new AppError(409, 'DUPLICATE_REQUEST', 'A pending request already exists for this filter and block');
 
+    // Build the row from explicit named fields — never spread the request body.
+    // `data` arrives as `req.body as any` and the POST schema does not set
+    // additionalProperties:false, so a spread let a requester supply real model
+    // columns: `status:'APPROVED'` self-forged the approval that hasApproval()
+    // checks (bypassing the cross-block gate with no approver), and
+    // `manualEntry:true` disguised the row as a data-management insert.
     const request = await prisma.blockChangeRequest.create({
       data: {
-        ...data,
+        filterId: data.filterId,
+        filterName: data.filterName,
+        fromBlockId: data.fromBlockId,
+        fromBlockName: data.fromBlockName,
+        toBlockId: data.toBlockId,
+        toBlockName: data.toBlockName,
+        reason: data.reason,
         requestedBy: ctx.userSub,
         requestedByName: ctx.userId,
       },

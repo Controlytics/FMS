@@ -533,7 +533,11 @@ export default async function auditRoutes(app: FastifyInstance) {
       await auditLog({
         userId: req.user.username, userRole: req.user.role,
         action: 'AUDIT_RECORDS_BULK_REDACTED',
-        targetType: 'audit_trail', targetId: matchedIds.join(','),
+        // targetId is varchar(255); joining UUIDs overflowed at 7+ records
+        // (37n-1 > 255) and Postgres raised 22001 inside the transaction, so
+        // the whole bulk op rolled back with a 500. The full id list already
+        // lives in the unbounded JSONB beforeValue.records below.
+        targetType: 'audit_trail', targetId: undefined,
         beforeValue: { recordCount: unredacted.length, records: unredacted.map((r) => ({
           id: r.id, action: r.action, timestamp: r.timestamp, userId: r.user_id,
           targetType: r.target_type, targetId: r.target_id,
@@ -655,7 +659,9 @@ export default async function auditRoutes(app: FastifyInstance) {
       await auditLog({
         userId: req.user.username, userRole: req.user.role,
         action: 'AUDIT_RECORDS_BULK_DELETED',
-        targetType: 'audit_trail', targetId: matchedIds.join(','),
+        // targetId is varchar(255) — see bulk-redact above. Ids are recorded in
+        // beforeValue.records, which is JSONB and unbounded.
+        targetType: 'audit_trail', targetId: undefined,
         beforeValue: { recordCount: records.length, records: records.map((r) => ({
           id: r.id, action: r.action, timestamp: r.timestamp, userId: r.userId,
           targetType: r.targetType, targetId: r.targetId,

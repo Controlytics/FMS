@@ -60,8 +60,12 @@ function buildVisibilityFilter(userRole: string, username: string): Record<strin
       { forRole: 'ADMIN' },
       { forRole: null, forUserId: null },
     ];
-    // But not notifications specifically for SUPER_ADMIN
-    where.NOT = { forRole: 'SUPER_ADMIN' };
+    // But not notifications specifically for SUPER_ADMIN. This must be
+    // null-safe: a bare `NOT: { forRole: 'SUPER_ADMIN' }` compiles to
+    // `NOT (for_role = 'SUPER_ADMIN')`, which evaluates to NULL — not TRUE —
+    // for the forRole IS NULL rows, silently excluding the personally-addressed
+    // and general branches above. Mirrored in notification.repository.ts.
+    where.AND = [{ OR: [{ forRole: null }, { forRole: { not: 'SUPER_ADMIN' } }] }];
   } else {
     // Regular users see only their own notifications
     where.forUserId = username;

@@ -70,13 +70,41 @@ const DEFAULT_CONFIG: LdapConfig = {
   fullNameAttribute: 'displayName',
   departmentAttribute: 'department',
   groupAttribute: 'memberOf',
-  tlsRejectUnauthorized: false,
+  // Secure by default. This was `false`, which meant an ldaps:// bind accepted
+  // ANY certificate — an on-path attacker could present a self-signed cert and
+  // harvest the service-account bindPassword plus every user's password in
+  // cleartext. Operators with an internal CA can still opt out explicitly.
+  tlsRejectUnauthorized: true,
   connectionTimeout: 5000,
   roleMappings: [],
   defaultRole: 'OPERATOR',
   defaultOrganizationId: '',
   syncAttributes: true,
 };
+
+/**
+ * Does an LDAP group value (typically a full DN from `memberOf`, e.g.
+ * "CN=Cleanroom Admins,OU=Groups,DC=corp,DC=local") match a configured mapping?
+ *
+ * Matches on the whole value or on an exact RDN component — so a mapping of
+ * "Cleanroom Admins" still resolves a full DN, which is how operators actually
+ * configure this. What it no longer does is substring-match: the previous
+ * `.includes()` meant a mapping for "admin" also matched "CN=BackupAdmins",
+ * silently handing the admin role to members of any group whose name merely
+ * contained the word.
+ *
+ * `ldapGroupLower` must already be lower-cased by the caller.
+ */
+function matchesLdapGroup(group: string, ldapGroupLower: string): boolean {
+  const g = group.toLowerCase().trim();
+  if (g === ldapGroupLower) return true;
+  // Compare each RDN's value: "cn=cleanroom admins" -> "cleanroom admins".
+  return g.split(',').some((rdn) => {
+    const eq = rdn.indexOf('=');
+    const value = (eq === -1 ? rdn : rdn.slice(eq + 1)).trim();
+    return value === ldapGroupLower;
+  });
+}
 
 export const ldapService = {
   async getConfig(): Promise<LdapConfig> {
@@ -111,7 +139,7 @@ export const ldapService = {
     const client = new Client({
       url: cfg.serverUrl,
       connectTimeout: cfg.connectionTimeout || 5000,
-      tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? false },
+      tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
     });
 
     try {
@@ -130,7 +158,7 @@ export const ldapService = {
     const client = new Client({
       url: cfg.serverUrl,
       connectTimeout: cfg.connectionTimeout || 5000,
-      tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? false },
+      tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
     });
 
     try {
@@ -194,7 +222,7 @@ export const ldapService = {
       const userClient = new Client({
         url: cfg.serverUrl,
         connectTimeout: cfg.connectionTimeout || 5000,
-        tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? false },
+        tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
       });
 
       try {
@@ -226,6 +254,8 @@ export const ldapService = {
     }
   },
 
+  matchesLdapGroup,
+
   mapGroupsToRole(groups: string[], config: LdapConfig): string {
     if (!config.roleMappings || config.roleMappings.length === 0) {
       return config.defaultRole || 'OPERATOR';
@@ -233,8 +263,13 @@ export const ldapService = {
 
     // Check each mapping - first match wins (mappings should be ordered by priority)
     for (const mapping of config.roleMappings) {
+      // An LDAP mapping must never confer SUPER_ADMIN. Such a user is unusable
+      // anyway (auth.service.ts refuses the LDAP bind branch for SUPER_ADMIN and
+      // the sentinel passwordHash then 401s), so this only stops the config from
+      // provisioning a locked-out, over-privileged row.
+      if (mapping.role === 'SUPER_ADMIN') continue;
       const ldapGroupLower = mapping.ldapGroup.toLowerCase();
-      if (groups.some(g => g.toLowerCase() === ldapGroupLower || g.toLowerCase().includes(ldapGroupLower))) {
+      if (groups.some(g => matchesLdapGroup(g, ldapGroupLower))) {
         return mapping.role;
       }
     }

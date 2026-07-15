@@ -49,7 +49,15 @@ export const userService = {
     if (query.callerRole !== 'SUPER_ADMIN') excludedRoles.push('SUPER_ADMIN');
     if (query.callerRole !== 'SUPER_ADMIN' && query.callerRole !== 'ADMIN') excludedRoles.push('ADMIN');
     if (excludedRoles.length > 0) {
-      where.role = query.role ? query.role : { notIn: excludedRoles };
+      // An explicit ?role= must NARROW the visible set, never replace the
+      // exclusion — `where.role = query.role` let a caller ask for exactly the
+      // accounts this filter exists to hide (?role=SUPER_ADMIN as ADMIN).
+      // Intersect instead: a request for an excluded role now matches nothing.
+      where.role = query.role
+        ? (excludedRoles.includes(query.role) ? { in: [] } : query.role)
+        : { notIn: excludedRoles };
+    } else if (query.role) {
+      where.role = query.role;
     }
     const { users, total } = await userRepository.findMany(where, query.page, query.limit);
     return { data: users, total, page: query.page, limit: query.limit ?? total, totalPages: query.limit ? Math.ceil(total / query.limit) : 1 };

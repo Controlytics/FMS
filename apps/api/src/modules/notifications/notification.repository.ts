@@ -122,7 +122,9 @@ function buildBulkVisibilityFilter(
         { forRole: 'ADMIN' },
         { forRole: null, forUserId: null },
       ],
-      NOT: { forRole: 'SUPER_ADMIN' },
+      // Null-safe SUPER_ADMIN exclusion — see notification.service.ts
+      // buildVisibilityFilter. A bare NOT drops every forRole IS NULL row.
+      AND: [{ OR: [{ forRole: null }, { forRole: { not: 'SUPER_ADMIN' } }] }],
     };
   } else {
     normal = username ? { OR: [{ forUserId: username }, { targetUserId: username }] } : {};

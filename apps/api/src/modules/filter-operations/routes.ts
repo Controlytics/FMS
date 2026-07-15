@@ -206,9 +206,22 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
                   nextStages: { type: 'array', items: { type: 'string' } },
                   pendingChecklistProfileIds: { type: 'array', items: { type: 'string' } },
                   leadsToEnd: { type: 'boolean' },
+                  // Undeclared until 2026-07-15, so fast-json-stringify silently
+                  // dropped it. Online that only hid the QA banner (actions[] is
+                  // declared and still gated), but the OFFLINE tablet reads this
+                  // flag out of the cached response: `!!undefined === false` let
+                  // an operator advance out of an interlock stage with no QA
+                  // approval. See mobile-operations.tsx interlockGatedNow.
+                  interlockGated: { type: 'boolean' },
                 },
               },
               description: 'Per-stage lookup for offline use: from a given stateKey, what comes next + which checklists fire',
+            },
+            interlock: {
+              type: 'object',
+              nullable: true,
+              additionalProperties: true,
+              description: 'Stage-interlock display state (blocksLeaving, pending QA approval) for the current stage',
             },
             // Phase 8.7 cutover (decision-tape architecture): the action tape
             // is now the authoritative server-emitted contract. The FE consumes

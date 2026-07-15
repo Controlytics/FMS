@@ -47,6 +47,11 @@ export default async function blockChangeRoutes(app: FastifyInstance) {
           toBlockName: { type: 'string' },
           reason: { type: 'string', maxLength: 500 },
         },
+        // Defense-in-depth: with this unset, Fastify/AJV passes unknown keys
+        // straight through to req.body. The service builds its Prisma row from
+        // named fields, so a forged `status`/`manualEntry` is already inert —
+        // this makes it a 400 instead of a silent strip.
+        additionalProperties: false,
       },
       response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
