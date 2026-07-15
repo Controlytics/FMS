@@ -1,5 +1,201 @@
 # Changelog
 
+## [Unreleased] — Enterprise-audit High findings: 24 verified, 24 fixed + a critical restore regression (2026-07-15)
+
+Worked the still-open **High** findings from the 2026-07-13 enterprise audit
+(`wf_6ea8254c-3b2`, 38 Highs, all UNVERIFIED). 24 were adversarially verified against
+HEAD by 4 refute-by-default agents before any fix; all 24 are now fixed across
+`f01bea0`, `31de7fc`, `34b04cf`, `b493c38`, `cead64c`. Per-finding evidence and the
+full triage: `tasks/ENTERPRISE-AUDIT-HIGHS-TRIAGE-2026-07-15.md`.
+
+Verification changed the outcome in four cases and is worth recording:
+- **L81** (admin-requests as an "ungoverned second door" into user mutations) was
+  **REFUTED at HEAD** — the module calls the *guarded* `userService` methods, so the
+  2026-07-13 `assertCanManageTarget` fix had already closed it transitively.
+- **L41**'s claimed "silent save no-op" was **REFUTED** — react-hook-form submits from
+  its internal `_formValues`, not the DOM, so the role was never lost. The blank
+  dropdown was real; the data loss was not.
+- **L131**'s "SUPER_ADMIN takeover" was **REFUTED** — three existing guards cap LDAP
+  role-mapping escalation at ADMIN. The unvalidated mappings and substring matching
+  were real, at reduced severity.
+- **L86**'s "over 6 records" threshold was confirmed as **exactly 7** (37n−1 > 255).
+
+### CRITICAL — backup restore had been 100% broken since 2026-07-04
+
+Found only by *running* a restore; no typecheck or test could have caught it.
+`ae1bc3b` — itself the "round-2 CRITICAL backup restore lockout" fix — added a
+pre-truncate snapshot selecting `users.password_history_hashes`. **That column has
+never existed** (password history is its own table). It raised `42703` on every
+restore, and because a caught JS error does **not** un-abort a Postgres transaction,
+every subsequent statement died with `25P02` and the whole restore rolled back. The
+`try/catch` is what hid it. It also explains why the mirror-trigger bug below went
+unnoticed for months — nothing ever got that far.
+
+- `backup.repository.ts` now queries real columns only, with no `try/catch` around
+  in-transaction probes (the hazard is commented in place).
+- **Mirror triggers (L96):** restore disabled only `audit_trail`'s triggers, leaving
+  the asset/filter mirror armed. `topologicalSort` emits `asset_instances` before
+  `ahus`/`filters`, so the mirror pre-populated them and the plain INSERT then hit a
+  duplicate key — **restore failed on any backup containing a single AHU or filter**,
+  i.e. every real one. Now disables every user trigger on the tables it rewrites.
+  (`SET session_replication_role = 'replica'` would be tidier but needs superuser;
+  the app's DB role has neither that nor replication — verified, don't retry it.)
+- **Sequences (L101):** `resetAuditSequence()` was a no-op with a false comment
+  ("UUID PK, no sequence" — `chain_position` is a BIGSERIAL) and **zero callers**, so
+  nothing had ever realigned sequences after a restore. New
+  `resyncSequencesAfterRestore()` derives `audit_trail_chain_position_seq`,
+  `deviation_number_seq` and `qnn_seq` from the restored data. Left as-was, a restore
+  onto a fresh install collided deviation numbers and **permanently broke hash-chain
+  verification**.
+- **password_history leak (L91):** `stripSensitiveColumns`'s `table !== 'users'` guard
+  let every historic bcrypt hash out in the clear — the `password_history` TABLE is not
+  the `users.password_history_hashes` COLUMN it strips. Now stripped, with a matching
+  restore-side snapshot so sentinels can't overwrite real history. §11.10(d).
+
+**Proven by a real round-trip**, not by inspection: export `digilog_db` → restore into
+a throwaway `digilog_restore_test` (never dev/test — restore TRUNCATEs). Counts exact
+(510 asset_instances / 38 ahus / 376 filters / 16955 audit_trail); chain state
+**byte-identical to source** (same 100 pre-existing anomalies at the same positions, so
+the restore is faithful rather than lossy); `DEV-000142`→`DEV-000143` and
+`QN-2026-000107`→`QN-2026-000108` with no collision; `chain_position` continues after
+restored history. A second restore onto a **populated** DB preserved real password
+hashes — meaning the 07-04 lockout fix works for the first time.
+
+### Security / authorization (`f01bea0`)
+
+- **`users.list` `?role=` bypassed the higher-privilege hiding** — the filter *replaced*
+  the exclusion instead of intersecting, so an ADMIN could request `?role=SUPER_ADMIN`
+  and receive exactly the accounts the filter exists to hide. (The 2026-07-13 SA-hiding
+  work covered the *roles* endpoints, not this one.) Also fixes a latent bug found while
+  reading: with no exclusions (a SUPER_ADMIN caller) `where.role` was never set at all,
+  so `?role=` was silently ignored.
+- **`block-change-requests.create` mass assignment** — the row was built by spreading
+  `req.body`, and the POST schema never set `additionalProperties: false`. A holder of
+  only `BLOCK_CHANGE_REQUEST` could post `status: 'APPROVED'` to self-forge the approval
+  `hasApproval()` checks, **bypassing the cross-block gate with no approver**, or
+  `manualEntry: true` to disguise the row. Now built from explicit named fields; schema
+  tightened as defense-in-depth.
+- **ADMINs never saw their own or general notifications** — `NOT: { forRole: 'SUPER_ADMIN' }`
+  was ANDed over the whole OR, and `NOT (NULL = 'SUPER_ADMIN')` is NULL, not TRUE, so
+  every `forRole IS NULL` row was dropped. That killed two of the three visibility
+  branches. Fixed at both mirrored sites (`notification.service.ts` +
+  `notification.repository.ts`, whose docstring promised a byte-for-byte mirror — and
+  delivered one, bug included).
+- **Audit bulk redact/delete 500'd on 7+ records** — `targetId` is `varchar(255)` and the
+  handlers joined matched UUIDs into it (37n−1 chars). Postgres raised `22001` inside the
+  transaction and the whole operation rolled back. The id list already lives in the
+  unbounded JSONB `beforeValue.records`.
+- **Offline interlock gate was unenforced** — `interlock` and `stageLookup[].interlockGated`
+  were undeclared in the `current-state` 200 response schema, so fast-json-stringify
+  dropped them. Online this only hid the QA banner (`actions[]` still gates), but the
+  **tablet reads `interlockGated` from the cached response**: `!!undefined === false` let
+  an operator advance out of an interlock stage with no QA approval.
+- **LDAP `tlsRejectUnauthorized` defaulted to `false`** — an `ldaps://` bind accepted any
+  certificate, so an on-path attacker could harvest the service-account `bindPassword`
+  and every user password in cleartext. Secure by default now; explicit opt-out honoured.
+- **LDAP group matching used `.includes()`** — a mapping for `admin` also matched
+  `CN=BackupAdmins`. Now matches the full DN or an exact RDN value (which is how
+  operators actually configure it, so CN-name configs keep working). Role mappings can no
+  longer confer SUPER_ADMIN.
+
+### Frontend (`31de7fc`)
+
+- **Editing any Set B filter silently rewrote it to Set A** — `openEditFilter` seeded the
+  toggle by comparing against `'B'`, but the API sends the raw Prisma enum (`SET_B`), so
+  it never matched and always pre-selected Set A; `submitEditFilter` then sent `filterSet`
+  unconditionally. Live since 2026-04-20. The audit row recorded it as a deliberate
+  change, and set membership drives AHU set config and PM/replacement scoping, so
+  schedules followed the corrupted value. Enum mapping fixed and the toggle is now
+  tri-state, omitting `filterSet` when unset so a set-less filter isn't assigned Set A.
+  **⚠️ Existing data:** 1 filter is provably corrupted — `CWH/F1/AHU-0B/SA/05/06-01`
+  (SET_B→SET_A, 2026-07-14). 91 earlier edits are forensically invisible: before/after
+  audit capture only landed 2026-07-08.
+- **Editing a LOCKED or EXPIRED user silently did nothing** — `status` was seeded into a
+  form whose schema accepts only `ENABLED|DISABLED`, so the resolver rejected and, with no
+  rendered error for that field, Save was a no-op. For exactly the users most likely to
+  need editing. The form has no status input (that goes through enable/disable/unlock), so
+  the field is simply no longer seeded.
+- **Unlock failures were indistinguishable from success** — `handleUnlockConfirm` was the
+  only `reauth.execute` site in the file passing no `onError`, and `use-reauth` swallows
+  non-reauth errors when it's absent. An admin would hand out a temp password for an
+  account that was still locked.
+- **Role dropdown rendered blank** for USER_UPDATE-only editors (`/creatable` is
+  USER_CREATE-gated → 403 → zero options). Now always offers the user's current role.
+- **Config → Role Assignments lost input focus on every keystroke** — five components were
+  declared inside the page component, so each render created new component types and React
+  remounted the whole card subtree, destroying the DOM inputs. Multi-digit values were
+  unenterable in "Auto-expire (hours)" and "Default tolerance (days)". Hoisted to module
+  scope; verified live in a browser, since focus retention is invisible to tsc and vitest.
+- **Three reauth actions were unsettable** — both policy editors build their lists by
+  iterating `REAUTH_ACTION_CATEGORIES`, which was missing `'Notifications'` and
+  `'Super Admin'`, so `DELETE_NOTIFICATION`, `BULK_DELETE_NOTIFICATIONS` and
+  `SUPER_ADMIN_DATA_EDIT` rendered nowhere (13→15 categories).
+
+### Compliance (`34b04cf`, `b493c38`, `cead64c`)
+
+- **Cross-block approvals were never consumed and never expired** — one approval was a
+  permanent, unlimited licence to clean a filter in another block. `consumeApprovalTx` had
+  existed since 2026-05-05 with **zero callers**; a comment documented a fix that was
+  written and never wired. Now spent inside `start-cycle`'s transaction under the existing
+  `FOR UPDATE` lock, which also closes the TOCTOU that comment described. A 0-row consume
+  means another start won the race → 409. Offline replay never consumes (it was never
+  gated on one; spending it would burn an unused approval). **`autoExpireHours` is now
+  honoured** — it was editable in config and read by nothing. Dead non-transactional
+  `consumeApproval` + `hasApprovalTx` removed.
+- **super-admin stops deleting `audit_trail` rows.** `DELETE /filter-data/retirements/:id`
+  and `/replacements/:id` could never succeed (bare delete vs the immutability trigger, no
+  Prisma error mapping → raw 500) and are **removed with their UI**. **Unretire is kept but
+  fixed**: all reads resolve before the transaction, every write goes through `tx`, audit-row
+  deletions gone. Previously ~10 destructive writes committed and *then* it 500'd — half
+  applied, unrollbackable. **Behaviour change:** a replaced-then-unretired filter now stays
+  listed in Replacements pointing at a deleted target — that row is the §11 record. The
+  dialog's false "the retirement audit record will be removed" was corrected.
+- **Secrets no longer reach the immutable audit trail** — the handlers rehydrate real stored
+  secrets into `body` whenever the client echoes a mask sentinel, so an admin editing an
+  unrelated field **could not avoid** writing live `clientSecret`/`refreshToken`/`accessToken`.
+  New `lib/mask-secrets.ts` is an **allowlist**: an unrecognised key is redacted until a human
+  declares it safe, because the write is permanent and unscrubbable. Applied to both
+  notification-delivery sites and to `ldap/routes.ts` (same denylist pattern). Notably excludes
+  `httpGatewayUrl`/`httpGatewayBodyTemplate` — MSG91/Plivo/Kaleyra embed API keys there.
+  Verified read-only: **zero existing rows carry any secret**, so no historic redaction was
+  needed.
+- **checklist-profiles: only `create` was audited** — update, delete and every question
+  mutation wrote nothing to `audit_trail`. The version sidecar is not hash-chained, not
+  immutable, absent from the inspector UI, and `delete()` cascades it away, so a deleted
+  profile left no trace anywhere. §11.10(e). 7 `auditLog` calls now, all after the tx commits;
+  4 new actions registered in `audit-actions.ts` + `audit-templates.ts`.
+- **PM `PUT /:id` archived the ACTIVE schedule before validating** — an empty body left it
+  ARCHIVED with no replacement and PM generation stopped silently (the `entries !== undefined`
+  guard was inert). Validate first, wrap archive+create in a transaction, tighten the body
+  schema (no caller needed a partial body — the PUT has zero web/mobile callers).
+- **PM bulk upload destroyed APPROVED entries and all `PmExecution` history** at upload time,
+  before review, non-transactionally — replacements landed in `PENDING_REVIEW` and might never
+  be approved. Executions are retained evidence: that `deleteMany` is gone. APPROVED entries
+  are guarded when workflow is on, and each (AHU, year) gets its own transaction so a mid-file
+  failure can't strand months.
+- **`e2e/super-admin-unretire.test.ts`** proves the unretire fix rather than assuming it: a
+  child row under the replacement makes the *last* transaction statement violate
+  `asset_instances_parent_id_fkey` (RESTRICT) after every destructive write, and the test
+  asserts the early-deleted identifiers/events/cycles/relationships survive. Pinned to
+  `toBe(500)` — a looser `>= 400` would let a preHandler short-circuit satisfy those
+  assertions trivially (rows survive because nothing ran) and pass for the wrong reason.
+
+### Deliberately NOT fixed (collide with authorized design)
+
+Three confirmed findings were left alone by explicit decision — the code does what the
+finding says, but it's what was asked for:
+- **super-admin rewriting checksummed `audit_trail` fields** — the manual-record-edit
+  feature authorized on 2026-07-10 (§11 warning overridden twice).
+- **Reauth on Filter Data mutations shipping OFF** — the intended configurable default.
+  (The *real* bug inside it — `SUPER_ADMIN_DATA_EDIT` being unsettable — is fixed above.)
+- **The sync global-max version cursor** — offline-sync is a protected surface; it gets its
+  own task, not a sweep.
+
+**Suites:** `apps/api` **1030 passing / 0 failed / 12 skipped** (97 files, single-fork, quiet
+tree); `apps/web` **464 / 0**. Typecheck clean both sides; `@digilog/shared` rebuilt;
+`vite build` rerun. ~80 tests added. No count changes to models/enums/permissions/reauth
+actions/modules/config defs.
+
 ## [Unreleased] — Security: finish audit security phase + fix a 3rd Critical (2026-07-13)
 
 Resumed the enterprise audit's **Security phase** (the 12 VAPT sweeps + adversarial
