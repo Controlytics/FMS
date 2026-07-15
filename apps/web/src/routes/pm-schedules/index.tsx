@@ -16,6 +16,7 @@ import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
+import { isoToDateInput } from '@/lib/datetime-input';
 
 interface UploadResult {
   imported: number;
@@ -82,7 +83,8 @@ export function PmScheduleListPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const exportLimit = useExportLimit();
-  const { formatDate, formatDateTime } = useDatetimeFormat();
+  const { formatDate, formatDateTime, config: datetimeConfig } = useDatetimeFormat();
+  const datetimeTz = datetimeConfig.timezone;
   const [exporting, setExporting] = useState(false);
   const reauth = useReauth();
   // Runtime-facing PM settings; the admin /api/config/dynamic/pm-schedule-settings
@@ -177,16 +179,43 @@ export function PmScheduleListPage() {
   const [editDate, setEditDate] = useState('');
   const [editTolerance, setEditTolerance] = useState('');
 
-  // Data fetching — filter by date range
-  const year = new Date(dateFrom).getFullYear();
+  // Data fetching — filter by date range.
+  // The endpoint is per-year, so a range that SPANS years must fetch each one:
+  // deriving a single `year` from dateFrom silently dropped every entry in the
+  // later year(s) of a Dec→Feb range. Years come from a string slice, not
+  // `new Date(dateFrom).getFullYear()` — that parses as UTC midnight and would
+  // report the previous year for any zone west of UTC.
+  const fromYear = Number(dateFrom.slice(0, 4));
+  const toYear = Number(dateTo.slice(0, 4));
+  const years = useMemo(() => {
+    if (!Number.isFinite(fromYear) || !Number.isFinite(toYear) || toYear < fromYear) return [fromYear].filter(Number.isFinite);
+    // Guard a typo'd year (e.g. '20226') from fanning out into thousands of requests.
+    const span = Math.min(toYear - fromYear, 10);
+    return Array.from({ length: span + 1 }, (_, i) => fromYear + i);
+  }, [fromYear, toYear]);
+
   // limit=2000 so the whole year's entries load (the page has no pagination UI;
   // the old default of 50 hid most records in the ALL view).
-  const entriesKey = `/api/pm-schedules/entries?year=${year}&limit=2000${statusFilter !== 'ALL' ? `&approvalStatus=${statusFilter}` : ''}`;
-  const { data: entriesData, isLoading } = useSWR(entriesKey, { refreshInterval: 15000 });
-  // Client-side filter entries to the selected date range
+  const statusQs = statusFilter !== 'ALL' ? `&approvalStatus=${statusFilter}` : '';
+  const entriesUrls = useMemo(
+    () => years.map(y => `/api/pm-schedules/entries?year=${y}&limit=2000${statusQs}`),
+    [years, statusQs],
+  );
+  const entriesKey = entriesUrls.length ? (['pm-entries', ...entriesUrls] as const) : null;
+  const { data: entriesData, isLoading } = useSWR(
+    entriesKey,
+    async ([, ...urls]: readonly string[]) => {
+      const pages = await Promise.all(urls.map(u => apiClient.get<{ data: ScheduleEntry[] }>(u)));
+      return { data: pages.flatMap(p => p?.data ?? []) };
+    },
+    { refreshInterval: 15000 },
+  );
+  // Client-side filter entries to the selected date range. The day key must be
+  // read in the operator's zone: slicing the stored UTC instant puts a
+  // 2026-07-16 00:30 IST entry on 2026-07-15 and drops it at a range edge.
   const allEntries: ScheduleEntry[] = entriesData?.data ?? [];
   const entries = allEntries.filter(e => {
-    const d = e.plannedDate?.slice(0, 10);
+    const d = isoToDateInput(e.plannedDate, datetimeTz);
     if (!d) return true;
     return d >= dateFrom && d <= dateTo;
   });
@@ -195,7 +224,7 @@ export function PmScheduleListPage() {
   const rejectedCount = countsData?.rejected ?? 0;
 
   const refreshAll = () => {
-    globalMutate(entriesKey);
+    if (entriesKey) globalMutate(entriesKey);
     globalMutate('/api/pm-schedules/entries/pending-counts');
   };
 
@@ -219,27 +248,35 @@ export function PmScheduleListPage() {
   // ─── Schedule export (PDF + Excel) with the upload/review/approve trail ───
   const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  // Fetch ALL entries for the year (all statuses), paging past the 200 cap.
+  // Label for the selected span — a cross-year range must not be titled (or
+  // filenamed) with just its first year.
+  const yearLabel = years.length > 1 ? `${years[0]}-${years[years.length - 1]}` : String(years[0]);
+
+  // Fetch ALL entries across EVERY year in the range (all statuses), paging
+  // past the 200 cap. The endpoint is per-year, so the span is fetched year by
+  // year — exporting only `fromYear`'s entries dropped the rest in silence.
   const fetchAllEntries = async (): Promise<any[]> => {
     const all: any[] = [];
-    let p = 1;
-    while (p <= 100) {
-      const res: any = await apiClient.get(`/api/pm-schedules/entries?year=${year}&page=${p}&limit=200`);
-      const batch: any[] = res?.data ?? [];
-      all.push(...batch);
-      const total: number = res?.total ?? all.length;
-      if (batch.length === 0 || all.length >= total) break;
-      p++;
+    for (const y of years) {
+      let p = 1;
+      while (p <= 100) {
+        const res: any = await apiClient.get(`/api/pm-schedules/entries?year=${y}&page=${p}&limit=200`);
+        const batch: any[] = res?.data ?? [];
+        all.push(...batch);
+        const total: number = res?.total ?? batch.length;
+        if (batch.length === 0 || p * 200 >= total) break;
+        p++;
+      }
     }
     return all;
   };
 
   const buildPmReport = async () => {
     const all = await fetchAllEntries();
-    if (all.length === 0) { toast.error('Nothing to export', `No PM schedule entries for ${year}`); return null; }
+    if (all.length === 0) { toast.error('Nothing to export', `No PM schedule entries for ${yearLabel}`); return null; }
     if (all.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(all.length)); return null; }
     const report = await createReport({ reportKey: 'pm-schedule',
-      title: `PM Schedule ${year}`,
+      title: `PM Schedule ${yearLabel}`,
       subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`,
       orientation: 'landscape',
       formatDateTime,
@@ -264,7 +301,7 @@ export function PmScheduleListPage() {
       const built = await buildPmReport();
       if (!built) return;
       await logReportExportOrWarn({ reportType: 'PM Schedule', format: 'PDF', recordCount: built.count }, toast.warning);
-      built.report.save(`pm-schedule-${year}.pdf`);
+      built.report.save(`pm-schedule-${yearLabel}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate PDF');
     } finally { setExporting(false); }
@@ -278,14 +315,19 @@ export function PmScheduleListPage() {
       if (allEntries.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(allEntries.length)); return; }
       await logReportExportOrWarn({ reportType: 'PM Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
       const base = (window as any).__API_BASE__ ?? '';
-      const res = await fetch(`${base}/api/pm-schedules/entries/export.xlsx?year=${year}`, {
-        headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}` },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `pm-schedule-${year}.xlsx`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      // The server builds one workbook per year, so a cross-year range
+      // downloads one file per year. Exporting only `fromYear` would drop the
+      // rest without saying so.
+      for (const y of years) {
+        const res = await fetch(`${base}/api/pm-schedules/entries/export.xlsx?year=${y}`, {
+          headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `pm-schedule-${y}.xlsx`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      }
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not download Excel');
     } finally { setExporting(false); }

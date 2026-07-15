@@ -11,6 +11,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { startOfDayIso, endOfDayIso } from '@/lib/datetime-input';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 
@@ -375,7 +376,7 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
 }
 
 export function FilterLifecycleReportPage() {
-  const { formatDateTime, formatDate } = useDatetimeFormat();
+  const { formatDateTime, formatDate, config: datetimeConfig } = useDatetimeFormat();
   const { toast } = useToast();
   const exportLimit = useExportLimit();
   // Phase 5C: lifecycle.export gate = ['REPORT_EXPORT','REPORT_GENERATE'] — SAME as old check.
@@ -475,8 +476,12 @@ export function FilterLifecycleReportPage() {
     return '';
   }, [filterId, ahuId, areaId, blockId, allFilters, allAhus, allAreas, allBlocks]);
 
-  const fromIso = fromDate ? new Date(fromDate).toISOString() : '';
-  const toIso = toDate ? new Date(toDate).toISOString() : '';
+  // `new Date('2026-07-15')` is UTC midnight, so the old bounds started the
+  // range 05:30 into the operator's IST day and ended it 18.5h early — an
+  // inspector-facing report silently omitting records. Bound the LOCAL day:
+  // from = its first instant, to = its last (inclusive).
+  const fromIso = startOfDayIso(fromDate, datetimeConfig.timezone);
+  const toIso = endOfDayIso(toDate, datetimeConfig.timezone);
   const periodLine = fromDate || toDate
     ? `Period: ${fromDate ? formatDate(fromDate) : 'Start'} → ${toDate ? formatDate(toDate) : 'Now'}`
     : 'Period: All Time';

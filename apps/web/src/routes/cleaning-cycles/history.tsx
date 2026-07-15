@@ -6,7 +6,9 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationDefaults } from '../../hooks/use-pagination-config';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { Pagination } from '@/components/ui/pagination';
+import { api } from '../../lib/api-client';
 import { createReport } from '../../lib/pdf-report';
+import { startOfDayIso, endOfDayIso } from '@/lib/datetime-input';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
@@ -24,6 +26,12 @@ import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../typ
 import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart, effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
 const MSU_COLS = ['sNo', 'filter', 'statusChange', 'dateTime', 'updatedBy', 'remarks'];
 
+// Mirrors the `CAP` in filter-operations.service.ts#getCleaningRecord: the
+// server takes at most this many cycles into its merge index, so an export can
+// never contain more however high the configured export limit is set. Keep in
+// step with that constant.
+const SERVER_CYCLE_CAP = 5000;
+
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string; border: string }> = {
   IN_PROGRESS: { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400 animate-pulse', border: 'border-blue-200' },
   COMPLETED: { label: 'Completed', bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-400', border: 'border-green-200' },
@@ -37,7 +45,7 @@ export function CleaningCycleHistoryPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const exportLimit = useExportLimit();
-  const { formatDateTime } = useDatetimeFormat();
+  const { formatDateTime, config: datetimeConfig } = useDatetimeFormat();
   const { labelsFor } = useReportLabels();
   const ccL = labelsFor('cleaning-cycles');
   const msuL = labelsFor('manual-status-updates');
@@ -109,8 +117,13 @@ export function CleaningCycleHistoryPage() {
   if (blockId) queryParams.set('blockId', blockId);
   if (areaId) queryParams.set('areaId', areaId);
   if (ahuId) queryParams.set('ahuId', ahuId);
-  if (fromDate) queryParams.set('from', new Date(fromDate).toISOString());
-  if (toDate) queryParams.set('to', new Date(toDate).toISOString());
+  // Bound the operator's LOCAL day, inclusive at both ends (the server compares
+  // gte/lte). `new Date('2026-07-15')` is UTC midnight, which in IST starts the
+  // range 5.5h late and ends it 18.5h early.
+  const fromIso = startOfDayIso(fromDate, datetimeConfig.timezone);
+  const toIso = endOfDayIso(toDate, datetimeConfig.timezone);
+  if (fromIso) queryParams.set('from', fromIso);
+  if (toIso) queryParams.set('to', toIso);
 
   const { data, isLoading } = useSWR<PaginatedResponse<any>>(`/api/filters/cleaning-record?${queryParams}`);
 
@@ -119,8 +132,9 @@ export function CleaningCycleHistoryPage() {
     : 'All Filters';
 
   const records = (data?.data ?? []) as any[];
-  // Only real cleaning cycles feed the PDF export (manual rows have no stages).
-  const cycles = records.filter((r) => r._kind !== 'manual');
+  // Only real cleaning cycles feed the export (manual rows have no stages) —
+  // selected inside fetchExportCycles, which reads the whole set rather than
+  // this page.
   const totalPages = data?.totalPages ?? 1;
   const total = data?.total ?? 0;
 
@@ -132,8 +146,46 @@ export function CleaningCycleHistoryPage() {
   // getStageInfo / getReading / fmtMinutes / getDryerStart now live in
   // @/lib/cleaning-cycle-report (shared with the Filter Lifecycle Report).
 
-  const buildCleaningRows = (): string[][] =>
-    cycles.map((c, idx: number) => {
+  /**
+   * Fetch the WHOLE filtered cleaning record, not just the page on screen.
+   * `cycles` above is one page (`perPage` rows), so exporting it shipped ~10
+   * rows under a header claiming the full total — and made the export-limit
+   * guard inert, since a page's length can never exceed the limit.
+   * Returns null (after toasting) when the real count is over the limit.
+   */
+  const fetchExportCycles = async (): Promise<any[] | null> => {
+    const all: any[] = [];
+    let p = 1;
+    // Same paging idiom as filter-lifecycle.tsx: the server caps `limit` at 100.
+    while (p <= 100) {
+      const u = new URLSearchParams(queryParams);
+      u.set('page', String(p));
+      u.set('limit', '100');
+      const res: any = await api.get(`/api/filters/cleaning-record?${u.toString()}`);
+      const batch: any[] = res?.data ?? [];
+      all.push(...batch);
+      // Refuse as soon as the real cycle count passes the limit, so an oversized
+      // export doesn't drag the whole set over the wire before being rejected.
+      const soFar = all.filter((r) => r._kind !== 'manual').length;
+      if (soFar > exportLimit.maxRecords) {
+        toast.error('Export too large', exportLimit.tooLargeMessage(soFar));
+        return null;
+      }
+      const t: number = res?.total ?? all.length;
+      if (batch.length === 0 || all.length >= t) break;
+      p++;
+    }
+    const exported = all.filter((r) => r._kind !== 'manual');
+    // The configured export limit can sit above the server's own cap, in which
+    // case the guard above never fires and the set arrives silently short.
+    if (exported.length >= SERVER_CYCLE_CAP) {
+      toast.warning('Export truncated', `Only the most recent ${SERVER_CYCLE_CAP.toLocaleString()} cycles are included — the server caps the record at that size. Narrow the period or filter to export the rest.`);
+    }
+    return exported;
+  };
+
+  const buildCleaningRows = (rows: any[]): string[][] =>
+    rows.map((c, idx: number) => {
         const attrs = filterAttrMap.get(c.filterId) ?? {};
         const washIn = getStageInfo(c.events ?? [], 'WASH_IN');
         const washOut = getStageInfo(c.events ?? [], 'WASH_OUT');
@@ -164,42 +216,57 @@ export function CleaningCycleHistoryPage() {
         ];
       });
 
-  const buildHistoryReport = async () => {
-    if (cycles.length === 0) return null;
-    if (cycles.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(cycles.length)); return null; }
+  const buildHistoryReport = async (rows: any[]) => {
+    if (rows.length === 0) return null;
     const period = fromDate || toDate
       ? `${fromDate ? formatDateTime(fromDate) : 'Start'} to ${toDate ? formatDateTime(toDate) : 'Now'}`
       : 'All Time';
+    // The server caps its merge index at SERVER_CYCLE_CAP rows, so a larger
+    // selection is truncated before it ever reaches us. Say so on the document
+    // rather than letting the header imply it is complete.
+    const truncated = rows.length >= SERVER_CYCLE_CAP;
     const report = await createReport({ reportKey: 'cleaning-cycle-history',
       title: ccL.title,
-      subtitle: ccL.subtitle || `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${total} cycle(s)`,
+      // Count the cycles actually in the table below. The on-screen `total`
+      // also counts manual status updates, which this export excludes — quoting
+      // it here made the header overstate the document's own contents.
+      subtitle: ccL.subtitle || `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${rows.length} cycle(s)${truncated ? ` (truncated at the ${SERVER_CYCLE_CAP.toLocaleString()}-record server limit — narrow the period or filter to export the rest)` : ''}`,
       orientation: 'landscape',
       formatDateTime,
       legend: [{ abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' }],
     });
-    report.addTable({ head: ccHead, body: buildCleaningRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
+    report.addTable({ head: ccHead, body: buildCleaningRows(rows), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
     return report;
   };
 
   const exportPdf = async () => {
     setDownloading(true);
     try {
-      const report = await buildHistoryReport();
+      const rows = await fetchExportCycles();
+      if (!rows) return;
+      if (rows.length === 0) { toast.error('Nothing to export', 'This selection contains no cleaning cycles.'); return; }
+      const report = await buildHistoryReport(rows);
       if (!report) return;
-      await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'PDF', recordCount: cycles.length }, toast.warning);
+      await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'PDF', recordCount: rows.length }, toast.warning);
       report.save(`cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setDownloading(false); }
   };
 
-  const buildHistorySnapshot = async () => { const report = await buildHistoryReport(); return report ? report.getSnapshot() : null; };
+  const buildHistorySnapshot = async () => {
+    const rows = await fetchExportCycles();
+    if (!rows) return null;
+    const report = await buildHistoryReport(rows);
+    return report ? report.getSnapshot() : null;
+  };
 
   const exportExcel = async () => {
-    if (cycles.length === 0) return;
-    if (cycles.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(cycles.length)); return; }
     setDownloading(true);
     try {
-      await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'Excel', recordCount: cycles.length }, toast.warning);
-      exportToExcel({ filename: `cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Cleaning Record', head: ccHead, rows: buildCleaningRows() });
+      const rows = await fetchExportCycles();
+      if (!rows) return;
+      if (rows.length === 0) { toast.error('Nothing to export', 'This selection contains no cleaning cycles.'); return; }
+      await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'Excel', recordCount: rows.length }, toast.warning);
+      exportToExcel({ filename: `cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Cleaning Record', head: ccHead, rows: buildCleaningRows(rows) });
     } finally { setDownloading(false); }
   };
 
@@ -221,7 +288,9 @@ export function CleaningCycleHistoryPage() {
               </p>
             </div>
           </div>
-          {canExportPdf && cycles.length > 0 && (
+          {/* Gate on the whole filtered set, not this page: a page holding only
+              manual rows hid the export even when other pages had cycles. */}
+          {canExportPdf && total > 0 && (
             <>
               <ExportMenu surface="cleaning-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
                 className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40" />

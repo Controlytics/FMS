@@ -4,6 +4,7 @@ import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { isoToDatetimeInput, toIsoIfNaiveDatetime } from '@/lib/datetime-input';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
 import { ManualEntryBadge } from '@/components/manual-entry-badge';
 
@@ -176,7 +177,14 @@ const NOTIFICATION_TYPES = ['ACCOUNT_LOCKED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABL
 export function FilterDataManagementPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { formatDateTime } = useDatetimeFormat();
+  const { formatDateTime, config: datetimeConfig } = useDatetimeFormat();
+  // datetime-local inputs carry no zone, so every stored instant must be
+  // converted to the configured zone's wall clock on the way in and back to an
+  // explicit-UTC instant on the way out — otherwise the input shows the UTC
+  // clock while the label beside it shows local, and saving shifts the record
+  // by the zone offset. See lib/datetime-input.ts.
+  const tz = datetimeConfig.timezone;
+  const toInput = (iso: string | null | undefined) => isoToDatetimeInput(iso, tz);
   const [tab, setTab] = useState<string>('retirements');
   const [processing, setProcessing] = useState(false);
   const [search, setSearch] = useState('');
@@ -355,7 +363,7 @@ export function FilterDataManagementPage() {
       const body: any = {};
       if (editFields.name !== undefined) body.name = editFields.name;
       if (editFields.filterSet !== undefined) body.filterSet = editFields.filterSet;
-      if (editFields.updatedAt !== undefined) body.updatedAt = editFields.updatedAt;
+      if (editFields.updatedAt !== undefined) body.updatedAt = toIsoIfNaiveDatetime(editFields.updatedAt, tz);
       await apiClient.put(`/api/super-admin/filter-data/retirements/${id}`, body);
       toast.success('Updated', 'Retirement record updated silently');
       setEditingId(null); setEditFields({}); refreshAll();
@@ -378,7 +386,7 @@ export function FilterDataManagementPage() {
     try {
       const body: any = {};
       for (const f of ['remarks', 'performedBy', 'replacedAt', 'oldFilterId', 'oldFilterName', 'newFilterId', 'newFilterName']) {
-        if (editFields[f] !== undefined) body[f] = editFields[f];
+        if (editFields[f] !== undefined) body[f] = toIsoIfNaiveDatetime(editFields[f], tz);
       }
       await apiClient.put(`/api/super-admin/filter-data/replacements/${id}`, body);
       toast.success('Updated', 'Replacement record updated silently');
@@ -394,29 +402,29 @@ export function FilterDataManagementPage() {
         cycleCode: row.cycleCode ?? '',
         status: row.status ?? 'IN_PROGRESS',
         cleaningReasonLabel: row.cleaningReasonLabel ?? '',
-        startedAt: row.startedAt ? row.startedAt.slice(0, 16) : '',
-        completedAt: row.completedAt ? row.completedAt.slice(0, 16) : '',
-        terminatedAt: row.terminatedAt ? row.terminatedAt.slice(0, 16) : '',
+        startedAt: toInput(row.startedAt),
+        completedAt: toInput(row.completedAt),
+        terminatedAt: toInput(row.terminatedAt),
         terminationReason: row.terminationReason ?? '',
         sequenceNumber: row.sequenceNumber ?? '',
         dryerDurationMinutes: row.dryerDurationMinutes ?? '',
-        dryerStartedAt: row.dryerStartedAt ? row.dryerStartedAt.slice(0, 16) : '',
+        dryerStartedAt: toInput(row.dryerStartedAt),
       });
     } else if (entity === 'event') {
       setRowEditFields({
         eventType: row.eventType ?? '',
         fromState: row.fromState ?? '',
         toState: row.toState ?? '',
-        performedAt: row.performedAt ? row.performedAt.slice(0, 16) : '',
+        performedAt: toInput(row.performedAt),
         remarks: row.remarks ?? '',
       });
     } else if (entity === 'pm-entry') {
       // pm-entry row — editable fields on the underlying pm_schedule_entries row
       setRowEditFields({
         month: row.month ?? '',
-        plannedDate: row.plannedDate ? row.plannedDate.slice(0, 16) : '',
-        windowStart: row.windowStart ? row.windowStart.slice(0, 16) : '',
-        windowEnd: row.windowEnd ? row.windowEnd.slice(0, 16) : '',
+        plannedDate: toInput(row.plannedDate),
+        windowStart: toInput(row.windowStart),
+        windowEnd: toInput(row.windowEnd),
         toleranceDays: row.toleranceDays ?? '',
         approvalStatus: row.approvalStatus ?? '',
         approvalRemarks: row.approvalRemarks ?? '',
@@ -430,7 +438,7 @@ export function FilterDataManagementPage() {
         targetUserId: row.targetUserId ?? '',
         forRole: row.forRole ?? '',
         isRead: row.isRead === true ? 'true' : 'false',
-        readAt: row.readAt ? row.readAt.slice(0, 16) : '',
+        readAt: toInput(row.readAt),
       });
     } else if (entity === 'admin-request') {
       setRowEditFields({
@@ -466,8 +474,9 @@ export function FilterDataManagementPage() {
       };
       const endpoint = endpointMap[rowEditDialog.entity];
       // Coerce numeric fields + drop empty strings so the server doesn't try
-      // to write '' into an integer column. Date inputs come back as
-      // 'YYYY-MM-DDTHH:mm' — leave them as-is; backend parses ISO-ish.
+      // to write '' into an integer column. Date inputs come back as the naive
+      // 'YYYY-MM-DDTHH:mm' the operator saw — convert to an explicit-UTC
+      // instant, or the server's `new Date(...)` re-reads them in ITS zone.
       const body: Record<string, any> = {};
       const numericKeys = new Set(['sequenceNumber', 'dryerDurationMinutes', 'month', 'toleranceDays']);
       const booleanKeys = new Set(['isRead']);
@@ -479,7 +488,7 @@ export function FilterDataManagementPage() {
         } else if (booleanKeys.has(k)) {
           body[k] = v === 'true' || v === true;
         } else {
-          body[k] = v;
+          body[k] = toIsoIfNaiveDatetime(v, tz);
         }
       }
       await apiClient.put(`${endpoint}/${rowEditDialog.id}`, body);
@@ -563,7 +572,9 @@ export function FilterDataManagementPage() {
         if (v === '' || v === null || v === undefined) continue;
         if (numericKeys.has(k)) { const n = Number(v); if (Number.isFinite(n)) body[k] = n; }
         else if (booleanKeys.has(k)) body[k] = v === 'true' || v === true;
-        else body[k] = v;
+        // Back/future-dated create: the picked wall clock is in the operator's
+        // configured zone, so it converts exactly like an edit does.
+        else body[k] = toIsoIfNaiveDatetime(v, tz);
       }
       await apiClient.post(endpointMap[createDialog.entity], body);
       const labelMap: Record<RowEntity, string> = {
@@ -775,7 +786,7 @@ export function FilterDataManagementPage() {
                       </td>
                       <td className="px-5 py-3.5 text-[12px] tabular-nums whitespace-nowrap">
                         {isEditing ? (
-                          <input type="datetime-local" value={editFields.updatedAt ?? r.updatedAt?.slice(0, 16)}
+                          <input type="datetime-local" value={editFields.updatedAt ?? toInput(r.updatedAt)}
                             onChange={e => setEditFields(p => ({ ...p, updatedAt: e.target.value }))}
                             className="border border-cyan-300 rounded-lg px-2 py-1 text-[11px] bg-white w-44" />
                         ) : (
@@ -796,7 +807,7 @@ export function FilterDataManagementPage() {
                             </>
                           ) : (
                             <>
-                              <button onClick={() => { setEditingId(r.id); setEditFields({ name: r.name, filterSet: r.filterSet ?? '', updatedAt: r.updatedAt?.slice(0, 16) ?? '' }); }}
+                              <button onClick={() => { setEditingId(r.id); setEditFields({ name: r.name, filterSet: r.filterSet ?? '', updatedAt: toInput(r.updatedAt) }); }}
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
@@ -896,7 +907,7 @@ export function FilterDataManagementPage() {
                       </td>
                       <td className="px-3 py-3 text-[12px] tabular-nums whitespace-nowrap">
                         {isEditing ? (
-                          <input type="datetime-local" value={editFields.replacedAt ?? r.replacedAt?.slice(0, 16)}
+                          <input type="datetime-local" value={editFields.replacedAt ?? toInput(r.replacedAt)}
                             onChange={e => setEditFields(p => ({ ...p, replacedAt: e.target.value }))}
                             className="border border-cyan-300 rounded px-2 py-1 text-[11px] bg-white w-44" />
                         ) : (
@@ -917,7 +928,7 @@ export function FilterDataManagementPage() {
                             </>
                           ) : (
                             <>
-                              <button onClick={() => { setEditingId(r.id); setEditFields({ oldFilterName: r.oldFilterName, oldFilterId: r.oldFilterId, newFilterName: r.newFilterName, newFilterId: r.newFilterId, performedBy: r.performedBy, remarks: r.remarks ?? '', replacedAt: r.replacedAt?.slice(0, 16) ?? '' }); }}
+                              <button onClick={() => { setEditingId(r.id); setEditFields({ oldFilterName: r.oldFilterName, oldFilterId: r.oldFilterId, newFilterName: r.newFilterName, newFilterId: r.newFilterId, performedBy: r.performedBy, remarks: r.remarks ?? '', replacedAt: toInput(r.replacedAt) }); }}
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
@@ -1341,7 +1352,7 @@ export function FilterDataManagementPage() {
                                   <option value="false">No</option>
                                 </select>
                               ) : isDate ? (
-                                <input type="datetime-local" value={editFields[col] ?? (rawVal ? rawVal.slice(0, 16) : '')}
+                                <input type="datetime-local" value={editFields[col] ?? toInput(rawVal)}
                                   onChange={e => setEditFields(p => ({ ...p, [col]: e.target.value }))}
                                   className="border border-cyan-300 rounded px-2 py-1 text-[11px] bg-white w-40" />
                               ) : (
@@ -1373,7 +1384,7 @@ export function FilterDataManagementPage() {
                                   const body: any = {};
                                   for (const [k, v] of Object.entries(editFields)) {
                                     if (typeof row[k] === 'boolean') body[k] = v === 'true';
-                                    else body[k] = v;
+                                    else body[k] = toIsoIfNaiveDatetime(v, tz);
                                   }
                                   await apiClient.put(activeGenericTab.endpoint + '/' + rowId, body);
                                   toast.success('Updated', 'Record updated silently');
@@ -1396,7 +1407,7 @@ export function FilterDataManagementPage() {
                                 const fields: Record<string, string> = {};
                                 activeGenericTab.columns.forEach(col => {
                                   const v = row[col];
-                                  if (v && typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) fields[col] = v.slice(0, 16);
+                                  if (v && typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) fields[col] = toInput(v);
                                   else if (typeof v === 'boolean') fields[col] = String(v);
                                   else fields[col] = String(v ?? '');
                                 });
