@@ -1,5 +1,106 @@
 # Changelog
 
+## [Unreleased] — Enterprise-audit High findings, round 2: the last 5 (2026-07-15)
+
+Verified the 5 remaining Highs from `wf_6ea8254c-3b2` refute-by-default against HEAD.
+**None had been touched by the earlier batch** — every buggy construct was still
+present verbatim. All 5 are now resolved (`320281d`, `221b8fc`, `c6603ed`). This
+takes the audit's 38 Highs to fully triaged. Detail:
+`tasks/ENTERPRISE-AUDIT-HIGHS-TRIAGE-2026-07-15.md`.
+
+- **Filter Lifecycle silently omitted block-direct AHUs** (`320281d`). An AHU sits
+  either directly under a block (`blockId` set, `areaId` null) or under an area, but
+  the scope cascade tested only the area path — so selecting a Block dropped every
+  block-direct AHU from the dropdown and, via `allowedAhuIds`, all of their filters
+  from the report. **Reported as "latent"; it is not** — this database has 7 such AHUs
+  carrying 35 filters, so the report has been under-reporting by that much with no
+  warning, which is the worst failure mode for a §11 record. `blockId` was already on
+  the payload; it just wasn't used. Grepped for the same cascade elsewhere: one-off.
+- **PM "To Review" / "To Approve" tabs returned 400** (`320281d`). The `/entries`
+  querystring enum was missing `PENDING_REVIEW`/`PENDING_APPROVAL`, so AJV rejected
+  before the handler ran and the table rendered empty with no error — while the header
+  badge, counted from the ALL tab, showed a non-zero count. A reviewer saw "nothing to
+  review" with real entries waiting. `'ALL'` already means no-filter, so no service
+  change.
+- **sanitize-html 2.17.2 → 2.17.6** (`320281d`, GHSA-9mrh-v2v3-xpfm). **Hygiene, not a
+  live vulnerability** — the advisory is an `allowedTags` bypass that only applies to
+  configs allowing `option`/`textarea`, and `lib/sanitize.ts` passes `allowedTags: []`;
+  the advisory's own PoC and 10 variants all escape cleanly against our config. The `^`
+  already permitted the patch.
+- **The input sanitizer had ZERO tests** (`320281d`) — noticed while bumping it.
+  Bumping the library under a security control with nothing to catch a behaviour change
+  is a blind swap. 17 tests added. They pin two things worth knowing: **`stripHtml` does
+  not strip, it ESCAPES** (`<b>x</b>` → `&lt;b&gt;x&lt;/b&gt;` — the name misleads, and
+  the first draft of these tests asserted the name and was simply wrong), and it
+  entity-encodes bare `&`/`<` in legitimate operator text (`Wear & tear` →
+  `Wear &amp; tear`) — the lossiness behind the 2026-07-04 `sanitizeStrings` revert.
+  Pinned, not fixed.
+
+### Scheduled DB backups now actually exist (`221b8fc`)
+
+Zero `schtasks`/`Register-ScheduledTask` existed anywhere in `scripts/`; the only
+automated `pg_dump` was `upgrade.ps1`'s one-shot pre-upgrade dump, and the only routine
+backup path was an operator manually clicking Export. Yet `PHARMA_DEPLOYMENT_21CFR.md`
+told operators the installer "Configures scheduled DB backups" and §5.3's inspection
+checklist listed them as installer-satisfied — a **§11.10(c) record-protection control
+certified at IQ but non-existent**. The "no cron infrastructure" excuse never applied:
+the doc itself names Windows Task Scheduler, present on every target.
+
+- New `scripts/backup-db.ps1` (nightly `pg_dump` → `ProgramData\backups`, 14-day
+  rotation) + `scripts/register-backup-task.ps1`, registered from **both** `install.ps1`
+  and `upgrade.ps1` — the `.iss` upgrade path runs `upgrade.ps1` directly and never calls
+  install, so install-only registration would have left every upgrading customer with no
+  backup job while §4 told their QA otherwise.
+- Runs as SYSTEM (no stored password; `schtasks /query /xml` exposes nothing); the DB
+  password is never on a command line.
+- Rotation prunes **only** this job's `nightly-*.sql` — the directory is shared with
+  `pre-upgrade-v*.sql` dumps, and a blanket age sweep would have eaten exactly the dumps
+  worth keeping longest. Pruning happens only **after** a verified-good dump, and a
+  partial/zero-byte dump is deleted rather than left looking like a backup.
+- Failure is visible three ways: `LAST-BACKUP-STATUS.txt` (always rewritten via a
+  `Finish` function every exit path routes through), `logs\backup.log`, and a non-zero
+  Task Scheduler result. The status file's **timestamp is itself the alarm** — a deleted
+  or disabled task reads as stale, which a log alone cannot show.
+- `build-installer.ps1` stages both new scripts: it stages by **named list, not glob**,
+  so they'd have been correct on disk and silently absent from the artifact — and
+  `install.ps1` throws on a missing sibling, aborting the install *after* DB provisioning.
+- Doc: `:123` was false twice ("the app's dynamic backup" — it's pg_dump; "copied
+  off-box" — same disk) and is rewritten to name the task, path, rotation and status
+  file, and to state plainly that off-box copying and test-restores are site procedures
+  the installer does **not** perform. `:154` mixed one implemented control with two
+  unimplemented ones in a single checkbox — split into a verifiable "status file reads OK
+  with last night's timestamp" and a "site SOP, not installer-provided". `:172` is now
+  true as written and left alone.
+- **Not verified**: the task actually firing nightly under SYSTEM against the bundled PG
+  on :5433 — that needs a real install. Verified by inspection, real cmdlet/parameter
+  signature checks (which caught `New-ScheduledTaskSettings`, a cmdlet that does not
+  exist), `CommandLineToArgvW` on the argument string, and a real end-to-end dump against
+  the dev DB (28.9 MB / 88k lines, exit 0, `audit_trail` data confirmed inside).
+
+### The AHU bulk-upload dialog is gone (`c6603ed`)
+
+It was a 100% dead flow: it offered a CSV template and parsed CSV client-side, while the
+endpoint has only ever parsed `.xlsx` (`wb.xlsx.load`). No file could satisfy both. It
+also posted to the create endpoint rather than the `/validate` dry-run, and never sent
+the reauth header. **Removed rather than repaired** because it was stale as well as dead:
+it hardcoded `['Pre','HEPA','Fine','ULPA','Carbon','Bag']` against live master data of
+`PRE/CYCLIC/FINE/HEPA` — `ULPA`/`Carbon`/`Bag` don't exist, `CYCLIC` is missing, and
+`Pre`/`Fine` are case-mismatched. Bulk upload survives on the Filters page; the backend
+(`/bulk-upload-filters`, `/validate`, `FILTER_BULK_UPLOAD`) is untouched.
+
+Also fixes a pre-existing trap in the **surviving** Filters-page dialog:
+`handleBulkUploadSubmit` set the `'uploading'` spinner before `reauth.execute`, stranding
+the dialog on a spinner when the operator cancelled the password prompt. Note the obvious
+one-line fix is **insufficient** — the callback re-throws `REAUTH_FAILED` for a re-prompt
+with the step already `'uploading'`, so the hook re-prompts over a spinner and cancelling
+there strands you identically. The step now enters inside the callback and is restored to
+`'preview'` on any throw. Latent today only because `BULK_UPLOAD_FILTERS` reauth ships
+off — it arms the moment anyone enables it.
+
+**Suites:** `apps/api` **1047 / 0 / 12** (98 files), `apps/web` **464 / 0** (35 files).
+Typecheck clean; `vite build` OK; `exceljs` still its own 940 kB lazy chunk. No count
+changes to models/enums/permissions/reauth actions/modules/config defs.
+
 ## [Unreleased] — Enterprise-audit High findings: 24 verified, 24 fixed + a critical restore regression (2026-07-15)
 
 Worked the still-open **High** findings from the 2026-07-13 enterprise audit
