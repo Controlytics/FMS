@@ -48,6 +48,10 @@ export const AUDIT_ACTIONS = {
   // Cleaning stage interlock — QA approve/reject signature (2026-06-12)
   STAGE_APPROVAL_APPROVED: 'STAGE_APPROVAL_APPROVED',
   STAGE_APPROVAL_REJECTED: 'STAGE_APPROVAL_REJECTED',
+  // Closed WITHOUT a decision — the filter left the gate before the approver acted,
+  // so no e-signature was ever given. Not a decision; the inspector's record of WHY
+  // a §11 approval request ended undecided (2026-07-15).
+  STAGE_APPROVAL_SUPERSEDED: 'STAGE_APPROVAL_SUPERSEDED',
   DATA_VIEWED: 'DATA_VIEWED',
   DATA_EXPORTED: 'DATA_EXPORTED',
   UNAUTHORIZED_ACTION_ATTEMPT: 'UNAUTHORIZED_ACTION_ATTEMPT',

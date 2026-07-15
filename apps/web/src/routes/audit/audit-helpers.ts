@@ -216,6 +216,13 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const rejectToStateKeyRaw = (after.rejectToStateKey as string) || (before.rejectToStateKey as string) || '';
   const rejectToStateKey = rejectToStateKeyRaw ? titleCase(rejectToStateKeyRaw) : '';
   const filterName = (after.filterName as string) || (before.filterName as string) || '';
+  // 2026-07-15: {currentState} for STAGE_APPROVAL_SUPERSEDED — the lifecycle state
+  // the filter had already reached when its approval request was closed undecided.
+  // Prettified like the other stage keys (CLEANING_CYCLE_COMPLETED → "Cleaning Cycle
+  // Completed"). Same omission as the 2026-05-20 / 2026-06-22 fixes above: a template
+  // placeholder with no substitution here renders literally.
+  const currentStateRaw = (after.currentState as string) || (before.currentState as string) || '';
+  const currentState = currentStateRaw ? titleCase(currentStateRaw) : '';
 
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
@@ -241,7 +248,8 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{status\}/g, status)
       .replace(/\{stageKey\}/g, stageKey)
       .replace(/\{filterName\}/g, filterName)
-      .replace(/\{rejectToStateKey\}/g, rejectToStateKey);
+      .replace(/\{rejectToStateKey\}/g, rejectToStateKey)
+      .replace(/\{currentState\}/g, currentState);
     // Drop empty quoted placeholders: an unnamed record (e.g. a PM schedule
     // review/approve row carries no name — the AHU is shown separately) would
     // otherwise render 'PM schedule "" reviewed by EMP-123'. An empty "" is

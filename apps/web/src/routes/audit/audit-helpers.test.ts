@@ -121,3 +121,45 @@ describe('audit-helpers — before/after diff', () => {
       .toEqual([{ field: 'Micron Size', from: '3', to: '5' }]);
   });
 });
+
+// 2026-07-15: STAGE_APPROVAL_SUPERSEDED — a §11 approval request closed WITHOUT a
+// decision must render as a readable sentence for the inspector. {currentState} had
+// no substitution when the template was added, which is the same defect the
+// 2026-05-20 ({reason}) and 2026-06-22 ({stageKey}/{filterName}) fixes cleaned up.
+describe('audit-helpers — stage approval superseded rendering', () => {
+  // The exact afterValue shape stageApprovalService.supersedeOrphan writes.
+  const row = {
+    action: 'STAGE_APPROVAL_SUPERSEDED',
+    userId: 'superadmin',
+    targetType: 'cleaning_stage_approval',
+    beforeValue: { status: 'PENDING' },
+    afterValue: {
+      status: 'SUPERSEDED',
+      stageKey: 'DRY_OUT',
+      filterName: 'L8/AHU-89/SA/00-01',
+      currentState: 'CLEANING_CYCLE_COMPLETED',
+      reason: 'the filter advanced past this gated stage before the approval was decided, so it can no longer be approved or rejected',
+    },
+  };
+
+  it('renders every placeholder — no literal {token} reaches the inspector', () => {
+    const s = getAuditSummary(row, T);
+    expect(s).not.toMatch(/\{[a-zA-Z]+\}/);
+    expect(s).toContain('L8/AHU-89/SA/00-01');
+    expect(s).toContain('Dry Out');
+    // Prettified, not the raw enum key.
+    expect(s).toContain('Cleaning Cycle Completed');
+    expect(s).not.toContain('CLEANING_CYCLE_COMPLETED');
+    expect(s).toContain('closed without a decision');
+  });
+
+  it('says WHY the request ended undecided', () => {
+    expect(getAuditSummary(row, T)).toContain('can no longer be approved or rejected');
+  });
+
+  it('degrades cleanly when an older row carries no currentState', () => {
+    const partial = { ...row, afterValue: { ...row.afterValue, currentState: undefined } };
+    const s = getAuditSummary(partial, T);
+    expect(s).not.toMatch(/\{[a-zA-Z]+\}/);
+  });
+});

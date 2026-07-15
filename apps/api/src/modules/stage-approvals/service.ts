@@ -65,6 +65,21 @@ async function assertDifferentApprover(ctx: RequestContext, requestedBy: string)
   }
 }
 
+type GateRow = { filterId: string; stageKey: string; cycleId: string | null };
+type LiveFilterState = { currentLifecycleState: string | null; currentCycleId: string | null } | null;
+
+/**
+ * The staleness predicate, shared by the approve/reject guard and the queue()-side
+ * close. Both MUST answer this question identically: a row the queue still offers
+ * but the guard would 409 is exactly the stuck-forever bug.
+ */
+function isFilterAtGate(fd: LiveFilterState, row: GateRow): boolean {
+  if (!fd) return false;
+  if (fd.currentLifecycleState !== row.stageKey) return false;
+  if (row.cycleId && fd.currentCycleId !== row.cycleId) return false;
+  return true;
+}
+
 /**
  * Guard against acting on a STALE (orphaned) approval.
  *
@@ -81,13 +96,15 @@ async function assertDifferentApprover(ctx: RequestContext, requestedBy: string)
  * the filter is no longer parked at this approval's gated stage (or has rolled
  * to a different cycle). The legitimate online flow is unaffected — the filter
  * is still at the gate when its approver acts, so this passes.
+ *
+ * queue() closes such orphans as SUPERSEDED so they stop being offered here.
  */
-async function assertFilterStillAtGate(row: { filterId: string; stageKey: string; cycleId: string | null }) {
+async function assertFilterStillAtGate(row: GateRow) {
   const fd = await prisma.filterDetails.findUnique({
     where: { assetInstanceId: row.filterId },
     select: { currentLifecycleState: true, currentCycleId: true },
   });
-  if (!fd || fd.currentLifecycleState !== row.stageKey || (row.cycleId && fd.currentCycleId !== row.cycleId)) {
+  if (!isFilterAtGate(fd, row)) {
     throw new AppError(
       409,
       'APPROVAL_STALE',
@@ -96,18 +113,112 @@ async function assertFilterStillAtGate(row: { filterId: string; stageKey: string
   }
 }
 
+/**
+ * Close an orphaned PENDING approval as SUPERSEDED — closed WITHOUT a decision.
+ *
+ * There is no honest decision available: the filter left the gate, so approve()
+ * would release an operator who already moved on and reject() would yank a
+ * progressed filter backwards. Recording an APPROVED/REJECTED here would forge an
+ * e-signature no human gave. SUPERSEDED says what actually happened, and the audit
+ * row carries WHY so an inspector can see why a §11 request ended undecided.
+ *
+ * Idempotent: the status predicate in the WHERE means a concurrent/retried queue
+ * read matches zero rows and writes no second audit entry.
+ * Returns true if THIS call closed the row.
+ */
+async function supersedeOrphan(
+  ctx: RequestContext,
+  row: { id: string; stageKey: string; detailsSnapshot: unknown },
+  currentState: string | null,
+): Promise<boolean> {
+  const filterName = (row.detailsSnapshot as any)?.filterName ?? null;
+  const reason =
+    'the filter advanced past this gated stage before the approval was decided, so it can no longer be approved or rejected';
+  return prisma.$transaction(async (tx) => {
+    const claimed = await tx.cleaningStageApproval.updateMany({
+      where: { id: row.id, status: 'PENDING' },
+      data: { status: 'SUPERSEDED', decidedAt: new Date() },
+    });
+    if (claimed.count === 0) return false;
+
+    await auditLog(
+      {
+        userId: ctx.userId,
+        userRole: ctx.userRole,
+        action: 'STAGE_APPROVAL_SUPERSEDED',
+        targetType: 'cleaning_stage_approval',
+        targetId: row.id,
+        beforeValue: { status: 'PENDING' },
+        afterValue: {
+          status: 'SUPERSEDED',
+          stageKey: row.stageKey,
+          filterName,
+          currentState,
+          reason,
+        },
+        reason,
+        // Deliberately no signatureMeaning — nobody signed anything. This is the
+        // system closing an undecidable request, not an approver's decision.
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        sessionId: ctx.sessionId,
+      },
+      tx,
+    );
+    return true;
+  });
+}
+
 export const stageApprovalService = {
-  /** PENDING items the current user can act on (their role, or all for SUPER_ADMIN). */
+  /**
+   * PENDING items the current user can act on (their role, or all for SUPER_ADMIN).
+   *
+   * Orphaned rows are closed as SUPERSEDED here rather than merely hidden. The
+   * queue must not offer a row that approve()/reject() can only 409 on — but a
+   * hidden-yet-PENDING row is a §11 approval request left open forever with no
+   * record of why. Closing on detection is the honest end state, and it is the
+   * only write path available: both update sites sit behind the stale guard.
+   *
+   * Yes, this writes on a GET. Accepted because supersedeOrphan's status
+   * predicate makes it idempotent — a repeated or concurrent read closes nothing
+   * twice and emits no duplicate audit row. Each close gets its own transaction so
+   * one failure neither aborts the read nor the other closes.
+   */
   async queue(ctx: RequestContext) {
     const where =
       ctx.userRole === 'SUPER_ADMIN'
         ? { status: 'PENDING' as const }
         : { status: 'PENDING' as const, approverRole: ctx.userRole };
-    return prisma.cleaningStageApproval.findMany({
+    const rows = await prisma.cleaningStageApproval.findMany({
       where,
       orderBy: { requestedAt: 'desc' },
       select: SUMMARY_SELECT,
     });
+    if (rows.length === 0) return rows;
+
+    // One lookup for the whole page — not a findUnique per row.
+    const live = await prisma.filterDetails.findMany({
+      where: { assetInstanceId: { in: [...new Set(rows.map((r) => r.filterId))] } },
+      select: { assetInstanceId: true, currentLifecycleState: true, currentCycleId: true },
+    });
+    const stateByFilter = new Map(live.map((f) => [f.assetInstanceId, f]));
+
+    const actionable: typeof rows = [];
+    for (const row of rows) {
+      const fd = stateByFilter.get(row.filterId) ?? null;
+      if (isFilterAtGate(fd, row)) {
+        actionable.push(row);
+        continue;
+      }
+      try {
+        await supersedeOrphan(ctx, row, fd?.currentLifecycleState ?? null);
+      } catch (e) {
+        // Don't let a failed close blank the approver's queue — but don't hide it
+        // either, and don't re-offer a row that can only 409.
+        console.error('[stage-approvals] superseding orphan %s failed:', row.id, (e as Error).message);
+      }
+    }
+    return actionable;
   },
 
   /** Broader list — ?status=APPROVED|REJECTED|PENDING for the archive. */

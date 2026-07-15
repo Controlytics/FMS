@@ -1857,6 +1857,11 @@ enum CleaningStageApprovalStatus {
   PENDING
   APPROVED
   REJECTED
+  // Closed WITHOUT a decision: the filter left the gated stage before the
+  // approver acted, so approve/reject are permanently unsafe (assertFilterStillAtGate
+  // 409s). Set lazily by stageApprovalService.queue(). Appended last — ALTER TYPE
+  // ADD VALUE appends in PG, and a mid-list order here reads as drift.
+  SUPERSEDED
 
   @@map("cleaning_stage_approval_status")
 }

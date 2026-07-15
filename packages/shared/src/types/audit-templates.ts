@@ -379,6 +379,12 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Cleaning stage "{stageKey}" rejected for filter "{filterName}" by {actor} — restart from "{rejectToStateKey}"',
     placeholders: ['actor', 'stageKey', 'filterName', 'rejectToStateKey'],
   },
+  STAGE_APPROVAL_SUPERSEDED: {
+    label: 'Cleaning Stage Approval Superseded (Closed Undecided)',
+    category: 'Filter Operations',
+    template: 'Cleaning stage "{stageKey}" approval request for filter "{filterName}" closed without a decision — the filter had already moved on to "{currentState}" ({reason})',
+    placeholders: ['stageKey', 'filterName', 'currentState', 'reason'],
+  },
 
   // Cleaning Profiles
   CLEANING_PROFILE_CREATED: {
