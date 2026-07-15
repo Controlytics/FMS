@@ -142,7 +142,12 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage 'service'), (Join-Pa
 Copy-Item $WinswExe (Join-Path $stage 'service\WinSW-x64.exe') -Force
 # apply-schema.ps1 is shared by provision-db (fresh) + upgrade; upgrade.ps1 drives
 # the upgrade [Run] entry. BOTH must ship or fresh install AND upgrade break.
-foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','unregister-services.ps1','install.ps1','upgrade.ps1','uninstall.ps1') {
+# NAMED LIST, not a glob - anything omitted here silently does not ship, and the
+# orchestrators call siblings with `& (Join-Path ...)`, which THROWS on a missing
+# file rather than degrading. register-backup-task.ps1 + backup-db.ps1 are the
+# nightly-backup pair (21 CFR §11.10(c)); both install.ps1 and upgrade.ps1 invoke
+# the former, which invokes the latter nightly. Add new sibling scripts HERE.
+foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','unregister-services.ps1','install.ps1','upgrade.ps1','uninstall.ps1','register-backup-task.ps1','backup-db.ps1') {
   Copy-Item (Join-Path $PSScriptRoot $s) (Join-Path $stage 'scripts') -Force
 }
 Copy-Item (Join-Path $repoRoot 'apps\api\prisma\sql') (Join-Path $stage 'runtime\api\prisma\sql') -Recurse -Force -ErrorAction SilentlyContinue

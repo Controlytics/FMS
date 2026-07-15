@@ -25,6 +25,7 @@ param(
   [int]$ApiPort = 3000,
   [int]$PgPort  = 5433,
   [string]$AdminPassword,
+  [int]$BackupRetainDays = 14,
   [switch]$Upgrade,
   [switch]$DryRun
 )
@@ -178,6 +179,14 @@ $regArgs = @{
 if ($DryRun) { $regArgs['DryRun'] = $true }
 & (Join-Path $scriptsDir 'register-services.ps1') @regArgs
 if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: service registration" -ForegroundColor Red; exit 1 }
+
+# 4b. Nightly DB backup task (21 CFR §11.10(c) - record protection). Non-fatal:
+#     a missing backup job must not block the install, but register-backup-task
+#     WARNs loudly so it is not signed off at IQ. upgrade.ps1 calls the same
+#     script, because the installer's upgrade path never runs this file.
+$btArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; RetainDays = $BackupRetainDays }
+if ($DryRun) { $btArgs['DryRun'] = $true }
+& (Join-Path $scriptsDir 'register-backup-task.ps1') @btArgs
 
 # 5. Firewall rule (optional - lets the Android tablet reach the API over LAN).
 if ($DryRun) { Write-Host "[dry-run] netsh advfirewall add rule DigiLog-API TCP $ApiPort" -ForegroundColor Yellow }

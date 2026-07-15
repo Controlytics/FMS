@@ -40,6 +40,7 @@ param(
   [string]$Version = 'unknown',
   [string]$DbService  = 'DigiLogDB',
   [string]$ApiService = 'DigiLogAPI',
+  [int]$BackupRetainDays = 14,
   [switch]$DryRun
 )
 
@@ -124,6 +125,15 @@ if ($DryRun) {
     exit 1
   }
 }
+
+# 5b. (Re-)register the nightly DB backup task. Idempotent, and NOT only an
+#     install-time concern: the installer's [Run] section invokes THIS script
+#     directly on upgrade (never install.ps1), so this is the only place a
+#     customer upgrading from a build that predates the backup feature can pick
+#     it up. Also refreshes the definition if paths/retention changed.
+$btArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; RetainDays = $BackupRetainDays }
+if ($DryRun) { $btArgs['DryRun'] = $true }
+& (Join-Path $PSScriptRoot 'register-backup-task.ps1') @btArgs
 
 # 6. Start the API service + health check.
 if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll http://localhost:$ApiPort/api/health" -ForegroundColor Yellow; exit 0 }

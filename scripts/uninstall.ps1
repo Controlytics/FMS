@@ -26,6 +26,16 @@ $unregArgs = @{ PgBin = $pgBin; ServiceDir = $serviceDir }
 if ($DryRun) { $unregArgs['DryRun'] = $true }
 & (Join-Path $scriptsDir 'unregister-services.ps1') @unregArgs
 
+# Nightly backup task cleanup (best-effort). Must go: it points at
+# {app}\scripts\backup-db.ps1, which the uninstaller is about to delete - a left
+# -behind task would fail every night into a status file nobody reads.
+# The DUMPS THEMSELVES are data and stay under $DataRoot\backups (see -PurgeData).
+if ($DryRun) { Write-Host "[dry-run] unregister scheduled task 'DigiLog Nightly Backup'" -ForegroundColor Yellow }
+else {
+  Unregister-ScheduledTask -TaskName 'DigiLog Nightly Backup' -Confirm:$false -ErrorAction SilentlyContinue
+  Write-Host "Removed scheduled task 'DigiLog Nightly Backup' (existing dumps kept)." -ForegroundColor Gray
+}
+
 # Firewall rule cleanup (best-effort)
 if ($DryRun) { Write-Host "[dry-run] netsh advfirewall delete rule 'DigiLog API'" -ForegroundColor Yellow }
 else { netsh advfirewall firewall delete rule name="DigiLog API" 2>$null | Out-Null }

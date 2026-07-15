@@ -120,7 +120,7 @@ Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 5. Generates `apps/api/.env` with **strong random secrets** + `NODE_ENV=production` + the production hostname.
 6. Registers **NSSM services**: `PostgreSQL` and `DigiLogAPI` (auto-start, restart-on-crash).
 7. Creates a **shortcut** to `https://digilog.pharma.local:3000`.
-8. Configures **scheduled DB backups** (Task Scheduler → the app's dynamic backup, copied off-box).
+8. Registers a **nightly DB backup** (Task Scheduler task "DigiLog Nightly Backup" → `scripts\backup-db.ps1` → `pg_dump` of `digilog_db` into `%ProgramData%\DigiLog\backups`, 14-day rotation, runs as SYSTEM with no stored password). Outcome is written every run to `backups\LAST-BACKUP-STATUS.txt` (OK/FAIL + timestamp) and appended to `logs\backup.log`; a failed run also sets a non-zero Task Scheduler "Last Run Result". **Copying dumps off-box, and periodically test-restoring them, are site procedures the installer does not perform** — see §5.2.
 
 **Result:** the customer double-clicks one `.exe`, clicks through Setup, and DigiLog runs as a service with no Node/npm/terminal and **no reverse proxy**.
 
@@ -151,7 +151,8 @@ The application already provides the Part 11 *technical* controls; production de
 - [ ] Production secrets generated; dev placeholders gone
 - [ ] `NODE_ENV=production`; CORS locked to the production origin
 - [ ] NTP synced; audit-trail hash chain verified intact
-- [ ] Scheduled, tested backups with offsite copies
+- [ ] Scheduled backups running — installer-registered "DigiLog Nightly Backup" task present, and `%ProgramData%\DigiLog\backups\LAST-BACKUP-STATUS.txt` reads `OK` with **last night's** timestamp (a stale timestamp means the job is not protecting records)
+- [ ] Restore **tested** from a dump, and **offsite copies** configured — site SOP, *not* installer-provided (§5.2)
 - [ ] Services auto-start + restart-on-crash (NSSM)
 - [ ] Change-control + access-control SOPs in place
 
