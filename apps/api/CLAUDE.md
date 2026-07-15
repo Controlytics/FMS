@@ -134,10 +134,17 @@ has a **pre-existing intermittent flake** (unrelated to this change — passes
 in isolation and in most full runs; absent `[Config] Validation failed`
 warning rules out data corruption); single-fork masks it in practice.
 
-**Verified baseline** (2026-07-02, single-fork mode):
-**829 passing, 0 failed, 15 skipped (80 files).** If your single-fork run
-shows materially different numbers, investigate before assuming your change
-broke something.
+**Verified baseline** (2026-07-15, single-fork mode):
+**1173 passing, 0 failed, 12 skipped (113 files).** Web: **573/573 (44 files)**.
+If your single-fork run shows materially different numbers, investigate before
+assuming your change broke something.
+
+> **Measure serially or not at all.** Concurrent agents editing this tree while
+> sharing `digilog_test_db` make the count meaningless — 2026-07-15 saw runs of the
+> *same* tree fail in different files (19, 32, 37 failures) purely from the shared
+> `admin` login race, all green once the agents settled. If several agents are live,
+> run only your own touched files and leave the baseline to a serial pass afterwards.
+> (Prior baseline: 829/80 files @ 2026-07-02.)
 
 > The prior "1231 passing / 2 failed" (Wave 8a) baseline went **stale** — by
 > 2026-07-02 the branch carried **83 pre-existing failures** across 14 files
