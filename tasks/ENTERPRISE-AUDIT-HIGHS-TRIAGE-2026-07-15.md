@@ -153,7 +153,77 @@ report can assert an instruction that never existed — verify a deviation again
 actually said, and never let "per your call" stand unchecked. See
 [[feedback_dont_commit_running_agent_files]].
 
+## MEDIUM findings — verified + fixed 2026-07-15 (round 3)
+
+62 high-signal Mediums (security / compliance / data-integrity / concurrency) were
+extracted to `scratchpad/audit/med-highsignal.txt` and verified by two
+refute-by-default agents. **54 CONFIRMED, 2 ALREADY_FIXED, 3 REFUTED-BY-DESIGN.**
+All four clusters are now fixed: `812ffc5`, `b973605`, `bc30219`, `b122436`,
+`3d8e0ea`, `4240d7e`.
+
+**Both agents independently found the same pattern, and it's the one that matters:**
+the 07-13..07-15 fixes landed on the symptom and left the sibling surfaces.
+Backup *restore* was fixed while its CSV parser, truncation check, truncate-coverage
+and export snapshot all stayed broken. Audit-payload masking landed while `GET /sms`
+still returned the same secrets unmasked. `assertCanManageTarget` covered mutations
+while `getById` stayed open. The targetId-overflow fix landed while the delete
+lookups stayed unscoped. See [[feedback_audit_pattern_across_codebase]] — that rule
+existed and I didn't apply it.
+
+**Cluster 1 — data destruction/exposure (`812ffc5`, `b973605`)**
+- `GET /api/sync/since` had **NO authorization gate** — any authenticated account,
+  including zero-permission, could hydrate the entire plant model. Gated on
+  ASSET_VIEW OR FILTER_OPERATE (verified: all 8 active roles hold ASSET_VIEW, so
+  nothing that syncs loses access). **Protected surface — needs tablet verification.**
+- Restore truncated every table but repopulated only those the backup carried → a
+  JSON omitting `audit_trail` destroyed all 16,958 rows and returned 200 (the chain
+  check's `length > 0` guard is false when the key is absent). Now BACKUP_INCOMPLETE.
+- Truncated uploads (>100 MB) silently restored a partial DB → 413 on `file.truncated`.
+- Decompression bombs → 2 GB `maxOutputLength` + declared-size check on the ZIP path.
+- `/backup/validate` was gated on CONFIG_UPDATE, not BACKUP_* — broken both ways.
+- AUDIT_DELETE holders could destroy SUPER_ADMIN rows they cannot READ.
+- **Redaction short-circuit** returned `true` for ANY redacted row; its justifying
+  comment was wrong (the next row's link points at this row's STORED checksum, which
+  an attacker never touches). Now asserts both payloads are NULL.
+- Temp passwords from `Math.random()` + a broken `sort()` shuffle → crypto CSPRNG +
+  Fisher-Yates. **Measured: P(pos0 uppercase) 35.0% broken vs 27.2% uniform.**
+- SMTP TLS `rejectUnauthorized:false` hardcoded in BOTH transporters → secure default.
+
+**Cluster 2 — TOCTOU races (`bc30219`)** — 5 check-then-act sites; predicate moved
+into the WHERE. Worst: report-review, where two approvers racing produced a row that
+was simultaneously REJECTED and APPROVED in the §11 e-signature workflow. Also
+stage-approvals (a losing reject still dragged lifecycle state back), admin-requests
+(two temp passwords for one request), checklist delete, equipment-groups.
+
+**Cluster 3 — audit gaps (`b122436`, `3d8e0ea`)** — 9 surfaces writing no audit row.
+`grep auditLog modules/notifications/` returned NOTHING. 12 actions + 8 templates
+registered (5 were already emitted but never registered → rendered as raw jargon).
+
+**Cluster 4 — mass assignment (`4240d7e`)** — 3 PUTs doing `data: body` without
+`additionalProperties: false`. Two findings stated the mechanism WRONG (claimed AJV
+lacks removeAdditional; it has it by default but only acts when the schema declares
+additionalProperties:false). Settled empirically.
+
+### ⚠ OPEN — data issues the user owns
+- **Block MUPS has TWO active equipment groups** ("Testing" 05-22, "Testing 2" 05-25,
+  same creator). Violates the single-active-group invariant → operators there get
+  `MULTIPLE_EQUIPMENT_GROUPS` on readings and unpinned cycles resolve zero
+  instruments. **Blocks the partial unique index** (`ON equipment_groups(block_id)
+  WHERE is_active`) that would properly close the race — the create() count is now
+  in-tx, which NARROWS but does not close it (READ COMMITTED lets two txs both
+  count 0). User to deactivate one via the UI, then the index can land.
+- **Filter `CWH/F1/AHU-0B/SA/05/06-01`** still Set A; user fixes via UI.
+
+### Known gaps recorded, not fixed
+- `AuditEntry.action` is typed `string`, so a typo in an action literal is invisible
+  to tsc. All 12 hand-checked; typing it `AuditAction` would prevent the class.
+- `/docs` unverified under `@fastify/static@9.3.0` (no test covers it; needs an API restart).
+- LDAP audit has no live-directory verification (no LDAP server available).
+- `npm audit --omit=dev`: 4 remaining (tar, uuid) — neither reachable, neither
+  fixable in-range. **`npm audit fix --force` would DOWNGRADE exceljs 4.4.0→3.4.0**,
+  partially undoing the 07-13 xlsx CVE migration.
+
 ## Baselines to hold
-- api: **1047/0/12** (98 files; single-fork: `cd apps/api && npm test`)
+- api: **1083/0/12** (102 files; single-fork: `cd apps/api && npm test`)
 - web: **464/0** (35 files) — the old "373" baseline quoted at the top of this session was STALE
 - FE changes need `npx vite build` to be live; `packages/shared` changes need `npm run build -w @digilog/shared`.
