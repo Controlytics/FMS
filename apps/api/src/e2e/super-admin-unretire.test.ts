@@ -396,10 +396,15 @@ describe('POST /api/super-admin/filter-data/retirements/:id/unretire', () => {
 
     const res = await unretire(s.retiredFilterId);
 
-    // The handler does not catch — the FK violation surfaces via the error
-    // handler. What matters is that it is NOT a success.
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
-    expect(res.statusCode).not.toBe(200);
+    // Must be 500 specifically, not merely non-2xx: the handler doesn't catch, so
+    // the Prisma FK error carries no statusCode and the error handler defaults it
+    // to 500. Pinning the code proves the request actually reached the handler and
+    // failed INSIDE the transaction. A looser `>= 400` would let a preHandler
+    // short-circuit (e.g. a 401 if SUPER_ADMIN_DATA_EDIT reauth is ever switched on
+    // in the test seed) satisfy the row-survival assertions below trivially — the
+    // rows would survive because nothing ran, and this test would pass for the
+    // wrong reason.
+    expect(res.statusCode).toBe(500);
 
     // ── The rollback proof ──
     // These four row-sets are deleted EARLY in the destruction block, before
