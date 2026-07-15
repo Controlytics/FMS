@@ -12,7 +12,17 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // GET / — List cleaning profiles
   app.get('/', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW')],
+    // FILTER_OPERATE is a READ alternate for the same reason it was added to
+    // checklist-profiles on 2026-07-10: the offline sync engine GETs this, and
+    // operating roles hold FILTER_OPERATE but NONE of FCP_READ / CP_TOGGLE /
+    // VERSION_HISTORY_VIEW (verified against the live roles). Without it every
+    // OPERATOR/SUPERVISOR sync 403'd here and reported "Synced with warnings",
+    // every time. That fix landed on /checklist-profiles + /stage-approvals and
+    // missed this sibling. Sync calls BOTH the list and the per-id detail
+    // (offline-sync-service.ts:243,250) — hence both, and ONLY these two. The
+    // /versions routes stay VERSION_HISTORY_VIEW-gated: sync never reads them
+    // and operating roles have no business in version history.
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW', 'FILTER_OPERATE')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'List cleaning profiles',
@@ -45,7 +55,17 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // GET /:id — Get cleaning profile with stages and connections
   app.get('/:id', {
-    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW')],
+    // FILTER_OPERATE is a READ alternate for the same reason it was added to
+    // checklist-profiles on 2026-07-10: the offline sync engine GETs this, and
+    // operating roles hold FILTER_OPERATE but NONE of FCP_READ / CP_TOGGLE /
+    // VERSION_HISTORY_VIEW (verified against the live roles). Without it every
+    // OPERATOR/SUPERVISOR sync 403'd here and reported "Synced with warnings",
+    // every time. That fix landed on /checklist-profiles + /stage-approvals and
+    // missed this sibling. Sync calls BOTH the list and the per-id detail
+    // (offline-sync-service.ts:243,250) — hence both, and ONLY these two. The
+    // /versions routes stay VERSION_HISTORY_VIEW-gated: sync never reads them
+    // and operating roles have no business in version history.
+    preHandler: [app.requireAnyPermission('FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW', 'FILTER_OPERATE')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'Get cleaning profile detail',
