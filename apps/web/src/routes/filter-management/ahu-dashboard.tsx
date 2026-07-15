@@ -1,10 +1,6 @@
-import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import useSWR, { mutate } from 'swr';
-import { apiClient } from '../../lib/api-client';
-import { useAuth } from '../../hooks/use-auth';
+import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
-import { BulkUploadFiltersDialog } from './components/bulk-upload-filters-dialog';
 import { FILTER_STATE_COLORS } from '../../lib/filter-constants';
 
 function FilterSetCard({ label, filters, status }: { label: string; filters: any[]; status: string }) {
@@ -35,18 +31,15 @@ function FilterSetCard({ label, filters, status }: { label: string; filters: any
   );
 }
 
+// Bulk upload lives on the Filters page only. This page used to carry its own
+// AHU-scoped "Bulk Upload Filters" dialog; it was removed 2026-07-15 as a dead
+// flow — it offered a CSV template and parsed CSV client-side while the endpoint
+// has only ever parsed .xlsx, so no file could satisfy both. It was stale as well
+// as dead: it hardcoded filter types Pre/HEPA/Fine/ULPA/Carbon/Bag against live
+// master data of PRE/CYCLIC/FINE/HEPA. The backend (/bulk-upload-filters,
+// /validate, FILTER_BULK_UPLOAD) is untouched — the Filters page uses it.
 export function AhuDashboardPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
-  // 2026-05-26 permission-leak fix (audit task #12): pre-fix the
-  // "Bulk Upload Filters" button rendered without any permission
-  // check; the route is gated only by ASSET_VIEW so any operator
-  // with read access to AHUs could open the upload dialog. Backend
-  // is gated on FILTER_BULK_UPLOAD so the actual write was blocked,
-  // but the UI affordance was wrong.
-  const perms: string[] = (user?.permissions as string[] | undefined) ?? [];
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canBulkUpload = isSuperAdmin || perms.includes('FILTER_BULK_UPLOAD');
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   // A-01 wave 5: migrated from /api/assets/instances to typed hierarchy endpoints.
   // GET /api/hierarchy/ahus/:id returns the single AHU row (name, status, etc.).
@@ -60,7 +53,7 @@ export function AhuDashboardPage() {
   const { data: childrenData } = useSWR(id ? `/api/hierarchy/filters?ahuId=${id}&limit=1000` : null, { refreshInterval: 30000 });
   const truncated = (childrenData?.total ?? 0) > ((childrenData?.data ?? []).length ?? 0);
   const { data: events } = useSWR(id ? `/api/filters/events?filterId=${id}&limit=10` : null);
-  const [bulkOpen, setBulkOpen] = useState(false);
+
 
   const allChildren = ((childrenData?.data ?? []) as any[]).filter((f: any) => f.isActive !== false && f.status !== 'Retired');
   const setAFilters = allChildren.filter((f: any) => f.filterSet === 'SET_A').map((f: any) => ({
@@ -88,13 +81,6 @@ export function AhuDashboardPage() {
             </span>
           )}
         </div>
-        {canBulkUpload && (
-          <button onClick={() => setBulkOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-700 text-white rounded-lg text-sm hover:bg-cyan-600 transition-colors">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-            Bulk Upload Filters
-          </button>
-        )}
       </div>
 
       {/* Filter Set Cards */}
@@ -141,16 +127,6 @@ export function AhuDashboardPage() {
         </div>
       </div>
 
-      {/* Bulk Upload Dialog */}
-      <BulkUploadFiltersDialog
-        open={bulkOpen}
-        onClose={() => setBulkOpen(false)}
-        ahuId={id ?? ''}
-        ahuName={asset?.name ?? 'AHU'}
-        onSuccess={() => {
-          mutate(id ? `/api/hierarchy/filters?ahuId=${id}&limit=1000` : null);
-        }}
-      />
     </div>
   );
 }

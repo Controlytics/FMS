@@ -1146,7 +1146,6 @@ export function FilterListPage() {
 
   const handleBulkUploadSubmit = async () => {
     if (!bulkUploadFile || !bulkUploadAhu) return;
-    setBulkUploadStep('uploading');
 
     // Bulk upload is multipart/form-data, so we cannot use api.postWithReauth
     // (which JSON-stringifies the body). Keep raw fetch + attach the reauth
@@ -1159,37 +1158,51 @@ export function FilterListPage() {
     await reauth.execute(
       'BULK_UPLOAD_FILTERS',
       async (password?: string) => {
-        const formData = new FormData();
-        formData.append('file', bulkUploadFile);
-        formData.append('ahuId', bulkUploadAhu);
-        if (selectedBlock) formData.append('blockId', selectedBlock);
-        const token = sessionStorage.getItem('access_token');
-        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-        if (password) headers['x-reauth-password'] = password;
-        const res = await fetch('/api/assets/instances/bulk-upload-filters', {
-          method: 'POST',
-          headers,
-          body: formData,
-        });
-        const data = await res.json().catch(() => ({} as any));
-        if (!res.ok) {
-          // Surface REAUTH_REQUIRED / REAUTH_FAILED back to the reauth hook
-          // so the dialog can re-prompt; everything else flows into the
-          // results panel. Match the api-client convention (throws an err
-          // object with .error code).
-          if (data?.error === 'REAUTH_REQUIRED' || data?.error === 'REAUTH_FAILED') {
-            throw data;
+        // Enter the spinner only once the request is actually in flight, and
+        // fall back to 'preview' on any throw. Setting it before
+        // reauth.execute — or leaving it set when the callback re-throws
+        // REAUTH_FAILED for a re-prompt — strands the dialog on the spinner
+        // with no way back once the operator cancels the password prompt.
+        setBulkUploadStep('uploading');
+        try {
+          const formData = new FormData();
+          formData.append('file', bulkUploadFile);
+          formData.append('ahuId', bulkUploadAhu);
+          if (selectedBlock) formData.append('blockId', selectedBlock);
+          const token = sessionStorage.getItem('access_token');
+          const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+          if (password) headers['x-reauth-password'] = password;
+          const res = await fetch('/api/assets/instances/bulk-upload-filters', {
+            method: 'POST',
+            headers,
+            body: formData,
+          });
+          const data = await res.json().catch(() => ({} as any));
+          if (!res.ok) {
+            // Surface REAUTH_REQUIRED / REAUTH_FAILED back to the reauth hook
+            // so the dialog can re-prompt; everything else flows into the
+            // results panel. Match the api-client convention (throws an err
+            // object with .error code).
+            if (data?.error === 'REAUTH_REQUIRED' || data?.error === 'REAUTH_FAILED') {
+              throw data;
+            }
+            setBulkUploadResults([{ row: 0, name: '', status: 'error', error: data.message || 'Upload failed' }]);
+            setBulkUploadFailed(1);
+            setBulkUploadStep('results');
+            return;
           }
-          setBulkUploadResults([{ row: 0, name: '', status: 'error', error: data.message || 'Upload failed' }]);
-          setBulkUploadFailed(1);
+          setBulkUploadResults(data.results || []);
+          setBulkUploadCreated(data.created || 0);
+          setBulkUploadFailed(data.failed || 0);
           setBulkUploadStep('results');
-          return;
+          if (data.created > 0) mutate('/api/hierarchy/tree');
+        } catch (err) {
+          // Reauth re-prompt: leave the operator on the preview behind the
+          // password dialog. Transport errors fall through to onError, which
+          // overrides this with the results panel.
+          setBulkUploadStep('preview');
+          throw err;
         }
-        setBulkUploadResults(data.results || []);
-        setBulkUploadCreated(data.created || 0);
-        setBulkUploadFailed(data.failed || 0);
-        setBulkUploadStep('results');
-        if (data.created > 0) mutate('/api/hierarchy/tree');
       },
       {
         onError: (e: any) => {
