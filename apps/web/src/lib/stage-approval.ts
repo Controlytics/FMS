@@ -17,7 +17,9 @@ export interface StageApprovalSummary {
   cycleId: string | null;
   filterId: string;
   stageKey: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  // SUPERSEDED = closed without a decision (the filter left the gate before the
+  // approver acted). Never appears in the queue; archive-only.
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED';
   approverRole: string;
   rejectToStateKey: string;
   attemptSeq: number;

@@ -12,8 +12,12 @@ const STATUS_CHIP: Record<string, string> = {
   PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
   APPROVED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   REJECTED: 'bg-rose-50 text-rose-700 border-rose-200',
+  // Closed without a decision — neutral slate, not a pass/fail colour.
+  SUPERSEDED: 'bg-slate-100 text-slate-600 border-slate-300',
 };
-const STATUS_LABEL: Record<string, string> = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' };
+const STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', SUPERSEDED: 'Closed (not decided)',
+};
 
 export function StageApprovalsPage() {
   const { toast } = useToast();
