@@ -20,7 +20,7 @@ Per-finding evidence and the decision record: `ENTERPRISE-AUDIT-HIGHS-TRIAGE-202
 | **Critical** | 3 | 3 | **3** | 0 |
 | **High** | 38 | 38 | **35** | 0 (3 vetoed as authorized design) |
 | **Medium (high-signal)** | 62 | 62 | **54** | 0 (2 already fixed, 3 by-design, 3 refuted) |
-| **Medium (low-signal)** | 91 | 17 | **17** | **74 UNVERIFIED** — a fan-out stalled; they are NOT cleared |
+| **Medium (low-signal)** | 91 | **91** | 17 | **41 CONFIRMED-LIVE + 17 latent — now verified, NOT fixed** |
 | **Low** | 248 | 248 | **5** | 0 (1 was a false alarm; ~242 correctly Low) |
 | **Info** | 89 | 0 | — | not triaged (informational) |
 | **Dependencies** | 17 prod advisories | 17 | **13** | 4 (unreachable, no in-range fix) |
@@ -31,16 +31,19 @@ serially — concurrent agents sharing `digilog_test_db` make any parallel run
 unreliable; every mid-session number in this doc's history was noise.)
 
 **Everything actionable at Critical / High / high-signal-Medium is closed**, plus the
-5 Lows that mattered. The **74 unverified low-signal Mediums are the honest gap** —
-an agent's subagent fan-out stalled and it correctly refused to stamp REFUTED on
-findings it never checked.
+5 Lows that mattered.
 
-> **The low-signal Medium list is `M01`–`M90`**, recorded in the `batch_*.txt`
-> agent briefs. Session-scratchpad only — **not durable**; if it is gone, the 74
-> are unrecoverable and this row should be read as "unknown", not "clear".
-> Do not re-derive finding IDs from memory: the `#NNN` numbering used in some
-> session summaries was **wrong** and does not map to these IDs (what one summary
-> called "#37/#31" is in fact `M84`).
+**The verification gap is now CLOSED — and it was not the good news the label
+promised.** All 74 were verified 2026-07-15 (`tasks/ENTERPRISE-AUDIT-MEDIUMS-VERDICTS-2026-07-15.md`,
+full evidence per finding): **41 CONFIRMED-LIVE**, 17 latent, 7 already fixed, 9
+refuted. **"Low-signal" was a bad label** — the refute rate was ~17%, and `M69`,
+`M37` and `M44` all rate *above* their filing. These are verified, **not fixed**;
+41 live findings are the current backlog.
+
+> Finding IDs are `M01`–`M90`, from the `batch_*.txt` briefs — **session
+> scratchpad, never durable.** They survived only by luck; the verdicts doc is now
+> the durable record. Do not re-derive IDs from a session summary: the `#NNN`
+> numbering used in some is **wrong** (what one called "#37/#31" is `M84`).
 
 ### Later rounds — what the tail actually contained
 
