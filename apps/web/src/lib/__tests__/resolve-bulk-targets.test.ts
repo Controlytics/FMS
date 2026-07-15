@@ -45,3 +45,37 @@ describe('resolveBulkTargets', () => {
     expect(targets).toEqual([ahu1]);
   });
 });
+
+// Regression guard for M69: the same bug class on the Audit Trail page, where the
+// blast radius is an irreversible, hash-chain-breaking delete on a 21 CFR Part 11
+// log. There the rendered rows are one server-paginated page, and the selection
+// Set outlives a re-sort or a page-size change — `toggleSort` only called
+// setPage(1), a no-op on page 1, so nothing cleared the Set while the rows
+// underneath it were swapped.
+describe('resolveBulkTargets — audit trail selection', () => {
+  const oldest = { id: 'r1', action: 'LOGIN_SUCCESS' };
+  const newest = { id: 'r2', action: 'USER_DELETED' };
+
+  it('EXCLUDES a selected record that a re-sort pushed off the page', () => {
+    // Sorted desc, page 1 shows r2 + r1; operator selects both, then flips to asc
+    // and page 1 now shows an entirely different slice.
+    const selected = new Set(['r1', 'r2']);
+    const pageAfterResort = [{ id: 'r9', action: 'CONFIG_CHANGED' }];
+
+    expect(resolveBulkTargets(selected, pageAfterResort)).toEqual([]);
+  });
+
+  it('EXCLUDES records dropped by a smaller page size', () => {
+    // Select 2 rows at 20/page, then switch to 1/page.
+    const targets = resolveBulkTargets(new Set(['r1', 'r2']), [newest]);
+
+    expect(targets).toEqual([newest]);
+    expect(targets.map(r => r.id)).not.toContain('r1');
+  });
+
+  it('keeps records that survive the re-sort', () => {
+    // Same rows, reversed order: both are still on screen, so both stay targets.
+    const targets = resolveBulkTargets(new Set(['r1', 'r2']), [oldest, newest]);
+    expect(targets.map(r => r.id).sort()).toEqual(['r1', 'r2']);
+  });
+});

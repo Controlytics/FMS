@@ -35,6 +35,7 @@ import {
   notifyStageApprovalRequested,
 } from './stage-interlock.js';
 import type { FilterOperationsService } from './filter-operations.service.js';
+import { createBatchReadCache, type BatchReadCache } from './batch-cache.js';
 
 /**
  * Resolve the operator who performed a gated stage, for attributing a lazily
@@ -94,12 +95,22 @@ export async function getBatchStatesImpl(
   // 5000+ queries serialized end-to-end — operators saw multi-second hangs
   // on offline-cache-warmup. Chunk size 10 keeps the prisma pool steady
   // (default 10 connections) while cutting total wall time ~10×.
+  //
+  // M39 (2026-07-15): that fix cut wall time but not query VOLUME — measured at
+  // 3,099 Prisma reads for 199 active filters (15.6/filter) on the tablet's
+  // offline-cache-warmup hot path. Most of those were the SAME rows read once per
+  // filter: the interlock + profile-assignment + cleaning-reason configs, the ~51
+  // shared cleaning-profile pipelines, each AHU's PM entry, and the shared
+  // ancestors every home-block walk climbs. A batch-scoped read memo collapses
+  // them to one apiece. The per-filter projection is untouched — getCurrentState
+  // still produces byte-identical output (locked by the D5 parity test).
+  const cache = createBatchReadCache();
   const CHUNK_SIZE = 10;
   const states: Record<string, any> = {};
   for (let i = 0; i < filters.length; i += CHUNK_SIZE) {
     const chunk = filters.slice(i, i + CHUNK_SIZE);
     const settled = await Promise.allSettled(
-      chunk.map(f => service.getCurrentState(ctx, f.id, cleaningAreaId)),
+      chunk.map(f => service.getCurrentState(ctx, f.id, cleaningAreaId, cache)),
     );
     for (let j = 0; j < chunk.length; j++) {
       const r = settled[j];
@@ -116,6 +127,10 @@ export async function getCurrentStateImpl(
   ctx: RequestContext,
   filterId: string,
   cleaningAreaId?: string,
+  // M39: set ONLY by getBatchStates, which shares one memo across the whole fan-out.
+  // Undefined on the single-filter path (the FE's per-event poll), which therefore
+  // behaves exactly as before — no cross-request caching, no staleness window.
+  cache?: BatchReadCache,
 ) {
   const filter = await getFilter(filterId, ctx);
 
@@ -129,7 +144,7 @@ export async function getCurrentStateImpl(
   // approval status. `blocksLeaving` is dynamic — true until the latest approval
   // for (cycle, stage) is APPROVED — and drives both the actions[] post-filter
   // below and the operator-facing banner. Computed once; reused for stageLookup.
-  const interlockConfig = await getInterlockConfig();
+  const interlockConfig = await getInterlockConfig(cache);
   const interlockStateKey = filter.currentLifecycleState;
   const interlockGatedHere = interlockConfig.enabled && isInterlockStage(interlockStateKey);
   let interlockLatest: { id: string; status: string } | null = null;
@@ -220,7 +235,7 @@ export async function getCurrentStateImpl(
   let blockChangeStatus: 'MATCH' | 'CONFIRM' | 'REQUIRED' | 'APPROVED' | null = null;
   let blockChangeMode: 'NONE' | 'CONFIRM' | 'APPROVAL' = 'CONFIRM';
   if (!filter.currentCycleId) {
-    const homeBlockRaw = await getFilterHomeBlock(filterId);
+    const homeBlockRaw = await getFilterHomeBlock(filterId, cache);
     homeBlock = homeBlockRaw ? { id: homeBlockRaw.blockId, name: homeBlockRaw.blockName } : null;
   }
   if (!filter.currentCycleId && cleaningAreaId && homeBlock) {
@@ -228,7 +243,10 @@ export async function getCurrentStateImpl(
       blockChangeStatus = 'MATCH';
     } else {
       const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-      blockChangeMode = await blockChangeService.getMode();
+      // M39: one config-backed mode, shared by every filter in the batch.
+      blockChangeMode = cache
+        ? await cache.memo('block-change-mode', () => blockChangeService.getMode())
+        : await blockChangeService.getMode();
       if (blockChangeMode === 'NONE') {
         // No cross-block check — treat a different block as a clean MATCH so the
         // FE never prompts (online or via cached state offline). This MATCH also
@@ -251,26 +269,35 @@ export async function getCurrentStateImpl(
   let isPmDue = false;
   let pmReasonKey: string | null = null;
   if (!filter.currentCycleId) {
-    const filterRow = await prisma.assetInstance.findUnique({
+    // M39: `parent:` projection — shared with the BY_BLOCK walk in filter-resolver.
+    const readParent = () => prisma.assetInstance.findUnique({
       where: { id: filterId },
       select: { parentId: true },
     });
+    const filterRow = cache ? await cache.memo(`parent:${filterId}`, readParent) : await readParent();
     if (filterRow?.parentId) {
       const now = new Date();
-      const dueEntry = await prisma.pmScheduleEntry.findFirst({
+      // M39: keyed by the AHU (parentId), not the filter — every filter under an
+      // AHU asks the same question. `now` is not part of the key: a batch is a
+      // point-in-time snapshot, and the sub-second spread across one fan-out
+      // cannot straddle a PM tolerance window boundary in any meaningful way.
+      const ahuId = filterRow.parentId;
+      const readDueEntry = () => prisma.pmScheduleEntry.findFirst({
         where: {
-          schedule: { entityId: filterRow.parentId, status: 'ACTIVE' },
+          schedule: { entityId: ahuId, status: 'ACTIVE' },
           windowStart: { lte: now },
           windowEnd: { gte: now },
         },
         orderBy: { plannedDate: 'asc' },
         select: { id: true },
       });
+      const dueEntry = cache ? await cache.memo(`pm-due:${ahuId}`, readDueEntry) : await readDueEntry();
       if (dueEntry) {
         isPmDue = true;
         // Look up the configured PM reason — must be active, and match
         // either key === 'PM' (exact), or name === 'PM', case-insensitive.
-        const reasonsCfg = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-cleaning-reasons' } });
+        const readReasons = () => prisma.systemConfig.findUnique({ where: { configKey: 'filter-cleaning-reasons' } });
+        const reasonsCfg = cache ? await cache.memo('cfg:filter-cleaning-reasons', readReasons) : await readReasons();
         const raw = reasonsCfg?.configValue as any;
         const reasons: any[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.value) ? raw.value : []);
         const pmReason = reasons.find(r =>
@@ -304,12 +331,21 @@ export async function getCurrentStateImpl(
   //
   // Pre-cycle path (no currentCycle): use the live binding so the operator
   // sees what they'd start a cycle against.
-  const resolvedProfileId = await resolveFilterProfile(filter);
+  const resolvedProfileId = await resolveFilterProfile(filter, cache);
   const pinnedCycleProfileId = currentCycle?.profileId ?? null;
   const profileIdForRender = pinnedCycleProfileId ?? resolvedProfileId;
   // Goes through the service.getProfilePipeline indirection so tests that
   // monkey-patch the spy still intercept (get-current-state.test.ts:143).
-  const cp = profileIdForRender ? await (service as any).getProfilePipeline(profileIdForRender, false) : null; // getCurrentState shows pipeline even if disabled
+  //
+  // M39: memoised HERE rather than by threading `cache` into getProfilePipeline —
+  // the spy is asserted with exact args (`toHaveBeenCalledWith(id, false)`), so a
+  // third argument would break it. 199 filters resolve to ~51 distinct profiles,
+  // and each call is 2 reads (FilterProfile + FilterCleaningProfile w/ stages +
+  // connections), so this is the single biggest saving after the ancestor walks.
+  const loadPipeline = () => (service as any).getProfilePipeline(profileIdForRender, false);
+  const cp = profileIdForRender
+    ? await (cache ? cache.memo(`pipeline:${profileIdForRender}`, loadPipeline) : loadPipeline())
+    : null; // getCurrentState shows pipeline even if disabled
 
   if (cp) {
         profile = { name: cp.name, flowMode: cp.flowMode };
@@ -383,7 +419,20 @@ export async function getCurrentStateImpl(
         }
   }
 
-  const totalCycles = await prisma.cleaningCycle.count({ where: { filterId } });
+  // M39: per-filter, so a plain memo can't dedupe it — but it IS batch-shaped.
+  // Under getBatchStates, load every filter's cycle count in ONE groupBy the
+  // first time any filter asks, then serve the rest from the map (199 → 1).
+  // A filter with no cycles is absent from the groupBy, hence `?? 0` — which is
+  // exactly what count() returns for it, so both paths agree.
+  const totalCycles = cache
+    ? (await cache.memo('cycle-counts-by-filter', async () => {
+        const rows = await prisma.cleaningCycle.groupBy({
+          by: ['filterId'],
+          _count: { _all: true },
+        });
+        return new Map(rows.map(r => [r.filterId, r._count._all]));
+      })).get(filterId) ?? 0
+    : await prisma.cleaningCycle.count({ where: { filterId } });
 
   const pipelineStages = cp
     ? cp.stages.filter((s: any) => s.nodeType === "STAGE").map((s: any) => ({ stateKey: s.stateKey, nodeType: s.nodeType, sortOrder: s.sortOrder, configuration: s.configuration }))
@@ -572,8 +621,11 @@ export async function getCurrentStateImpl(
     const cycleProfileId: string = currentCycle.profileId;
     // resolvedProfileId is what the live config + filter assignment resolves to
     // (FilterProfile id OR CleaningProfile id directly). Normalize both sides.
+    // M39: `norm:` projection — resolves a FilterProfile id to its CleaningProfile
+    // id. Filters sharing a profile ask this the same way, so memoise per id.
     const normalize = async (id: string): Promise<string> => {
-      const fp = await prisma.filterProfile.findUnique({ where: { id }, select: { cleaningProfileId: true } });
+      const read = () => prisma.filterProfile.findUnique({ where: { id }, select: { cleaningProfileId: true } });
+      const fp = cache ? await cache.memo(`norm:${id}`, read) : await read();
       return fp ? fp.cleaningProfileId : id;
     };
     const liveCpId = await normalize(resolvedProfileId);

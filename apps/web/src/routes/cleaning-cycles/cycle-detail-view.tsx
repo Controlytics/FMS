@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
-import { fmtMinutes, effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
+import { fmtMinutes, effectiveCycleStatus, stageProgress, STAGE_ORDER } from '../../lib/cleaning-cycle-report';
 
 // Presentational constants for a single cleaning-cycle's detail view. Shared by
 // the View detail page (timeline.tsx) and the Filter Lifecycle Report
@@ -73,10 +73,6 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
     cycle.dryerDurationMinutes ?? dryerEvent?.attributes?.dryerDurationMinutes ?? null;
   const durationStr = fmtMinutes(dryerMinutes) ?? '—';
 
-  const completedStages = events
-    .filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState)
-    .map((e: any) => e.toState);
-
   const eff = effectiveCycleStatus(cycle);
   // A manual status update isn't a cycle — render it through this same view
   // (info card + stage bar + event timeline) but badge it "Manual Update"
@@ -87,6 +83,10 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
   // Stages configured in this cycle's profile (from getCycleById); stages NOT in
   // it render as "NA" in the stage bar.
   const profileStages: string[] = cycle.profileStages ?? [];
+  // Reached-stage set + the operator's current stage. Derived structurally from
+  // the stage order — DRY_IN transitions twice by design, so transition COUNT
+  // cannot be used as a stage index.
+  const { reached: reachedStages, current: currentStage } = stageProgress(events, profileStages, eff);
 
   return (
     <div className="space-y-4">
@@ -188,13 +188,14 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
         {/* Stage Progress Bar */}
         <div className="border-t border-slate-200 px-5 py-3 bg-slate-50">
           <div className="flex items-center gap-2">
-            {['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'].map((stage, i) => {
+            {STAGE_ORDER.map((stage, i) => {
               // A stage NOT in this cycle's profile is "NA" (not applicable);
               // an in-profile stage not yet reached stays pending/grey. Only mark
               // NA when profileStages is known (non-empty) so unknowns don't lie.
               const notApplicable = profileStages.length > 0 && !profileStages.includes(stage);
-              const done = !notApplicable && completedStages.includes(stage);
-              const isCurrent = !notApplicable && !done && completedStages.length > 0 && i === completedStages.length;
+              const done = !notApplicable && reachedStages.has(stage);
+              // stageProgress() already excludes NA / reached stages.
+              const isCurrent = stage === currentStage;
               return (
                 <div key={stage} className="flex items-center gap-2 flex-1">
                   <div title={notApplicable ? "Not in this cycle's cleaning profile" : undefined} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-medium flex-1 justify-center transition-all ${

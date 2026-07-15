@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
@@ -58,6 +58,31 @@ export function AdminRequestsPage() {
   const [processing, setProcessing] = useState(false);
   const [approvalResult, setApprovalResult] = useState<{ username?: string; temporaryPassword?: string; message?: string; requestType?: string } | null>(null);
   const [copied, setCopied] = useState<string>('');
+
+  // A11y (M83): both overlays below are hand-rolled rather than the shared
+  // `ui/dialog` (the slide-over is a right-edge panel, the result dialog has its
+  // own gradient chrome), so they must bring their own Escape handling + focus
+  // move — same pattern as components/ui/message-dialog.tsx. Without this a
+  // keyboard user could open neither, and could not dismiss what they opened.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
+
+  // Escape closes the topmost overlay: the result dialog sits above the panel.
+  useEffect(() => {
+    if (!selectedRequest && !approvalResult) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (approvalResult) setApprovalResult(null);
+      else setSelectedRequest(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedRequest, approvalResult]);
+
+  // Move focus into each overlay when it opens so keyboard/AT users land inside
+  // it (and so Escape reaches the handler above without a stray focus target).
+  useEffect(() => { if (selectedRequest) panelRef.current?.focus(); }, [selectedRequest]);
+  useEffect(() => { if (approvalResult) resultRef.current?.focus(); }, [approvalResult]);
 
   // Fetch the full set once and filter client-side. Server-side ?status= would
   // zero out the other buckets, making the status counts wrong while a filter
@@ -226,7 +251,9 @@ export function AdminRequestsPage() {
             const active = statusFilter === c.key;
             const a = STAT_ACCENTS[c.accent];
             return (
-              <button key={c.key} onClick={() => setStatusFilter(c.key)}
+              // aria-pressed carries the active state that is otherwise only
+              // conveyed by the accent ring.
+              <button key={c.key} onClick={() => setStatusFilter(c.key)} aria-pressed={active}
                 className={`flex items-center gap-3 p-3.5 rounded-xl border bg-white text-left transition-all ${active ? `${a.ring} shadow-sm` : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'}`}>
                 <span className={`grid place-items-center w-10 h-10 rounded-lg shrink-0 ${a.iconBg}`}>{c.icon}</span>
                 <div className="min-w-0">
@@ -270,7 +297,10 @@ export function AdminRequestsPage() {
             <thead className="sticky top-0 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 {['Requester', 'Type', 'Status', 'Submitted', 'Time', ''].map((h, i) => (
-                  <th key={i} className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  // The last header is the empty action column — it labels no
+                  // column of data, so it gets no scope (an unscoped empty th is
+                  // announced as a stray column header by screen readers).
+                  <th key={i} scope={h ? 'col' : undefined} className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -280,9 +310,25 @@ export function AdminRequestsPage() {
                 const sc = STATUS_CFG[req.status] ?? { label: req.status, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', dot: 'bg-slate-400' };
                 const isPending = req.status === 'PENDING';
 
+                const openRequest = () => { setSelectedRequest(req); setAdminRemarks(''); setProcessing(false); };
+
                 return (
-                  <tr key={req.id} className={`hover:bg-cyan-50/30 transition-colors group cursor-pointer ${isPending ? 'bg-amber-50/20' : ''}`}
-                    onClick={() => { setSelectedRequest(req); setAdminRemarks(''); setProcessing(false); }}>
+                  // M83: the row is the ONLY way to open a request, so it must be
+                  // reachable and activatable by keyboard — pre-fix it was
+                  // `onClick`-only, which locked keyboard/AT users out of the
+                  // approval queue entirely. role=button + tabIndex + Enter/Space
+                  // is the standard non-native-control pattern.
+                  <tr key={req.id} className={`hover:bg-cyan-50/30 transition-colors group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-500 ${isPending ? 'bg-amber-50/20' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${isPending ? 'Review' : 'View'} ${tc.label} request from ${req.requesterName}`}
+                    onClick={openRequest}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault(); // Space would otherwise scroll the table
+                        openRequest();
+                      }
+                    }}>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         <span className="grid place-items-center w-9 h-9 rounded-full bg-cyan-100 text-cyan-700 font-bold text-[13px] shrink-0">
@@ -338,7 +384,14 @@ export function AdminRequestsPage() {
       {selectedRequest && (
         <>
           <div className="fixed inset-0 bg-black/30 z-40 transition-opacity" onClick={() => setSelectedRequest(null)} />
-          <div className="fixed top-0 right-0 h-full w-[480px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
+          <div
+            ref={panelRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${TYPE_CFG[selectedRequest.requestType]?.label ?? selectedRequest.requestType} request from ${selectedRequest.requesterName}`}
+            className="fixed top-0 right-0 h-full w-[480px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 focus:outline-none"
+          >
             {/* Panel header */}
             <div className="px-6 py-4 border-b border-slate-100">
               <div className="flex items-center justify-between mb-3">
@@ -353,8 +406,8 @@ export function AdminRequestsPage() {
                     <p className="text-[11px] text-slate-400">{timeAgo(selectedRequest.requestedAt)}</p>
                   </div>
                 </div>
-                <button onClick={() => setSelectedRequest(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <button onClick={() => setSelectedRequest(null)} aria-label="Close request details" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                  <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
@@ -485,7 +538,14 @@ export function AdminRequestsPage() {
         <>
           <div className="fixed inset-0 bg-black/50 z-[55]" />
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div
+              ref={resultRef}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Request processed"
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden focus:outline-none"
+            >
               <div className="px-6 py-5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
@@ -512,6 +572,9 @@ export function AdminRequestsPage() {
                       <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.username}</code>
                       <button
                         onClick={() => copyToClipboard(approvalResult.username!, 'username')}
+                        // Both copy buttons render the bare word "Copy" — without
+                        // a label they are indistinguishable out of visual context.
+                        aria-label="Copy username"
                         className="px-3 py-2.5 rounded-lg text-[12px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                       >
                         {copied === 'username' ? 'Copied' : 'Copy'}
@@ -526,6 +589,7 @@ export function AdminRequestsPage() {
                       <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.temporaryPassword}</code>
                       <button
                         onClick={() => copyToClipboard(approvalResult.temporaryPassword!, 'password')}
+                        aria-label="Copy temporary password"
                         className="px-3 py-2.5 rounded-lg text-[12px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                       >
                         {copied === 'password' ? 'Copied' : 'Copy'}

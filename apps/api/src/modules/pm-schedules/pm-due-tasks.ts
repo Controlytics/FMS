@@ -12,7 +12,7 @@
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
-import { checkPmEnabled } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
 
@@ -43,24 +43,9 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
 
   // A PM task is only satisfied by a cleaning performed with the PM reason.
   // A clean done with any OTHER reason leaves the task PENDING (it was not the
-  // scheduled PM). Resolve the configured PM reason key(s): key/name === 'PM'
-  // (case-insensitive, active). Fallback to literal 'PM' when none configured.
-  const reasonsCfg = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-cleaning-reasons' } });
-  const rawReasons = reasonsCfg?.configValue as any;
-  const reasonList: any[] = Array.isArray(rawReasons) ? rawReasons : (Array.isArray(rawReasons?.value) ? rawReasons.value : []);
-  const pmReasonKeys = new Set<string>(
-    reasonList
-      .filter((r: any) => r && r.isActive !== false && (
-        (typeof r.key === 'string' && r.key.toUpperCase() === 'PM') ||
-        (typeof r.name === 'string' && r.name.toUpperCase() === 'PM')
-      ))
-      .map((r: any) => r.key),
-  );
-  // Only enforce the "PM reason completes the PM task" rule when a PM reason
-  // actually exists. If no PM reason is configured there's nothing to distinguish,
-  // so fall back to the legacy behaviour (any cleaning in the window completes it)
-  // rather than leaving every PM task stuck pending forever.
-  const enforcePmReason = pmReasonKeys.size > 0;
+  // scheduled PM). `null` = no PM reason configured → legacy any-reason fallback.
+  // Shared with the deviation sweep so the two surfaces cannot disagree.
+  const pmReasonKeys = await resolvePmReasonKeys();
 
   // Time-period view (My Tasks date filter): when from/to are supplied, fetch
   // entries whose PLANNED date falls in [from, to] regardless of `now` — so the
@@ -230,7 +215,7 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       // overdue task — a catch-up clean started after the window closed.
       const inProgress = cycles.find(c =>
         c.status === 'IN_PROGRESS'
-        && (!enforcePmReason || pmReasonKeys.has(c.cleaningReasonKey))
+        && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
         && (windowClosed ? c.startedAt >= entry.windowStart : c.startedAt <= entry.windowEnd),
       );
       // COMPLETED cycle that counts toward this entry: completed on/after the
@@ -240,7 +225,7 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       // any other reason leaves the filter PENDING here.
       const cleaned = cycles.find(c =>
         c.completedAt != null
-        && (!enforcePmReason || pmReasonKeys.has(c.cleaningReasonKey))
+        && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
         && c.completedAt >= entry.windowStart
         && (windowClosed || c.completedAt <= entry.windowEnd),
       );

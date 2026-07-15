@@ -23,7 +23,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
   mockPrisma: {
     assetInstance: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
-    cleaningCycle: { findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn(), update: vi.fn() },
+    cleaningCycle: { findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn(), groupBy: vi.fn(), update: vi.fn() },
     equipmentGroup: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     equipmentGroupVersion: { findUnique: vi.fn() },
     filterCleaningProfile: { findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
@@ -76,6 +76,14 @@ describe('D5 — batch-states and current-state shape contract', () => {
     mockPrisma.assetInstance.findMany.mockResolvedValue([{ id: FILTER_ID }]);
     mockPrisma.systemConfig.findUnique.mockResolvedValue(null);
     mockPrisma.pmScheduleEntry.findFirst.mockResolvedValue(null);
+    // totalCycles (M39): the single path counts per filter; the batch path loads
+    // every filter's count in ONE groupBy. These two mocks are the SAME fact
+    // stated both ways, so the parity assertion below genuinely proves the two
+    // code paths agree on a non-zero count — rather than agreeing on `undefined`,
+    // which is what an unstubbed count() would have returned (and which Prisma
+    // never returns in production).
+    mockPrisma.cleaningCycle.count.mockResolvedValue(2);
+    mockPrisma.cleaningCycle.groupBy.mockResolvedValue([{ filterId: FILTER_ID, _count: { _all: 2 } }]);
   });
 
   it('getBatchStates returns the same per-filter object that getCurrentState returns', async () => {

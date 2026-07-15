@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getAuditSummary, formatActionLabel, friendlyTargetType, diffAuditValues, maskAuditValue, prettyFieldName } from './audit-helpers';
+import { getAuditSummary, formatActionLabel, friendlyTargetType, diffAuditValues, maskAuditValue, prettyFieldName, isRedacted, redactionDetail, redactionNote } from './audit-helpers';
 import { getDefaultTemplates } from '@digilog/shared';
 
 const T = getDefaultTemplates();
@@ -161,5 +161,57 @@ describe('audit-helpers — stage approval superseded rendering', () => {
     const partial = { ...row, afterValue: { ...row.afterValue, currentState: undefined } };
     const s = getAuditSummary(partial, T);
     expect(s).not.toMatch(/\{[a-zA-Z]+\}/);
+  });
+});
+
+// M72 (2026-07-15): 3 redacted rows existed in the live audit trail and every
+// one rendered as an ordinary record — no badge, no reason, no redactor. These
+// helpers back the badge/banner/export note that make a redaction visible.
+describe('audit-helpers — redaction visibility', () => {
+  const redacted = {
+    action: 'LOGIN_SUCCESS',
+    userId: 'EMP-004',
+    beforeValue: null,
+    afterValue: null,
+    redactedAt: '2026-07-02T09:52:20.847Z',
+    redactedBy: 'f8e5e6e9-db1b-4f87-99f4-dec13cb1cccb',
+    redactedByName: 'superadmin',
+    redactionReason: 'contained personal data',
+  };
+
+  it('flags a row carrying redactedAt', () => {
+    expect(isRedacted(redacted)).toBe(true);
+  });
+
+  it('does not flag an ordinary row', () => {
+    expect(isRedacted({ action: 'LOGIN_SUCCESS', redactedAt: null })).toBe(false);
+    expect(isRedacted({ action: 'LOGIN_SUCCESS' })).toBe(false);
+    expect(isRedacted(null)).toBe(false);
+  });
+
+  it('names the redactor and the reason', () => {
+    expect(redactionDetail(redacted)).toEqual({ by: 'superadmin', reason: 'contained personal data' });
+  });
+
+  it('falls back to the raw id when the redactor account was deleted', () => {
+    // User delete is a hard delete, so redactedByName can come back unresolved.
+    // Attribution must degrade to the id, never vanish.
+    const { redactedByName, ...noName } = redacted;
+    expect(redactionDetail(noName).by).toBe('f8e5e6e9-db1b-4f87-99f4-dec13cb1cccb');
+  });
+
+  it('never renders an empty redactor or reason', () => {
+    const bare = { redactedAt: '2026-07-02T09:52:20.847Z' };
+    expect(redactionDetail(bare)).toEqual({ by: 'unknown user', reason: 'no reason recorded' });
+  });
+
+  it('builds a one-line note for flat PDF/Excel cells', () => {
+    expect(redactionNote(redacted)).toBe('[REDACTED by superadmin: contained personal data]');
+  });
+
+  // The summary of a redacted row is built from a NULLed payload, so on its own
+  // it reads exactly like a live record — this is what made the rows invisible.
+  it('leaves the summary indistinguishable, which is why the note is required', () => {
+    expect(getAuditSummary(redacted, T)).toBe(getAuditSummary({ action: 'LOGIN_SUCCESS', userId: 'EMP-004' }, T));
   });
 });

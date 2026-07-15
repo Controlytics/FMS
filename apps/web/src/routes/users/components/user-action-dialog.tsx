@@ -62,8 +62,15 @@ export function UserActionDialog({ actionDialog, onClose, onConfirm }: UserActio
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <div className="text-sm text-red-700">
-              <p className="font-semibold">Warning: This action is irreversible!</p>
-              <p className="mt-1">This will permanently disable the user account, terminate all active sessions, and the user will not be able to log in. The user data will be retained for audit purposes.</p>
+              {/* Says what user.repository.delete() actually does: tx.user.delete —
+                  a physical row delete (authorized design), cascading to sessions,
+                  password history and assignments, plus an explicit userConfig
+                  wipe. The previous copy promised "disabled" and "data retained",
+                  i.e. the opposite in both directions — misleading consent on an
+                  irreversible §11 action. Fix the copy, not the behaviour. */}
+              <p className="font-semibold">Warning: This permanently deletes the account!</p>
+              <p className="mt-1">The user record is erased from the database — along with their sessions, password history, personal settings and assignments. This is a deletion, not a disable, and it cannot be undone.</p>
+              <p className="mt-1">Only the audit trail entry survives, recording the username, full name, email, role and status at the time of deletion. To keep the account and merely block access, use Disable instead.</p>
             </div>
           </div>
         )}

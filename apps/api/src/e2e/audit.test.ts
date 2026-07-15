@@ -46,9 +46,48 @@ describe('Audit Trail endpoints', () => {
       const res = await authGet(app, '/api/audit?period=today', adminToken);
       expect(res.statusCode).toBe(200);
     });
+
+    // M72 (2026-07-15): 3 rows in the live trail were redacted, but the UI showed
+    // them as ordinary records. The handler spread the fields off the row all
+    // along — Fastify stripped them, because a field absent from the response
+    // schema never reaches the client. So this asserts the KEY is present, which
+    // is exactly what the schema controls; a redacted row's values were verified
+    // against the live trail. Read-only by design: a real redaction is
+    // irreversible, so the guard must not need to create one.
+    it('serializes the redaction fields rather than stripping them', async () => {
+      const res = await authGet(app, '/api/audit?limit=1', adminToken);
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      const row = body.data[0];
+      expect(row).toBeDefined();
+
+      // toHaveProperty, not truthiness: an un-redacted row's value IS null. The
+      // bug was the key going missing entirely.
+      expect(row).toHaveProperty('redactedAt');
+      expect(row).toHaveProperty('redactedBy');
+      expect(row).toHaveProperty('redactedByName');
+      expect(row).toHaveProperty('redactionReason');
+    });
   });
 
   describe('GET /api/audit/:id', () => {
+    // Same schema-strip guard as the list route — the detail modal is the other
+    // surface an inspector reads a redaction from.
+    it('serializes the redaction fields rather than stripping them', async () => {
+      const listRes = await authGet(app, '/api/audit?limit=1', adminToken);
+      const list = JSON.parse(listRes.body);
+      if (!list.data?.length) return;
+
+      const res = await authGet(app, `/api/audit/${list.data[0].id}`, adminToken);
+      expect(res.statusCode).toBe(200);
+      const record = JSON.parse(res.body);
+
+      expect(record).toHaveProperty('redactedAt');
+      expect(record).toHaveProperty('redactedBy');
+      expect(record).toHaveProperty('redactedByName');
+      expect(record).toHaveProperty('redactionReason');
+    });
+
     it('returns a specific audit entry with integrity check', async () => {
       // First get the list
       const listRes = await authGet(app, '/api/audit?limit=1', adminToken);

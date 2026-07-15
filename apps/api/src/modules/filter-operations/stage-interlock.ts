@@ -19,6 +19,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
+import type { BatchReadCache } from './batch-cache.js';
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -45,7 +46,10 @@ const DEFAULTS: StageInterlockConfig = {
   dryOutApproverRole: 'ADMIN',
 };
 
-export async function getInterlockConfig(): Promise<StageInterlockConfig> {
+export async function getInterlockConfig(cache?: BatchReadCache): Promise<StageInterlockConfig> {
+  // M39: one config row that getCurrentState reads unconditionally, so the batch
+  // path re-read it once per filter. Memoise the resolved config for the batch.
+  if (cache) return cache.memo('interlock-config', () => getInterlockConfig());
   const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'stage-interlock' } });
   const v = (cfg?.configValue ?? {}) as Partial<StageInterlockConfig>;
   const role = (x: unknown, fallback: string) =>

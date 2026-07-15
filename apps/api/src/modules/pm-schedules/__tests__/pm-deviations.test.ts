@@ -12,13 +12,21 @@ vi.mock('../../../lib/prisma.js', () => ({
     deviation: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   },
 }));
-vi.mock('../pm-shared.js', () => ({ checkPmEnabled: vi.fn(async () => {}) }));
+// resolvePmReasonKeys is stubbed per-test via P.pmReasonKeys (see beforeEach):
+// null = no PM reason configured (legacy any-reason fallback), a Set = only those
+// reasons satisfy a scheduled PM.
+vi.mock('../pm-shared.js', () => ({
+  checkPmEnabled: vi.fn(async () => {}),
+  resolvePmReasonKeys: vi.fn(async () => null),
+}));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: vi.fn() }));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: vi.fn(async () => ({})) }));
 
 import { sweepOverdueDeviations, acknowledgeDeviation, dayDiff } from '../pm-deviations.js';
 import { prisma } from '../../../lib/prisma.js';
 import { createNotification } from '../../notifications/notification.service.js';
+import { resolvePmReasonKeys } from '../pm-shared.js';
+import { auditLog } from '../../../lib/audit.js';
 
 const P = prisma as any;
 
@@ -42,6 +50,7 @@ beforeEach(() => {
   P.cleaningCycle.groupBy.mockResolvedValue([]);
   P.assetInstance.findMany.mockResolvedValue([]);
   P.deviation.update.mockResolvedValue({});
+  (resolvePmReasonKeys as any).mockResolvedValue(null); // default: legacy any-reason fallback
 });
 
 describe('dayDiff', () => {
@@ -106,6 +115,99 @@ describe('sweepOverdueDeviations — OPEN', () => {
     const r = await sweepOverdueDeviations();
     expect(r.opened).toBe(0);
     expect(P.deviation.create).not.toHaveBeenCalled();
+  });
+
+  // M44: only a PM-reason clean satisfies a scheduled PM. An unrelated clean
+  // must NOT suppress the deviation — otherwise an overdue PM goes unrecorded.
+  it('scopes the cleaned-predicate to the configured PM reason keys', async () => {
+    (resolvePmReasonKeys as any).mockResolvedValue(new Set(['PM']));
+    P.pmScheduleEntry.findMany.mockResolvedValue([entry]);
+    wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }]);
+    P.cleaningCycle.groupBy.mockResolvedValue([]);
+    P.deviation.create.mockResolvedValue({ id: 'dev-1', deviationNumber: 'DEV-000001', scheduledDate: entry.plannedDate, pmScheduleEntryId: 'entry-1' });
+
+    await sweepOverdueDeviations();
+    // The DB query itself must carry the reason filter — a non-PM clean can then
+    // never land in latestCleanMap and can never suppress the deviation.
+    expect(P.cleaningCycle.groupBy.mock.calls[0][0].where.cleaningReasonKey).toEqual({ in: ['PM'] });
+  });
+
+  it('applies NO reason filter when no PM reason is configured (legacy fallback)', async () => {
+    (resolvePmReasonKeys as any).mockResolvedValue(null);
+    P.pmScheduleEntry.findMany.mockResolvedValue([entry]);
+    wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }]);
+    P.cleaningCycle.groupBy.mockResolvedValue([]);
+    P.deviation.create.mockResolvedValue({ id: 'dev-1', deviationNumber: 'DEV-1', scheduledDate: entry.plannedDate, pmScheduleEntryId: 'entry-1' });
+
+    await sweepOverdueDeviations();
+    expect(P.cleaningCycle.groupBy.mock.calls[0][0].where.cleaningReasonKey).toBeUndefined();
+  });
+});
+
+// M45: the UNIQUE(pm_schedule_entry_id) collision means a re-overdue task whose
+// deviation is already CLOSED cannot be recorded. That must never be silent.
+describe('sweepOverdueDeviations — blocked re-occurrence (P2002 on a CLOSED deviation)', () => {
+  const entry = {
+    id: 'entry-1', plannedDate: new Date('2026-05-16'),
+    windowStart: new Date('2026-05-06'), windowEnd: new Date('2026-05-26'),
+    schedule: { entityId: 'ahu-1' },
+  };
+
+  beforeEach(() => {
+    P.pmScheduleEntry.findMany.mockResolvedValue([entry]);
+    wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }]);
+    P.cleaningCycle.groupBy.mockResolvedValue([]); // nothing cleaned → overdue
+    P.deviation.create.mockRejectedValue({ code: 'P2002' });
+  });
+
+  it('audits + notifies + counts the blocked re-occurrence when the existing deviation is CLOSED', async () => {
+    P.deviation.findUnique.mockResolvedValue({ id: 'dev-old', deviationNumber: 'DEV-000001', status: 'CLOSED' });
+
+    const r = await sweepOverdueDeviations();
+    expect(r.opened).toBe(0);
+    expect(r.blocked).toBe(1);
+
+    // Loud: an audit row naming the task, the blocking deviation and the reason.
+    const call = (auditLog as any).mock.calls.find((c: any) => c[0].action === 'DEVIATION_OPEN_BLOCKED');
+    expect(call).toBeTruthy();
+    expect(call[0].targetId).toBe('dev-old');
+    expect(call[0].afterValue.pmScheduleEntryId).toBe('entry-1');
+    expect(call[0].beforeValue.existingDeviationNumber).toBe('DEV-000001');
+
+    // ...and a notification to the configured roles (ADMIN by default).
+    expect((createNotification as any).mock.calls.some(
+      (c: any) => c[0].metadata?.kind === 'PM_DEVIATION_BLOCKED' && c[0].forRole === 'ADMIN',
+    )).toBe(true);
+  });
+
+  it('stays silent when the existing deviation is still OPEN — that collision is the intended idempotency', async () => {
+    P.deviation.findUnique.mockResolvedValue({ id: 'dev-old', deviationNumber: 'DEV-000001', status: 'OPEN' });
+
+    const r = await sweepOverdueDeviations();
+    expect(r.blocked).toBe(0);
+    expect((auditLog as any).mock.calls.some((c: any) => c[0].action === 'DEVIATION_OPEN_BLOCKED')).toBe(false);
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  it('does NOT reopen or mutate the closed deviation (its completion record is regulated data)', async () => {
+    P.deviation.findUnique.mockResolvedValue({ id: 'dev-old', deviationNumber: 'DEV-000001', status: 'CLOSED' });
+    await sweepOverdueDeviations();
+    expect(P.deviation.update).not.toHaveBeenCalled();
+  });
+
+  it('does not abort the sweep — the CLOSE half still runs after a blocked entry', async () => {
+    P.deviation.findUnique.mockResolvedValue({ id: 'dev-old', deviationNumber: 'DEV-000001', status: 'CLOSED' });
+    P.deviation.findMany.mockResolvedValue([{
+      id: 'dev-2', deviationNumber: 'DEV-000002', ahuName: 'PC', filterIds: ['f9'],
+      scheduledDate: new Date('2026-05-22'), windowStart: new Date('2026-05-13'),
+      overdueDaysAtOpen: 12, acknowledgedBy: 'u1', acknowledgedByName: 'operator1', completionNotifiedAt: null,
+    }]);
+    // f9 is PM-cleaned → the open deviation dev-2 closes despite entry-1 blocking.
+    P.cleaningCycle.groupBy.mockResolvedValue([{ filterId: 'f9', _max: { completedAt: new Date('2026-06-03') } }]);
+
+    const r = await sweepOverdueDeviations();
+    expect(r.blocked).toBe(1);
+    expect(r.closed).toBe(1);
   });
 });
 

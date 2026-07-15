@@ -7,12 +7,13 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { apiClient, api } from '@/lib/api-client';
+import { resolveBulkTargets } from '@/lib/resolve-bulk-targets';
 import { useReauth } from '@/hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { getDefaultTemplates } from '@digilog/shared';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
-import { ACTION_COLORS, getAuditStatus, getAuditSummary, friendlyTargetType } from './audit-helpers';
+import { ACTION_COLORS, getAuditStatus, getAuditSummary, friendlyTargetType, isRedacted, redactionNote } from './audit-helpers';
 import { AuditFilters } from './components/audit-filters';
 import { AuditTable } from './components/audit-table';
 import { AuditDetailModal } from './components/audit-detail-modal';
@@ -97,10 +98,27 @@ export function AuditTrailPage() {
 
   const { data, isLoading, mutate } = useSWR(`/api/audit?${params}`);
 
-  // Clear selection on page/filter change
+  // Clear selection whenever the rendered rows change. sortBy/sortOrder/perPage
+  // are deps too: they are all in the query above, so each one swaps the rows on
+  // screen. They were missing, and `toggleSort` only calls setPage(1) — a no-op
+  // when already on page 1 — so a re-sort left the selection pointing at rows the
+  // operator could no longer see, aimed at an irreversible, hash-chain-breaking
+  // bulk delete.
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, fromDateTime, toDateTime]);
+  }, [page, search, fromDateTime, toDateTime, sortBy, sortOrder, perPage]);
+
+  // Second, independent guard: resolve every bulk action against the rows
+  // actually rendered. Clearing on change fixes the known paths; intersecting
+  // makes "we only ever destroy what you can see" true by construction, and the
+  // toolbar count + the dialogs read from this same value, so the number the
+  // operator confirms is exactly the number that dies.
+  const visibleRecords: any[] = data?.data ?? [];
+  const selectedRecords = useMemo(
+    () => resolveBulkTargets(selectedIds, visibleRecords),
+    [selectedIds, visibleRecords],
+  );
+  const selectedTargetIds = useMemo(() => selectedRecords.map((r) => r.id), [selectedRecords]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -123,7 +141,9 @@ export function AuditTrailPage() {
   };
 
   const isAllSelected = data?.data?.length > 0 && data.data.every((r: any) => selectedIds.has(r.id));
-  const isSomeSelected = selectedIds.size > 0;
+  // Counted from the resolved targets, not the raw Set — see selectedRecords above.
+  const selectedCount = selectedRecords.length;
+  const isSomeSelected = selectedCount > 0;
 
   // Delta-audit 2026-05-20 §C1 / May 16 §1.2: audit DELETE replaced with REDACT.
   // REDACT preserves checksum + chain link, NULLs the payload, stamps redactedAt/By.
@@ -157,13 +177,14 @@ export function AuditTrailPage() {
   };
 
   const bulkRedactAudit = () => {
-    const reason = window.prompt(`Reason for redacting ${selectedIds.size} audit records (min 5 characters):`);
+    if (selectedTargetIds.length === 0) return;
+    const reason = window.prompt(`Reason for redacting ${selectedCount} audit records (min 5 characters):`);
     if (!reason || reason.trim().length < 5) return;
     setDeleting(true);
     reauth.execute(
       'BULK_REDACT_AUDIT_RECORDS',
       async (password?: string) => {
-        const body = { ids: Array.from(selectedIds), reason: reason.trim() };
+        const body = { ids: selectedTargetIds, reason: reason.trim() };
         if (password) await api.postWithReauth('/api/audit/bulk-redact', body, password);
         else await apiClient.post('/api/audit/bulk-redact', body);
       },
@@ -210,13 +231,14 @@ export function AuditTrailPage() {
   };
 
   const bulkHardDeleteAudit = () => {
-    const reason = window.prompt(`This PERMANENTLY deletes ${selectedIds.size} record(s) and breaks the tamper-evident hash chain.\nReason for deletion (min 5 characters):`);
+    if (selectedTargetIds.length === 0) return;
+    const reason = window.prompt(`This PERMANENTLY deletes ${selectedCount} record(s) and breaks the tamper-evident hash chain.\nReason for deletion (min 5 characters):`);
     if (!reason || reason.trim().length < 5) return;
     setHardDeleting(true);
     reauth.execute(
       'BULK_DELETE_AUDIT_RECORDS',
       async (password?: string) => {
-        const body = { ids: Array.from(selectedIds), reason: reason.trim() };
+        const body = { ids: selectedTargetIds, reason: reason.trim() };
         if (password) await api.postWithReauth('/api/audit/bulk-delete', body, password);
         else await apiClient.post('/api/audit/bulk-delete', body);
       },
@@ -256,10 +278,19 @@ export function AuditTrailPage() {
       ? `${fromDateTime ? formatDateTime(fromDateTime) : 'Start'} to ${toDateTime ? formatDateTime(toDateTime) : 'Now'}`
       : 'All Time';
 
+  // The export is what an inspector actually receives, so a redacted record must
+  // announce itself here too — not only on screen. The note leads the description
+  // so it survives the truncation below.
+  const exportDescription = (r: any): string => {
+    const summary = getAuditSummary(r, templates);
+    const text = isRedacted(r) ? `${redactionNote(r)} ${summary}`.trim() : summary;
+    return text.substring(0, 80);
+  };
+
   const mapAuditRows = (records: any[]): string[][] =>
     records.map((r: any) => [
       formatDateTime(r.timestamp), r.action?.replace(/_/g, ' ') ?? '-', r.userId ?? '-',
-      r.userRole ?? '-', friendlyTargetType(r), getAuditSummary(r, templates).substring(0, 80), r.ipAddress ?? '-',
+      r.userRole ?? '-', friendlyTargetType(r), exportDescription(r), r.ipAddress ?? '-',
     ]);
 
   // Fetch ALL records matching the active filters (not just the visible page).
@@ -418,7 +449,7 @@ export function AuditTrailPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <span className="text-sm font-semibold text-slate-700">{selectedIds.size} audit record{selectedIds.size > 1 ? 's' : ''} selected</span>
+            <span className="text-sm font-semibold text-slate-700">{selectedCount} audit record{selectedCount > 1 ? 's' : ''} selected</span>
             <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-500 hover:text-slate-700 underline">
               Clear Selection
             </button>
@@ -505,7 +536,7 @@ export function AuditTrailPage() {
       {/* Bulk Redact Confirmation Dialog (chain-preserving) */}
       <AuditDeleteDialog
         open={showDeleteConfirm}
-        selectedCount={selectedIds.size}
+        selectedCount={selectedCount}
         deleting={deleting}
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={bulkRedactAudit}
@@ -515,7 +546,7 @@ export function AuditTrailPage() {
       {/* Bulk Hard-Delete Confirmation Dialog (physical — breaks the chain) */}
       <AuditDeleteDialog
         open={showHardDeleteConfirm}
-        selectedCount={selectedIds.size}
+        selectedCount={selectedCount}
         deleting={hardDeleting}
         onClose={() => setShowHardDeleteConfirm(false)}
         onConfirm={bulkHardDeleteAudit}

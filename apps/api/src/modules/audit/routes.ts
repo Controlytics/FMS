@@ -54,6 +54,16 @@ export default async function auditRoutes(app: FastifyInstance) {
                   ipAddress: { type: 'string', nullable: true },
                   timestamp: { type: 'string', format: 'date-time' },
                   integrityValid: { type: 'boolean', description: 'Whether the checksum integrity verification passed' },
+                  // Redaction stamps. The handler already spread these off the row,
+                  // but Fastify strips any field absent from this schema — so the
+                  // frontend received none of them and rendered a redacted §11
+                  // record as an ordinary one. Redaction is the VISIBLE,
+                  // chain-preserving alternative to deletion; invisible, it does
+                  // neither job. Must stay in sync with the redact handler below.
+                  redactedAt: { type: 'string', format: 'date-time', nullable: true, description: 'Set when the payload was redacted (chain link preserved)' },
+                  redactedBy: { type: 'string', nullable: true, description: 'User id of the redactor' },
+                  redactedByName: { type: 'string', nullable: true, description: 'Resolved username of the redactor (read-time enrichment; falls back to the raw id)' },
+                  redactionReason: { type: 'string', nullable: true, description: 'Operator-supplied reason for the redaction' },
                 },
               },
             },
@@ -169,10 +179,16 @@ export default async function auditRoutes(app: FastifyInstance) {
     const filterIds = new Set<string>();
     const cycleIds = new Set<string>();
     const pmEntryIds = new Set<string>();
+    // redacted_by stores a user UUID. Same read-time enrichment idea as the
+    // filter names above: an inspector needs a username, not a UUID. The
+    // redactor may since have been hard-deleted (user delete is physical), so
+    // the render falls back to the raw id rather than dropping the attribution.
+    const redactorIds = new Set<string>();
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     for (const r of records as any[]) {
       const af = (r.afterValue ?? {}) as Record<string, unknown>;
       const bf = (r.beforeValue ?? {}) as Record<string, unknown>;
+      if (typeof r.redactedBy === 'string' && UUID_RE.test(r.redactedBy)) redactorIds.add(r.redactedBy);
       for (const key of ['filterId', 'assetId', 'assetInstanceId', 'entityId']) {
         const v = af[key] || bf[key];
         if (typeof v === 'string' && UUID_RE.test(v)) filterIds.add(v);
@@ -217,6 +233,10 @@ export default async function auditRoutes(app: FastifyInstance) {
     ]);
     const filterNameById = new Map(filters.map((f) => [f.id, f.name]));
     const cycleById = new Map(cycles.map((c) => [c.id, c]));
+    const redactors = redactorIds.size > 0
+      ? await prisma.user.findMany({ where: { id: { in: Array.from(redactorIds) } }, select: { id: true, username: true } })
+      : [];
+    const redactorNameById = new Map(redactors.map((u) => [u.id, u.username]));
     // Second-pass filter lookup for cycles → their referenced filterIds
     const extraFilterIds = new Set<string>();
     for (const c of cycles) if (c.filterId && !filterNameById.has(c.filterId)) extraFilterIds.add(c.filterId);
@@ -272,6 +292,11 @@ export default async function auditRoutes(app: FastifyInstance) {
 
       return {
         ...record,
+        // Redactor username for display; null when the row isn't redacted, the
+        // raw id when the redactor's account no longer exists.
+        redactedByName: record.redactedBy
+          ? (redactorNameById.get(record.redactedBy) ?? record.redactedBy)
+          : null,
         // Override afterValue with enriched fields so the FE template
         // substitution picks them up without any FE-side fetches. Original
         // checksum is computed against ORIGINAL afterValue — recompute
@@ -330,6 +355,12 @@ export default async function auditRoutes(app: FastifyInstance) {
             previousChecksum: { type: 'string', nullable: true },
             timestamp: { type: 'string', format: 'date-time' },
             integrityValid: { type: 'boolean', description: 'Whether the checksum integrity verification passed' },
+            // See the list route: absent from the schema means stripped from the
+            // response, however faithfully the handler spreads the row.
+            redactedAt: { type: 'string', format: 'date-time', nullable: true, description: 'Set when the payload was redacted (chain link preserved)' },
+            redactedBy: { type: 'string', nullable: true, description: 'User id of the redactor' },
+            redactedByName: { type: 'string', nullable: true, description: 'Resolved username of the redactor (read-time enrichment; falls back to the raw id)' },
+            redactionReason: { type: 'string', nullable: true, description: 'Operator-supplied reason for the redaction' },
           },
         },
         ...errorResponses,
@@ -349,8 +380,16 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
+    // Resolve the redactor id → username, as the list route does. redacted_by is
+    // a varchar, so guard the shape before handing it to a uuid column — a
+    // non-uuid value would make findUnique throw rather than just miss.
+    const DETAIL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const redactor = record.redactedBy && DETAIL_UUID_RE.test(record.redactedBy)
+      ? await prisma.user.findUnique({ where: { id: record.redactedBy }, select: { username: true } })
+      : null;
     return {
       ...record,
+      redactedByName: record.redactedBy ? (redactor?.username ?? record.redactedBy) : null,
       integrityValid: verifyAuditChecksum(record),
     };
   });

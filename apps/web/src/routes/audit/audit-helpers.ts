@@ -279,6 +279,39 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   return name ? `${label} — "${name}" by ${actor}` : `${label} by ${actor}`;
 }
 
+/**
+ * Redaction display helpers.
+ *
+ * Redaction is this system's VISIBLE, chain-preserving alternative to physically
+ * deleting an audit row: the payload is NULLed but the checksum + chain link
+ * survive, and redactedAt/redactedBy/redactionReason record who masked it and why.
+ * Rendered identically to a live row it does neither job — an inspector sees a
+ * record with an empty before/after and no hint that anything was removed. So the
+ * marker goes on every surface that shows a record: the table, the detail modal,
+ * and the PDF/Excel exports (the export is the artifact an inspector receives).
+ */
+export function isRedacted(record: any): boolean {
+  return !!record?.redactedAt;
+}
+
+export interface RedactionDetail { by: string; reason: string; }
+
+/** Who masked the payload and why, with fallbacks. Check isRedacted() first. */
+export function redactionDetail(record: any): RedactionDetail {
+  return {
+    // redactedByName is the backend's read-time username lookup; it falls back to
+    // the raw id when the redactor's account was since deleted.
+    by: record?.redactedByName || record?.redactedBy || 'unknown user',
+    reason: record?.redactionReason || 'no reason recorded',
+  };
+}
+
+/** One-line note for flat surfaces (PDF / Excel cells) that can't render markup. */
+export function redactionNote(record: any): string {
+  const { by, reason } = redactionDetail(record);
+  return `[REDACTED by ${by}: ${reason}]`;
+}
+
 // Sensitive audit keys — kept in sync with apps/api/src/lib/audit-diff.ts.
 const SENSITIVE_KEY_RE = /password|secret|token|apikey|api[_-]?key|private[_-]?key|credential/i;
 const DIFF_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

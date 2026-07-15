@@ -163,6 +163,15 @@ export const AUDIT_ACTIONS = {
   // Report generation / export — emitted when a user downloads any report
   // (audit trail, filters, PM schedule, cleaning records, etc.) as PDF/Excel.
   REPORT_GENERATED: 'REPORT_GENERATED',
+
+  // PM Schedules — emitted by the overdue-deviation sweep when a PM task goes
+  // overdue AGAIN but its deviation row is already CLOSED, so the re-occurrence
+  // cannot be recorded (one deviation per task). Surfaces what would otherwise
+  // be a silently missing §11 deviation. NOTE: this subsystem's sibling actions
+  // (DEVIATION_OPENED / DEVIATION_CLOSED / ACKNOWLEDGE_PM_OVERDUE) predate this
+  // entry and are registered only in `audit-templates.ts` — a pre-existing gap
+  // in this file, not a signal that they are unaudited.
+  DEVIATION_OPEN_BLOCKED: 'DEVIATION_OPEN_BLOCKED',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

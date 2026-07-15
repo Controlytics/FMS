@@ -3,8 +3,8 @@
  *
  * When INTEGRATION_TEST !== '1' the suite as a whole is `describe.skipIf`'d
  * and we MUST NOT touch the DB — otherwise running the workspace on a box
- * that lacks Postgres / Mosquitto explodes during setup before any test gets
- * to skip itself. In that case this hook is a no-op.
+ * that lacks Postgres explodes during setup before any test gets to skip
+ * itself. In that case this hook is a no-op.
  *
  * When the gate is on, we delegate to the API's globalSetup so the tests
  * inherit the same idempotent SUPER_ADMIN/`admin` fixture the e2e suite

@@ -19,6 +19,7 @@ import { submitChecklistImpl } from './cycle-write/submit-checklist.js';
 import { advanceImpl } from './cycle-write/advance.js';
 import { startCycleImpl } from './cycle-write/start-cycle.js';
 import { getCurrentStateImpl, getBatchStatesImpl } from './current-state.js';
+import type { BatchReadCache } from './batch-cache.js';
 import { bulkOperate, type BulkOpItem } from './cycle-write/bulk-operate.js';
 
 // Note: the legacy local `assertTapeVersionFresh` was removed in Phase 8.5
@@ -62,8 +63,11 @@ export class FilterOperationsService {
     return getBatchStatesImpl(this, ctx, cleaningAreaId);
   }
 
-  async getCurrentState(ctx: RequestContext, filterId: string, cleaningAreaId?: string) {
-    return getCurrentStateImpl(this, ctx, filterId, cleaningAreaId);
+  // `cache` (M39) is passed ONLY by getBatchStates, which shares one batch-scoped
+  // read memo across its fan-out. Route handlers call this with 3 args and get the
+  // unmemoised path, identical to pre-M39 behaviour.
+  async getCurrentState(ctx: RequestContext, filterId: string, cleaningAreaId?: string, cache?: BatchReadCache) {
+    return getCurrentStateImpl(this, ctx, filterId, cleaningAreaId, cache);
   }
 
 

@@ -54,8 +54,11 @@ export function UserBulkDeleteDialog({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <div className="text-sm text-red-700">
-            <p className="font-semibold">Warning: This action is irreversible!</p>
-            <p className="mt-1">All selected accounts will be permanently disabled, their active sessions will be terminated, and they will not be able to log in.</p>
+            {/* Mirrors the single-delete copy: userRepository.deleteMany runs
+                tx.user.deleteMany — the rows are destroyed, not disabled. */}
+            <p className="font-semibold">Warning: This permanently deletes these accounts!</p>
+            <p className="mt-1">Every selected user record is erased from the database — along with their sessions, password history, personal settings and assignments. This is a deletion, not a disable, and it cannot be undone.</p>
+            <p className="mt-1">Only the audit trail entries survive, recording each username, full name, role and status at the time of deletion.</p>
           </div>
         </div>
       </div>

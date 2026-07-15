@@ -22,7 +22,7 @@ import { themeGradientBr, themeButton } from '@/lib/theme-styles';
 import { STATUS_LABELS, LIFECYCLE_STATE_OPTIONS } from './filter-list/constants';
 import type { CreateDialogState, DiagramFilterState, HierarchyNode, StatusPanelFilter, EditFilterRef, FilterRef, FilterFieldOptions, LastCleaningDateState } from './filter-list/types';
 import { encodeLastCleaningDate, decodeLastCleaningDate } from './filter-list/lib/lastCleaningDateState';
-import { resolveBulkTargets } from './filter-list/lib/resolve-bulk-targets';
+import { resolveBulkTargets } from '@/lib/resolve-bulk-targets';
 import { HierarchyCanvas } from './filter-list/components/HierarchyCanvas';
 import { StatusUpdatePanel } from './filter-list/dialogs/StatusUpdatePanel';
 import { DeleteBlockDialog } from './filter-list/dialogs/DeleteBlockDialog';
@@ -1021,6 +1021,9 @@ export function FilterListPage() {
         setEditFilterError(err?.message ?? 'Failed to update filter');
         setEditFilterSubmitting(false);
       },
+      // Cancelling the password prompt is a deliberate choice, not a failure —
+      // unwind quietly instead of painting a red "Failed to update filter".
+      onCancel: () => setEditFilterSubmitting(false),
     });
   };
 
@@ -1044,6 +1047,8 @@ export function FilterListPage() {
         toast.error('Delete failed', err?.message ?? 'Could not delete filter');
         setDeleteFilterSubmitting(false);
       },
+      // A cancelled password prompt is not a delete failure — no error toast.
+      onCancel: () => setDeleteFilterSubmitting(false),
     });
   };
 

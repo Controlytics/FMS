@@ -7,6 +7,7 @@
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
+import type { BatchReadCache } from './batch-cache.js';
 
 export type ResolvedFilter = {
   id: string;
@@ -42,16 +43,22 @@ export async function getFilter(filterId: string, _ctx: RequestContext): Promise
   };
 }
 
-export async function getFilterHomeBlock(filterId: string): Promise<{ blockId: string; blockName: string } | null> {
+export async function getFilterHomeBlock(filterId: string, cache?: BatchReadCache): Promise<{ blockId: string; blockName: string } | null> {
   let currentId: string | null = filterId;
   const visited = new Set<string>();
   while (currentId) {
     if (visited.has(currentId)) break;
     visited.add(currentId);
-    const inst: { id: string; name: string; parentId: string | null; template: { templateKind: string } | null } | null = await prisma.assetInstance.findUnique({
-      where: { id: currentId },
+    // M39: under getBatchStates every filter climbs this chain, so the shared
+    // ancestors (AHU, area, block) get re-read once per filter. Memoise the node
+    // read by id — keyed `hb:` because this projection differs from the ones the
+    // profile-assignment walks below use.
+    const readNode = () => prisma.assetInstance.findUnique({
+      where: { id: currentId! },
       select: { id: true, name: true, parentId: true, template: { select: { templateKind: true } } },
     });
+    const inst: { id: string; name: string; parentId: string | null; template: { templateKind: string } | null } | null =
+      cache ? await cache.memo(`hb:${currentId}`, readNode) : await readNode();
     if (!inst) break;
     if (inst.template?.templateKind === 'BLOCK') {
       return { blockId: inst.id, blockName: inst.name };
@@ -202,7 +209,10 @@ export function extractBlocks(stages: any[]): { nodeType: string; configuration:
  * a perfectly usable pipeline existed in the system. Per 2026-05-25 user
  * request: filter_profile_id should not be required for a cycle to start.
  */
-async function getDefaultCleaningProfileId(): Promise<string | null> {
+async function getDefaultCleaningProfileId(cache?: BatchReadCache): Promise<string | null> {
+  // M39: the whole resolution is config-driven and filter-independent, so the
+  // batch path memoises the RESULT rather than each read inside it.
+  if (cache) return cache.memo('default-cleaning-profile-id', () => getDefaultCleaningProfileId());
   const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'default-cleaning-profile' } });
   const configured = (cfg?.configValue as { profileId?: string } | null)?.profileId;
   if (configured) {
@@ -217,23 +227,29 @@ async function getDefaultCleaningProfileId(): Promise<string | null> {
   return firstActive?.id ?? null;
 }
 
-export async function resolveFilterProfile(filter: { id: string; filterProfileId: string | null; filterSet: string | null; name: string | null }): Promise<string | null> {
+export async function resolveFilterProfile(filter: { id: string; filterProfileId: string | null; filterSet: string | null; name: string | null }, cache?: BatchReadCache): Promise<string | null> {
   // 1. Direct assignment takes priority
   if (filter.filterProfileId) return filter.filterProfileId;
 
   // 2. Check config-based assignment
-  const configRow = await prisma.systemConfig.findUnique({ where: { configKey: 'cleaning-profile-assignment' } });
+  // M39: one config row, re-read once per filter pre-fix.
+  const readAssignment = () => prisma.systemConfig.findUnique({ where: { configKey: 'cleaning-profile-assignment' } });
+  const configRow = cache
+    ? await cache.memo('cfg:cleaning-profile-assignment', readAssignment)
+    : await readAssignment();
   const config = configRow?.configValue as { mode: string; rules: Array<{ matchValue: string; profileId: string }> } | null;
   if (!config || !config.rules || config.rules.length === 0) {
     // No rules at all — go straight to default fallback.
-    return getDefaultCleaningProfileId();
+    return getDefaultCleaningProfileId(cache);
   }
 
   // 3. Get filter's attributes and ancestors for matching
-  const instance = await prisma.assetInstance.findUnique({
+  // Keyed `attrs:` — a different projection from the `hb:` home-block walk.
+  const readInstance = () => prisma.assetInstance.findUnique({
     where: { id: filter.id },
     select: { attributes: true, parentId: true },
   });
+  const instance = cache ? await cache.memo(`attrs:${filter.id}`, readInstance) : await readInstance();
   const attrs = (instance?.attributes as Record<string, any>) ?? {};
 
   switch (config.mode) {
@@ -248,7 +264,7 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
       const filterSize = String(attrs.micronSize ?? attrs.filterSize ?? '');
       const rule = config.rules.find(r => String(r.matchValue) === filterSize);
       if (rule?.profileId) return rule.profileId;
-      return getDefaultCleaningProfileId();
+      return getDefaultCleaningProfileId(cache);
     }
     case 'BY_FILTER_SET': {
       // 2026-05-29 bug fix #1: filter_details.filter_set stores the prefixed
@@ -263,7 +279,7 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
       const target = normalize(filter.filterSet);
       const rule = config.rules.find(r => normalize(r.matchValue) === target);
       if (rule?.profileId) return rule.profileId;
-      return getDefaultCleaningProfileId();
+      return getDefaultCleaningProfileId(cache);
     }
     case 'BY_AHU': {
       // Filter's parent is typically AHU
@@ -271,7 +287,7 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
         const rule = config.rules.find(r => r.matchValue === instance.parentId);
         if (rule?.profileId) return rule.profileId;
       }
-      return getDefaultCleaningProfileId();
+      return getDefaultCleaningProfileId(cache);
     }
     case 'BY_BLOCK': {
       // Walk up: Filter -> AHU -> ... -> Block
@@ -281,18 +297,20 @@ export async function resolveFilterProfile(filter: { id: string; filterProfileId
         visited.add(currentId);
         const rule = config.rules.find(r => r.matchValue === currentId);
         if (rule) return rule.profileId;
-        const parent = await prisma.assetInstance.findUnique({ where: { id: currentId }, select: { parentId: true } });
+        // M39: shared ancestors again — memoised on the `parent:` projection.
+        const readParent = () => prisma.assetInstance.findUnique({ where: { id: currentId! }, select: { parentId: true } });
+        const parent = cache ? await cache.memo(`parent:${currentId}`, readParent) : await readParent();
         currentId = parent?.parentId ?? null;
       }
-      return getDefaultCleaningProfileId();
+      return getDefaultCleaningProfileId(cache);
     }
     case 'BY_ENTITY': {
       const rule = config.rules.find(r => r.matchValue === filter.id);
       if (rule?.profileId) return rule.profileId;
-      return getDefaultCleaningProfileId();
+      return getDefaultCleaningProfileId(cache);
     }
     default:
-      return getDefaultCleaningProfileId();
+      return getDefaultCleaningProfileId(cache);
   }
 }
 

@@ -545,8 +545,8 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     schema: {
       tags: ['PM Schedules'],
       summary: 'Run the overdue-deviation sweep now (open new + close resolved)',
-      description: 'Manual trigger for the same idempotent sweep the daily cron runs. Opens deviations for newly-overdue AHU cleaning tasks and closes those whose filters have since been cleaned.',
-      response: { 200: { type: 'object', properties: { opened: { type: 'integer' }, closed: { type: 'integer' } }, additionalProperties: false }, ...errorResponses },
+      description: 'Manual trigger for the same idempotent sweep the daily cron runs. Opens deviations for newly-overdue AHU cleaning tasks and closes those whose filters have since been PM-cleaned. `blocked` counts re-overdue tasks whose deviation could not be recorded because a CLOSED deviation already occupies the task — each one is audited and notified, and needs manual review.',
+      response: { 200: { type: 'object', properties: { opened: { type: 'integer' }, closed: { type: 'integer' }, blocked: { type: 'integer' } }, additionalProperties: false }, ...errorResponses },
     },
   }, async (req) => {
     return sweepOverdueDeviations(buildContext(req));

@@ -93,3 +93,48 @@ export function effectiveCycleStatus(cycle: any): string {
   }
   return cycle?.status;
 }
+
+/** Cleaning stages in pipeline order — the stage-progress bar's fixed axis. */
+export const STAGE_ORDER = ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'] as const;
+
+/**
+ * Stage-progress state for the cycle detail view's progress bar.
+ *
+ * `reached` is a SET of the stages the cycle transitioned into — deliberately not
+ * the raw event list. A stage can legitimately be entered by MORE than one
+ * STATE_TRANSITION: DRY_IN emits two (SET_DURATION, then SUBMIT_READINGS — the
+ * persisted-countdown flow), so the event list carries duplicates by design and
+ * its LENGTH is not a stage index.
+ *
+ * `current` is derived structurally rather than by counting transitions: it is the
+ * first in-profile stage that comes after the furthest stage reached and has not
+ * itself been reached. Counting instead (`i === events.length`) overshoots by one
+ * per duplicate and pulses a stage the operator hasn't got to yet.
+ *
+ * Only an IN_PROGRESS cycle has a current stage — a completed / terminated /
+ * retired / replaced one has no next action, so `current` is null.
+ */
+export function stageProgress(
+  events: any[],
+  profileStages: string[],
+  effStatus: string,
+): { reached: Set<string>; current: string | null } {
+  const reached = new Set<string>(
+    (events ?? [])
+      .filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState)
+      .map((e: any) => e.toState as string),
+  );
+  // Furthest point on the axis the cycle has actually got to (-1 = not started).
+  const maxReachedIdx = STAGE_ORDER.reduce((acc, s, i) => (reached.has(s) ? i : acc), -1);
+  // Before the first transition nothing pulses (unchanged behaviour): with no
+  // transition there is no evidence of which stage the operator is on.
+  if (effStatus !== 'IN_PROGRESS' || maxReachedIdx < 0) return { reached, current: null };
+  const current = STAGE_ORDER.find(
+    (s, i) =>
+      i > maxReachedIdx &&
+      !reached.has(s) &&
+      // Stages outside this cycle's profile render "NA" and are never current.
+      (profileStages.length === 0 || profileStages.includes(s)),
+  );
+  return { reached, current: current ?? null };
+}

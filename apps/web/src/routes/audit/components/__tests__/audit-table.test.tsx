@@ -111,3 +111,94 @@ describe('AuditTable — reading is not gated on destroy rights', () => {
     ).toBeInTheDocument();
   });
 });
+
+/**
+ * Regression tests for M72 — redacted rows were indistinguishable from live ones.
+ *
+ * Three redacted rows existed in the live 17k-row audit trail, each rendering as
+ * an ordinary record: no badge, no reason, no redactor, and the redact button
+ * still offered. Redaction is the chain-preserving alternative to deletion and
+ * only earns that role if an inspector can SEE it.
+ */
+const redactedRecord = {
+  ...record,
+  id: 'a2',
+  beforeValue: null,
+  afterValue: null,
+  redactedAt: '2026-07-02T09:52:20.847Z',
+  redactedBy: 'f8e5e6e9-db1b-4f87-99f4-dec13cb1cccb',
+  redactedByName: 'superadmin',
+  redactionReason: 'contained personal data',
+};
+
+describe('AuditTable — redacted rows announce themselves', () => {
+  it('badges a redacted row with its redactor and reason', () => {
+    render(
+      <AuditTable
+        {...baseProps}
+        data={{ data: [redactedRecord] }}
+        canDestroy
+        canRedact
+        canHardDelete={false}
+        onViewRecord={() => {}}
+        onDeleteRecord={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Payload redacted')).toBeInTheDocument();
+    expect(screen.getByText(/superadmin/)).toBeInTheDocument();
+    expect(screen.getByText(/contained personal data/)).toBeInTheDocument();
+  });
+
+  it('leaves an ordinary row unbadged', () => {
+    render(
+      <AuditTable
+        {...baseProps}
+        canDestroy
+        canRedact
+        canHardDelete={false}
+        onViewRecord={() => {}}
+        onDeleteRecord={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText('Payload redacted')).not.toBeInTheDocument();
+  });
+
+  it('drops the redact button on an already-redacted row but keeps hard delete', () => {
+    render(
+      <AuditTable
+        {...baseProps}
+        data={{ data: [redactedRecord] }}
+        canDestroy
+        canRedact
+        canHardDelete
+        onHardDeleteRecord={() => {}}
+        onViewRecord={() => {}}
+        onDeleteRecord={() => {}}
+      />,
+    );
+
+    // Re-redacting cost a prompt + reauth only to 409 ALREADY_REDACTED.
+    expect(screen.queryByTitle('Redact record (mask contents, keep hash chain)')).not.toBeInTheDocument();
+    // A redacted row can still be physically removed.
+    expect(screen.getByTitle(/Delete permanently/)).toBeInTheDocument();
+    // Reading is never gated.
+    expect(screen.getByTitle('View record details')).toBeInTheDocument();
+  });
+
+  it('still offers redact on a live row', () => {
+    render(
+      <AuditTable
+        {...baseProps}
+        canDestroy
+        canRedact
+        canHardDelete={false}
+        onViewRecord={() => {}}
+        onDeleteRecord={() => {}}
+      />,
+    );
+
+    expect(screen.getByTitle('Redact record (mask contents, keep hash chain)')).toBeInTheDocument();
+  });
+});

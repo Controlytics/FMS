@@ -133,6 +133,9 @@ export function ResetRequestsPage() {
             setError(err.message || 'Failed to process request');
             setIsProcessing(false);
           },
+          // M64: cancelling the password prompt left this dialog wedged on
+          // 'Processing…'. Unwind silently — the operator chose to back out.
+          onCancel: () => setIsProcessing(false),
         },
       );
     } catch (err: any) {

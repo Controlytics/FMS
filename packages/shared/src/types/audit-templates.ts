@@ -542,6 +542,12 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Overdue-PM deviation closed for AHU "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  DEVIATION_OPEN_BLOCKED: {
+    label: 'PM Deviation Could Not Be Opened',
+    category: 'PM Schedules',
+    template: 'Overdue-PM deviation for AHU "{targetName}" could NOT be opened — a closed deviation already occupies this PM task',
+    placeholders: ['actor', 'targetName'],
+  },
   ACKNOWLEDGE_PM_OVERDUE: {
     label: 'Overdue PM Acknowledged',
     category: 'PM Schedules',

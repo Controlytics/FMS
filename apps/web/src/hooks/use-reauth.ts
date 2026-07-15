@@ -22,6 +22,13 @@ interface ReauthState {
  *       await apiClient.delete(`/api/users/${id}`);
  *     }
  *   });
+ *
+ * Callbacks: exactly ONE of onSuccess / onError / onCancel fires per execute().
+ * If you set a loading flag before execute() and clear it only in onSuccess,
+ * you MUST handle the cancel path — pass `onCancel` (preferred: a cancel is not
+ * an error) or an `onError` that clears the flag. Cancel falls back to onError
+ * with `{ error: 'REAUTH_CANCELLED' }` when onCancel is absent, so a caller
+ * cannot hang, but onCancel is the honest shape.
  */
 export function useReauth() {
   const { data: myActions } = useSWR<{ actions: string[] }>(
@@ -41,6 +48,7 @@ export function useReauth() {
     callback: (password?: string) => Promise<any>;
     onSuccess?: () => void;
     onError?: (err: unknown) => void;
+    onCancel?: () => void;
     // Set only by executeWithResult — lets confirm/cancel settle the awaited promise.
     resolve?: (value: any) => void;
     reject?: (err: unknown) => void;
@@ -57,7 +65,7 @@ export function useReauth() {
     async (
       action: string,
       callback: (password?: string) => Promise<void>,
-      options?: { onSuccess?: () => void; onError?: (err: unknown) => void },
+      options?: { onSuccess?: () => void; onError?: (err: unknown) => void; onCancel?: () => void },
     ) => {
       if (needsReauth(action)) {
         pendingAction.current?.reject?.({ error: 'REAUTH_SUPERSEDED' });
@@ -66,6 +74,7 @@ export function useReauth() {
           callback,
           onSuccess: options?.onSuccess,
           onError: options?.onError,
+          onCancel: options?.onCancel,
         };
         setState({ isOpen: true, password: '', error: '', isVerifying: false });
       } else {
@@ -82,6 +91,7 @@ export function useReauth() {
               callback,
               onSuccess: options?.onSuccess,
               onError: options?.onError,
+              onCancel: options?.onCancel,
             };
             setState({ isOpen: true, password: '', error: '', isVerifying: false });
           } else {
@@ -165,6 +175,28 @@ export function useReauth() {
   const cancel = useCallback(() => {
     // Settle any executeWithResult promise so an awaiting caller unblocks.
     pendingAction.current?.reject?.({ error: 'REAUTH_CANCELLED' });
+
+    // ...and notify `execute` callers, which have no promise to await (M85/M64).
+    // Pre-fix, cancel settled ONLY the executeWithResult promise, so every
+    // execute() caller that clears its submitting flag in onSuccess/onError sat
+    // wedged on "Processing…" forever after a cancel — live today on filter-list
+    // for the EDIT_FILTER/DELETE_FILTER reauth that SUPERVISORs get.
+    //
+    // Shape: cancelling is NOT an error, so a caller can pass `onCancel` to
+    // unwind cleanly (no error banner). We fall back to `onError` with the same
+    // REAUTH_CANCELLED sentinel executeWithResult already rejects with, because
+    // a *silent* cancel would leave every existing caller — and every future one
+    // that forgets `onCancel` — stuck exactly as before. Callers on the fallback
+    // can discriminate via `err.error === 'REAUTH_CANCELLED'`.
+    // The fallback carries a `message` because ~45 onError handlers render
+    // `err?.message ?? 'Failed'` — with a message-less sentinel every one of them
+    // would title a deliberate cancel as "Failed"/"Something went wrong", which is
+    // simply untrue. This keeps the text honest even on the fallback path; only
+    // the severity styling is off, and `onCancel` removes that too.
+    const pending = pendingAction.current;
+    if (pending?.onCancel) pending.onCancel();
+    else pending?.onError?.({ error: 'REAUTH_CANCELLED', message: 'Cancelled — password confirmation was not completed.' });
+
     setState({ isOpen: false, password: '', error: '', isVerifying: false });
     pendingAction.current = null;
   }, []);

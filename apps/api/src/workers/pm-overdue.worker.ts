@@ -17,7 +17,13 @@ import { sweepOverdueDeviations } from '../modules/pm-schedules/pm-deviations.js
 export const pmOverdueCheckTask: Task = async (_payload, helpers) => {
   try {
     const r = await sweepOverdueDeviations();
-    helpers.logger.info(`[PM Overdue] swept: opened=${r.opened} closed=${r.closed}`);
+    helpers.logger.info(`[PM Overdue] swept: opened=${r.opened} closed=${r.closed} blocked=${r.blocked}`);
+    // blocked > 0 = a re-overdue PM task whose deviation could not be recorded
+    // (a CLOSED deviation already occupies it). Audited + notified by the sweep;
+    // warn here too so it is visible in the runner log, not just the audit trail.
+    if (r.blocked > 0) {
+      helpers.logger.warn(`[PM Overdue] ${r.blocked} re-overdue task(s) could NOT be recorded as deviations — manual review required`);
+    }
   } catch (e: any) {
     helpers.logger.warn(`[PM Overdue] sweep skipped: ${e?.message ?? String(e)}`);
   }
