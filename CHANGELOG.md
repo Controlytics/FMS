@@ -1,5 +1,80 @@
 # Changelog
 
+## [Unreleased] — Confirmed-live backlog closed; 3 filings refuted (2026-07-15)
+
+Works the findings left after the verification sweep, in four parallel clusters
+over non-overlapping file sets. `ba41cb5` (32 files, +1859/-264) + APK `77a80d4`.
+**Verified serially once all agents had landed: API 1159 passed / 0 failed / 12
+skipped (112 files); web 530/530 (41 files); both typechecks clean.** No schema
+changes; offline-sync untouched.
+
+**Data integrity.** Partial `PUT` no longer wipes filter attributes — "field
+absent" had been an *overloaded* signal (the edit dialog meant "clear it", every
+other caller meant "don't touch"), so replace-semantics honoured the dialog and
+destroyed regulated data for anyone else. Now: absent = don't touch, explicit
+`''`/`null` = clear; the builder is untouched so create + bulk-upload stay
+byte-identical. Found outside scope: the audit `afterValue` logged the partial
+input rather than the merged result. Filter delete now refuses with 409 when a
+cycle is IN_PROGRESS and frees RFID identifiers in-tx — **not** a
+cascade-terminate, because `retire()` is the audited path that stamps a reason
+and `delete` carries no remarks, so auto-terminating would manufacture an
+unremarked §11 cycle-termination.
+
+**Auth / correctness.** A bare `catch` wrapped ~180 lines including 6 Prisma
+queries, so any DB fault surfaced as `401 TOKEN_EXPIRED`; the `try` is now
+narrowed to `verifyToken` (pure jose — everything else in there was I/O).
+graphile-worker boot failure now logs at error and surfaces as
+`/api/health.jobRunner`, **deliberately still 200**: `probeServer` reads `r.ok`,
+so a 503 would flip every tablet offline over a background-job fault.
+`/api/health` was also returning `db` and having it silently dropped by
+fast-json-stringify (undeclared in the response schema). deployment-check read
+`API_PORT` while `install.ps1` writes `PORT` — a *correct* customer install
+WARNed and a broken one PASSed. Zero-connection cleaning profiles rejected at
+both doors (`update()` had skipped validation entirely when `stages` was absent).
+
+**Security.** Password policy enforced on admin resets (`unlock`/`resetPassword`/
+approve validated nothing; approve had a bare `length < 8`) — validator parity
+only, not history, since the target is force-changed at next login. Photo upload
+was gated on `USER_UPDATE` while its own comment said "authenticated users only":
+**70 users across 6 roles were 403'ing on their own profile**. Now auth-only,
+with a route rate limit bounding the orphan-file loop this widens (keys on IP,
+not user — rate-limit registers before authPlugin). Equipment-group `setActive`
+was an unguarded second door to delete's soft-delete mutation; both paths now
+refuse when disabling a block's last active group would strand unbound
+in-progress cycles, under `SELECT … FOR UPDATE` inside the tx.
+
+**API base.** 17 raw relative `fetch('/api/...')` sites now use the base every
+other caller already uses. Dev proxies `/api` so `getApiBase()` is `''` — no
+behaviour change. `fetch(logoUrl)` deliberately left: it's an asset load and the
+pattern spans 3+ files, so it's one policy question, not a local prefix.
+
+**Three filings refuted — recorded, not fixed.** `retire()` must NOT free
+identifiers: injecting the cascade turned `replace()` red — the tag row is
+destroyed, `replace()` still returns 200, and the replacement filter comes up
+untagged. `retire()` being hands-off is a load-bearing precondition of
+`replace()`, which re-points identifiers onto the replacement; and `unretire` is
+reversible, so a physical delete would silently restore a tagless filter. The
+real pattern is *free the tag when the binding becomes meaningless (delete),
+preserve it when the filter's history stays meaningful (retire), move it when the
+physical tag stays on the wall (replace)* — three behaviours, all already
+correct. Net: zero production code, one test; the invariant had been protected
+only by a code comment. Separately, the "tablet-breaking" framing on the API-base
+cluster was wrong — `contact-admin` is desktop-only and `main.tsx`'s native guard
+redirects any non-`/m` path to `/m/login`, so those fetches never ran on the APK.
+And the unbound-cycle guard is **preventive, not live**: of 13 unbound cycles, 8
+have no `cleaning_area_id` and 5 sit in a block that never had a group.
+
+**Open, needs a decision.** 6 of 10 notification event types have zero emit sites,
+but a live ACTIVE rule ("Filter Replacement") uses `CHECKLIST_APPROVED`/
+`CHECKLIST_REJECTED`. Trimming needs a hand-authored migration against a populated
+DB and would destroy that rule. Worse: the test-fire endpoint dispatches the
+rule's own type with fabricated vars, so **an admin's test succeeds while the rule
+never fires in production**.
+
+**Mutation-tested throughout**, which earned its keep: one mutation exposed a test
+passing against a broken implementation — `vi.clearAllMocks()` does not drain
+`mockResolvedValueOnce` queues, so a leaked queue fed the next test.
+
 ## [Unreleased] — Enterprise-audit Medium findings: 54 confirmed, 54 fixed (2026-07-15)
 
 62 high-signal Mediums (security / compliance / data-integrity / concurrency; the

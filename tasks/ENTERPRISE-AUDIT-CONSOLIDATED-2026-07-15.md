@@ -83,6 +83,29 @@ Each encoded a confident, wrong justification in its own comment:
 - **`sanitize-html`** — real advisory, not exploitable here (`allowedTags: []`).
 - **`@fastify/static`** — recorded as unfixable; needed one `npm update`.
 
+### Backlog round (`ba41cb5`) — three more filings refuted, two of them mine
+- **"`retire()` strands RFID tags, same class as delete"** — REFUTED **by test, not argument**.
+  Injecting the cascade turned `replace()` red: the tag row is destroyed, `replace()` still
+  returns **200**, and the replacement filter comes up untagged with the physical tag orphaned.
+  `replace()` calls `retire()` and *then* re-points identifiers — **retire being hands-off is a
+  load-bearing precondition of `replace()`**. `unretire` is reversible too, so a physical delete
+  would silently restore a tagless filter. The real pattern: *free the tag when the binding
+  becomes meaningless (delete), preserve it when the filter's history stays meaningful (retire),
+  move it when the tag stays on the wall (replace)* — three behaviours, all already correct.
+  Three sites doing different things was read as inconsistency. Now locked by
+  `e2e/retire-replace-identifier-invariant.test.ts`, written as a signpost for the next agent.
+- **"Tablet uploads silently do nothing" (the API-base cluster)** — REFUTED. `contact-admin` is
+  linked only from **desktop** `login.tsx`; `main.tsx`'s native boot guard redirects any non-`/m`
+  path to `/m/login`, and `/m` was already clean. None of the 17 sites run on the APK. The fixes
+  stand on consistency (every other caller uses `getApiBase()`), not on a reproduced break.
+- **"13 unbound cycles ⇒ the equipment-group gap is live"** — REFUTED. 8 have
+  `cleaning_area_id IS NULL` (block-fallback never runs); 5 sit in a block that has **never** had
+  an equipment group. No block with an active group has unbound cycles. The guard shipped is
+  **preventive**, not a repair.
+
+Two of those three were errors I introduced or relayed, not the auditor's — the pattern rule and
+a mis-read count. See `feedback_pattern_rule_is_a_hypothesis_not_a_verdict` in memory.
+
 ---
 
 ## 3. The one nobody was looking for
@@ -119,7 +142,8 @@ Confirmed as real code behaviour, left alone by explicit operator decision:
 
 | # | Item | Impact |
 |---|---|---|
-| 0 | **Block MUPS has 2 active equipment groups** ("Testing", "Testing 2") | **The only pending item actively breaking something today.** Operators in MUPS get `MULTIPLE_EQUIPMENT_GROUPS` on readings; unpinned cycles resolve zero instruments. Also blocks the partial unique index that would properly close the equipment-group race (the in-tx count only narrows it — READ COMMITTED lets two txs both count 0). Fix via UI so it's audited. |
+| 0 | **Block MUPS has 2 active equipment groups** ("Testing", "Testing 2") | **The only pending item actively breaking something today.** Operators in MUPS get `MULTIPLE_EQUIPMENT_GROUPS` on readings; unpinned cycles resolve zero instruments. Also blocks the partial unique index that would properly close the equipment-group race (the in-tx count only narrows it — READ COMMITTED lets two txs both count 0). Fix via UI so it's audited. **Re-checked against the new `ba41cb5` deactivation guard: both groups sit in block `be97d14b` with `other_active = 1` each, so disabling either leaves one active → the guard does NOT block this fix.** |
+| 1 | **Notification event types — decide** | 6 of 10 types have zero emit sites, but a live **ACTIVE** rule ("Filter Replacement") uses `CHECKLIST_APPROVED`/`CHECKLIST_REJECTED`. Trimming the enum needs a hand-authored migration against a populated DB and would destroy that operator's rule. **The test-fire endpoint dispatches the rule's own type with fabricated vars, so the admin's test SUCCEEDS while the rule never fires in production** — false confidence in a §11 system. Options: (a) trim the 6 and migrate the live rule, or (b) wire `CHECKLIST_*` into the checklist flow (net-new feature). Left untouched pending your call. |
 | 2 | **Filter `CWH/F1/AHU-0B/SA/05/06-01`** is Set A, should be Set B | Corrupted 2026-07-14 by the Edit-dialog enum bug (live since 04-20). 91 earlier edits are forensically invisible — before/after audit capture only landed 07-08. Fix via UI so the correction is audited. |
 | 3 | **Static IP `192.168.1.55`** + tablet Server Address `https://192.168.1.55:3000` | Machine drifted to `.124`, which the cert doesn't cover. `.55` is already in the cert SANs — no regen, no root-CA reinstall. APK is built and baked for it. |
 | 4 | **Tablet verification** | Bulk filter-operate (pending since 07-09) and the new `sync/since` authz gate (protected surface). |
@@ -132,6 +156,10 @@ Confirmed as real code behaviour, left alone by explicit operator decision:
 - **3,408 audit-chain anomalies** in `digilog_db`. `verify-chain` under-reports: `maxAnomalies` defaults to 100, so it bails at position ~193 and never checks the other ~16,700 rows. The **live write path is clean** (positions ≥16000: zero anomalies) and June is spotless; the damage is a ~49% cluster in May 2026 that the known AUDIT_DELETE test artifacts (41 link breaks + 59 gaps) do **not** explain. **Deliberately not "fixed"** — recomputing historic checksums to make verification pass is indistinguishable from tampering, and this design keeps breakage loud. See `reference_audit_chain_state_2026_07_15`.
 - **4 dependency advisories remain** (`tar`, `uuid`) — neither reachable, neither fixable in-range. ⚠ **Do not run `npm audit fix --force`**: npm's "fix" for uuid is a **major downgrade of exceljs 4.4.0 → 3.4.0**, which would partially undo the 07-13 xlsx CVE migration.
 - **LDAP audit unverified** — no directory available; covered by unit tests only.
+- **Orphan-file GC for uploads** (`ba41cb5`). Un-gating photo upload to auth-only widened the orphan/DoS surface from `USER_UPDATE`-holders to all 70 users. Bounded with a route rate limit (~25 GB/min → 150 MB/hr), but it **keys on IP, not user** — `@fastify/rate-limit` registers at `app.ts:158`, `authPlugin` at `:176`, so `req.user` doesn't exist when the key is computed. Size cap (5 MB) + MIME allowlist + magic-byte validation already existed. **Unlink-on-replace was deliberately NOT built**: it doesn't touch the DoS loop (which never updates the profile, so nothing gets unlinked), and `photoUrl` is unvalidated — unlinking from the stored string would be an arbitrary-file-delete primitive. Needs a quota/GC design.
+- **`#168` (block-change mode) is closed online only** — offline, the mode isn't cached (SWR gated on `online`), so a home/selected-block mismatch still prompts under `mode: NONE`. Pre-existing and deliberately scoped out: CONFIRM-offline is the documented never-block default (a spurious dialog offline is strictly safer than a missed block), and caching the mode reaches into the offline decision path beside the protected sync surface.
+- **`fetch(logoUrl)` asset-base policy** — the default `/logo.jpg` is a bundled static asset that must NOT take the API base, but a DB-stored `/uploads/...` logo would. The same unprefixed pattern lives in `sidebar.tsx:345` and `report-page-wrapper.tsx:40`. One policy question across 3+ files (`getPhotoUrl` semantics), not a local prefix — left with a comment at the site.
+- **`SELECT … FOR UPDATE` serialization is unit-tested for ordering only** — proving real concurrency behaviour needs two concurrent transactions against Postgres, which was not built.
 - **`AuditEntry.action` is typed `string`** — investigated; the obvious fix is wrong (see §2). Typing against TEMPLATE keys would be the correct form, but there is no live defect behind it.
 - **75 low-signal Mediums remain UNVERIFIED** — an agent's subagent fan-out stalled
   and it (correctly) refused to mark them REFUTED without checking. They are
