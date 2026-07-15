@@ -64,6 +64,11 @@ export default async function userGroupRoutes(app: FastifyInstance) {
           description: { type: 'string', maxLength: 500 },
           isActive: { type: 'boolean' },
         },
+        // The handler does `data: body`, so any key the client sends reaches
+        // Prisma. AJV's removeAdditional only strips unknown keys when the schema
+        // declares this — without it createdBy/createdAt were writable and the
+        // row's provenance could be rewritten.
+        additionalProperties: false,
       },
     },
   }, async (req) => {

@@ -183,6 +183,11 @@ export default async function dashboardRoutes(app: FastifyInstance) {
           isDefault: { type: 'boolean' },
           isActive: { type: 'boolean' },
         },
+        // The handler does `data: body`, so every key the client sends reaches
+        // Prisma. AJV's removeAdditional only strips unknown keys when the schema
+        // declares this — without it a DASHBOARD_MANAGE holder could PUT
+        // createdBy/createdAt and rewrite the row's provenance.
+        additionalProperties: false,
       },
     },
     preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
@@ -281,6 +286,11 @@ export default async function dashboardRoutes(app: FastifyInstance) {
           dataSource: { type: 'object' },
           refreshInterval: { type: 'integer', minimum: 0 },
         },
+        // Same as the dashboard PUT above. Worse here: dashboardId is writable, so
+        // an unfiltered `data: body` let a caller re-parent a widget onto another
+        // dashboard — straight past the ownership check this handler runs on the
+        // PARENT id. widgetType is writable too, bypassing the create-time enum.
+        additionalProperties: false,
       },
     },
     preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
