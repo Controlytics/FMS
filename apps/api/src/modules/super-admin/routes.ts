@@ -332,6 +332,24 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   };
 
+  // Helper: delete one row, reporting the truth. These handlers previously did
+  // `.catch(() => null)` and then returned `{ success: true }` unconditionally,
+  // so an FK violation, a trigger rejection or a missing row all rendered as a
+  // successful deletion in the UI — the operator was told a record was gone
+  // while it was still in the database. A genuinely-absent row is the one
+  // tolerable case, and it is a 404 (P2025), not a success.
+  const deleteRecord = async (model: any, id: string, label: string, reply: FastifyReply) => {
+    try {
+      await model.delete({ where: { id } });
+      return { success: true };
+    } catch (e: any) {
+      if (e?.code === 'P2025') {
+        return reply.code(404).send({ error: 'NOT_FOUND', message: `${label} not found.` });
+      }
+      return reply.code(400).send({ error: 'DELETE_FAILED', message: String(e?.message ?? `Could not delete ${label.toLowerCase()}.`) });
+    }
+  };
+
   // â”€â”€â”€ Cleaning Cycles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/data/cleaning-cycles', { preHandler: dataPreHandler, schema: dataSchema('List cleaning cycles') }, async (req) => {
     return paginatedList(prisma.cleaningCycle, req.query, [{ startedAt: 'desc' }]);
@@ -452,8 +470,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
 
   app.delete('/data/filter-events/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete filter event'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
     const { id } = req.params as any;
-    await prisma.filterEvent.delete({ where: { id } }).catch(() => null);
-    return { success: true };
+    return deleteRecord(prisma.filterEvent, id, 'Filter event', reply);
   });
 
   // â”€â”€â”€ Audit Trail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -505,10 +522,9 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     }
   });
 
-  app.delete('/data/notifications/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete notification'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
+  app.delete('/data/notifications/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete notification'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
     const { id } = req.params as any;
-    await prisma.notification.delete({ where: { id } }).catch(() => null);
-    return { success: true };
+    return deleteRecord(prisma.notification, id, 'Notification', reply);
   });
 
   // â”€â”€â”€ Admin Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -547,10 +563,9 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     }
   });
 
-  app.delete('/data/admin-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete admin request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
+  app.delete('/data/admin-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete admin request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
     const { id } = req.params as any;
-    await prisma.adminRequest.delete({ where: { id } }).catch(() => null);
-    return { success: true };
+    return deleteRecord(prisma.adminRequest, id, 'Admin request', reply);
   });
 
   // â”€â”€â”€ Block Change Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -596,10 +611,9 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     }
   });
 
-  app.delete('/data/block-change-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
+  app.delete('/data/block-change-requests/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete block change request'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
     const { id } = req.params as any;
-    await prisma.blockChangeRequest.delete({ where: { id } }).catch(() => null);
-    return { success: true };
+    return deleteRecord(prisma.blockChangeRequest, id, 'Block change request', reply);
   });
 
   // â”€â”€â”€ PM Schedule Entries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -657,9 +671,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     }
   });
 
-  app.delete('/data/pm-entries/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete PM schedule entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req) => {
+  app.delete('/data/pm-entries/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Delete PM schedule entry'), params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } }, async (req, reply) => {
     const { id } = req.params as any;
-    await prisma.pmScheduleEntry.delete({ where: { id } }).catch(() => null);
-    return { success: true };
+    return deleteRecord(prisma.pmScheduleEntry, id, 'PM schedule entry', reply);
   });
 }

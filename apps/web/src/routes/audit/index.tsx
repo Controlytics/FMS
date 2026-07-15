@@ -44,7 +44,9 @@ export function AuditTrailPage() {
   // Destructive affordances. Redact (audit.redact) preserves the hash chain and is
   // SUPER_ADMIN-only (gate []). Hard-delete (audit.delete) physically removes the row
   // and BREAKS the chain — a grantable picker toggle (gate ['AUDIT_DELETE']). Either
-  // one unlocks the selection column + row actions.
+  // one unlocks the SELECTION column + the destructive row buttons. Reading a record
+  // (the Details column + detail dialog) is NOT gated on these — the route already
+  // requires AUDIT_READ, and gating reads on destroy rights locked inspectors out.
   const canRedact = can('audit.redact');
   const canHardDelete = can('audit.delete');
   const canDestroy = canRedact || canHardDelete;
@@ -146,7 +148,10 @@ export function AuditTrailPage() {
           });
           mutate();
         },
-        onError: (err: any) => console.error('Failed to redact audit record:', err),
+        // A failed §11 redaction must never pass silently — the operator has to
+        // know the payload is still there. reauth.cancel() does not route here,
+        // so this only ever fires on a real failure.
+        onError: (err: any) => toast.error('Redaction Failed', err?.message ?? 'The audit record was not redacted.'),
       },
     );
   };
@@ -170,7 +175,7 @@ export function AuditTrailPage() {
           setDeleting(false);
         },
         onError: (err: any) => {
-          console.error('Failed to bulk redact audit records:', err);
+          toast.error('Bulk Redaction Failed', err?.message ?? 'No audit records were redacted.');
           setDeleting(false);
         },
       },
@@ -199,7 +204,7 @@ export function AuditTrailPage() {
           });
           mutate();
         },
-        onError: (err: any) => console.error('Failed to delete audit record:', err),
+        onError: (err: any) => toast.error('Delete Failed', err?.message ?? 'The audit record was not deleted.'),
       },
     );
   };
@@ -223,7 +228,7 @@ export function AuditTrailPage() {
           setHardDeleting(false);
         },
         onError: (err: any) => {
-          console.error('Failed to bulk delete audit records:', err);
+          toast.error('Bulk Delete Failed', err?.message ?? 'No audit records were deleted.');
           setHardDeleting(false);
         },
       },
@@ -449,7 +454,7 @@ export function AuditTrailPage() {
         <AuditTable
           data={data}
           isLoading={isLoading}
-          isSuperAdmin={canDestroy}
+          canDestroy={canDestroy}
           canRedact={canRedact}
           canHardDelete={canHardDelete}
           onHardDeleteRecord={hardDeleteSingleAudit}
@@ -489,7 +494,6 @@ export function AuditTrailPage() {
       <AuditDetailModal
         selectedRecord={selectedRecord}
         onClose={() => setSelectedRecord(null)}
-        isSuperAdmin={can('audit.redact')}
         formatDateTime={formatDateTime}
         getAuditSummary={getAuditSummary}
         getAuditStatus={getAuditStatus}

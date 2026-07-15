@@ -22,6 +22,7 @@ import { themeGradientBr, themeButton } from '@/lib/theme-styles';
 import { STATUS_LABELS, LIFECYCLE_STATE_OPTIONS } from './filter-list/constants';
 import type { CreateDialogState, DiagramFilterState, HierarchyNode, StatusPanelFilter, EditFilterRef, FilterRef, FilterFieldOptions, LastCleaningDateState } from './filter-list/types';
 import { encodeLastCleaningDate, decodeLastCleaningDate } from './filter-list/lib/lastCleaningDateState';
+import { resolveBulkTargets } from './filter-list/lib/resolve-bulk-targets';
 import { HierarchyCanvas } from './filter-list/components/HierarchyCanvas';
 import { StatusUpdatePanel } from './filter-list/dialogs/StatusUpdatePanel';
 import { DeleteBlockDialog } from './filter-list/dialogs/DeleteBlockDialog';
@@ -639,6 +640,19 @@ export function FilterListPage() {
   const selectableFilters = blockFilters.filter(f => f.currentState !== 'RETIRED');
   const allSelected = selectableFilters.length > 0 && selectableFilters.every(f => selectedFilterIds.has(f.id));
 
+  // The filters a bulk action will actually touch: the selection Set narrowed to
+  // what the operator can currently SEE (search / diagram / block). The Set
+  // outlives those narrowings, so acting on it raw hit invisible filters. Every
+  // bulk surface — action, dialog list, dialog count, toolbar count — reads this
+  // one value so they can never disagree.
+  const visibleSelectedFilters = useMemo(
+    () => resolveBulkTargets(selectedFilterIds, blockFilters),
+    [selectedFilterIds, blockFilters],
+  );
+  // Selected but currently filtered off-screen — surfaced in the bulk bar so the
+  // operator knows they exist instead of silently losing them.
+  const hiddenSelectedCount = selectedFilterIds.size - visibleSelectedFilters.length;
+
   const toggleSelectAll = () => {
     if (allSelected) {
       setSelectedFilterIds(new Set());
@@ -648,7 +662,7 @@ export function FilterListPage() {
   };
 
   const openBulkStatusPanel = () => {
-    if (selectedFilterIds.size === 0) return;
+    if (visibleSelectedFilters.length === 0) return;
     closePanel(); closeRfidPanel();
     setBulkAction('status');
     setStatusPanelState(LIFECYCLE_STATE_OPTIONS[0].value);
@@ -656,7 +670,7 @@ export function FilterListPage() {
   };
 
   const openBulkRetirePanel = (action: 'retire' | 'replace') => {
-    if (selectedFilterIds.size === 0) return;
+    if (visibleSelectedFilters.length === 0) return;
     closeStatusPanel(); closeRfidPanel();
     setBulkAction(action);
     setPanelAction(action);
@@ -672,9 +686,10 @@ export function FilterListPage() {
   };
 
   const handleBulkStatusSubmit = (extra?: { cleaningReasonKey?: string; cleaningJustification?: string }) => {
-    if (!statusPanelState || !statusPanelRemarks.trim() || selectedFilterIds.size === 0) return;
+    if (!statusPanelState || !statusPanelRemarks.trim() || visibleSelectedFilters.length === 0) return;
     setStatusPanelSubmitting(true);
-    const ids = Array.from(selectedFilterIds);
+    // Only the filters currently visible — never ones hidden by the search box.
+    const ids = visibleSelectedFilters.map(f => f.id);
     const nameById = new Map(blockFilters.map(f => [f.id, f.name] as const));
     let completed = 0;
     let failed = 0;
@@ -750,9 +765,11 @@ export function FilterListPage() {
   };
 
   const handleBulkRetireSubmit = async () => {
-    if (!panelRemarks.trim() || selectedFilterIds.size === 0) return;
+    if (!panelRemarks.trim() || visibleSelectedFilters.length === 0) return;
     setPanelSubmitting(true);
-    const ids = Array.from(selectedFilterIds);
+    // Retire/replace is irreversible, so it may only touch filters the operator
+    // can actually see — the same list the confirm panel showed them.
+    const ids = visibleSelectedFilters.map(f => f.id);
     let completed = 0;
     let failed = 0;
     const action = bulkAction === 'replace' ? 'replace' : 'retire';
@@ -1599,28 +1616,37 @@ export function FilterListPage() {
             </div>
           </div>
 
-          {/* Bulk action bar */}
+          {/* Bulk action bar. The count is the VISIBLE selection — the only thing a
+              bulk action touches. Any selected-but-hidden filters are called out
+              explicitly rather than folded into the total, so the number here always
+              matches the number in the confirm panel. Clear stays reachable while a
+              hidden selection exists. */}
           {selectedFilterIds.size > 0 && (
             <div className="rounded-xl px-5 py-3 flex items-center justify-between" style={{ backgroundColor: 'var(--theme-primary-light)', border: '1px solid var(--theme-primary)' }}>
-              <span className="text-sm font-medium" style={{ color: 'var(--theme-primary-dark)' }}>{selectedFilterIds.size} filter(s) selected</span>
+              <span className="text-sm font-medium" style={{ color: 'var(--theme-primary-dark)' }}>
+                {visibleSelectedFilters.length} filter(s) selected
+                {hiddenSelectedCount > 0 && (
+                  <span className="font-normal text-slate-600"> — {hiddenSelectedCount} hidden by the current search and excluded</span>
+                )}
+              </span>
               <div className="flex items-center gap-2">
                 {canStatusUpdate && (
-                  <button onClick={openBulkStatusPanel}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">
+                  <button onClick={openBulkStatusPanel} disabled={visibleSelectedFilters.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 13.5V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m12-3V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m-6-9V3.75m0 3.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 9.75V10.5" /></svg>
                     Update Status
                   </button>
                 )}
                 {canRetire && (
-                  <button onClick={() => openBulkRetirePanel('retire')}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors">
+                  <button onClick={() => openBulkRetirePanel('retire')} disabled={visibleSelectedFilters.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                     Retire
                   </button>
                 )}
                 {canReplace && (
-                  <button onClick={() => openBulkRetirePanel('replace')}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white text-xs font-semibold rounded-lg hover:bg-orange-700 transition-colors">
+                  <button onClick={() => openBulkRetirePanel('replace')} disabled={visibleSelectedFilters.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white text-xs font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                     Replace
                   </button>
@@ -1922,8 +1948,8 @@ export function FilterListPage() {
       {/* Bulk Status Update Panel */}
       {bulkAction === 'status' && (
         <BulkStatusUpdatePanel
-          selectedCount={selectedFilterIds.size}
-          selectedFilters={blockFilters.filter(f => selectedFilterIds.has(f.id))}
+          selectedCount={visibleSelectedFilters.length}
+          selectedFilters={visibleSelectedFilters}
           state={statusPanelState}
           remarks={statusPanelRemarks}
           submitting={statusPanelSubmitting}
@@ -1938,8 +1964,8 @@ export function FilterListPage() {
       {(bulkAction === 'retire' || bulkAction === 'replace') && (
         <BulkRetireReplacePanel
           action={bulkAction}
-          selectedCount={selectedFilterIds.size}
-          selectedFilters={blockFilters.filter(f => selectedFilterIds.has(f.id))}
+          selectedCount={visibleSelectedFilters.length}
+          selectedFilters={visibleSelectedFilters}
           remarks={panelRemarks}
           submitting={panelSubmitting}
           onRemarksChange={setPanelRemarks}

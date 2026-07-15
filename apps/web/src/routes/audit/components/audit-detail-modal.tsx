@@ -20,7 +20,6 @@ function pruneUuids(obj: Record<string, unknown> | null | undefined): Array<[str
 interface AuditDetailModalProps {
   selectedRecord: any;
   onClose: () => void;
-  isSuperAdmin: boolean;
   formatDateTime: (value: string) => string;
   getAuditSummary: (record: any, templates: Record<string, string>) => string;
   getAuditStatus: (action: string) => 'Success' | 'Fail';
@@ -32,7 +31,6 @@ interface AuditDetailModalProps {
 export function AuditDetailModal({
   selectedRecord,
   onClose,
-  isSuperAdmin,
   formatDateTime,
   getAuditSummary,
   getAuditStatus,
@@ -111,42 +109,40 @@ export function AuditDetailModal({
                 )}
               </div>
             </div>
-            {isSuperAdmin && (
-              <div className="p-3 rounded-xl bg-slate-50">
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">User Role</p>
-                <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold mt-1 ${ROLE_COLORS[selectedRecord.userRole] || 'bg-slate-100 text-slate-700'}`}>
-                  {selectedRecord.userRole}
-                </span>
-              </div>
-            )}
+            <div className="p-3 rounded-xl bg-slate-50">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">User Role</p>
+              <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold mt-1 ${ROLE_COLORS[selectedRecord.userRole] || 'bg-slate-100 text-slate-700'}`}>
+                {selectedRecord.userRole}
+              </span>
+            </div>
           </div>
 
-          {/* SUPER_ADMIN extra details */}
-          {isSuperAdmin && (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">IP Address</p>
-                  <p className="text-sm font-mono text-slate-800 mt-1">{selectedRecord.ipAddress || '-'}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Target Type</p>
-                  <p className="text-sm font-semibold text-slate-800 mt-1">{selectedRecord.targetType || '-'}</p>
-                </div>
-              </div>
+          {/* Record metadata. Previously gated on a redact-class permission, which
+              left an inspector holding AUDIT_READ looking at a near-empty dialog.
+              All of it is read data the backend already returns to any AUDIT_READ
+              caller (GET /api/audit/:id), and that endpoint row-scopes what a
+              non-SUPER_ADMIN may fetch at all — so there is nothing to withhold here. */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-3 rounded-xl bg-slate-50">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">IP Address</p>
+              <p className="text-sm font-mono text-slate-800 mt-1">{selectedRecord.ipAddress || '-'}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Target Type</p>
+              <p className="text-sm font-semibold text-slate-800 mt-1">{selectedRecord.targetType || '-'}</p>
+            </div>
+          </div>
 
-              {/* Checksum */}
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-2 mb-2">
-                  <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Integrity Checksum (SHA-256)</p>
-                </div>
-                <code className="text-xs font-mono text-slate-600 break-all">{selectedRecord.checksum}</code>
-              </div>
-            </>
-          )}
+          {/* Checksum */}
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div className="flex items-center gap-2 mb-2">
+              <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Integrity Checksum (SHA-256)</p>
+            </div>
+            <code className="text-xs font-mono text-slate-600 break-all">{selectedRecord.checksum}</code>
+          </div>
 
           {/* Before/After — visible to ALL roles. Changed-fields summary on top,
               full previous/new record collapsible below. Secrets masked. */}

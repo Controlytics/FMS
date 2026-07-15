@@ -25,7 +25,10 @@ const FIELD_DIFF_ACTIONS = new Set([
 interface AuditTableProps {
   data: any;
   isLoading: boolean;
-  isSuperAdmin: boolean;
+  // Gates the SELECTION column only (the checkboxes that feed bulk redact /
+  // delete). Reading a record is NOT gated on it — the whole page already
+  // requires AUDIT_READ, and the backend row-scopes what a reader may fetch.
+  canDestroy: boolean;
   selectedIds: Set<string>;
   toggleSelect: (id: string) => void;
   toggleSelectAll: () => void;
@@ -51,7 +54,7 @@ interface AuditTableProps {
 export function AuditTable({
   data,
   isLoading,
-  isSuperAdmin,
+  canDestroy,
   selectedIds,
   toggleSelect,
   toggleSelectAll,
@@ -71,6 +74,10 @@ export function AuditTable({
   canHardDelete = false,
   onHardDeleteRecord,
 }: AuditTableProps) {
+  // Timestamp, Description, Action, Performed By, Status, Details — plus the
+  // selection checkbox when the viewer can destroy. Counted rather than
+  // hardcoded; the previous literals (8 / 5) over-spanned the empty state.
+  const columnCount = 6 + (canDestroy ? 1 : 0);
   return (
     <Card className="border-slate-200/60 shadow-soft overflow-hidden">
       <CardContent className="p-0">
@@ -87,7 +94,7 @@ export function AuditTable({
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50/80">
-                  {isSuperAdmin && (
+                  {canDestroy && (
                     <TableHead className="w-10">
                       <input
                         type="checkbox"
@@ -123,17 +130,17 @@ export function AuditTable({
                     </button>
                   </TableHead>
                   <TableHead className="font-semibold text-slate-600">Status</TableHead>
-                  {isSuperAdmin && (
-                    <TableHead className="font-semibold text-slate-600 text-center">Details</TableHead>
-                  )}
+                  {/* Always shown: opening a record is a READ, available to anyone
+                      who can see the trail. Only the buttons inside are gated. */}
+                  <TableHead className="font-semibold text-slate-600 text-center">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data?.data?.map((record: any) => {
                   const status = getAuditStatus(record.action);
                   return (
-                  <TableRow key={record.id} className={`hover:bg-slate-50/50 transition-colors ${isSuperAdmin && selectedIds.has(record.id) ? 'bg-red-50/40' : ''}`}>
-                    {isSuperAdmin && (
+                  <TableRow key={record.id} className={`hover:bg-slate-50/50 transition-colors ${canDestroy && selectedIds.has(record.id) ? 'bg-red-50/40' : ''}`}>
+                    {canDestroy && (
                       <TableCell className="w-10">
                         <input
                           type="checkbox"
@@ -254,56 +261,55 @@ export function AuditTable({
                         </span>
                       )}
                     </TableCell>
-                    {isSuperAdmin && (
-                      <TableCell className="text-center">
-                        <div className="flex items-center justify-center gap-1">
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onViewRecord(record)}
+                          title="View record details"
+                          className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        </Button>
+                        {canRedact && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => onViewRecord(record)}
-                            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                            onClick={() => onDeleteRecord(record.id)}
+                            title="Redact record (mask contents, keep hash chain)"
+                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
                           >
+                            {/* eye-off — redaction */}
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                             </svg>
                           </Button>
-                          {canRedact && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => onDeleteRecord(record.id)}
-                              title="Redact record (mask contents, keep hash chain)"
-                              className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                            >
-                              {/* eye-off — redaction */}
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                              </svg>
-                            </Button>
-                          )}
-                          {canHardDelete && onHardDeleteRecord && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => onHardDeleteRecord(record.id)}
-                              title="Delete permanently (physically removes the row — breaks the hash chain)"
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
+                        )}
+                        {canHardDelete && onHardDeleteRecord && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onHardDeleteRecord(record.id)}
+                            title="Delete permanently (physically removes the row — breaks the hash chain)"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                   );
                 })}
                 {(!data?.data || data.data.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={isSuperAdmin ? 8 : 5} className="text-center py-12">
+                    <TableCell colSpan={columnCount} className="text-center py-12">
                       <div className="p-4 rounded-2xl bg-slate-100 inline-block mb-4">
                         <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
