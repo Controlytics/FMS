@@ -153,8 +153,19 @@ export const stageApprovalService = {
     const cleanRemarks = typeof remarks === 'string' ? remarks.trim() || null : null;
 
     const updated = await prisma.$transaction(async (tx) => {
-      const u = await tx.cleaningStageApproval.update({
-        where: { id },
+      // The PENDING check above is a check-then-act — it reads, then this used
+      // to issue an UNCONDITIONAL update. Two holders of the same approverRole
+      // deciding one gate together both passed the check; the transaction merely
+      // serialised them, so the second overwrote the first. Both wrote a
+      // decision FilterEvent and an audit e-signature, and the losing decision
+      // still ran its side effects — a reject that lost the race still yanked
+      // currentLifecycleState back and cleared the dryer on a filter whose
+      // operator the winning approve had just released.
+      //
+      // Predicate in the WHERE makes the transition atomic: the loser matches
+      // zero rows and aborts before any side effect.
+      const claimed = await tx.cleaningStageApproval.updateMany({
+        where: { id, status: 'PENDING' },
         data: {
           status: 'APPROVED',
           decidedBy: ctx.userSub,
@@ -163,6 +174,11 @@ export const stageApprovalService = {
           decisionRemarks: cleanRemarks,
         },
       });
+      if (claimed.count === 0) {
+        throw new AppError(409, 'CONCURRENT_DECISION',
+          'Someone else decided this stage approval while you were deciding. Reload to see the current status.');
+      }
+      const u = await tx.cleaningStageApproval.findUniqueOrThrow({ where: { id } });
 
       // Immutable cycle-timeline entry for the signature.
       const eventData = {
@@ -246,8 +262,11 @@ export const stageApprovalService = {
     const clearsDryer = row.rejectToStateKey === 'DRY_IN';
 
     const updated = await prisma.$transaction(async (tx) => {
-      const u = await tx.cleaningStageApproval.update({
-        where: { id },
+      // Same atomic claim as approve() above — without it, a reject that lost
+      // the race still wrote its deviation event and dragged the filter's
+      // lifecycle state backwards after the winning approve had released it.
+      const claimed = await tx.cleaningStageApproval.updateMany({
+        where: { id, status: 'PENDING' },
         data: {
           status: 'REJECTED',
           decidedBy: ctx.userSub,
@@ -256,6 +275,11 @@ export const stageApprovalService = {
           decisionRemarks: clean,
         },
       });
+      if (claimed.count === 0) {
+        throw new AppError(409, 'CONCURRENT_DECISION',
+          'Someone else decided this stage approval while you were deciding. Reload to see the current status.');
+      }
+      const u = await tx.cleaningStageApproval.findUniqueOrThrow({ where: { id } });
 
       // Immutable deviation entry: backward transition caused by QA rejection.
       const eventData = {

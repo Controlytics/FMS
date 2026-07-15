@@ -183,10 +183,23 @@ export class EquipmentGroupsService {
     // has an active group, the new one is created INACTIVE — the admin enables
     // it via setActive() to switch, which flips the others off. This preserves
     // the invariant without silently stealing the active group on create.
-    const hasActiveInBlock = await prisma.equipmentGroup.count({ where: { blockId, isActive: true } });
-    const createActive = hasActiveInBlock === 0;
-
     const group = await prisma.$transaction(async (tx) => {
+      // The count belongs inside the transaction: outside it, the read could be
+      // arbitrarily stale. A block with two active groups breaks the cleaning
+      // runtime for every operator in it — instruments.ts rejects readings with
+      // MULTIPLE_EQUIPMENT_GROUPS and unpinned cycles resolve zero instruments.
+      //
+      // HONEST LIMITATION: this NARROWS the race, it does not close it. Under
+      // READ COMMITTED two concurrent transactions can still both count 0 and
+      // both insert isActive:true — neither sees the other's uncommitted row.
+      // Closing it properly needs a partial unique index
+      // (`ON equipment_groups(block_id) WHERE is_active`), which cannot be
+      // created today: block MUPS already has two active groups ("Testing",
+      // "Testing 2"), so the index build would fail until that data is resolved.
+      // Tracked in tasks/ENTERPRISE-AUDIT-HIGHS-TRIAGE-2026-07-15.md.
+      const hasActiveInBlock = await tx.equipmentGroup.count({ where: { blockId, isActive: true } });
+      const createActive = hasActiveInBlock === 0;
+
       const created = await tx.equipmentGroup.create({
         data: {
           name: name.trim(),

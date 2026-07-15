@@ -162,6 +162,34 @@ export const reportReviewService = {
     return row;
   },
 
+  /**
+   * Apply a decision ONLY if the row is still in the status we checked.
+   *
+   * The status guards above are a check-then-act: they read the row, then issue
+   * an UNCONDITIONAL update. Two assignees deciding within the same moment both
+   * pass the guard and both writes land — so a report could end up carrying
+   * rejectedBy/rejectedAt/rejectionStage AND approvedBy/approvedAt, status
+   * APPROVED, and still be downloadable with full signature lines. In the
+   * flagship §11 e-signature workflow, "rejected and approved at once" is not a
+   * state that may exist.
+   *
+   * Moving the predicate into the WHERE makes the transition atomic: Postgres
+   * serialises the two UPDATEs on the row, and the loser matches zero rows.
+   * updateMany doesn't return the row, so re-read it for the audit/notify step —
+   * safe, because the status is now terminal for this transition.
+   */
+  async decideIfStill(id: string, expected: 'PENDING_REVIEW' | 'PENDING_APPROVAL', data: Record<string, unknown>) {
+    const { count } = await prisma.reportReview.updateMany({
+      where: { id, status: expected as any },
+      data: data as any,
+    });
+    if (count === 0) {
+      throw new AppError(409, 'CONCURRENT_DECISION',
+        'Someone else decided this report while you were deciding. Reload to see the current status.');
+    }
+    return prisma.reportReview.findUniqueOrThrow({ where: { id } });
+  },
+
   /** Stage 2 — reviewer approves (→ PENDING_APPROVAL, assigns the approver) or rejects. */
   async review(ctx: RequestContext, id: string, action: 'approve' | 'reject', remarks: string | undefined, nextUserId?: string, nextRole?: string) {
     const row = await prisma.reportReview.findUnique({ where: { id } });
@@ -175,12 +203,9 @@ export const reportReviewService = {
 
     if (action === 'reject') {
       if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 chars).');
-      const updated = await prisma.reportReview.update({
-        where: { id },
-        data: {
-          status: 'REJECTED', rejectionStage: 'REVIEW', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
-          reviewRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
-        },
+      const updated = await this.decideIfStill(id, 'PENDING_REVIEW', {
+        status: 'REJECTED', rejectionStage: 'REVIEW', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
+        reviewRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
       });
       await this.audit(ctx, updated, 'REPORT_REVIEW_REJECTED', `Report "${row.title}" rejected at review`);
       await notifySubmitter(updated, 'REPORT_REVIEW_REJECTED', 'Report rejected at review', `"${row.title}" was rejected at review by ${ctx.userId}.`, ctx.userId);
@@ -188,12 +213,9 @@ export const reportReviewService = {
     }
     // approve → move to approval stage, assign approver
     const assignee = requireOneAssignee(nextUserId, nextRole);
-    const updated = await prisma.reportReview.update({
-      where: { id },
-      data: {
-        status: 'PENDING_APPROVAL', reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(),
-        reviewRemarks: remarks?.trim() || null, ...assignee,
-      },
+    const updated = await this.decideIfStill(id, 'PENDING_REVIEW', {
+      status: 'PENDING_APPROVAL', reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(),
+      reviewRemarks: remarks?.trim() || null, ...assignee,
     });
     await this.audit(ctx, updated, 'REPORT_REVIEW_REVIEWED', `Report "${row.title}" reviewed (sent for approval)`);
     await notifyAssignee(updated, 'REPORT_REVIEW_REQUESTED', 'Report awaiting your approval', `"${row.title}" was reviewed by ${ctx.userId} and needs your approval.`, ctx.userId);
@@ -213,23 +235,17 @@ export const reportReviewService = {
 
     if (action === 'reject') {
       if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 chars).');
-      const updated = await prisma.reportReview.update({
-        where: { id },
-        data: {
-          status: 'REJECTED', rejectionStage: 'APPROVAL', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
-          approvalRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
-        },
+      const updated = await this.decideIfStill(id, 'PENDING_APPROVAL', {
+        status: 'REJECTED', rejectionStage: 'APPROVAL', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
+        approvalRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
       });
       await this.audit(ctx, updated, 'REPORT_REVIEW_REJECTED', `Report "${row.title}" rejected at approval`);
       await notifySubmitter(updated, 'REPORT_REVIEW_REJECTED', 'Report rejected at approval', `"${row.title}" was rejected at approval by ${ctx.userId}.`, ctx.userId);
       return updated;
     }
-    const updated = await prisma.reportReview.update({
-      where: { id },
-      data: {
-        status: 'APPROVED', approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(),
-        approvalRemarks: remarks?.trim() || null, assigneeUserId: null, assigneeRole: null,
-      },
+    const updated = await this.decideIfStill(id, 'PENDING_APPROVAL', {
+      status: 'APPROVED', approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(),
+      approvalRemarks: remarks?.trim() || null, assigneeUserId: null, assigneeRole: null,
     });
     await this.audit(ctx, updated, 'REPORT_REVIEW_APPROVED', `Report "${row.title}" approved`);
     await notifySubmitter(updated, 'REPORT_REVIEW_APPROVED', 'Report approved', `"${row.title}" was approved by ${ctx.userId}.`, ctx.userId);

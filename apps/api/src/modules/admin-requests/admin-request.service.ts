@@ -90,16 +90,22 @@ export const adminRequestService = {
     if (!request) throw new NotFoundError('Request not found');
     if (request.status !== 'PENDING') throw new ValidationError('Request has already been processed');
 
-    // On approve: execute the action first. If it fails, leave request PENDING.
-    let actionOutcome: { username?: string; temporaryPassword?: string; message?: string } = {};
-    if (action === 'approve') {
-      actionOutcome = await executeApproval(request, ctx);
-    }
-
     const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
 
-    const updated = await prisma.adminRequest.update({
-      where: { id },
+    // CLAIM the request before executing anything.
+    //
+    // This used to execute first and update after, so a failed action left the
+    // request PENDING and retryable. But the PENDING check above is a
+    // check-then-act with no lock: two admins clicking Approve within the same
+    // moment both passed it and both ran executeApproval, issuing TWO temp
+    // passwords for one FORGOT_PASSWORD request. The first admin's password is
+    // overwritten by the second before they can read it out, so it fails at
+    // login — and two audit rows claim the same approval.
+    //
+    // Claiming atomically means the loser matches zero rows and stops before any
+    // side effect. The retry-on-failure contract is preserved by the catch below.
+    const claimed = await prisma.adminRequest.updateMany({
+      where: { id, status: 'PENDING' },
       data: {
         status: newStatus,
         adminRemarks: adminRemarks ? stripHtml(adminRemarks) : null,
@@ -107,6 +113,25 @@ export const adminRequestService = {
         processedAt: new Date(),
       },
     });
+    if (claimed.count === 0) throw new ValidationError('Request has already been processed');
+
+    let actionOutcome: { username?: string; temporaryPassword?: string; message?: string } = {};
+    if (action === 'approve') {
+      try {
+        actionOutcome = await executeApproval(request, ctx);
+      } catch (err) {
+        // Hand the request back so the admin can retry — the original
+        // "if it fails, leave it PENDING" intent. Scoped to our own claim, so a
+        // revert can never clobber someone else's decision.
+        await prisma.adminRequest.updateMany({
+          where: { id, status: newStatus, processedBy: ctx.userId },
+          data: { status: 'PENDING', adminRemarks: null, processedBy: null, processedAt: null },
+        });
+        throw err;
+      }
+    }
+
+    const updated = await prisma.adminRequest.findUniqueOrThrow({ where: { id } });
 
     // Audit log
     const requesterLabel = request.requesterEmployeeId

@@ -215,34 +215,44 @@ export class ChecklistProfileService {
 
   async delete(ctx: RequestContext, id: string) {
     const existing = await this.getById(ctx, id);
-    // Check if referenced by any pipeline CHECKLIST nodes in non-archived cleaning profiles
-    const usedInPipelines = await prisma.filterPipelineStage.count({
-      where: {
-        nodeType: 'CHECKLIST',
-        configuration: { path: ['checklistProfileId'], equals: id },
-        profile: { status: { not: 'ARCHIVED' } },
-      },
-    });
-    if (usedInPipelines > 0) {
-      throw new AppError(409, 'IN_USE', 'Cannot delete: checklist is referenced by ' + usedInPipelines + ' pipeline node(s)');
-    }
-    // Phase A.1: also block delete if any cycle (active or historical) has this
-    // profile in its checklistVersionPins. Removing version history would break
-    // audit reproducibility for those cycles.
-    const usedInCycles = await prisma.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(*)::bigint AS count FROM cleaning_cycles WHERE checklist_version_pins ? ${id}
-    `;
-    const cycleCount = Number(usedInCycles[0]?.count ?? 0);
-    if (cycleCount > 0) {
-      throw new AppError(409, 'IN_USE', `Cannot delete: ${cycleCount} cleaning cycle(s) have audit history pinned to this checklist's versions`);
-    }
-    // The cascade below destroys every ChecklistProfileVersion row, so the audit
-    // entry is the ONLY surviving trace of this profile — capture the identifying
-    // state (and how much version history went with it) before the delete.
-    const versionCount = await prisma.checklistProfileVersion.count({ where: { profileId: id } });
 
-    // ChecklistProfileVersion rows cascade-delete with the profile.
-    await prisma.checklistProfile.delete({ where: { id } });
+    // The in-use guards and the delete must be ONE transaction. They used to be
+    // four separate statements: an operator starting a cycle between the
+    // cleaning_cycles count and the delete pinned a version the cascade then
+    // destroyed — precisely what the pin guard exists to prevent, and the one
+    // window in which it is useless. Every other mutation in this service is
+    // already transactional; this was the outlier.
+    const versionCount = await prisma.$transaction(async (tx) => {
+      // Check if referenced by any pipeline CHECKLIST nodes in non-archived cleaning profiles
+      const usedInPipelines = await tx.filterPipelineStage.count({
+        where: {
+          nodeType: 'CHECKLIST',
+          configuration: { path: ['checklistProfileId'], equals: id },
+          profile: { status: { not: 'ARCHIVED' } },
+        },
+      });
+      if (usedInPipelines > 0) {
+        throw new AppError(409, 'IN_USE', 'Cannot delete: checklist is referenced by ' + usedInPipelines + ' pipeline node(s)');
+      }
+      // Phase A.1: also block delete if any cycle (active or historical) has this
+      // profile in its checklistVersionPins. Removing version history would break
+      // audit reproducibility for those cycles.
+      const usedInCycles = await tx.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*)::bigint AS count FROM cleaning_cycles WHERE checklist_version_pins ? ${id}
+      `;
+      const cycleCount = Number(usedInCycles[0]?.count ?? 0);
+      if (cycleCount > 0) {
+        throw new AppError(409, 'IN_USE', `Cannot delete: ${cycleCount} cleaning cycle(s) have audit history pinned to this checklist's versions`);
+      }
+      // The cascade below destroys every ChecklistProfileVersion row, so the audit
+      // entry is the ONLY surviving trace of this profile — capture the identifying
+      // state (and how much version history went with it) before the delete.
+      const count = await tx.checklistProfileVersion.count({ where: { profileId: id } });
+
+      // ChecklistProfileVersion rows cascade-delete with the profile.
+      await tx.checklistProfile.delete({ where: { id } });
+      return count;
+    });
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'DELETED',
