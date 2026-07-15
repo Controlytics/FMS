@@ -429,9 +429,18 @@ export function FilterLifecycleReportPage() {
     [allAreas, blockId],
   );
   const allowedAreaIds = useMemo(() => new Set(areaOptions.map((a) => a.id)), [areaOptions]);
+  // An AHU sits EITHER directly under a block (blockId set, areaId null) or under
+  // an area. Scoping by block used to test only the area path, so every
+  // block-direct AHU silently vanished from the dropdown — and, via
+  // allowedAhuIds below, so did all of its filters. The report then
+  // under-reported with no warning, which is the worst failure mode for a §11
+  // record. `blockId` is already on the payload (hierarchy/routes.ts ships it for
+  // exactly this shape); it just wasn't being used here.
   const ahuOptions = useMemo(
     () => allAhus
-      .filter((a) => (areaId ? a.areaId === areaId : (!blockId || (a.areaId != null && allowedAreaIds.has(a.areaId)))))
+      .filter((a) => (areaId
+        ? a.areaId === areaId
+        : (!blockId || a.blockId === blockId || (a.areaId != null && allowedAreaIds.has(a.areaId)))))
       .sort((a, b) => a.name.localeCompare(b.name)),
     [allAhus, areaId, blockId, allowedAreaIds],
   );

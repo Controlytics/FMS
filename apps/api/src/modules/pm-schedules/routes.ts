@@ -332,7 +332,13 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       querystring: {
         type: 'object',
         properties: {
-          approvalStatus: { type: 'string', enum: ['ALL', 'PENDING', 'APPROVED', 'REJECTED'] },
+          // Must list every real PmScheduleEntry.approvalStatus. PENDING_REVIEW
+          // and PENDING_APPROVAL were missing, so the "To Review" / "To Approve"
+          // tabs 400'd at the schema before the handler ran and rendered an empty
+          // table with no error — while the header badge, counted from the ALL
+          // tab, showed a non-zero count. A reviewer saw "nothing to review" with
+          // real entries waiting.
+          approvalStatus: { type: 'string', enum: ['ALL', 'PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED'] },
           year: { type: 'integer' },
           page: { type: 'integer', minimum: 1 },
           // Cap matches the service (pm-approval.listEntries: Math.min(limit, 2000)).
