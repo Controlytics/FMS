@@ -10,6 +10,7 @@ import auditRoutes from '../modules/audit/routes.js';
 import roleRoutes from '../modules/roles/routes.js';
 import assetRoutes from '../modules/assets/index.js';
 import notificationRoutes from '../modules/notifications/routes.js';
+import notificationDeliveryRoutes from '../modules/notification-delivery/routes.js';
 import backupRoutes from '../modules/backup/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
 import { prisma } from '../lib/prisma.js';
@@ -67,6 +68,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(roleRoutes, { prefix: '/api/roles' });
   await app.register(assetRoutes, { prefix: '/api/assets' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
+  await app.register(notificationDeliveryRoutes, { prefix: '/api/notification-settings' });
   await app.register(backupRoutes, { prefix: '/api/backup' });
   await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
 

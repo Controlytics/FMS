@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { gunzipSync, gzipSync } from 'zlib';
 
-const { mockFetchPrisma, mockFetchRaw, mockRestoreFromBackup, mockResetAuditSequence, mockAuditLog, mockComputeChecksum } = vi.hoisted(() => ({
+const { mockFetchPrisma, mockFetchRaw, mockRestoreFromBackup, mockAuditLog, mockComputeChecksum } = vi.hoisted(() => ({
   mockFetchPrisma: vi.fn(),
   mockFetchRaw: vi.fn(),
   mockRestoreFromBackup: vi.fn(),
-  mockResetAuditSequence: vi.fn(),
   mockAuditLog: vi.fn(),
   mockComputeChecksum: vi.fn(),
 }));
@@ -14,7 +13,6 @@ vi.mock('../backup.repository.js', () => ({
   fetchAllTablesPrisma: mockFetchPrisma,
   fetchAllTablesRaw: mockFetchRaw,
   restoreFromBackup: mockRestoreFromBackup,
-  resetAuditSequence: mockResetAuditSequence,
 }));
 
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
@@ -143,9 +141,8 @@ describe('backup.service', () => {
       expect(result.success).toBe(true);
       expect(result.backupVersion).toBe('1.0');
       expect(mockRestoreFromBackup).toHaveBeenCalled();
-      // resetAuditSequence is no longer called - audit_trail uses UUID PKs
-      // (no sequence to reset). The function still exists as a no-op for
-      // call-site compatibility.
+      // Sequence realignment now happens inside restoreFromBackup's transaction
+      // (resyncSequencesAfterRestore), not as a separate service-level call.
       expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'BACKUP_RESTORED' }));
     });
 

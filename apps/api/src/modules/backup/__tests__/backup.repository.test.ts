@@ -19,7 +19,7 @@ vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
 import {
   fetchAllTablesRaw,
-  resetAuditSequence,
+  resyncSequencesAfterRestore,
   getAllTables,
 } from '../backup.repository.js';
 
@@ -88,12 +88,59 @@ describe('backup.repository', () => {
     });
   });
 
-  describe('resetAuditSequence', () => {
-    it('is a no-op: audit_trail PK is a UUID with no sequence to reset', async () => {
-      // Function exists for API stability; should not touch the database.
-      await expect(resetAuditSequence()).resolves.toBeUndefined();
-      expect(mockPrisma.$executeRawUnsafe).not.toHaveBeenCalled();
-      expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  /**
+   * Replaces a test that asserted `resetAuditSequence` "is a no-op: audit_trail
+   * PK is a UUID with no sequence to reset". The premise was false — the PK is a
+   * UUID, but `chain_position` is a BIGSERIAL with its own sequence — so the
+   * test was locking in the bug: nothing realigned sequences after a restore,
+   * which collided deviation numbers and broke hash-chain verification.
+   */
+  describe('resyncSequencesAfterRestore', () => {
+    const tx = () => ({ $executeRawUnsafe: vi.fn().mockResolvedValue(undefined) });
+
+    it('realigns all three manual sequences when their tables were restored', async () => {
+      const t = tx();
+      await resyncSequencesAfterRestore(t, ['audit_trail', 'deviations', 'quality_notifications', 'users']);
+      const sql = t.$executeRawUnsafe.mock.calls.map((c: any[]) => c[0] as string).join('\n');
+      expect(sql).toContain('audit_trail_chain_position_seq');
+      expect(sql).toContain('deviation_number_seq');
+      expect(sql).toContain('qnn_seq');
+      expect(t.$executeRawUnsafe).toHaveBeenCalledTimes(3);
+    });
+
+    it('skips a sequence whose table was not in the backup', async () => {
+      const t = tx();
+      await resyncSequencesAfterRestore(t, ['users']);
+      expect(t.$executeRawUnsafe).not.toHaveBeenCalled();
+    });
+
+    it('derives chain_position from MAX so new rows continue after restored history', async () => {
+      const t = tx();
+      await resyncSequencesAfterRestore(t, ['audit_trail']);
+      const sql = t.$executeRawUnsafe.mock.calls[0][0] as string;
+      expect(sql).toContain('MAX(chain_position)');
+      // COALESCE(...,0)+1 with is_called=false → next nextval is 1 on an empty
+      // table (setval rejects anything below the sequence minimum).
+      expect(sql).toContain('COALESCE');
+      expect(sql).toMatch(/,\s*false\s*\)/);
+    });
+
+    it('parses the numeric suffix of deviation numbers and ignores malformed values', async () => {
+      const t = tx();
+      await resyncSequencesAfterRestore(t, ['deviations']);
+      const sql = t.$executeRawUnsafe.mock.calls[0][0] as string;
+      // 'DEV-000042' -> 42
+      expect(sql).toContain("substring(deviation_number FROM '([0-9]+)$')");
+      // A hand-edited row without a numeric suffix must not NULL out the MAX.
+      expect(sql).toContain("deviation_number ~ '[0-9]+$'");
+    });
+
+    it('parses the numeric suffix of QNNs (sequence is global, not per-year)', async () => {
+      const t = tx();
+      await resyncSequencesAfterRestore(t, ['quality_notifications']);
+      const sql = t.$executeRawUnsafe.mock.calls[0][0] as string;
+      expect(sql).toContain("substring(qnn FROM '([0-9]+)$')");
+      expect(sql).toContain("qnn ~ '[0-9]+$'");
     });
   });
 });

@@ -322,6 +322,33 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Filter "{targetName}" advanced from "{fromStage}" to "{stage}" by {actor}',
     placeholders: ['actor', 'targetName', 'fromStage', 'stage'],
   },
+  // Checklist profile questions — {targetName} is the owning profile's name,
+  // since the question row itself has no name an inspector would recognise.
+  CHECKLIST_QUESTION_ADDED: {
+    label: 'Checklist Question Added',
+    category: 'Data & Approvals',
+    template: 'Question added to checklist "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  CHECKLIST_QUESTION_UPDATED: {
+    label: 'Checklist Question Updated',
+    category: 'Data & Approvals',
+    template: 'Question updated on checklist "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  CHECKLIST_QUESTION_DELETED: {
+    label: 'Checklist Question Deleted',
+    category: 'Data & Approvals',
+    template: 'Question deleted from checklist "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  CHECKLIST_QUESTIONS_REORDERED: {
+    label: 'Checklist Questions Reordered',
+    category: 'Data & Approvals',
+    template: 'Questions reordered on checklist "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+
   CHECKLIST_COMPLETED: {
     label: 'Checklist Completed',
     category: 'Filter Operations',

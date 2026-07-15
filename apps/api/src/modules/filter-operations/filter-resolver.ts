@@ -61,23 +61,41 @@ export async function getFilterHomeBlock(filterId: string): Promise<{ blockId: s
   return null;
 }
 
-export async function validateBlockChange(filterId: string, cleaningAreaId: string | undefined, ctx: RequestContext, acknowledged = false) {
-  if (!cleaningAreaId) return;
+/**
+ * What the caller must still do to spend the clearance it just got.
+ *
+ * `consumeApproval` is set ONLY when APPROVAL mode let this start through on the
+ * strength of an existing approved request. The caller is then obliged to spend
+ * it inside its own transaction (see start-cycle) — an approval is single-use.
+ * Every other path (no block change, NONE, CONFIRM, offline replay) returns {}.
+ */
+export type BlockChangeClearance = { consumeApproval?: { filterId: string; toBlockId: string } };
+
+export async function validateBlockChange(
+  filterId: string,
+  cleaningAreaId: string | undefined,
+  ctx: RequestContext,
+  acknowledged = false,
+): Promise<BlockChangeClearance> {
+  if (!cleaningAreaId) return {};
   const homeBlock = await getFilterHomeBlock(filterId);
-  if (!homeBlock) return;
-  if (homeBlock.blockId === cleaningAreaId) return;
+  if (!homeBlock) return {};
+  if (homeBlock.blockId === cleaningAreaId) return {};
 
   // 2026-06-09: cross-block handling is CONFIGURABLE (config `block-change-approval.mode`)
   // and gates ONLINE ONLY. Offline never blocks — the FE shows an informational notice
   // and proceeds, and the queued op replays here with isOfflineReplay set, which we pass.
-  if (ctx?.isOfflineReplay) return;
+  // An offline replay never consumes an approval either — it was never gated on
+  // one, so spending one here would silently burn an approval the operator has
+  // not used yet.
+  if (ctx?.isOfflineReplay) return {};
 
   const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
   const mode = await blockChangeService.getMode();
   // NONE: no cross-block check at all — any filter may be cleaned in any block,
   // nothing shown or asked. (Cycle-integrity is still enforced separately by
   // validateAdvanceBlock: a cycle can't span blocks once started.)
-  if (mode === 'NONE') return;
+  if (mode === 'NONE') return {};
   const targetBlock = await prisma.assetInstance.findUnique({
     where: { id: cleaningAreaId },
     select: { name: true },
@@ -93,14 +111,19 @@ export async function validateBlockChange(filterId: string, cleaningAreaId: stri
 
   if (mode === 'APPROVAL') {
     // Needs an approved (un-expired) block-change request for this filter→block.
-    if (await blockChangeService.hasApproval(filterId, cleaningAreaId)) return;
+    // The approval is SPENT by the caller inside its own transaction — this read
+    // only establishes that one is available. Returning the token rather than
+    // consuming here keeps the find+update under the caller's row lock.
+    if (await blockChangeService.hasApproval(filterId, cleaningAreaId)) {
+      return { consumeApproval: { filterId, toBlockId: cleaningAreaId } };
+    }
     throw new AppError(409, 'BLOCK_CHANGE_REQUIRED',
       `This filter belongs to ${homeBlock.blockName}. Request approval to clean it in ${targetBlock?.name ?? 'another block'}.`,
       info);
   }
 
   // CONFIRM mode: operator self-confirm.
-  if (acknowledged) return;
+  if (acknowledged) return {};
   throw new AppError(409, 'BLOCK_CHANGE_CONFIRM',
     `This filter belongs to ${homeBlock.blockName}. You are cleaning it in ${targetBlock?.name ?? 'another block'}. Continue with cleaning?`,
     info);

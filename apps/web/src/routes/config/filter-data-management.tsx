@@ -183,7 +183,9 @@ export function FilterDataManagementPage() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFields, setEditFields] = useState<Record<string, string>>({});
-  const [confirmDelete, setConfirmDelete] = useState<{ id: string; type: 'retirement' | 'replacement'; name: string } | null>(null);
+  // Retirement/replacement rows have no Delete — deleting them meant destroying
+  // FILTER_RETIRED / FILTER_REPLACED audit rows, which 21 CFR §11 forbids.
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   // Edit-row modal for cycles/events tabs. Shows only the columns that live
   // ON the underlying DB row (vs. the derived display columns in the table).
   // For cleaning_cycles: cycleCode, status, cleaningReasonLabel, startedAt,
@@ -361,16 +363,6 @@ export function FilterDataManagementPage() {
     setProcessing(false);
   };
 
-  const handleDeleteRetirement = async (id: string) => {
-    setProcessing(true);
-    try {
-      await apiClient.delete(`/api/super-admin/filter-data/retirements/${id}`);
-      toast.success('Deleted', 'Retirement record permanently removed');
-      setConfirmDelete(null); refreshAll();
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
-    setProcessing(false);
-  };
-
   const handleUnretire = async (id: string) => {
     setProcessing(true);
     try {
@@ -391,16 +383,6 @@ export function FilterDataManagementPage() {
       await apiClient.put(`/api/super-admin/filter-data/replacements/${id}`, body);
       toast.success('Updated', 'Replacement record updated silently');
       setEditingId(null); setEditFields({}); refreshAll();
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
-    setProcessing(false);
-  };
-
-  const handleDeleteReplacement = async (id: string) => {
-    setProcessing(true);
-    try {
-      await apiClient.delete(`/api/super-admin/filter-data/replacements/${id}`);
-      toast.success('Deleted', 'Replacement record permanently removed');
-      setConfirmDelete(null); refreshAll();
     } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
@@ -824,11 +806,6 @@ export function FilterDataManagementPage() {
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                 Restore
                               </button>
-                              <button onClick={() => setConfirmDelete({ id: r.id, type: 'retirement', name: r.name })}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                Delete
-                              </button>
                             </>
                           )}
                         </div>
@@ -945,11 +922,6 @@ export function FilterDataManagementPage() {
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
                               </button>
-                              <button onClick={() => setConfirmDelete({ id: r.id, type: 'replacement', name: r.oldFilterName })}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                Delete
-                              </button>
                             </>
                           )}
                         </div>
@@ -1013,7 +985,7 @@ export function FilterDataManagementPage() {
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                             Edit
                           </button>
-                          <button onClick={() => setConfirmDelete({ id: c.id, type: 'generic' as any, name: c.cycleCode ?? c.filterName ?? 'Cycle' })}
+                          <button onClick={() => setConfirmDelete({ id: c.id, name: c.cycleCode ?? c.filterName ?? 'Cycle' })}
                             className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             Delete
@@ -1046,7 +1018,7 @@ export function FilterDataManagementPage() {
                         className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">
                         Edit
                       </button>
-                      <button onClick={() => setConfirmDelete({ id: e.id, type: 'generic' as any, name: e.eventType ?? 'Event' })}
+                      <button onClick={() => setConfirmDelete({ id: e.id, name: e.eventType ?? 'Event' })}
                         className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
                         Delete
                       </button>
@@ -1120,7 +1092,7 @@ export function FilterDataManagementPage() {
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         Edit
                       </button>
-                      <button onClick={() => setConfirmDelete({ id: entry.id, type: 'generic' as any, name: `${PM_MONTHS[(entry.month ?? 1) - 1]} entry` })}
+                      <button onClick={() => setConfirmDelete({ id: entry.id, name: `${PM_MONTHS[(entry.month ?? 1) - 1]} entry` })}
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         Delete
@@ -1213,7 +1185,7 @@ export function FilterDataManagementPage() {
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
                         <button onClick={() => openRowEdit(n, 'notification', n.title ?? 'Notification')}
                           className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
-                        <button onClick={() => setConfirmDelete({ id: n.id, type: 'generic' as any, name: n.title ?? 'Notification' })}
+                        <button onClick={() => setConfirmDelete({ id: n.id, name: n.title ?? 'Notification' })}
                           className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50">Delete</button>
                       </div>
                     </div>
@@ -1261,7 +1233,7 @@ export function FilterDataManagementPage() {
                         <div className="flex items-center gap-1 justify-end">
                           <button onClick={() => openRowEdit(req, 'admin-request', `${typeLabel} - ${req.requesterName}`)}
                             className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">Edit</button>
-                          <button onClick={() => setConfirmDelete({ id: req.id, type: 'generic' as any, name: `${typeLabel} - ${req.requesterName}` })}
+                          <button onClick={() => setConfirmDelete({ id: req.id, name: `${typeLabel} - ${req.requesterName}` })}
                             className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">Delete</button>
                         </div>
                       </td>
@@ -1313,7 +1285,7 @@ export function FilterDataManagementPage() {
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
                           <button onClick={() => openRowEdit(r, 'block-change', r.filterName ?? 'Block change')}
                             className="px-2.5 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
-                          <button onClick={() => setConfirmDelete({ id: r.id, type: 'generic' as any, name: `Block change for ${r.filterName ?? 'filter'}` })}
+                          <button onClick={() => setConfirmDelete({ id: r.id, name: `Block change for ${r.filterName ?? 'filter'}` })}
                             className="px-2.5 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">Delete</button>
                         </div>
                       </div>
@@ -1434,7 +1406,7 @@ export function FilterDataManagementPage() {
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
                               </button>
-                              <button onClick={() => setConfirmDelete({ id: rowId, type: 'generic' as any, name: row.cycleCode || row.filterName || row.action || row.message || row.title || row.requestType || 'Record' })}
+                              <button onClick={() => setConfirmDelete({ id: rowId, name: row.cycleCode || row.filterName || row.action || row.message || row.title || row.requestType || 'Record' })}
                                 className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 Delete
@@ -1472,16 +1444,12 @@ export function FilterDataManagementPage() {
               </div>
               <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4">
                 <p className="text-[13px] text-red-800">
-                  <strong>{confirmDelete.name}</strong> {confirmDelete.type} record will be permanently removed with no trace in the system.
+                  <strong>{confirmDelete.name}</strong> will be permanently removed with no trace in the system.
                 </p>
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
-                <button onClick={() => {
-                  if (confirmDelete.type === 'retirement') handleDeleteRetirement(confirmDelete.id);
-                  else if (confirmDelete.type === 'replacement') handleDeleteReplacement(confirmDelete.id);
-                  else handleDeleteGeneric(confirmDelete.id);
-                }}
+                <button onClick={() => handleDeleteGeneric(confirmDelete.id)}
                   disabled={processing}
                   className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-red-700 transition-colors">
                   {processing ? 'Deleting...' : 'Delete Forever'}
@@ -1752,7 +1720,7 @@ export function FilterDataManagementPage() {
               </div>
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 mb-4">
                 <p className="text-[13px] text-emerald-800">
-                  <strong>{unretireDialog.name}</strong> will be restored to Active status. The retirement audit record will be removed.
+                  <strong>{unretireDialog.name}</strong> will be restored to Active status. The retirement audit record is kept.
                 </p>
                 {unretireDialog.preRetireParentName && (
                   <p className="text-[12px] text-emerald-700 mt-1.5">

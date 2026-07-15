@@ -50,7 +50,27 @@ Also note: `sanitize-html` (L61) still at 2.17.2 — needs separate advisory che
 | L126 | LDAP TLS verification off by default | CONFIRMED | `ldap.service.ts:73` `tlsRejectUnauthorized: false` + `?? false` at 3 bind sites. MITM leaks bind + every user password. |
 | L131 | LDAP roleMappings unvalidated + substring match | CONFIRMED at **reduced severity** | **SUPER_ADMIN takeover REFUTED** (3 guards: auth.service.ts:140/169 + hierarchy guard). Real ceiling is ADMIN. Confirmed: no allow-list on save, no validation on assign (`ldap.service.ts:238`), `.includes()` substring match (`:237`) — `admin` matches `CN=BackupAdmins`. |
 
-## Bucket 4 — CONFIRMED but COMPLIANCE-SENSITIVE (checkpoint before fixing)
+## Bucket 4 — RESOLVED 2026-07-15 (user decisions recorded per finding)
+
+| # | Decision | Outcome |
+|---|----------|---------|
+| L161/L166 | **Remove endpoints + UI** | Gone (backend handlers + `filter-data-management.tsx` callers/buttons). Pre-deletion receipts: both were ~15 lines (404 check + bare audit delete), unconditionally trigger-blocked, nothing salvageable. Permission constants + audit-action registry entries KEPT (§11 inspector contracts). |
+| L171 | **Keep + fix** | All reads before the tx; 9 `tx.` writes, 0 bare `prisma.` writes inside; audit-row deletions removed. **Behaviour change (intended):** a replaced-then-unretired filter now STAYS in the Replacements tab (getReplacements reads the retained `FILTER_REPLACED` row) — the dialog's false "the retirement audit record will be removed" was corrected. |
+| L136 | **Mask forward + redact historic** | Forward-mask DONE via `lib/mask-secrets.ts` — an **allowlist** (fails closed: an unrecognised key is redacted until a human declares it safe), applied at both call sites. Notably excludes `httpGatewayUrl`/`httpGatewayBodyTemplate` — MSG91/Plivo/Kaleyra embed API keys there. **Historic redaction NOT done — separate user-gated step (see below).** |
+| L111 | **Single-use** (+ expiry, after correction) | `consumeApprovalTx` now spent inside start-cycle's `$transaction` under the existing `FOR UPDATE` lock; a 0-row consume = lost race → 409. Dead `consumeApproval` (non-tx) + `hasApprovalTx` removed. **Also closes the TOCTOU the 2026-05-05 comment described but never fixed.** Offline replay never consumes (would burn an unused approval). **`autoExpireHours` now honoured** at read time in `hasApproval` (0/garbage = never expire) — it was pure config theater before. |
+| L146 | Fix | Validation moved to top of `update()` (before any read/write); archive+create wrapped in `$transaction`; route body tightened (`required:['entries']`, `minItems:1`). **Zero callers needed partial bodies** (PUT has no web/mobile callers — the UI edits via `/entries/:id/edit`). |
+| L151 | **Guard now, redesign later** | Restructured to parse → bucket by (AHU, year) → one `$transaction` per schedule (wrapping only first-touch wipe would still strand months). `pmExecution.deleteMany` **removed entirely** — executions are retained evidence. APPROVED-entry guard when `workflowEnabled`; workflow-off keeps legacy hard-replace. Per-schedule skip with operator-visible reasons. |
+| L96/L101/L91 | Fix | See the NEW CRITICAL section above — all three fixed and **proven by real round-trip**. |
+| L116 | Fix | 7 `auditLog` calls (was 1); all AFTER tx commit. 4 new actions registered in `audit-actions.ts` + `audit-templates.ts`; shared rebuilt. |
+
+### Still open from this bucket
+- **L136 historic redaction** — the forward-mask is in, but existing rows still carry
+  plaintext `clientSecret`/`refreshToken`/`accessToken`. User chose "redact historic"
+  via the chain-preserving `POST /api/audit/:id/redact`. **NOT DONE** — this mutates
+  live compliance records, so it needs its own gated step: query the affected rows,
+  report the count, confirm, then redact. Do not let an agent do this autonomously.
+
+## Bucket 4 (original findings — CONFIRMED, evidence retained)
 
 | # | Finding | Verdict | Notes |
 |---|---------|---------|-------|
@@ -65,6 +85,48 @@ Also note: `sanitize-html` (L61) still at 2.17.2 — needs separate advisory che
 | L166 | super-admin DELETE retirements 500s | CONFIRMED | `routes.ts:176` bare `deleteMany` on audit rows. Fails *precisely because* retire always writes FILTER_RETIRED. |
 | L171 | super-admin unretire non-transactional, 500s mid-way | CONFIRMED | ~10 sequential destructive writes, no `$transaction`; two `.catch(() => null)` swallows; uncaught `deleteMany` at :286 raises. **Half-applied destruction that cannot roll back** — relationships/identifiers/events/cycles hard-deleted, then 500. |
 | L111 | block-change approvals never consumed / never expire | CONFIRMED | `consumeApproval`/`hasApprovalTx`/`consumeApprovalTx` have **zero callers**. `autoExpireHours` is config theater (editable, read by nothing). A comment documents a 2026-05-05 fix that was written and never wired. **Semantics decision needed**: single-use vs durable. |
+
+## ⚠️ NEW CRITICAL found while fixing L96/L101 — restore was 100% broken (FIXED)
+
+Found only by actually RUNNING a restore (typecheck/tests could never catch it).
+`ae1bc3b` — the 2026-07-04 "round-2 CRITICAL backup restore lockout" fix — added:
+
+```ts
+try {
+  const cur = await tx.$queryRawUnsafe(`SELECT id, password_hash, password_history_hashes FROM "users"`);
+  ...
+} catch { /* users shape differs / table absent — skip preservation */ }
+```
+
+`users.password_history_hashes` **does not exist and never has** — password history
+is its own table (`password_history`). So that statement always raised 42703, and
+**a caught JS error does not un-abort a Postgres transaction**: every subsequent
+statement died with 25P02 and the whole restore rolled back.
+
+**Net: restore has failed 100% of the time since 2026-07-04.** The fix that was
+meant to prevent a restore lockout silently bricked restore entirely — and the
+try/catch is exactly what hid it. This also explains why L96's mirror-trigger bug
+was never noticed: nothing ever got that far.
+
+FIX: query real columns only; no try/catch around in-transaction probes (comment
+added explaining why). Also removed the phantom column from `stripSensitiveColumns`.
+
+**PROVEN by real round-trip** (export from `digilog_db` → restore into a throwaway
+`digilog_restore_test`, never dev/test):
+- 47 non-empty tables; counts round-trip exactly (asset_instances 510, ahus 38,
+  filters 376, blocks 21, audit_trail 16955).
+- Chain state **byte-identical to source**: intact=false, 16955 checked, 191 chained,
+  1 preChain, 100 PER_ROW_CHECKSUM_MISMATCH, same anomaly IDs at same positions ⇒
+  restore is FAITHFUL; those anomalies are pre-existing dev-DB residue, not a regression.
+- Sequences: `DEV-000142`→next `DEV-000143` (no collision), `QN-2026-000107`→next
+  `QN-2026-000108` (no collision), chain_position next 17127 > max 17126 (continues after).
+- Restore #2 onto a POPULATED DB also succeeds, and real password hashes SURVIVE
+  (superadmin's hash kept; 157/158 history sentinels, the 1 seeded real hash kept)
+  ⇒ the 07-04 lockout fix now actually works for the first time.
+- Scratch DB dropped; harness deleted; `digilog_db` verified untouched (510/16955).
+
+**Note for later:** `digilog_db` has 100 pre-existing PER_ROW_CHECKSUM_MISMATCH
+anomalies (only 191 of 16955 rows are chained at all). Pre-existing, not triaged here.
 
 ### Cross-cutting note (from the backup agent)
 L96 and L101 **compound**. L96 makes restore fail loudly on any real dataset — which implies **the restore path has never been exercised against production-shaped data**. That explains why L101 went unnoticed, and means fixing L96 alone will *unmask* L101. Fix together; validate with export → fresh-DB restore → `GET /api/audit/verify-chain` → create-a-deviation round trip.

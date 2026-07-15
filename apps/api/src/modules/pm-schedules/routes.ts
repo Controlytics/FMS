@@ -667,7 +667,26 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       tags: ['PM Schedules'],
       summary: 'Update PM schedule (new version)',
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
-      body: { type: 'object', properties: { entries: { type: 'array' } } },
+      body: {
+        type: 'object',
+        required: ['entries'],
+        properties: {
+          entries: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              required: ['month', 'plannedDate'],
+              properties: {
+                month: { type: 'integer', minimum: 1, maximum: 12 },
+                plannedDate: { type: 'string', format: 'date' },
+                toleranceDays: { type: 'integer', minimum: 0 },
+                notes: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {

@@ -187,10 +187,22 @@ const PASSWORD_STRIPPED_SENTINEL = '__BACKUP_STRIPPED__';
  * out-of-band and audit-trailed at the OS level.
  */
 function stripSensitiveColumns(table: string, rows: Record<string, any>[]): Record<string, any>[] {
-  if (table !== 'users') return rows;
-  for (const row of rows) {
-    if ('password_hash' in row) row.password_hash = PASSWORD_STRIPPED_SENTINEL;
-    if ('password_history_hashes' in row) row.password_history_hashes = [];
+  if (table === 'users') {
+    for (const row of rows) {
+      if ('password_hash' in row) row.password_hash = PASSWORD_STRIPPED_SENTINEL;
+    }
+    return rows;
+  }
+  // The `password_history` TABLE is not the `users.password_history_hashes`
+  // COLUMN handled above — it's a separate model, and the early `table !==
+  // 'users'` return used to let every historic bcrypt hash out in the clear.
+  // Cracking those recovers a user's previous passwords, which under a
+  // reuse-forbidding policy strongly predict the current one. §11.10(d).
+  if (table === 'password_history') {
+    for (const row of rows) {
+      if ('password_hash' in row) row.password_hash = PASSWORD_STRIPPED_SENTINEL;
+    }
+    return rows;
   }
   return rows;
 }
@@ -347,12 +359,37 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
   const restoreTables = dbTables.filter(t => Array.isArray(data[t]));
 
   await prisma.$transaction(async (tx: any) => {
-    // Disable audit-trail immutability triggers if present (they're user triggers, so non-superusers can toggle them)
-    const triggers: any[] = await tx.$queryRawUnsafe(
-      `SELECT tgname FROM pg_trigger WHERE tgrelid = '"audit_trail"'::regclass AND tgname IN ('audit_trail_no_update', 'audit_trail_no_delete')`,
+    // Disable EVERY user trigger on the tables we're about to rewrite, not just
+    // audit_trail's. This used to name audit_trail's two triggers explicitly,
+    // which left the asset/filter mirror triggers armed during restore:
+    // topologicalSort emits asset_instances before ahus/filters, so restoring
+    // asset_instances fired trg_mirror_asset_instance_iud, which upserted rows
+    // into ahus/filters — and the plain INSERT for those tables then hit a
+    // duplicate key and rolled the whole restore back. Any backup containing a
+    // single AHU or filter (i.e. every real one) could not be restored.
+    // The mirror's `pg_trigger_depth() > 1` guard does not help: the restore's
+    // own INSERT is depth 1.
+    //
+    // A backup is internally consistent — it carries both asset_instances and
+    // the typed tables — so the mirror has nothing to contribute here anyway.
+    //
+    // Note: `SET session_replication_role = 'replica'` would be the tidier
+    // idiom, but it requires superuser/replication and the app's DB role has
+    // neither, so it fails with "permission denied to set parameter". User
+    // triggers can be toggled by the table owner, which we are.
+    for (const t of dbTables) assertSafeIdentifier(t);
+    const triggers: { relname: string; tgname: string }[] = await tx.$queryRawUnsafe(
+      `SELECT c.relname::text AS relname, t.tgname::text AS tgname
+         FROM pg_trigger t
+         JOIN pg_class c ON c.oid = t.tgrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE NOT t.tgisinternal
+          AND n.nspname = 'public'
+          AND c.relname = ANY($1::text[])`,
+      dbTables,
     );
     for (const t of triggers) {
-      await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" DISABLE TRIGGER "${t.tgname}"`);
+      await tx.$executeRawUnsafe(`ALTER TABLE "${t.relname}" DISABLE TRIGGER "${t.tgname}"`);
     }
 
     // #backup-critical fix: the export replaces every users.password_hash with the
@@ -362,11 +399,24 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     // path is itself unreachable. Snapshot the CURRENT hashes before truncate and
     // re-apply them to the sentinel rows on reinsert (see the users special-case in
     // the insert loop), so existing users keep their login across a restore.
-    const currentUserSecrets = new Map<string, { password_hash: unknown; password_history_hashes: unknown }>();
-    try {
-      const cur: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash, password_history_hashes FROM "users"`);
-      for (const u of cur) currentUserSecrets.set(u.id, { password_hash: u.password_hash, password_history_hashes: u.password_history_hashes });
-    } catch { /* users shape differs / table absent — skip preservation, restore as-is */ }
+    // NOTE — do NOT wrap probe queries here in try/catch. A failed statement
+    // aborts the whole Postgres transaction (25P02: "current transaction is
+    // aborted"); catching the JS error does not un-abort it, so every later
+    // statement fails too. That is exactly how this block used to break restore
+    // outright: it selected a `users.password_history_hashes` column that has
+    // never existed (password history lives in its own table), the catch hid the
+    // 42703, and the transaction was already poisoned — so restore ALWAYS failed
+    // from the moment that preservation logic was added. Query real columns only.
+    const currentUserSecrets = new Map<string, unknown>();
+    const cur: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash FROM "users"`);
+    for (const u of cur) currentUserSecrets.set(u.id, u.password_hash);
+
+    // Same story for the password_history TABLE, whose hashes are now stripped
+    // on export too: without this, a restore would write sentinels over real
+    // history and quietly defeat the password-reuse check.
+    const currentPasswordHistory = new Map<string, unknown>();
+    const curHist: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash FROM "password_history"`);
+    for (const h of curHist) currentPasswordHistory.set(h.id, h.password_hash);
 
     // Truncate every DB table in one statement — CASCADE handles all FKs in a single pass
     for (const t of dbTables) assertSafeIdentifier(t);
@@ -386,8 +436,17 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
         // backup-only user that never existed here must reset via the admin workflow).
         rows = rows.map((r: Record<string, any>) => {
           if (r.password_hash === PASSWORD_STRIPPED_SENTINEL && currentUserSecrets.has(r.id)) {
-            const kept = currentUserSecrets.get(r.id)!;
-            return { ...r, password_hash: kept.password_hash, password_history_hashes: kept.password_history_hashes };
+            return { ...r, password_hash: currentUserSecrets.get(r.id) };
+          }
+          return r;
+        });
+      } else if (table === 'password_history') {
+        // Re-apply the pre-truncate hash for any history row that still exists;
+        // a backup-only row keeps the sentinel (it can never match a real
+        // password, so it just makes that one reuse check inert).
+        rows = rows.map((r: Record<string, any>) => {
+          if (r.password_hash === PASSWORD_STRIPPED_SENTINEL && currentPasswordHistory.has(r.id)) {
+            return { ...r, password_hash: currentPasswordHistory.get(r.id) };
           }
           return r;
         });
@@ -406,10 +465,22 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
       }
     }
 
-    // Re-enable audit-trail immutability triggers
+    // Re-enable every trigger we disabled. (A rollback would restore trigger
+    // state anyway, since ALTER TABLE is transactional here.)
     for (const t of triggers) {
-      await tx.$executeRawUnsafe(`ALTER TABLE "audit_trail" ENABLE TRIGGER "${t.tgname}"`);
+      await tx.$executeRawUnsafe(`ALTER TABLE "${t.relname}" ENABLE TRIGGER "${t.tgname}"`);
     }
+
+    // Realign manual sequences with the data we just restored. Without this the
+    // sequences keep the TARGET database's values (TRUNCATE doesn't reset them
+    // and we don't RESTART IDENTITY), which breaks two things on a
+    // restore-onto-a-fresh-install — the primary disaster-recovery path:
+    //   - deviation_number / qnn: nextval returns a number already present in
+    //     the restored rows, so the next insert trips the unique index.
+    //   - audit_trail.chain_position: new rows get positions that sort INTO the
+    //     middle of restored history, so the hash-chain walker links the wrong
+    //     rows and verification breaks permanently.
+    await resyncSequencesAfterRestore(tx, restoreTables);
   }, { timeout: 300_000, maxWait: 30_000 });
 }
 
@@ -498,10 +569,61 @@ async function insertRows(
 }
 
 // ---------------------------------------------------------------------------
-// Legacy — no-op kept for call-site compatibility; UUID PKs have no sequences
+// Sequence realignment after a restore
 // ---------------------------------------------------------------------------
-export async function resetAuditSequence(): Promise<void> {
-  // No-op: audit_trail uses UUID primary key, no sequence to reset
+
+/**
+ * Point the manually-managed sequences at the data we just restored.
+ *
+ * Replaces a long-standing `resetAuditSequence()` no-op whose comment claimed
+ * "audit_trail uses UUID primary key, no sequence to reset". The PK is a UUID,
+ * but `chain_position` is a BIGSERIAL fed by `audit_trail_chain_position_seq` —
+ * so the sequence very much exists. The no-op also had zero callers, meaning
+ * nothing has ever realigned sequences after a restore.
+ *
+ * Three sequences are not owned-and-reset by anything else:
+ *   - audit_trail_chain_position_seq → MAX(chain_position)
+ *   - deviation_number_seq → max numeric suffix of deviations.deviation_number
+ *     ('DEV-000042' → 42; the column DEFAULTs to nextval + lpad)
+ *   - qnn_seq → max numeric suffix of quality_notifications.qnn
+ *     ('QN-2026-000042' → 42; the sequence is global, not per-year)
+ *
+ * `is_called=true` (the 3rd setval arg) means the NEXT nextval returns
+ * value + 1. Each falls back to 0 on an empty table so the next value is 1 —
+ * setval rejects anything below the sequence minimum.
+ *
+ * Only tables actually present in the backup are realigned; a sequence whose
+ * table wasn't restored keeps its current value.
+ */
+export async function resyncSequencesAfterRestore(tx: any, restoreTables: string[]): Promise<void> {
+  const restored = new Set(restoreTables);
+
+  if (restored.has('audit_trail')) {
+    await tx.$executeRawUnsafe(
+      `SELECT setval('audit_trail_chain_position_seq', COALESCE((SELECT MAX(chain_position) FROM "audit_trail"), 0) + 1, false)`,
+    );
+  }
+
+  // Suffix parsing tolerates legacy/non-conforming values: the regex guard skips
+  // anything that isn't <prefix>-<digits>, so one hand-edited row can't blow up
+  // the whole restore (or, worse, coerce to NULL and reset the sequence to 1).
+  if (restored.has('deviations')) {
+    await tx.$executeRawUnsafe(
+      `SELECT setval('deviation_number_seq', COALESCE((
+         SELECT MAX(CAST(substring(deviation_number FROM '([0-9]+)$') AS BIGINT))
+           FROM "deviations" WHERE deviation_number ~ '[0-9]+$'
+       ), 0) + 1, false)`,
+    );
+  }
+
+  if (restored.has('quality_notifications')) {
+    await tx.$executeRawUnsafe(
+      `SELECT setval('qnn_seq', COALESCE((
+         SELECT MAX(CAST(substring(qnn FROM '([0-9]+)$') AS BIGINT))
+           FROM "quality_notifications" WHERE qnn ~ '[0-9]+$'
+       ), 0) + 1, false)`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

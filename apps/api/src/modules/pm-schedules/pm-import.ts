@@ -6,12 +6,68 @@
  * batch), AHU resolution by stable templateKind, multi-format date parsing
  * (ISO, DMY, Excel serial, Date object), and SUPER_ADMIN bypass for the
  * approval workflow.
+ *
+ * Rows are parsed first, then bucketed by (AHU, year) and applied one
+ * schedule per `$transaction`. Per-schedule atomicity is the point: the
+ * hard-replace wipe and ALL of that schedule's new entries commit together,
+ * so a failure part-way through a file can never leave a schedule wiped but
+ * unpopulated. Two guards refuse the wipe outright — see `evaluateGuards`.
  */
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled } from './pm-shared.js';
 import { getPmWorkflowConfig, generateQnn } from './pm-workflow.js';
+
+interface ParsedRow {
+  rowNum: number;
+  raw: Record<string, any>;
+  ahu: { id: string; name: string };
+  year: number;
+  month: number;
+  plannedDate: Date;
+  toleranceDays: number;
+  windowStart: Date;
+  windowEnd: Date;
+}
+
+/**
+ * Decide whether the hard-replace wipe may touch an existing schedule.
+ * Returns an operator-facing reason when it must NOT, else null.
+ *
+ * Both refusals exist because the wipe is unrecoverable and happens at upload
+ * time — before any approver has consented to the replacement:
+ *   1. PmExecution rows are execution evidence (21 CFR §11); an upload must
+ *      never destroy them. They are also FK children of the entries being
+ *      deleted, so the wipe could not succeed anyway.
+ *   2. With the review workflow on, replacements land in PENDING_REVIEW and
+ *      may never be approved — so an upload must not wipe already-APPROVED
+ *      entries and leave the schedule with nothing approved in their place.
+ */
+export async function evaluateGuards(
+  scheduleId: string,
+  ahuName: string,
+  year: number,
+  workflowEnabled: boolean,
+): Promise<string | null> {
+  const executionCount = await prisma.pmExecution.count({
+    where: { scheduleEntry: { scheduleId } },
+  });
+  if (executionCount > 0) {
+    return `Refusing to replace the ${year} schedule for AHU "${ahuName}": it has ${executionCount} recorded execution(s), which are retained evidence and cannot be deleted by an upload. Edit the affected months individually instead.`;
+  }
+
+  if (workflowEnabled) {
+    const approvedCount = await prisma.pmScheduleEntry.count({
+      where: { scheduleId, approvalStatus: 'APPROVED' },
+    });
+    if (approvedCount > 0) {
+      return `Refusing to replace the ${year} schedule for AHU "${ahuName}": it has ${approvedCount} APPROVED entr${approvedCount === 1 ? 'y' : 'ies'} and the review workflow is enabled, so an upload would discard approved months in favour of entries that are not yet approved. Edit the affected months individually instead.`;
+    }
+  }
+
+  return null;
+}
 
 export async function importSchedules(ctx: RequestContext, rows: Array<Record<string, any>>) {
   await checkPmEnabled();
@@ -28,6 +84,9 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   const imported: Array<{ row: number; ahuName: string; plannedDate: string; scheduleId: string; entryId: string }> = [];
   const skipped: Array<{ row: number; reason: string; data?: any }> = [];
 
+  // Parsed rows awaiting the write phase, bucketed by (AHU, year).
+  const parsed: ParsedRow[] = [];
+
   // Pre-fetch candidate AHUs (one scoped query) — cuts N queries to 1.
   // Filter by stable templateKind code, not by editable template.name (Step 1).
   const ahus = await prisma.assetInstance.findMany({
@@ -38,12 +97,6 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
     select: { id: true, name: true },
   });
   const ahuByName = new Map(ahus.map(a => [a.name.trim().toLowerCase(), a]));
-
-  // Hard-replace: the FIRST time a re-uploaded AHU/year schedule is touched in
-  // this upload, wipe ALL its existing entries (and their executions) so the new
-  // file fully REPLACES the old schedule + tasks. Old APPROVED months not in the
-  // new file therefore stop generating /due tasks.
-  const clearedSchedules = new Set<string>();
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -122,76 +175,108 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
     const windowStart = new Date(plannedDate.getTime() - toleranceDays * 86400000);
     const windowEnd = new Date(plannedDate.getTime() + toleranceDays * 86400000);
 
+    parsed.push({ rowNum, raw: row, ahu, year, month, plannedDate, toleranceDays, windowStart, windowEnd });
+  }
+
+  // Workflow ON: entries land in PENDING_REVIEW (review + approval required, no bypass).
+  // Workflow OFF (legacy): SUPER_ADMIN auto-approves; others go to PENDING.
+  const isSuperAdmin = ctx.userRole === 'SUPER_ADMIN';
+  const approvalFields = wf.workflowEnabled
+    ? {
+        approvalStatus: 'PENDING_REVIEW' as const,
+        submittedBy: ctx.userSub,
+        submittedByName: ctx.userId,
+      }
+    : {
+        approvalStatus: isSuperAdmin ? 'APPROVED' as const : 'PENDING' as const,
+        submittedBy: ctx.userSub,
+        submittedByName: ctx.userId,
+        ...(isSuperAdmin ? { approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date() } : {}),
+      };
+
+  // Bucket by (AHU, year) — one schedule per bucket, one transaction per schedule.
+  const buckets = new Map<string, ParsedRow[]>();
+  for (const p of parsed) {
+    const key = `${p.ahu.id}::${p.year}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(p);
+    else buckets.set(key, [p]);
+  }
+
+  for (const bucket of buckets.values()) {
+    const { ahu, year } = bucket[0];
     try {
-      // Upsert the PmSchedule for (entityId, year) — findFirst + create-or-update
-      let schedule = await prisma.pmSchedule.findFirst({
+      const schedule = await prisma.pmSchedule.findFirst({
         where: { entityId: ahu.id, year, status: 'ACTIVE' },
         orderBy: { version: 'desc' },
       });
-      if (!schedule) {
-        schedule = await prisma.pmSchedule.create({
-          data: {
-            entityId: ahu.id,
-            year,
-            status: 'ACTIVE',
-            createdBy: ctx.userSub,
-          },
+
+      // Guards run BEFORE any write: a blocked schedule must be left untouched.
+      if (schedule) {
+        const block = await evaluateGuards(schedule.id, ahu.name, year, wf.workflowEnabled);
+        if (block) {
+          for (const p of bucket) skipped.push({ row: p.rowNum, reason: block, data: p.raw });
+          continue;
+        }
+      }
+
+      // Last-wins per month, mirroring the previous per-row upsert where a later
+      // row for the same month overwrote the earlier one.
+      const byMonth = new Map<number, ParsedRow>();
+      for (const p of bucket) byMonth.set(p.month, p);
+
+      // Hard-replace + repopulate atomically: the new file fully REPLACES the
+      // schedule, so old months absent from it stop generating /due tasks.
+      const scheduleId = await prisma.$transaction(async (tx) => {
+        const sid = schedule
+          ? schedule.id
+          : (await tx.pmSchedule.create({
+              data: { entityId: ahu.id, year, status: 'ACTIVE', createdBy: ctx.userSub },
+            })).id;
+
+        if (schedule) await tx.pmScheduleEntry.deleteMany({ where: { scheduleId: sid } });
+
+        await tx.pmScheduleEntry.createMany({
+          data: [...byMonth.values()].map((p) => ({
+            scheduleId: sid,
+            month: p.month,
+            plannedDate: p.plannedDate,
+            toleranceDays: p.toleranceDays,
+            windowStart: p.windowStart,
+            windowEnd: p.windowEnd,
+            ...approvalFields,
+          })),
+        });
+        return sid;
+      });
+
+      // createMany returns no rows — read the ids back for the per-row report.
+      const created = await prisma.pmScheduleEntry.findMany({
+        where: { scheduleId },
+        select: { id: true, month: true },
+      });
+      const entryIdByMonth = new Map(created.map((e) => [e.month, e.id]));
+
+      for (const p of bucket) {
+        imported.push({
+          row: p.rowNum,
+          ahuName: p.ahu.name,
+          plannedDate: p.plannedDate.toISOString().slice(0, 10),
+          scheduleId,
+          entryId: entryIdByMonth.get(p.month) ?? '',
         });
       }
-
-      // Hard-replace: wipe the AHU/year schedule's existing entries (+ executions)
-      // the first time it's touched this upload, so the new file fully replaces it.
-      if (!clearedSchedules.has(schedule.id)) {
-        await prisma.pmExecution.deleteMany({ where: { scheduleEntry: { scheduleId: schedule.id } } });
-        await prisma.pmScheduleEntry.deleteMany({ where: { scheduleId: schedule.id } });
-        clearedSchedules.add(schedule.id);
-      }
-
-      // Upsert the entry — if same (schedule, month) exists, update date/tolerance.
-      // Workflow ON: land in PENDING_REVIEW (review + approval required, no bypass).
-      // Workflow OFF (legacy): SUPER_ADMIN auto-approves; others go to PENDING.
-      const isSuperAdmin = ctx.userRole === 'SUPER_ADMIN';
-      const approvalFields = wf.workflowEnabled
-        ? {
-            approvalStatus: 'PENDING_REVIEW' as const,
-            submittedBy: ctx.userSub,
-            submittedByName: ctx.userId,
-            // Clear any prior decision when an existing entry is re-uploaded.
-            reviewedBy: null, reviewedByName: null, reviewedAt: null, reviewRemarks: null,
-            approvedBy: null, approvedByName: null, approvedAt: null,
-            rejectedBy: null, rejectedByName: null, rejectedAt: null, rejectionStage: null,
-          }
-        : {
-            approvalStatus: isSuperAdmin ? 'APPROVED' as const : 'PENDING' as const,
-            submittedBy: ctx.userSub,
-            submittedByName: ctx.userId,
-            ...(isSuperAdmin ? { approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date() } : {}),
-          };
-      const existing = await prisma.pmScheduleEntry.findFirst({
-        where: { scheduleId: schedule.id, month },
-      });
-      const entry = existing
-        ? await prisma.pmScheduleEntry.update({
-            where: { id: existing.id },
-            data: { plannedDate, toleranceDays, windowStart, windowEnd, approvalRemarks: null, ...approvalFields },
-          })
-        : await prisma.pmScheduleEntry.create({
-            data: {
-              scheduleId: schedule.id,
-              month,
-              plannedDate,
-              toleranceDays,
-              windowStart,
-              windowEnd,
-              ...approvalFields,
-            },
-          });
-
-      imported.push({ row: rowNum, ahuName: ahu.name, plannedDate: plannedDate.toISOString().slice(0, 10), scheduleId: schedule.id, entryId: entry.id });
     } catch (e: any) {
-      skipped.push({ row: rowNum, reason: `DB error: ${e.message ?? String(e)}`, data: row });
+      // The transaction rolled back — this schedule is unchanged on disk.
+      for (const p of bucket) {
+        skipped.push({ row: p.rowNum, reason: `DB error: ${e.message ?? String(e)}`, data: p.raw });
+      }
     }
   }
+
+  // Report rows in file order — the write phase groups by schedule, not by row.
+  imported.sort((a, b) => a.row - b.row);
+  skipped.sort((a, b) => a.row - b.row);
 
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_IMPORTED',

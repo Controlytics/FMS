@@ -29,9 +29,11 @@ const { mockPrisma, mockAuditLog } = vi.hoisted(() => {
     create: vi.fn(),
     findUnique: vi.fn(),
     findMany: vi.fn(),
+    count: vi.fn(),
   };
   const checklistQuestion = {
     findFirst: vi.fn(),
+    findMany: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -217,6 +219,183 @@ describe('ChecklistProfileService versioning (Phase A.1 / 8.4a)', () => {
       );
 
       expect(result.id).toBe('q-new');
+    });
+  });
+
+  /**
+   * Audit L116 regression coverage. Before this fix `auditLog` was called in
+   * create() only — every other mutation changed operator records with no
+   * §11.10(e) trail. ChecklistProfileVersion is NOT a substitute: it isn't
+   * hash-chained, isn't immutable, isn't shown in the inspector UI, and
+   * delete() cascade-destroys it.
+   */
+  describe('audit trail (§11.10(e))', () => {
+    const auditCall = () => mockAuditLog.mock.calls[0][0];
+
+    it('update() audits with before/after values', async () => {
+      mockPrisma.checklistProfile.findUnique.mockResolvedValue({
+        id: PROFILE_ID, name: 'Old Name', description: 'Old desc',
+        isActive: true, version: 3, questions: [],
+      });
+      mockPrisma.checklistProfileVersion.create.mockResolvedValue({});
+      mockPrisma.checklistProfile.update
+        .mockResolvedValueOnce({ id: PROFILE_ID, version: 4 })
+        .mockResolvedValueOnce({ id: PROFILE_ID, name: 'New Name', description: 'Old desc', isActive: true, version: 4 });
+
+      await service.update(ctx, PROFILE_ID, { name: 'New Name' });
+
+      expect(mockAuditLog).toHaveBeenCalledTimes(1);
+      expect(auditCall()).toMatchObject({
+        userId: ctx.userId,
+        action: 'UPDATED',
+        targetType: 'checklist_profile',
+        targetId: PROFILE_ID,
+        beforeValue: { name: 'Old Name', version: 3 },
+        afterValue: { name: 'New Name', version: 4 },
+      });
+    });
+
+    it('delete() captures name + destroyed version count in beforeValue (the rows cascade away)', async () => {
+      mockPrisma.checklistProfile.findFirst.mockResolvedValue({
+        id: PROFILE_ID, name: 'Doomed Checklist', description: 'd',
+        isActive: true, version: 5, questions: [{ id: 'q1' }, { id: 'q2' }],
+      });
+      mockPrisma.filterPipelineStage.count.mockResolvedValue(0);
+      mockPrisma.$queryRaw.mockResolvedValue([{ count: 0n }]);
+      mockPrisma.checklistProfileVersion.count.mockResolvedValue(4);
+      mockPrisma.checklistProfile.delete.mockResolvedValue({});
+
+      await service.delete(ctx, PROFILE_ID);
+
+      expect(auditCall()).toMatchObject({
+        action: 'DELETED',
+        targetType: 'checklist_profile',
+        targetId: PROFILE_ID,
+        beforeValue: {
+          name: 'Doomed Checklist',
+          version: 5,
+          questionCount: 2,
+          archivedVersionsDestroyed: 4,
+        },
+      });
+    });
+
+    it('delete() does NOT audit when the in-use guard rejects the delete', async () => {
+      mockPrisma.checklistProfile.findFirst.mockResolvedValue({
+        id: PROFILE_ID, name: 'In Use', version: 1, questions: [],
+      });
+      mockPrisma.filterPipelineStage.count.mockResolvedValue(2);
+
+      await expect(service.delete(ctx, PROFILE_ID)).rejects.toThrow(/referenced by/);
+
+      expect(mockPrisma.checklistProfile.delete).not.toHaveBeenCalled();
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+
+    it('addQuestion() audits with the owning profile name so {targetName} renders', async () => {
+      mockPrisma.checklistProfile.findUnique.mockResolvedValue({
+        id: PROFILE_ID, name: 'Profile A', description: null,
+        isActive: true, version: 7, questions: [],
+      });
+      mockPrisma.checklistQuestion.aggregate.mockResolvedValue({ _max: { sortOrder: null } });
+      mockPrisma.checklistProfileVersion.create.mockResolvedValue({});
+      mockPrisma.checklistProfile.update.mockResolvedValue({ id: PROFILE_ID, version: 8 });
+      mockPrisma.checklistQuestion.create.mockResolvedValue({
+        id: 'q-new', question: 'New Q?', questionType: 'YES_NO',
+        required: false, section: null, sortOrder: 0,
+      });
+
+      await service.addQuestion(ctx, PROFILE_ID, { question: 'New Q?' });
+
+      expect(auditCall()).toMatchObject({
+        action: 'CHECKLIST_QUESTION_ADDED',
+        targetType: 'checklist_profile',
+        targetId: PROFILE_ID,
+        // audit-helpers resolves {targetName} from afterValue.name — without it
+        // the inspector row reads 'Question added to checklist ""'.
+        afterValue: { name: 'Profile A', questionId: 'q-new', question: 'New Q?' },
+      });
+    });
+
+    it('updateQuestion() audits before + after question state', async () => {
+      mockPrisma.checklistQuestion.findFirst.mockResolvedValue({
+        id: 'q1', profileId: PROFILE_ID, question: 'Old Q?', questionType: 'YES_NO',
+        required: false, section: null, sortOrder: 0,
+      });
+      mockPrisma.checklistProfile.findUnique.mockResolvedValue({
+        id: PROFILE_ID, name: 'Profile A', description: null,
+        isActive: true, version: 2, questions: [],
+      });
+      mockPrisma.checklistProfileVersion.create.mockResolvedValue({});
+      mockPrisma.checklistProfile.update.mockResolvedValue({ id: PROFILE_ID, version: 3 });
+      mockPrisma.checklistQuestion.update.mockResolvedValue({
+        id: 'q1', question: 'New Q?', questionType: 'YES_NO',
+        required: true, section: null, sortOrder: 0,
+      });
+
+      await service.updateQuestion(ctx, PROFILE_ID, 'q1', { question: 'New Q?', required: true });
+
+      expect(auditCall()).toMatchObject({
+        action: 'CHECKLIST_QUESTION_UPDATED',
+        targetId: PROFILE_ID,
+        beforeValue: { name: 'Profile A', questionId: 'q1', question: 'Old Q?', required: false },
+        afterValue: { name: 'Profile A', questionId: 'q1', question: 'New Q?', required: true },
+      });
+    });
+
+    it('deleteQuestion() audits the destroyed question in beforeValue', async () => {
+      mockPrisma.checklistQuestion.findFirst.mockResolvedValue({
+        id: 'q1', profileId: PROFILE_ID, question: 'Doomed Q?', questionType: 'TEXT',
+        required: true, section: 'S1', sortOrder: 2,
+      });
+      mockPrisma.checklistProfile.findUnique.mockResolvedValue({
+        id: PROFILE_ID, name: 'Profile A', description: null,
+        isActive: true, version: 2, questions: [],
+      });
+      mockPrisma.checklistProfileVersion.create.mockResolvedValue({});
+      mockPrisma.checklistProfile.update.mockResolvedValue({ id: PROFILE_ID, version: 3 });
+      mockPrisma.checklistQuestion.delete.mockResolvedValue({});
+
+      await service.deleteQuestion(ctx, PROFILE_ID, 'q1');
+
+      expect(auditCall()).toMatchObject({
+        action: 'CHECKLIST_QUESTION_DELETED',
+        targetId: PROFILE_ID,
+        beforeValue: { name: 'Profile A', questionId: 'q1', question: 'Doomed Q?', sortOrder: 2 },
+      });
+    });
+
+    it('reorderQuestions() audits the old and new order', async () => {
+      mockPrisma.checklistProfile.findUnique.mockResolvedValue({
+        id: PROFILE_ID, name: 'Profile A', description: null,
+        isActive: true, version: 2, questions: [],
+      });
+      mockPrisma.checklistQuestion.findMany.mockResolvedValue([{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }]);
+      mockPrisma.checklistProfileVersion.create.mockResolvedValue({});
+      mockPrisma.checklistProfile.update.mockResolvedValue({ id: PROFILE_ID, version: 3 });
+      mockPrisma.checklistQuestion.update.mockResolvedValue({});
+
+      await service.reorderQuestions(ctx, PROFILE_ID, ['q3', 'q1', 'q2']);
+
+      expect(auditCall()).toMatchObject({
+        action: 'CHECKLIST_QUESTIONS_REORDERED',
+        targetId: PROFILE_ID,
+        beforeValue: { name: 'Profile A', questionOrder: ['q1', 'q2', 'q3'] },
+        afterValue: { name: 'Profile A', questionOrder: ['q3', 'q1', 'q2'] },
+      });
+    });
+
+    // Gotcha 1: auditLog's chain write must not ride inside the business tx.
+    // A rollback would otherwise leave a phantom audit row for a change that
+    // never persisted.
+    it('does not audit when the transaction throws', async () => {
+      mockPrisma.checklistProfile.findUnique.mockResolvedValue({
+        id: PROFILE_ID, name: 'Profile A', version: 1, questions: [],
+      });
+      mockPrisma.checklistProfileVersion.create.mockRejectedValue(new Error('tx boom'));
+
+      await expect(service.update(ctx, PROFILE_ID, { name: 'X' })).rejects.toThrow('tx boom');
+      expect(mockAuditLog).not.toHaveBeenCalled();
     });
   });
 });

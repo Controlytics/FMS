@@ -180,43 +180,69 @@ export const blockChangeService = {
     return updated;
   },
 
-  async hasApproval(filterId: string, toBlockId: string): Promise<boolean> {
-    const approved = await prisma.blockChangeRequest.findFirst({
-      where: { filterId, toBlockId, status: 'APPROVED' },
-    });
-    return !!approved;
-  },
-
-  async consumeApproval(filterId: string, toBlockId: string): Promise<void> {
-    await prisma.blockChangeRequest.updateMany({
-      where: { filterId, toBlockId, status: 'APPROVED' },
-      data: { status: 'EXPIRED' },
-    });
+  /**
+   * How long an APPROVED request stays usable. Config `autoExpireHours`
+   * (default 24); 0 means never expire.
+   */
+  async getAutoExpireHours(): Promise<number> {
+    const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'block-change-approval' } });
+    const raw = (cfg?.configValue as any)?.autoExpireHours;
+    const hours = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isFinite(hours) && hours > 0 ? hours : 0;
   },
 
   /**
-   * Audit 2026-05-05 fix #7: tx-aware variants. The pre-fix flow ran
-   * validateBlockChange OUTSIDE the start-cycle transaction (called at
-   * start-cycle.ts:63 before the FOR UPDATE lock at :124). A concurrent
-   * second start-cycle could consume the same approval between the
-   * outer-tx hasApproval read and the FOR UPDATE — both starts then
-   * proceed as if approved.
+   * Is there a usable approval for this filter→block?
    *
-   * These variants take a TransactionClient so the find + update happen
-   * under the same row lock as the cycle insert. start-cycle.ts now calls
-   * the tx-aware path inside its $transaction.
+   * Expiry is evaluated HERE, at read time, rather than by a sweep: the config
+   * value can change at any moment, and a row that has merely aged out is not a
+   * different kind of record — it's just no longer usable. (The row keeps
+   * status APPROVED until something consumes it; the gate is what enforces the
+   * window, and current-state reports through this same call so the UI agrees.)
+   *
+   * `autoExpireHours` was pure config theater before 2026-07-15 — editable on
+   * Config → Role Assignments and read by nothing at all.
    */
-  async hasApprovalTx(tx: any, filterId: string, toBlockId: string): Promise<boolean> {
-    const approved = await tx.blockChangeRequest.findFirst({
+  async hasApproval(filterId: string, toBlockId: string): Promise<boolean> {
+    const approved = await prisma.blockChangeRequest.findFirst({
       where: { filterId, toBlockId, status: 'APPROVED' },
+      orderBy: { processedAt: 'desc' },
     });
-    return !!approved;
+    if (!approved) return false;
+
+    const hours = await this.getAutoExpireHours();
+    if (hours === 0) return true;
+
+    // processedAt is stamped at approval; fall back to createdAt for any legacy
+    // row approved before that column was populated.
+    const approvedAt = approved.processedAt ?? approved.createdAt;
+    if (!approvedAt) return true;
+    return approvedAt.getTime() >= Date.now() - hours * 3_600_000;
   },
 
-  async consumeApprovalTx(tx: any, filterId: string, toBlockId: string): Promise<void> {
-    await tx.blockChangeRequest.updateMany({
+  /**
+   * Audit 2026-05-05 fix #7 documented a tx-aware consume so the find+update
+   * would happen under the same row lock as the cycle insert — but it was
+   * written and never wired, so until 2026-07-15 NOTHING consumed an approval.
+   * Now start-cycle spends it inside its $transaction.
+   *
+   * The non-transactional `consumeApproval` and the unused `hasApprovalTx` were
+   * removed at the same time: both had zero callers, and keeping a consume that
+   * runs outside the caller's lock only invites reintroducing the race.
+   *
+   * Spend one APPROVED request. Returns how many rows were consumed — 0 means
+   * the approval was already spent (or never existed), which the caller MUST
+   * treat as "not approved". That count is what makes the gate single-use under
+   * concurrency: validateBlockChange's read happens outside the start-cycle
+   * transaction, so two racing starts can both see hasApproval=true; only the
+   * one whose updateMany actually flips APPROVED→EXPIRED under the row lock may
+   * proceed.
+   */
+  async consumeApprovalTx(tx: any, filterId: string, toBlockId: string): Promise<number> {
+    const { count } = await tx.blockChangeRequest.updateMany({
       where: { filterId, toBlockId, status: 'APPROVED' },
       data: { status: 'EXPIRED' },
     });
+    return count;
   },
 };

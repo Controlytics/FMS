@@ -11,6 +11,7 @@ import { prisma } from '../../lib/prisma.js';
 import { invalidateNotificationConfigCache } from './config-loader.js';
 import { sendNotification, sendTestNotification, testChannel } from './delivery.service.js';
 import { auditLog } from '../../lib/audit.js';
+import { maskSecrets } from '../../lib/mask-secrets.js';
 
 // HTML-escape any value reflected into the OAuth2 callback HTML responses
 // (the provider-controlled error / error_description / token-exchange message
@@ -20,6 +21,26 @@ const escapeHtml = (s: unknown): string =>
 import { enforceReauth } from '../../lib/reauth-check.js';
 
 const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+
+// Audit allowlists \u2014 keys whose values are safe to persist into the immutable,
+// hash-chained audit trail. Anything absent is redacted (see lib/mask-secrets.ts
+// for why this is an allowlist). The PUT handlers below rehydrate the REAL stored
+// secrets into `body` whenever the client echoes a mask sentinel, so the body
+// reaching auditLog carries live credentials on essentially every save.
+const EMAIL_AUDIT_SAFE_KEYS = [
+  'host', 'port', 'secure', 'username', 'fromEmail', 'fromName', 'enabled',
+  // OAuth2 identifiers are public halves of the credential pair, not secrets.
+  'oauth2Provider', 'clientId', 'providerTenantId', 'oauth2Configured',
+];
+const SMS_AUDIT_SAFE_KEYS = [
+  'provider', 'enabled', 'defaultCountryCode', 'senderId',
+  // Twilio SID / Vonage key are public identifiers; their paired tokens are not.
+  'twilioAccountSid', 'twilioFromNumber', 'vonageApiKey', 'vonageFromNumber',
+  'httpGatewayMethod', 'httpGatewaySuccessRegex',
+  // Deliberately absent: httpGatewayUrl + httpGatewayBodyTemplate. Both are
+  // operator-authored free text and the common SMS gateways (MSG91, Plivo,
+  // Kaleyra) embed the API key directly in the query string / body template.
+];
 
 export default async function notificationDeliveryRoutes(app: FastifyInstance) {
 
@@ -107,7 +128,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     });
 
     invalidateNotificationConfigCache();
-    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_EMAIL_CONFIG', targetType: 'system_config', targetId: 'notification-email', afterValue: { ...body, password: '***' } });
+    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_EMAIL_CONFIG', targetType: 'system_config', targetId: 'notification-email', afterValue: maskSecrets(body, EMAIL_AUDIT_SAFE_KEYS) });
     return { success: true };
   });
 
@@ -431,7 +452,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     });
 
     invalidateNotificationConfigCache();
-    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_SMS_CONFIG', targetType: 'system_config', targetId: 'notification-sms', afterValue: { ...body, twilioAuthToken: '***', vonageApiSecret: '***' } });
+    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_SMS_CONFIG', targetType: 'system_config', targetId: 'notification-sms', afterValue: maskSecrets(body, SMS_AUDIT_SAFE_KEYS) });
     return { success: true };
   });
 

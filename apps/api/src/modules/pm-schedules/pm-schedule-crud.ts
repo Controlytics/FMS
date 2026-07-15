@@ -76,44 +76,49 @@ export async function create(ctx: RequestContext, data: any) {
 
 export async function update(ctx: RequestContext, id: string, data: any) {
   await checkPmEnabled();
+
+  // Validate BEFORE any write: this is archive-then-recreate, so a late throw
+  // would leave the old version ARCHIVED with no ACTIVE replacement and
+  // silently stop PM task generation for the AHU/year.
+  const entries = data.entries;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Schedule must have at least one entry');
+  }
+
   const existing = await prisma.pmSchedule.findUnique({
     where: { id },
     include: { entries: true },
   });
   if (!existing) throw new AppError(404, 'NOT_FOUND', 'PM schedule not found');
 
-  // Archive old version
-  await prisma.pmSchedule.update({
-    where: { id },
-    data: { status: 'ARCHIVED' },
-  });
-
-  // Create new version
-  const newSchedule = await prisma.pmSchedule.create({
-    data: {
-      entityId: existing.entityId,
-      year: existing.year,
-      version: existing.version + 1,
-      status: 'ACTIVE',
-      createdBy: ctx.userSub,
-      entries: {
-        create: ((entries) => {
-          if (entries !== undefined && entries.length === 0) {
-            throw new AppError(400, 'VALIDATION_ERROR', 'Schedule must have at least one entry');
-          }
-          return entries;
-        })(data.entries ?? []).map((e: any) => ({
-          month: e.month,
-          plannedDate: new Date(e.plannedDate),
-          toleranceDays: e.toleranceDays ?? 0,
-          windowStart: new Date(new Date(e.plannedDate).getTime() - (e.toleranceDays ?? 0) * 86400000),
-          windowEnd: new Date(new Date(e.plannedDate).getTime() + (e.toleranceDays ?? 0) * 86400000),
-          notes: e.notes ?? null,
-        })),
+  // Archive + recreate atomically — a failure must not strand the schedule
+  // with no ACTIVE version.
+  const [, newSchedule] = await prisma.$transaction([
+    prisma.pmSchedule.update({
+      where: { id },
+      data: { status: 'ARCHIVED' },
+    }),
+    prisma.pmSchedule.create({
+      data: {
+        entityId: existing.entityId,
+        year: existing.year,
+        version: existing.version + 1,
+        status: 'ACTIVE',
+        createdBy: ctx.userSub,
+        entries: {
+          create: entries.map((e: any) => ({
+            month: e.month,
+            plannedDate: new Date(e.plannedDate),
+            toleranceDays: e.toleranceDays ?? 0,
+            windowStart: new Date(new Date(e.plannedDate).getTime() - (e.toleranceDays ?? 0) * 86400000),
+            windowEnd: new Date(new Date(e.plannedDate).getTime() + (e.toleranceDays ?? 0) * 86400000),
+            notes: e.notes ?? null,
+          })),
+        },
       },
-    },
-    include: { entries: { orderBy: { month: 'asc' } } },
-  });
+      include: { entries: { orderBy: { month: 'asc' } } },
+    }),
+  ]);
 
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATED',

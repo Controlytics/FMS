@@ -97,7 +97,7 @@ export async function startCycleImpl(
   // Validate cross-block (must be before cycle creation). Mode-aware (CONFIRM vs
   // APPROVAL) and online-only — validateBlockChange auto-passes offline replays so a
   // queued offline start syncs rather than stranding the rest of the cycle's ops.
-  await validateBlockChange(filterId, cleaningAreaId, ctx, data.acknowledgeBlockChange === true);
+  const blockClearance = await validateBlockChange(filterId, cleaningAreaId, ctx, data.acknowledgeBlockChange === true);
 
   const reasons = await getCleaningReasons(resolvedProfileIdForCycle);
   if (!cleaningReasonKey) {
@@ -175,6 +175,27 @@ export async function startCycleImpl(
     if (lockedCurrentCycleId) {
       const active = await tx.cleaningCycle.findFirst({ where: { id: lockedCurrentCycleId, status: 'IN_PROGRESS' } });
       if (active) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
+    }
+
+    // Spend the block-change approval under the same lock as the cycle insert.
+    // An approval is single-use: before this, hasApproval() only ever READ the
+    // row and nothing ever set it EXPIRED, so one approval was a permanent,
+    // unlimited licence to clean that filter in that block (and the operator-set
+    // `autoExpireHours` did nothing). The tx-aware consume helper was written for
+    // exactly this in 2026-05-05 and was never wired up.
+    //
+    // A 0-row consume means another start took the same approval between
+    // validateBlockChange's read and this lock — that caller won the race, so
+    // this one is simply not approved.
+    if (blockClearance.consumeApproval) {
+      const { blockChangeService } = await import('../../block-change-requests/block-change.service.js');
+      const consumed = await blockChangeService.consumeApprovalTx(
+        tx, blockClearance.consumeApproval.filterId, blockClearance.consumeApproval.toBlockId,
+      );
+      if (consumed === 0) {
+        throw new AppError(409, 'BLOCK_CHANGE_REQUIRED',
+          'The block-change approval for this filter has already been used. Request approval again to clean it in this block.');
+      }
     }
 
     // Validate equipment group if provided. P1 (2026-05-02): also capture the

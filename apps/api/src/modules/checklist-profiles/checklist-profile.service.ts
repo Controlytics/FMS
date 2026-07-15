@@ -175,7 +175,19 @@ export class ChecklistProfileService {
   }
 
   async update(ctx: RequestContext, id: string, data: any) {
-    return prisma.$transaction(async (tx) => {
+    // Captured inside the tx, audited after it commits (house pattern: see
+    // cleaning-profile.service.ts — audit only what actually persisted).
+    let before: { name: string; description: string | null; isActive: boolean; version: number } | undefined;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.checklistProfile.findUnique({ where: { id } });
+      if (!existing) throw new AppError(404, 'NOT_FOUND', 'Checklist profile not found');
+      before = {
+        name: existing.name,
+        description: existing.description,
+        isActive: existing.isActive,
+        version: existing.version,
+      };
       await snapshotAndBump(tx, id, 'profile metadata updated', ctx);
       return tx.checklistProfile.update({
         where: { id },
@@ -186,10 +198,23 @@ export class ChecklistProfileService {
         },
       });
     });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATED',
+      targetType: 'checklist_profile', targetId: id,
+      beforeValue: before,
+      afterValue: {
+        name: updated.name, description: updated.description,
+        isActive: updated.isActive, version: updated.version,
+      },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return updated;
   }
 
   async delete(ctx: RequestContext, id: string) {
-    await this.getById(ctx, id);
+    const existing = await this.getById(ctx, id);
     // Check if referenced by any pipeline CHECKLIST nodes in non-archived cleaning profiles
     const usedInPipelines = await prisma.filterPipelineStage.count({
       where: {
@@ -211,15 +236,42 @@ export class ChecklistProfileService {
     if (cycleCount > 0) {
       throw new AppError(409, 'IN_USE', `Cannot delete: ${cycleCount} cleaning cycle(s) have audit history pinned to this checklist's versions`);
     }
+    // The cascade below destroys every ChecklistProfileVersion row, so the audit
+    // entry is the ONLY surviving trace of this profile — capture the identifying
+    // state (and how much version history went with it) before the delete.
+    const versionCount = await prisma.checklistProfileVersion.count({ where: { profileId: id } });
+
     // ChecklistProfileVersion rows cascade-delete with the profile.
     await prisma.checklistProfile.delete({ where: { id } });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'DELETED',
+      targetType: 'checklist_profile', targetId: id,
+      beforeValue: {
+        name: existing.name,
+        description: existing.description,
+        isActive: existing.isActive,
+        version: existing.version,
+        questionCount: existing.questions.length,
+        archivedVersionsDestroyed: versionCount,
+      },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
     return { success: true };
   }
 
   // ─── Questions ────────────────────────────────────────────
 
   async addQuestion(ctx: RequestContext, profileId: string, data: any) {
-    return prisma.$transaction(async (tx) => {
+    // `name` is the owning profile's — the audit renderer resolves {targetName}
+    // from it, and a question row has no name of its own to show an inspector.
+    let profileName = '';
+
+    const created = await prisma.$transaction(async (tx) => {
+      const profile = await tx.checklistProfile.findUnique({ where: { id: profileId } });
+      if (!profile) throw new AppError(404, 'NOT_FOUND', 'Checklist profile not found');
+      profileName = profile.name;
       await snapshotAndBump(tx, profileId, `question added: ${data.question}`, ctx);
       const maxOrder = await tx.checklistQuestion.aggregate({ where: { profileId }, _max: { sortOrder: true } });
       return tx.checklistQuestion.create({
@@ -236,12 +288,39 @@ export class ChecklistProfileService {
         },
       });
     });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_QUESTION_ADDED',
+      targetType: 'checklist_profile', targetId: profileId,
+      afterValue: {
+        name: profileName,
+        questionId: created.id,
+        question: created.question,
+        questionType: created.questionType,
+        required: created.required,
+        section: created.section,
+        sortOrder: created.sortOrder,
+      },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return created;
   }
 
   async updateQuestion(ctx: RequestContext, profileId: string, questionId: string, data: any) {
-    return prisma.$transaction(async (tx) => {
+    let profileName = '';
+    let before: Record<string, unknown> | undefined;
+
+    const updated = await prisma.$transaction(async (tx) => {
       const q = await tx.checklistQuestion.findFirst({ where: { id: questionId, profileId } });
       if (!q) throw new AppError(404, 'NOT_FOUND', 'Question not found');
+      const profile = await tx.checklistProfile.findUnique({ where: { id: profileId } });
+      if (!profile) throw new AppError(404, 'NOT_FOUND', 'Checklist profile not found');
+      profileName = profile.name;
+      before = {
+        question: q.question, questionType: q.questionType, required: q.required,
+        section: q.section, sortOrder: q.sortOrder,
+      };
       await snapshotAndBump(tx, profileId, `question updated: ${data.question ?? q.question}`, ctx);
       return tx.checklistQuestion.update({
         where: { id: questionId },
@@ -257,27 +336,82 @@ export class ChecklistProfileService {
         },
       });
     });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_QUESTION_UPDATED',
+      targetType: 'checklist_profile', targetId: profileId,
+      beforeValue: { name: profileName, questionId, ...before },
+      afterValue: {
+        name: profileName,
+        questionId,
+        question: updated.question,
+        questionType: updated.questionType,
+        required: updated.required,
+        section: updated.section,
+        sortOrder: updated.sortOrder,
+      },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return updated;
   }
 
   async deleteQuestion(ctx: RequestContext, profileId: string, questionId: string) {
-    return prisma.$transaction(async (tx) => {
+    let profileName = '';
+    let deleted: Record<string, unknown> | undefined;
+
+    const result = await prisma.$transaction(async (tx) => {
       const q = await tx.checklistQuestion.findFirst({ where: { id: questionId, profileId } });
       if (!q) throw new AppError(404, 'NOT_FOUND', 'Question not found');
+      const profile = await tx.checklistProfile.findUnique({ where: { id: profileId } });
+      if (!profile) throw new AppError(404, 'NOT_FOUND', 'Checklist profile not found');
+      profileName = profile.name;
+      deleted = {
+        question: q.question, questionType: q.questionType, required: q.required,
+        section: q.section, sortOrder: q.sortOrder,
+      };
       await snapshotAndBump(tx, profileId, `question deleted: ${q.question}`, ctx);
       await tx.checklistQuestion.delete({ where: { id: questionId } });
       return { success: true };
     });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_QUESTION_DELETED',
+      targetType: 'checklist_profile', targetId: profileId,
+      beforeValue: { name: profileName, questionId, ...deleted },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return result;
   }
 
   async reorderQuestions(ctx: RequestContext, profileId: string, questionIds: string[]) {
-    return prisma.$transaction(async (tx) => {
+    let profileName = '';
+    let previousOrder: string[] = [];
+
+    const result = await prisma.$transaction(async (tx) => {
       const profile = await tx.checklistProfile.findUnique({ where: { id: profileId } });
       if (!profile) throw new AppError(404, 'NOT_FOUND', 'Checklist profile not found');
+      profileName = profile.name;
+      const current = await tx.checklistQuestion.findMany({
+        where: { profileId }, orderBy: { sortOrder: 'asc' }, select: { id: true },
+      });
+      previousOrder = current.map((q) => q.id);
       await snapshotAndBump(tx, profileId, 'questions reordered', ctx);
       await Promise.all(questionIds.map((qId, i) =>
         tx.checklistQuestion.update({ where: { id: qId }, data: { sortOrder: i } })
       ));
       return { success: true };
     });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_QUESTIONS_REORDERED',
+      targetType: 'checklist_profile', targetId: profileId,
+      beforeValue: { name: profileName, questionOrder: previousOrder },
+      afterValue: { name: profileName, questionOrder: questionIds },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    });
+
+    return result;
   }
 }

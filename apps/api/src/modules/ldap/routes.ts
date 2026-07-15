@@ -1,7 +1,22 @@
 import { type FastifyInstance } from 'fastify';
 import { ldapService } from './ldap.service.js';
 import { auditLog } from '../../lib/audit.js';
+import { maskSecrets } from '../../lib/mask-secrets.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+
+// Audit allowlist — see lib/mask-secrets.ts. This was `{ ...body,
+// bindPassword: '********' }`: a denylist that happens to be complete only
+// because bindPassword is currently the shape's single secret. The PUT body is
+// `additionalProperties: true`, so it would leak any secret field added later.
+// `roleMappings` is safe and worth keeping legible — it is the privilege-
+// granting part of this config, so an inspector needs to see what changed.
+const LDAP_AUDIT_SAFE_KEYS = [
+  'enabled', 'serverUrl', 'bindDN', 'searchBase', 'searchFilter',
+  'usernameAttribute', 'emailAttribute', 'fullNameAttribute',
+  'departmentAttribute', 'groupAttribute', 'tlsRejectUnauthorized',
+  'connectionTimeout', 'roleMappings', 'ldapGroup', 'role',
+  'defaultRole', 'defaultOrganizationId', 'syncAttributes',
+];
 
 export default async function ldapRoutes(app: FastifyInstance) {
   // GET /api/ldap/config
@@ -37,7 +52,7 @@ export default async function ldapRoutes(app: FastifyInstance) {
       action: 'LDAP_CONFIG_UPDATED',
       targetType: 'system_config',
       targetId: 'ldap',
-      afterValue: { ...body, bindPassword: '********' },
+      afterValue: maskSecrets(body, LDAP_AUDIT_SAFE_KEYS),
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
       sessionId: req.user.sessionId,

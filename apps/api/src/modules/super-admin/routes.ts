@@ -113,8 +113,9 @@ export default async function superAdminRoutes(app: FastifyInstance) {
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // FILTER DATA MANAGEMENT â€” SUPER_ADMIN ONLY, NO AUDIT TRAIL
-  // Allows silent editing/deletion of retirement and replacement
-  // records. These operations leave no trace in the application.
+  // Allows silent editing of retirement and replacement records, and
+  // restoring a retired filter. These operations leave no trace in the
+  // application — but they never destroy audit_trail rows.
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   // â”€â”€â”€ Edit a retired filter's fields â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -159,27 +160,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return updated;
   });
 
-  // â”€â”€â”€ Delete a retirement record (hard delete) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  app.delete('/filter-data/retirements/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN'), requireDataEditReauth],
-    schema: {
-      tags: ['Super Admin'],
-      summary: 'Delete retired filter record permanently (no audit trail)',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
-    },
-  }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const filter = await prisma.assetInstance.findFirst({ where: { id, status: 'Retired' } });
-    if (!filter) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Retired filter not found' });
-
-    // Also delete any related audit trail entries for this filter
-    await prisma.auditTrail.deleteMany({
-      where: { targetId: id, action: { in: ['FILTER_RETIRED', 'FILTER_REPLACED'] } },
-    });
-
-    await prisma.assetInstance.delete({ where: { id } });
-    return { success: true };
-  });
+  // DELETE /filter-data/retirements/:id and DELETE /filter-data/replacements/:id
+  // were removed 2026-07-15. Both destroyed audit_trail rows (FILTER_RETIRED /
+  // FILTER_REPLACED), which the audit_trail_no_delete trigger rejects — they
+  // could never succeed and only ever raised a 500. Audit rows are immutable
+  // per 21 CFR Â§11.10(e); the REDACT path (audit/routes.ts) is the supported
+  // way to neutralise a row while preserving the hash chain.
 
   // â”€â”€â”€ Unretire a filter (restore to Active) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.post('/filter-data/retirements/:id/unretire', {
@@ -201,26 +187,32 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const filter = await prisma.assetInstance.findFirst({ where: { id, status: 'Retired' } });
     if (!filter) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Retired filter not found' });
 
-    // Use provided parentId, or restore from saved pre-retirement parent,
-    // or look up from replacement record (new filter's parent)
+    // Everything below reads/resolves BEFORE the transaction opens, so a bad
+    // input can't leave half the destruction applied.
     const customAttrs = (filter.customAttributes as any) ?? {};
     let restoreParentId = body.parentId || customAttrs._preRetireParentId || null;
 
-    // Fallback: find parent from replacement record (new filter inherits the parent)
-    if (!restoreParentId) {
-      const replacementAudits = await prisma.auditTrail.findMany({
-        where: { action: 'FILTER_REPLACED', targetId: id },
-        select: { afterValue: true },
-        orderBy: { timestamp: 'desc' },
-        take: 1,
+    // The FILTER_RETIRED / FILTER_REPLACED audit rows are left intact — they are
+    // the Â§11 record of what happened, and audit_trail is delete-protected.
+    const replacementAudit = await prisma.auditTrail.findFirst({
+      where: { action: 'FILTER_REPLACED', targetId: id },
+      select: { afterValue: true },
+      orderBy: { timestamp: 'desc' },
+    });
+    const replacedById = ((replacementAudit?.afterValue as any) ?? {}).newFilterId ?? null;
+
+    // Resolve the replacement filter once: it supplies the parent fallback (the
+    // new filter inherited it) and tells us whether there's anything to clean up
+    // â€” it may already be gone from an earlier unretire.
+    let replacementFilterId: string | null = null;
+    if (replacedById) {
+      const newFilter = await prisma.assetInstance.findUnique({
+        where: { id: replacedById },
+        select: { id: true, parentId: true },
       });
-      const val = (replacementAudits[0]?.afterValue as any) ?? {};
-      if (val.newFilterId) {
-        const newFilter = await prisma.assetInstance.findUnique({
-          where: { id: val.newFilterId },
-          select: { parentId: true },
-        });
-        if (newFilter?.parentId) restoreParentId = newFilter.parentId;
+      if (newFilter) {
+        replacementFilterId = newFilter.id;
+        if (!restoreParentId && newFilter.parentId) restoreParentId = newFilter.parentId;
       }
     }
 
@@ -228,63 +220,46 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const cleanedCustom = { ...customAttrs };
     delete cleanedCustom._preRetireParentId;
 
-    await prisma.assetInstance.update({
-      where: { id },
-      data: {
-        status: 'Active',
-        isActive: true,
-        parentId: restoreParentId,
-        customAttributes: cleanedCustom,
-      },
-    });
-    // currentLifecycleState moved to FilterDetails (Step 6).
-    await prisma.filterDetails.upsert({
-      where: { assetInstanceId: id },
-      update: { currentLifecycleState: null },
-      create: { assetInstanceId: id, currentLifecycleState: null },
-    });
-
-    // Restore parent relationship
-    if (restoreParentId) {
-      await prisma.assetRelationship.createMany({
-        data: [
-          { sourceAssetId: restoreParentId, targetAssetId: id, relationshipType: 'CONTAINS' },
-          { sourceAssetId: id, targetAssetId: restoreParentId, relationshipType: 'CONTAINED_IN' },
-        ],
-        skipDuplicates: true,
+    await prisma.$transaction(async (tx) => {
+      await tx.assetInstance.update({
+        where: { id },
+        data: {
+          status: 'Active',
+          isActive: true,
+          parentId: restoreParentId,
+          customAttributes: cleanedCustom,
+        },
       });
-    }
+      // currentLifecycleState moved to FilterDetails (Step 6).
+      await tx.filterDetails.upsert({
+        where: { assetInstanceId: id },
+        update: { currentLifecycleState: null },
+        create: { assetInstanceId: id, currentLifecycleState: null },
+      });
 
-    // If this filter was replaced, delete the replacement filter and all its traces
-    const replacementAudit = await prisma.auditTrail.findFirst({
-      where: { action: 'FILTER_REPLACED', targetId: id },
-      select: { id: true, afterValue: true },
-    });
-    if (replacementAudit) {
-      const rv = (replacementAudit.afterValue as any) ?? {};
-      const newFilterId = rv.newFilterId;
-      if (newFilterId) {
-        // Delete the replacement filter's relationships
-        await prisma.assetRelationship.deleteMany({
-          where: { OR: [{ sourceAssetId: newFilterId }, { targetAssetId: newFilterId }] },
+      // Restore parent relationship
+      if (restoreParentId) {
+        await tx.assetRelationship.createMany({
+          data: [
+            { sourceAssetId: restoreParentId, targetAssetId: id, relationshipType: 'CONTAINS' },
+            { sourceAssetId: id, targetAssetId: restoreParentId, relationshipType: 'CONTAINED_IN' },
+          ],
+          skipDuplicates: true,
         });
-        // Delete the replacement filter's identifiers
-        await prisma.assetIdentifier.deleteMany({ where: { assetId: newFilterId } });
-        // Terminate and delete any cleaning cycles on the replacement filter
-        await prisma.filterEvent.deleteMany({ where: { filterId: newFilterId } });
-        await prisma.cleaningCycle.deleteMany({ where: { filterId: newFilterId } });
-        // Clear currentCycleId if set (FilterDetails â€” Step 6).
-        await prisma.filterDetails.updateMany({ where: { assetInstanceId: newFilterId }, data: { currentCycleId: null } });
-        // Delete the replacement filter itself
-        await prisma.assetInstance.delete({ where: { id: newFilterId } }).catch(() => null);
       }
-      // Delete the replacement audit record
-      await prisma.auditTrail.delete({ where: { id: replacementAudit.id } }).catch(() => null);
-    }
 
-    // Remove the retirement audit trail entry silently
-    await prisma.auditTrail.deleteMany({
-      where: { targetId: id, action: 'FILTER_RETIRED' },
+      // If this filter was replaced, delete the replacement filter and all its traces
+      if (replacementFilterId) {
+        await tx.assetRelationship.deleteMany({
+          where: { OR: [{ sourceAssetId: replacementFilterId }, { targetAssetId: replacementFilterId }] },
+        });
+        await tx.assetIdentifier.deleteMany({ where: { assetId: replacementFilterId } });
+        await tx.filterEvent.deleteMany({ where: { filterId: replacementFilterId } });
+        await tx.cleaningCycle.deleteMany({ where: { filterId: replacementFilterId } });
+        // Clear currentCycleId if set (FilterDetails â€” Step 6).
+        await tx.filterDetails.updateMany({ where: { assetInstanceId: replacementFilterId }, data: { currentCycleId: null } });
+        await tx.assetInstance.delete({ where: { id: replacementFilterId } });
+      }
     });
 
     return { success: true };
@@ -325,23 +300,6 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (afterChanged) data.afterValue = afterVal;
 
     await prisma.auditTrail.update({ where: { id }, data });
-    return { success: true };
-  });
-
-  // â”€â”€â”€ Delete a replacement record â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  app.delete('/filter-data/replacements/:id', {
-    preHandler: [app.requireRole('SUPER_ADMIN'), requireDataEditReauth],
-    schema: {
-      tags: ['Super Admin'],
-      summary: 'Delete replacement record permanently (no audit trail)',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
-    },
-  }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const record = await prisma.auditTrail.findFirst({ where: { id, action: 'FILTER_REPLACED' } });
-    if (!record) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Replacement record not found' });
-
-    await prisma.auditTrail.delete({ where: { id } });
     return { success: true };
   });
 
