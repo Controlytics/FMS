@@ -21,6 +21,7 @@ import {
   fetchAllTablesRaw,
   resyncSequencesAfterRestore,
   getAllTables,
+  restoreFromBackup,
 } from '../backup.repository.js';
 
 beforeEach(() => {
@@ -28,6 +29,59 @@ beforeEach(() => {
 });
 
 describe('backup.repository', () => {
+  /**
+   * Restore TRUNCATEs every table but repopulates only those the backup carries,
+   * so an omitted table is destroyed and never comes back. Nothing caught this:
+   * the chain check is skipped entirely when audit_trail is absent (its
+   * `length > 0` guard is false), so a JSON without an audit_trail key silently
+   * annihilated all 21 CFR history and returned 200.
+   */
+  describe('restoreFromBackup — omitted-table guard', () => {
+    // getAllTables() does two introspection queries: pg_tables, then FKs.
+    const stubSchema = (tables: string[]) => {
+      mockPrisma.$queryRawUnsafe
+        .mockResolvedValueOnce(tables.map((t) => ({ tablename: t })))
+        .mockResolvedValueOnce([]) // no FKs
+        .mockResolvedValueOnce([]); // self-ref columns
+    };
+
+    it('refuses a backup that omits audit_trail, naming the §11 consequence', async () => {
+      stubSchema(['users', 'audit_trail']);
+      await expect(
+        restoreFromBackup({ data: { users: [] } } as any),
+      ).rejects.toMatchObject({ code: 'BACKUP_INCOMPLETE' });
+      // Nothing may be truncated when we refuse.
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('names every omitted table so the operator can tell what would be lost', async () => {
+      stubSchema(['users', 'audit_trail', 'filters']);
+      await expect(restoreFromBackup({ data: { users: [] } } as any))
+        .rejects.toThrow(/audit_trail.*filters|filters.*audit_trail/s);
+    });
+
+    it('force=true is the explicit escape hatch and proceeds', async () => {
+      stubSchema(['users', 'audit_trail']);
+      mockPrisma.$transaction.mockResolvedValueOnce(undefined);
+      await restoreFromBackup({ data: { users: [] } } as any, { force: true });
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('a complete backup restores without the guard firing', async () => {
+      stubSchema(['users', 'audit_trail']);
+      mockPrisma.$transaction.mockResolvedValueOnce(undefined);
+      await restoreFromBackup({ data: { users: [], audit_trail: [] } } as any);
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('ignores _prisma_migrations — excluded, never restored, must not trip the guard', async () => {
+      stubSchema(['users', '_prisma_migrations']);
+      mockPrisma.$transaction.mockResolvedValueOnce(undefined);
+      await restoreFromBackup({ data: { users: [] } } as any);
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+  });
+
   describe('getAllTables', () => {
     it('lists public tables in topological FK order, excluding the excluded set', async () => {
       // pg_tables → 3 tables; FK introspection → users -> roles

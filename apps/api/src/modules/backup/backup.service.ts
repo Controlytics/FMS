@@ -1,6 +1,20 @@
 import { gzipSync, gunzipSync } from 'node:zlib';
 import AdmZip from 'adm-zip';
 
+/**
+ * Decompression ceiling for uploaded backups (2 GB).
+ *
+ * The upload limit (100 MB, backup/routes.ts) bounds the COMPRESSED bytes only.
+ * gzip hits ~1000:1 on repetitive input, so without a ceiling a max-size upload
+ * can demand ~100 GB of heap and OOM a single-process API that the whole tablet
+ * fleet depends on.
+ *
+ * 2 GB is chosen to sit above any plausible real backup — the live dev DB dumps
+ * to ~29 MB — while staying under Node's ~2 GB max string length, which
+ * `.toString('utf-8')` would hit anyway.
+ */
+const MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
+
 import { auditLog } from '../../lib/audit.js';
 import type { RequestContext } from '../../types/context.js';
 import {
@@ -261,6 +275,18 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
   const zip = new AdmZip(rawBuffer);
   const entries = zip.getEntries();
 
+  // AdmZip decompresses entries fully into memory, so a zip bomb inside the
+  // 100 MB upload cap can exhaust the heap before any of our parsing runs. The
+  // central directory declares each entry's uncompressed size up front, so the
+  // total can be rejected without decompressing anything.
+  const declaredTotal = entries.reduce((sum, e) => sum + (e.header?.size ?? 0), 0);
+  if (declaredTotal > MAX_DECOMPRESSED_BYTES) {
+    throw Object.assign(
+      new Error(`Backup expands to ${Math.round(declaredTotal / 1e6)} MB, beyond the ${Math.round(MAX_DECOMPRESSED_BYTES / 1e6)} MB decompression limit.`),
+      { code: 'INVALID_ZIP' },
+    );
+  }
+
   // Read metadata
   const metaEntry = entries.find(e => e.entryName === '_metadata.json');
   let generatedBy = 'unknown';
@@ -311,9 +337,14 @@ function parseBackupFile(rawBuffer: Buffer): BackupData {
   let content: string;
   if (rawBuffer[0] === 0x1f && rawBuffer[1] === 0x8b) {
     try {
-      content = gunzipSync(rawBuffer).toString('utf-8');
+      // maxOutputLength is the only thing between a 100 MB upload and an OOM:
+      // gzip reaches ~1000:1 on repetitive input, so an unbounded gunzipSync of
+      // a max-size upload can demand ~100 GB of heap. This is a single-process
+      // API serving the tablet fleet — killing it takes the cleanroom floor with
+      // it. zlib throws past the cap, which the catch turns into INVALID_BAK.
+      content = gunzipSync(rawBuffer, { maxOutputLength: MAX_DECOMPRESSED_BYTES }).toString('utf-8');
     } catch {
-      throw Object.assign(new Error('Failed to decompress .bak file. File may be corrupted.'), {
+      throw Object.assign(new Error('Failed to decompress .bak file. File may be corrupted or expands beyond the decompression limit.'), {
         code: 'INVALID_BAK',
       });
     }

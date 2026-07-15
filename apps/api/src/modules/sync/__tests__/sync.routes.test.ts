@@ -23,11 +23,15 @@ interface RouteCall {
 
 function makeRecorder() {
   const calls: RouteCall[] = [];
+  // Records the perms each gate was built with, so a test can assert the gate
+  // rather than just its presence.
+  const gates: string[][] = [];
   const app: any = {
+    requireAnyPermission: (...perms: string[]) => { gates.push(perms); return `gate:${perms.join('|')}`; },
     get: (url: string, options: any) => calls.push({ method: 'get', url, options }),
     post: (url: string, options: any) => calls.push({ method: 'post', url, options }),
   };
-  return { app, calls };
+  return { app, calls, gates };
 }
 
 describe('sync routes — registration', () => {
@@ -53,14 +57,24 @@ describe('sync routes — registration', () => {
     ]));
   });
 
-  it('2. has no preHandler — auth comes from the global onRequest hook', async () => {
-    const { app, calls } = makeRecorder();
+  /**
+   * This test previously asserted `preHandler` was UNDEFINED, reasoning that
+   * "auth comes from the global onRequest hook" — which conflated
+   * authentication with authorization and locked the gap in. The hook proves
+   * WHO you are; it never checked whether you may read the whole plant model.
+   * A zero-permission account could hydrate every filter, template, checklist
+   * profile, pipeline and equipment group.
+   */
+  it('2. is gated on ASSET_VIEW or FILTER_OPERATE — authentication is not authorization', async () => {
+    const { app, calls, gates } = makeRecorder();
     await syncRoutes(app);
     const [c] = calls;
-    // No requirePermission / requireAnyPermission preHandler. Global auth
-    // hook in plugins/auth.ts already enforces the bearer-token check on
-    // every non-public path.
-    expect(c.options.preHandler).toBeUndefined();
+    expect(c.options.preHandler).toBeDefined();
+    // Mirrors the endpoints this route duplicates: hierarchy reads (ASSET_VIEW)
+    // and checklist-profile reads (which accept FILTER_OPERATE so operating
+    // roles can sync — see the 2026-07-10 tablet fix). All 8 active roles hold
+    // ASSET_VIEW, so nothing that syncs today is locked out.
+    expect(gates).toEqual([['ASSET_VIEW', 'FILTER_OPERATE']]);
   });
 
   it('3. querystring schema accepts all 6 cursor params', async () => {

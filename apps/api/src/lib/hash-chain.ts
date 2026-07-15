@@ -264,14 +264,26 @@ export function verifyAuditChecksum(record: {
   checksumVersion?: number | null;
 }): boolean {
   // Audit 2026-05-20 §C1 fix: redacted rows preserve the original checksum +
-  // chain link, but beforeValue + afterValue are NULLed. Recomputing would
-  // now fail because the payload no longer matches the original. Treat
-  // redactedAt != null as "valid (redacted)" — the chain walker still
-  // verifies the previous_checksum linkage, so an UN-authorized payload
-  // mutation on a redacted row would still surface via chain mismatch on
-  // the NEXT row (its previous_checksum points at this row's stored
-  // checksum, which is the pre-redaction value).
-  if (record.redactedAt != null) return true;
+  // chain link, but beforeValue + afterValue are NULLed. Recomputing would now
+  // fail because the payload no longer matches the original, so a redacted row
+  // can't be checksum-verified the normal way.
+  //
+  // 2026-07-15: this used to `return true` unconditionally, and the reasoning
+  // for that was WRONG. It claimed a payload mutation "would still surface via
+  // chain mismatch on the NEXT row (its previous_checksum points at this row's
+  // stored checksum)" — but the next row's link points at this row's STORED
+  // checksum, which an attacker simply doesn't touch. Rewrite before_value /
+  // after_value, leave the checksum alone, and every link still matches: the
+  // row verifies, the chain verifies, and the API serves the forgery. That is
+  // precisely the DB-level actor this file names as its threat model below, and
+  // it fires ahead of the V3 HMAC path too, so even a keyed chain didn't help.
+  //
+  // We can't re-derive the original payload, but we CAN assert the one thing
+  // redaction guarantees: both payloads are NULL. A redacted row whose payload
+  // came back is tampered with, whatever its checksum says.
+  if (record.redactedAt != null) {
+    return record.beforeValue == null && record.afterValue == null;
+  }
   const ts = record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp;
 
   // EXPANDED field set (audit finding, 2026-07-04): the per-row checksum now

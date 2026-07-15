@@ -595,7 +595,19 @@ export default async function auditRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const { reason } = req.body as { reason: string };
 
-    const record = await prisma.auditTrail.findUnique({ where: { id } });
+    // Scope the lookup exactly like the list/detail reads: a non-SUPER_ADMIN must
+    // not be able to destroy accountability records it isn't even allowed to SEE.
+    // Unscoped, an ADMIN granted `audit.delete` could permanently erase
+    // SUPER_ADMIN audit rows — and the meta-audit row written first would echo
+    // the hidden row's contents straight back to them in beforeValue.
+    const record = await prisma.auditTrail.findFirst({
+      where: {
+        id,
+        ...(req.user.role === 'SUPER_ADMIN'
+          ? {}
+          : { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }),
+      },
+    });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
 
     await prisma.$transaction(async (tx) => {
@@ -651,7 +663,16 @@ export default async function auditRoutes(app: FastifyInstance) {
     if (!ok) return;
     const { ids, reason } = req.body as { ids: string[]; reason: string };
 
-    const records = await prisma.auditTrail.findMany({ where: { id: { in: ids } } });
+    // Same role scoping as the single delete above — ids the caller may not read
+    // simply don't match, so they are neither deleted nor echoed back.
+    const records = await prisma.auditTrail.findMany({
+      where: {
+        id: { in: ids },
+        ...(req.user.role === 'SUPER_ADMIN'
+          ? {}
+          : { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }),
+      },
+    });
     if (records.length === 0) return reply.code(404).send({ error: 'NO_MATCHING_RECORDS', message: 'No matching audit records' });
     const matchedIds = records.map((r) => r.id);
 

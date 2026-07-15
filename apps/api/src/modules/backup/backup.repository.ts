@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { AppError } from '../../lib/errors.js';
 import type { BackupData } from './backup.helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -357,6 +358,31 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
 
   // Only restore tables that exist in both the backup and the current DB
   const restoreTables = dbTables.filter(t => Array.isArray(data[t]));
+
+  // The TRUNCATE below wipes EVERY table, but only `restoreTables` are
+  // repopulated — so a table the backup omits is destroyed and never comes
+  // back. Nothing caught this: the chain check above is skipped entirely when
+  // `audit_trail` is absent (its `length > 0` guard is false), so a hand-built
+  // or cross-version JSON without an `audit_trail` key silently annihilated all
+  // 21 CFR history and returned 200. `/validate` reported valid because it only
+  // parses what IS present.
+  //
+  // Refuse rather than guess. `force` is the operator's explicit escape hatch —
+  // deliberately narrow, since the whole point is that a routine restore can't
+  // quietly destroy records nobody asked it to touch.
+  const omitted = dbTables.filter(t => !restoreTables.includes(t) && !EXCLUDED_TABLES.has(t));
+  if (omitted.length > 0 && !opts.force) {
+    const auditNote = omitted.includes('audit_trail')
+      ? ' This includes audit_trail — restoring would destroy the entire 21 CFR history.'
+      : '';
+    throw new AppError(
+      400,
+      'BACKUP_INCOMPLETE',
+      `Backup omits ${omitted.length} table(s) that exist in this database: ${omitted.join(', ')}. `
+      + `Restore truncates every table, so these would be permanently emptied.${auditNote} `
+      + `Re-export a full backup, or pass force=true to accept the data loss.`,
+    );
+  }
 
   await prisma.$transaction(async (tx: any) => {
     // Disable EVERY user trigger on the tables we're about to rewrite, not just

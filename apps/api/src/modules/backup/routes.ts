@@ -117,6 +117,21 @@ export default async function backupRoutes(app: FastifyInstance) {
       }
       const rawBuffer = Buffer.concat(chunks);
 
+      // A file over the 100 MB limit is TRUNCATED, not rejected — the stream
+      // just ends early and `truncated` is set once it does. Unchecked, that is
+      // silent destruction: parseSqlBackup deliberately `break`s at a malformed
+      // tail and returns a valid-looking partial BackupData, whose audit_trail
+      // prefix is chain-consistent and so passes verifyBackupAuditChain. Restore
+      // then truncates every table and reinserts only the pre-cut rows — HTTP
+      // 200, most of the database gone. Mirrors the bulk-upload guard added
+      // 2026-07-04 (assets/routes/instance.routes.ts).
+      if ((file.file as any).truncated) {
+        return reply.code(413).send({
+          error: 'FILE_TOO_LARGE',
+          message: 'Backup file exceeds the 100 MB upload limit and was truncated. Restoring it would silently discard every row past the cut.',
+        });
+      }
+
       const ctx = buildContext(req);
       // Audit 2026-05-04 fix #7: optional `force` field on the multipart
       // form bypasses the audit-chain integrity check. Audited as
@@ -148,7 +163,13 @@ export default async function backupRoutes(app: FastifyInstance) {
 
   // POST /api/backup/validate — Validate a backup file without restoring
   app.post('/validate', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    // Validate is a read-only dry-run over an uploaded backup, so it belongs to
+    // the BACKUP_* family like its siblings above — not CONFIG_UPDATE, which the
+    // 2026-05-14 pass left behind. That mismatch broke in both directions: a
+    // CONFIG_UPDATE holder with no backup rights could parse an uploaded backup,
+    // and a BACKUP_RESTORE holder without CONFIG_UPDATE got a 403 on the
+    // validate step the restore page calls before restoring.
+    preHandler: [app.requireAnyPermission('BACKUP_EXPORT', 'BACKUP_RESTORE')],
     schema: {
       tags: ['Backup'],
       summary: 'Validate backup file',
@@ -181,6 +202,16 @@ export default async function backupRoutes(app: FastifyInstance) {
       chunks.push(chunk);
     }
     const rawBuffer = Buffer.concat(chunks);
+
+    // See the restore handler above. Validating a truncated file is worse than
+    // useless: it reports the surviving prefix as a valid backup, which is
+    // exactly the reassurance an operator relies on before restoring it.
+    if ((file.file as any).truncated) {
+      return reply.code(413).send({
+        error: 'FILE_TOO_LARGE',
+        message: 'Backup file exceeds the 100 MB upload limit and was truncated; it cannot be validated.',
+      });
+    }
 
     try {
       const result = await backupService.validate(rawBuffer);

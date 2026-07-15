@@ -447,16 +447,47 @@ describe('verifyAuditChecksum — chained rows (non-genesis)', () => {
   });
 });
 
+/**
+ * This block used to assert `always returns true for redacted rows`, justified
+ * by "the chain walker detects mutations via the next row's previousChecksum".
+ * That is false, and the test locked the hole in: the next row's link points at
+ * this row's STORED checksum, which an attacker never touches. Rewriting
+ * before/after_value on a redacted row left every link intact — row valid, chain
+ * valid, forgery served. A redacted row's payload is guaranteed NULL (the redact
+ * handler sets `before_value = NULL, after_value = NULL`), so that is what we
+ * assert instead.
+ */
 describe('verifyAuditChecksum — redacted rows', () => {
-  it('always returns true for redacted rows', () => {
-    // Redacted rows have afterValue NULLed; we cannot recompute.
-    // The chain walker detects mutations via the next row's previousChecksum.
-    expect(verifyAuditChecksum({
-      timestamp: '2025-01-01T00:00:00.000Z',
-      action: 'SOME_ACTION',
-      checksum: 'does-not-matter',
-      redactedAt: new Date(),
-    })).toBe(true);
+  const redacted = (extra: Record<string, unknown> = {}) => ({
+    timestamp: '2025-01-01T00:00:00.000Z',
+    action: 'SOME_ACTION',
+    checksum: 'cannot-be-recomputed-after-redaction',
+    redactedAt: new Date(),
+    ...extra,
+  });
+
+  it('accepts a properly redacted row (both payloads NULL)', () => {
+    expect(verifyAuditChecksum(redacted({ beforeValue: null, afterValue: null }))).toBe(true);
+  });
+
+  it('accepts a redacted row whose payloads are absent rather than null', () => {
+    expect(verifyAuditChecksum(redacted())).toBe(true);
+  });
+
+  // ── the tamper case the old test allowed through ──
+  it('REJECTS a redacted row whose afterValue was re-populated', () => {
+    expect(verifyAuditChecksum(redacted({ beforeValue: null, afterValue: { forged: true } }))).toBe(false);
+  });
+
+  it('REJECTS a redacted row whose beforeValue was re-populated', () => {
+    expect(verifyAuditChecksum(redacted({ beforeValue: { forged: true }, afterValue: null }))).toBe(false);
+  });
+
+  it('REJECTS re-population even when the stored checksum is left untouched', () => {
+    // The whole point: the attacker leaves checksum + previous_checksum alone,
+    // so every chain link still matches. Only this check catches it.
+    const row = redacted({ beforeValue: { role: 'OPERATOR' }, afterValue: { role: 'SUPER_ADMIN' }, previousChecksum: 'abc123' });
+    expect(verifyAuditChecksum(row)).toBe(false);
   });
 });
 
