@@ -1,5 +1,135 @@
 # Changelog
 
+## [Unreleased] — Enterprise-audit Medium findings: 54 confirmed, 54 fixed (2026-07-15)
+
+62 high-signal Mediums (security / compliance / data-integrity / concurrency; the
+generic "correctness" and "performance" ones were skipped) verified
+refute-by-default by two independent agents: **54 CONFIRMED, 2 ALREADY_FIXED, 3
+REFUTED-BY-DESIGN**. All four clusters are fixed across `812ffc5`, `b973605`,
+`bc30219`, `b122436`, `3d8e0ea`, `4240d7e`. Evidence per finding:
+`tasks/ENTERPRISE-AUDIT-HIGHS-TRIAGE-2026-07-15.md`.
+
+**The most valuable result isn't a defect — it's a pattern.** Both agents
+independently found that the 07-13..07-15 fixes landed on the *symptom* and left
+the *sibling surfaces*: backup **restore** was fixed while its CSV parser,
+truncation check, truncate-coverage and export snapshot stayed broken;
+audit-payload masking landed while `GET /sms` still returned the same secrets
+unmasked; `assertCanManageTarget` covered mutations while `getById` stayed open;
+the targetId-overflow fix landed while the delete lookups stayed unscoped.
+
+### Data destruction / exposure (`812ffc5`, `b973605`)
+
+- **`GET /api/sync/since` had NO authorization gate.** The global hook
+  authenticates the token, but authentication is not authorization — any
+  logged-in account, *including one with zero permissions*, could hydrate the
+  entire plant model (every filter with its full attributes JSON, plus templates,
+  checklist profiles, pipelines, equipment groups). The header claimed the data
+  was "filtered by what the user's templates make visible"; it never was. Gated on
+  ASSET_VIEW OR FILTER_OPERATE, mirroring the endpoints it duplicates — verified
+  against the live DB that all 8 active roles hold ASSET_VIEW, so nothing that
+  syncs loses access. **Offline-sync is a protected surface: needs tablet
+  verification.**
+- **Restore truncated every table but repopulated only those the backup carried.**
+  A hand-built or cross-version JSON omitting `audit_trail` destroyed all 16,958
+  rows and returned 200 — the chain check never ran, because its `length > 0`
+  guard is false when the key is absent, and `/validate` reported valid because it
+  only parses what IS present. Now refuses with `BACKUP_INCOMPLETE`; `force=true`
+  remains the explicit escape hatch.
+- **Truncated uploads restored a partial database, silently.** Past the 100 MB
+  limit multipart truncates rather than rejects; `parseSqlBackup` then `break`s at
+  the malformed tail and returns a valid-looking partial whose audit prefix is
+  chain-consistent, so verification passed. Both handlers now 413 on
+  `file.truncated`.
+- **Decompression bombs** — the 100 MB cap bounds compressed bytes only, and gzip
+  reaches ~1000:1. Added a 2 GB `maxOutputLength` plus a declared-size check on the
+  ZIP path (the central directory gives uncompressed sizes without decompressing).
+- **`/backup/validate` was gated on CONFIG_UPDATE**, not BACKUP_* — broken in both
+  directions.
+- **AUDIT_DELETE holders could destroy SUPER_ADMIN rows they cannot READ** — the
+  reads filter them, both delete lookups didn't, and the meta-audit row echoed the
+  hidden row's contents back in `beforeValue`.
+- **The redaction short-circuit holed the tamper-evidence the design rests on.**
+  `verifyAuditChecksum` returned TRUE for any redacted row, justified by "a
+  mutation would still surface via chain mismatch on the NEXT row". False: that
+  link points at this row's **stored** checksum, which an attacker never touches.
+  Rewrite the payload, leave the checksum, and row + chain both verify while the
+  API serves the forgery — the exact DB-level actor the file names as its threat
+  model, and it fired ahead of the V3 HMAC path so a keyed chain didn't help.
+- **Temp passwords came from `Math.random()`** plus a `sort(() => Math.random() -
+  0.5)` shuffle — not a CSPRNG, and a non-transitive comparator yields a biased
+  permutation. Now `crypto.getRandomValues` with rejection sampling + Fisher-Yates.
+  Measured, not assumed: P(position 0 is uppercase) was **35.0% broken vs 27.2%
+  uniform**.
+- **SMTP TLS verification was hardcoded off** — `rejectUnauthorized: false` in BOTH
+  transporters, reading no config. Same class as the LDAP TLS default fixed 07-13,
+  in a file that batch never touched. Now secure by default with an explicit
+  opt-out.
+
+### TOCTOU races (`bc30219`)
+
+Five check-then-act sites: read the row, check its state, then issue an
+**unconditional** write. The predicate now lives in the WHERE, so Postgres
+serialises the writes and the loser matches zero rows *before any side effect*.
+
+- **report-reviews** — the worst, because it's the flagship §11 e-signature
+  workflow. A report assigned to a ROLE admits every member, so racing approvers
+  was routine: A rejects, B approves, B's unconditional update overwrites it. The
+  row ended up carrying `rejectedBy`/`rejectionStage='APPROVAL'` **and**
+  `approvedBy`/`approvedAt` with status APPROVED — simultaneously rejected and
+  approved — still downloadable with full signature lines.
+- **stage-approvals** — the update was already in a transaction but keyed on `id`
+  alone, so the tx merely serialised the two decisions. A reject that *lost* the
+  race still wrote its deviation event and dragged `currentLifecycleState` back to
+  DRY_IN on a filter the winning approve had just released.
+- **admin-requests** — two admins approving one FORGOT_PASSWORD request both ran
+  `executeApproval` and issued **two** temp passwords; the first is overwritten
+  before the admin reads it out, so it fails at login. Fixed by claiming
+  atomically *then* executing, with a revert-to-PENDING on failure to preserve the
+  original retry contract.
+- **checklist-profiles delete** — the in-use guards and the delete were four
+  separate statements outside any transaction, so a cycle starting mid-check
+  pinned a version the cascade then destroyed.
+- **equipment-groups create** — count moved inside the tx. **Honest limitation,
+  stated in the code:** this narrows the race, it does not close it (READ
+  COMMITTED lets two txs both count 0). The proper fix is a partial unique index,
+  which cannot be created while block MUPS has two active groups.
+
+### Audit gaps (`b122436`, `3d8e0ea`)
+
+Nine surfaces that mutated or destroyed records and wrote **no** `audit_trail`
+row — `grep auditLog modules/notifications/` returned nothing at all. Notification
+delete/bulkDelete (physical deletes, zero trace), rule toggle, delivery-log delete,
+4 user-group mutations, LDAP auto-provision (an unknown directory user could become
+an ADMIN nobody provisioned), and the identifier cascade — which is why the RFID
+Track Record showed a dangling ASSIGN with no REMOVE after an AHU delete, and a
+re-assigned tag produced two consecutive ASSIGNs.
+
+Every *physical* delete now audits **inside** the tx that destroys the row (the
+audit row is the only surviving evidence). Registered 12 actions + 8 templates —
+5 were already being emitted but never registered, so they rendered as raw jargon
+in the inspector UI.
+
+### Mass assignment (`4240d7e`)
+
+Three PUTs doing `data: body` against schemas without `additionalProperties:
+false`, so every client key reached Prisma: `createdBy`/`createdAt` (provenance
+falsification) and, on the widget route, `dashboardId` — re-parenting a widget
+past the ownership check the handler runs on the parent. **Two audit findings
+stated the mechanism wrong** (claiming AJV lacks `removeAdditional`); it has it by
+default, but it only acts when the schema declares `additionalProperties: false`.
+Settled empirically and encoded in a test that asserts both directions.
+
+**Suites:** `apps/api` **1083 / 0 / 12** (102 files), `apps/web` 464/0, shared 332.
+Typechecks clean; `@digilog/shared` rebuilt; dist rebuilt. ~40 tests added, several
+**mutation-verified** (reverting the fix turns them red) after a first-draft
+password test was found to pass against the broken implementation. No count changes
+to models/enums/permissions/reauth actions/modules/config defs.
+
+**⚠ Two live data issues for the operator:** block **MUPS** has two active equipment
+groups ("Testing" / "Testing 2"), which breaks readings for operators in that block
+*and* blocks the unique index; and filter `CWH/F1/AHU-0B/SA/05/06-01` is still Set A
+from the earlier dialog bug. Both need a UI fix so the correction is audited.
+
 ## [Unreleased] — Enterprise-audit High findings, round 2: the last 5 (2026-07-15)
 
 Verified the 5 remaining Highs from `wf_6ea8254c-3b2` refute-by-default against HEAD.
