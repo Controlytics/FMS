@@ -215,8 +215,21 @@ additionalProperties:false). Settled empirically.
 - **Filter `CWH/F1/AHU-0B/SA/05/06-01`** still Set A; user fixes via UI.
 
 ### Known gaps recorded, not fixed
-- `AuditEntry.action` is typed `string`, so a typo in an action literal is invisible
-  to tsc. All 12 hand-checked; typing it `AuditAction` would prevent the class.
+- ~~`AuditEntry.action` is typed `string`... typing it `AuditAction` would prevent the class.~~
+  **INVESTIGATED 2026-07-15 — the suggested fix is WRONG and was NOT applied.**
+  `AUDIT_ACTIONS` (89 constants) is **not** the exhaustive registry; `AUDIT_TEMPLATES`
+  (127 entries) is the one that governs inspector-UI rendering. Trial-typing
+  `action: AuditAction` produced **65 errors** — all legitimate, template-registered
+  actions (`ADMIN_REQUEST_SUBMITTED`, `BULK_FILTER_UPLOAD`,
+  `FILTER_LIFECYCLE_STATE_CHANGED`, `AUDIT_RECORD_REDACTED`, …) that AUDIT_ACTIONS
+  simply doesn't list. Typing against it would reject working code.
+  **The check that matters — does any emitted action lack a TEMPLATE (i.e. render as
+  raw jargon)? — comes back ZERO for production code.** All 125 in-use literals have
+  templates; the 16 that don't are test fixtures (CHAIN_TEST_A, TAMPERED, SOME_ACTION…),
+  plus one false positive: `DELETE_USER` in `lib/reauth-check.ts` is a REAUTH action
+  mentioned in a comment, not an audit action.
+  Tightening against the TEMPLATE keys would be the correct form of this idea, but
+  there is no live defect behind it — it's a refactor, not a fix.
 - `/docs` unverified under `@fastify/static@9.3.0` (no test covers it; needs an API restart).
 - LDAP audit has no live-directory verification (no LDAP server available).
 - `npm audit --omit=dev`: 4 remaining (tar, uuid) — neither reachable, neither
