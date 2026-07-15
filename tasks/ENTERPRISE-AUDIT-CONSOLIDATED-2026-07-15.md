@@ -20,19 +20,27 @@ Per-finding evidence and the decision record: `ENTERPRISE-AUDIT-HIGHS-TRIAGE-202
 | **Critical** | 3 | 3 | **3** | 0 |
 | **High** | 38 | 38 | **35** | 0 (3 vetoed as authorized design) |
 | **Medium (high-signal)** | 62 | 62 | **54** | 0 (2 already fixed, 3 by-design, 3 refuted) |
-| **Medium (low-signal)** | ~91 | 16 | **13** | **75 UNVERIFIED** — a fan-out stalled; they are NOT cleared |
+| **Medium (low-signal)** | 91 | 17 | **17** | **74 UNVERIFIED** — a fan-out stalled; they are NOT cleared |
 | **Low** | 248 | 248 | **5** | 0 (1 was a false alarm; ~242 correctly Low) |
 | **Info** | 89 | 0 | — | not triaged (informational) |
 | **Dependencies** | 17 prod advisories | 17 | **13** | 4 (unreachable, no in-range fix) |
 
-Suites: **apps/api 1092 / 0 / 12** (104 files) · **apps/web 517 / 0** (40 files) · shared 332.
-~90 tests added, many mutation-verified.
+Suites: **apps/api 1159 / 0 / 12** (112 files) · **apps/web 530 / 0** (41 files) · shared 332.
+~120 tests added, many mutation-verified. (Counts as of `ba41cb5`, measured
+serially — concurrent agents sharing `digilog_test_db` make any parallel run
+unreliable; every mid-session number in this doc's history was noise.)
 
 **Everything actionable at Critical / High / high-signal-Medium is closed**, plus the
-5 Lows that mattered and 13 of the 16 low-signal Mediums that were reached. The
-**75 unverified low-signal Mediums are the honest gap** — an agent's subagent
-fan-out stalled and it correctly refused to stamp REFUTED on findings it never
-checked.
+5 Lows that mattered. The **74 unverified low-signal Mediums are the honest gap** —
+an agent's subagent fan-out stalled and it correctly refused to stamp REFUTED on
+findings it never checked.
+
+> **The low-signal Medium list is `M01`–`M90`**, recorded in the `batch_*.txt`
+> agent briefs. Session-scratchpad only — **not durable**; if it is gone, the 74
+> are unrecoverable and this row should be read as "unknown", not "clear".
+> Do not re-derive finding IDs from memory: the `#NNN` numbering used in some
+> session summaries was **wrong** and does not map to these IDs (what one summary
+> called "#37/#31" is in fact `M84`).
 
 ### Later rounds — what the tail actually contained
 

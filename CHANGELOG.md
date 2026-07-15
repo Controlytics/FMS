@@ -1,6 +1,12 @@
 # Changelog
 
-## [Unreleased] — Confirmed-live backlog closed; 3 filings refuted (2026-07-15)
+## [Unreleased] — Six confirmed-live clusters fixed; 3 filings refuted (2026-07-15)
+
+> **Scope correction.** `ba41cb5`'s subject says "close confirmed-live backlog".
+> That is an overclaim and this entry supersedes it. Six clusters were fixed;
+> **74 low-signal Mediums remain genuinely unverified** (a 2026-07-13 fan-out
+> stalled and never read them), as do 89 untriaged Info findings. See §1 of
+> `tasks/ENTERPRISE-AUDIT-CONSOLIDATED-2026-07-15.md` for the standing tally.
 
 Works the findings left after the verification sweep, in four parallel clusters
 over non-overlapping file sets. `ba41cb5` (32 files, +1859/-264) + APK `77a80d4`.
