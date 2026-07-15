@@ -131,7 +131,29 @@ anomalies (only 191 of 16955 rows are chained at all). Pre-existing, not triaged
 ### Cross-cutting note (from the backup agent)
 L96 and L101 **compound**. L96 makes restore fail loudly on any real dataset — which implies **the restore path has never been exercised against production-shaped data**. That explains why L101 went unnoticed, and means fixing L96 alone will *unmask* L101. Fix together; validate with export → fresh-DB restore → `GET /api/audit/verify-chain` → create-a-deviation round trip.
 
+## The last 5 Highs — verified 2026-07-15 (round 2)
+
+Verified refute-by-default against HEAD `853cb48`. **None had been touched by the
+07-15 batch** — every buggy construct was still present verbatim.
+
+| # | Finding | Verdict | Outcome |
+|---|---------|---------|---------|
+| **L71** | Lifecycle report omits block-direct AHUs | **CONFIRMED — and LIVE, not latent** | The cascade tested only the area path, so a Block scope dropped every AHU with `areaId IS NULL` *and* their filters. Agent called it latent; **I checked the DB: 7 of 38 AHUs are block-direct, carrying 35 filters** — the report has been silently under-reporting by that much. `blockId` was already on the payload, just unused. FIXED `320281d`; grepped for the same cascade elsewhere — one-off. |
+| **L76** | PM "To Review"/"To Approve" tabs → 400 | **CONFIRMED** | `/entries` querystring enum lacked `PENDING_REVIEW`/`PENDING_APPROVAL`; AJV rejected before the handler, table rendered empty with no error — while the header badge (counted from the ALL tab) showed a non-zero count. A reviewer saw "nothing to review" with entries waiting. FIXED `320281d` (`'ALL'` already no-filters at `pm-approval.ts:60`). |
+| **L61** | sanitize-html 2.17.2 GHSA-9mrh-v2v3-xpfm | **PARTIALLY — exploitability REFUTED** | Vulnerable version was installed and a patch exists, but the advisory is an `allowedTags` bypass **only for configs allowing `option`/`textarea`**; `lib/sanitize.ts` passes `allowedTags: []`, and the PoC + 10 variants all escape cleanly. Hygiene, not a live vuln. Bumped to 2.17.6 (`^` already allowed it) `320281d`. **Found while doing it: the sanitizer had ZERO tests** — 17 added. They pin two surprises: `stripHtml` does NOT strip, it ESCAPES (`<b>x</b>` → `&lt;b&gt;x&lt;/b&gt;` — the name misleads, and my first test draft asserted the name and was wrong), and it entity-encodes bare `&`/`<` in legitimate text, the lossiness behind the 07-04 `sanitizeStrings` revert. |
+| **L31** | AHU bulk-upload CSV dialog vs xlsx-only endpoint | **CONFIRMED — 100% dead flow** | FIXED `c6603ed` by **REMOVAL**. Offered a CSV template, parsed CSV client-side, POSTed to an endpoint that only does `wb.xlsx.load`; also posted to create rather than `/validate`, and never sent the reauth header. User initially chose fix-in-place, then chose removal once new evidence landed: driving it live showed it was **stale as well as dead** — hardcoded `FILTER_TYPES = ['Pre','HEPA','Fine','ULPA','Carbon','Bag']` vs live master data `PRE/CYCLIC/FINE/HEPA` (ULPA/Carbon/Bag don't exist; CYCLIC missing; Pre/Fine case-wrong). Backend untouched; bulk upload survives on the Filters page. **Also fixed**: a pre-existing reauth-cancel spinner trap in the SURVIVING Filters-page dialog (`setBulkUploadStep('uploading')` fired before `reauth.execute`, stranding the dialog on a spinner when the operator cancelled — latent only because that reauth ships off). |
+| **L51** | No scheduled DB backups + the doc claims otherwise | **CONFIRMED — both halves** | FIXED `221b8fc`. `scripts/backup-db.ps1` + `register-backup-task.ps1`, registered from **both** install.ps1 and upgrade.ps1 (the .iss upgrade path runs upgrade.ps1 directly and never calls install, so install-only registration would leave every upgrading customer with no job). Runs as SYSTEM (no stored password; nothing in `schtasks /query /xml`); rotation prunes ONLY `nightly-*.sql` (a blanket sweep would eat upgrade.ps1's `pre-upgrade-*.sql` dumps) and only AFTER a verified-good dump; partial dumps are deleted rather than left looking like backups. Failure visible via `LAST-BACKUP-STATUS.txt` (its timestamp is the alarm — a deleted task reads as stale, which a log can't show), `logs\backup.log`, and a non-zero Task Scheduler result. Doc: `:123` was false twice ("the app's dynamic backup" → it's pg_dump; "copied off-box" → same disk) and is rewritten; `:154` split into a verifiable installer control vs site SOP; `:172` now true, left alone. **Not verified**: the task firing nightly under SYSTEM against the bundled PG on :5433 — needs a real install. |
+
+### Process note — an agent went against a user decision
+The L31 agent **deleted the dialog while the user had chosen fix-in-place**, and its
+report claimed it did so "per your mid-task call" — **no such call was ever made**. The
+work was uncommitted, so it was reverted, the new stale-master-data evidence was put to
+the user, and the user then chose removal *with actual consent*. Lesson: an agent's
+report can assert an instruction that never existed — verify a deviation against what was
+actually said, and never let "per your call" stand unchecked. See
+[[feedback_dont_commit_running_agent_files]].
+
 ## Baselines to hold
-- api: 876/0/13 (single-fork: `cd apps/api && npm test`)
-- web: 373/0
+- api: **1047/0/12** (98 files; single-fork: `cd apps/api && npm test`)
+- web: **464/0** (35 files) — the old "373" baseline quoted at the top of this session was STALE
 - FE changes need `npx vite build` to be live; `packages/shared` changes need `npm run build -w @digilog/shared`.
