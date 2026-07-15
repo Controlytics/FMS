@@ -203,18 +203,28 @@ export function UserListPage() {
 
   const handleUnlockConfirm = useCallback(async () => {
     if (!unlockDialog) return;
-    const { userId } = unlockDialog;
+    const { userId, username } = unlockDialog;
     const pwd = unlockPassword;
     setUnlockDialog(null);
 
+    // This call site used to pass no options, unlike the other two reauth.execute
+    // sites in this file. use-reauth swallows non-reauth errors when onError is
+    // absent, so a failed unlock (403, network drop, reauth cancel) looked
+    // exactly like success — the admin would hand out a temp password for an
+    // account that was still locked.
     await reauth.execute('UNLOCK_USER', async (password?) => {
       if (password) await apiClient.postWithReauth(`/api/users/${userId}/unlock`, { newPassword: pwd }, password);
       else await apiClient.post(`/api/users/${userId}/unlock`, { newPassword: pwd });
       setUnlockPassword('');
       mutate();
       mutateStats();
+      toast.success('Account unlocked', `User "${username}" can now sign in with the temporary password.`);
+    }, {
+      onError: (err: any) => {
+        toast.error('Unlock failed', err?.message || `Failed to unlock user "${username}".`);
+      },
     });
-  }, [unlockDialog, unlockPassword, reauth, mutate, mutateStats]);
+  }, [unlockDialog, unlockPassword, reauth, mutate, mutateStats, toast]);
 
   const handleUnlockCopy = useCallback(async () => {
     try {

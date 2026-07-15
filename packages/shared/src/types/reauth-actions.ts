@@ -206,6 +206,13 @@ export const REAUTH_ACTION_CATEGORIES = [
   'PM Schedules',
   'Equipment Groups',
   'Reports',
+  // Both editors (config/action-reauth.tsx and roles-components/reauth-tab.tsx)
+  // build their lists by iterating THIS array, so an action whose category is
+  // missing here renders nowhere and its policy can never be set. These two were
+  // absent, hiding DELETE_NOTIFICATION, BULK_DELETE_NOTIFICATIONS and
+  // SUPER_ADMIN_DATA_EDIT from both screens.
+  'Notifications',
+  'Super Admin',
 ] as const;
 
 export type ReauthActionCategory = (typeof REAUTH_ACTION_CATEGORIES)[number];

@@ -92,6 +92,106 @@ function jsonEqual(a: any, b: any): boolean {
   return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
 
+// ── Primitives ─────────────────────────────────────────────────────────────
+// These MUST stay at module scope. Declared inside RoleAssignmentsPage they got
+// a new component identity on every render, so React remounted the whole card
+// subtree — the number inputs below lost focus after each keystroke.
+
+/** A single workflow step (Upload / Review / Approve) — a role picker with a
+ *  step number, rendered as a vertical, connected sequence. */
+const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel }: {
+  cfg: Record<CfgKey, Record<string, any>>;
+  patch: (key: CfgKey, field: string, value: any) => void;
+  roles: { name: string; label: string }[];
+  k: CfgKey; field: string; n: number; last?: boolean; title: string; blankLabel: string;
+}) => (
+  <div className="relative flex gap-3">
+    {/* connector line down to the next step */}
+    {!last && <span className="absolute left-[13px] top-7 bottom-[-14px] w-px bg-slate-200" aria-hidden />}
+    <span className="relative z-10 mt-0.5 shrink-0 grid place-items-center w-[26px] h-[26px] rounded-full bg-cyan-600 text-white text-[12px] font-bold ring-4 ring-white">
+      {n}
+    </span>
+    <label className="flex-1 min-w-0">
+      <span className="block text-[13px] font-semibold text-slate-700">{title}</span>
+      <select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
+        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
+        <option value="">{blankLabel}</option>
+        {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
+      </select>
+    </label>
+  </div>
+);
+
+const Switch = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
+  <button type="button" onClick={onClick} aria-pressed={on}
+    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${on ? 'bg-cyan-600' : 'bg-slate-300'}`}>
+    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+  </button>
+);
+
+/** Multi-role picker rendered as toggle chips. */
+const RoleChips = ({ cfg, roles, toggleArr, k, field }: {
+  cfg: Record<CfgKey, Record<string, any>>;
+  roles: { name: string; label: string }[];
+  toggleArr: (key: CfgKey, field: string, role: string) => void;
+  k: CfgKey; field: string;
+}) => {
+  const sel: string[] = Array.isArray(cfg[k]?.[field]) ? cfg[k][field] : [];
+  if (roles.length === 0) {
+    return <div className="text-sm text-slate-400 border border-dashed border-slate-200 rounded-lg px-3 py-6 text-center">No roles defined yet. Create one on Roles &amp; Access.</div>;
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {roles.map((r) => {
+        const active = sel.includes(r.name);
+        return (
+          <button type="button" key={r.name} onClick={() => toggleArr(k, field, r.name)} aria-pressed={active}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${
+              active
+                ? 'bg-cyan-600 border-cyan-600 text-white shadow-sm'
+                : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300 hover:text-cyan-700'
+            }`}>
+            <svg className={`w-3.5 h-3.5 transition-opacity ${active ? 'opacity-100' : 'opacity-0 w-0 -ml-1.5'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+            </svg>
+            {r.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+const Card = ({ icon, tint, title, desc, wide, children }: {
+  icon: React.ReactNode; tint: 'cyan' | 'teal'; title: string; desc: string; wide?: boolean; children: React.ReactNode;
+}) => (
+  <section className={`flex flex-col bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden ${wide ? 'lg:col-span-2' : ''}`}>
+    <header className="flex items-start gap-3 px-5 py-4 border-b border-slate-100 bg-slate-50/60">
+      <span className={`shrink-0 grid place-items-center w-10 h-10 rounded-xl ${tint === 'cyan' ? 'bg-cyan-50 text-cyan-700' : 'bg-teal-50 text-teal-700'}`}>
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <h2 className="text-[15px] font-bold text-slate-800 leading-tight">{title}</h2>
+        <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+      </div>
+    </header>
+    <div className="p-5 flex-1">{children}</div>
+  </section>
+);
+
+const WorkflowToggle = ({ on, onClick, hint }: { on: boolean; onClick: () => void; hint?: string }) => (
+  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 mb-5">
+    <div className="min-w-0">
+      <span className="block text-[13px] font-semibold text-slate-700">Review &amp; approval workflow</span>
+      <span className="text-xs text-slate-500">
+        {on ? 'Uploads must be reviewed, then approved.' : 'Uploads are approved in a single step.'}
+        {hint && <span className="ml-1 text-slate-400">{hint}</span>}
+      </span>
+    </div>
+    <Switch on={on} onClick={onClick} />
+  </div>
+);
+
 export function RoleAssignmentsPage() {
   const { toast } = useToast();
   const roles = useRoleOptions();
@@ -144,82 +244,6 @@ export function RoleAssignmentsPage() {
     } finally { setSaving(false); }
   };
 
-  // ── Primitives ───────────────────────────────────────────────────────────
-
-  /** A single workflow step (Upload / Review / Approve) — a role picker with a
-   *  step number, rendered as a vertical, connected sequence. */
-  const WorkflowStep = ({ k, field, n, last, title, blankLabel }: {
-    k: CfgKey; field: string; n: number; last?: boolean; title: string; blankLabel: string;
-  }) => (
-    <div className="relative flex gap-3">
-      {/* connector line down to the next step */}
-      {!last && <span className="absolute left-[13px] top-7 bottom-[-14px] w-px bg-slate-200" aria-hidden />}
-      <span className="relative z-10 mt-0.5 shrink-0 grid place-items-center w-[26px] h-[26px] rounded-full bg-cyan-600 text-white text-[12px] font-bold ring-4 ring-white">
-        {n}
-      </span>
-      <label className="flex-1 min-w-0">
-        <span className="block text-[13px] font-semibold text-slate-700">{title}</span>
-        <select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
-          className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
-          <option value="">{blankLabel}</option>
-          {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
-        </select>
-      </label>
-    </div>
-  );
-
-  const Switch = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
-    <button type="button" onClick={onClick} aria-pressed={on}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${on ? 'bg-cyan-600' : 'bg-slate-300'}`}>
-      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
-    </button>
-  );
-
-  /** Multi-role picker rendered as toggle chips. */
-  const RoleChips = ({ k, field }: { k: CfgKey; field: string }) => {
-    const sel: string[] = Array.isArray(cfg[k]?.[field]) ? cfg[k][field] : [];
-    if (roles.length === 0) {
-      return <div className="text-sm text-slate-400 border border-dashed border-slate-200 rounded-lg px-3 py-6 text-center">No roles defined yet. Create one on Roles &amp; Access.</div>;
-    }
-    return (
-      <div className="flex flex-wrap gap-2">
-        {roles.map((r) => {
-          const active = sel.includes(r.name);
-          return (
-            <button type="button" key={r.name} onClick={() => toggleArr(k, field, r.name)} aria-pressed={active}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${
-                active
-                  ? 'bg-cyan-600 border-cyan-600 text-white shadow-sm'
-                  : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300 hover:text-cyan-700'
-              }`}>
-              <svg className={`w-3.5 h-3.5 transition-opacity ${active ? 'opacity-100' : 'opacity-0 w-0 -ml-1.5'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-              </svg>
-              {r.label}
-            </button>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const Card = ({ icon, tint, title, desc, wide, children }: {
-    icon: React.ReactNode; tint: 'cyan' | 'teal'; title: string; desc: string; wide?: boolean; children: React.ReactNode;
-  }) => (
-    <section className={`flex flex-col bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden ${wide ? 'lg:col-span-2' : ''}`}>
-      <header className="flex items-start gap-3 px-5 py-4 border-b border-slate-100 bg-slate-50/60">
-        <span className={`shrink-0 grid place-items-center w-10 h-10 rounded-xl ${tint === 'cyan' ? 'bg-cyan-50 text-cyan-700' : 'bg-teal-50 text-teal-700'}`}>
-          {icon}
-        </span>
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-bold text-slate-800 leading-tight">{title}</h2>
-          <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
-        </div>
-      </header>
-      <div className="p-5 flex-1">{children}</div>
-    </section>
-  );
-
   if (!loaded) {
     return (
       <div className="p-6 max-w-6xl mx-auto">
@@ -237,19 +261,6 @@ export function RoleAssignmentsPage() {
   const pmWfOn = cfg['pm-schedule-approval']?.workflowEnabled === true;
   const rsInheriting = typeof rsWf !== 'boolean';
   const rsEffective = rsInheriting ? pmWfOn : rsWf === true;
-
-  const WorkflowToggle = ({ on, onClick, hint }: { on: boolean; onClick: () => void; hint?: string }) => (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 mb-5">
-      <div className="min-w-0">
-        <span className="block text-[13px] font-semibold text-slate-700">Review &amp; approval workflow</span>
-        <span className="text-xs text-slate-500">
-          {on ? 'Uploads must be reviewed, then approved.' : 'Uploads are approved in a single step.'}
-          {hint && <span className="ml-1 text-slate-400">{hint}</span>}
-        </span>
-      </div>
-      <Switch on={on} onClick={onClick} />
-    </div>
-  );
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -287,9 +298,9 @@ export function RoleAssignmentsPage() {
           desc="Who uploads, reviews, and approves PM schedules.">
           <WorkflowToggle on={pmWfOn} onClick={() => patch('pm-schedule-approval', 'workflowEnabled', !pmWfOn)} />
           <div className="space-y-3.5">
-            <WorkflowStep k="pm-schedule-approval" field="uploadRole" n={1} title="Upload" blankLabel="Anyone with permission" />
-            <WorkflowStep k="pm-schedule-approval" field="reviewRole" n={2} title="Review" blankLabel="Anyone with permission" />
-            <WorkflowStep k="pm-schedule-approval" field="approvalRole" n={3} last title="Approve" blankLabel="Anyone with permission" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="pm-schedule-approval" field="uploadRole" n={1} title="Upload" blankLabel="Anyone with permission" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="pm-schedule-approval" field="reviewRole" n={2} title="Review" blankLabel="Anyone with permission" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="pm-schedule-approval" field="approvalRole" n={3} last title="Approve" blankLabel="Anyone with permission" />
           </div>
         </Card>
 
@@ -299,20 +310,20 @@ export function RoleAssignmentsPage() {
             onClick={() => patch('replacement-schedule-approval', 'workflowEnabled', !rsEffective)}
             hint={rsInheriting ? '(inheriting from PM)' : undefined} />
           <div className="space-y-3.5">
-            <WorkflowStep k="replacement-schedule-approval" field="uploadRole" n={1} title="Upload" blankLabel="Inherit from PM" />
-            <WorkflowStep k="replacement-schedule-approval" field="reviewRole" n={2} title="Review" blankLabel="Inherit from PM" />
-            <WorkflowStep k="replacement-schedule-approval" field="approvalRole" n={3} last title="Approve" blankLabel="Inherit from PM" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="uploadRole" n={1} title="Upload" blankLabel="Inherit from PM" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="reviewRole" n={2} title="Review" blankLabel="Inherit from PM" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="approvalRole" n={3} last title="Approve" blankLabel="Inherit from PM" />
           </div>
         </Card>
 
         <Card icon={Icons.qnn} tint="teal" title="QNN Notifications"
           desc="Which roles see Quality Notification (QNN) entries in the Notifications center.">
-          <RoleChips k="qnn-notifications" field="visibleRoles" />
+          <RoleChips cfg={cfg} roles={roles} toggleArr={toggleArr} k="qnn-notifications" field="visibleRoles" />
         </Card>
 
         <Card icon={Icons.guest} tint="teal" title="Guest Cleaning Requests"
           desc="Which roles receive guest filter-cleaning requests sent from the login page.">
-          <RoleChips k="guest-cleaning-requests" field="recipientRoles" />
+          <RoleChips cfg={cfg} roles={roles} toggleArr={toggleArr} k="guest-cleaning-requests" field="recipientRoles" />
         </Card>
 
         <Card icon={Icons.block} tint="cyan" wide title="Cross-Block Cleaning"
@@ -486,7 +497,7 @@ export function RoleAssignmentsPage() {
                     <div className="pt-4 border-t border-slate-100">
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Overdue notification roles</span>
                       <span className="mb-2 block text-[11px] text-slate-400">Roles that receive overdue + completion alerts for AHU filter-cleaning tasks. Empty = Admin.</span>
-                      <RoleChips k={pk} field="overdueNotificationRoles" />
+                      <RoleChips cfg={cfg} roles={roles} toggleArr={toggleArr} k={pk} field="overdueNotificationRoles" />
                     </div>
                   </>
                 )}

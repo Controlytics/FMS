@@ -262,9 +262,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/my-tasks" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><MyTasksPage /></Suspense></RequireRole>} />
             <Route path="/deviations" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><DeviationsPage /></Suspense></RequireRole>} />
             <Route path="/ahus/:id" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuDashboardPage /></Suspense></RequireRole>} />
-            <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><AuditTrailPage /></RequireRole>} />
-            <Route path="/report-reviews" element={<RequireRole permissions={[PERMISSIONS.REPORT_REVIEW_SUBMIT, PERMISSIONS.REPORT_REVIEW, PERMISSIONS.REPORT_APPROVE]}><ReportReviewsPage /></RequireRole>} />
-            <Route path="/stage-approvals" element={<RequireRole permissions={[PERMISSIONS.STAGE_APPROVAL_VIEW, PERMISSIONS.STAGE_APPROVAL_DECIDE]}><StageApprovalsPage /></RequireRole>} />
+            <Route path="/audit" element={<RequireRole permissions={[PERMISSIONS.AUDIT_READ]}><Suspense fallback={<LazyFallback />}><AuditTrailPage /></Suspense></RequireRole>} />
+            <Route path="/report-reviews" element={<RequireRole permissions={[PERMISSIONS.REPORT_REVIEW_SUBMIT, PERMISSIONS.REPORT_REVIEW, PERMISSIONS.REPORT_APPROVE]}><Suspense fallback={<LazyFallback />}><ReportReviewsPage /></Suspense></RequireRole>} />
+            <Route path="/stage-approvals" element={<RequireRole permissions={[PERMISSIONS.STAGE_APPROVAL_VIEW, PERMISSIONS.STAGE_APPROVAL_DECIDE]}><Suspense fallback={<LazyFallback />}><StageApprovalsPage /></Suspense></RequireRole>} />
             <Route path="/admin-requests" element={<RequireRole permissions={[PERMISSIONS.ADMIN_REQUEST_APPROVE, PERMISSIONS.ADMIN_REQUEST_REJECT]}><Suspense fallback={<LazyFallback />}><AdminRequestsPage /></Suspense></RequireRole>} />
 
             {/* Report Templates + Generated Reports removed from the application (2026-06-08). */}

@@ -75,7 +75,12 @@ export function EditUserPage() {
       email: userData.email ?? '',
       department: userData.department ?? '',
       role: userData.role,
-      status: userData.status,
+      // `status` is deliberately NOT seeded. There is no status input on this
+      // form (status changes go through enable/disable/unlock on the list page),
+      // and updateUserSchema only accepts ENABLED|DISABLED — so feeding a real
+      // LOCKED/EXPIRED user's status in made the resolver reject the form. With
+      // no rendered error for that field, Save silently did nothing, for exactly
+      // the users most likely to need editing.
     } : undefined,
   });
 
@@ -280,6 +285,15 @@ export function EditUserPage() {
                     </svg>
                   </div>
                   <Select {...register('role')} variant="filled" className="pl-12 h-12">
+                    {/* Always offer the user's CURRENT role. /creatable is
+                        USER_CREATE-gated, so an editor holding only USER_UPDATE
+                        gets a 403 and an empty list — the control then rendered
+                        completely blank, showing neither the current role nor
+                        any option. (The save itself was never broken: RHF
+                        submits from its own form state, not the DOM.) */}
+                    {userData.role && !creatableRoles.some((r) => r.name === userData.role) && (
+                      <option value={userData.role}>{userData.roleDisplayName || userData.role}</option>
+                    )}
                     {creatableRoles.map((r) => (
                       <option key={r.name} value={r.name}>{r.displayName}</option>
                     ))}

@@ -119,7 +119,9 @@ export function FilterListPage() {
   // Edit filter dialog
   const [editFilterDialog, setEditFilterDialog] = useState<EditFilterRef | null>(null);
   const [editFilterName, setEditFilterName] = useState('');
-  const [editFilterSet, setEditFilterSet] = useState<'A' | 'B'>('A');
+  // '' = no set assigned. Tri-state so that opening the dialog on a set-less
+  // filter and saving doesn't silently assign it Set A.
+  const [editFilterSet, setEditFilterSet] = useState<'A' | 'B' | ''>('');
   const [editFilterSubmitting, setEditFilterSubmitting] = useState(false);
   const [editFilterError, setEditFilterError] = useState('');
 
@@ -948,7 +950,11 @@ export function FilterListPage() {
   }) => {
     setEditFilterDialog(f);
     setEditFilterName(f.name);
-    setEditFilterSet((f.filterSet === 'B' ? 'B' : 'A') as 'A' | 'B');
+    // The API sends the raw Prisma enum ('SET_A'/'SET_B'/null) — see
+    // hierarchy.service.ts. This used to compare against 'B', which never
+    // matched, so the toggle silently pre-selected Set A for EVERY filter and
+    // the unconditional PUT below then rewrote Set B filters to Set A.
+    setEditFilterSet(f.filterSet === 'SET_B' ? 'B' : f.filterSet === 'SET_A' ? 'A' : '');
     setEditFilterAhuType(f.ahuType && f.ahuType !== '-' ? f.ahuType : '');
     setEditFilterFilterType(f.filterType && f.filterType !== '-' ? f.filterType : '');
     setEditFilterMicronSize(f.micronSize && f.micronSize !== '-' ? f.micronSize : '');
@@ -971,7 +977,9 @@ export function FilterListPage() {
       // without them (i.e. clearing works). No templateId/generic attributes.
       const body: any = {
         name: editFilterName.trim(),
-        filterSet: editFilterSet,
+        // Omit when unset — filter.service.ts treats undefined as "don't touch",
+        // so a set-less filter stays set-less instead of being assigned Set A.
+        ...(editFilterSet && { filterSet: editFilterSet }),
         ...(editFilterAhuType && { ahuType: editFilterAhuType }),
         ...(editFilterFilterType && { filterType: editFilterFilterType }),
         ...(editFilterMicronSize && { micronSize: editFilterMicronSize }),

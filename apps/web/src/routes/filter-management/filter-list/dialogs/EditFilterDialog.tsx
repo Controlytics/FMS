@@ -3,7 +3,8 @@ import { FilterFieldOptionsSection } from '../components/FilterFieldOptionsSecti
 
 type Props = {
   name: string;
-  filterSet: 'A' | 'B';
+  /** '' = this filter has no set assigned; neither button is highlighted. */
+  filterSet: 'A' | 'B' | '';
   error: string;
   submitting: boolean;
   fieldOptions: FilterFieldOptions;
