@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { buildContext } from '../../lib/build-context.js';
 import { notificationService } from './notification.service.js';
 
 export default async function notificationRoutes(app: FastifyInstance) {
@@ -180,7 +181,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('BULK_DELETE_NOTIFICATIONS', req, reply);
     if (!ok) return;
     const { ids } = req.body as { ids: string[] };
-    return notificationService.bulkDelete(ids, req.user.role, req.user.username);
+    return notificationService.bulkDelete(ids, buildContext(req));
   });
 
   // PUT /api/notifications/:id/read — mark as read
@@ -272,6 +273,6 @@ export default async function notificationRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('DELETE_NOTIFICATION', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
-    return notificationService.delete(id, req.user.role, req.user.username);
+    return notificationService.delete(id, buildContext(req));
   });
 }

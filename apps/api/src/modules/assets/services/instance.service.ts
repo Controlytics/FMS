@@ -575,11 +575,50 @@ export const instanceService = {
     const descendantIds = await collectDescendantIds(id);
     const allIds = [id, ...descendantIds];
 
+    // Names for the cascaded identifiers' audit rows (resolved before the tx so
+    // each ASSET_IDENTIFIER_DELETED row is self-describing — targetId is the
+    // identifier UUID, which the audit UI cannot resolve to a filter).
+    const cascadeAssets = await prisma.assetInstance.findMany({
+      where: { id: { in: allIds } },
+      select: { id: true, name: true },
+    });
+    const cascadeNames = new Map(cascadeAssets.map((a) => [a.id, a.name]));
+
     // All deletes in one atomic transaction
     await prisma.$transaction(async (tx) => {
       await tx.assetInstance.updateMany({ where: { id: { in: allIds } }, data: { isActive: false, updatedBy: ctx.userId } });
       await tx.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: allIds } }, { targetAssetId: { in: allIds } }] } });
+
+      // The identifier cascade is a physical delete, and the RFID Track Record
+      // report (identifier.service.getRfidTrackRecord) is built EXCLUSIVELY from
+      // ASSET_IDENTIFIER_CREATED / _DELETED audit rows. Without a _DELETED row per
+      // identifier the report shows a dangling ASSIGN, and re-assigning the freed
+      // tag yields two consecutive ASSIGNs with no REMOVE between them.
+      // beforeValue shape MUST match identifier.service.delete()'s — the report
+      // reads identifierType + identifierValue + assetId off it.
+      const cascadedIdentifiers = await tx.assetIdentifier.findMany({
+        where: { assetId: { in: allIds } },
+      });
       await tx.assetIdentifier.deleteMany({ where: { assetId: { in: allIds } } });
+      // In-tx: the identifier rows are destroyed here, so the audit must commit
+      // or roll back with the delete that destroys them.
+      for (const ident of cascadedIdentifiers) {
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'ASSET_IDENTIFIER_DELETED',
+          targetType: 'asset_identifier', targetId: ident.id,
+          beforeValue: {
+            assetId: ident.assetId,
+            identifierType: ident.identifierType,
+            identifierValue: ident.identifierValue,
+            filterName: cascadeNames.get(ident.assetId) ?? null,
+          },
+          afterValue: { deleted: true },
+          reason: `Cascade: ${delKind ?? 'record'} "${existing.name}" deleted`,
+          signatureMeaning: `Identifier "${ident.identifierValue}" removed from "${cascadeNames.get(ident.assetId) ?? ident.assetId}" by cascade delete`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      }
       // deviceCredential / connectivityStatus / unsMapping / dataStream cascades
       // removed with data-ingestion removal — tables no longer exist.
       // qrCode / latestTelemetry cascades removed 2026-07-01 — both orphaned

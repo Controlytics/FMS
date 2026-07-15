@@ -1,6 +1,8 @@
 import { NotFoundError } from '../../lib/errors.js';
 import { notificationRepository } from './notification.repository.js';
 import { prisma } from '../../lib/prisma.js';
+import { auditLog } from '../../lib/audit.js';
+import type { RequestContext } from '../../types/context.js';
 import { z } from 'zod';
 
 // Notification types whose visibility is config-driven (a role list), NOT the
@@ -175,16 +177,68 @@ export const notificationService = {
     return { success: true, count: result.count };
   },
 
-  async bulkDelete(ids: string[], userRole: string, username: string) {
-    const result = await notificationRepository.bulkDelete(ids, userRole, username, await gatedTypesVisibleTo(userRole));
+  /**
+   * Physical delete — no soft-delete fallback, so the audit row is the only
+   * surviving record of what was destroyed (21 CFR §11.10(e)). Capture the
+   * rows first (deleteMany returns a bare count), then audit-then-delete inside
+   * one transaction so a delete can never commit without its audit row.
+   * `ctx` replaces the old (userRole, username) pair — buildContext sets
+   * ctx.userId = req.user.username, so both are derivable from it.
+   */
+  async bulkDelete(ids: string[], ctx: RequestContext) {
+    const userRole = ctx.userRole;
+    const username = ctx.userId;
+    const visibleGated = await gatedTypesVisibleTo(userRole);
+
+    const doomed = await notificationRepository.findBulkDeletable(ids, userRole, username, visibleGated);
+
+    const result = await prisma.$transaction(async (tx) => {
+      if (doomed.length > 0) {
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'NOTIFICATIONS_BULK_DELETED',
+          targetType: 'notification',
+          // No single targetId — the destroyed rows are enumerated in beforeValue.
+          beforeValue: {
+            recordCount: doomed.length,
+            records: doomed.map((n: any) => ({
+              id: n.id, type: n.type, title: n.title,
+              forUserId: n.forUserId, forRole: n.forRole, createdAt: n.createdAt,
+            })),
+          },
+          signatureMeaning: `${doomed.length} notification(s) permanently deleted`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      }
+      return notificationRepository.bulkDelete(ids, userRole, username, visibleGated, tx);
+    });
+
     return { success: true, count: result.count };
   },
 
-  async delete(id: string, userRole: string, username: string) {
+  async delete(id: string, ctx: RequestContext) {
+    const userRole = ctx.userRole;
+    const username = ctx.userId;
     const notification = await notificationRepository.findById(id);
     if (!notification) throw new NotFoundError('Notification not found');
     assertNotificationVisible(notification, userRole, username, await gatedTypesVisibleTo(userRole));
-    await notificationRepository.delete(id);
+
+    await prisma.$transaction(async (tx) => {
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'NOTIFICATION_DELETED',
+        targetType: 'notification', targetId: id,
+        beforeValue: {
+          type: notification.type, title: notification.title, message: notification.message,
+          forUserId: notification.forUserId, forRole: notification.forRole,
+          isRead: notification.isRead, createdAt: notification.createdAt,
+        },
+        signatureMeaning: `Notification "${notification.title}" permanently deleted`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      await notificationRepository.delete(id, tx);
+    });
+
     return { success: true };
   },
 };

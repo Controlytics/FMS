@@ -6,6 +6,7 @@ import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
+import { NotFoundError } from '../../lib/errors.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 
 const EVENT_TYPE_META: Record<string, { label: string; module: string; variables: string[] }> = {
@@ -297,12 +298,31 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    const rule = await prisma.notificationRule.findUniqueOrThrow({ where: { id } });
-    const updated = await prisma.notificationRule.update({
-      where: { id },
-      data: { isActive: !rule.isActive },
+    // Single statement: a find-then-update read-modify-write lets two concurrent
+    // toggles read the same isActive and net to one flip.
+    // updated_at is set explicitly: Prisma's @updatedAt is client-side and does
+    // not apply to raw SQL.
+    const updated = await prisma.$queryRaw<Array<{ id: string; name: string; is_active: boolean }>>`
+      UPDATE notification_rules SET is_active = NOT is_active, updated_at = now()
+      WHERE id = ${id}::uuid
+      RETURNING id, name, is_active
+    `;
+    if (updated.length === 0) throw new NotFoundError('Notification rule not found');
+    const row = updated[0];
+
+    // Reuses NOTIFICATION_RULE_UPDATED: disabling a rule silences its alerts with
+    // the same operational effect as deleting it, so it is a record change.
+    const ctx = buildContext(req);
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole,
+      action: 'NOTIFICATION_RULE_UPDATED', targetType: 'notification_rule', targetId: id,
+      beforeValue: { name: row.name, isActive: !row.is_active },
+      afterValue: { name: row.name, isActive: row.is_active },
+      signatureMeaning: `Notification rule "${row.name}" ${row.is_active ? 'enabled' : 'disabled'}`,
+      ipAddress: req.ip, sessionId: req.user.sessionId,
     });
-    return updated;
+
+    return prisma.notificationRule.findUniqueOrThrow({ where: { id } });
   });
 
   // POST /api/notification-rules/:id/test — test fire a rule

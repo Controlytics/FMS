@@ -78,15 +78,29 @@ export const notificationRepository = {
     });
   },
 
-  async delete(id: string) {
-    return prisma.notification.delete({ where: { id } });
+  async delete(id: string, tx?: PrismaLike) {
+    return (tx ?? prisma).notification.delete({ where: { id } });
   },
 
-  async bulkDelete(ids: string[], userRole?: string, username?: string, visibleGated: string[] = []) {
+  /**
+   * Rows a bulk delete WOULD destroy, under the same visibility filter the
+   * delete itself applies. `deleteMany` returns only a count, so the audit row
+   * (21 CFR §11.10(e)) has to capture the identifying fields before they're gone.
+   */
+  async findBulkDeletable(ids: string[], userRole?: string, username?: string, visibleGated: string[] = [], tx?: PrismaLike) {
     const where = buildBulkVisibilityFilter(ids, userRole, username, visibleGated);
-    return prisma.notification.deleteMany({ where });
+    return (tx ?? prisma).notification.findMany({ where: where as any });
+  },
+
+  async bulkDelete(ids: string[], userRole?: string, username?: string, visibleGated: string[] = [], tx?: PrismaLike) {
+    const where = buildBulkVisibilityFilter(ids, userRole, username, visibleGated);
+    return (tx ?? prisma).notification.deleteMany({ where: where as any });
   },
 };
+
+// Minimal structural type so bulk ops can join a caller's transaction (the audit
+// row must commit atomically with the delete it records).
+type PrismaLike = { notification: { findMany: Function; deleteMany: Function; delete: Function } } & any;
 
 /**
  * 2026-05-26 bug fix: pre-fix, bulkDelete / bulkMarkRead / bulkMarkUnread

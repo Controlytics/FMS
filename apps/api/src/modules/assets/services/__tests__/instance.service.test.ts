@@ -39,6 +39,9 @@ const {
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         findFirst: vi.fn().mockResolvedValue(null),
         findUnique: vi.fn().mockResolvedValue(null),
+        // delete() resolves cascaded assets' names so each identifier audit row
+        // is self-describing.
+        findMany: vi.fn().mockResolvedValue([]),
       },
       assetRelationship: {
         create: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
@@ -47,7 +50,11 @@ const {
         })),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
-      assetIdentifier: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      assetIdentifier: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        // Identifiers are captured before the cascade destroys them.
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       // deviceCredential / connectivityStatus / unsMapping / dataStream models
       // removed with data-ingestion removal — no longer in Prisma client.
       // qrCode / latestTelemetry models dropped 2026-07-01 (orphaned tables).
@@ -208,6 +215,65 @@ describe('instanceService', () => {
       expect(mockPrisma.assetIdentifier.deleteMany).toHaveBeenCalledWith({
         where: { assetId: { in: ['i1', 'child-1', 'child-2'] } },
       });
+    });
+
+    /**
+     * 21 CFR §11.10(e) + RFID Track Record integrity. The identifier cascade is a
+     * PHYSICAL delete but emitted only one ASSET_DELETED row. identifier.service
+     * .getRfidTrackRecord() builds the report EXCLUSIVELY from
+     * ASSET_IDENTIFIER_CREATED / _DELETED rows, so deleting an AHU with tagged
+     * filters left a dangling ASSIGN with no REMOVE — and re-assigning the freed
+     * tag produced two consecutive ASSIGNs. Emit one _DELETED per identifier,
+     * inside the tx that destroys them.
+     */
+    it('emits one ASSET_IDENTIFIER_DELETED per cascaded identifier, inside the delete tx', async () => {
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'ahu-1', name: 'AHU-01', status: 'ACTIVE', isActive: true });
+      mockCollectDescendants.mockResolvedValue(['filter-1', 'filter-2']);
+      mockTemplateRepo.findById.mockResolvedValue({ templateKind: 'AHU' });
+      mockPrisma.assetInstance.findMany.mockResolvedValue([
+        { id: 'ahu-1', name: 'AHU-01' },
+        { id: 'filter-1', name: 'FLT-001' },
+        { id: 'filter-2', name: 'FLT-002' },
+      ]);
+      mockPrisma.assetIdentifier.findMany.mockResolvedValue([
+        { id: 'ident-1', assetId: 'filter-1', identifierType: 'RFID', identifierValue: 'RFID-AAA' },
+        { id: 'ident-2', assetId: 'filter-2', identifierType: 'RFID', identifierValue: 'RFID-BBB' },
+      ]);
+
+      await instanceService.delete('ahu-1', ctx);
+
+      const identCalls = mockAuditLog.mock.calls.filter(([e]) => e.action === 'ASSET_IDENTIFIER_DELETED');
+      expect(identCalls).toHaveLength(2);
+
+      // beforeValue shape is load-bearing: getRfidTrackRecord reads
+      // identifierType + identifierValue + assetId off it and drops any row
+      // missing them. Must match identifier.service.delete()'s shape exactly.
+      expect(identCalls[0][0].beforeValue).toEqual({
+        assetId: 'filter-1', identifierType: 'RFID',
+        identifierValue: 'RFID-AAA', filterName: 'FLT-001',
+      });
+      expect(identCalls[1][0].beforeValue).toMatchObject({
+        identifierValue: 'RFID-BBB', filterName: 'FLT-002',
+      });
+      // Audited inside the tx that destroys the rows (2nd auditLog arg = tx).
+      expect(identCalls[0][1]).toBeDefined();
+      // Identifiers are read BEFORE deleteMany, else they're already gone.
+      const readOrder = mockPrisma.assetIdentifier.findMany.mock.invocationCallOrder[0];
+      const delOrder = mockPrisma.assetIdentifier.deleteMany.mock.invocationCallOrder[0];
+      expect(readOrder).toBeLessThan(delOrder);
+
+      // The single ASSET_DELETED summary row still fires, after the tx.
+      expect(mockAuditLog.mock.calls.filter(([e]) => e.action === 'ASSET_DELETED')).toHaveLength(1);
+    });
+
+    it('emits no identifier audit rows when nothing was tagged', async () => {
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'i1', name: 'P1', status: 'ACTIVE', isActive: true });
+      mockCollectDescendants.mockResolvedValue([]);
+      mockPrisma.assetIdentifier.findMany.mockResolvedValue([]);
+
+      await instanceService.delete('i1', ctx);
+
+      expect(mockAuditLog.mock.calls.filter(([e]) => e.action === 'ASSET_IDENTIFIER_DELETED')).toHaveLength(0);
     });
   });
 

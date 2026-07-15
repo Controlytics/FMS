@@ -700,6 +700,30 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'User group "{targetName}" created by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  USER_GROUP_UPDATED: {
+    label: 'User Group Updated',
+    category: 'User Management',
+    template: 'User group "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  USER_GROUP_DELETED: {
+    label: 'User Group Deleted',
+    category: 'User Management',
+    template: 'User group "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  USER_GROUP_MEMBERS_ADDED: {
+    label: 'User Group Members Added',
+    category: 'User Management',
+    template: 'Members added to user group "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  USER_GROUP_MEMBER_REMOVED: {
+    label: 'User Group Member Removed',
+    category: 'User Management',
+    template: 'Member removed from user group "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
   PASSWORD_RESET_REQUEST_APPROVED: {
     label: 'Password Reset Approved',
     category: 'User Management',
@@ -748,6 +772,24 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     label: 'Notification Rule Deleted',
     category: 'Configuration',
     template: 'Notification rule "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  NOTIFICATION_DELETED: {
+    label: 'Notification Deleted',
+    category: 'Configuration',
+    template: 'Notification "{targetName}" permanently deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  NOTIFICATIONS_BULK_DELETED: {
+    label: 'Notifications Bulk Deleted',
+    category: 'Configuration',
+    template: 'Multiple notifications permanently deleted by {actor}',
+    placeholders: ['actor'],
+  },
+  NOTIFICATION_LOG_DELETED: {
+    label: 'Notification Delivery Log Deleted',
+    category: 'Configuration',
+    template: 'Notification delivery log "{targetName}" permanently deleted by {actor}',
     placeholders: ['actor', 'targetName'],
   },
   LDAP_CONFIG_UPDATED: {

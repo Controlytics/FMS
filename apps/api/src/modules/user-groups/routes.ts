@@ -5,6 +5,7 @@ import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
+import { NotFoundError } from '../../lib/errors.js';
 
 export default async function userGroupRoutes(app: FastifyInstance) {
 
@@ -68,7 +69,20 @@ export default async function userGroupRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { id } = req.params as { id: string };
     const body = req.body as Record<string, unknown>;
+    const existing = await prisma.userGroup.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundError('User group not found');
+
     const group = await prisma.userGroup.update({ where: { id }, data: body as any });
+
+    const ctx = buildContext(req);
+    await auditLog({
+      action: 'USER_GROUP_UPDATED', targetType: 'UserGroup', targetId: id,
+      beforeValue: { name: existing.name, description: existing.description, isActive: existing.isActive },
+      afterValue: { name: group.name, description: group.description, isActive: group.isActive },
+      signatureMeaning: `User group "${group.name}" updated`,
+      userId: ctx.userId, userRole: ctx.userRole,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
     return group;
   });
 
@@ -82,7 +96,29 @@ export default async function userGroupRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    await prisma.userGroup.delete({ where: { id } });
+    const existing = await prisma.userGroup.findUnique({
+      where: { id },
+      include: { members: { select: { userId: true } } },
+    });
+    if (!existing) throw new NotFoundError('User group not found');
+
+    // Physical delete (members cascade) — capture the membership, since losing it
+    // is what silently stops those users' notifications.
+    const ctx = buildContext(req);
+    await prisma.$transaction(async (tx) => {
+      await auditLog({
+        action: 'USER_GROUP_DELETED', targetType: 'UserGroup', targetId: id,
+        beforeValue: {
+          name: existing.name, description: existing.description, isActive: existing.isActive,
+          memberCount: existing.members.length,
+          memberUserIds: existing.members.map((m) => m.userId),
+        },
+        signatureMeaning: `User group "${existing.name}" and its ${existing.members.length} membership(s) permanently deleted`,
+        userId: ctx.userId, userRole: ctx.userRole,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      await tx.userGroup.delete({ where: { id } });
+    });
     return { success: true };
   });
 
@@ -131,9 +167,25 @@ export default async function userGroupRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { id } = req.params as { id: string };
     const { userIds } = req.body as { userIds: string[] };
+    const group = await prisma.userGroup.findUnique({ where: { id } });
+    if (!group) throw new NotFoundError('User group not found');
+
     const data = userIds.map(userId => ({ groupId: id, userId }));
-    await prisma.userGroupMember.createMany({ data, skipDuplicates: true });
-    return { success: true, added: userIds.length };
+    const result = await prisma.userGroupMember.createMany({ data, skipDuplicates: true });
+
+    // Membership resolves notification recipients (notification-dispatcher.ts),
+    // so adding a member changes who gets alerted.
+    const ctx = buildContext(req);
+    await auditLog({
+      action: 'USER_GROUP_MEMBERS_ADDED', targetType: 'UserGroup', targetId: id,
+      afterValue: { groupName: group.name, requestedUserIds: userIds, addedCount: result.count },
+      signatureMeaning: `${result.count} member(s) added to user group "${group.name}"`,
+      userId: ctx.userId, userRole: ctx.userRole,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
+    // `added` reports rows actually inserted; skipDuplicates means a re-add of an
+    // existing member is not a new row.
+    return { success: true, added: result.count };
   });
 
   // DELETE /api/user-groups/:id/members/:userId — remove user from group
@@ -150,7 +202,22 @@ export default async function userGroupRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id, userId } = req.params as { id: string; userId: string };
-    await prisma.userGroupMember.deleteMany({ where: { groupId: id, userId } });
+    const group = await prisma.userGroup.findUnique({ where: { id } });
+    if (!group) throw new NotFoundError('User group not found');
+
+    // Removing a QA user from a group silently stops their alerts — audit-first
+    // inside the tx so the removal can't commit unrecorded.
+    const ctx = buildContext(req);
+    await prisma.$transaction(async (tx) => {
+      await auditLog({
+        action: 'USER_GROUP_MEMBER_REMOVED', targetType: 'UserGroup', targetId: id,
+        beforeValue: { groupName: group.name, userId },
+        signatureMeaning: `Member removed from user group "${group.name}" — they no longer receive its notifications`,
+        userId: ctx.userId, userRole: ctx.userRole,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      await tx.userGroupMember.deleteMany({ where: { groupId: id, userId } });
+    });
     return { success: true };
   });
 }

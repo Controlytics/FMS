@@ -11,6 +11,7 @@ import { prisma } from '../../lib/prisma.js';
 import { invalidateNotificationConfigCache } from './config-loader.js';
 import { sendNotification, sendTestNotification, testChannel } from './delivery.service.js';
 import { auditLog } from '../../lib/audit.js';
+import { NotFoundError } from '../../lib/errors.js';
 import { maskSecrets } from '../../lib/mask-secrets.js';
 
 // HTML-escape any value reflected into the OAuth2 callback HTML responses
@@ -583,7 +584,28 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    await prisma.notificationLog.delete({ where: { id } });
+    // Fetch first: gives a real 404 (Prisma's P2025 on a missing id surfaced as a
+    // 500) AND captures the dispatch evidence before the row is destroyed.
+    const existing = await prisma.notificationLog.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundError('Notification log not found');
+
+    const ctx = buildContext(req);
+    await prisma.$transaction(async (tx) => {
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'NOTIFICATION_LOG_DELETED',
+        targetType: 'notification_log', targetId: id,
+        beforeValue: {
+          channel: existing.channel, status: existing.status, recipient: existing.recipient,
+          subject: existing.subject, templateId: existing.templateId,
+          triggeredBy: existing.triggeredBy, sentAt: existing.sentAt, createdAt: existing.createdAt,
+        },
+        signatureMeaning: `${existing.channel} delivery log to "${existing.recipient}" permanently deleted`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      await tx.notificationLog.delete({ where: { id } });
+    });
+
     return { success: true };
   });
 

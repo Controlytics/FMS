@@ -1,5 +1,6 @@
 import { Client } from 'ldapts';
 import { prisma } from '../../lib/prisma.js';
+import { auditLog } from '../../lib/audit.js';
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
 
 /**
@@ -296,6 +297,26 @@ export const ldapService = {
       },
     });
 
+    // 21 CFR §11.10(e): auto-provisioning creates a user record with a
+    // group-mapped role — with an ADMIN mapping, an unknown directory user
+    // becomes an ADMIN. The local-admin path emits USER_CREATED; so must this.
+    // Best-effort: the caller (auth.service.login) swallows provisioning errors,
+    // so an audit failure must not fail an otherwise valid login. Logged loudly.
+    try {
+      await auditLog({
+        userId: username, userRole: role,
+        action: 'USER_CREATED', targetType: 'user', targetId: user.id,
+        afterValue: {
+          username, role, authSource: 'ldap', ldapDn: ldapResult.userDn,
+          status: 'ENABLED', ldapGroups: ldapResult.groups,
+        },
+        reason: 'LDAP auto-provisioning on first successful directory login',
+        signatureMeaning: `User "${username}" auto-provisioned from LDAP with role "${role}"`,
+      });
+    } catch (auditErr: any) {
+      console.error('[LDAP] Audit write failed for auto-provisioned user:', auditErr?.message ?? auditErr);
+    }
+
     return user;
   },
 
@@ -313,8 +334,42 @@ export const ldapService = {
     if (newRole) updates.role = newRole;
 
     if (Object.keys(updates).length > 0) {
+      // Read the prior state so the audit row can show what actually changed —
+      // a directory group change can silently escalate this user's role here.
+      const before = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true, fullName: true, email: true, department: true, role: true, ldapDn: true },
+      });
       await prisma.user.update({ where: { id: userId }, data: updates });
       invalidateUserAuthCache(userId);
+
+      // Only audit fields that actually changed — this runs on EVERY LDAP login,
+      // and a row per login with no delta is noise that buries the real ones.
+      const changed: Record<string, { from: unknown; to: unknown }> = {};
+      for (const [key, value] of Object.entries(updates)) {
+        const prior = (before as Record<string, any> | null)?.[key];
+        if (prior !== value) changed[key] = { from: prior ?? null, to: value };
+      }
+
+      if (Object.keys(changed).length > 0) {
+        const roleChanged = changed.role !== undefined;
+        // Best-effort: auth.service wraps this call in a try/catch, so an audit
+        // failure must not break login.
+        try {
+          await auditLog({
+            userId: before?.username ?? userId, userRole: before?.role ?? undefined,
+            action: 'USER_UPDATED', targetType: 'user', targetId: userId,
+            beforeValue: Object.fromEntries(Object.entries(changed).map(([k, v]) => [k, v.from])),
+            afterValue: Object.fromEntries(Object.entries(changed).map(([k, v]) => [k, v.to])),
+            reason: 'LDAP attribute sync on login',
+            signatureMeaning: roleChanged
+              ? `User "${before?.username ?? userId}" role changed "${changed.role.from}" → "${changed.role.to}" by LDAP group mapping`
+              : `User "${before?.username ?? userId}" attributes synced from LDAP`,
+          });
+        } catch (auditErr: any) {
+          console.error('[LDAP] Audit write failed for attribute sync:', auditErr?.message ?? auditErr);
+        }
+      }
     }
   },
 };
