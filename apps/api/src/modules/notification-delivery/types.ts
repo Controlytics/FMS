@@ -8,6 +8,15 @@ export interface EmailConfig {
   port: number;
   secure: boolean;           // true for TLS (465), false for STARTTLS (587)
   enabled: boolean;
+  /**
+   * Verify the SMTP server's TLS certificate. Defaults to TRUE (secure) when
+   * absent — this was hardcoded `false` in both transporters until 2026-07-15,
+   * which meant any forged certificate was accepted and an on-path attacker
+   * could harvest the SMTP password / OAuth2 access token and read or alter all
+   * outbound mail. Set false only for an internal mail server with a
+   * self-signed cert. Mirrors LdapConfig.tlsRejectUnauthorized.
+   */
+  tlsRejectUnauthorized?: boolean;
 
   // Sender info
   fromEmail: string;

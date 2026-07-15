@@ -193,7 +193,13 @@ async function getTransporter(config: EmailConfig): Promise<nodemailer.Transport
         accessToken,
       },
       tls: {
-        rejectUnauthorized: false,
+        // Secure by default. This was hardcoded `false` in BOTH transporters
+        // until 2026-07-15, reading no config at all — so a LAN attacker
+        // presenting a forged certificate could harvest the SMTP password /
+        // OAuth2 access token and read or modify every outbound mail. Same
+        // class as the LDAP TLS default fixed the same day; an explicit
+        // opt-out remains for internal servers with self-signed certs.
+        rejectUnauthorized: config.tlsRejectUnauthorized ?? true,
       },
       family: 4,
       dnsLookup: ipv4Lookup,
@@ -212,7 +218,13 @@ async function getTransporter(config: EmailConfig): Promise<nodemailer.Transport
         pass: config.password,
       },
       tls: {
-        rejectUnauthorized: false,
+        // Secure by default. This was hardcoded `false` in BOTH transporters
+        // until 2026-07-15, reading no config at all — so a LAN attacker
+        // presenting a forged certificate could harvest the SMTP password /
+        // OAuth2 access token and read or modify every outbound mail. Same
+        // class as the LDAP TLS default fixed the same day; an explicit
+        // opt-out remains for internal servers with self-signed certs.
+        rejectUnauthorized: config.tlsRejectUnauthorized ?? true,
       },
       family: 4,
       dnsLookup: ipv4Lookup,

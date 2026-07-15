@@ -29,6 +29,9 @@ const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
 // reaching auditLog carries live credentials on essentially every save.
 const EMAIL_AUDIT_SAFE_KEYS = [
   'host', 'port', 'secure', 'username', 'fromEmail', 'fromName', 'enabled',
+  // Security-relevant and non-secret — an inspector should be able to see WHEN
+  // someone turned certificate verification off.
+  'tlsRejectUnauthorized',
   // OAuth2 identifiers are public halves of the credential pair, not secrets.
   'oauth2Provider', 'clientId', 'providerTenantId', 'oauth2Configured',
 ];
@@ -83,6 +86,10 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
           host: { type: 'string', description: 'SMTP host (e.g. smtp.gmail.com)' },
           port: { type: 'integer', description: 'SMTP port (587 for TLS, 465 for SSL)' },
           secure: { type: 'boolean', description: 'Use SSL/TLS (true for port 465)' },
+          tlsRejectUnauthorized: {
+            type: 'boolean',
+            description: "Verify the SMTP server's TLS certificate. Defaults to true. Set false ONLY for an internal mail server with a self-signed certificate — disabling it lets an on-path attacker present a forged certificate and capture the SMTP credentials and all outbound mail.",
+          },
           username: { type: 'string', description: 'SMTP username / email' },
           password: { type: 'string', description: 'SMTP password or app-specific password' },
           fromEmail: { type: 'string', description: 'Sender email address' },
