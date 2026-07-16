@@ -17,6 +17,7 @@ import { terminateCycleImpl } from './cycle-write/terminate-cycle.js';
 import { bypassImpl } from './cycle-write/bypass.js';
 import { submitChecklistImpl } from './cycle-write/submit-checklist.js';
 import { advanceImpl } from './cycle-write/advance.js';
+import { advanceWithChecklistImpl } from './cycle-write/advance-with-checklist.js';
 import { startCycleImpl } from './cycle-write/start-cycle.js';
 import { getCurrentStateImpl, getBatchStatesImpl } from './current-state.js';
 import type { BatchReadCache } from './batch-cache.js';
@@ -84,6 +85,19 @@ export class FilterOperationsService {
   /** @param data - Validated by Fastify JSON schema before reaching this method */
   async advance(ctx: RequestContext, filterId: string, data: any) {
     return advanceImpl(this, ctx, filterId, data);
+  }
+
+  /**
+   * Atomic advance + post-stage checklist in ONE transaction.
+   *
+   * The bare advance persists the transition before the operator can answer the
+   * stage's mandatory checklist, leaving an orphaned §11 record when they close
+   * the dialog. This op writes both or neither. See advance-with-checklist.ts.
+   *
+   * @param data - Validated by Fastify JSON schema before reaching this method
+   */
+  async advanceWithChecklist(ctx: RequestContext, filterId: string, data: any) {
+    return advanceWithChecklistImpl(this, ctx, filterId, data);
   }
 
   /** @param data - Validated by Fastify JSON schema before reaching this method */

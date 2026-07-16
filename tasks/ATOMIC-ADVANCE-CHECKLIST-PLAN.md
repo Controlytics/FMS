@@ -1,9 +1,14 @@
 # Atomic Advance + Checklist — Plan
 
-**Date:** 2026-07-15
+**Date:** 2026-07-15 (step 2 landed 2026-07-16)
 **Branch:** RFID
-**Status:** PLANNED — not started
+**Status:** Step 1 DONE · **Step 2 DONE (server)** · Steps 3–7 NOT STARTED
 **Decision:** Global fix (all stages, online + offline). Not a regression — design change.
+
+> **The defect is NOT yet fixed end-to-end.** Step 2 shipped the atomic server op;
+> nothing dispatches it yet. The tablet + desktop still advance-then-render, so an
+> operator closing the dialog still strands the record exactly as before. The fix
+> only reaches users after steps 3–4 (client ordering + offline queue) land.
 
 ## Step 1 — VERIFIED 2026-07-15 (defect REPRODUCED)
 
@@ -32,6 +37,56 @@ candidate (`CC-G1/AHU/SA/22-004-20260620-M`) — **false positive**: the `-M` su
 is so far **theoretical** — real but unexercised. All 4 ACTIVE profiles end
 `STORAGE_OUT → CHECKLIST → END` with an **active** checklist profile, so the T8-c
 inactive-profile auto-complete hole below is confirmed **not live**.
+
+## Step 2 — DONE 2026-07-16 (server atomic op)
+
+`POST /api/filters/:id/advance-with-checklist` — one transaction, advance then
+checklist, both or neither. Composition, not reimplementation: same
+`prepareX`/`executeXTx` pair each single op now uses, so no gate is duplicated or
+skipped. Route enforces `FILTER_OPERATE` + **both** reauth actions
+(`enforceReauth([...])` requires reauth if EITHER is configured).
+
+Files: `cycle-write/advance.ts` (split), `cycle-write/submit-checklist.ts`
+(split), `cycle-write/advance-with-checklist.ts` (new), `routes.ts`,
+`filter-operations.service.ts`, `__tests__/advance-with-checklist-atomic.test.ts`
+(new, 13 tests).
+
+**Verified:** 13/13 new; full API suite **1193 passing / 0 failed / 115 files**
+(baseline 1173/113 + 7 repro + 13 new reconciles exactly).
+
+### Three corrections to this plan's own claims — found while executing
+
+1. **"All FOUR `currentLifecycleState` uses in `submit-checklist.ts`" is wrong —
+   there are TEN** (84, 85, 137, 148, 154, 163, 164, 203, 223, 226, 275). The two
+   the list missed are the load-bearing ones: **`:203` `lockAndVerifyFilterState`**
+   (verifying the pre-advance state inside the composed tx throws `STATE_CHANGED`
+   and kills the op) and **`:275` `auditLog afterValue.stage`** (records the WRONG
+   stage in a hash-chained §11 row — silent, and no existing assertion catches it).
+   Fixed by **single-sourcing**: one `stageKey` binding with an optional override,
+   every read routed through it — one place to get right instead of ten to miss
+   one. `__tests__/advance-with-checklist-atomic.test.ts` pins
+   `afterStage === targetState` on both the event and the audit row.
+2. **Flipping the repro test's (a)(b)(d) is a PHASE 2 instruction, not phase 1.**
+   That test drives the bare `/advance` endpoint, which phase 1 deliberately
+   leaves accepting bare advances so in-flight offline queues can drain. Its
+   header says "when the fix lands, flip to expect zero" — that lands with the
+   phase-2 enforcement flag. It is untouched and still 7/7.
+3. **The `advance.ts:240-243` pre-tx write is now fixed, not just noted.** The
+   equipment-group lazy-bind `cleaningCycle.update` moved into `executeAdvanceTx`;
+   the resolving READ stays in prepare. Without this a rolled-back composed op
+   would have left the group binding behind.
+
+### Behaviour change to state plainly
+
+With the interlock enabled, an atomic advance into a **terminal WASH_OUT/DRY_OUT**
+followed by a checklist now **422s `INTERLOCK_TERMINAL_STAGE`**. It could not fire
+before: `hasPendingChecklistAfterTarget` held `willComplete=false`, so the cycle
+completed via the checklist with QA never approving (pre-existing bug #2 below).
+`prepareAdvance({composedWithChecklist:true})` recomputes that knowing the
+checklist lands in the same tx. **Closed for the composed path ONLY** — the bare
+two-request path keeps the hole until phase 2. Latent either way (every ACTIVE
+profile ends at STORAGE_OUT, not an interlock stage), but one profile edit from
+live. Both directions tested (interlock on → 422; off → completes).
 
 ## Problem
 
@@ -140,7 +195,8 @@ Track separately.
 
 - [x] 1. Live-verify — **DONE 2026-07-15, defect REPRODUCED.** See "Step 1" above.
       Reproduction test committed; live-data archaeology found no field instances.
-- [ ] 2. Server: tx-composable `advanceTx` + `submitChecklistTx`; new atomic op. Tests first.
+- [x] 2. Server: tx-composable prepare/executeTx + new atomic op. **DONE 2026-07-16.**
+      See "Step 2" below.
 - [ ] 3. Client: pre-advance resolve + dialog-first ordering.
 - [ ] 4. Offline: single combined queue entry; cancel enqueues nothing.
 - [ ] 5. Test all touch points above + batch/single parity + interlock terminal stages.

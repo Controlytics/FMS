@@ -5,7 +5,20 @@
  * write methods: pure-guard chain → equipment-group / instrument-readings
  * resolution (against pinned snapshot or live group) → in-tx row lock →
  * mutation + auto-complete on END.
+ *
+ * 2026-07-16 — split into `prepareAdvance` (validate + read, NO writes) and
+ * `executeAdvanceTx` (all mutations, caller-supplied tx) so the atomic
+ * advance+checklist op (`advance-with-checklist.ts`) can compose this with
+ * `submit-checklist.ts` inside ONE transaction. `advanceImpl` is unchanged
+ * behaviour: prepare + own tx + post-commit notify.
+ *
+ * The equipment-group lazy-bind used to write to `cleaning_cycles` BEFORE the
+ * transaction opened (old :240-243). That made "prepare performs no writes"
+ * false and would have leaked out of the composed op's atomicity — a rolled-back
+ * advance+checklist would still have left the group binding behind. The READ that
+ * resolves the group stays in prepare; the WRITE moved into `executeAdvanceTx`.
  */
+import type { Prisma } from '@prisma/client';
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
@@ -30,13 +43,68 @@ import {
 } from '../stage-interlock.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
+type TxClient = Prisma.TransactionClient;
+
+/** Everything `executeAdvanceTx` needs. Built by `prepareAdvance` with no writes. */
+export interface AdvancePlan {
+  filterId: string;
+  ctx: RequestContext;
+  cycleId: string;
+  sequenceNumber: number;
+  /** Live stage at prepare time — the lock verifies against this. */
+  currentState: string | null;
+  targetState: string;
+  fromState: string | null;
+  eventData: Record<string, any>;
+  checksum: string;
+  offlineTime: Date | null;
+  clientOpId: string | null;
+  /** Explicit caller-supplied group to bind when the cycle has none yet. */
+  bindEquipmentGroupId: string | null;
+  /** Lazy-bind resolved from the block's single active group (was a pre-tx write). */
+  lazyBind: { groupId: string; versionPin: number } | null;
+  dryerAction: string | null;
+  dryerDurationMinutes: number | null;
+  dryerStartedAt: Date | null;
+  enteringInterlock: boolean;
+  interlockSnapshot: FilterApprovalDetails | null;
+  interlockApproverRole: string | null;
+  /** advance's OWN completion. False when a checklist defers it (composed or not). */
+  completesCycle: boolean;
+}
+
+export type AdvancePrep =
+  | { kind: 'dedup' }
+  | { kind: 'plan'; plan: AdvancePlan };
+
+export interface PrepareAdvanceOpts {
+  /**
+   * A checklist for `targetState` is being submitted in the SAME transaction.
+   *
+   * Only affects the INTERLOCK decisions: `hasPendingChecklistAfterTarget`
+   * normally keeps `willComplete` false, which both suppresses the
+   * INTERLOCK_TERMINAL_STAGE 422 and raises a PENDING approval. When the
+   * checklist lands in this tx the cycle genuinely DOES complete here, so the
+   * interlock must judge against that. Closes the terminal-interlock hole for
+   * the composed path (the bare two-request path still has it — tracked
+   * separately, see ATOMIC-ADVANCE-CHECKLIST-PLAN.md).
+   *
+   * Does NOT affect `completesCycle`: the checklist half still owns completion,
+   * exactly as in the two-request flow.
+   */
+  composedWithChecklist?: boolean;
+  /** Composed path dedups once, here, on the shared clientOpId. */
+  skipDedup?: boolean;
+}
+
 /** @param data - Validated by Fastify JSON schema before reaching this method */
-export async function advanceImpl(
+export async function prepareAdvance(
   service: FilterOperationsService,
   ctx: RequestContext,
   filterId: string,
   data: any,
-) {
+  opts: PrepareAdvanceOpts = {},
+): Promise<AdvancePrep> {
   const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId, dryerAction, dryerDurationMinutes } = data;
   // Use the canonical `stripHtml` (sanitize-html under the hood) instead of
   // hand-rolled `<` / `>` escapes. The hand-rolled version missed entity-
@@ -53,8 +121,9 @@ export async function advanceImpl(
   // for the same cycle is a no-op success; the same opId across different
   // cycles cannot collide. Run AFTER loadLocalContext so we have the
   // current cycle id; same pattern as submit-checklist.ts.
-  if (clientOpId && filterCurrentCycleId && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
-    return service.getCurrentState(ctx, filterId);
+  if (!opts.skipDedup && clientOpId && filterCurrentCycleId
+    && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
+    return { kind: 'dedup' };
   }
   throwIfFailed(executor.assertCycleActive(localCtx));
 
@@ -210,6 +279,7 @@ export async function advanceImpl(
 
   // Validate instrument readings if provided.
   let validatedReadings: any = null;
+  let lazyBind: { groupId: string; versionPin: number } | null = null;
   if (instrumentReadings && typeof instrumentReadings === 'object' && Object.keys(instrumentReadings).length > 0) {
     let cycleGroupId = equipmentGroupId ?? cycle.equipmentGroupId;
     // Three pin sources (priority): cycle pin → lazy-bind live group version → null (legacy).
@@ -235,12 +305,10 @@ export async function advanceImpl(
       if (blockGroups.length === 1) {
         cycleGroupId = blockGroups[0].id;
         cycleVersionPin = blockGroups[0].version; // P1: pin at lazy-bind moment
-        // Persist on cycle so future requests don't need to re-resolve.
-        // (Pre-tx write — same as before; keeps lock-acquisition order unchanged.)
-        await prisma.cleaningCycle.update({
-          where: { id: cycle.id },
-          data: { equipmentGroupId: cycleGroupId, equipmentGroupVersionPin: cycleVersionPin },
-        });
+        // 2026-07-16: this used to `prisma.cleaningCycle.update(...)` right here,
+        // OUTSIDE the transaction. Deferred to executeAdvanceTx so prepare stays
+        // write-free and the binding rolls back with the rest of a composed op.
+        lazyBind = { groupId: cycleGroupId, versionPin: cycleVersionPin };
       }
     }
     throwIfFailed(executor.assertEquipmentGroupSelected(localCtx, cycleGroupId));
@@ -386,13 +454,23 @@ export async function advanceImpl(
     }
   }
 
+  // advance's OWN completion — unchanged. When a checklist follows the target
+  // stage the checklist half completes the cycle, composed or not.
+  const completesCycle = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget;
+
   // Stage interlock — entry step. When this advance ENTERS an interlock stage
   // (WASH_OUT / DRY_OUT) and the cycle is NOT auto-completing here, a PENDING
   // approval is created inside the tx (atomic with the state change) so there is
   // no window where the filter sits at the gated stage with no gate. The details
   // snapshot (DB reads) is gathered BEFORE the tx; the notification fires AFTER
-  // commit (best-effort). willComplete mirrors the auto-complete condition below.
-  const willComplete = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget;
+  // commit (best-effort).
+  //
+  // 2026-07-16: interlock judges against whether the CYCLE completes here, which
+  // in the composed path includes the checklist landing in the same tx. In the
+  // bare path `composedWithChecklist` is false and this is identical to
+  // `completesCycle` — i.e. unchanged behaviour for every existing caller.
+  const cycleWillComplete = leadsToEnd && !hasMoreStages
+    && (!hasPendingChecklistAfterTarget || opts.composedWithChecklist === true);
 
   // #5 fix (audit 2026-07-04): a terminal interlock stage — WASH_OUT / DRY_OUT that
   // leads straight to END — would auto-complete with NO QA sign-off. `willComplete`
@@ -402,7 +480,7 @@ export async function advanceImpl(
   // than complete without the required approval (21 CFR §11). An admin must add a
   // stage after the interlock point or disable the interlock. Offline replay is
   // exempt (offline work is never gated — same carve-out as `enteringInterlock`).
-  if (interlockConfig.enabled && isInterlockStage(targetState) && willComplete && !ctx.isOfflineReplay) {
+  if (interlockConfig.enabled && isInterlockStage(targetState) && cycleWillComplete && !ctx.isOfflineReplay) {
     throw new AppError(
       422,
       'INTERLOCK_TERMINAL_STAGE',
@@ -414,7 +492,7 @@ export async function advanceImpl(
   // offline-replayed entry into WASH_OUT / DRY_OUT — offline work isn't gated, so
   // creating a PENDING approval would leave a stuck request no operator can clear.
   const enteringInterlock =
-    interlockConfig.enabled && isInterlockStage(targetState) && !willComplete && !ctx.isOfflineReplay;
+    interlockConfig.enabled && isInterlockStage(targetState) && !cycleWillComplete && !ctx.isOfflineReplay;
   let interlockSnapshot: FilterApprovalDetails | null = null;
   const interlockApproverRole: string | null = enteringInterlock
     ? getApproverRoleForStage(targetState, interlockConfig)
@@ -423,131 +501,201 @@ export async function advanceImpl(
     interlockSnapshot = await collectFilterApprovalDetails(filterId);
   }
 
-  // Captured from the transaction's return value (TS can't narrow a variable
-  // mutated inside the async tx closure, so the approval is returned out).
-  const createdApproval = await prisma.$transaction(async (tx): Promise<{ id: string } | null> => {
-    // SELECT ... FOR UPDATE on the FilterDetails row blocks any concurrent
-    // advance/bypass on this filter until this transaction commits. Closes
-    // the read-then-write race where two operators on two devices could both
-    // pass the state check and both write STAGE_TRANSITIONED.
-    await lockAndVerifyFilterState(tx, filterId, currentState, cycle.id);
+  return {
+    kind: 'plan',
+    plan: {
+      filterId,
+      ctx,
+      cycleId: cycle.id,
+      sequenceNumber: cycle.sequenceNumber,
+      currentState,
+      targetState,
+      fromState,
+      eventData,
+      checksum,
+      offlineTime: offlineTime ?? null,
+      clientOpId,
+      bindEquipmentGroupId: (equipmentGroupId && !cycle.equipmentGroupId) ? equipmentGroupId : null,
+      lazyBind,
+      dryerAction: dryerAction ?? null,
+      dryerDurationMinutes: dryerDurationMinutes ?? null,
+      dryerStartedAt,
+      enteringInterlock,
+      interlockSnapshot,
+      interlockApproverRole,
+      completesCycle,
+    },
+  };
+}
 
-    // Update equipment group if provided and not yet set
-    if (equipmentGroupId && !cycle.equipmentGroupId) {
-      await tx.cleaningCycle.update({
-        where: { id: cycle.id },
-        data: { equipmentGroupId },
-      });
-    }
+/**
+ * Apply a prepared advance inside the caller's transaction. Returns the created
+ * PENDING stage approval (if any) so the caller can notify AFTER commit.
+ */
+export async function executeAdvanceTx(tx: TxClient, plan: AdvancePlan): Promise<{ id: string } | null> {
+  const {
+    filterId, ctx, cycleId, currentState, targetState, fromState,
+    eventData, checksum, offlineTime, dryerAction, dryerDurationMinutes, dryerStartedAt,
+  } = plan;
 
-    // Dryer SET_DURATION: persist duration + start time on the cycle row.
-    // The DRYER_STARTED audit info is now folded into the main advance event
-    // (see eventAttributes above) — emitting a separate row here would
-    // duplicate the audit-trail with two state transitions per advance and
-    // break clientOpId-based idempotency.
-    if (dryerAction === 'SET_DURATION') {
-      await tx.cleaningCycle.update({
-        where: { id: cycle.id },
-        data: { dryerDurationMinutes, dryerStartedAt: dryerStartedAt! },
-      });
-    }
+  // SELECT ... FOR UPDATE on the FilterDetails row blocks any concurrent
+  // advance/bypass on this filter until this transaction commits. Closes
+  // the read-then-write race where two operators on two devices could both
+  // pass the state check and both write STAGE_TRANSITIONED.
+  await lockAndVerifyFilterState(tx, filterId, currentState, cycleId);
 
-    await tx.filterEvent.create({
+  // Update equipment group if provided and not yet set
+  if (plan.bindEquipmentGroupId) {
+    await tx.cleaningCycle.update({
+      where: { id: cycleId },
+      data: { equipmentGroupId: plan.bindEquipmentGroupId },
+    });
+  }
+
+  // Lazy-bound group + version pin resolved in prepare (was a pre-tx write).
+  if (plan.lazyBind) {
+    await tx.cleaningCycle.update({
+      where: { id: cycleId },
       data: {
-        ...eventData,
-        checksum,
-        ipAddress: ctx.ipAddress,
-        telemetrySnapshot: {},
-        ...(offlineTime && { performedAt: offlineTime }),
+        equipmentGroupId: plan.lazyBind.groupId,
+        equipmentGroupVersionPin: plan.lazyBind.versionPin,
       },
     });
+  }
 
-    // Mark dryer readings as submitted (DRY_IN stays, user advances to DRY_OUT later)
-    if (dryerAction === 'SUBMIT_READINGS') {
-      await tx.cleaningCycle.update({
-        where: { id: cycle.id },
-        data: { dryerReadingsSubmitted: true },
-      });
-    }
+  // Dryer SET_DURATION: persist duration + start time on the cycle row.
+  // The DRYER_STARTED audit info is now folded into the main advance event
+  // (see eventAttributes above) — emitting a separate row here would
+  // duplicate the audit-trail with two state transitions per advance and
+  // break clientOpId-based idempotency.
+  if (dryerAction === 'SET_DURATION') {
+    await tx.cleaningCycle.update({
+      where: { id: cycleId },
+      data: { dryerDurationMinutes: dryerDurationMinutes!, dryerStartedAt: dryerStartedAt! },
+    });
+  }
 
-    // currentLifecycleState moved to FilterDetails (Step 6).
+  await tx.filterEvent.create({
+    data: {
+      ...(eventData as any),
+      checksum,
+      ipAddress: ctx.ipAddress,
+      telemetrySnapshot: {},
+      ...(offlineTime && { performedAt: offlineTime }),
+    },
+  });
+
+  // Mark dryer readings as submitted (DRY_IN stays, user advances to DRY_OUT later)
+  if (dryerAction === 'SUBMIT_READINGS') {
+    await tx.cleaningCycle.update({
+      where: { id: cycleId },
+      data: { dryerReadingsSubmitted: true },
+    });
+  }
+
+  // currentLifecycleState moved to FilterDetails (Step 6).
+  await tx.filterDetails.update({
+    where: { assetInstanceId: filterId },
+    data: { currentLifecycleState: targetState },
+  });
+
+  // Stage interlock — raise the gate on entry (atomic with the state change).
+  let approvalRow: { id: string } | null = null;
+  if (plan.enteringInterlock && plan.interlockSnapshot && plan.interlockApproverRole) {
+    approvalRow = await requestStageApprovalTx(tx, {
+      cycleId,
+      filterId,
+      stageKey: targetState,
+      approverRole: plan.interlockApproverRole,
+      detailsSnapshot: plan.interlockSnapshot,
+      ctx,
+    });
+  }
+
+  if (plan.completesCycle) {
+    const completedAt = offlineTime ?? new Date();
+    await tx.cleaningCycle.update({
+      where: { id: cycleId },
+      data: { status: 'COMPLETED', completedAt },
+    });
+    // 2026-06-02: completion now leaves the filter in the terminal
+    // CLEANING_CYCLE_COMPLETED state (was null/Idle). currentCycleId is still
+    // cleared, so getCurrentState/start-cycle treat the filter as available
+    // (both key off currentCycleId, not the lifecycle label).
     await tx.filterDetails.update({
       where: { assetInstanceId: filterId },
-      data: { currentLifecycleState: targetState },
+      data: { currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' },
     });
+    // Stamp the typed filter's lastCleaningDate to the completion day so the
+    // "Last Cleaned" column reflects the just-finished cycle. Uses offlineTime
+    // (not server-now) for offline replay, per the dryer-anchor rule. jsonb_set
+    // merges — other field-option attributes are preserved. The filters→
+    // asset_instances mirror trigger keeps the legacy row in sync.
+    // LOCAL calendar day (not toISOString/UTC) so a completion near local
+    // midnight isn't stamped a day early — see toLocalDateString.
+    const cleanDate = toLocalDateString(completedAt);
+    await tx.$executeRaw`UPDATE filters SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{lastCleaningDate}', to_jsonb(${cleanDate}::text), true) WHERE id = ${filterId}::uuid`;
 
-    // Stage interlock — raise the gate on entry (atomic with the state change).
-    let approvalRow: { id: string } | null = null;
-    if (enteringInterlock && interlockSnapshot && interlockApproverRole) {
-      approvalRow = await requestStageApprovalTx(tx, {
-        cycleId: cycle.id,
-        filterId,
-        stageKey: targetState,
-        approverRole: interlockApproverRole,
-        detailsSnapshot: interlockSnapshot,
-        ctx,
-      });
-    }
+    const completeEvent = {
+      filterId, cycleId, eventType: 'CYCLE_COMPLETED' as const,
+      performedBy: ctx.userSub, attributes: withClientOpId({ sequenceNumber: plan.sequenceNumber }, plan.clientOpId),
+    };
+    await tx.filterEvent.create({
+      data: {
+        ...completeEvent,
+        checksum: computeChecksum(completeEvent),
+        ipAddress: ctx.ipAddress,
+        telemetrySnapshot: {},
+      },
+    });
+  }
 
-    if (leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget) {
-      const completedAt = offlineTime ?? new Date();
-      await tx.cleaningCycle.update({
-        where: { id: cycle.id },
-        data: { status: 'COMPLETED', completedAt },
-      });
-      // 2026-06-02: completion now leaves the filter in the terminal
-      // CLEANING_CYCLE_COMPLETED state (was null/Idle). currentCycleId is still
-      // cleared, so getCurrentState/start-cycle treat the filter as available
-      // (both key off currentCycleId, not the lifecycle label).
-      await tx.filterDetails.update({
-        where: { assetInstanceId: filterId },
-        data: { currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' },
-      });
-      // Stamp the typed filter's lastCleaningDate to the completion day so the
-      // "Last Cleaned" column reflects the just-finished cycle. Uses offlineTime
-      // (not server-now) for offline replay, per the dryer-anchor rule. jsonb_set
-      // merges — other field-option attributes are preserved. The filters→
-      // asset_instances mirror trigger keeps the legacy row in sync.
-      // LOCAL calendar day (not toISOString/UTC) so a completion near local
-      // midnight isn't stamped a day early — see toLocalDateString.
-      const cleanDate = toLocalDateString(completedAt);
-      await tx.$executeRaw`UPDATE filters SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{lastCleaningDate}', to_jsonb(${cleanDate}::text), true) WHERE id = ${filterId}::uuid`;
+  // Audit §1.1 (2026-05-16): audit-write inside business tx.
+  await auditLog({
+    userId: ctx.userId, userRole: ctx.userRole, action: 'STATE_TRANSITION',
+    targetType: 'filter', targetId: filterId,
+    beforeValue: { state: fromState },
+    afterValue: { state: targetState },
+    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+  }, tx);
 
-      const completeEvent = {
-        filterId, cycleId: cycle.id, eventType: 'CYCLE_COMPLETED' as const,
-        performedBy: ctx.userSub, attributes: withClientOpId({ sequenceNumber: cycle.sequenceNumber }, clientOpId),
-      };
-      await tx.filterEvent.create({
-        data: {
-          ...completeEvent,
-          checksum: computeChecksum(completeEvent),
-          ipAddress: ctx.ipAddress,
-          telemetrySnapshot: {},
-        },
-      });
-    }
+  return approvalRow;
+}
 
-    // Audit §1.1 (2026-05-16): audit-write inside business tx.
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'STATE_TRANSITION',
-      targetType: 'filter', targetId: filterId,
-      beforeValue: { state: fromState },
-      afterValue: { state: targetState },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    }, tx);
+/**
+ * Post-commit, best-effort approver notification. Extracted so the composed op
+ * fires the identical notification after ITS transaction commits.
+ */
+export async function notifyAdvanceInterlock(
+  plan: AdvancePlan,
+  createdApproval: { id: string } | null,
+): Promise<void> {
+  if (createdApproval && plan.interlockApproverRole) {
+    await notifyStageApprovalRequested(
+      { id: createdApproval.id, filterId: plan.filterId, stageKey: plan.targetState, approverRole: plan.interlockApproverRole },
+      plan.interlockSnapshot?.filterName ?? null,
+      plan.ctx,
+    );
+  }
+}
 
-    return approvalRow;
-  });
+/** @param data - Validated by Fastify JSON schema before reaching this method */
+export async function advanceImpl(
+  service: FilterOperationsService,
+  ctx: RequestContext,
+  filterId: string,
+  data: any,
+) {
+  const prep = await prepareAdvance(service, ctx, filterId, data);
+  if (prep.kind === 'dedup') return service.getCurrentState(ctx, filterId);
+
+  // Captured from the transaction's return value (TS can't narrow a variable
+  // mutated inside the async tx closure, so the approval is returned out).
+  const createdApproval = await prisma.$transaction(async (tx) => executeAdvanceTx(tx, prep.plan));
 
   // Best-effort: notify the approver role that a stage is awaiting approval.
   // After commit so a notification failure never rolls back the cycle write.
-  if (createdApproval && interlockApproverRole) {
-    await notifyStageApprovalRequested(
-      { id: createdApproval.id, filterId, stageKey: targetState, approverRole: interlockApproverRole },
-      interlockSnapshot?.filterName ?? null,
-      ctx,
-    );
-  }
+  await notifyAdvanceInterlock(prep.plan, createdApproval);
 
   return service.getCurrentState(ctx, filterId);
 }

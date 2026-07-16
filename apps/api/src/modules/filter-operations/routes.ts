@@ -382,6 +382,98 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     return service.advance(ctx, id, req.body);
   });
 
+  // Atomic advance + post-stage checklist (2026-07-16). The bare /advance above
+  // commits the transition BEFORE the operator answers the stage's mandatory
+  // checklist — closing the dialog leaves an orphaned 21 CFR §11 record of a
+  // stage entry whose required attestation was never given. This op does both in
+  // ONE transaction (both or neither). See cycle-write/advance-with-checklist.ts
+  // and tasks/ATOMIC-ADVANCE-CHECKLIST-PLAN.md.
+  //
+  // Gates: identical to running both ops — same FILTER_OPERATE permission, and
+  // BOTH reauth actions are enforced so the composed path can never be used to
+  // slip past a gate that either single op would have applied.
+  app.post('/:id/advance-with-checklist', {
+    preHandler: [app.requirePermission('FILTER_OPERATE')],
+    schema: {
+      tags: ['Filter Operations'],
+      summary: 'Advance to next stage AND submit that stage\'s checklist atomically',
+      description:
+        'Performs the stage advance and its post-stage checklist in a single transaction. '
+        + 'Rejects with 400 NO_CHECKLIST_AT_TARGET when no active checklist follows targetState '
+        + '(use POST /:id/advance for those stages).',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        // Union of the /advance and /submit-checklist required fields.
+        required: ['targetState', 'answers', 'tapeVersion'],
+        properties: {
+          // ── advance half ──
+          targetState: { type: 'string', pattern: STATE_KEY_PATTERN },
+          parameters: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
+          equipmentId: { type: 'string', format: 'uuid' },
+          cleaningAreaId: { type: 'string', format: 'uuid' },
+          remarks: { type: 'string', maxLength: MAX_TEXT_LEN },
+          equipmentGroupId: { type: 'string', format: 'uuid' },
+          instrumentReadings: { type: 'object', additionalProperties: { type: 'number' }, maxProperties: MAX_OBJECT_PROPS },
+          dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
+          dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
+          // ── checklist half ──
+          answers: {
+            type: 'object',
+            additionalProperties: true,
+            maxProperties: MAX_OBJECT_PROPS,
+            description: 'Map of questionId -> answer value, for the checklist AFTER targetState',
+          },
+          expectedProfileVersions: {
+            type: 'object',
+            additionalProperties: { type: 'integer' },
+            maxProperties: MAX_OBJECT_PROPS,
+            description: 'Phase A.1: client-cached version per checklistProfileId. 409 SCHEMA_DRIFT on mismatch.',
+          },
+          filterSet: { type: 'string', enum: ['ALL', 'SET_A', 'SET_B'], description: 'AHU-completion filter-set scope for the INTERLOCK gate' },
+          // ── shared ──
+          offlinePerformedAt: { type: 'string', format: 'date-time' },
+          clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay; stamped on BOTH events' },
+          tapeVersion: { type: 'integer', description: 'Required staleness guard; rejected with 409 STALE_TAPE on mismatch' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            filterId: { type: 'string' },
+            filterName: { type: 'string', nullable: true },
+            currentState: { type: 'string', nullable: true },
+            currentCycle: { type: 'object', nullable: true, additionalProperties: true },
+            nextBlocks: { type: 'array', items: { type: 'object', additionalProperties: true } },
+            pipelineStages: { type: 'array', items: { type: 'object', additionalProperties: true } },
+            profile: { type: 'object', nullable: true, additionalProperties: true },
+            filterSet: { type: 'string', nullable: true },
+            totalCycles: { type: 'integer' },
+            equipmentGroup: { type: 'object', nullable: true, additionalProperties: true },
+            actions: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true, properties: { type: { type: 'string' }, label: { type: 'string' } } },
+              description: 'Decision-tape: ordered list of permitted next actions after this write',
+            },
+            tapeVersion: {
+              type: 'integer',
+              description: 'Monotonic per-cycle version after this write; send back as the staleness guard on the next write',
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    // Both actions — this op performs both writes, so it must clear both gates.
+    const { ok } = await enforceReauth(['ADVANCE_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE'], req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const { id } = req.params as { id: string };
+    return service.advanceWithChecklist(ctx, id, req.body);
+  });
+
   app.post('/:id/submit-checklist', {
     preHandler: [app.requirePermission('FILTER_OPERATE')],
     schema: {
