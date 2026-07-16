@@ -53,6 +53,13 @@ export interface DeferredAdvance {
   /** The advance payload the hook built; merged with the answers into one op. */
   payload: Record<string, unknown>;
   cleaningAreaId?: string | null;
+  /**
+   * Present only for the cycle-START flow: the cycle has not been started
+   * either, so the submit dispatches the compound
+   * `start-and-advance-with-checklist` (start, then the ATOMIC
+   * advance+checklist) instead of the mid-cycle `advance-with-checklist`.
+   */
+  cyclePayload?: Record<string, unknown>;
 }
 
 // ─── Tagged union of legal dialog states ──────────────────────────────────
@@ -173,10 +180,20 @@ export function reduceDialogState(state: DialogState, event: DialogEvent): Dialo
       return { kind: 'awaiting_dryer', filterId: event.filterId, filterName: event.filterName, remainingBatch: event.remainingBatch };
 
     case 'open_checklist':
-      // Checklist opens from idle (pre-advance gate) OR from awaiting_equipment
-      // (post-equipment-readings continuation). NEVER from awaiting_dryer or
-      // awaiting_reason — the operator hasn't completed the prior gate.
-      assertOpenable(state, ['none', 'awaiting_equipment']);
+      // Checklist opens from idle (pre-advance gate), from awaiting_equipment
+      // (post-equipment-readings continuation), or — since the 2026-07-16
+      // dialog-first change — from awaiting_reason.
+      //
+      // The reason case is NEW and legal: on a cycle-start whose first stage
+      // carries a mandatory checklist and whose block has no equipment group,
+      // the operator goes reason → checklist directly. The prior gate IS
+      // complete (they picked a reason); the checklist now opens BEFORE the
+      // start+advance is written, rather than after. Without this the
+      // dialog-first cycle-start throws here.
+      //
+      // Still NEVER from awaiting_dryer (the dryer gate isn't finished) or from
+      // awaiting_checklist (stacked gates) — both still assert.
+      assertOpenable(state, ['none', 'awaiting_equipment', 'awaiting_reason']);
       return {
         kind: 'awaiting_checklist',
         filterId: event.filterId,

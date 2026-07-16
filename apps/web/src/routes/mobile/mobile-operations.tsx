@@ -2084,7 +2084,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // No equipment groups, SINGLE filter — fire the compound op. START_CLEANING_CYCLE
     // is reauth-gated for ADMIN role; wrap so the password dialog appears.
     await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
-      const { executed: cycleExecuted } = await core.startAndAdvance({
+      const { executed: cycleExecuted, deferred: cycleDeferred } = await core.startAndAdvance({
         filterId: reasonDialog.filterId,
         filterName: reasonDialog.filterName,
         cyclePayload,
@@ -2093,6 +2093,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         cleaningAreaId: selectedBlock?.id,
         password,
       });
+
+      // Dialog-first (2026-07-16): the first stage has a mandatory checklist, so
+      // NOTHING was written — not even the cycle start. The dialog is open and
+      // the whole compound op fires on submit. Reporting "→ stage" / "(queued)"
+      // here would claim a cycle + transition that have not happened and that
+      // Close discards.
+      if (cycleDeferred) {
+        setScanValue(''); setRemarks('');
+        return;
+      }
 
       const stageLabel = reasonDialog.stage.replace(/_/g, ' ');
       setSuccess(`${reasonDialog.filterName} → ${stageLabel}${cycleExecuted ? '' : ' (queued)'}`);
@@ -2428,6 +2438,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             });
             executed = res.executed;
             dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
+            // Cycle-start deferred behind its first-stage checklist: nothing was
+            // written (not even the cycle). Suppresses the success toast +
+            // recent-ops below — the checklist submit fires the whole compound op
+            // and reports. Only reachable when !useUnifiedBatch (the hook refuses
+            // to defer a batch continuation).
+            deferredHere = res.deferred === true;
             if (useUnifiedBatch && executed && Array.isArray((res.result as any)?.actions)) {
               cycleStartActionsByFilter.set(equipFiltId, (res.result as any).actions);
             }

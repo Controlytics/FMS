@@ -239,6 +239,43 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
     ? { tapeVersion: op.tapeVersion }
     : {};
 
+  // Cycle-start whose first stage carries a mandatory checklist (2026-07-16).
+  // Identical to start-and-advance except the advance half posts the ATOMIC
+  // advance-with-checklist, so a replayed cycle-start can never land a stage
+  // entry without its attestation.
+  if (op.type === 'start-and-advance-with-checklist') {
+    const { cyclePayload, advancePayload } = op.payload as { cyclePayload: Record<string, any>; advancePayload: Record<string, any> };
+    try {
+      await apiClient.post(
+        `/api/filters/${op.filterId}/start-cycle`,
+        { ...cyclePayload, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId ? `${op.clientOpId}:start` : undefined },
+        { ...headers, ...(op.clientOpId ? { 'x-client-op-id': `${op.clientOpId}:start` } : {}) },
+      );
+    } catch (e: any) {
+      const code = e?.code || e?.error || '';
+      // CYCLE_ACTIVE is a benign race — start succeeded earlier, continue.
+      if (code !== 'CYCLE_ACTIVE') throw e;
+    }
+    // The stored tapeVersion is pre-start-cycle and meaningless; derive a fresh
+    // one, same as the start-and-advance leg below.
+    let sacTape: number | undefined;
+    try {
+      const fresh = await apiClient.get<any>(`/api/filters/${op.filterId}/current-state`);
+      if (typeof fresh?.tapeVersion === 'number') sacTape = fresh.tapeVersion;
+    } catch { /* fall through; the advance will surface the 400 */ }
+    await apiClient.post(
+      `/api/filters/${op.filterId}/advance-with-checklist`,
+      {
+        ...advancePayload,
+        ...(sacTape !== undefined ? { tapeVersion: sacTape } : {}),
+        offlinePerformedAt: offlineTime,
+        clientOpId: op.clientOpId ? `${op.clientOpId}:advance` : undefined,
+      },
+      { ...headers, ...(op.clientOpId ? { 'x-client-op-id': `${op.clientOpId}:advance` } : {}) },
+    );
+    return;
+  }
+
   if (op.type === 'start-and-advance') {
     const { cyclePayload, advancePayload } = op.payload as { cyclePayload: Record<string, any>; advancePayload: Record<string, any> };
     try {

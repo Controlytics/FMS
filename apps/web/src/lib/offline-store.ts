@@ -77,7 +77,7 @@ interface OfflineOperation {
    * Replays via the generic `/api/filters/:id/${op.type}` mapping in sync-engine,
    * and is registered in its CYCLE_BOUND_OPS + failed-start dependent-skip lists.
    */
-  type: 'advance' | 'advance-with-checklist' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance';
+  type: 'advance' | 'advance-with-checklist' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance' | 'start-and-advance-with-checklist';
   filterId: string;
   filterName: string;
   payload: Record<string, any>;

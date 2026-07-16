@@ -1068,7 +1068,7 @@ export function FilterOperationsPage() {
           }
         }
 
-        const { executed, result } = await core.startAndAdvance({
+        const { executed, result, deferred } = await core.startAndAdvance({
           filterId: dialogCapture.filterId,
           filterName: dialogCapture.filterName,
           cyclePayload: cycleBody,
@@ -1076,6 +1076,13 @@ export function FilterOperationsPage() {
           targetState: dialogCapture.stage.key,
           cleaningAreaId: reasonBlock?.id,
         });
+        // Dialog-first (2026-07-16): the first stage has a mandatory checklist \u2014
+        // nothing was written (not even the cycle start) and the reason dialog has
+        // already been REPLACED by the checklist dialog (open_checklist transitions
+        // straight from awaiting_reason). Recording a submission or toasting would
+        // claim work that hasn't happened, and the close below would dismiss the
+        // checklist the operator must answer.
+        if (deferred) return;
         recordSubmission({ stage: dialogCapture.stage.label + (executed ? '' : ' (queued)'), filter: dialogCapture.filterName, block: reasonBlock?.name, time: formatTime(new Date()) });
         refreshFilters();
         core.dispatch({ type: 'close' }); // close reason dialog
@@ -1334,6 +1341,7 @@ export function FilterOperationsPage() {
           targetState: isDryerReadings ? 'DRY_IN' : equipmentDialog.stage.key,
           cleaningAreaId: equipmentDialog.block?.id,
         });
+        deferredHere = res.deferred === true;
         executed = res.executed;
         dialogOpenedByCore = res.dialogOpened;
         setPendingCyclePayload(null);

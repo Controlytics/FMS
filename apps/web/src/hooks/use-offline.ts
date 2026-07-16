@@ -92,7 +92,7 @@ export function useOffline() {
    * for these routes do NOT require the field.
    */
   const executeOrQueue = useCallback(async (
-    type: 'advance' | 'advance-with-checklist' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance',
+    type: 'advance' | 'advance-with-checklist' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance' | 'start-and-advance-with-checklist',
     filterId: string,
     filterName: string,
     payload: Record<string, any>,
@@ -241,6 +241,40 @@ export function useOffline() {
           };
           // /advance is NOT in the reauth config — plain post is correct.
           result = await apiClient.post(`/api/filters/${filterId}/advance`, advanceBody);
+          break;
+        }
+        // Cycle-start whose FIRST stage carries a mandatory checklist (2026-07-16).
+        // Same start-then-advance pair as above, except the advance half is the
+        // ATOMIC advance-with-checklist — so an operator who abandons the
+        // checklist never leaves a committed stage entry with no attestation.
+        //
+        // Start and advance remain two requests (as they already are): making
+        // all three atomic would need a new three-way server op, and the
+        // start/advance split is a pre-existing, separate gap — a started cycle
+        // that never entered a stage records no attestation-less transition.
+        case 'start-and-advance-with-checklist': {
+          const { cyclePayload, advancePayload } = payload as any;
+          try {
+            await onlinePost(`/api/filters/${filterId}/start-cycle`, { ...cyclePayload, clientOpId: `${clientOpId}:start` });
+          } catch (startErr: any) {
+            const code = startErr?.code || startErr?.error || '';
+            // Benign race: the cycle already exists — continue to the advance.
+            if (code !== 'CYCLE_ACTIVE') throw startErr;
+          }
+          let sacTapeVersion: number | undefined;
+          try {
+            const fresh = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
+            if (typeof fresh?.tapeVersion === 'number') sacTapeVersion = fresh.tapeVersion;
+          } catch { /* advance will surface the 400 — fall through */ }
+          // onlinePost, NOT the plain post the start-and-advance advance-half
+          // uses: that comment ("/advance is NOT in the reauth config") does not
+          // carry over — this endpoint enforces SUBMIT_CHECKLIST_WITH_SIGNATURE,
+          // which IS configured in this deployment. A plain post would 401.
+          result = await onlinePost(`/api/filters/${filterId}/advance-with-checklist`, {
+            ...advancePayload,
+            ...(sacTapeVersion !== undefined ? { tapeVersion: sacTapeVersion } : {}),
+            clientOpId: `${clientOpId}:advance`,
+          });
           break;
         }
         case 'submit-checklist':

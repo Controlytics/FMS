@@ -1241,3 +1241,188 @@ describe('useFilterOperationsCore — batch parked advances', () => {
     );
   });
 });
+
+/**
+ * Dialog-first CYCLE START (2026-07-16) — the last orphan.
+ *
+ * `startAndAdvance` committed the cycle AND the entry into its first stage
+ * before a mandatory WASH_IN-style checklist rendered, so Close stranded a stage
+ * entry with no attestation. This is the INVISIBLE variant of the reported bug —
+ * the next advance throws CHECKLIST_PENDING and drags the operator back, so it
+ * self-corrects in practice — but it is the same §11 class.
+ *
+ * The submit dispatches `start-and-advance-with-checklist`: start, then the
+ * ATOMIC advance+checklist. Start remains a separate request (as it already was);
+ * a started cycle that never entered a stage records no attestation-less
+ * transition, so it is a different (pre-existing) gap.
+ */
+describe('useFilterOperationsCore — dialog-first cycle start', () => {
+  const CHECKLIST = [
+    { checklistProfileId: 'cp1', questions: [{ id: 'q1', question: 'Inspected?', questionType: 'YES_NO' }] },
+  ];
+  const CYCLE = { cleaningReasonKey: 'ROUTINE' };
+  const ADV = { targetState: 'WASH_IN', cleaningAreaId: 'blk1' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecuteOrQueue.mockResolvedValue({ executed: true, result: { actions: [] } });
+    mockResolvePending.mockResolvedValue(null);
+    mockFindNext.mockResolvedValue(null);
+    mockRecomputeCache.mockResolvedValue(undefined);
+    mockAppendCompletion.mockResolvedValue(undefined);
+    mockGetCachedData.mockResolvedValue({});
+    mockCacheData.mockResolvedValue(undefined);
+    mockGetCurrentActions.mockResolvedValue([]);
+    mockResolveForTarget.mockResolvedValue([]);
+    mockCacheServerState.mockResolvedValue(undefined);
+    onlineRef.current = true;
+  });
+
+  it('writes NOTHING — not even the cycle start — when the first stage has a checklist', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: CYCLE, advancePayload: ADV,
+        targetState: 'WASH_IN', cleaningAreaId: 'blk1',
+      });
+    });
+
+    expect(mockExecuteOrQueue).not.toHaveBeenCalled();
+    expect(outcome.deferred).toBe(true);
+    expect(result.current.dialogState.kind).toBe('awaiting_checklist');
+  });
+
+  it('parks the cyclePayload — that is what routes the submit to the compound op', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: CYCLE, advancePayload: ADV,
+        targetState: 'WASH_IN',
+      });
+    });
+
+    if (result.current.dialogState.kind === 'awaiting_checklist') {
+      expect(result.current.dialogState.deferredAdvance?.cyclePayload).toEqual(CYCLE);
+    }
+  });
+
+  it('submits start + atomic advance+checklist as ONE compound op', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: CYCLE, advancePayload: ADV,
+        targetState: 'WASH_IN',
+      });
+    });
+    await act(async () => {
+      await result.current.submitChecklist({
+        filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' }, password: 'pw',
+      });
+    });
+
+    expect(mockExecuteOrQueue).toHaveBeenCalledTimes(1);
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'start-and-advance-with-checklist',
+      'f1',
+      'F-1',
+      expect.objectContaining({
+        cyclePayload: CYCLE,
+        advancePayload: expect.objectContaining({ targetState: 'WASH_IN', answers: { q1: 'YES' } }),
+      }),
+      'WASH_IN',
+      'pw',
+    );
+  });
+
+  // cycleStarted=true or the next offline scan sees no cycle in progress and
+  // offers to start a SECOND one.
+  it('recomputes the cache WITH the cycle stub when the compound op queues', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    mockExecuteOrQueue.mockResolvedValue({ executed: false });
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: CYCLE, advancePayload: ADV,
+        targetState: 'WASH_IN', cleaningAreaId: 'blk1',
+      });
+    });
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
+    });
+
+    expect(mockRecomputeCache).toHaveBeenCalledWith('f1', 'WASH_IN', true, 'blk1');
+  });
+
+  // The reason dialog is OPEN when the no-equipment cycle-start path calls
+  // startAndAdvance. open_checklist from awaiting_reason used to throw
+  // assertOpenable — a crash, not a cosmetic miss.
+  it('opens the checklist directly over the reason dialog without tripping assertOpenable', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    act(() => {
+      result.current.dispatch({ type: 'open_reason', filterId: 'f1', filterName: 'F-1', stage: 'WASH_IN' });
+    });
+    expect(result.current.dialogState.kind).toBe('awaiting_reason');
+
+    await act(async () => {
+      await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: CYCLE, advancePayload: ADV,
+        targetState: 'WASH_IN',
+      });
+    });
+
+    expect(result.current.dialogState.kind).toBe('awaiting_checklist');
+  });
+
+  it('does NOT defer a batch continuation', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: CYCLE, advancePayload: ADV,
+        targetState: 'WASH_IN',
+        skipChecklistDispatch: true,
+      });
+    });
+
+    expect(mockResolveForTarget).not.toHaveBeenCalled();
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'start-and-advance', 'f1', 'F-1', expect.anything(), 'WASH_IN', undefined,
+    );
+  });
+
+  it('starts+advances plainly when the first stage has no checklist', async () => {
+    mockResolveForTarget.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: CYCLE, advancePayload: ADV,
+        targetState: 'WASH_IN',
+      });
+    });
+
+    expect(outcome.deferred).toBe(false);
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'start-and-advance', 'f1', 'F-1', expect.anything(), 'WASH_IN', undefined,
+    );
+  });
+});

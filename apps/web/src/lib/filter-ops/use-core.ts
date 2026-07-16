@@ -130,6 +130,13 @@ export interface StartAndAdvanceArgs {
    * operator submits each one.
    */
   skipChecklistDispatch?: boolean;
+  /**
+   * Opt OUT of the dialog-first deferral (2026-07-16). Same contract as
+   * `AdvanceArgs.allowDefer` — set `false` when the caller has follow-on work
+   * (e.g. a batch-continuation loop) that deferring would skip by returning
+   * early.
+   */
+  allowDefer?: boolean;
 }
 
 export interface SubmitChecklistArgs {
@@ -178,7 +185,7 @@ export interface UseFilterOperationsCoreResult {
   dialogState: DialogState;
   dispatch: (event: DialogEvent) => void;
   advance: (args: AdvanceArgs) => Promise<AdvanceOutcome>;
-  startAndAdvance: (args: StartAndAdvanceArgs) => Promise<{ executed: boolean; result?: any; dialogOpened: boolean }>;
+  startAndAdvance: (args: StartAndAdvanceArgs) => Promise<AdvanceOutcome>;
   submitChecklist: (args: SubmitChecklistArgs) => Promise<{ executed: boolean }>;
   isLoading: boolean;
   error: string | null;
@@ -428,10 +435,50 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
    * cycle-in-progress.
    */
   const startAndAdvance = useCallback(
-    async (args: StartAndAdvanceArgs): Promise<{ executed: boolean; result?: any; dialogOpened: boolean }> => {
+    async (args: StartAndAdvanceArgs): Promise<AdvanceOutcome> => {
       setIsLoading(true);
       setError(null);
       try {
+        // Dialog-first for the cycle-START flow (2026-07-16). Same defect as the
+        // mid-cycle advance: start-and-advance committed the cycle AND the entry
+        // into the first stage before its mandatory checklist rendered, so Close
+        // stranded a stage entry with no attestation. Resolve first; if a
+        // checklist fires, write NOTHING and park the whole compound op.
+        //
+        // On submit this dispatches `start-and-advance-with-checklist`, whose
+        // ADVANCE half is atomic with the checklist. The start remains a separate
+        // request (as it already is) — a started cycle that never entered a stage
+        // records no attestation-less transition, so it is not this defect.
+        const canDefer =
+          args.allowDefer !== false
+          && !args.skipChecklistDispatch
+          && !(args.batchRemainder && args.batchRemainder.length > 0);
+        if (canDefer) {
+          const pending = await resolveChecklistForTargetStage(
+            args.filterId,
+            args.targetState,
+            online,
+          );
+          if (pending.length > 0) {
+            dispatch({
+              type: 'open_checklist',
+              filterId: args.filterId,
+              filterName: args.filterName,
+              checklists: pending,
+              deferredAdvance: {
+                targetState: args.targetState,
+                payload: args.advancePayload,
+                cleaningAreaId: args.cleaningAreaId ?? null,
+                // Presence of cyclePayload is what makes the submit dispatch the
+                // compound start-and-advance-with-checklist rather than the
+                // mid-cycle advance-with-checklist.
+                cyclePayload: args.cyclePayload,
+              },
+            });
+            return { executed: false, deferred: true, dialogOpened: true };
+          }
+        }
+
         const { executed, result } = await executeOrQueue(
           'start-and-advance',
           args.filterId,
@@ -466,7 +513,7 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           dialogOpened = dispatchOutcome === 'opened' || dispatchOutcome === 'opened_from_batch';
         }
 
-        return { executed, result, dialogOpened };
+        return { executed, result, dialogOpened, deferred: false };
       } catch (e: unknown) {
         if (isReauthOrRecompute(e)) throw e;
         const err = e as { message?: string };
@@ -526,17 +573,33 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           : undefined);
 
       try {
-        const { executed, result } = deferred
+        // The combined checklist body, shared by both deferred shapes.
+        const combinedAdvanceBody = deferred
+          ? {
+              ...deferred.payload,
+              answers: args.answers,
+              expectedProfileVersions: args.expectedProfileVersions ?? {},
+              ...(args.filterSet ? { filterSet: args.filterSet } : {}),
+            }
+          : null;
+
+        const { executed, result } = deferred?.cyclePayload
+          // Cycle-START flow: the cycle isn't started either. Compound op —
+          // start, then the ATOMIC advance+checklist.
+          ? await executeOrQueue(
+              'start-and-advance-with-checklist',
+              args.filterId,
+              args.filterName,
+              { cyclePayload: deferred.cyclePayload, advancePayload: combinedAdvanceBody } as any,
+              deferred.targetState,
+              args.password,
+            )
+          : deferred
           ? await executeOrQueue(
               'advance-with-checklist',
               args.filterId,
               args.filterName,
-              {
-                ...deferred.payload,
-                answers: args.answers,
-                expectedProfileVersions: args.expectedProfileVersions ?? {},
-                ...(args.filterSet ? { filterSet: args.filterSet } : {}),
-              },
+              combinedAdvanceBody!,
               deferred.targetState, // optimistic local state = the stage we're entering
               args.password,
             )
@@ -569,7 +632,10 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
             await recomputeAndCacheFilterState(
               args.filterId,
               deferred.targetState,
-              false,
+              // cycleStarted: the cycle-START flow queues its start too, so the
+              // cache row needs the cycle stub — otherwise the next offline scan
+              // sees no cycle in progress and offers to start a second one.
+              !!deferred.cyclePayload,
               deferred.cleaningAreaId ?? null,
             );
           }

@@ -2,14 +2,14 @@
 
 **Date:** 2026-07-15 (steps 2–4 landed 2026-07-16)
 **Branch:** RFID
-**Status:** Steps 1–5 DONE · Step 6 NEEDS OPERATOR · `start-and-advance` outstanding
+**Status:** Steps 1–5 DONE + cycle-start · Step 6 NEEDS OPERATOR
 **Decision:** Global fix (all stages, online + offline). Not a regression — design change.
 
-> **Every advance-driven flow now renders its checklist BEFORE writing anything** —
-> single + batch, online + offline. Close writes nothing.
-> **Still orphaning:** `start-and-advance` (the cycle-START path) — see below. It is
-> the *invisible* variant (the next advance throws `CHECKLIST_PENDING` and drags the
-> operator back), and closing it needs a three-way tx, not wiring.
+> **Every write path that enters a stage now renders its checklist BEFORE writing
+> anything** — mid-cycle + cycle-start, single + batch, online + offline. Close
+> writes nothing, at any stage. The orphan class is closed.
+> **Phase 2 still pending by design:** the server still ACCEPTS a bare advance so
+> in-flight offline queues can drain. Flip that once they have.
 > Step 6 (device verification) is operator-only — the queue-replay path can't be
 > self-verified.
 
@@ -20,6 +20,7 @@
 | 3. Client dialog-first (online, single) | DONE | `f8df2f4` |
 | 4. Offline combined queue entry | DONE | `4608925` |
 | 5. Batch + bulk-operate composition | DONE | `f6576bc` |
+| 5b. Cycle-start (`start-and-advance`) | DONE | see below |
 | 6. Tablet verification | **NEEDS OPERATOR** | — |
 | 7. Docs | partial (this file) | — |
 
@@ -309,16 +310,32 @@ bites, the fix is to clear only the filters actually submitted.
    `if (willComplete)`, but a deferred submit performs the ADVANCE too, so the
    filters have moved on at any stage. Now `if (willComplete || hadDeferred)`.
 
-## Still NOT fixed — `start-and-advance` (the cycle-START orphan)
+## Cycle-START orphan — FIXED 2026-07-16 (`start-and-advance`)
 
-`startAndAdvance` is not deferred, single or batch. Scanning a fresh filter →
-reason → equipment → start+advance to WASH_IN commits the cycle start AND the
-advance before a WASH_IN checklist renders, so Close strands the same orphan.
+`startAndAdvance` now defers exactly like `advance`: resolve the first stage's
+checklist, render the dialog, write NOTHING (not even the cycle start), and on
+submit dispatch `start-and-advance-with-checklist`.
 
-This is the **invisible variant**: unlike the terminal stage, the operator's next
-advance throws `CHECKLIST_PENDING` and drags them back, so it self-corrects in
-practice. Same §11 class though, and the "fix globally" decision covers it.
+**No three-way tx was needed** — the earlier note here was wrong about what the
+fix required. start-and-advance is ALREADY two requests (start, then advance);
+making the ADVANCE half the atomic `advance-with-checklist` closes the §11 hole,
+because the hole is *a stage entry without its attestation*. A started cycle that
+never entered a stage records no attestation-less transition — that is the
+pre-existing start/advance split, a different and benign gap, left as-is.
 
-Closing it needs a **three-way** composition (start-cycle + advance + checklist in
-ONE tx) — `advance-with-checklist` does not include the start. That is a new
-server op, not wiring, which is why it is not bundled here.
+### Three things this turned up
+1. **`open_checklist` from `awaiting_reason` threw `assertOpenable`** — a CRASH,
+   not a cosmetic miss. The no-equipment cycle-start path calls `startAndAdvance`
+   with the reason dialog open, so dialog-first goes reason → checklist directly.
+   That chain is now legal and commented; `awaiting_dryer` + stacked checklists
+   still assert. No test had covered it.
+2. **The advance half must use the reauth-aware post.** The existing
+   start-and-advance leg uses a plain post ("/advance is NOT in the reauth
+   config") — that does NOT carry over: `/advance-with-checklist` enforces
+   `SUBMIT_CHECKLIST_WITH_SIGNATURE`, which IS configured here, so a plain post
+   would 401.
+3. **`cycleStarted` must be `true`** on the queued recompute, or the next offline
+   scan sees no cycle in progress and offers to start a SECOND one.
+
+Gated the same way as `advance` (`allowDefer`, `skipChecklistDispatch`,
+`batchRemainder`), so batch continuations keep today's path.
