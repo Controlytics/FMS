@@ -52,6 +52,8 @@ export interface GateInput {
   homeBlockId?: string | null;
   blockChangeStatus?: string | null;
   selectedBlockId?: string | null;
+  /** Filter is under an AHU with an overdue replacement — block a cycle START. */
+  replacementBlocked?: boolean;
 }
 
 export type GateResult =
@@ -82,6 +84,12 @@ export function validateOfflineGate(g: GateInput): GateResult {
   const hasValidation = g.hasGraph || g.hasLinearPipeline || advanceTargets.length > 0;
   if (!g.online && !hasValidation) {
     return { ok: false, reason: 'offline data not cached — sync first' };
+  }
+  // AHU overdue-replacement gate (2026-07-16). START-only: an in-flight cycle is
+  // never frozen (running cycles finish). The server is authoritative online;
+  // this is the offline enforcement + an instant online message.
+  if (!g.cycleInProgress && g.replacementBlocked) {
+    return { ok: false, reason: 'AHU replacement overdue — replace this filter before cleaning' };
   }
   // 2026-06-09: OFFLINE never blocks cross-block. Per config, the confirm/approval
   // gate applies ONLINE only; offline the operation proceeds and the caller shows an
