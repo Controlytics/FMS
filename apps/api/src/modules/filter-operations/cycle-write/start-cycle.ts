@@ -23,6 +23,11 @@ import {
   getCleaningReasons,
 } from '../filter-resolver.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
+// Dynamically imported below (not statically) — replacement-schedule/service.ts
+// statically imports FilterOperationsService and instantiates it at module top
+// level, so a static import here creates an init-time circular-import cycle
+// (start-cycle.ts is itself loaded via filter-operations.service.ts). Mirrors
+// the existing `blockChangeService` dynamic import a few lines down.
 
 /**
  * #eqpin (2026-07-04): decide the equipment-group binding + version pin to freeze
@@ -92,6 +97,20 @@ export async function startCycleImpl(
       where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
     });
     if (activeCycle) throw new AppError(409, 'CYCLE_ACTIVE', 'Filter already has an active cleaning cycle');
+  }
+
+  // AHU overdue-replacement gate (2026-07-16). A filter under an AHU with an
+  // overdue (MISSED) replacement entry cannot START a new cleaning cycle until it
+  // is replaced — it is due to be physically swapped out. Offline replay is EXEMPT
+  // (mirrors validateBlockChange): the offline client already gated this at scan
+  // time, and re-checking on replay could strand a legitimately-queued start. The
+  // online start is authoritative here.
+  if (!ctx.isOfflineReplay) {
+    const { isFilterBlockedForCleaning } = await import('../../replacement-schedule/service.js');
+    if (await isFilterBlockedForCleaning(filterId)) {
+      throw new AppError(409, 'AHU_REPLACEMENT_OVERDUE',
+        'This filter’s AHU has an overdue replacement. Replace the filter before starting a cleaning cycle.');
+    }
   }
 
   // Validate cross-block (must be before cycle creation). Mode-aware (CONFIRM vs
