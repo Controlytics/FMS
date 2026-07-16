@@ -487,6 +487,88 @@ function deriveTaskStatus(
 }
 
 /**
+ * Blocked filter ids for ONE overdue entry: every active AHU filter that has not
+ * yet been replaced under it. Returns [] when the entry is not overdue (MISSED),
+ * so it composes cleanly with the sweep. Shared with listTaskEntries so the gate
+ * and the "replaced X of Y" progress cannot drift.
+ */
+function blockedEntryFilterIds(
+  entry: { windowStart: Date; windowEnd: Date },
+  ahuFilterIds: string[],
+  replacedNewFilterIds: Set<string>,
+  today: string,
+): string[] {
+  const total = ahuFilterIds.length;
+  const remaining = ahuFilterIds.filter((id) => !replacedNewFilterIds.has(id)).length;
+  if (deriveTaskStatus(entry, remaining, total, today) !== 'MISSED') return [];
+  return ahuFilterIds.filter((id) => !replacedNewFilterIds.has(id));
+}
+
+/**
+ * The full set of filter ids blocked from STARTING a cleaning cycle because
+ * their AHU has an overdue (MISSED) replacement entry and they are not yet
+ * replaced. Union across all overdue entries.
+ */
+export async function blockedFilterIdsForCleaning(): Promise<Set<string>> {
+  const today = todayUtcDateOnly();
+  const entries = await prisma.replacementScheduleEntry.findMany({
+    where: { approvalStatus: 'APPROVED' },
+  });
+  if (entries.length === 0) return new Set();
+  const ahuIds = [...new Set(entries.map((e) => e.ahuId))];
+  const entryIds = entries.map((e) => e.id);
+  const [filtersByAhu, execs] = await Promise.all([
+    activeFilterIdsByAhu(ahuIds),
+    prisma.replacementExecution.findMany({ where: { entryId: { in: entryIds } }, select: { entryId: true, newFilterId: true } }),
+  ]);
+  const newIdsByEntry = new Map<string, Set<string>>();
+  for (const x of execs) {
+    if (!x.newFilterId) continue;
+    const set = newIdsByEntry.get(x.entryId) ?? new Set<string>();
+    set.add(x.newFilterId);
+    newIdsByEntry.set(x.entryId, set);
+  }
+  const blocked = new Set<string>();
+  for (const e of entries) {
+    const ahuFilterIds = filtersByAhu.get(e.ahuId) ?? [];
+    const replaced = newIdsByEntry.get(e.id) ?? new Set<string>();
+    for (const id of blockedEntryFilterIds(e, ahuFilterIds, replaced, today)) blocked.add(id);
+  }
+  return blocked;
+}
+
+/**
+ * Single-filter check for the start-cycle hot path — scoped to the filter's AHU
+ * so it doesn't sweep every entry.
+ */
+export async function isFilterBlockedForCleaning(filterId: string): Promise<boolean> {
+  const filter = await prisma.assetInstance.findUnique({ where: { id: filterId }, select: { parentId: true } });
+  if (!filter?.parentId) return false;
+  const today = todayUtcDateOnly();
+  const entries = await prisma.replacementScheduleEntry.findMany({
+    where: { approvalStatus: 'APPROVED', ahuId: filter.parentId },
+  });
+  if (entries.length === 0) return false;
+  const [filtersByAhu, execs] = await Promise.all([
+    activeFilterIdsByAhu([filter.parentId]),
+    prisma.replacementExecution.findMany({ where: { entryId: { in: entries.map((e) => e.id) } }, select: { entryId: true, newFilterId: true } }),
+  ]);
+  const ahuFilterIds = filtersByAhu.get(filter.parentId) ?? [];
+  const newIdsByEntry = new Map<string, Set<string>>();
+  for (const x of execs) {
+    if (!x.newFilterId) continue;
+    const set = newIdsByEntry.get(x.entryId) ?? new Set<string>();
+    set.add(x.newFilterId);
+    newIdsByEntry.set(x.entryId, set);
+  }
+  for (const e of entries) {
+    const replaced = newIdsByEntry.get(e.id) ?? new Set<string>();
+    if (blockedEntryFilterIds(e, ahuFilterIds, replaced, today).includes(filterId)) return true;
+  }
+  return false;
+}
+
+/**
  * Tablet task list — ALL approved entries (every status), each carrying live
  * AHU-filter progress so the page can group into Pending / Completed and the
  * detail can show "remaining of total". Batched lookups (one filter query, one
