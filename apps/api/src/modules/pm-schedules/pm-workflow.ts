@@ -117,7 +117,12 @@ export async function generateQnn(
   // QNN · subject · action · target · who (user id + role) · when.
   const cfg = await getPmWorkflowConfig();
   let forRole: string | null = null;
-  if (action === 'UPLOAD') forRole = cfg.reviewRole || cfg.approvalRole || null;
+  // Actions that (re-)enter the workflow at the review step route to the
+  // reviewer (or the approver when there is no review step). EDIT covers an
+  // overwrite/pending-edit; RESUBMIT covers a rejected entry sent back in
+  // (2026-07-16: EDIT/RESUBMIT previously fell through unrouted, so their QNN
+  // generated but never reached a role's notifications).
+  if (action === 'UPLOAD' || action === 'EDIT' || action === 'RESUBMIT') forRole = cfg.reviewRole || cfg.approvalRole || null;
   else if (action === 'REVIEW') forRole = cfg.approvalRole || null;
   const detail = [
     `QNN: ${qnn}`,

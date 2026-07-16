@@ -159,9 +159,12 @@ export function PmScheduleListPage() {
     toleranceDays: 7,
   });
   // Set when the chosen AHU already has an active schedule for the chosen year —
-  // drives the "overwrite?" confirmation.
+  // drives the "overwrite?" confirmation. `approved` gates the pending-edit path:
+  // only an APPROVED entry can be overwritten (its date stays active while the
+  // change goes through review → approval); a not-yet-approved entry must first
+  // be resolved in the review/approval queue.
   const [overwriteConfirm, setOverwriteConfirm] = useState<
-    { scheduleId: string; existingDate: string; year: number; ahuName: string } | null
+    { entryId: string; approved: boolean; existingDate: string; year: number; ahuName: string } | null
   >(null);
   const [creatingSchedule, setCreatingSchedule] = useState(false);
 
@@ -511,26 +514,28 @@ export function PmScheduleListPage() {
     );
   };
 
-  // PUT — overwrite the existing schedule (archive-then-recreate a new version).
-  // reauth UPDATE_PM_SCHEDULE. Called from the overwrite-confirm dialog.
-  const doOverwrite = (scheduleId: string, month: number) => {
-    const body = { entries: [{ month, plannedDate: createForm.plannedDate, toleranceDays: createForm.toleranceDays }] };
+  // Overwrite = a pending EDIT on the existing APPROVED entry. The current date
+  // stays active and keeps generating PM tasks; the new date is staged as a
+  // pending change that goes through review → approval (and mints a QNN). reauth
+  // EDIT_PM_SCHEDULE. Called from the overwrite-confirm dialog.
+  const doOverwrite = (entryId: string) => {
+    const body = { plannedDate: createForm.plannedDate, toleranceDays: createForm.toleranceDays };
     setCreatingSchedule(true);
     reauth.execute(
-      'UPDATE_PM_SCHEDULE',
+      'EDIT_PM_SCHEDULE',
       async (password?: string) => {
-        if (password) await apiClient.putWithReauth(`/api/pm-schedules/${scheduleId}`, body, password);
-        else await apiClient.put(`/api/pm-schedules/${scheduleId}`, body);
+        if (password) await apiClient.putWithReauth(`/api/pm-schedules/entries/${entryId}/edit`, body, password);
+        else await apiClient.put(`/api/pm-schedules/entries/${entryId}/edit`, body);
       },
       {
         onSuccess: () => {
-          toast.success('Updated', `PM schedule updated to ${createForm.plannedDate}`);
+          toast.success('Sent for review', `Change to ${createForm.plannedDate} submitted for review & approval. The current date stays active until approved.`);
           setOverwriteConfirm(null);
           resetCreate();
           refreshAll();
         },
         onError: (e: any) => {
-          toast.error('Error', e?.message ?? 'Failed to update schedule');
+          toast.error('Error', e?.message ?? 'Failed to submit the change');
           setCreatingSchedule(false);
         },
       },
@@ -551,11 +556,17 @@ export function PmScheduleListPage() {
       existing = await apiClient.get(`/api/pm-schedules/${createForm.ahuId}?year=${year}`);
     } catch { /* treat as "no existing" and let create() report any real error */ }
     setCreatingSchedule(false);
-    if (existing && existing.id) {
-      const firstEntry = Array.isArray(existing.entries) && existing.entries.length > 0 ? existing.entries[0] : null;
-      const existingDate = firstEntry?.plannedDate ? isoToDateInput(firstEntry.plannedDate, datetimeTz) : String(year);
+    const firstEntry = existing && Array.isArray(existing.entries) && existing.entries.length > 0 ? existing.entries[0] : null;
+    if (existing && existing.id && firstEntry) {
+      const existingDate = firstEntry.plannedDate ? isoToDateInput(firstEntry.plannedDate, datetimeTz) : String(year);
       const ahuName = ahuInstances.find((a: any) => a.id === createForm.ahuId)?.name ?? 'this AHU';
-      setOverwriteConfirm({ scheduleId: existing.id, existingDate, year, ahuName });
+      setOverwriteConfirm({
+        entryId: firstEntry.id,
+        approved: firstEntry.approvalStatus === 'APPROVED',
+        existingDate,
+        year,
+        ahuName,
+      });
       return;
     }
     doCreate(year, month);
@@ -1229,30 +1240,51 @@ export function PmScheduleListPage() {
              onClick={() => !creatingSchedule && setOverwriteConfirm(null)}>
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
-            <div className="px-6 py-5 space-y-3">
-              <h2 className="text-base font-bold text-slate-800">PM schedule already exists</h2>
-              <p className="text-sm text-slate-600">
-                <span className="font-semibold">{overwriteConfirm.ahuName}</span> already has a PM
-                schedule for {overwriteConfirm.year} (planned {overwriteConfirm.existingDate}).
-                Overwrite it with the new date <span className="font-semibold">{createForm.plannedDate}</span>?
-              </p>
-              <p className="text-xs text-slate-400">
-                The current schedule is archived (kept in history); a new version replaces it.
-                Any QA-approved entries return to pending.
-              </p>
-            </div>
-            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
-              <button type="button" onClick={() => setOverwriteConfirm(null)} disabled={creatingSchedule}
-                      className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
-                Keep existing
-              </button>
-              <button type="button"
-                      onClick={() => doOverwrite(overwriteConfirm.scheduleId, formEntry().month)}
-                      disabled={creatingSchedule}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400">
-                {creatingSchedule ? 'Overwriting…' : 'Overwrite'}
-              </button>
-            </div>
+            {overwriteConfirm.approved ? (
+              <>
+                <div className="px-6 py-5 space-y-3">
+                  <h2 className="text-base font-bold text-slate-800">PM schedule already exists</h2>
+                  <p className="text-sm text-slate-600">
+                    <span className="font-semibold">{overwriteConfirm.ahuName}</span> has an approved PM
+                    schedule for {overwriteConfirm.year} (planned {overwriteConfirm.existingDate}).
+                    Overwrite it with <span className="font-semibold">{createForm.plannedDate}</span>?
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    The change goes to review → approval (a QNN is raised). The current date stays
+                    active and keeps generating PM tasks until the change is approved.
+                  </p>
+                </div>
+                <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+                  <button type="button" onClick={() => setOverwriteConfirm(null)} disabled={creatingSchedule}
+                          className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
+                    Keep existing
+                  </button>
+                  <button type="button"
+                          onClick={() => doOverwrite(overwriteConfirm.entryId)}
+                          disabled={creatingSchedule}
+                          className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400">
+                    {creatingSchedule ? 'Submitting…' : 'Overwrite'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="px-6 py-5 space-y-3">
+                  <h2 className="text-base font-bold text-slate-800">PM schedule awaiting review</h2>
+                  <p className="text-sm text-slate-600">
+                    <span className="font-semibold">{overwriteConfirm.ahuName}</span> already has a PM
+                    schedule for {overwriteConfirm.year} (planned {overwriteConfirm.existingDate}) that is
+                    still awaiting review/approval. Approve or reject it first, then you can change the date.
+                  </p>
+                </div>
+                <div className="px-6 py-4 border-t border-slate-100 flex">
+                  <button type="button" onClick={() => setOverwriteConfirm(null)}
+                          className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">
+                    Close
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
