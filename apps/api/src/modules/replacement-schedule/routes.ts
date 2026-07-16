@@ -3,7 +3,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { buildReplacementScheduleTemplate } from './template.service.js';
-import { processUpload, listSchedules, listDueEntries, listTaskEntries, executeReplacement } from './service.js';
+import { processUpload, listSchedules, listDueEntries, listTaskEntries, executeReplacement, blockedFilterIdsForCleaning } from './service.js';
 import * as wf from './workflow.js';
 import { exportEntriesXlsx } from './export.js';
 
@@ -167,6 +167,20 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
   }, async () => {
     const data = await listTaskEntries();
     return { data };
+  });
+
+  // Blocked-filter set for the cleaning gate (2026-07-16). Any authenticated role,
+  // same posture as /due and /tasks — operators need it to know which filters they
+  // may start cleaning. Returns only filter ids.
+  app.get('/blocked-filters', {
+    schema: {
+      tags: ['Replacement Schedule'],
+      summary: 'Filter ids blocked from starting a cleaning cycle (overdue AHU replacement)',
+      response: { 200: { type: 'object', properties: { filterIds: { type: 'array', items: { type: 'string' } } } }, ...errorResponses },
+    },
+  }, async () => {
+    const set = await blockedFilterIdsForCleaning();
+    return { filterIds: [...set] };
   });
 
   // Replace one filter against a due entry (from the tablet task). Requires
