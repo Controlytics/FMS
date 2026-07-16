@@ -22,9 +22,13 @@ blocked-filter set like `checklist-profiles` and refuses a start via
 plan: `docs/superpowers/specs/2026-07-16-ahu-overdue-cleaning-gate-design.md`,
 `docs/superpowers/plans/2026-07-16-ahu-overdue-cleaning-gate.md`. Commits
 `60f2c55`..`a236bd7`. **Device verification pending** (see the plan's Task 6).
-Known limitations: online single-scan start relies on the server gate (client
-gate is offline-only there); desktop offline starts are unblocked (desktop uses
-its own inline gate; desktop-online is server-covered).
+Known limitations (all by decision, not oversight): online single-scan start
+relies on the server gate (client gate is offline-only there); desktop offline
+starts are unblocked (desktop uses its own inline gate; desktop-online is
+server-covered); and the admin **"Edit Filter Status"** manual cycle-start
+(back-dated `-M` path via `startManualCycleTx`) is **exempt** — it bypasses
+`startCycleImpl`, so the gate does not fire there, intentionally, as an admin
+correction surface in the same class as the manual-record-create tool.
 
 ## [Unreleased] — Six confirmed-live clusters fixed; 3 filings refuted (2026-07-15)
 

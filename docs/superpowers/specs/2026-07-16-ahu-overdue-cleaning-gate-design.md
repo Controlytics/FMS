@@ -13,6 +13,17 @@
 > its own inline gate, not the shared `validateOfflineGate`; desktop-online is
 > server-covered). Both consistent with "server is authoritative online; offline
 > gate is the tablet's job." Plan: `docs/superpowers/plans/2026-07-16-ahu-overdue-cleaning-gate.md`.
+>
+> **Third limitation (final-review finding, ratified by the user 2026-07-16 — exempt + document):**
+> the admin **"Edit Filter Status"** manual cycle-start (`instance.service.ts` →
+> `startManualCycleTx`, the back-dated `-M` path) creates a cleaning cycle
+> WITHOUT going through `startCycleImpl`, so the overdue gate does **not** fire
+> there — even online. This is intentional: it is a permission-gated admin
+> correction surface in the same class as the manual-record-create tool (which
+> already overrides §11 audit by decision), not the operator scan-and-clean flow
+> the gate targets. The gate covers the scan-and-clean start paths (direct
+> start-cycle, start-and-advance, start-and-advance-with-checklist,
+> bulk-operate). Left ungated by decision, not oversight.
 **Author:** pairing session
 
 ## Problem
