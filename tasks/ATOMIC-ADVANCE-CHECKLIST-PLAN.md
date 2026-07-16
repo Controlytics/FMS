@@ -34,6 +34,19 @@ real bugs were found in that block by reading alone, so it earns targeted checks
    halves must behave; the ones without should advance, the ones with should wait.
 3. **Re-submit after a partial batch** — confirm no filter advances twice (this is
    the mixed-batch double-advance bug that was fixed; prove it stays fixed).
+4. **No-equipment cycle start into a first-stage checklist** — a fresh filter in a
+   block with NO equipment group whose first stage has a checklist. Pick a reason →
+   the checklist must open DIRECTLY over the reason dialog. This is the path that
+   threw `assertOpenable` before the fix, so it is the highest-value check. Submit →
+   cycle starts + advances + checklist recorded. **Close → confirm NO cycle was
+   started.**
+5. **With-equipment cycle start** (reason → equipment → checklist) and **batch
+   cycle start** (several fresh filters, one dialog).
+6. **Offline cycle start** — start a cycle offline, Close the checklist, confirm
+   nothing was written; then repeat and submit, confirming one queued op that syncs.
+
+Also worth watching: the cycle-start defer may prompt for reauth twice (once at
+reason-submit, which now writes nothing, and once at the checklist). Cosmetic if so.
 
 Also worth one pass: **offline terminal checklist** — advance into the last stage
 offline, answer, submit. Cycle should complete locally, drop the filter, and a
@@ -339,3 +352,14 @@ pre-existing start/advance split, a different and benign gap, left as-is.
 
 Gated the same way as `advance` (`allowDefer`, `skipChecklistDispatch`,
 `batchRemainder`), so batch continuations keep today's path.
+
+### Offline cycle-start DOES defer — verified, not assumed
+The pre-advance resolve reads `pipelineGraph`/`stageLookup` off the
+`filter-state-{id}` cache row, which for a never-started filter might plausibly
+have been empty (→ silent fallback to the legacy path, i.e. the offline
+cycle-start fix never firing). It isn't: `current-state.ts:330-336` resolves
+`profileIdForRender = pinnedCycleProfileId ?? resolvedProfileId` — the **pre-cycle
+path deliberately uses the live filter-profile binding** "so the operator sees
+what they'd start a cycle against" — so `cp`, `pipelineGraph` and `stageLookup`
+are all built and cached for a filter with no cycle. Precondition is only that the
+filter's state row was cached while online, which every offline op already needs.
