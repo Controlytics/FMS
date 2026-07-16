@@ -296,19 +296,22 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
         // renders, and Close is a client-only no-op — stranding a §11 record of
         // a stage entry whose mandatory checklist was never answered.
         //
-        // Gated to online single-filter. Batch continuations (batchRemainder /
+        // Single-filter only. Batch continuations (batchRemainder /
         // skipChecklistDispatch) drive their own dialog cascade and would trip
-        // assertOpenable here; offline needs the combined queue entry. Both keep
-        // today's exact path until those land — see
+        // assertOpenable here, so they keep today's path — see
         // tasks/ATOMIC-ADVANCE-CHECKLIST-PLAN.md.
+        //
+        // Works OFFLINE too (2026-07-16): the resolve is cache-first and the
+        // combined op queues as ONE entry, replaying via the same endpoint. If
+        // the checklist can't be resolved from cache offline, `pending` is empty
+        // and we fall through to the legacy path — never a silent skip.
         //
         // `!args.dryerAction` is load-bearing: SET_DURATION / SUBMIT_READINGS
         // are dryer-in-place ops (DRY_IN → DRY_IN, `isDryerInPlace` server-side).
         // They do NOT enter a stage, so the checklist that gates leaving DRY_IN
         // must not pop when the operator merely starts the dryer.
         const canDefer =
-          online
-          && args.allowDefer !== false
+          args.allowDefer !== false
           && !args.dryerAction
           && !args.skipChecklistDispatch
           && !(args.batchRemainder && args.batchRemainder.length > 0);

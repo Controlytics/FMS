@@ -1059,17 +1059,52 @@ describe('useFilterOperationsCore — dialog-first atomic advance+checklist', ()
     );
   });
 
-  it('does NOT defer offline — the combined queue entry lands separately', async () => {
+  // Offline is the tablet's normal mode and the surface the defect was reported
+  // on. The resolve is cache-first (the tablet caches checklist-profiles via SWR
+  // + the offline sync) and the combined op queues as ONE entry.
+  it('defers OFFLINE too and queues ONE combined op', async () => {
     onlineRef.current = false;
     mockResolveForTarget.mockResolvedValue(CHECKLIST);
     mockExecuteOrQueue.mockResolvedValue({ executed: false });
 
     const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
     await act(async () => {
-      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+      outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+    expect(outcome.deferred).toBe(true);
+    expect(mockExecuteOrQueue).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
     });
 
-    expect(mockResolveForTarget).not.toHaveBeenCalled();
+    // ONE queue entry — not an advance row followed by a submit-checklist row,
+    // which would replay as two transactions and re-open the orphan window on
+    // sync if the checklist half failed.
+    expect(mockExecuteOrQueue).toHaveBeenCalledTimes(1);
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance-with-checklist', 'f1', 'F-1',
+      expect.objectContaining({ targetState: 'S2', answers: { q1: 'YES' } }),
+      'S2', undefined,
+    );
+  });
+
+  // Fail SOFT, not silent: an unresolvable checklist offline (profiles never
+  // synced / stale cache) falls back to the legacy path rather than skipping the
+  // gate. The server re-validates the queued advance on replay regardless.
+  it('falls back to the legacy path when the checklist cannot be resolved offline', async () => {
+    onlineRef.current = false;
+    mockResolveForTarget.mockResolvedValue([]); // cache miss — cannot render the dialog
+    mockExecuteOrQueue.mockResolvedValue({ executed: false });
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+
+    expect(outcome.deferred).toBe(false);
     expect(mockExecuteOrQueue).toHaveBeenCalledWith(
       'advance', 'f1', 'F-1', expect.anything(), 'S2', undefined,
     );
