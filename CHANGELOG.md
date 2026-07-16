@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] — AHU overdue-replacement cleaning gate (2026-07-16)
+
+Blocks **starting** a new cleaning cycle on any active filter under an AHU whose
+replacement task is **overdue** (the `MISSED` status: past `windowEnd`, not fully
+replaced), until that specific filter is replaced. Whole-AHU scope; per-filter
+unblock (a replaced filter becomes cleanable immediately while un-replaced
+siblings stay blocked); in-flight cycles finish (the gate is start-only, so
+advance/checklist/atomic ops are untouched).
+
+Enforced **online** (authoritative) and **offline**. Server: new
+`blockedFilterIdsForCleaning`/`isFilterBlockedForCleaning` helpers in
+`replacement-schedule/service.ts` (sharing an `unreplacedAhuFilterIds` primitive
+with `listTaskEntries` so the gate and the "replaced X of Y" progress can't
+drift), a new open-to-any-role `GET /api/replacement-schedules/blocked-filters`
+endpoint, and a `409 AHU_REPLACEMENT_OVERDUE` gate in `start-cycle.ts` that
+exempts offline replay (mirrors `validateBlockChange`; consumed via dynamic
+import to avoid a module-scope circular dependency). Tablet: caches the
+blocked-filter set like `checklist-profiles` and refuses a start via
+`validateOfflineGate`'s new `replacementBlocked` flag. Design +
+plan: `docs/superpowers/specs/2026-07-16-ahu-overdue-cleaning-gate-design.md`,
+`docs/superpowers/plans/2026-07-16-ahu-overdue-cleaning-gate.md`. Commits
+`60f2c55`..`a236bd7`. **Device verification pending** (see the plan's Task 6).
+Known limitations: online single-scan start relies on the server gate (client
+gate is offline-only there); desktop offline starts are unblocked (desktop uses
+its own inline gate; desktop-online is server-covered).
+
 ## [Unreleased] — Six confirmed-live clusters fixed; 3 filings refuted (2026-07-15)
 
 > **Scope correction.** `ba41cb5`'s subject says "close confirmed-live backlog".

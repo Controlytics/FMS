@@ -2,7 +2,17 @@
 
 **Date:** 2026-07-16
 **Branch:** RFID
-**Status:** APPROVED (design) — not yet implemented
+**Status:** IMPLEMENTED 2026-07-16 (commits `60f2c55`..`a236bd7`) — device verification pending
+
+> **Implemented.** Server helpers + `/blocked-filters` endpoint + `start-cycle`
+> gate (replay-exempt, via dynamic import to avoid a circular dependency) +
+> `validateOfflineGate.replacementBlocked` + tablet cache/wiring + APK. Full API
+> suite 1204/0, web 600/0. Two disclosed limitations carried from implementation:
+> online single-scan start relies on the server gate (the client gate there is
+> nested under `if (!online)`); desktop offline starts are unblocked (desktop uses
+> its own inline gate, not the shared `validateOfflineGate`; desktop-online is
+> server-covered). Both consistent with "server is authoritative online; offline
+> gate is the tablet's job." Plan: `docs/superpowers/plans/2026-07-16-ahu-overdue-cleaning-gate.md`.
 **Author:** pairing session
 
 ## Problem
