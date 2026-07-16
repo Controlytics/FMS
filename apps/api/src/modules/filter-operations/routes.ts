@@ -32,7 +32,9 @@ const MAX_OBJECT_PROPS = 500;   // parameters / checklistData / instrumentReadin
 const STATE_KEY_PATTERN = '^[A-Z][A-Z0-9_]{0,63}$';
 
 // bulk-operate's item schema shares one `payload`/`cyclePayload`/`advancePayload`
-// object across all three op kinds (advance | start-and-advance | submit-checklist),
+// object across all four op kinds (advance | start-and-advance | submit-checklist |
+// advance-with-checklist — the last one being a union of the advance + checklist
+// fields, already covered here),
 // so this is the union of every free-text/constrained field from the single-item
 // /:id/advance, /:id/start-cycle, and /:id/submit-checklist body schemas above —
 // each field's bound copied verbatim from its single-route sibling. See the
@@ -619,7 +621,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
               properties: {
                 clientOpId: { type: 'string', maxLength: 100 },
                 filterId: { type: 'string', format: 'uuid' },
-                kind: { type: 'string', enum: ['advance', 'start-and-advance', 'submit-checklist'] },
+                kind: { type: 'string', enum: ['advance', 'start-and-advance', 'submit-checklist', 'advance-with-checklist'] },
                 // Each of payload / cyclePayload / advancePayload is a superset schema
                 // covering the union of fields the single-item /advance, /start-cycle,
                 // and /submit-checklist routes accept (a batch item's actual shape

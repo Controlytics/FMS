@@ -14,6 +14,7 @@ function makeStubService() {
     advance: vi.fn(),
     startCycle: vi.fn(),
     submitChecklist: vi.fn(),
+    advanceWithChecklist: vi.fn(),
   } as any;
 }
 
@@ -164,5 +165,69 @@ describe('bulkOperate', () => {
       status: 'failed',
       error: { code: 'OP_FAILED', message: 'boom' },
     });
+  });
+});
+
+/**
+ * `advance-with-checklist` in a batch (2026-07-16, step 5).
+ *
+ * bulkOperate's transaction is PER ITEM, so it cannot make two items atomic.
+ * A checklist-gated stage submitted as an `advance` item + a `submit-checklist`
+ * item is two transactions with a gap — an operator who abandons the checklist
+ * leaves a committed stage transition whose mandatory attestation never
+ * happened. The batch must send ONE `advance-with-checklist` item per filter so
+ * the atomicity comes from the service method (which owns the single tx).
+ */
+describe('bulkOperate — advance-with-checklist kind', () => {
+  it('requires BOTH reauth actions — it performs both writes', () => {
+    const actions = reauthActionsForItems([
+      { clientOpId: 'a', filterId: uuid(1), kind: 'advance-with-checklist' },
+    ]);
+    expect(actions).toHaveLength(2);
+    expect(actions).toEqual(
+      expect.arrayContaining(['ADVANCE_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE']),
+    );
+  });
+
+  it('routes the item to the atomic service method, NOT advance + submitChecklist', async () => {
+    const service = makeStubService();
+    service.advanceWithChecklist.mockResolvedValue({ currentState: 'S2' });
+
+    const items: BulkOpItem[] = [
+      {
+        clientOpId: 'a',
+        filterId: uuid(1),
+        kind: 'advance-with-checklist',
+        payload: { targetState: 'S2', answers: { q1: 'YES' } },
+      },
+    ];
+    const out = await bulkOperate(service, {} as any, items);
+
+    expect(service.advanceWithChecklist).toHaveBeenCalledTimes(1);
+    expect(service.advanceWithChecklist).toHaveBeenCalledWith(
+      expect.anything(),
+      uuid(1),
+      { targetState: 'S2', answers: { q1: 'YES' } },
+    );
+    // The two-call shape is exactly what re-opens the orphan window.
+    expect(service.advance).not.toHaveBeenCalled();
+    expect(service.submitChecklist).not.toHaveBeenCalled();
+    expect(out.results[0].status).toBe('ok');
+  });
+
+  it('keeps partial success — one failed atomic item does not affect the others', async () => {
+    const service = makeStubService();
+    service.advanceWithChecklist
+      .mockRejectedValueOnce(Object.assign(new Error('Checklist already submitted'), { code: 'ALREADY_SUBMITTED' }))
+      .mockResolvedValueOnce({ currentState: 'S2' });
+
+    const items: BulkOpItem[] = [
+      { clientOpId: 'a', filterId: uuid(1), kind: 'advance-with-checklist', payload: { targetState: 'S2' } },
+      { clientOpId: 'b', filterId: uuid(2), kind: 'advance-with-checklist', payload: { targetState: 'S2' } },
+    ];
+    const out = await bulkOperate(service, {} as any, items);
+
+    expect(out.results[0]).toMatchObject({ status: 'failed', error: { code: 'ALREADY_SUBMITTED' } });
+    expect(out.results[1]).toMatchObject({ status: 'ok' });
   });
 });

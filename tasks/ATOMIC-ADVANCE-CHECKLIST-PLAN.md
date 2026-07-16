@@ -2,14 +2,16 @@
 
 **Date:** 2026-07-15 (steps 2–4 landed 2026-07-16)
 **Branch:** RFID
-**Status:** Steps 1–4 DONE · Step 5 PARTIAL (batch/bulk outstanding) · Step 6 NEEDS OPERATOR
+**Status:** Steps 1–5 DONE · Step 6 NEEDS OPERATOR · `start-and-advance` outstanding
 **Decision:** Global fix (all stages, online + offline). Not a regression — design change.
 
-> **Reported flow is fixed, pending tablet verification.** Single-filter online AND
-> offline now render the checklist BEFORE writing anything; Close writes nothing.
-> **Still orphaning:** the batch / bulk path (`bulk-operate.ts:64` opens a tx PER
-> ITEM), i.e. the 50–100-tag tablet submit. Step 6 (device verification) is
-> operator-only — the queue-replay path can't be self-verified.
+> **Every advance-driven flow now renders its checklist BEFORE writing anything** —
+> single + batch, online + offline. Close writes nothing.
+> **Still orphaning:** `start-and-advance` (the cycle-START path) — see below. It is
+> the *invisible* variant (the next advance throws `CHECKLIST_PENDING` and drags the
+> operator back), and closing it needs a three-way tx, not wiring.
+> Step 6 (device verification) is operator-only — the queue-replay path can't be
+> self-verified.
 
 | Step | State | Commit |
 |---|---|---|
@@ -17,7 +19,7 @@
 | 2. Server atomic op | DONE | `4c31a00` |
 | 3. Client dialog-first (online, single) | DONE | `f8df2f4` |
 | 4. Offline combined queue entry | DONE | `4608925` |
-| 5. Batch + bulk-operate composition | **NOT DONE** | — |
+| 5. Batch + bulk-operate composition | DONE | `9c9b1a2` |
 | 6. Tablet verification | **NEEDS OPERATOR** | — |
 | 7. Docs | partial (this file) | — |
 
@@ -250,10 +252,45 @@ server re-validates every write.
 - `allowDefer !== false` — lets a caller with follow-on work opt out. Used by the
   equipment handler's batch-continuation loop, which deferring would skip.
 
-## Step 5 remaining — batch / bulk (the 50–100-tag tablet submit)
+## Step 5 — DONE 2026-07-16 (batch / bulk, the 50–100-tag tablet submit)
 
-Unchanged and still orphaning. `bulk-operate.ts:64` runs a transaction PER ITEM,
-so advance + submit-checklist as two items = two transactions = the same window.
-Needs an `advance-with-checklist` BulkOpKind routed to `service.advanceWithChecklist`,
-plus the batch dialog cascade deferring each filter's advance. Server-side the
-composition already exists — this is wiring, not new mechanics.
+`bulk-operate` keeps its transaction PER ITEM — that is unchanged and cannot be
+changed (partial success depends on it). The fix is that a checklist-gated stage
+is now sent as **ONE `advance-with-checklist` item per filter**, so the atomicity
+comes from the service method, which owns the single tx. Sending an `advance`
+item + a `submit-checklist` item is the two-transaction shape that re-opens the
+window; the file header now says so.
+
+- **Server:** new `advance-with-checklist` BulkOpKind → `service.advanceWithChecklist`.
+  `reauthActionsForItems` maps it to **BOTH** gates. The bulk payload schema was
+  already a superset (`targetState` + `answers` + `expectedProfileVersions` +
+  `filterSet`), so it needed no new fields.
+- **Client (`handleSubmitQueue`):** resolves each queued filter's checklist BEFORE
+  the loop dispatches, and PARKS those advances in `pendingBatchDeferred` instead
+  of pushing a bare `advance`. The dialog opens after the loop with nothing
+  written; the submit sends one combined item per filter.
+- **`submitChecklist` gained an explicit `deferredAdvance` arg** — one dialog
+  covers N filters, so members 2..N have no dialog state and would otherwise
+  submit a bare checklist against a stage they never entered.
+
+### Two bugs found while wiring it (both fixed here)
+1. **Mixed-batch double-advance.** Keeping the whole scan queue when some filters
+   advanced and others parked would let a re-submit advance the advanced ones a
+   SECOND time. The queue now keeps only the parked filters.
+2. **Non-terminal deferred batch left the queue populated.** The existing clear is
+   `if (willComplete)`, but a deferred submit performs the ADVANCE too, so the
+   filters have moved on at any stage. Now `if (willComplete || hadDeferred)`.
+
+## Still NOT fixed — `start-and-advance` (the cycle-START orphan)
+
+`startAndAdvance` is not deferred, single or batch. Scanning a fresh filter →
+reason → equipment → start+advance to WASH_IN commits the cycle start AND the
+advance before a WASH_IN checklist renders, so Close strands the same orphan.
+
+This is the **invisible variant**: unlike the terminal stage, the operator's next
+advance throws `CHECKLIST_PENDING` and drags them back, so it self-corrects in
+practice. Same §11 class though, and the "fix globally" decision covers it.
+
+Closing it needs a **three-way** composition (start-cycle + advance + checklist in
+ONE tx) — `advance-with-checklist` does not include the start. That is a new
+server op, not wiring, which is why it is not bundled here.

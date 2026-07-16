@@ -1,6 +1,14 @@
 import { apiClient } from '@/lib/api-client';
 
-export type BulkClientKind = 'advance' | 'start-and-advance' | 'submit-checklist';
+/**
+ * `advance-with-checklist` (2026-07-16) — the advance AND its post-stage
+ * checklist in ONE server transaction. bulk-operate's transaction is PER ITEM,
+ * so sending an `advance` item plus a `submit-checklist` item is two
+ * transactions with a gap: an operator who abandons the checklist leaves a
+ * committed stage transition whose attestation never happened. Batch submits of
+ * a checklist-gated stage MUST use this kind.
+ */
+export type BulkClientKind = 'advance' | 'start-and-advance' | 'submit-checklist' | 'advance-with-checklist';
 
 export interface BulkClientItem {
   clientOpId: string;

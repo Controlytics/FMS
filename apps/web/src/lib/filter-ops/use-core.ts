@@ -31,6 +31,7 @@ import {
   reduceDialogState,
   type DialogState,
   type DialogEvent,
+  type DeferredAdvance,
 } from './dialog-state';
 import { resolvePendingChecklistDialog, resolveChecklistForTargetStage } from './resolve-pending-checklist';
 import { findNextPendingChecklist, type PendingChecklistBatchItem } from './next-pending-checklist';
@@ -137,6 +138,17 @@ export interface SubmitChecklistArgs {
   answers: Record<string, unknown>;
   expectedProfileVersions?: Record<string, number>;
   password?: string;
+  /**
+   * An advance parked for THIS filter that must commit atomically with these
+   * answers (2026-07-16).
+   *
+   * Single-filter callers don't pass this — the hook reads the intent off the
+   * open dialog. BATCH callers must: one dialog covers N filters, so members
+   * 2..N have no dialog state of their own, and without this they would fall
+   * back to a bare `submit-checklist` against a stage their filter never
+   * entered. Takes precedence over the dialog lookup.
+   */
+  deferredAdvance?: DeferredAdvance;
   /**
    * Operator's runtime AHU filter-set choice (SET_A / SET_B / ALL). Rides in the
    * submit body so the server INTERLOCK gate scopes to the same roster the
@@ -501,12 +513,17 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
       // An advance parked by the dialog-first flow: it has NOT been written.
       // Submit it together with these answers as ONE atomic op instead of a
       // bare submit-checklist against a stage the filter never entered.
-      // `dialogState` is in this callback's deps (and drives remainingBatch
-      // below), so this is the live value, not a stale closure.
+      //
+      // Explicit arg wins — batch callers pass each member's own parked advance
+      // because ONE dialog covers N filters and members 2..N have no dialog
+      // state. Otherwise read it off the open dialog. `dialogState` is in this
+      // callback's deps (and drives remainingBatch below), so this is the live
+      // value, not a stale closure.
       const deferred =
-        dialogState.kind === 'awaiting_checklist' && dialogState.filterId === args.filterId
+        args.deferredAdvance
+        ?? (dialogState.kind === 'awaiting_checklist' && dialogState.filterId === args.filterId
           ? dialogState.deferredAdvance
-          : undefined;
+          : undefined);
 
       try {
         const { executed, result } = deferred

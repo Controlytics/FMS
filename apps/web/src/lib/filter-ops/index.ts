@@ -15,7 +15,7 @@
 
 export { validateOfflineGate, firstStagesFromGraph } from './validate-offline-gate';
 
-export { resolvePendingChecklistDialog } from './resolve-pending-checklist';
+export { resolvePendingChecklistDialog, resolveChecklistForTargetStage } from './resolve-pending-checklist';
 
 export { findNextPendingChecklist } from './next-pending-checklist';
 export type {

@@ -27,6 +27,7 @@ import {
 import {
   validateOfflineGate,
   resolvePendingChecklistDialog,
+  resolveChecklistForTargetStage,
   findNextPendingChecklist,
   useNowTick,
   buildTempOptionsLinear,
@@ -210,6 +211,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // pre-fix per-filter cycling via `remainingBatch`, which made the operator
   // re-answer the same checklist N times.
   const [pendingBatch, setPendingBatch] = useState<Array<{ filterId: string; filterName: string }> | null>(null);
+  /**
+   * Advances PARKED behind the batch checklist dialog, keyed by filterId
+   * (2026-07-16). Non-empty => those filters have NOT been advanced: the dialog
+   * opened first and each advance commits atomically with the answers, as ONE
+   * `advance-with-checklist` per filter.
+   *
+   * Batch needs its own store because a single dialog covers N filters, so only
+   * the primary has dialog state — `core.dialogState.deferredAdvance` can't
+   * carry members 2..N. Cleared alongside `pendingBatch`; if the operator closes
+   * the dialog, nothing was written and these are simply dropped.
+   */
+  const [pendingBatchDeferred, setPendingBatchDeferred] = useState<Map<string, { targetState: string; payload: Record<string, unknown> }> | null>(null);
 
   // Auto-fetch: reset per-instrument provenance/fetch state when the equipment
   // dialog opens; abort any in-flight fetch loop when it closes.
@@ -897,6 +910,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // /bulk-operate request (see the runBulkOnline dispatch below). Offline leaves
     // are untouched — they still go through executeOrQueue/core.advance.
     const bulkOps: BulkClientItem[] = [];
+    // 2026-07-16: filters whose target stage carries a mandatory checklist. Their
+    // advance is NOT dispatched in the loop — it is parked here, the dialog opens
+    // after the loop, and each commits atomically with the answers. Works online
+    // and offline (resolution is cache-first).
+    const deferredAdvances = new Map<
+      string,
+      { item: { filterId: string; filterName: string }; payload: Record<string, unknown>; checklists: any[] }
+    >();
     // 2026-05-26: filters whose dialog was ALREADY dispatched inside the
     // loop by core.advance/startAndAdvance's resolveAndDispatchChecklist.
     // The post-loop dispatch must SKIP these — otherwise it tries to open
@@ -1245,15 +1266,44 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // cached filter-state row (only when it is a number — same guard as
         // use-offline.ts). Post-loop runBulkOnline owns successCount /
         // setRecentOps / serverActionsByFilter for these.
+        // Dialog-first for the batch (2026-07-16). Resolve THIS filter's
+        // post-stage checklist BEFORE the advance is dispatched. If one fires,
+        // park the advance instead of sending it: the dialog opens after the
+        // loop and each parked advance commits atomically with the answers as a
+        // single `advance-with-checklist` item. Pre-fix, all N advances were
+        // dispatched here and only THEN did the dialog open — an operator who
+        // closed it left N committed stage transitions whose mandatory
+        // checklists were never answered.
+        //
+        // Empty => no checklist here, or it couldn't be resolved. Both fall
+        // through to the unchanged path below; the server re-validates either
+        // way, and the post-loop resolver still catches the latter case.
+        const advancePayload = {
+          targetState: activeStage.key,
+          cleaningAreaId: selectedBlock?.id,
+          remarks: remarks || `${activeStage.label} - ${item.filterName}`,
+        };
+        const preChecklists = await resolveChecklistForTargetStage(
+          item.filterId,
+          activeStage.key,
+          online,
+        );
+        if (preChecklists.length > 0) {
+          deferredAdvances.set(item.filterId, {
+            item: { filterId: item.filterId, filterName: item.filterName },
+            payload: advancePayload,
+            checklists: preChecklists,
+          });
+          continue;
+        }
+
         if (online) {
           bulkOps.push({
             clientOpId: crypto.randomUUID(),
             filterId: item.filterId,
             kind: 'advance',
             payload: {
-              targetState: activeStage.key,
-              cleaningAreaId: selectedBlock?.id,
-              remarks: remarks || `${activeStage.label} - ${item.filterName}`,
+              ...advancePayload,
               ...(typeof cachedState.tapeVersion === 'number' ? { tapeVersion: cachedState.tapeVersion } : {}),
             },
           });
@@ -1355,6 +1405,67 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // submits where ALL filters needed a pre-DRY_IN checklist (every one
     // pushed to `failed` with "checklist required first") never opened the
     // dialog. Operator only saw the error toast and couldn't proceed.
+    // 2026-07-16: dialog-first batch. Any filter whose advance was PARKED gets
+    // its dialog opened here with nothing written yet. This runs BEFORE the
+    // legacy post-advance resolver below and returns, because the two are
+    // mutually exclusive: a parked filter has no committed advance for that
+    // resolver to find, and dispatching twice would trip assertOpenable.
+    if (deferredAdvances.size > 0) {
+      const sigOfDeferred = (rows: any[]) =>
+        rows.map((r: any) => `${r.checklistProfileId}@${r.profileVersion ?? 0}`).sort().join('|');
+      // Same grouping rule as the legacy path: ONE dialog for the largest
+      // same-signature group so the operator answers identical checklists once.
+      const groups = new Map<string, Array<{ filterId: string; filterName: string }>>();
+      for (const [, d] of deferredAdvances) {
+        const sig = sigOfDeferred(d.checklists);
+        const arr = groups.get(sig) ?? [];
+        arr.push(d.item);
+        groups.set(sig, arr);
+      }
+      let chosen: Array<{ filterId: string; filterName: string }> = [];
+      for (const arr of groups.values()) {
+        if (arr.length > chosen.length) chosen = arr;
+      }
+      // Filters in a SMALLER signature group are neither advanced nor parked —
+      // they stay in the scan queue for a re-submit, matching the legacy path's
+      // "the rest can be triggered on the next scan" behaviour.
+      const primary = deferredAdvances.get(chosen[0].filterId)!;
+      // AHU pre-flight BEFORE the (terminal) checklist opens — same as legacy.
+      if ((await gateAhuBeforeChecklist(chosen.map(m => m.filterId))) === 'proceed') {
+        const parked = new Map<string, { targetState: string; payload: Record<string, unknown> }>();
+        for (const m of chosen) {
+          const d = deferredAdvances.get(m.filterId)!;
+          parked.set(m.filterId, { targetState: activeStage.key, payload: d.payload });
+        }
+        setPendingBatch(chosen);
+        setPendingBatchDeferred(parked);
+        core.dispatch({
+          type: 'open_checklist',
+          filterId: primary.item.filterId,
+          filterName: chosen.length > 1 ? `${chosen.length} filter(s)` : primary.item.filterName,
+          checklists: primary.checklists,
+        });
+        setChecklistAnswers({});
+      }
+      // Keep ONLY the parked filters in the queue. They were NOT advanced, so if
+      // the operator closes the dialog nothing was written and the queue must
+      // survive for a retry rather than making them re-scan 50-100 tags. The
+      // checklist submit clears it.
+      //
+      // Mixed batch: filters that DID advance (bulkOps above) must be dropped —
+      // leaving them in would let a re-submit advance them a second time.
+      setScanQueue(prev => prev.filter(q => deferredAdvances.has(q.filterId)));
+      setDryerDurations({});
+      setRemarks('');
+      if (successCount > 0) setSuccess(`${successCount} filter(s) → ${activeStage.label}${failed.length > 0 ? ` (${failed.length} failed)` : ''}`);
+      if (failed.length > 0) setError(failed.join('\n'));
+      if (online) await mutate('/api/assets/instances', undefined, { revalidate: true });
+      refreshOfflineData();
+      // Skip the legacy post-advance resolver + the unconditional queue clear.
+      // eslint-disable-next-line no-useless-return
+      return;
+    }
+
     if (successCount > 0 || failed.length > 0) {
       try {
         // 2026-05-26: unified-batch post-advance dialog dispatch. Replaces the
@@ -1743,7 +1854,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             }
             // Single-scan: clear any stale unified-batch state from a prior
             // session so handleChecklistSubmit takes the single-mode path.
-            setPendingBatch(null);
+            setPendingBatch(null); setPendingBatchDeferred(null);
             core.dispatch({ type: 'open_checklist', filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
             setChecklistAnswers({});
             setLoading(false);
@@ -2639,6 +2750,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         expectedProfileVersions[cl.checklistProfileId] = cl.profileVersion;
       }
     }
+    // 2026-07-16: captured BEFORE either branch clears pendingBatchDeferred.
+    // True => this submit also performs the parked ADVANCE for each member (one
+    // atomic op per filter), so the scan queue must be cleared afterwards even
+    // for a non-terminal stage — the filters have moved on and a re-submit would
+    // advance them twice.
+    const hadDeferred = !!(pendingBatchDeferred && pendingBatchDeferred.size > 0);
     // Task 5 (2026-07-09): ONLINE batch checklist submit via /bulk-operate — ONE
     // request covering every batch member, ONE reauth prompt. runBulkOnline is
     // reauth-capable (opens the password dialog for a reauth-gated role, posts
@@ -2664,11 +2781,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // it flows through runBulkOnline → reauth.executeWithResult → bulkOperate.
       const ops: BulkClientItem[] = await Promise.all(batch.map(async (item) => {
         const cachedState = await getCache<any>(`filter-state-${item.filterId}`).catch(() => null);
+        // 2026-07-16: this filter's advance was PARKED by the dialog-first batch
+        // — send both writes as ONE item so the server commits them in a single
+        // transaction. Sending an `advance` item + a `submit-checklist` item
+        // would be two per-item transactions and re-open the orphan window.
+        const parked = pendingBatchDeferred?.get(item.filterId);
         return {
           clientOpId: crypto.randomUUID(),
           filterId: item.filterId,
-          kind: 'submit-checklist' as const,
+          kind: parked ? ('advance-with-checklist' as const) : ('submit-checklist' as const),
           payload: {
+            ...(parked ? parked.payload : {}),
             answers: checklistAnswers,
             expectedProfileVersions,
             ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
@@ -2676,6 +2799,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           },
         };
       }));
+      // Both gates when any item carries an advance — runBulkOnline's action is
+      // only the reauth prompt label; the server enforces both regardless
+      // (reauthActionsForItems maps advance-with-checklist to BOTH).
       const out = await runBulkOnline(ops, 'SUBMIT_CHECKLIST_WITH_SIGNATURE');
       // Operator declined reauth — keep the dialog + state, no error banner.
       if (out === 'cancelled') { setLoading(false); return; }
@@ -2690,7 +2816,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // byte-identical to the loop branch so the batch-replay effect (L1454),
       // which keys off awaiting_checklist → none, behaves the same.
       if (core.dialogState.kind === 'awaiting_checklist') core.dispatch({ type: 'close' });
-      setPendingBatch(null);
+      setPendingBatch(null); setPendingBatchDeferred(null);
       setChecklistAnswers({});
       setStageSubmitRecap(null);
       setRemarks(''); // B1/B2: clear remarks after a checklist-gated submit too
@@ -2715,7 +2841,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Terminal checklist completed the cycles → clear the scan queue so the
       // finished filters don't linger and a re-submit can't re-process them.
       // (DRY_IN / non-terminal keeps the queue for its replay — see L1454.)
-      if (willComplete) { setScanQueue([]); setDryerDurations({}); }
+      // 2026-07-16: a deferred batch just performed the ADVANCE too (one atomic op
+      // per filter), so those filters have moved on — the queue must be cleared or
+      // a re-submit would advance them a second time. `hadDeferred` is captured
+      // before `pendingBatchDeferred` is cleared.
+      if (willComplete || hadDeferred) { setScanQueue([]); setDryerDurations({}); }
       setLoading(false);
       return;
     }
@@ -2744,6 +2874,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               answers: checklistAnswers,
               expectedProfileVersions,
               filterSet: ahuSetChoiceRef.current ?? undefined,
+              // 2026-07-16: pass THIS member's parked advance explicitly. One
+              // dialog covers N filters, so only the primary has dialog state —
+              // without this, members 2..N would queue a bare submit-checklist
+              // against a stage their filter never entered.
+              deferredAdvance: pendingBatchDeferred?.get(item.filterId),
               password,
             });
             success++;
@@ -2763,7 +2898,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // remainingBatch carried). Force-close in case every item failed so
         // the dialog doesn't get stuck open.
         if (core.dialogState.kind === 'awaiting_checklist') core.dispatch({ type: 'close' });
-        setPendingBatch(null);
+        setPendingBatch(null); setPendingBatchDeferred(null);
         setChecklistAnswers({});
         setStageSubmitRecap(null);
         setRemarks(''); // B1/B2: clear remarks after a checklist-gated submit too
@@ -2783,7 +2918,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // Terminal checklist completed the cycles → nothing left to do. Clear the
         // scan queue so the finished filters don't linger and a re-submit can't
         // re-process them. (DRY_IN / non-terminal keeps the queue for its replay.)
-        if (willComplete) { setScanQueue([]); setDryerDurations({}); }
+        // 2026-07-16: a deferred batch just performed the ADVANCE too (one atomic op
+      // per filter), so those filters have moved on — the queue must be cleared or
+      // a re-submit would advance them a second time. `hadDeferred` is captured
+      // before `pendingBatchDeferred` is cleared.
+      if (willComplete || hadDeferred) { setScanQueue([]); setDryerDurations({}); }
         return;
       }
 
@@ -4094,7 +4233,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                   refuses to advance without it, so the dialog re-opened on
                   next action. "Close" + the hint above makes the contract
                   explicit. dispatch close still actually closes the dialog. */}
-              <button onClick={() => { core.dispatch({ type: 'close' }); setPendingBatch(null); }} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Close</button>
+              <button onClick={() => { core.dispatch({ type: 'close' }); setPendingBatch(null); setPendingBatchDeferred(null); }} disabled={loading} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-40">Close</button>
               <button onClick={handleChecklistSubmit} disabled={loading} className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-purple-500 transition-colors">
                 {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <>Submit Checklist</>}
               </button>

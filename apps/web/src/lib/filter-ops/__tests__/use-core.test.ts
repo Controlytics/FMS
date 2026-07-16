@@ -1131,3 +1131,113 @@ describe('useFilterOperationsCore — dialog-first atomic advance+checklist', ()
     );
   });
 });
+
+/**
+ * Batch dialog-first (2026-07-16, step 5).
+ *
+ * ONE checklist dialog covers N filters, so only the PRIMARY filter has dialog
+ * state. Members 2..N carry their parked advance through the explicit
+ * `deferredAdvance` arg — without it they would submit a bare checklist against
+ * a stage their filter never entered, which is the orphan bug wearing a
+ * different hat.
+ *
+ * The batch page code (mobile-operations.tsx handleSubmitQueue) does the
+ * partitioning + parking; these pin the hook contract it depends on.
+ */
+describe('useFilterOperationsCore — batch parked advances', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecuteOrQueue.mockResolvedValue({ executed: true, result: { actions: [] } });
+    mockResolvePending.mockResolvedValue(null);
+    mockFindNext.mockResolvedValue(null);
+    mockRecomputeCache.mockResolvedValue(undefined);
+    mockAppendCompletion.mockResolvedValue(undefined);
+    mockGetCachedData.mockResolvedValue({});
+    mockCacheData.mockResolvedValue(undefined);
+    mockGetCurrentActions.mockResolvedValue([]);
+    mockResolveForTarget.mockResolvedValue([]);
+    mockCacheServerState.mockResolvedValue(undefined);
+    onlineRef.current = true;
+  });
+
+  // The batch member with no dialog state of its own.
+  it('sends an explicit parked advance as one atomic op even with no dialog open', async () => {
+    const { result } = renderHook(() => useFilterOperationsCore());
+    expect(result.current.dialogState.kind).toBe('none');
+
+    await act(async () => {
+      await result.current.submitChecklist({
+        filterId: 'f2',
+        filterName: 'F-2',
+        answers: { q1: 'YES' },
+        deferredAdvance: { targetState: 'S2', payload: { targetState: 'S2', cleaningAreaId: 'blk1' } },
+      });
+    });
+
+    expect(mockExecuteOrQueue).toHaveBeenCalledTimes(1);
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance-with-checklist',
+      'f2',
+      'F-2',
+      expect.objectContaining({ targetState: 'S2', cleaningAreaId: 'blk1', answers: { q1: 'YES' } }),
+      'S2',
+      undefined,
+    );
+  });
+
+  it('logs each batch member\'s completion against ITS target stage', async () => {
+    mockGetCachedData.mockResolvedValue({ currentState: 'S1', currentCycle: { id: 'cyc2' } });
+    mockResolvePending.mockResolvedValueOnce([{ checklistProfileId: 'cp1', questions: [] }]);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.submitChecklist({
+        filterId: 'f2',
+        filterName: 'F-2',
+        answers: { q1: 'YES' },
+        deferredAdvance: { targetState: 'S2', payload: { targetState: 'S2' } },
+      });
+    });
+
+    // The cache row still says S1 (the advance is in-flight in the same op).
+    const calls = mockAppendCompletion.mock.calls;
+    for (const c of calls) {
+      expect(c[1]).toMatchObject({ afterStage: 'S2' });
+    }
+  });
+
+  // The explicit arg must win: during a batch the dialog belongs to the PRIMARY,
+  // so falling back to the dialog lookup for member 2..N would attach the
+  // primary's advance to the wrong filter.
+  it('prefers the explicit parked advance over the open dialog\'s intent', async () => {
+    mockResolveForTarget.mockResolvedValue([
+      { checklistProfileId: 'cp1', questions: [{ id: 'q1', question: 'ok?', questionType: 'YES_NO' }] },
+    ]);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    // Primary parks an advance to S2 and owns the dialog.
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+    mockExecuteOrQueue.mockClear();
+
+    // Member 2 submits with its OWN parked advance while f1's dialog is open.
+    await act(async () => {
+      await result.current.submitChecklist({
+        filterId: 'f2',
+        filterName: 'F-2',
+        answers: { q1: 'YES' },
+        deferredAdvance: { targetState: 'S9', payload: { targetState: 'S9' } },
+      });
+    });
+
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance-with-checklist',
+      'f2',
+      'F-2',
+      expect.objectContaining({ targetState: 'S9' }),
+      'S9',
+      undefined,
+    );
+  });
+});
