@@ -2,7 +2,14 @@
 
 **Date:** 2026-07-16
 **Branch:** RFID
-**Status:** APPROVED (design) — not yet implemented
+**Status:** IMPLEMENTED 2026-07-16 (commit `2183090`)
+
+> **Implemented.** create()-always-active; `setActive()` + `PATCH /:id/active`
+> removed; `equipment_groups.toggle` tree node removed (non-configurable → no
+> count change, frozen snapshot untouched); web config toggle UI removed; runtime
+> unchanged (dialog picker + `assertSingleEquipmentGroupPerBlock` safety net).
+> Existing inactive groups left as-is. Tests: delete()-guard (9) + create-active
+> (2). API 1203/0 (119 files), web 600/0 (45).
 
 ## Problem
 
@@ -68,10 +75,17 @@ flow the user chose is already built.
 6. `packages/shared/src/types/permission-tree.ts`: **remove the
    `equipment_groups.toggle` node** (line ~673, action `Enable/Disable`, gate
    `EG_EDIT`). There is **no separate permission constant** (`EG_TOGGLE` does not
-   exist — the node reused `EG_EDIT`), so only the tree node goes. Update the
-   **frozen-snapshot test** (the derived `FEATURE_PRIVILEGES` count drops by one)
-   and rebuild `@digilog/shared`. The `EG_EDIT` permission stays (still gates
-   create/edit).
+   exist — the node reused `EG_EDIT`), so only the tree node goes.
+   **CORRECTION (verified in code):** this node is **not `configurable`**, and
+   both `deriveFeaturePrivileges` and `deriveFeatureToPermissionMap` filter
+   `configurable === true`. So the derived `FEATURE_PRIVILEGES` /
+   `FEATURE_TO_PERMISSION_MAP` counts (**83**) do **not** change, and the
+   frozen-snapshot test in `legacy-maps-derived.test.ts` needs **no edit**. The
+   node is consumed only by the frontend `useCan('equipment_groups.toggle')`,
+   which is removed in step 5. Still rebuild `@digilog/shared` and run its tests
+   to confirm (`permission-tree.test.ts` asserts id-uniqueness only). If it's
+   listed in `CONFIGURABLE_PRIVILEGE_ORDER`, remove it there too (the map derive
+   skips it regardless, but keep the list clean). `EG_EDIT` stays.
 
 ### Docs + build
 7. CHANGELOG + this spec marked implemented; root/api/web CLAUDE.md counts if the

@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — Multiple equipment groups per block (2026-07-16)
+
+A block may now have **multiple active equipment groups** at once, and the
+Enable/Disable toggle is **removed**. Previously enabling one group disabled the
+others (single-active-per-block). Now every group is created active and stays
+available; the operator picks which group to record readings against per cleaning
+(the equipment dialog's existing group picker — the runtime already supported
+this, only the config side restricted it). `create()` always-active;
+`setActive()` + `PATCH /:id/active` removed (delete/soft-delete is the only
+removal path, keeping the last-active-group in-use guard); the
+`equipment_groups.toggle` permission-tree node removed (non-configurable, so
+feature-privilege counts are unchanged); web config toggle UI removed; the
+`assertSingleEquipmentGroupPerBlock` runtime guard stays as a "select one" safety
+net. Existing inactive groups are left as-is (isActive is ambiguous between
+disabled and soft-deleted, so no blanket reactivation). Design:
+`docs/superpowers/specs/2026-07-16-multiple-equipment-groups-per-block-design.md`.
+Commit `2183090`.
+
 ## [Unreleased] — AHU overdue-replacement cleaning gate (2026-07-16)
 
 Blocks **starting** a new cleaning cycle on any active filter under an AHU whose
