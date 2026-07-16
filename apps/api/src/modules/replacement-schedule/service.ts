@@ -487,10 +487,20 @@ function deriveTaskStatus(
 }
 
 /**
+ * Shared primitive: active AHU filter ids that have NOT yet been replaced
+ * under a given entry. Used by both `blockedEntryFilterIds` (the gate) and
+ * `listTaskEntries` (the "replaced X of Y" progress) so the two cannot drift.
+ */
+function unreplacedAhuFilterIds(ahuFilterIds: string[], replacedNewFilterIds: Set<string>): string[] {
+  return ahuFilterIds.filter((id) => !replacedNewFilterIds.has(id));
+}
+
+/**
  * Blocked filter ids for ONE overdue entry: every active AHU filter that has not
  * yet been replaced under it. Returns [] when the entry is not overdue (MISSED),
- * so it composes cleanly with the sweep. Shared with listTaskEntries so the gate
- * and the "replaced X of Y" progress cannot drift.
+ * so it composes cleanly with the sweep. Built on `unreplacedAhuFilterIds`, the
+ * same primitive `listTaskEntries` uses, so the gate and the "replaced X of Y"
+ * progress cannot drift.
  */
 function blockedEntryFilterIds(
   entry: { windowStart: Date; windowEnd: Date },
@@ -499,9 +509,10 @@ function blockedEntryFilterIds(
   today: string,
 ): string[] {
   const total = ahuFilterIds.length;
-  const remaining = ahuFilterIds.filter((id) => !replacedNewFilterIds.has(id)).length;
+  const unreplaced = unreplacedAhuFilterIds(ahuFilterIds, replacedNewFilterIds);
+  const remaining = unreplaced.length;
   if (deriveTaskStatus(entry, remaining, total, today) !== 'MISSED') return [];
-  return ahuFilterIds.filter((id) => !replacedNewFilterIds.has(id));
+  return unreplaced;
 }
 
 /**
@@ -605,7 +616,7 @@ export async function listTaskEntries() {
     const newIds = newIdsByEntry.get(e.id) ?? new Set<string>();
     const replacedNewFilterIds = [...newIds];
     const total = ahuFilterIds.length;
-    const remaining = ahuFilterIds.filter((id) => !newIds.has(id)).length;
+    const remaining = unreplacedAhuFilterIds(ahuFilterIds, newIds).length;
     const computedStatus = deriveTaskStatus(e, remaining, total, today);
     return {
       ...e,
