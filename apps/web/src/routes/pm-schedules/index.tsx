@@ -158,6 +158,11 @@ export function PmScheduleListPage() {
     plannedDate: '',
     toleranceDays: 7,
   });
+  // Set when the chosen AHU already has an active schedule for the chosen year —
+  // drives the "overwrite?" confirmation.
+  const [overwriteConfirm, setOverwriteConfirm] = useState<
+    { scheduleId: string; existingDate: string; year: number; ahuName: string } | null
+  >(null);
   const [creatingSchedule, setCreatingSchedule] = useState(false);
 
   // Pagination
@@ -462,29 +467,30 @@ export function PmScheduleListPage() {
     });
   };
 
-  // 2026-07-16: single-date PM schedule create. One entry on the chosen date.
-  // Backend POST is reauth-gated (CREATE_PM_SCHEDULE) and returns 409 when the
-  // AHU already has an active schedule for that year (one PM per AHU per year).
-  const submitCreateSchedule = () => {
-    if (!createForm.ahuId || !createForm.plannedDate) return;
-    // `<input type="date">` yields 'YYYY-MM-DD'. Derive the schedule year + the
-    // entry month from it so the three stay consistent.
+  // 2026-07-16: single-date PM schedule create. One entry on the chosen date,
+  // one PM per AHU per year. On submit we first check whether the AHU already
+  // has an active schedule for that year; if so we ask to overwrite (PUT =
+  // archive-then-recreate) rather than surfacing the backend 409.
+  const resetCreate = () => {
+    setCreateDialog(false);
+    setCreatingSchedule(false);
+    setCreateForm({ ahuId: '', plannedDate: '', toleranceDays: 7 });
+  };
+
+  // Single entry derived from the current form (month/year come from the date).
+  const formEntry = () => {
     const [yStr, mStr] = createForm.plannedDate.split('-');
-    const year = Number(yStr);
-    const month = Number(mStr);
-    if (!year || !month) return;
-    setCreatingSchedule(true);
+    return { year: Number(yStr), month: Number(mStr) };
+  };
+
+  // POST — new schedule (reauth CREATE_PM_SCHEDULE). Used when the AHU has none.
+  const doCreate = (year: number, month: number) => {
     const body = {
       entityId: createForm.ahuId,
       year,
-      entries: [
-        {
-          month,
-          plannedDate: createForm.plannedDate,
-          toleranceDays: createForm.toleranceDays,
-        },
-      ],
+      entries: [{ month, plannedDate: createForm.plannedDate, toleranceDays: createForm.toleranceDays }],
     };
+    setCreatingSchedule(true);
     reauth.execute(
       'CREATE_PM_SCHEDULE',
       async (password?: string) => {
@@ -494,9 +500,7 @@ export function PmScheduleListPage() {
       {
         onSuccess: () => {
           toast.success('Created', `PM schedule created for ${createForm.plannedDate}`);
-          setCreateDialog(false);
-          setCreatingSchedule(false);
-          setCreateForm({ ahuId: '', plannedDate: '', toleranceDays: 7 });
+          resetCreate();
           refreshAll();
         },
         onError: (e: any) => {
@@ -505,6 +509,56 @@ export function PmScheduleListPage() {
         },
       },
     );
+  };
+
+  // PUT — overwrite the existing schedule (archive-then-recreate a new version).
+  // reauth UPDATE_PM_SCHEDULE. Called from the overwrite-confirm dialog.
+  const doOverwrite = (scheduleId: string, month: number) => {
+    const body = { entries: [{ month, plannedDate: createForm.plannedDate, toleranceDays: createForm.toleranceDays }] };
+    setCreatingSchedule(true);
+    reauth.execute(
+      'UPDATE_PM_SCHEDULE',
+      async (password?: string) => {
+        if (password) await apiClient.putWithReauth(`/api/pm-schedules/${scheduleId}`, body, password);
+        else await apiClient.put(`/api/pm-schedules/${scheduleId}`, body);
+      },
+      {
+        onSuccess: () => {
+          toast.success('Updated', `PM schedule updated to ${createForm.plannedDate}`);
+          setOverwriteConfirm(null);
+          resetCreate();
+          refreshAll();
+        },
+        onError: (e: any) => {
+          toast.error('Error', e?.message ?? 'Failed to update schedule');
+          setCreatingSchedule(false);
+        },
+      },
+    );
+  };
+
+  const submitCreateSchedule = async () => {
+    if (!createForm.ahuId || !createForm.plannedDate) return;
+    const { year, month } = formEntry();
+    if (!year || !month) return;
+    setCreatingSchedule(true);
+    // Does this AHU already have an active schedule for the chosen year?
+    // getByEntity returns the schedule (200) or null (200) — a throw means a
+    // real network/permission error, in which case we let the create attempt
+    // surface it rather than silently blocking.
+    let existing: any = null;
+    try {
+      existing = await apiClient.get(`/api/pm-schedules/${createForm.ahuId}?year=${year}`);
+    } catch { /* treat as "no existing" and let create() report any real error */ }
+    setCreatingSchedule(false);
+    if (existing && existing.id) {
+      const firstEntry = Array.isArray(existing.entries) && existing.entries.length > 0 ? existing.entries[0] : null;
+      const existingDate = firstEntry?.plannedDate ? isoToDateInput(firstEntry.plannedDate, datetimeTz) : String(year);
+      const ahuName = ahuInstances.find((a: any) => a.id === createForm.ahuId)?.name ?? 'this AHU';
+      setOverwriteConfirm({ scheduleId: existing.id, existingDate, year, ahuName });
+      return;
+    }
+    doCreate(year, month);
   };
 
   // AHU dropdown source for the create-schedule dialog. Reads from
@@ -1163,6 +1217,40 @@ export function PmScheduleListPage() {
                       className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50"
                       style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))', color: '#fff' }}>
                 {creatingSchedule ? 'Creating…' : 'Create schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Overwrite confirmation — the AHU already has a schedule for the year. */}
+      {overwriteConfirm && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+             onClick={() => !creatingSchedule && setOverwriteConfirm(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
+            <div className="px-6 py-5 space-y-3">
+              <h2 className="text-base font-bold text-slate-800">PM schedule already exists</h2>
+              <p className="text-sm text-slate-600">
+                <span className="font-semibold">{overwriteConfirm.ahuName}</span> already has a PM
+                schedule for {overwriteConfirm.year} (planned {overwriteConfirm.existingDate}).
+                Overwrite it with the new date <span className="font-semibold">{createForm.plannedDate}</span>?
+              </p>
+              <p className="text-xs text-slate-400">
+                The current schedule is archived (kept in history); a new version replaces it.
+                Any QA-approved entries return to pending.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+              <button type="button" onClick={() => setOverwriteConfirm(null)} disabled={creatingSchedule}
+                      className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
+                Keep existing
+              </button>
+              <button type="button"
+                      onClick={() => doOverwrite(overwriteConfirm.scheduleId, formEntry().month)}
+                      disabled={creatingSchedule}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400">
+                {creatingSchedule ? 'Overwriting…' : 'Overwrite'}
               </button>
             </div>
           </div>
