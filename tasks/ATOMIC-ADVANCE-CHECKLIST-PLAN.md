@@ -23,6 +23,22 @@
 | 6. Tablet verification | **NEEDS OPERATOR** | — |
 | 7. Docs | partial (this file) | — |
 
+### Step 6 — verify THESE three, not just "does it work"
+The batch orchestration (`handleSubmitQueue`'s partition/park loop,
+`pendingBatchDeferred`, the two queue fixes) lives in `mobile-operations.tsx` and
+has **no automated coverage** — every new test is hook-level or server-level. Two
+real bugs were found in that block by reading alone, so it earns targeted checks:
+1. **Uniform batch** — 50–100 tags, all sharing one checklist. The main case.
+2. **MIXED batch** — some filters have a post-stage checklist, some don't. Both
+   halves must behave; the ones without should advance, the ones with should wait.
+3. **Re-submit after a partial batch** — confirm no filter advances twice (this is
+   the mixed-batch double-advance bug that was fixed; prove it stays fixed).
+
+Also worth one pass: **offline terminal checklist** — advance into the last stage
+offline, answer, submit. Cycle should complete locally, drop the filter, and a
+re-scan should start fresh. The hook tests mock the cache layer, so the real
+recompute→clear→tape chain is only exercised on a device.
+
 ## Step 1 — VERIFIED 2026-07-15 (defect REPRODUCED)
 
 Reproduction test (passes against `digilog_test_db`, asserts CURRENT buggy behaviour):
@@ -272,6 +288,18 @@ window; the file header now says so.
 - **`submitChecklist` gained an explicit `deferredAdvance` arg** — one dialog
   covers N filters, so members 2..N have no dialog state and would otherwise
   submit a bare checklist against a stage they never entered.
+
+### Known behaviour — mixed-SIGNATURE batch silently drops the smaller group
+When one scan contains filters whose checklists DIFFER (different profiles), only
+the largest same-signature group is parked + dialogged. The smaller group stays in
+the scan queue at dialog-open — but the submit's `willComplete || hadDeferred`
+clear then wipes the WHOLE queue, so those filters silently leave the operator's
+list without being processed.
+
+**Not an orphan** — they were never written, which is strictly better than the
+legacy path (which advanced them and then orphaned them). Uncommon shape:
+single-block / single-profile batches never hit it. Recorded, not fixed. If it
+bites, the fix is to clear only the filters actually submitted.
 
 ### Two bugs found while wiring it (both fixed here)
 1. **Mixed-batch double-advance.** Keeping the whole scan queue when some filters
