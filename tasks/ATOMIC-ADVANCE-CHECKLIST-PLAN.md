@@ -19,7 +19,7 @@
 | 2. Server atomic op | DONE | `4c31a00` |
 | 3. Client dialog-first (online, single) | DONE | `f8df2f4` |
 | 4. Offline combined queue entry | DONE | `4608925` |
-| 5. Batch + bulk-operate composition | DONE | `9c9b1a2` |
+| 5. Batch + bulk-operate composition | DONE | `f6576bc` |
 | 6. Tablet verification | **NEEDS OPERATOR** | — |
 | 7. Docs | partial (this file) | — |
 
