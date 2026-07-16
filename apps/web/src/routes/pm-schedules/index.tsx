@@ -149,14 +149,13 @@ export function PmScheduleListPage() {
   const [processing, setProcessing] = useState(false);
   const [deleteScheduleConfirm, setDeleteScheduleConfirm] = useState<{ scheduleId: string; ahuName: string } | null>(null);
   const [deletingSchedule, setDeletingSchedule] = useState(false);
-  // Audit 2026-05-09 fix: single-PM-schedule create form. Streamlined —
-  // operator picks AHU + year + a per-month-day + tolerance, FE builds 12
-  // entries (one per month at the chosen day) and posts in one shot.
+  // 2026-07-16: single-date PM schedule. Operator picks AHU + one date
+  // (year/month/day) + tolerance; FE posts ONE entry. The backend 409s if the
+  // AHU already has an active schedule for that year (one PM per AHU per year).
   const [createDialog, setCreateDialog] = useState(false);
   const [createForm, setCreateForm] = useState({
     ahuId: '',
-    year: new Date().getFullYear(),
-    dayOfMonth: 15,
+    plannedDate: '',
     toleranceDays: 7,
   });
   const [creatingSchedule, setCreatingSchedule] = useState(false);
@@ -463,28 +462,28 @@ export function PmScheduleListPage() {
     });
   };
 
-  // Audit 2026-05-09 fix: single-PM-schedule create. Builds 12 monthly
-  // entries from a per-month-day + tolerance pair, posts in one shot.
-  // Backend POST already reauth-gated (CREATE_PM_SCHEDULE).
+  // 2026-07-16: single-date PM schedule create. One entry on the chosen date.
+  // Backend POST is reauth-gated (CREATE_PM_SCHEDULE) and returns 409 when the
+  // AHU already has an active schedule for that year (one PM per AHU per year).
   const submitCreateSchedule = () => {
-    if (!createForm.ahuId || !createForm.year || !createForm.dayOfMonth) return;
+    if (!createForm.ahuId || !createForm.plannedDate) return;
+    // `<input type="date">` yields 'YYYY-MM-DD'. Derive the schedule year + the
+    // entry month from it so the three stay consistent.
+    const [yStr, mStr] = createForm.plannedDate.split('-');
+    const year = Number(yStr);
+    const month = Number(mStr);
+    if (!year || !month) return;
     setCreatingSchedule(true);
     const body = {
       entityId: createForm.ahuId,
-      year: createForm.year,
-      entries: Array.from({ length: 12 }, (_, monthIdx) => {
-        // Clamp dayOfMonth to the last valid day of each month so Feb 30
-        // → Feb 28/29, Apr 31 → Apr 30, etc.
-        const daysInMonth = new Date(createForm.year, monthIdx + 1, 0).getDate();
-        const day = Math.min(createForm.dayOfMonth, daysInMonth);
-        const mm = String(monthIdx + 1).padStart(2, '0');
-        const dd = String(day).padStart(2, '0');
-        return {
-          month: monthIdx + 1,
-          plannedDate: `${createForm.year}-${mm}-${dd}`,
+      year,
+      entries: [
+        {
+          month,
+          plannedDate: createForm.plannedDate,
           toleranceDays: createForm.toleranceDays,
-        };
-      }),
+        },
+      ],
     };
     reauth.execute(
       'CREATE_PM_SCHEDULE',
@@ -494,10 +493,10 @@ export function PmScheduleListPage() {
       },
       {
         onSuccess: () => {
-          toast.success('Created', `PM schedule created for ${createForm.year}`);
+          toast.success('Created', `PM schedule created for ${createForm.plannedDate}`);
           setCreateDialog(false);
           setCreatingSchedule(false);
-          setCreateForm({ ahuId: '', year: new Date().getFullYear(), dayOfMonth: 15, toleranceDays: 7 });
+          setCreateForm({ ahuId: '', plannedDate: '', toleranceDays: 7 });
           refreshAll();
         },
         onError: (e: any) => {
@@ -1120,8 +1119,8 @@ export function PmScheduleListPage() {
             <div className="px-6 py-5 space-y-4">
               <h2 className="text-base font-bold text-slate-800">New PM Schedule</h2>
               <p className="text-sm text-slate-500 -mt-2">
-                Creates 12 monthly entries for the selected AHU at the chosen day-of-month.
-                Days are clamped to month length (e.g. Feb 30 → Feb 28).
+                Schedules one PM for the selected AHU on the chosen date. An AHU can
+                have one PM schedule per year.
               </p>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">AHU</label>
@@ -1137,21 +1136,13 @@ export function PmScheduleListPage() {
                   <p className="text-xs text-amber-700 mt-1">No AHU instances found. Create an AHU under a Block first.</p>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Year</label>
-                  <input type="number" min={new Date().getFullYear()} max={new Date().getFullYear() + 5}
-                         value={createForm.year}
-                         onChange={e => setCreateForm(f => ({ ...f, year: Number(e.target.value) }))}
-                         className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Day of month</label>
-                  <input type="number" min={1} max={31}
-                         value={createForm.dayOfMonth}
-                         onChange={e => setCreateForm(f => ({ ...f, dayOfMonth: Number(e.target.value) }))}
-                         className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
+                <input type="date"
+                       value={createForm.plannedDate}
+                       onChange={e => setCreateForm(f => ({ ...f, plannedDate: e.target.value }))}
+                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                <p className="text-xs text-slate-400 mt-1">Select the year, month and day for this PM.</p>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Tolerance days</label>
@@ -1168,7 +1159,7 @@ export function PmScheduleListPage() {
                 Cancel
               </button>
               <button type="button" onClick={submitCreateSchedule}
-                      disabled={creatingSchedule || !createForm.ahuId || !createForm.year || !createForm.dayOfMonth}
+                      disabled={creatingSchedule || !createForm.ahuId || !createForm.plannedDate}
                       className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50"
                       style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))', color: '#fff' }}>
                 {creatingSchedule ? 'Creating…' : 'Create schedule'}
