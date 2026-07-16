@@ -34,6 +34,27 @@
 
 import type { Action } from '@digilog/shared';
 
+/**
+ * An advance the operator has requested but which has NOT been written yet —
+ * the whole point of the atomic advance+checklist flow (2026-07-16).
+ *
+ * The advance used to commit before this dialog rendered, so Close (a
+ * client-only no-op) stranded a checksummed filter_events row + hash-chained
+ * audit_trail row asserting a stage entry whose mandatory checklist was never
+ * answered. Now the intent is PARKED here and dispatched as ONE
+ * `advance-with-checklist` op when the operator submits.
+ *
+ * It lives on the dialog state deliberately: `close` returns `{ kind: 'none' }`,
+ * so the intent is discarded with the dialog and cannot leak onto the next
+ * filter's submit. A module-level ref would survive a close and do exactly that.
+ */
+export interface DeferredAdvance {
+  targetState: string;
+  /** The advance payload the hook built; merged with the answers into one op. */
+  payload: Record<string, unknown>;
+  cleaningAreaId?: string | null;
+}
+
 // ─── Tagged union of legal dialog states ──────────────────────────────────
 
 export type DialogState =
@@ -78,6 +99,13 @@ export type DialogState =
       checklists: unknown[];
       /** Batch continuation queue — filters whose checklists must be shown next. */
       remainingBatch?: { filterId: string; filterName: string }[];
+      /**
+       * Set when this dialog was opened BEFORE its advance was written. Submit
+       * dispatches one atomic `advance-with-checklist`; Close writes nothing at
+       * all. Absent = the legacy post-advance dialog (the advance is already on
+       * record) — submit sends a plain `submit-checklist`.
+       */
+      deferredAdvance?: DeferredAdvance;
     }
   | {
       kind: 'awaiting_block_change';
@@ -96,7 +124,7 @@ export type DialogEvent =
   | { type: 'open_reason'; filterId: string; filterName: string; stage: string; remainingBatch?: { filterId: string; filterName: string }[] }
   | { type: 'open_equipment'; filterId: string; filterName: string; stage: string; groups: unknown[]; cycleGroup?: unknown; remainingBatch?: { filterId: string; filterName: string }[] }
   | { type: 'open_dryer'; filterId: string; filterName: string; remainingBatch?: { filterId: string; filterName: string }[] }
-  | { type: 'open_checklist'; filterId: string; filterName: string; checklists: unknown[]; remainingBatch?: { filterId: string; filterName: string }[] }
+  | { type: 'open_checklist'; filterId: string; filterName: string; checklists: unknown[]; remainingBatch?: { filterId: string; filterName: string }[]; deferredAdvance?: DeferredAdvance }
   | { type: 'open_block_change'; filterId: string; filterName: string; homeBlockId: string; homeBlockName: string; requestedBlockId: string; requestedBlockName: string }
   | { type: 'advance_batch'; /** Walk remainingBatch in awaiting_checklist; close if empty. */ };
 
@@ -155,6 +183,7 @@ export function reduceDialogState(state: DialogState, event: DialogEvent): Dialo
         filterName: event.filterName,
         checklists: event.checklists,
         remainingBatch: event.remainingBatch,
+        deferredAdvance: event.deferredAdvance,
       };
 
     case 'open_block_change':

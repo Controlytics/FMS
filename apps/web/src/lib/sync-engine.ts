@@ -194,7 +194,7 @@ export function emitSyncStage(stage: SyncStage, extras?: { message?: string; cur
  * a confusing `400 NO_CYCLE` and the queue would either retry forever or
  * mark as failed without context.
  */
-const CYCLE_BOUND_OPS = new Set(['advance', 'bypass', 'submit-checklist', 'terminate']);
+const CYCLE_BOUND_OPS = new Set(['advance', 'advance-with-checklist', 'bypass', 'submit-checklist', 'terminate']);
 
 async function ensureCycleAlive(filterId: string, opType: string): Promise<void> {
   if (!CYCLE_BOUND_OPS.has(opType)) return;
@@ -468,7 +468,7 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
     if (
       op.filterId
       && failedStartFilters.has(op.filterId)
-      && (op.type === 'advance' || op.type === 'submit-checklist' || op.type === 'bypass')
+      && (op.type === 'advance' || op.type === 'advance-with-checklist' || op.type === 'submit-checklist' || op.type === 'bypass')
     ) {
       await updateOperationStatus(
         op.id,

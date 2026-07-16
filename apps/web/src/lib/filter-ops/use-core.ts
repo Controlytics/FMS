@@ -32,10 +32,10 @@ import {
   type DialogState,
   type DialogEvent,
 } from './dialog-state';
-import { resolvePendingChecklistDialog } from './resolve-pending-checklist';
+import { resolvePendingChecklistDialog, resolveChecklistForTargetStage } from './resolve-pending-checklist';
 import { findNextPendingChecklist, type PendingChecklistBatchItem } from './next-pending-checklist';
 import { getCurrentActions } from '@/lib/action-tape';
-import { recomputeAndCacheFilterState, appendChecklistCompletion } from '@/lib/offline-cache';
+import { recomputeAndCacheFilterState, appendChecklistCompletion, cacheServerStateResponse } from '@/lib/offline-cache';
 import { cacheData, getCachedData, clearOfflineCycleId, OFFLINE_TTL_MS } from '@/lib/offline-store';
 
 /**
@@ -81,6 +81,16 @@ export interface AdvanceArgs {
    * handles them on submit.
    */
   skipChecklistDispatch?: boolean;
+  /**
+   * Opt OUT of the dialog-first deferral (2026-07-16) for this call.
+   *
+   * Defaults to deferring. Set `false` when the CALLER knows about follow-on
+   * work the hook can't see — e.g. the equipment handler's batch-continuation
+   * loop, which must run after this advance. Deferring there would park the
+   * advance on a dialog and return before the rest of the batch is processed.
+   * Those calls keep the pre-2026-07-16 advance-then-dialog behaviour.
+   */
+  allowDefer?: boolean;
 }
 
 /**
@@ -135,10 +145,27 @@ export interface SubmitChecklistArgs {
   filterSet?: 'ALL' | 'SET_A' | 'SET_B';
 }
 
+/**
+ * `deferred: true` — NOTHING was written. The target stage has a mandatory
+ * checklist, so the dialog was opened first and the advance is parked on it;
+ * it commits (atomically, with the answers) only when the operator submits.
+ *
+ * Callers MUST NOT report success, log a recent-op, or show "(queued)" on a
+ * deferred outcome — nothing has happened yet. The checklist submit handler
+ * reports the combined result. `executed` is false here, which without this
+ * flag is indistinguishable from "queued offline".
+ */
+export interface AdvanceOutcome {
+  executed: boolean;
+  result?: any;
+  dialogOpened: boolean;
+  deferred?: boolean;
+}
+
 export interface UseFilterOperationsCoreResult {
   dialogState: DialogState;
   dispatch: (event: DialogEvent) => void;
-  advance: (args: AdvanceArgs) => Promise<{ executed: boolean; result?: any; dialogOpened: boolean }>;
+  advance: (args: AdvanceArgs) => Promise<AdvanceOutcome>;
   startAndAdvance: (args: StartAndAdvanceArgs) => Promise<{ executed: boolean; result?: any; dialogOpened: boolean }>;
   submitChecklist: (args: SubmitChecklistArgs) => Promise<{ executed: boolean }>;
   isLoading: boolean;
@@ -234,7 +261,7 @@ async function resolveAndDispatchChecklist(
 }
 
 export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
-  const { executeOrQueue } = useOffline();
+  const { executeOrQueue, online } = useOffline();
   const [dialogState, dispatch] = useReducer(reduceDialogState, { kind: 'none' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -258,11 +285,60 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
    * reauth.execute() / catch block can present a structured error.
    */
   const advance = useCallback(
-    async (args: AdvanceArgs): Promise<{ executed: boolean; result?: any; dialogOpened: boolean }> => {
+    async (args: AdvanceArgs): Promise<AdvanceOutcome> => {
       setIsLoading(true);
       setError(null);
       try {
         const payload = buildAdvancePayload(args);
+
+        // ── Dialog-first: resolve the TARGET stage's checklist before writing ──
+        // The defect this fixes: the advance below commits, THEN the dialog
+        // renders, and Close is a client-only no-op — stranding a §11 record of
+        // a stage entry whose mandatory checklist was never answered.
+        //
+        // Gated to online single-filter. Batch continuations (batchRemainder /
+        // skipChecklistDispatch) drive their own dialog cascade and would trip
+        // assertOpenable here; offline needs the combined queue entry. Both keep
+        // today's exact path until those land — see
+        // tasks/ATOMIC-ADVANCE-CHECKLIST-PLAN.md.
+        //
+        // `!args.dryerAction` is load-bearing: SET_DURATION / SUBMIT_READINGS
+        // are dryer-in-place ops (DRY_IN → DRY_IN, `isDryerInPlace` server-side).
+        // They do NOT enter a stage, so the checklist that gates leaving DRY_IN
+        // must not pop when the operator merely starts the dryer.
+        const canDefer =
+          online
+          && args.allowDefer !== false
+          && !args.dryerAction
+          && !args.skipChecklistDispatch
+          && !(args.batchRemainder && args.batchRemainder.length > 0);
+        if (canDefer) {
+          const pending = await resolveChecklistForTargetStage(
+            args.filterId,
+            args.targetState,
+            online,
+          );
+          if (pending.length > 0) {
+            // Nothing is written. The intent rides on the dialog; submit sends
+            // ONE advance-with-checklist, Close discards it with the dialog.
+            dispatch({
+              type: 'open_checklist',
+              filterId: args.filterId,
+              filterName: args.filterName,
+              checklists: pending,
+              deferredAdvance: {
+                targetState: args.targetState,
+                payload,
+                cleaningAreaId: args.cleaningAreaId ?? null,
+              },
+            });
+            return { executed: false, deferred: true, dialogOpened: true };
+          }
+          // pending === [] means EITHER no checklist here (advance plainly) OR
+          // it couldn't be resolved. Either way fall through to the path below,
+          // which is unchanged — the server re-validates every write regardless.
+        }
+
         const { executed, result } = await executeOrQueue(
           'advance',
           args.filterId,
@@ -304,7 +380,7 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           dialogOpened = dispatchOutcome === 'opened' || dispatchOutcome === 'opened_from_batch';
         }
 
-        return { executed, result, dialogOpened };
+        return { executed, result, dialogOpened, deferred: false };
       } catch (e: unknown) {
         if (isReauthOrRecompute(e)) throw e;
         const err = e as { message?: string };
@@ -419,19 +495,65 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
           ? (dialogState.checklists as Array<{ checklistProfileId: string }>)
           : [];
 
+      // An advance parked by the dialog-first flow: it has NOT been written.
+      // Submit it together with these answers as ONE atomic op instead of a
+      // bare submit-checklist against a stage the filter never entered.
+      // `dialogState` is in this callback's deps (and drives remainingBatch
+      // below), so this is the live value, not a stale closure.
+      const deferred =
+        dialogState.kind === 'awaiting_checklist' && dialogState.filterId === args.filterId
+          ? dialogState.deferredAdvance
+          : undefined;
+
       try {
-        const { executed } = await executeOrQueue(
-          'submit-checklist',
-          args.filterId,
-          args.filterName,
-          {
-            answers: args.answers,
-            expectedProfileVersions: args.expectedProfileVersions ?? {},
-            ...(args.filterSet ? { filterSet: args.filterSet } : {}),
-          },
-          undefined,
-          args.password,
-        );
+        const { executed, result } = deferred
+          ? await executeOrQueue(
+              'advance-with-checklist',
+              args.filterId,
+              args.filterName,
+              {
+                ...deferred.payload,
+                answers: args.answers,
+                expectedProfileVersions: args.expectedProfileVersions ?? {},
+                ...(args.filterSet ? { filterSet: args.filterSet } : {}),
+              },
+              deferred.targetState, // optimistic local state = the stage we're entering
+              args.password,
+            )
+          : await executeOrQueue(
+              'submit-checklist',
+              args.filterId,
+              args.filterName,
+              {
+                answers: args.answers,
+                expectedProfileVersions: args.expectedProfileVersions ?? {},
+                ...(args.filterSet ? { filterSet: args.filterSet } : {}),
+              },
+              undefined,
+              args.password,
+            );
+
+        // The combined op moved the filter to targetState in the same tx. The
+        // cache row still describes the PRE-advance stage, so reconcile it
+        // before the shared post-submit bookkeeping below reads it.
+        //   online  → cache the server's own snapshot (authoritative; the op
+        //             returns getCurrentState).
+        //   queued  → the network dropped between dialog and submit; recompute
+        //             locally for the new stage. The block below then clears the
+        //             pendingChecklist this recompute re-derives for targetState
+        //             (we just answered it) and re-derives the tape.
+        if (deferred) {
+          if (executed && result) {
+            await cacheServerStateResponse(args.filterId, result);
+          } else {
+            await recomputeAndCacheFilterState(
+              args.filterId,
+              deferred.targetState,
+              false,
+              deferred.cleaningAreaId ?? null,
+            );
+          }
+        }
 
         // Explicit checklist-completion log — Tier 1 of local-context.ts
         // synthesizeEvents (Day 2 helper). Populated on EVERY submit (online
@@ -444,7 +566,12 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
             currentState?: string | null;
             currentCycle?: { id?: string | null } | null;
           }>(`filter-state-${args.filterId}`);
-          const afterStage = cs?.currentState ?? null;
+          // Deferred: the checklist was answered after the stage we just entered.
+          // Reading the cache row instead would be wrong in both directions — it
+          // holds the PRE-advance stage when queued, and (for a terminal
+          // checklist) the post-completion CLEANING_CYCLE_COMPLETED / null once
+          // the server snapshot lands.
+          const afterStage = deferred?.targetState ?? cs?.currentState ?? null;
           const cycleId = cs?.currentCycle?.id ?? null;
           if (afterStage) {
             const completedAt = new Date().toISOString();

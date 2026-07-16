@@ -1320,6 +1320,10 @@ export function FilterOperationsPage() {
       // state to 'awaiting_checklist' and killing the checklist dialog on
       // L1-style every-stage-has-gate profiles.
       let dialogOpenedByCore = false;
+      // 2026-07-16: the advance deferred behind its checklist dialog and wrote
+      // nothing. Suppresses the submission record + success toast below, which
+      // would otherwise report a stage the filter has not entered.
+      let deferredHere = false;
       if (pendingCyclePayload) {
         // Cycle not started yet — compound start-and-advance with readings
         const res = await core.startAndAdvance({
@@ -1346,14 +1350,26 @@ export function FilterOperationsPage() {
         });
         executed = res.executed;
         dialogOpenedByCore = res.dialogOpened;
+        deferredHere = res.deferred === true;
       }
 
-      recordSubmission({ stage: equipmentDialog.stage.label + (executed ? '' : ' (queued)'), filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) });
+      // Dialog-first (2026-07-16): when deferred, NOTHING was written — the
+      // checklist dialog is open and the advance commits atomically with the
+      // answers on submit. Recording a submission or toasting "→ stage" here
+      // would claim a transition that hasn't happened and that Close discards.
+      // The checklist submit path reports the combined result. The equip dialog
+      // is already superseded by the checklist dialog (dialogOpenedByCore), so
+      // the close guard below still behaves.
+      if (!deferredHere) {
+        recordSubmission({ stage: equipmentDialog.stage.label + (executed ? '' : ' (queued)'), filter: equipmentDialog.filterName, block: equipmentDialog.block?.name, time: formatTime(new Date()) });
+      }
       refreshFilters();
       // Close equip dialog ONLY when no checklist gate fired — otherwise the
       // explicit close races the checklist dispatch and dismisses it.
       if (!dialogOpenedByCore) core.dispatch({ type: 'close' });
-      setToast({ type: 'success', message: `${equipmentDialog.filterName} → ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
+      if (!deferredHere) {
+        setToast({ type: 'success', message: `${equipmentDialog.filterName} → ${equipmentDialog.stage.label}${executed ? '' : ' (queued)'}` });
+      }
     } catch (e: any) {
       // B7.2: single-filter equipment submit may return 409 BLOCK_CHANGE_REQUIRED
       // when pendingCyclePayload is set (start-and-advance path).

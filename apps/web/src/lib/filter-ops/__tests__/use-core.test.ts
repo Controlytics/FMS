@@ -44,6 +44,9 @@ const {
   mockGetCachedData,
   mockCacheData,
   mockClearCycle,
+  mockResolveForTarget,
+  mockCacheServerState,
+  onlineRef,
 } = vi.hoisted(() => ({
   mockExecuteOrQueue: vi.fn(),
   mockResolvePending: vi.fn(),
@@ -54,14 +57,20 @@ const {
   mockGetCachedData: vi.fn(),
   mockCacheData: vi.fn(),
   mockClearCycle: vi.fn(),
+  mockResolveForTarget: vi.fn(),
+  mockCacheServerState: vi.fn(),
+  // Dialog-first deferral is online-only. Default false → every pre-2026-07-16
+  // test below exercises the legacy advance-then-dialog path unchanged.
+  onlineRef: { current: false },
 }));
 
 vi.mock('../../../hooks/use-offline', () => ({
-  useOffline: () => ({ executeOrQueue: mockExecuteOrQueue }),
+  useOffline: () => ({ executeOrQueue: mockExecuteOrQueue, online: onlineRef.current }),
 }));
 
 vi.mock('../resolve-pending-checklist', () => ({
   resolvePendingChecklistDialog: mockResolvePending,
+  resolveChecklistForTargetStage: mockResolveForTarget,
 }));
 
 vi.mock('../next-pending-checklist', () => ({
@@ -75,6 +84,7 @@ vi.mock('@/lib/action-tape', () => ({
 vi.mock('@/lib/offline-cache', () => ({
   recomputeAndCacheFilterState: mockRecomputeCache,
   appendChecklistCompletion: mockAppendCompletion,
+  cacheServerStateResponse: mockCacheServerState,
 }));
 
 vi.mock('@/lib/offline-store', () => ({
@@ -97,6 +107,9 @@ describe('useFilterOperationsCore — Day 1 baseline', () => {
     mockGetCachedData.mockResolvedValue({});
     mockCacheData.mockResolvedValue(undefined);
     mockGetCurrentActions.mockResolvedValue([]);
+    mockResolveForTarget.mockResolvedValue([]);
+    mockCacheServerState.mockResolvedValue(undefined);
+    onlineRef.current = false;
   });
 
   it('starts with dialogState.kind === "none"', () => {
@@ -349,6 +362,9 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
     mockGetCachedData.mockResolvedValue({});
     mockCacheData.mockResolvedValue(undefined);
     mockGetCurrentActions.mockResolvedValue([]);
+    mockResolveForTarget.mockResolvedValue([]);
+    mockCacheServerState.mockResolvedValue(undefined);
+    onlineRef.current = false;
   });
 
   it('advance() forwards the full payload (cleaningAreaId, equipmentGroupId, instrumentReadings, dryerAction)', async () => {
@@ -793,5 +809,290 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
     expect(mockCacheData).toHaveBeenCalled();
     const writes = mockCacheData.mock.calls.map((c: any[]) => c[1]);
     expect(writes.some((w: any) => Array.isArray(w?.pendingChecklist) && w.pendingChecklist.length === 0)).toBe(true);
+  });
+});
+
+/**
+ * Dialog-first atomic advance+checklist (2026-07-16).
+ *
+ * The defect: `advance()` wrote the stage transition, THEN the dialog rendered.
+ * Close is client-only and makes no API call, so an operator who closed the
+ * dialog left a checksummed filter_events row + hash-chained audit_trail row
+ * asserting a stage entry whose mandatory checklist was never answered — a
+ * 21 CFR §11 record of an event whose required attestation does not exist.
+ * Reproduced server-side in
+ * apps/api/src/modules/filter-operations/__tests__/terminal-checklist-advance-persistence.test.ts.
+ *
+ * The fix inverts the order: resolve the target stage's checklist FIRST, render
+ * the dialog, write NOTHING, and on submit dispatch ONE atomic
+ * `advance-with-checklist` op. These tests pin the reorder without a device
+ * (step 6, tablet verification, is operator-only).
+ *
+ * Scope gate — deferral is online + single-filter + non-dryer only. Batch
+ * continuations drive their own dialog cascade (deferring trips assertOpenable)
+ * and offline needs the combined queue entry; both keep the legacy path until
+ * those land. Every test above runs with onlineRef.current = false, which is
+ * exactly why they still assert the pre-fix behaviour unchanged.
+ */
+describe('useFilterOperationsCore — dialog-first atomic advance+checklist', () => {
+  const CHECKLIST = [
+    { checklistProfileId: 'cp1', questions: [{ id: 'q1', question: 'Inspected?', questionType: 'YES_NO' }] },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecuteOrQueue.mockResolvedValue({ executed: true, result: { actions: [] } });
+    mockResolvePending.mockResolvedValue(null);
+    mockFindNext.mockResolvedValue(null);
+    mockRecomputeCache.mockResolvedValue(undefined);
+    mockAppendCompletion.mockResolvedValue(undefined);
+    mockGetCachedData.mockResolvedValue({});
+    mockCacheData.mockResolvedValue(undefined);
+    mockGetCurrentActions.mockResolvedValue([]);
+    mockResolveForTarget.mockResolvedValue([]);
+    mockCacheServerState.mockResolvedValue(undefined);
+    onlineRef.current = true;
+  });
+
+  // THE bug, in one assertion: the write must not happen.
+  it('writes NOTHING when the target stage has a checklist — opens the dialog instead', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+
+    // Pre-fix this was 1 — the advance committed before the dialog rendered.
+    expect(mockExecuteOrQueue).not.toHaveBeenCalled();
+    expect(outcome.deferred).toBe(true);
+    expect(outcome.executed).toBe(false);
+    expect(outcome.dialogOpened).toBe(true);
+    expect(result.current.dialogState.kind).toBe('awaiting_checklist');
+  });
+
+  it('parks the advance intent on the dialog', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'S2',
+        cleaningAreaId: 'blk1', remarks: 'r',
+      });
+    });
+
+    expect(result.current.dialogState.kind).toBe('awaiting_checklist');
+    if (result.current.dialogState.kind === 'awaiting_checklist') {
+      const d = result.current.dialogState.deferredAdvance;
+      expect(d?.targetState).toBe('S2');
+      expect(d?.payload).toMatchObject({ targetState: 'S2', cleaningAreaId: 'blk1', remarks: 'r' });
+    }
+  });
+
+  // Close is a client-only no-op — with the advance parked (never written), that
+  // is now literally true. Pre-fix the transition was already on record.
+  it('discards the parked advance on close — still zero writes', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+    act(() => { result.current.dispatch({ type: 'close' }); });
+
+    expect(result.current.dialogState.kind).toBe('none');
+    expect(mockExecuteOrQueue).not.toHaveBeenCalled();
+  });
+
+  it('submits the parked advance and the answers as ONE atomic op', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'S2', cleaningAreaId: 'blk1',
+      });
+    });
+    await act(async () => {
+      await result.current.submitChecklist({
+        filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' }, password: 'pw',
+      });
+    });
+
+    // ONE call, not an advance followed by a submit-checklist.
+    expect(mockExecuteOrQueue).toHaveBeenCalledTimes(1);
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance-with-checklist',
+      'f1',
+      'F-1',
+      expect.objectContaining({ targetState: 'S2', cleaningAreaId: 'blk1', answers: { q1: 'YES' } }),
+      'S2',
+      'pw',
+    );
+    expect(result.current.dialogState.kind).toBe('none');
+  });
+
+  it('caches the server snapshot after the combined op — the cache row still held the pre-advance stage', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    const snapshot = { currentState: null, tapeVersion: 9, actions: [] };
+    mockExecuteOrQueue.mockResolvedValue({ executed: true, result: snapshot });
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
+    });
+
+    expect(mockCacheServerState).toHaveBeenCalledWith('f1', snapshot);
+  });
+
+  // The network dropped between opening the dialog and submitting. executeOrQueue
+  // falls through to the IDB queue, so the local cache must be reconciled to the
+  // stage the queued op will land on.
+  it('recomputes the cache for the target stage when the combined op queues', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    mockExecuteOrQueue.mockResolvedValue({ executed: false });
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'S2', cleaningAreaId: 'blk1',
+      });
+    });
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
+    });
+
+    expect(mockCacheServerState).not.toHaveBeenCalled();
+    expect(mockRecomputeCache).toHaveBeenCalledWith('f1', 'S2', false, 'blk1');
+  });
+
+  // afterStage feeds appendChecklistCompletion (and the server's §11 record via
+  // the op). The cache row holds the PRE-advance stage, so reading it here would
+  // log the attestation against a stage the checklist does not belong to.
+  it('logs the checklist completion against the TARGET stage, not the cached pre-advance stage', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    mockGetCachedData.mockResolvedValue({ currentState: 'S1', currentCycle: { id: 'cyc1' } });
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
+    });
+
+    expect(mockAppendCompletion).toHaveBeenCalledWith(
+      'f1',
+      expect.objectContaining({ checklistProfileId: 'cp1', afterStage: 'S2' }),
+    );
+  });
+
+  it('advances plainly when the target stage has no checklist', async () => {
+    mockResolveForTarget.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+
+    expect(outcome.deferred).toBe(false);
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance', 'f1', 'F-1', expect.objectContaining({ targetState: 'S2' }), 'S2', undefined,
+    );
+  });
+
+  // ── Scope gates: everything below must keep the legacy path ──────────────
+
+  it('does NOT defer a dryer SET_DURATION — it never leaves DRY_IN, so the post-DRY_IN checklist must not pop', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'DRY_IN',
+        dryerAction: 'SET_DURATION', dryerDurationMinutes: 30,
+      });
+    });
+
+    expect(mockResolveForTarget).not.toHaveBeenCalled();
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance', 'f1', 'F-1', expect.objectContaining({ dryerAction: 'SET_DURATION' }), 'DRY_IN', undefined,
+    );
+  });
+
+  it('does NOT defer a batch continuation (would trip assertOpenable)', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'S2',
+        batchRemainder: [{ filterId: 'f2', filterName: 'F-2' }],
+      });
+    });
+
+    expect(mockResolveForTarget).not.toHaveBeenCalled();
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance', 'f1', 'F-1', expect.anything(), 'S2', undefined,
+    );
+  });
+
+  it('does NOT defer when the caller opts out (allowDefer:false — caller has follow-on batch work)', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'S2', allowDefer: false,
+      });
+    });
+
+    expect(mockResolveForTarget).not.toHaveBeenCalled();
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance', 'f1', 'F-1', expect.anything(), 'S2', undefined,
+    );
+  });
+
+  it('does NOT defer offline — the combined queue entry lands separately', async () => {
+    onlineRef.current = false;
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    mockExecuteOrQueue.mockResolvedValue({ executed: false });
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+
+    expect(mockResolveForTarget).not.toHaveBeenCalled();
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance', 'f1', 'F-1', expect.anything(), 'S2', undefined,
+    );
+  });
+
+  // A stale intent leaking onto a different filter's submit would advance the
+  // WRONG filter. It can't: the intent lives on the dialog state, and this
+  // guard also checks the id.
+  it('ignores a parked intent belonging to a different filter', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'S2' });
+    });
+    mockExecuteOrQueue.mockClear();
+
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f-other', filterName: 'F-OTHER', answers: {} });
+    });
+
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'submit-checklist', 'f-other', 'F-OTHER', expect.anything(), undefined, undefined,
+    );
   });
 });

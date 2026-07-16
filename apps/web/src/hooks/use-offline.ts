@@ -92,7 +92,7 @@ export function useOffline() {
    * for these routes do NOT require the field.
    */
   const executeOrQueue = useCallback(async (
-    type: 'advance' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance',
+    type: 'advance' | 'advance-with-checklist' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance',
     filterId: string,
     filterName: string,
     payload: Record<string, any>,
@@ -111,7 +111,7 @@ export function useOffline() {
     // `recomputeAndCacheFilterState` (re-runs the executor → tapeVersion from
     // computeNextActions). Either way, this is the freshest tapeVersion the
     // FE has observed for this filter.
-    const isCycleBound = type === 'advance' || type === 'submit-checklist' || type === 'bypass' || type === 'terminate';
+    const isCycleBound = type === 'advance' || type === 'advance-with-checklist' || type === 'submit-checklist' || type === 'bypass' || type === 'terminate';
     let tapeVersion: number | null = null;
     if (isCycleBound) {
       try {
@@ -202,6 +202,13 @@ export function useOffline() {
       switch (type) {
         case 'advance':
           result = await cyclePost(`/api/filters/${filterId}/advance`, onlinePayload);
+          break;
+        // Atomic advance + post-stage checklist (2026-07-16). One tx server-side,
+        // so a cancelled checklist leaves no orphaned stage transition. cyclePost
+        // (not onlinePost) — it's cycle-bound and carries/refreshes tapeVersion
+        // exactly like the bare advance.
+        case 'advance-with-checklist':
+          result = await cyclePost(`/api/filters/${filterId}/advance-with-checklist`, onlinePayload);
           break;
         case 'start-cycle':
           result = await onlinePost(`/api/filters/${filterId}/start-cycle`, { ...payload, clientOpId });

@@ -72,7 +72,12 @@ interface OfflineOperation {
   id: string;
   /** Stable client-generated UUID — sent as x-client-op-id so backend can dedup retries */
   clientOpId: string;
-  type: 'advance' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance';
+  /**
+   * `advance-with-checklist` (2026-07-16) — atomic advance + post-stage checklist.
+   * Replays via the generic `/api/filters/:id/${op.type}` mapping in sync-engine,
+   * and is registered in its CYCLE_BOUND_OPS + failed-start dependent-skip lists.
+   */
+  type: 'advance' | 'advance-with-checklist' | 'start-cycle' | 'submit-checklist' | 'bypass' | 'terminate' | 'start-and-advance';
   filterId: string;
   filterName: string;
   payload: Record<string, any>;

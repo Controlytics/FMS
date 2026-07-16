@@ -1805,13 +1805,23 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         }
       }
 
-      const { executed } = await core.advance({
+      const { executed, deferred } = await core.advance({
         filterId,
         filterName: filterName || state.filterName,
         targetState: activeStage.key,
         cleaningAreaId: selectedBlock?.id,
         remarks: remarks || `${activeStage.label} - ${filterName}`,
       });
+      // Dialog-first (2026-07-16): this stage has a mandatory checklist, so
+      // NOTHING was written — the dialog is open and the advance commits
+      // atomically with the answers. Reporting "→ stage" / a recent-op here
+      // would claim a transition that hasn't happened (and that Close will
+      // discard). The checklist submit handler reports the combined result.
+      if (deferred) {
+        setScanValue(''); setRemarks('');
+        setLoading(false);
+        return;
+      }
       setSuccess(`${filterName || state.filterName} → ${activeStage.label}${executed ? '' : ' (queued)'}`);
       setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 200));
       setScanValue(''); setRemarks('');
@@ -2207,6 +2217,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // on every L1-style profile (every-stage checklist). Now we trust the
       // hook's return value.
       let dialogOpenedByCore = false;
+      // 2026-07-16: the single-filter advance deferred — the checklist dialog is
+      // open and NOTHING was written yet. Everything below that reports a
+      // completed stage (success toast, recent-ops) must be skipped; the
+      // checklist submit handler reports the combined result instead.
+      let deferredHere = false;
       // 2026-05-26: capture server tape per filter so the unified-batch
       // post-loop dispatch (below) groups same-signature filters into ONE
       // dialog. Pre-fix the cycle-start used the per-filter remainingBatch
@@ -2324,9 +2339,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           instrumentReadings: readings,
           ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
           remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${equipFiltName}`,
+          // Dialog-first deferral would park this advance on the checklist
+          // dialog and return — skipping the batch-continuation loop below.
+          // Single-filter only.
+          allowDefer: batchRest.length === 0,
         });
         executed = res.executed;
         dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
+        deferredHere = res.deferred === true;
       }
 
       // 2026-05-25 combined-screen UX: snapshot the readings the operator just
@@ -2354,7 +2374,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Skip the first-filter success toast + recent-ops entry when THAT filter
       // failed in an online batch (its failure is already surfaced via setError);
       // otherwise it falsely reads as "Success"/"(queued)".
-      if (!firstFilterFailed) {
+      //
+      // `deferredHere` (2026-07-16): the advance was NOT written — the checklist
+      // dialog is open and it commits atomically on submit. `queued` is true here
+      // only because `executed` is false, so this would print a "(queued)" that is
+      // doubly wrong: nothing is queued, and no stage was reached. The checklist
+      // submit handler reports the real outcome. The recap above IS still set —
+      // it renders the readings at the top of the open dialog.
+      if (!firstFilterFailed && !deferredHere) {
         setSuccess(`${equipFiltName} → ${equipStage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
         setRecentOps(prev => [{ stage: equipStage, filter: equipFiltName, time: formatTime(new Date()), queued }, ...prev].slice(0, 200));
       }

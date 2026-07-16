@@ -157,6 +157,41 @@ function expectedChecklistIdsAfterStage(
   return [];
 }
 
+/**
+ * Resolve the checklist that fires after `targetStage` WITHOUT advancing —
+ * the pre-advance half of the atomic advance+checklist flow (2026-07-16).
+ *
+ * The advance used to commit before this could be asked, so a cancelled
+ * checklist stranded a §11 record of a stage entry whose attestation never
+ * happened. The client can answer this question up-front because the server
+ * pre-computes `stageLookup[<stage>].pendingChecklistProfileIds` for EVERY
+ * stage (current-state.ts), not just the current one.
+ *
+ * Reuses the same two helpers `recomputeAndCacheFilterState` uses — no second
+ * implementation of "which checklist fires here" to drift from the server.
+ *
+ * `expectedIds` is returned alongside so the caller can tell the two very
+ * different empty cases apart:
+ *   - `expectedIds: []`          → genuinely no checklist here. Advance plainly.
+ *   - `expectedIds: [...]`, `checklists: []` → a checklist EXISTS but its
+ *     questions aren't in cache (never synced / stale). Caller must NOT treat
+ *     this as "no gate" — see resolveChecklistForTargetStage, which refetches.
+ */
+export async function resolvePendingChecklistForStage(
+  filterId: string,
+  targetStage: string,
+): Promise<{ checklists: any[]; expectedIds: string[] }> {
+  const cachedState = (await getCachedData<CachedFilterState>(
+    `filter-state-${filterId}`,
+  )) ?? {};
+  const graph = cachedState.pipelineGraph;
+  const stageLookup = cachedState.stageLookup;
+  const expectedIds = expectedChecklistIdsAfterStage(graph, stageLookup, targetStage);
+  if (expectedIds.length === 0) return { checklists: [], expectedIds };
+  const checklists = await buildPendingChecklistFromProfile(graph, stageLookup, targetStage);
+  return { checklists, expectedIds };
+}
+
 async function buildPendingChecklistFromProfile(
   graph: { stages?: any[]; connections?: any[] } | null | undefined,
   stageLookup: Record<string, any> | null | undefined,
