@@ -670,10 +670,11 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'trash', category: 'Equipment Group Controls', permissions: ['EG_DELETE', 'ASSET_READ'], // 2026-07-01: dropped ASSET_DELETE over-grant
         reauthAction: 'DELETE_EQUIPMENT_GROUP', enforce: 'a',
         gate: ['EG_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDelete=EG_DELETE)
-      { id: 'equipment_groups.toggle', label: 'Enable / Disable Equipment Groups', sidebarId: 'equipment-groups', page: 'Equipment Groups', action: 'Enable/Disable',
-        icon: 'toggle', category: 'Equipment Group Controls', permissions: ['EG_EDIT', 'ASSET_UPDATE'],
-        reauthAction: 'UPDATE_EQUIPMENT_GROUP', enforce: 'a',
-        gate: ['EG_EDIT'] }, // 5C: per-action UI intent (old canEdit=EG_EDIT; covers edit + enable/disable)
+      // 2026-07-16: `equipment_groups.toggle` (Enable/Disable) removed — a block
+      // may now have multiple active equipment groups simultaneously; the
+      // enable/disable capability is gone (delete is the only removal path). The
+      // node was non-configurable (useCan-only), so FEATURE_PRIVILEGES /
+      // FEATURE_TO_PERMISSION_MAP counts are unaffected.
     ],
   },
 

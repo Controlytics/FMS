@@ -65,7 +65,6 @@ export function EquipmentGroupsConfigPage() {
   const reauth = useReauth();
   const canCreate = can('equipment_groups.create'); // gate: ['EG_CREATE'] — SAME as old EG_CREATE check
   const canEdit = can('equipment_groups.edit');     // gate: ['EG_EDIT'] — SAME as old EG_EDIT check (Edit button)
-  const canToggle = can('equipment_groups.toggle'); // gate: ['EG_EDIT'] — SAME as old EG_EDIT check (Enable/Disable button; separate for clarity)
   const canDelete = can('equipment_groups.delete'); // gate: ['EG_DELETE'] — SAME as old EG_DELETE check
   // A-01 wave 5: migrated from /api/assets/templates + /api/assets/instances to the
   // typed hierarchy endpoint. /api/hierarchy/blocks returns only block-kind rows —
@@ -75,8 +74,10 @@ export function EquipmentGroupsConfigPage() {
   const { data: blocksData } = useSWR('/api/hierarchy/blocks');
   const blocks = (blocksData?.data ?? []) as any[];
   const [selectedBlockId, setSelectedBlockId] = useState<string>('');
-  // includeInactive=true so disabled groups stay visible and re-enableable.
-  const groupsKey = selectedBlockId ? `/api/equipment-groups?blockId=${selectedBlockId}&includeInactive=true` : null;
+  // 2026-07-16: active groups only. There is no Enable/Disable toggle anymore
+  // (a block may have multiple active groups). Inactive rows are soft-deleted
+  // groups — not re-enableable — so they stay hidden.
+  const groupsKey = selectedBlockId ? `/api/equipment-groups?blockId=${selectedBlockId}` : null;
   const { data: groupsData } = useSWR(groupsKey);
 
   const [editing, setEditing] = useState<{ group: Partial<EquipmentGroup>; isNew: boolean } | null>(null);
@@ -197,28 +198,8 @@ export function EquipmentGroupsConfigPage() {
     );
   };
 
-  // Enable / disable a group. Enabling flips every OTHER group in the block off
-  // (single-active-group-per-block — the server enforces it; we just confirm).
-  const handleToggleActive = (g: EquipmentGroup) => {
-    const enabling = !g.isActive;
-    if (enabling) {
-      const otherActive = groups.filter(x => x.id !== g.id && x.isActive).length;
-      if (otherActive > 0 && !confirm(`Enable "${g.name}"? This disables ${otherActive} other active group${otherActive === 1 ? '' : 's'} in this block — a block can have only one active group.`)) return;
-    }
-    setDeleteError('');
-    reauth.execute(
-      'UPDATE_EQUIPMENT_GROUP',
-      async (password?: string) => {
-        const body = { isActive: enabling };
-        if (password) await api.patchWithReauth(`/api/equipment-groups/${g.id}/active`, body, password);
-        else await apiClient.patch(`/api/equipment-groups/${g.id}/active`, body);
-      },
-      {
-        onSuccess: () => mutate(groupsKey),
-        onError: (e: any) => setDeleteError(e.message || 'Failed to update group status'),
-      },
-    );
-  };
+  // 2026-07-16: `handleToggleActive` removed — no Enable/Disable. A block may
+  // have multiple active equipment groups; delete is the only removal path.
 
   const updateInstrument = (idx: number, field: string, value: any) => {
     if (!editing) return;
@@ -379,33 +360,19 @@ export function EquipmentGroupsConfigPage() {
       {/* Group Cards */}
       <div className="space-y-5">
         {pagedGroups.map(g => (
-          <div key={g.id} className={`bg-white border rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow ${g.isActive ? 'border-slate-200' : 'border-slate-200 opacity-70'}`}>
-            <div className={`h-1.5 ${g.isActive ? 'bg-gradient-to-r from-cyan-400 to-teal-500' : 'bg-slate-300'}`} />
+          <div key={g.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow">
+            <div className="h-1.5 bg-gradient-to-r from-cyan-400 to-teal-500" />
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-100 to-teal-100 flex items-center justify-center">
                   <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-bold text-slate-800">{g.name}</h3>
-                    <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${g.isActive ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
-                      {g.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
+                  <h3 className="text-lg font-bold text-slate-800">{g.name}</h3>
                   <p className="text-xs text-slate-400">{g.instruments.length} instruments configured</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {canToggle && (
-                  <button onClick={() => handleToggleActive(g)} title={g.isActive ? 'Disable this group' : 'Enable this group'}
-                    className="flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-xl transition-colors text-slate-600 bg-slate-50 hover:bg-slate-100">
-                    <span className={`relative w-9 h-5 rounded-full transition-colors ${g.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${g.isActive ? 'translate-x-4' : ''}`} />
-                    </span>
-                    {g.isActive ? 'Enabled' : 'Disabled'}
-                  </button>
-                )}
                 {canEdit && (
                   <button onClick={() => handleEdit(g)}
                     className="px-4 py-2 text-sm font-medium text-cyan-600 bg-cyan-50 hover:bg-cyan-100 rounded-xl transition-colors">

@@ -178,33 +178,20 @@ export class EquipmentGroupsService {
     // Validate each instrument
     instruments.forEach((inst: any, idx: number) => validateInstrument(inst, idx));
 
-    // Single-active-group invariant: a block may have at most one ACTIVE group
-    // (the cleaning runtime resolves one group per block). If the block already
-    // has an active group, the new one is created INACTIVE — the admin enables
-    // it via setActive() to switch, which flips the others off. This preserves
-    // the invariant without silently stealing the active group on create.
+    // 2026-07-16: a block may now have MULTIPLE active equipment groups. The old
+    // single-active-group invariant (create INACTIVE when the block already had
+    // an active group, then flip via setActive) is gone along with the
+    // Enable/Disable toggle. Every group is created active and stays available;
+    // the operator picks which group to record against per cleaning (the
+    // equipment dialog's group picker), and the cleaning runtime's
+    // assertSingleEquipmentGroupPerBlock remains only as a "select one" safety
+    // net for an unbound cycle that submits readings without choosing.
     const group = await prisma.$transaction(async (tx) => {
-      // The count belongs inside the transaction: outside it, the read could be
-      // arbitrarily stale. A block with two active groups breaks the cleaning
-      // runtime for every operator in it — instruments.ts rejects readings with
-      // MULTIPLE_EQUIPMENT_GROUPS and unpinned cycles resolve zero instruments.
-      //
-      // HONEST LIMITATION: this NARROWS the race, it does not close it. Under
-      // READ COMMITTED two concurrent transactions can still both count 0 and
-      // both insert isActive:true — neither sees the other's uncommitted row.
-      // Closing it properly needs a partial unique index
-      // (`ON equipment_groups(block_id) WHERE is_active`), which cannot be
-      // created today: block MUPS already has two active groups ("Testing",
-      // "Testing 2"), so the index build would fail until that data is resolved.
-      // Tracked in tasks/ENTERPRISE-AUDIT-HIGHS-TRIAGE-2026-07-15.md.
-      const hasActiveInBlock = await tx.equipmentGroup.count({ where: { blockId, isActive: true } });
-      const createActive = hasActiveInBlock === 0;
-
       const created = await tx.equipmentGroup.create({
         data: {
           name: name.trim(),
           blockId,
-          isActive: createActive,
+          isActive: true,
           readingUrl,
           createdBy: ctx.userSub,
         },
@@ -372,63 +359,11 @@ export class EquipmentGroupsService {
     }
   }
 
-  /**
-   * Enable / disable an equipment group. ENABLING enforces the single-active-
-   * group-per-block invariant: every OTHER group in the same block is flipped
-   * inactive in the same transaction, so the cleaning runtime always resolves
-   * exactly one group per block (no MULTIPLE_EQUIPMENT_GROUPS). Disabling just
-   * flips this one off (a block may legitimately have zero active groups), and
-   * is refused (409 IN_USE) while active cycles reference the group — the same
-   * guard delete() applies to the same mutation.
-   *
-   * Mirrors `delete()` — this does NOT snapshot-then-bump (isActive flips are
-   * not versioned; the next real edit captures the active state in its
-   * snapshot), keeping the toggle cheap and consistent with soft-delete.
-   */
-  async setActive(ctx: RequestContext, id: string, isActive: boolean) {
-    const existing = await prisma.equipmentGroup.findFirst({ where: { id } });
-    if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
-
-    await prisma.$transaction(async (tx) => {
-      // Deactivating IS the same mutation delete() performs (delete is a soft
-      // delete: isActive=false), so it takes the same guard — an EG_EDIT holder
-      // must not do via PATCH /:id/active what delete() refuses EG_DELETE
-      // holders (ADMIN and SUPERVISOR hold edit but not delete).
-      //
-      // ENABLING is deliberately unguarded: it turns THIS group on, so the block
-      // always ends with exactly one active group — the zero-active state the
-      // guard exists to prevent is unreachable from this branch. The siblings it
-      // flips off may carry in-progress cycles, but those are pinned
-      // (equipmentGroupId set) and resolve their config from the version
-      // snapshot regardless of isActive, so they are unaffected.
-      if (!isActive) {
-        await this.lockBlockGroups(tx, existing.blockId);
-        await this.assertSafeToDeactivate(tx, existing, 'disable');
-      }
-      if (isActive) {
-        // Flip every other group in this block off, then turn this one on.
-        await tx.equipmentGroup.updateMany({
-          where: { blockId: existing.blockId, isActive: true, id: { not: id } },
-          data: { isActive: false },
-        });
-      }
-      await tx.equipmentGroup.update({ where: { id }, data: { isActive } });
-    });
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: isActive ? 'EQUIPMENT_GROUP_ENABLED' : 'EQUIPMENT_GROUP_DISABLED',
-      targetType: 'equipment_group', targetId: id,
-      beforeValue: { isActive: existing.isActive },
-      afterValue: { name: existing.name, blockId: existing.blockId, isActive },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    });
-
-    return prisma.equipmentGroup.findUnique({
-      where: { id },
-      include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-    });
-  }
+  // 2026-07-16: `setActive()` (the Enable/Disable toggle) removed. A block may
+  // now have multiple active equipment groups; there is no enable/disable — the
+  // only removal path is `delete()` (soft-delete, which keeps the shared
+  // `assertSafeToDeactivate` last-active-group guard below). Config resolution
+  // per cleaning is the operator's dialog choice, not an active-group flip.
 
   /**
    * List archived versions of an equipment group, newest first. The current

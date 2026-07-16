@@ -207,29 +207,9 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
     return service.update(ctx, id, req.body);
   });
 
-  // Enable / disable a group. Enabling flips every other group in the same
-  // block off (single-active-group-per-block invariant — see service.setActive).
-  app.patch('/:id/active', {
-    preHandler: [app.requireAnyPermission('ASSET_UPDATE', 'EG_EDIT')],
-    schema: {
-      tags: ['Equipment Groups'],
-      summary: 'Enable or disable an equipment group',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
-      body: {
-        type: 'object',
-        required: ['isActive'],
-        properties: { isActive: { type: 'boolean' } },
-      },
-      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
-    },
-  }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_EQUIPMENT_GROUP', req, reply);
-    if (!ok) return;
-    const ctx = buildContext(req);
-    const { id } = req.params as { id: string };
-    const { isActive } = req.body as { isActive: boolean };
-    return service.setActive(ctx, id, isActive);
-  });
+  // 2026-07-16: `PATCH /:id/active` (Enable/Disable) removed — a block may now
+  // have multiple active equipment groups; there is no enable/disable toggle.
+  // Deletion (soft-delete) is the only removal path — see `DELETE /:id` below.
 
   app.delete('/:id', {
     preHandler: [app.requireAnyPermission('ASSET_DELETE', 'EG_DELETE')],
