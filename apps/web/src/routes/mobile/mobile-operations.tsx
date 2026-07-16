@@ -437,6 +437,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: cleaningAssignmentData } = useSWR(online ? '/api/config/cleaning-profile-assignment' : null);
   const { data: activeProfilesData } = useSWR(online ? '/api/filter-cleaning-profiles?status=ACTIVE&expand=stages,connections' : null);
   const { data: checklistProfilesData } = useSWR(online ? '/api/checklist-profiles?expand=questions' : null);
+  // Task 5: cache the server's blocked-filter set (AHU replacement overdue) so
+  // the client-side offline gate can refuse to START a cleaning cycle on a
+  // blocked filter even without a round trip. Server gate (Task 3) backstops
+  // this online regardless.
+  const { data: blockedFiltersData } = useSWR(online ? '/api/replacement-schedules/blocked-filters' : null, { refreshInterval: 30000, revalidateOnReconnect: true });
   // B.13 — Cache branding/field-ids/datetime config so offline app restart doesn't
   // flash defaults or break field labels until reconnect.
   const { data: brandingData } = useSWR(online ? '/api/config/branding' : null);
@@ -567,6 +572,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const list = (checklistProfilesData as any)?.data ?? checklistProfilesData;
     if (Array.isArray(list)) cache('checklist-profiles', list, 24 * 60 * 60 * 1000);
   }, [checklistProfilesData, cache]);
+  useEffect(() => {
+    const ids = (blockedFiltersData as any)?.filterIds;
+    if (Array.isArray(ids)) cache('blocked-filter-ids', ids, 24 * 60 * 60 * 1000);
+  }, [blockedFiltersData, cache]);
   useEffect(() => { if (brandingData) cache('branding-config', brandingData, 24 * 60 * 60 * 1000); }, [brandingData, cache]);
   useEffect(() => { if (fieldIdsData) cache('field-ids-config', fieldIdsData, 24 * 60 * 60 * 1000); }, [fieldIdsData, cache]);
   useEffect(() => { if (datetimeData) cache('datetime-config', datetimeData, 24 * 60 * 60 * 1000); }, [datetimeData, cache]);
@@ -934,6 +943,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const cachedFilterById = new Map<string, any>(
       (allCachedFilters ?? []).map((f: any) => [f.id, f]),
     );
+    // Task 5: the cached blocked-filter set (AHU replacement overdue). Loaded
+    // once per batch submit; the gate below only uses it on the !cycleInProgress
+    // (START) branch.
+    const blockedIds = new Set<string>((await getCache<string[]>('blocked-filter-ids')) ?? []);
     // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
     // always clears even when REAUTH or OFFLINE_CACHE_RECOMPUTE_FAILED bubble
     // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
@@ -979,6 +992,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           homeBlockId: cachedState.homeBlock?.id,
           blockChangeStatus: cachedState.blockChangeStatus,
           selectedBlockId: selectedBlock?.id,
+          replacementBlocked: blockedIds.has(item.filterId),
         });
         if (!gate.ok) {
           failed.push(`${item.filterName}: ${gate.reason}`);
@@ -1630,6 +1644,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const resolved = await resolveFilter();
       if (!resolved) { setLoading(false); return; }
       const { filterId, filterName } = resolved;
+      // Task 5: cached blocked-filter set (AHU replacement overdue), consulted
+      // by the offline gate below on the !cycleInProgress (START) branch.
+      const blockedIds = new Set<string>((await getCache<string[]>('blocked-filter-ids')) ?? []);
 
       let state: any;
 
@@ -1746,6 +1763,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           homeBlockId: state.homeBlock?.id,
           blockChangeStatus: state.blockChangeStatus,
           selectedBlockId: selectedBlock?.id,
+          replacementBlocked: blockedIds.has(filterId),
         });
         if (!gate.ok) {
           if (gate.blockChangeRequired) {
