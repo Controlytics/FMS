@@ -1,14 +1,25 @@
 # Atomic Advance + Checklist — Plan
 
-**Date:** 2026-07-15 (step 2 landed 2026-07-16)
+**Date:** 2026-07-15 (steps 2–4 landed 2026-07-16)
 **Branch:** RFID
-**Status:** Step 1 DONE · **Step 2 DONE (server)** · Steps 3–7 NOT STARTED
+**Status:** Steps 1–4 DONE · Step 5 PARTIAL (batch/bulk outstanding) · Step 6 NEEDS OPERATOR
 **Decision:** Global fix (all stages, online + offline). Not a regression — design change.
 
-> **The defect is NOT yet fixed end-to-end.** Step 2 shipped the atomic server op;
-> nothing dispatches it yet. The tablet + desktop still advance-then-render, so an
-> operator closing the dialog still strands the record exactly as before. The fix
-> only reaches users after steps 3–4 (client ordering + offline queue) land.
+> **Reported flow is fixed, pending tablet verification.** Single-filter online AND
+> offline now render the checklist BEFORE writing anything; Close writes nothing.
+> **Still orphaning:** the batch / bulk path (`bulk-operate.ts:64` opens a tx PER
+> ITEM), i.e. the 50–100-tag tablet submit. Step 6 (device verification) is
+> operator-only — the queue-replay path can't be self-verified.
+
+| Step | State | Commit |
+|---|---|---|
+| 1. Live-verify / reproduce | DONE | `3e70850` |
+| 2. Server atomic op | DONE | `4c31a00` |
+| 3. Client dialog-first (online, single) | DONE | `f8df2f4` |
+| 4. Offline combined queue entry | DONE | `4608925` |
+| 5. Batch + bulk-operate composition | **NOT DONE** | — |
+| 6. Tablet verification | **NEEDS OPERATOR** | — |
+| 7. Docs | partial (this file) | — |
 
 ## Step 1 — VERIFIED 2026-07-15 (defect REPRODUCED)
 
@@ -197,8 +208,52 @@ Track separately.
       Reproduction test committed; live-data archaeology found no field instances.
 - [x] 2. Server: tx-composable prepare/executeTx + new atomic op. **DONE 2026-07-16.**
       See "Step 2" below.
-- [ ] 3. Client: pre-advance resolve + dialog-first ordering.
-- [ ] 4. Offline: single combined queue entry; cancel enqueues nothing.
+- [x] 3. Client: pre-advance resolve + dialog-first ordering. **DONE `f8df2f4`.**
+- [x] 4. Offline: single combined queue entry; cancel enqueues nothing. **DONE `4608925`.**
 - [ ] 5. Test all touch points above + batch/single parity + interlock terminal stages.
-- [ ] 6. Rebuild web dist + APK; verify on tablet (source is invisible until `npx vite build`).
+      **PARTIAL** — single-filter online+offline covered (13 hook tests + 13 server).
+      **Batch/bulk NOT done** — see "Step 5 remaining" below.
+- [ ] 6. Rebuild web dist + APK; verify on tablet. **APK rebuilt; operator must verify.**
 - [ ] 7. Docs: CHANGELOG, CLAUDE.md if counts move.
+
+## Steps 3–4 — DONE 2026-07-16 (client dialog-first, online + offline)
+
+`advance()` now resolves the TARGET stage's checklist before dispatching. If one
+fires: dispatch nothing, open the dialog, park the advance on the dialog state
+(`DeferredAdvance`), and send ONE `advance-with-checklist` on submit. Close is
+now a true no-op because nothing was ever written.
+
+**The intent lives on the dialog state, not a ref** — `close` returns
+`{kind:'none'}`, so it's discarded with the dialog and can't leak onto the next
+filter's submit; `submitChecklist` also matches on `filterId`. It reads the live
+reducer state (already in its deps for `remainingBatch`), so the stale-closure
+hazard documented at `use-core.ts:284` doesn't apply.
+
+**Resolution is cache-first, then refetch when online.** The tablet caches
+`checklist-profiles` (SWR + offline sync); the **desktop page never caches it at
+all**, so cache-only would have silently left desktop on the buggy path. The
+refetch is the sync's own call, and `GET /api/checklist-profiles` accepts
+**`FILTER_OPERATE`** as an alternate gate (added 2026-07-10 for the
+roles-lack-`FCP_READ` 403) — so no operating role can be locked out and **no new
+endpoint was needed**. This one fact killed the "add a server-side resolve"
+branch; check it before reopening that idea.
+
+Unresolvable → falls through to the legacy path. **Never a silent skip**; the
+server re-validates every write.
+
+### Deferral gates (all four are load-bearing)
+- `!dryerAction` — SET_DURATION / SUBMIT_READINGS are dryer-in-place
+  (DRY_IN→DRY_IN, `isDryerInPlace`). They don't ENTER a stage, so the checklist
+  gating *leaving* DRY_IN must not pop at dryer-start. **Caught before shipping.**
+- `!batchRemainder` / `!skipChecklistDispatch` — batch continuations run their own
+  dialog cascade; deferring trips `assertOpenable`.
+- `allowDefer !== false` — lets a caller with follow-on work opt out. Used by the
+  equipment handler's batch-continuation loop, which deferring would skip.
+
+## Step 5 remaining — batch / bulk (the 50–100-tag tablet submit)
+
+Unchanged and still orphaning. `bulk-operate.ts:64` runs a transaction PER ITEM,
+so advance + submit-checklist as two items = two transactions = the same window.
+Needs an `advance-with-checklist` BulkOpKind routed to `service.advanceWithChecklist`,
+plus the batch dialog cascade deferring each filter's advance. Server-side the
+composition already exists — this is wiring, not new mechanics.
