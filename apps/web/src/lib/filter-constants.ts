@@ -30,6 +30,25 @@ export const CLEANING_STAGES_MOBILE = [
   { key: 'STORAGE_OUT', label: 'Storage Out', icon: '\u{1F4E4}', gradient: 'from-slate-400 to-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500', needsBlock: false },
 ];
 
+/**
+ * A filter that has finished a cleaning cycle. A real `current_lifecycle_state`
+ * (75 rows live on 2026-07-17) but NOT one of CLEANING_STAGES_MOBILE, so it has
+ * no stage tile — it is reachable from the Status stage dropdown only.
+ */
+export const LIFECYCLE_CYCLE_COMPLETED = 'CLEANING_CYCLE_COMPLETED';
+
+/**
+ * Options for the tablet Status stage dropdown: All + Completed + the six
+ * cleaning stages. Derived from CLEANING_STAGES_MOBILE so a stage added there
+ * shows up here automatically. Retired filters never reach the Status tab
+ * (excluded upstream by `status !== 'Retired'`), so there is no Retired option.
+ */
+export const STATUS_STAGE_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: LIFECYCLE_CYCLE_COMPLETED, label: 'Completed' },
+  ...CLEANING_STAGES_MOBILE.map((s) => ({ value: s.key, label: s.label })),
+];
+
 /** Stage definitions for the cleaning-profile-editor canvas sidebar */
 export const CLEANING_STAGES_EDITOR = [
   { key: 'WASH_IN',     name: 'Wash In',     color: '#3B8BD4' },

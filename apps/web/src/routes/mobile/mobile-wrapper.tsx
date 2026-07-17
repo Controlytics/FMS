@@ -11,6 +11,7 @@ import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
 import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { scopeFiltersToCascade, countByStage } from '@/lib/filter-status-scope';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
@@ -21,7 +22,7 @@ import { FailedOpsPanel } from '../../components/failed-ops-panel';
 import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
 import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
-import { CLEANING_STAGES_MOBILE as STAGES } from '../../lib/filter-constants';
+import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../lib/filter-constants';
 
 type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications';
 
@@ -539,8 +540,9 @@ export function MobileWrapperPage() {
     f.isActive !== false && f.status !== 'Retired',
   );
 
-  const stageCounts: Record<string, number> = {};
-  allFilters.forEach((f: any) => { if (f.currentLifecycleState) stageCounts[f.currentLifecycleState] = (stageCounts[f.currentLifecycleState] ?? 0) + 1; });
+  // NOTE: stage counts are NOT computed here. They must be derived from the
+  // same cascade-scoped array the Status list renders, or the tiles report
+  // site-wide numbers while the list shows one block. See the Status view.
 
   // 2026-05-21: cycles-view filter helpers (depend on allFilters + instances).
   // AHUs are derived from the set of parent ids referenced by any filter row.
@@ -1263,14 +1265,18 @@ export function MobileWrapperPage() {
             { value: 'all', label: 'All' },
             ...filterOptionsStatus.map((f: any) => ({ value: f.id, label: f.name })),
           ];
-          // Apply cascade + stage filter to produce the visible list.
-          const visibleFilters = (allFilters as any[]).filter((f: any) => {
-            const a = filterAncestors.get(f.id);
-            if (!a) return false;
-            if (statusBlockId !== 'all' && a.blockId !== statusBlockId) return false;
-            if (statusAreaId !== 'all' && a.areaId !== statusAreaId) return false;
-            if (statusAhuId !== 'all' && a.ahuId !== statusAhuId) return false;
-            if (statusFilterId !== 'all' && f.id !== statusFilterId) return false;
+          // One scoped array feeds BOTH the stage tiles and the list, so a tile
+          // count can never disagree with the rows underneath it.
+          const cascadeScoped = scopeFiltersToCascade(allFilters as any[], filterAncestors, {
+            blockId: statusBlockId,
+            areaId: statusAreaId,
+            ahuId: statusAhuId,
+            filterId: statusFilterId,
+          });
+          // Counts deliberately ignore statusStageFilter: including it would
+          // zero every other tile the moment one is picked.
+          const stageCounts = countByStage(cascadeScoped);
+          const visibleFilters = cascadeScoped.filter((f: any) => {
             if (statusStageFilter && f.currentLifecycleState !== statusStageFilter) return false;
             return true;
           });
@@ -1321,7 +1327,7 @@ export function MobileWrapperPage() {
               <div className="flex items-baseline justify-between">
                 <h3 className="text-sm font-semibold text-slate-600">
                   {statusStageFilter
-                    ? `${STAGES.find(s => s.key === statusStageFilter)?.label} (${visibleFilters.length})`
+                    ? `${STATUS_STAGE_OPTIONS.find(o => o.value === statusStageFilter)?.label ?? 'Filters'} (${visibleFilters.length})`
                     : `All Filters (${visibleFilters.length})`}
                 </h3>
                 {cascadeActive && (
@@ -1415,6 +1421,20 @@ export function MobileWrapperPage() {
                     align="right"
                     triggerClassName="h-auto bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:border-cyan-500 focus:ring-0 focus:bg-white shadow-none hover:shadow-none"
                   />
+                </div>
+                {/* Stage sits on its own row: it is filter STATE, not hierarchy,
+                    and five columns would leave no room for "Storage Out". */}
+                <div className="col-span-4">
+                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Stage</label>
+                  <select
+                    value={statusStageFilter ?? 'all'}
+                    onChange={(e) => setStatusStageFilter(e.target.value === 'all' ? null : e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white truncate"
+                  >
+                    {STATUS_STAGE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
