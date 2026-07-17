@@ -12,6 +12,7 @@ import { effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
 import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { scopeFiltersToCascade, countByStage } from '@/lib/filter-status-scope';
+import { resolveAncestry, type FilterAncestry } from '@/lib/filter-ancestry';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
@@ -535,6 +536,13 @@ export function MobileWrapperPage() {
   const filterTemplateIds = new Set(
     templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
   );
+  // Instance rows carry templateId but NOT templateKind (/api/assets/instances),
+  // so ancestry has to resolve kind through the template list.
+  const kindByTemplateId = new Map<string, string>(
+    (templates as any[]).map((t: any) => [t.id, t.templateKind]),
+  );
+  const kindOfInstance = (i: any): string | null =>
+    i?.template?.templateKind ?? kindByTemplateId.get(i?.templateId) ?? null;
   const allFilters = instances.filter((f: any) =>
     (filterTemplateIds.has(f.templateId) || f.template?.templateKind === 'FILTER') &&
     f.isActive !== false && f.status !== 'Retired',
@@ -1208,16 +1216,15 @@ export function MobileWrapperPage() {
           // then derive distinct sets at each tier for the cascading dropdowns.
           const instById = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
           const ahuById = instById;
-          const filterAncestors = new Map<string, { ahuId: string | null; areaId: string | null; blockId: string | null }>();
+          // Ancestry is resolved by template KIND, not by depth: an AHU sits
+          // either under an Area or DIRECTLY under a Block (see the hierarchy
+          // note in lib/ahu-block-map.ts — both are legal). Walking positionally
+          // mislabelled a Block as the area for the 3 block-parented AHUs, so
+          // their 28 filters reported blockId:null and vanished from the Status
+          // tab whenever a block was selected.
+          const filterAncestors = new Map<string, FilterAncestry>();
           for (const f of (allFilters as any[])) {
-            const ahu = f.parentId ? instById.get(f.parentId) : null;
-            const area = ahu?.parentId ? instById.get(ahu.parentId) : null;
-            const block = area?.parentId ? instById.get(area.parentId) : null;
-            filterAncestors.set(f.id, {
-              ahuId: ahu?.id ?? null,
-              areaId: area?.id ?? null,
-              blockId: block?.id ?? null,
-            });
+            filterAncestors.set(f.id, resolveAncestry(f, instById, kindOfInstance));
           }
           const allBlockIds = new Set<string>();
           const allAreaIds = new Set<string>();
@@ -1236,11 +1243,12 @@ export function MobileWrapperPage() {
           const ahuOptionsStatus = [...allAhuIds]
             .map((id) => instById.get(id)).filter(Boolean)
             .filter((ahu: any) => {
-              if (statusAreaId !== 'all' && ahu.parentId !== statusAreaId) return false;
-              if (statusBlockId !== 'all') {
-                const area = ahu.parentId ? instById.get(ahu.parentId) : null;
-                if (!area || area.parentId !== statusBlockId) return false;
-              }
+              // Kind-aware: a block-parented AHU has no area, and its block is
+              // its DIRECT parent. Walking ahu.parent.parent for the block drops
+              // it from this dropdown entirely.
+              const anc = resolveAncestry(ahu, instById, kindOfInstance);
+              if (statusAreaId !== 'all' && anc.areaId !== statusAreaId) return false;
+              if (statusBlockId !== 'all' && anc.blockId !== statusBlockId) return false;
               return true;
             })
             .sort(sortByName);
@@ -1355,8 +1363,10 @@ export function MobileWrapperPage() {
                         }
                         if (statusAhuId !== 'all') {
                           const ahu = instById.get(statusAhuId);
-                          const ahuArea = ahu?.parentId ? instById.get(ahu.parentId) : null;
-                          if (!ahuArea || ahuArea.parentId !== v) setStatusAhuId('all');
+                          // Kind-aware: a block-parented AHU still belongs to the
+                          // chosen block; the old area-hop reset it to 'all'.
+                          const ahuBlockId = ahu ? resolveAncestry(ahu, instById, kindOfInstance).blockId : null;
+                          if (ahuBlockId !== v) setStatusAhuId('all');
                         }
                         if (statusFilterId !== 'all') {
                           const anc = filterAncestors.get(statusFilterId);
@@ -2265,16 +2275,9 @@ export function MobileWrapperPage() {
           // Re-derive hierarchy locally so this view stays self-contained and
           // doesn't depend on status-view internals.
           const rfidInstById = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
-          const rfidFilterAncestors = new Map<string, { ahuId: string | null; areaId: string | null; blockId: string | null }>();
+          const rfidFilterAncestors = new Map<string, FilterAncestry>();
           for (const f of (allFilters as any[])) {
-            const ahu = f.parentId ? rfidInstById.get(f.parentId) : null;
-            const area = ahu?.parentId ? rfidInstById.get(ahu.parentId) : null;
-            const block = area?.parentId ? rfidInstById.get(area.parentId) : null;
-            rfidFilterAncestors.set(f.id, {
-              ahuId: ahu?.id ?? null,
-              areaId: area?.id ?? null,
-              blockId: block?.id ?? null,
-            });
+            rfidFilterAncestors.set(f.id, resolveAncestry(f, rfidInstById, kindOfInstance));
           }
           const rfidBlockIds = new Set<string>();
           const rfidAreaIds = new Set<string>();
@@ -2293,11 +2296,9 @@ export function MobileWrapperPage() {
           const rfidAhuOptions = [...rfidAhuIds]
             .map((id) => rfidInstById.get(id)).filter(Boolean)
             .filter((ahu: any) => {
-              if (rfidAreaId !== 'all' && ahu.parentId !== rfidAreaId) return false;
-              if (rfidBlockId !== 'all') {
-                const area = ahu.parentId ? rfidInstById.get(ahu.parentId) : null;
-                if (!area || area.parentId !== rfidBlockId) return false;
-              }
+              const anc = resolveAncestry(ahu, rfidInstById, kindOfInstance);
+              if (rfidAreaId !== 'all' && anc.areaId !== rfidAreaId) return false;
+              if (rfidBlockId !== 'all' && anc.blockId !== rfidBlockId) return false;
               return true;
             })
             .sort(byName);
@@ -2384,8 +2385,8 @@ export function MobileWrapperPage() {
                           }
                           if (rfidAhuId !== 'all') {
                             const ahu = rfidInstById.get(rfidAhuId);
-                            const ahuArea = ahu?.parentId ? rfidInstById.get(ahu.parentId) : null;
-                            if (!ahuArea || ahuArea.parentId !== v) setRfidAhuId('all');
+                            const ahuBlockId = ahu ? resolveAncestry(ahu, rfidInstById, kindOfInstance).blockId : null;
+                            if (ahuBlockId !== v) setRfidAhuId('all');
                           }
                           if (rfidFilterId !== 'all') {
                             const anc = rfidFilterAncestors.get(rfidFilterId);
@@ -2610,12 +2611,9 @@ export function MobileWrapperPage() {
           // the RFID Assign view above. Selecting a filter opens a remarks-gated
           // confirm; submit runs the shared replace path (tag carries over).
           const repInstById = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
-          const repAncestors = new Map<string, { ahuId: string | null; areaId: string | null; blockId: string | null }>();
+          const repAncestors = new Map<string, FilterAncestry>();
           for (const f of (allFilters as any[])) {
-            const ahu = f.parentId ? repInstById.get(f.parentId) : null;
-            const area = ahu?.parentId ? repInstById.get(ahu.parentId) : null;
-            const block = area?.parentId ? repInstById.get(area.parentId) : null;
-            repAncestors.set(f.id, { ahuId: ahu?.id ?? null, areaId: area?.id ?? null, blockId: block?.id ?? null });
+            repAncestors.set(f.id, resolveAncestry(f, repInstById, kindOfInstance));
           }
           const repBlockIds = new Set<string>(); const repAreaIds = new Set<string>(); const repAhuIds = new Set<string>();
           for (const a of repAncestors.values()) { if (a.blockId) repBlockIds.add(a.blockId); if (a.areaId) repAreaIds.add(a.areaId); if (a.ahuId) repAhuIds.add(a.ahuId); }
@@ -2625,8 +2623,9 @@ export function MobileWrapperPage() {
             .filter((area: any) => replaceBlockId === 'all' || area.parentId === replaceBlockId).sort(byName);
           const repAhuOptions = [...repAhuIds].map(id => repInstById.get(id)).filter(Boolean)
             .filter((ahu: any) => {
-              if (replaceAreaId !== 'all' && ahu.parentId !== replaceAreaId) return false;
-              if (replaceBlockId !== 'all') { const area = ahu.parentId ? repInstById.get(ahu.parentId) : null; if (!area || area.parentId !== replaceBlockId) return false; }
+              const anc = resolveAncestry(ahu, repInstById, kindOfInstance);
+              if (replaceAreaId !== 'all' && anc.areaId !== replaceAreaId) return false;
+              if (replaceBlockId !== 'all' && anc.blockId !== replaceBlockId) return false;
               return true;
             }).sort(byName);
           const matchesCascade = (f: any) => {
@@ -2902,9 +2901,13 @@ export function MobileWrapperPage() {
             ) {
               result = { kind: 'wrong_kind', tag, name: filter.name };
             } else {
-              const ahu = filter.parentId ? instByIdLookup.get(filter.parentId) : null;
-              const area = ahu?.parentId ? instByIdLookup.get(ahu.parentId) : null;
-              const block = area?.parentId ? instByIdLookup.get(area.parentId) : null;
+              // Kind-aware: a block-parented AHU has no area, and positional
+              // walking showed the Block's name in the Area slot and blanked
+              // the Block.
+              const scanAnc = resolveAncestry(filter, instByIdLookup, kindOfInstance);
+              const ahu = scanAnc.ahuId ? instByIdLookup.get(scanAnc.ahuId) : null;
+              const area = scanAnc.areaId ? instByIdLookup.get(scanAnc.areaId) : null;
+              const block = scanAnc.blockId ? instByIdLookup.get(scanAnc.blockId) : null;
               // Latest cleaning-stage event (every stage, not just completion).
               const cycles: any[] = (cyclesData?.data ?? []) as any[];
               const lastCleaned = effectiveLastCleaned(latestStageEventAt(cycles, filter.id), filter.attributes);
