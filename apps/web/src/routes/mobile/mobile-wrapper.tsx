@@ -1401,6 +1401,7 @@ export function MobileWrapperPage() {
                     }}
                     options={statusAhuSelectOptions}
                     searchPlaceholder="Search AHU…"
+                    align="right"
                     triggerClassName="h-auto bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:border-cyan-500 focus:ring-0 focus:bg-white shadow-none hover:shadow-none"
                   />
                 </div>
@@ -1411,6 +1412,7 @@ export function MobileWrapperPage() {
                     onChange={setStatusFilterId}
                     options={statusFilterSelectOptions}
                     searchPlaceholder="Search filter…"
+                    align="right"
                     triggerClassName="h-auto bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:border-cyan-500 focus:ring-0 focus:bg-white shadow-none hover:shadow-none"
                   />
                 </div>

@@ -68,6 +68,15 @@ interface SearchableSelectProps {
   className?: string;
   /** Applied to the trigger button; wins over the defaults via twMerge. */
   triggerClassName?: string;
+  /**
+   * Which edge the panel is anchored to. The panel is wider than its trigger
+   * (a trigger in a narrow grid cell would otherwise give an unreadable
+   * ~90px list), so a trigger near the right edge must anchor 'right' or the
+   * panel is clipped by the nearest scroll container — `overflow-y-auto`
+   * computes `overflow-x` to `auto`, so there is no escaping it the way a
+   * native <select> popup does.
+   */
+  align?: 'left' | 'right';
 }
 
 export function SearchableSelect({
@@ -79,6 +88,7 @@ export function SearchableSelect({
   disabled = false,
   className,
   triggerClassName,
+  align = 'left',
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -154,7 +164,12 @@ export function SearchableSelect({
       {open && (
         <div
           className={cn(
-            'absolute z-50 mt-2 w-full overflow-hidden rounded-xl',
+            'absolute z-50 mt-2 overflow-hidden rounded-xl',
+            // Never narrower than the trigger, but free to grow past a narrow
+            // grid cell so labels stay readable — capped so it always fits
+            // inside the scroll container that clips it.
+            'w-max min-w-full max-w-[70vw]',
+            align === 'right' ? 'right-0' : 'left-0',
             'border-2 border-slate-200 bg-white shadow-lg',
           )}
         >
