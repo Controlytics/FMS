@@ -10,6 +10,7 @@ import { useAndroidBackButton } from '@/hooks/use-android-back-button';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
 import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
@@ -1252,6 +1253,16 @@ export function MobileWrapperPage() {
             })
             .slice()
             .sort(sortByName);
+          // Searchable-select option lists. 'All' is kept as the first entry so
+          // the sentinel 'all' value keeps driving the cascade unchanged.
+          const statusAhuSelectOptions = [
+            { value: 'all', label: 'All' },
+            ...ahuOptionsStatus.map((a: any) => ({ value: a.id, label: a.name })),
+          ];
+          const statusFilterSelectOptions = [
+            { value: 'all', label: 'All' },
+            ...filterOptionsStatus.map((f: any) => ({ value: f.id, label: f.name })),
+          ];
           // Apply cascade + stage filter to produce the visible list.
           const visibleFilters = (allFilters as any[]).filter((f: any) => {
             const a = filterAncestors.get(f.id);
@@ -1379,32 +1390,29 @@ export function MobileWrapperPage() {
                 </div>
                 <div>
                   <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
-                  <select
+                  <SearchableSelect
                     value={statusAhuId}
-                    onChange={(e) => {
-                      const v = e.target.value;
+                    onChange={(v) => {
                       setStatusAhuId(v);
                       if (v !== 'all' && statusFilterId !== 'all') {
                         const anc = filterAncestors.get(statusFilterId);
                         if (anc?.ahuId !== v) setStatusFilterId('all');
                       }
                     }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white truncate"
-                  >
-                    <option value="all">All</option>
-                    {ahuOptionsStatus.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
+                    options={statusAhuSelectOptions}
+                    searchPlaceholder="Search AHU…"
+                    triggerClassName="h-auto bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:border-cyan-500 focus:ring-0 focus:bg-white shadow-none hover:shadow-none"
+                  />
                 </div>
                 <div>
                   <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
-                  <select
+                  <SearchableSelect
                     value={statusFilterId}
-                    onChange={(e) => setStatusFilterId(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white truncate"
-                  >
-                    <option value="all">All</option>
-                    {filterOptionsStatus.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  </select>
+                    onChange={setStatusFilterId}
+                    options={statusFilterSelectOptions}
+                    searchPlaceholder="Search filter…"
+                    triggerClassName="h-auto bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:border-cyan-500 focus:ring-0 focus:bg-white shadow-none hover:shadow-none"
+                  />
                 </div>
               </div>
 
