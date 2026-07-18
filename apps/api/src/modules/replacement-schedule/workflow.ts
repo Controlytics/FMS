@@ -20,13 +20,15 @@ const windowsFor = (planned: Date, tol: number) => ({
 
 /**
  * Human-readable descriptor for a single replacement-schedule entry, e.g.
- * "AHU-12 · 610x610 · 10µ · qty 4". Fed into each audit row's `afterValue.name`
- * so the audit-trail summary renders which AHU/filter was reviewed/approved/
- * rejected (the shared `{targetName}` placeholder resolves from `after.name`)
- * instead of an empty `""`. Mirrors the QNN message format in `mintQnn`.
+ * "AHU: AHU-12 · Size: 610x610 · Micron: 10µ · Qty: 4". Fed into each audit
+ * row's `afterValue.name` so the audit-trail summary renders which AHU/filter
+ * was reviewed/approved/rejected (the shared `{targetName}` placeholder resolves
+ * from `after.name`) instead of an empty `""`. Each value is titled ("AHU:",
+ * "Size:", …) so the one-line summary is self-explanatory — otherwise the four
+ * values run together with no way to tell the dimension from the micron.
  */
 const entryLabel = (e: any): string =>
-  `${e.ahuName}${e.filterSize ? ` · ${e.filterSize}` : ''}${e.filterMicron ? ` · ${e.filterMicron}µ` : ''} · qty ${e.qty}`;
+  `AHU: ${e.ahuName}${e.filterSize ? ` · Size: ${e.filterSize}` : ''}${e.filterMicron ? ` · Micron: ${e.filterMicron}µ` : ''} · Qty: ${e.qty}`;
 
 /** Structured entry detail merged into `afterValue` for the audit drill-down panel. */
 const entryDetail = (e: any) => ({
