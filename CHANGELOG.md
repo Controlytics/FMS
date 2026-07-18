@@ -8,15 +8,18 @@ The audit templates already read `{targetName}` (e.g. `Replacement schedule
 comment/remarks in `afterValue` — no name — so the frontend resolved
 `{targetName}` to `''` and its empty-`""`-collapse rendered a bare
 `Replacement schedule approved by EMP-124`. `workflow.ts` now embeds an
-AHU/filter descriptor (`name` = `"AHU-12 · 610x610 · 10µ · qty 4"`, plus
-structured `ahuName`/`filterSize`/`filterMicron`/`qty` for the detail
-drill-down) into `afterValue` for every per-entry action (reviewed,
-rejected-at-review, approved, rejected-at-approval, resubmitted,
-review-modified); the batch **upload** row (`service.ts`, one row for the whole
-file) gets an `ahus[]` list for its drill-down. No frontend or audit-template
-change — `getAuditSummary` already resolves `{targetName}` from `after.name`.
+AHU/filter descriptor (`name` = `"AHU: AHU-12 · Size: 610x610 · Micron: 10µ ·
+Qty: 4"` — each value **titled** so the one-line summary is self-explanatory
+and the dimension can't be mistaken for the micron — plus structured
+`ahuName`/`filterSize`/`filterMicron`/`qty` for the detail drill-down) into
+`afterValue` for every per-entry action (reviewed, rejected-at-review,
+approved, rejected-at-approval, resubmitted, review-modified); the batch
+**upload** row (`service.ts`, one row for the whole file) gets an `ahus[]` list
+(same titled format) for its drill-down. No frontend or audit-template change —
+`getAuditSummary` already resolves `{targetName}` from `after.name`, and the
+detail modal already itemizes the structured fields under "Full record".
 Historical rows are immutable/hash-chained and unchanged; only new rows carry
-the detail. Commit `55f9865`.
+the detail. Commits `55f9865`, `15d9635`.
 
 ## [Unreleased] — Multiple equipment groups per block (2026-07-16)
 
