@@ -6,6 +6,7 @@ import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
 
 export default async function auditRoutes(app: FastifyInstance) {
   // GET /api/audit — query audit trail (requires AUDIT_READ permission)
@@ -179,6 +180,11 @@ export default async function auditRoutes(app: FastifyInstance) {
     const filterIds = new Set<string>();
     const cycleIds = new Set<string>();
     const pmEntryIds = new Set<string>();
+    // Replacement-schedule workflow rows (reviewed/approved/rejected/resubmitted/
+    // modified) written before the 2026-07-18 descriptor fix stored only the
+    // comment/remarks in afterValue — no AHU/filter name. Resolve the entry at
+    // read time (same non-destructive pattern as the PM rows above).
+    const replEntryIds = new Set<string>();
     // redacted_by stores a user UUID. Same read-time enrichment idea as the
     // filter names above: an inspector needs a username, not a UUID. The
     // redactor may since have been hard-deleted (user delete is physical), so
@@ -203,6 +209,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         // time via the entry's schedule (entityId = AHU asset instance) — the
         // stored row is never modified (checksum still verifies vs. the original).
         if (r.targetType === 'pm_schedule_entry' && !af.ahuName) pmEntryIds.add(r.targetId);
+        if (r.targetType === 'replacement_schedule_entry' && !af.name) replEntryIds.add(r.targetId);
       }
     }
     // Resolve PM entries -> their schedule's AHU id, and fold those AHU ids into
@@ -217,6 +224,15 @@ export default async function auditRoutes(app: FastifyInstance) {
     for (const e of pmEntries) {
       if (e.schedule?.entityId) { ahuIdByPmEntry.set(e.id, e.schedule.entityId); filterIds.add(e.schedule.entityId); }
     }
+    // Replacement entries carry ahuName/filterSize/filterMicron/qty directly
+    // (no join needed). Build the same titled descriptor the workflow now writes.
+    const replEntries = replEntryIds.size > 0
+      ? await prisma.replacementScheduleEntry.findMany({
+          where: { id: { in: Array.from(replEntryIds) } },
+          select: { id: true, ahuName: true, filterSize: true, filterMicron: true, qty: true },
+        })
+      : [];
+    const replEntryById = new Map(replEntries.map((e) => [e.id, e]));
     const [filters, cycles] = await Promise.all([
       filterIds.size > 0
         ? prisma.assetInstance.findMany({
@@ -288,6 +304,19 @@ export default async function auditRoutes(app: FastifyInstance) {
       if (record.targetType === 'pm_schedule_entry' && !enriched.ahuName) {
         const ahuId = ahuIdByPmEntry.get(record.targetId);
         if (ahuId && filterNameById.has(ahuId)) enriched.ahuName = filterNameById.get(ahuId);
+      }
+      // Old replacement-schedule rows: stamp the titled descriptor into `name`
+      // (fills {targetName} in the summary) plus the structured fields (so the
+      // detail modal itemizes them). Only when the entry still exists.
+      if (record.targetType === 'replacement_schedule_entry' && !enriched.name) {
+        const e = replEntryById.get(record.targetId);
+        if (e) {
+          enriched.name = replacementEntryLabel(e);
+          enriched.ahuName = enriched.ahuName ?? e.ahuName;
+          enriched.filterSize = enriched.filterSize ?? e.filterSize;
+          enriched.filterMicron = enriched.filterMicron ?? e.filterMicron;
+          enriched.qty = enriched.qty ?? e.qty;
+        }
       }
 
       return {

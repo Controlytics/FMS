@@ -27,7 +27,7 @@ const windowsFor = (planned: Date, tol: number) => ({
  * "Size:", …) so the one-line summary is self-explanatory — otherwise the four
  * values run together with no way to tell the dimension from the micron.
  */
-const entryLabel = (e: any): string =>
+export const entryLabel = (e: { ahuName: string; filterSize?: string | null; filterMicron?: string | null; qty: number }): string =>
   `AHU: ${e.ahuName}${e.filterSize ? ` · Size: ${e.filterSize}` : ''}${e.filterMicron ? ` · Micron: ${e.filterMicron}µ` : ''} · Qty: ${e.qty}`;
 
 /** Structured entry detail merged into `afterValue` for the audit drill-down panel. */
