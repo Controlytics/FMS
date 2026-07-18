@@ -321,7 +321,12 @@ export async function processUpload(
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole,
     action: 'REPLACEMENT_SCHEDULE_UPLOADED', targetType: 'replacement_schedule', targetId: schedule.id,
-    afterValue: { fileName: fileName ?? null, entries: toCreate.length },
+    afterValue: {
+      fileName: fileName ?? null,
+      entries: toCreate.length,
+      // Detail drill-down: which AHUs/filters were in this upload batch.
+      ahus: toCreate.map((c) => `${c.ahuName}${c.filterSize ? ` · ${c.filterSize}` : ''}${c.filterMicron ? ` · ${c.filterMicron}µ` : ''} · qty ${c.qty}`),
+    },
     reason: `Uploaded replacement schedule with ${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'}`,
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
   });
