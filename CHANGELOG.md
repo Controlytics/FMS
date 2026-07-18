@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — Replacement-schedule audit rows name the AHU/filter (2026-07-18)
+
+Replacement-schedule workflow audit rows now show **which** entry was acted on.
+The audit templates already read `{targetName}` (e.g. `Replacement schedule
+"{targetName}" approved by {actor}`), but the workflow only stored the
+comment/remarks in `afterValue` — no name — so the frontend resolved
+`{targetName}` to `''` and its empty-`""`-collapse rendered a bare
+`Replacement schedule approved by EMP-124`. `workflow.ts` now embeds an
+AHU/filter descriptor (`name` = `"AHU-12 · 610x610 · 10µ · qty 4"`, plus
+structured `ahuName`/`filterSize`/`filterMicron`/`qty` for the detail
+drill-down) into `afterValue` for every per-entry action (reviewed,
+rejected-at-review, approved, rejected-at-approval, resubmitted,
+review-modified); the batch **upload** row (`service.ts`, one row for the whole
+file) gets an `ahus[]` list for its drill-down. No frontend or audit-template
+change — `getAuditSummary` already resolves `{targetName}` from `after.name`.
+Historical rows are immutable/hash-chained and unchanged; only new rows carry
+the detail. Commit `55f9865`.
+
 ## [Unreleased] — Multiple equipment groups per block (2026-07-16)
 
 A block may now have **multiple active equipment groups** at once, and the
