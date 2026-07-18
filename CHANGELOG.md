@@ -18,8 +18,18 @@ approved, rejected-at-approval, resubmitted, review-modified); the batch
 (same titled format) for its drill-down. No frontend or audit-template change —
 `getAuditSummary` already resolves `{targetName}` from `after.name`, and the
 detail modal already itemizes the structured fields under "Full record".
-Historical rows are immutable/hash-chained and unchanged; only new rows carry
-the detail. Commits `55f9865`, `15d9635`.
+
+Historical rows are immutable/hash-chained and **cannot** be back-filled without
+breaking the chain (21 CFR Part 11), so pre-fix rows (which stored only the
+comment/remarks, no name) are instead enriched at **read time**: `GET /api/audit`
+batch-resolves each `replacement_schedule_entry` row's entry by `targetId` and
+stamps the titled `name` + structured fields onto the *returned* `afterValue`
+(mirroring the existing `pm_schedule_entry` enrichment; reuses the exported
+`entryLabel` so read-side and write-side formats can't drift). The stored row is
+never modified — `integrityValid` still verifies against the original checksum.
+Only resolves for entries that still exist (a deleted entry's old rows keep the
+bare summary). e2e guard: `src/e2e/replacement-audit-enrichment.test.ts`.
+Commits `55f9865`, `15d9635`, `2a1fe6f`.
 
 ## [Unreleased] — Multiple equipment groups per block (2026-07-16)
 
