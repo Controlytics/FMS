@@ -1,8 +1,10 @@
 # S6 — SUPER_ADMIN account hardening (design decision)
 
-> Finding S6 (Medium) from `docs/SECURITY-AUDIT-2026-07-25.md`. **Not yet implemented**
-> — it requires a product decision because a naïve fix can permanently lock the only
-> recovery account. This note lays out the problem, options, and a recommendation.
+> Finding S6 (Medium) from `docs/SECURITY-AUDIT-2026-07-25.md`.
+>
+> **STATUS: Option A IMPLEMENTED 2026-07-25.** SUPER_ADMIN now participates in account
+> lockout, with a host-only recovery CLI as the break-glass safety net. Option B (TOTP
+> MFA) remains the recommended fast-follow. Implementation details at the bottom.
 
 ## The finding
 
@@ -45,3 +47,20 @@ Require the first-login SA password to meet a high bar (length + complexity, not
 ## Why not auto-fixed in this pass
 
 Blindly enabling lockout on SUPER_ADMIN without the recovery CLI would trade a Medium security gap for a **High availability risk** (permanent lock-out of the only admin). Per the audit discipline, that is a worse outcome; it needs the paired recovery mechanism, which is a deliberate build + test, not a one-line change.
+
+---
+
+## Implementation — Option A (done 2026-07-25)
+
+**Auth changes** (`apps/api/src/modules/auth/auth.service.ts`):
+- `applyFailedPasswordAttempt()` — removed the `if (role === 'SUPER_ADMIN') return {locked:false}` early-return, so the SA counts toward the same lockout as everyone else (also covers the shared reauth/change-password/offline-grant surfaces that call it).
+- Login LOCKED branch — removed the SA auto-unlock. A **TEMPORARY** lockout still self-clears once `lockoutUntil` elapses (generic branch, all roles); a **PERMANENT** lockout throws `ACCOUNT_LOCKED` until cleared.
+- Login failed-password branch — removed the SA exemption block; the SA now funnels through the shared lockout policy.
+- Password-*expiry* exemption for SA was **left as-is** (out of scope for Option A; lower risk).
+
+**Recovery CLI** (`apps/api/scripts/reset-superadmin-lockout.ts`):
+- Host-only (needs the server's `DATABASE_URL`; not an HTTP endpoint). Clears `status/failedLoginAttempts/lockoutUntil/lockedAt` WITHOUT changing the password, terminates lingering sessions, and writes an `ACCOUNT_UNLOCKED` audit row. Run: `npx tsx scripts/reset-superadmin-lockout.ts [username]`.
+
+**Verification:** API typecheck clean; `auth.service.test.ts` +2 regression tests (SA locks after max attempts; locked SA is not auto-unlocked) → 30/30 pass; the affected suites (auth/reauth/user/plugin) → 104/104 pass; CLI runs and correctly no-ops when the SA is not locked.
+
+**Remaining (fast-follow):** Option B (TOTP MFA for SUPER_ADMIN), and optionally revisit the SA password-expiry exemption.
