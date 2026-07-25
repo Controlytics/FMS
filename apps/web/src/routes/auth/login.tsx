@@ -54,8 +54,12 @@ export function LoginPage() {
   // If already authenticated, redirect to home — prevents back-button to login.
   // This must appear AFTER all hook calls to satisfy React Rules of Hooks.
   if (!isLoading && isAuthenticated) {
-    const returnUrl = searchParams.get("returnUrl") || "/";
-    return <Navigate to={returnUrl} replace />;
+    // Validate returnUrl is an internal pathname only (prevent open redirect).
+    // Mirrors the guard in hooks/use-auth.ts:137 — reject protocol-relative
+    // (//evil.com) and absolute (https://evil.com) targets.
+    const raw = searchParams.get("returnUrl");
+    const isSafeReturnUrl = raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.includes(':');
+    return <Navigate to={isSafeReturnUrl ? raw : "/"} replace />;
   }
 
   const onSubmit = async (data: LoginInput) => {

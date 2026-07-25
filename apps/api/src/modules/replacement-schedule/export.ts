@@ -1,6 +1,7 @@
 /** Replacement Schedule export → .xlsx with the upload/review/approve trail. */
 import ExcelJS from 'exceljs';
 import { prisma } from '../../lib/prisma.js';
+import { neutralizeRow } from '../../lib/spreadsheet-safe.js';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending', PENDING_REVIEW: 'To Review', PENDING_APPROVAL: 'To Approve',
@@ -45,7 +46,7 @@ export async function exportEntriesXlsx(): Promise<Buffer> {
   ws.views = [{ state: 'frozen', ySplit: 1 }];
 
   entries.forEach((e: any, i: number) => {
-    ws.addRow({
+    ws.addRow(neutralizeRow({
       sno: e.slNo ?? i + 1,
       ahu: e.ahuName ?? '',
       micron: e.filterMicron ?? '',
@@ -65,7 +66,7 @@ export async function exportEntriesXlsx(): Promise<Buffer> {
       rejectedBy: e.rejectedByName ?? '',
       rejStage: e.rejectionStage ?? '',
       remarks: e.approvalRemarks ?? e.reviewRemarks ?? '',
-    });
+    }));
   });
 
   return Buffer.from(await wb.xlsx.writeBuffer());

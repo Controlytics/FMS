@@ -128,12 +128,18 @@ if (Test-Path $envFile) {
   $jwt           = NewSecret 48
   $verify        = NewSecret 48
   $offline       = NewSecret 48
+  $auditKey      = NewSecret 48
   $dbUrl = "postgresql://digilog:$appDbPassword@localhost:$PgPort/digilog_db?schema=public"
   $envBody = @"
 DATABASE_URL=$dbUrl
 JWT_SECRET=$jwt
 VERIFICATION_TOKEN_SECRET=$verify
 OFFLINE_REPLAY_SECRET=$offline
+# 21 CFR Part 11 tamper-evidence: keyed HMAC-SHA256 audit chain (checksum_version=3).
+# Generated per-install and MUST be backed up OUTSIDE the database. If lost/changed,
+# all v3 audit rows become permanently unverifiable. Do NOT remove to "fix" a verify
+# error — losing this key is itself the compliance failure. See lib/hash-chain.ts.
+AUDIT_CHAIN_KEY=$auditKey
 JWT_EXPIRES_IN=1h
 NODE_ENV=production
 PORT=$ApiPort

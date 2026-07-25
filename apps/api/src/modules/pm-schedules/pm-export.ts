@@ -7,6 +7,7 @@ import ExcelJS from 'exceljs';
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { checkPmEnabled } from './pm-shared.js';
+import { neutralizeRow } from '../../lib/spreadsheet-safe.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STATUS_LABEL: Record<string, string> = {
@@ -58,7 +59,7 @@ export async function exportEntriesXlsx(_ctx: RequestContext, year: number): Pro
   ws.views = [{ state: 'frozen', ySplit: 1 }];
 
   entries.forEach((e: any, i: number) => {
-    ws.addRow({
+    ws.addRow(neutralizeRow({
       sno: i + 1,
       ahu: ahuMap.get(e.schedule?.entityId) ?? '?',
       month: MONTHS[(e.month ?? 1) - 1] ?? e.month,
@@ -76,7 +77,7 @@ export async function exportEntriesXlsx(_ctx: RequestContext, year: number): Pro
       rejectedAt: fmtDT(e.rejectedAt),
       rejStage: e.rejectionStage ?? '',
       remarks: e.approvalRemarks ?? e.reviewRemarks ?? '',
-    });
+    }));
   });
 
   return Buffer.from(await wb.xlsx.writeBuffer());
