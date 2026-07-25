@@ -21,11 +21,13 @@
          display (operator-name, headings), Sora for body, JetBrains Mono for
          numbers/timestamps. Tablet operators are gloved + working under bright
          fluorescent light; these faces stay legible while giving the dashboard
-         a deliberate, instrument-grade feel. preconnect lets the fonts arrive
-         before first paint when online; offline falls back to system sans. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" />
+         a deliberate, instrument-grade feel.
+         2026-07-25: fonts SELF-HOSTED (public/fonts/*.woff2 + fonts.css) so the
+         app renders identically with NO Internet access — this is deployed into
+         air-gapped manufacturing plants. The former Google Fonts CDN <link>s
+         were removed; app.css still carries a system-sans fallback if a face
+         ever fails to load. -->
+    <link rel="stylesheet" href="/fonts/fonts.css" />
   </head>
   <body>
     <div id="root"></div>

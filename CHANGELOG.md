@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — Self-host fonts for air-gapped (offline) deployment (2026-07-25)
+
+Removed the only baked-in Internet dependency so the app renders identically with
+**no Internet access** (target: isolated manufacturing-plant LANs). The three
+faces (Bricolage Grotesque, Sora, JetBrains Mono) were previously loaded from the
+Google Fonts CDN via `<link>` tags in `apps/web/index.html` — offline they fell
+back to system sans (functional but off-brand, plus a first-paint delay while the
+CDN request timed out). Now **self-hosted**: 11 `.woff2` files + a local
+`fonts.css` (local `/fonts/*` `src` URLs) under `apps/web/public/fonts/`;
+`index.html` loads `<link rel="stylesheet" href="/fonts/fonts.css">`. `app.css`
+still declares the system-sans fallback stack. Verified post-`vite build`: **0**
+`googleapis`/`gstatic` references anywhere in `dist/`, and all 11 woff2 + `fonts.css`
+are in the PWA service-worker precache (`sw.js`) — fonts render correctly whether
+LAN-served, Internet-air-gapped, or tablet-offline-from-LAN. Full assessment:
+`docs/OFFLINE-DEPLOYMENT-READINESS.md`. (No secret change needed — the installer
+`scripts/install.ps1` already generates random per-install JWT/verify/offline
+secrets; the `.env` `CHANGE_IN_PRODUCTION` placeholders are dev-only and gitignored.)
+
 ## [Unreleased] — Replacement-schedule audit rows name the AHU/filter (2026-07-18)
 
 Replacement-schedule workflow audit rows now show **which** entry was acted on.
