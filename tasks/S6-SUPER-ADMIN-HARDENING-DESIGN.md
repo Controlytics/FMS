@@ -2,9 +2,10 @@
 
 > Finding S6 (Medium) from `docs/SECURITY-AUDIT-2026-07-25.md`.
 >
-> **STATUS: Option A IMPLEMENTED 2026-07-25.** SUPER_ADMIN now participates in account
-> lockout, with a host-only recovery CLI as the break-glass safety net. Option B (TOTP
-> MFA) remains the recommended fast-follow. Implementation details at the bottom.
+> **STATUS: Option A + Option B BOTH IMPLEMENTED 2026-07-25.** SUPER_ADMIN now
+> participates in account lockout (A) AND requires TOTP MFA (B), each with a host-only
+> recovery CLI. Option B design + verification: `docs/superpowers/specs/2026-07-25-super-admin-mfa-design.md`
+> and the commits. Implementation details for A at the bottom.
 
 ## The finding
 
