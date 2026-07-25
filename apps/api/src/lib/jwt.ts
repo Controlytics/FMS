@@ -53,6 +53,26 @@ export async function verifyToken(token: string): Promise<JwtPayload> {
   return payload as unknown as JwtPayload;
 }
 
+/**
+ * MFA step-up token (S6 Option B). Short-lived (5m) intermediate token issued
+ * AFTER a correct password but BEFORE the second factor. It carries an `mfa`
+ * kind claim and NO sessionId, so it can never satisfy the auth plugin's session
+ * check — it is only accepted by the /mfa endpoints via verifyMfaToken.
+ */
+export async function signMfaToken(userId: string, kind: 'challenge' | 'enroll'): Promise<string> {
+  return new jose.SignJWT({ sub: userId, mfa: kind })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(JWT_SECRET);
+}
+
+export async function verifyMfaToken(token: string, kind: 'challenge' | 'enroll'): Promise<{ sub: string }> {
+  const { payload } = await jose.jwtVerify(token, JWT_SECRET, { algorithms: ['HS256'] });
+  if (payload.mfa !== kind) throw new Error('Wrong MFA token type');
+  return { sub: payload.sub as string };
+}
+
 export async function signVerificationToken(userId: string): Promise<string> {
   return new jose.SignJWT({ sub: userId, purpose: 'reauth' })
     .setProtectedHeader({ alg: 'HS256' })

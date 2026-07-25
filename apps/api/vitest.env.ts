@@ -32,3 +32,10 @@ if (url && !url.includes('digilog_test_db')) {
 process.env.JWT_SECRET ??= 'TEST_JWT_SECRET_AT_LEAST_32_CHARACTERS_LONG_FOR_HS256_SUITE';
 process.env.VERIFICATION_TOKEN_SECRET ??=
   'TEST_VERIFICATION_SECRET_AT_LEAST_32_CHARACTERS_LONG_FOR_HS256_SUITE';
+
+// SUPER_ADMIN MFA (S6 Option B) is disabled in the test env so the shared
+// 'admin' (SUPER_ADMIN) login the whole e2e suite depends on keeps returning a
+// token instead of an MFA step-up. MFA_ENC_KEY is provided for the few tests
+// that exercise the MFA service directly.
+process.env.MFA_ENFORCE_SUPER_ADMIN ??= 'false';
+process.env.MFA_ENC_KEY ??= 'TEST_MFA_ENC_KEY_AT_LEAST_32_CHARACTERS_LONG_FOR_AESGCM_SUITE';

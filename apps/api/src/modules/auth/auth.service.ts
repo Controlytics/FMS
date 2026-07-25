@@ -5,7 +5,7 @@ import { auditLog } from '../../lib/audit.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
 import { isPasswordExpired } from '../../lib/password-expiry.js';
 import { ldapService } from '../ldap/ldap.service.js';
-import { signToken, signVerificationToken, verifyToken } from '../../lib/jwt.js';
+import { signToken, signVerificationToken, verifyToken, signMfaToken } from '../../lib/jwt.js';
 import { AppError, NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
 import { authRepository } from './auth.repository.js';
 import { createNotification } from '../notifications/notification.service.js';
@@ -83,6 +83,80 @@ export async function applyFailedPasswordAttempt(
   }).catch(err => console.error('[UserLocked] Notification dispatch failed:', err.message));
 
   return { locked: true };
+}
+
+/**
+ * Issue the real session (JWT + session row + audit + notification) for an
+ * authenticated user. Extracted from login() so the MFA-verify / MFA-enroll
+ * completion paths finish auth through the SAME code — session-conflict handling,
+ * LOGIN_SUCCESS audit, and USER_LOGIN dispatch stay identical. Throws
+ * SESSION_CONFLICT (409) when another session exists and force is not set.
+ */
+export async function issueSession(
+  user: { id: string; username: string; fullName: string | null; role: string; forcePasswordChange: boolean; isTemporaryPassword: boolean },
+  ip: string,
+  userAgent: string | undefined,
+  force?: boolean,
+) {
+  // Check for existing sessions (same account, different location)
+  const existingSessions = await authRepository.findActiveSessions(user.id);
+  if (existingSessions.length > 0) {
+    if (!force) {
+      const oldSession = existingSessions[0];
+      const err = new AppError(409, 'SESSION_CONFLICT', 'An active session already exists for this account.');
+      (err as any).activeSession = {
+        ipAddress: oldSession.ipAddress ?? 'Unknown',
+        loginTime: oldSession.createdAt.toISOString(),
+        lastActiveAt: oldSession.lastActiveAt.toISOString(),
+      };
+      throw err;
+    }
+    await authRepository.terminateActiveSessions(user.id, 'new_login');
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'FORCED_LOGOUT',
+      targetType: 'session', targetId: existingSessions.map((s: any) => s.id).join(','),
+      afterValue: { username: user.username, fullName: user.fullName },
+      signatureMeaning: 'Previous sessions terminated by user on new login',
+      ipAddress: ip, userAgent,
+    });
+  }
+
+  const sessionCfg = await authRepository.getSessionConfig();
+  const sessionDurationHours = sessionCfg.sessionDurationHours ?? 8;
+  const session = await authRepository.createSession(user.id, ip, userAgent, sessionDurationHours);
+
+  const token = await signToken({
+    sub: user.id, username: user.username, role: user.role, sessionId: session.id,
+  }, sessionDurationHours);
+
+  await authRepository.updateUser(user.id, { failedLoginAttempts: 0, lastLogin: new Date(), lockoutUntil: null });
+
+  await auditLog({
+    userId: user.username, userRole: user.role, action: 'LOGIN_SUCCESS',
+    targetType: 'user', targetId: user.id,
+    afterValue: { username: user.username, fullName: user.fullName },
+    signatureMeaning: 'User authenticated with username and password',
+    ipAddress: ip, userAgent, sessionId: session.id,
+  });
+
+  dispatchNotification({
+    eventType: 'USER_LOGIN',
+    context: {},
+    variables: {
+      username: user.username, fullName: user.fullName ?? user.username,
+      role: user.role, ipAddress: ip ?? 'N/A',
+      timestamp: new Date().toISOString(),
+    },
+  }).catch(err => console.error('[UserLogin] Notification dispatch failed:', err.message));
+
+  return {
+    success: true, token,
+    user: {
+      id: user.id, username: user.username, fullName: user.fullName, role: user.role,
+      forcePasswordChange: user.forcePasswordChange, isTemporaryPassword: user.isTemporaryPassword,
+    },
+    expiresIn: `${sessionDurationHours}h`,
+  };
 }
 
 export const authService = {
@@ -223,70 +297,22 @@ export const authService = {
       });
     }
 
-    // Check for existing sessions (same account, different location)
-    const existingSessions = await authRepository.findActiveSessions(user.id);
-    if (existingSessions.length > 0) {
-      if (!force) {
-        // Return session conflict — let the user decide
-        const oldSession = existingSessions[0];
-        const err = new AppError(409, 'SESSION_CONFLICT', 'An active session already exists for this account.');
-        (err as any).activeSession = {
-          ipAddress: oldSession.ipAddress ?? 'Unknown',
-          loginTime: oldSession.createdAt.toISOString(),
-          lastActiveAt: oldSession.lastActiveAt.toISOString(),
-        };
-        throw err;
+    // MFA gate (S6 Option B). SUPER_ADMIN must clear a second factor BEFORE any
+    // session is issued. We return an intermediate step token (5-min, typed, no
+    // session) and let the /mfa endpoints finish auth via issueSession(). Placed
+    // regardless of forcePasswordChange so a fresh SA enrols MFA first, then
+    // issueSession still surfaces forcePasswordChange for the change-password step.
+    // Non-SUPER_ADMIN users are entirely unaffected.
+    // Enforced by default; set MFA_ENFORCE_SUPER_ADMIN=false to disable (the test
+    // env does this; a dev can too). Real installs leave it unset => enforced.
+    if (user.role === 'SUPER_ADMIN' && process.env.MFA_ENFORCE_SUPER_ADMIN !== 'false') {
+      if (user.mfaEnabled) {
+        return { mfaRequired: true, mfaToken: await signMfaToken(user.id, 'challenge') } as const;
       }
-
-      // force=true: terminate existing sessions and proceed
-      await authRepository.terminateActiveSessions(user.id, 'new_login');
-      await auditLog({
-        userId: user.username, userRole: user.role, action: 'FORCED_LOGOUT',
-        targetType: 'session', targetId: existingSessions.map((s: any) => s.id).join(','),
-        afterValue: { username: user.username, fullName: user.fullName },
-        signatureMeaning: 'Previous sessions terminated by user on new login',
-        ipAddress: ip, userAgent,
-      });
+      return { mfaEnrollmentRequired: true, mfaToken: await signMfaToken(user.id, 'enroll') } as const;
     }
 
-    // Create session
-    const sessionCfg = await authRepository.getSessionConfig();
-    const sessionDurationHours = sessionCfg.sessionDurationHours ?? 8;
-    const session = await authRepository.createSession(user.id, ip, userAgent, sessionDurationHours);
-
-    const token = await signToken({
-      sub: user.id, username: user.username, role: user.role, sessionId: session.id,
-    }, sessionDurationHours);
-
-    await authRepository.updateUser(user.id, { failedLoginAttempts: 0, lastLogin: new Date(), lockoutUntil: null });
-
-    await auditLog({
-      userId: user.username, userRole: user.role, action: 'LOGIN_SUCCESS',
-      targetType: 'user', targetId: user.id,
-      afterValue: { username: user.username, fullName: user.fullName },
-      signatureMeaning: 'User authenticated with username and password',
-      ipAddress: ip, userAgent, sessionId: session.id,
-    });
-
-    // Dispatch USER_LOGIN notification
-    dispatchNotification({
-      eventType: 'USER_LOGIN',
-      context: {},
-      variables: {
-        username: user.username, fullName: user.fullName ?? user.username,
-        role: user.role, ipAddress: ip ?? 'N/A',
-        timestamp: new Date().toISOString(),
-      },
-    }).catch(err => console.error('[UserLogin] Notification dispatch failed:', err.message));
-
-    return {
-      success: true, token,
-      user: {
-        id: user.id, username: user.username, fullName: user.fullName, role: user.role,
-        forcePasswordChange: user.forcePasswordChange, isTemporaryPassword: user.isTemporaryPassword,
-      },
-      expiresIn: `${sessionDurationHours}h`,
-    };
+    return issueSession(user, ip, userAgent, force);
   },
 
   async logout(sessionId: string, username: string, role: string, ip: string, userAgent: string | undefined, reason: 'manual' | 'idle_timeout' = 'manual') {

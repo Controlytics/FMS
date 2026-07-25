@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // ── Hoisted mocks ──────────────────────────────────────────
 const {
@@ -8,6 +8,7 @@ const {
   mockSignToken,
   mockSignVerificationToken,
   mockVerifyToken,
+  mockSignMfaToken,
   mockAuditLog,
   mockCreateNotification,
 } = vi.hoisted(() => ({
@@ -40,13 +41,14 @@ const {
   mockSignToken: vi.fn(),
   mockSignVerificationToken: vi.fn(),
   mockVerifyToken: vi.fn(),
+  mockSignMfaToken: vi.fn(),
   mockAuditLog: vi.fn(),
   mockCreateNotification: vi.fn(),
 }));
 
 vi.mock('../auth.repository.js', () => ({ authRepository: mockRepo }));
 vi.mock('../../../lib/password.js', () => ({ hashPassword: mockHashPassword, verifyPassword: mockVerifyPassword }));
-vi.mock('../../../lib/jwt.js', () => ({ signToken: mockSignToken, signVerificationToken: mockSignVerificationToken, verifyToken: mockVerifyToken }));
+vi.mock('../../../lib/jwt.js', () => ({ signToken: mockSignToken, signVerificationToken: mockSignVerificationToken, verifyToken: mockVerifyToken, signMfaToken: mockSignMfaToken }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: mockCreateNotification }));
 
@@ -190,6 +192,55 @@ describe('authService', () => {
 
       await expect(authService.login('superadmin', 'pass', '127.0.0.1', undefined))
         .rejects.toThrow('locked');
+    });
+
+    // ── MFA gate (S6 Option B) ──
+    describe('SUPER_ADMIN MFA gate (MFA_ENFORCE_SUPER_ADMIN)', () => {
+      const prev = process.env.MFA_ENFORCE_SUPER_ADMIN;
+      beforeEach(() => { process.env.MFA_ENFORCE_SUPER_ADMIN = 'true'; mockSignMfaToken.mockResolvedValue('mfa-step-token'); });
+      afterEach(() => { process.env.MFA_ENFORCE_SUPER_ADMIN = prev; });
+
+      it('returns mfaEnrollmentRequired for an un-enrolled SUPER_ADMIN', async () => {
+        mockRepo.findUserByUsername.mockResolvedValue(makeUser({ role: 'SUPER_ADMIN', username: 'superadmin', mfaEnabled: false }));
+        mockVerifyPassword.mockResolvedValue(true);
+        const res: any = await authService.login('superadmin', 'pass', '127.0.0.1', undefined);
+        expect(res.mfaEnrollmentRequired).toBe(true);
+        expect(res.mfaToken).toBe('mfa-step-token');
+        expect(res.token).toBeUndefined();               // NO session issued
+        expect(mockRepo.createSession).not.toHaveBeenCalled();
+      });
+
+      it('returns mfaRequired for an enrolled SUPER_ADMIN', async () => {
+        mockRepo.findUserByUsername.mockResolvedValue(makeUser({ role: 'SUPER_ADMIN', username: 'superadmin', mfaEnabled: true }));
+        mockVerifyPassword.mockResolvedValue(true);
+        const res: any = await authService.login('superadmin', 'pass', '127.0.0.1', undefined);
+        expect(res.mfaRequired).toBe(true);
+        expect(res.mfaToken).toBe('mfa-step-token');
+        expect(res.token).toBeUndefined();
+        expect(mockRepo.createSession).not.toHaveBeenCalled();
+      });
+
+      it('does NOT gate a non-SUPER_ADMIN (normal token)', async () => {
+        mockRepo.findUserByUsername.mockResolvedValue(makeUser({ role: 'ADMIN', mfaEnabled: false }));
+        mockVerifyPassword.mockResolvedValue(true);
+        mockRepo.findActiveSessions.mockResolvedValue([]);
+        mockRepo.createSession.mockResolvedValue({ id: 'sess-x' });
+        mockSignToken.mockResolvedValue('real-token');
+        const res: any = await authService.login('admin', 'pass', '127.0.0.1', undefined);
+        expect(res.token).toBe('real-token');
+        expect(res.mfaRequired).toBeUndefined();
+      });
+
+      it('skips the gate when MFA_ENFORCE_SUPER_ADMIN=false', async () => {
+        process.env.MFA_ENFORCE_SUPER_ADMIN = 'false';
+        mockRepo.findUserByUsername.mockResolvedValue(makeUser({ role: 'SUPER_ADMIN', username: 'superadmin', mfaEnabled: false }));
+        mockVerifyPassword.mockResolvedValue(true);
+        mockRepo.findActiveSessions.mockResolvedValue([]);
+        mockRepo.createSession.mockResolvedValue({ id: 'sess-y' });
+        mockSignToken.mockResolvedValue('real-token');
+        const res: any = await authService.login('superadmin', 'pass', '127.0.0.1', undefined);
+        expect(res.token).toBe('real-token');
+      });
     });
 
     it('throws SESSION_CONFLICT when session exists and force=false', async () => {
