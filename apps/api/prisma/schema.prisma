@@ -154,6 +154,13 @@ model User {
   isTemporaryPassword Boolean    @default(true) @map("is_temporary_password")
   authSource          String     @default("local") @map("auth_source") @db.VarChar(10)
   ldapDn              String?    @map("ldap_dn")
+  // TOTP MFA (S6 Option B, 2026-07-25). Currently enforced for SUPER_ADMIN.
+  // mfaSecret is AES-256-GCM encrypted at rest (lib/mfa-crypto.ts). Enrolment
+  // state: secret set + mfaEnabled=false => pending; mfaEnabled=true => active.
+  mfaEnabled          Boolean    @default(false) @map("mfa_enabled")
+  mfaSecret           String?    @map("mfa_secret")
+  mfaEnrolledAt       DateTime?  @map("mfa_enrolled_at") @db.Timestamptz
+  mfaBackupCodes      Json?      @map("mfa_backup_codes")
   lastLogin           DateTime?  @map("last_login") @db.Timestamptz
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime   @updatedAt @map("updated_at") @db.Timestamptz
