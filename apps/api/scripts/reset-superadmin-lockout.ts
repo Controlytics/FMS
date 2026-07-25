@@ -52,9 +52,9 @@ async function main() {
   });
 
   // Also terminate any lingering sessions so recovery starts clean.
-  await prisma.userSession.updateMany({
+  await prisma.session.updateMany({
     where: { userId: user.id, isActive: true },
-    data: { isActive: false },
+    data: { isActive: false, terminationReason: 'lockout_recovery_cli' },
   });
 
   await auditLog({

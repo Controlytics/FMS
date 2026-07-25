@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -105,18 +105,24 @@ export function MfaEnroll({ mfaToken, password, branding, onCancel }: StepProps)
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [completedRes, setCompletedRes] = useState<any>(null);
   const [savedAck, setSavedAck] = useState(false);
+  const startedRef = useRef(false);
 
-  // Kick off enrolment once — fetch the secret + render the QR.
+  // Kick off enrolment once — fetch the secret + render the QR. The ref guard
+  // makes this fire a SINGLE enroll/start even under React StrictMode's
+  // double-invoke (which would otherwise generate two secrets server-side).
   useEffect(() => {
-    let cancelled = false;
+    // Ref guard = exactly one enroll/start for the component's life (survives
+    // StrictMode's mount→unmount→remount). No per-effect `cancelled` flag: the
+    // first effect's StrictMode cleanup would otherwise discard the only call's
+    // result and leave the QR stuck loading.
+    if (startedRef.current) return;
+    startedRef.current = true;
     mfaEnrollStart(mfaToken)
       .then(async ({ otpauthUri, secret }) => {
-        if (cancelled) return;
         setSecret(secret);
         setQrDataUrl(await QRCode.toDataURL(otpauthUri, { margin: 1, width: 200 }));
       })
       .catch((err) => setError(err.code === 'MFA_TOKEN_INVALID' ? 'Your login step expired. Please sign in again.' : (err.message || 'Could not start enrolment')));
-    return () => { cancelled = true; };
   }, [mfaToken, mfaEnrollStart]);
 
   const confirm = async (force?: boolean) => {

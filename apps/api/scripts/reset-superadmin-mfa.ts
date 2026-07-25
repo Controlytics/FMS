@@ -38,7 +38,7 @@ async function main() {
     where: { id: user.id },
     data: { mfaEnabled: false, mfaSecret: null, mfaEnrolledAt: null, mfaBackupCodes: undefined },
   });
-  await prisma.userSession.updateMany({ where: { userId: user.id, isActive: true }, data: { isActive: false } });
+  await prisma.session.updateMany({ where: { userId: user.id, isActive: true }, data: { isActive: false, terminationReason: 'mfa_recovery_cli' } });
 
   await auditLog({
     userId: username,

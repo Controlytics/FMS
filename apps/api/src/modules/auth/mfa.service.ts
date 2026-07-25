@@ -65,16 +65,14 @@ export const mfaService = {
     if (!user.mfaEnabled || !user.mfaSecret) throw new AppError(400, 'MFA_NOT_ENABLED', 'MFA is not enabled.');
 
     let method: 'totp' | 'backup' | null = null;
+    let backupCodes: BackupCode[] | null = null;
+    let backupIdx = -1;
     if (verifyTotp(decryptSecret(user.mfaSecret), code)) {
       method = 'totp';
     } else {
-      const codes = (user.mfaBackupCodes as unknown as BackupCode[] | null) ?? [];
-      const idx = findUnusedBackupCode(codes, code);
-      if (idx >= 0) {
-        codes[idx].usedAt = new Date().toISOString();
-        await prisma.user.update({ where: { id: user.id }, data: { mfaBackupCodes: codes as unknown as object } });
-        method = 'backup';
-      }
+      backupCodes = (user.mfaBackupCodes as unknown as BackupCode[] | null) ?? [];
+      backupIdx = findUnusedBackupCode(backupCodes, code);
+      if (backupIdx >= 0) method = 'backup';
     }
 
     if (!method) {
@@ -85,13 +83,23 @@ export const mfaService = {
       throw new AppError(401, 'MFA_INVALID', 'Incorrect code. Try again.');
     }
 
+    // Issue the session BEFORE consuming a backup code. issueSession throws
+    // SESSION_CONFLICT (409) when another session exists and force is unset — if
+    // that happened after we'd marked the code used, the user's force-retry would
+    // see it as already-used and be stuck. Consuming only on success avoids that.
+    const session = await issueSession(user, ip, userAgent, force);
+    if (method === 'backup' && backupCodes) {
+      backupCodes[backupIdx].usedAt = new Date().toISOString();
+      await prisma.user.update({ where: { id: user.id }, data: { mfaBackupCodes: backupCodes as unknown as object } });
+    }
+
     await auditLog({
       userId: user.username, userRole: user.role, action: 'MFA_VERIFIED',
       targetType: 'user', targetId: user.id, afterValue: { method },
       signatureMeaning: `SUPER_ADMIN passed second factor (${method})`,
       ipAddress: ip, userAgent,
     });
-    return issueSession(user, ip, userAgent, force);
+    return session;
   },
 
   /**

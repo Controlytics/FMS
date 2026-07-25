@@ -66,6 +66,17 @@ describe('MFA flow (SUPER_ADMIN, enforced)', () => {
     expect(enroll.body.backupCodes).toHaveLength(10);
     const backupCode: string = enroll.body.backupCodes[0];
 
+    // 3b. A backup code must SURVIVE a SESSION_CONFLICT (regression): enrolment
+    // above issued a session (force:true), so a no-force verify hits 409 — and
+    // that failed attempt must NOT consume the code, so a force-retry still works.
+    const survive: string = enroll.body.backupCodes[1];
+    const loginC = await post(app, '/api/auth/login', { username: USERNAME, password: PASSWORD });
+    const conflict = await post(app, '/api/auth/mfa/verify', { mfaToken: loginC.body.mfaToken, code: survive }); // no force
+    expect(conflict.status).toBe(409);
+    const loginD = await post(app, '/api/auth/login', { username: USERNAME, password: PASSWORD });
+    const retry = await post(app, '/api/auth/mfa/verify', { mfaToken: loginD.body.mfaToken, code: survive, force: true });
+    expect(retry.status).toBe(200); // code was not burned by the 409
+
     // 4. Next login → challenge required (enrolled now).
     const login2 = await post(app, '/api/auth/login', { username: USERNAME, password: PASSWORD });
     expect(login2.body.mfaRequired).toBe(true);
