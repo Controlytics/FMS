@@ -21,21 +21,20 @@ const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6
  * Closes the 2026-07-09 security-review gap where a holder of a valid session
  * could grind the password via reauth without the account ever locking.
  *
- * SUPER_ADMIN now PARTICIPATES in lockout (S6 hardening, 2026-07-25 — reverses the
- * 2026-05-25 exemption that left the one all-powerful account defended online only by
- * the login rate limit). Break-glass recovery is preserved two ways: a TEMPORARY
- * lockout self-clears after its window (see the login LOCKED branch), and a PERMANENT
- * lockout is cleared by the host-only recovery CLI `scripts/reset-superadmin-lockout.ts`
- * (requires local shell access to the server). Returns whether the account is now
- * LOCKED. Emits the ACCOUNT_LOCKED audit + notifications only when the threshold trips;
- * the caller owns its own action-specific audit (LOGIN_FAILED / reauth) for the
- * non-locking case.
+ * SUPER_ADMIN is EXEMPT from account lockout (and from password expiry) — a
+ * deliberate policy decision so the one all-powerful account can never be locked
+ * out of the system. Its only online defence is the login rate limit. Returns
+ * whether the account is now LOCKED. Emits the ACCOUNT_LOCKED audit + notifications
+ * only when the threshold trips; the caller owns its own action-specific audit
+ * (LOGIN_FAILED / reauth) for the non-locking case.
  */
 export async function applyFailedPasswordAttempt(
   user: { id: string; username: string; fullName: string | null; role: string; failedLoginAttempts: number },
   ip: string,
   userAgent: string | undefined,
 ): Promise<{ locked: boolean }> {
+  if (user.role === 'SUPER_ADMIN') return { locked: false };
+
   const loginSecurity = await authRepository.getLoginSecurityConfig();
   const passwordPolicy = await authRepository.getPasswordPolicyConfig();
   const maxAttempts = (passwordPolicy.maxFailedAttempts as number) ?? 5;
@@ -111,13 +110,13 @@ export const authService = {
       }
     }
 
-    // Account status. S6 (2026-07-25): SUPER_ADMIN no longer auto-unlocks — it is
-    // subject to lockout like every other account. A TEMPORARY lockout self-clears
-    // once its window elapses (branch below, all roles); a PERMANENT lockout must be
-    // cleared by an admin OR, for a locked-out sole SUPER_ADMIN, by the host-only
-    // recovery CLI `scripts/reset-superadmin-lockout.ts`.
+    // Account status (SUPER_ADMIN is lockout-exempt and auto-unlocks — it can
+    // never be locked out of the system).
     if (user.status === 'LOCKED') {
-      if (user.lockoutUntil && user.lockoutUntil < new Date()) {
+      if (user.role === 'SUPER_ADMIN') {
+        // Auto-unlock SUPER_ADMIN accounts
+        await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
+      } else if (user.lockoutUntil && user.lockoutUntil < new Date()) {
         await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
       } else {
         throw new AppError(403, "ACCOUNT_LOCKED", "Account locked due to multiple failed login attempts. Contact administrator.");
@@ -177,10 +176,9 @@ export const authService = {
 
     const valid = skipPasswordCheck || await verifyPassword(password, user.passwordHash);
     if (!valid) {
-      // Shared lockout policy — applies to ALL roles incl. SUPER_ADMIN since S6
-      // (2026-07-25). Emits ACCOUNT_LOCKED audit + notifications when the threshold
-      // trips. A locked-out sole SUPER_ADMIN is recovered via the host-only CLI
-      // `scripts/reset-superadmin-lockout.ts` (or waits out a TEMPORARY window).
+      // Shared lockout policy. SUPER_ADMIN is exempt (applyFailedPasswordAttempt
+      // returns locked:false for it), so a SUPER_ADMIN just gets a LOGIN_FAILED and
+      // can always retry. All other roles lock after maxFailedAttempts.
       const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
       if (locked) {
         throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');

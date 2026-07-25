@@ -168,28 +168,35 @@ describe('authService', () => {
       expect(mockRepo.updateUser).toHaveBeenCalledWith(user.id, expect.objectContaining({ status: 'LOCKED' }));
     });
 
-    // S6 (2026-07-25): SUPER_ADMIN is no longer lockout-exempt. Break-glass
-    // recovery is via scripts/reset-superadmin-lockout.ts (host-only) or a
-    // TEMPORARY-lockout window elapsing.
-    it('locks a SUPER_ADMIN after max failed attempts (no longer exempt)', async () => {
+    // SUPER_ADMIN is EXEMPT from lockout and from password expiry (policy: the
+    // one all-powerful account can never be locked out of the system).
+    it('does NOT lock a SUPER_ADMIN after max failed attempts (exempt)', async () => {
       const user = makeUser({ role: 'SUPER_ADMIN', username: 'superadmin', failedLoginAttempts: 4 });
       mockRepo.findUserByUsername.mockResolvedValue(user);
       mockVerifyPassword.mockResolvedValue(false);
       mockRepo.getLoginSecurityConfig.mockResolvedValue({ maxFailedAttempts: 5, lockoutType: 'TEMPORARY', lockoutDurationMinutes: 30 });
       mockRepo.updateUser.mockResolvedValue(user);
 
+      // Wrong password → generic invalid-credentials, NOT a lockout.
       await expect(authService.login('superadmin', 'wrong', '127.0.0.1', undefined))
-        .rejects.toThrow('locked');
-
-      expect(mockRepo.updateUser).toHaveBeenCalledWith(user.id, expect.objectContaining({ status: 'LOCKED' }));
+        .rejects.toThrow('incorrect');
+      // Never marked LOCKED.
+      expect(mockRepo.updateUser).not.toHaveBeenCalledWith(user.id, expect.objectContaining({ status: 'LOCKED' }));
     });
 
-    it('does NOT auto-unlock a locked SUPER_ADMIN with an unexpired lockout', async () => {
+    it('auto-unlocks a LOCKED SUPER_ADMIN on login (exempt)', async () => {
       const future = new Date(Date.now() + 60000);
-      mockRepo.findUserByUsername.mockResolvedValue(makeUser({ role: 'SUPER_ADMIN', username: 'superadmin', status: 'LOCKED', lockoutUntil: future }));
+      const user = makeUser({ role: 'SUPER_ADMIN', username: 'superadmin', status: 'LOCKED', lockoutUntil: future });
+      mockRepo.findUserByUsername.mockResolvedValue(user);
+      mockVerifyPassword.mockResolvedValue(true);
+      mockRepo.findActiveSessions.mockResolvedValue([]);
+      mockRepo.createSession.mockResolvedValue({ id: 'sess-sa' });
+      mockSignToken.mockResolvedValue('sa-token');
+      mockRepo.updateUser.mockResolvedValue(user);
 
-      await expect(authService.login('superadmin', 'pass', '127.0.0.1', undefined))
-        .rejects.toThrow('locked');
+      const res: any = await authService.login('superadmin', 'pass', '127.0.0.1', undefined);
+      expect(res.token).toBe('sa-token'); // logged in despite the LOCKED status
+      expect(mockRepo.updateUser).toHaveBeenCalledWith(user.id, expect.objectContaining({ status: 'ENABLED' }));
     });
 
     it('throws SESSION_CONFLICT when session exists and force=false', async () => {

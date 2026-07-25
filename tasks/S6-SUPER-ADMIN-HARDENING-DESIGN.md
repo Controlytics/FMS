@@ -2,8 +2,15 @@
 
 > Finding S6 (Medium) from `docs/SECURITY-AUDIT-2026-07-25.md`.
 >
-> **STATUS: Option A IMPLEMENTED 2026-07-25.** SUPER_ADMIN now participates in account
-> lockout, with a host-only recovery CLI as the break-glass safety net. Option B (TOTP
+> **STATUS: REVERSED 2026-07-25 by owner decision.** Option A (SUPER_ADMIN lockout) was
+> implemented, then **reverted at the owner's request** — SUPER_ADMIN is again EXEMPT from
+> account lockout AND from password expiry (the deliberate policy: the one all-powerful
+> account can never be locked out of the system). The host-only recovery CLI was removed
+> (moot — a LOCKED SUPER_ADMIN now auto-unlocks on login). This design doc is retained for
+> history; the options below were NOT adopted. Option B (TOTP MFA) was also removed earlier.
+>
+> ~~**Option A IMPLEMENTED 2026-07-25.** SUPER_ADMIN now participates in account
+> lockout, with a host-only recovery CLI as the break-glass safety net.~~ Option B (TOTP
 > MFA) remains the recommended fast-follow. Implementation details at the bottom.
 
 ## The finding
