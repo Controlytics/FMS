@@ -33,6 +33,20 @@ is Low; they should still be cleared to satisfy inspectors.
 no blockers of Critical/High severity, but the ~6 Medium items (especially the two compliance
 ones) should be closed before go-live. Estimated remediation: **2–4 developer-days.**
 
+### Resolution log — 2026-07-25 (same-day remediation)
+
+| Item | Status | What changed |
+|------|--------|--------------|
+| **S3** formula injection | ✅ **Fixed** | `lib/spreadsheet-safe.ts` (`neutralizeRow`) prefixes `= + - @ TAB CR` cells; applied to `replacement-schedule/export.ts` + `pm-schedules/pm-export.ts`. Unit-verified. |
+| **S4** open redirect | ✅ **Fixed** | `login.tsx` validates `returnUrl` (internal path only), mirroring `use-auth.ts:137`. |
+| **S5** mass assignment | ✅ **Fixed** | `PUT /templates/:id`: `additionalProperties:false` + explicit field whitelist (no `req.body as any`). |
+| **S1** audit chain unkeyed | ✅ **Fixed (installer)** | `install.ps1` generates a per-install `AUDIT_CHAIN_KEY` (48B CSPRNG) → fresh installs run keyed HMAC-SHA256 v3 by default. |
+| **S2** reauth silent-disable | ✅ **Surfaced** | Was already `console.warn`-loud; now also a `reauth-policy` sub-check on the SUPER_ADMIN deployment-check (`getReauthHealth()` → FAIL on legacy shape / WARN when 0 actions gated). |
+| **S6** SA lockout/expiry exemption | 📋 **Design'd, not auto-fixed** | See `tasks/S6-SUPER-ADMIN-HARDENING-DESIGN.md`. Blindly locking the sole SA risks permanent lockout — needs lockout **+ a host-only recovery CLI** (Option A) and/or TOTP MFA (Option B). Deliberately not rushed. |
+| **Deps** (`tar` critical etc.) | ⚠️ **Deferred, justified** | `npm audit fix` is blocked by an ERESOLVE peer conflict; the critical `tar` is pinned to 6.x by `bcrypt → node-pre-gyp` and is **install/build-time only** (not runtime-reachable). Forcing it risks breaking bcrypt/login for zero runtime gain. Real fix = migrate `bcrypt → bcryptjs` (drops node-pre-gyp/tar **and** the Windows native-binary risk) in a tested PR. |
+
+**Net after this pass:** 4 of 6 Mediums fixed in code, 1 surfaced operationally, 1 designed with a recommendation. The remaining go-live actions are the S6 decision (Option A/B) and the bcrypt→bcryptjs dependency migration.
+
 ---
 
 ## 2. Architecture Review

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { prisma } from '../../lib/prisma.js';
 import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
+import { getReauthHealth } from '../../lib/reauth-check.js';
 // TimescaleDB + MQTT checks removed with data-ingestion removal.
 // Phase 4 (2026-05-01): Redis fully retired from this codebase. The internal
 // pub/sub bus + RPC TTL cache moved in-process. ioredis dependency dropped.
@@ -411,6 +412,22 @@ async function checkConfigEntries(): Promise<SubCheck[]> {
         ? { name: key, status: 'PASS' }
         : { name: key, status: 'FAIL', message: `Missing. Run: npx prisma db seed` },
     );
+  }
+
+  // Re-auth (electronic-signature) policy health — 21 CFR Part 11 control.
+  // WARN loudly if reauth is effectively disabled so a bad restore/migration
+  // (or an un-configured install) that voids e-signature enforcement is visible.
+  try {
+    const reauth = await getReauthHealth();
+    if (reauth.legacyShape) {
+      checks.push({ name: 'reauth-policy', status: 'FAIL', expected: 'flat config with roles', found: 'legacy nested shape', message: 'Re-auth (e-signature) is DISABLED — on-disk action-reauth config is the legacy shape. Re-save it on Config → Action Re-auth to restore §11 enforcement.' });
+    } else if (reauth.effectivelyDisabled) {
+      checks.push({ name: 'reauth-policy', status: 'WARN', expected: '>=1 action with roles', found: '0 actions configured', message: 'No re-auth actions are configured — electronic-signature enforcement is OFF. Configure on Config → Action Re-auth.' });
+    } else {
+      checks.push({ name: 'reauth-policy', status: 'PASS', found: `${reauth.actionsConfigured} actions gated` });
+    }
+  } catch (e: any) {
+    checks.push({ name: 'reauth-policy', status: 'WARN', message: `Could not read reauth config: ${e.message}` });
   }
 
   return checks;

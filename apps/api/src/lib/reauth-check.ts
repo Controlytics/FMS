@@ -38,6 +38,11 @@ let configCache: { data: ActionReauthConfig; fetchedAt: number } | null = null;
 const CACHE_TTL_MS = 10_000; // 10 seconds
 // Warn at most once per process when the legacy (reauth-OFF) config shape is seen.
 let legacyShapeWarned = false;
+// Health signal: true when the on-disk config was the legacy nested shape, which
+// silently disables ALL reauth (see normalizeActionReauthConfig). Surfaced via
+// getReauthHealth() on the SUPER_ADMIN deployment-check so a bad restore/migration
+// that voids §11 e-signature enforcement is VISIBLE, not just a one-time console.warn.
+let lastConfigWasLegacy = false;
 
 export async function getActionReauthConfig(): Promise<ActionReauthConfig> {
   const now = Date.now();
@@ -49,6 +54,27 @@ export async function getActionReauthConfig(): Promise<ActionReauthConfig> {
   const config = normalizeActionReauthConfig(raw);
   configCache = { data: config, fetchedAt: now };
   return config;
+}
+
+/**
+ * Operational health of the reauth (electronic-signature) policy. Lets the
+ * deployment-check surface the "reauth silently disabled" state to operators.
+ * `effectivelyDisabled` is true when NO action has any roles configured — either
+ * because the on-disk config is the legacy nested shape (`legacyShape`) or the
+ * policy is genuinely empty. On a 21 CFR Part 11 system that is a compliance red flag.
+ */
+export async function getReauthHealth(): Promise<{
+  actionsConfigured: number;
+  legacyShape: boolean;
+  effectivelyDisabled: boolean;
+}> {
+  const config = await getActionReauthConfig();
+  const actionsConfigured = Object.values(config).filter((roles) => Array.isArray(roles) && roles.length > 0).length;
+  return {
+    actionsConfigured,
+    legacyShape: lastConfigWasLegacy,
+    effectivelyDisabled: actionsConfigured === 0,
+  };
 }
 
 /**
@@ -75,6 +101,7 @@ export async function getActionReauthConfig(): Promise<ActionReauthConfig> {
  * defensively).
  */
 function normalizeActionReauthConfig(raw: unknown): ActionReauthConfig {
+  lastConfigWasLegacy = false;
   if (!raw || typeof raw !== 'object') return {};
   const obj = raw as Record<string, unknown>;
   // Detect the legacy nested shape: a single `actions` key whose value is an
@@ -87,6 +114,7 @@ function normalizeActionReauthConfig(raw: unknown): ActionReauthConfig {
     && 'action' in (legacyActions[0] as object)
     && 'roles' in (legacyActions[0] as object);
   if (looksLegacy) {
+    lastConfigWasLegacy = true;
     // Legacy data was non-functional — return empty so behavior matches the
     // de-facto reauth-OFF state. Operators must re-save via the UI to
     // (re)establish a policy. LOUD warning (once per process) so a bad restore
