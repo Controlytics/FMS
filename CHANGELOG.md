@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — Scheduled jobs moved to in-process node-cron (2026-07-25)
+
+Replaced the graphile-worker (Postgres-backed) scheduler with **`node-cron`**
+running **in-process** — no Postgres job queue and no OS/Windows cron dependency
+for scheduling. The three maintenance jobs are unchanged in behaviour:
+`session_sweep` (every 5 min), `password_expiry_check` (daily 00:00),
+`pm_overdue_check` (daily 03:00). Each cron tick calls the sweep **service**
+directly (`sweepExpiredSessions` / `sweepPasswordExpiryNotifications` /
+`sweepOverdueDeviations`), guarded so it can't overlap itself and logging via
+`app.log` (never swallowing errors). Cron fields use the server's LOCAL time; a
+run missed while the process is down is not backfilled (same as the old `fill=0s`).
+
+The graphile-worker `notification` task was already dead (no producers since the
+2026-05-17 rule-chain/alarm removal; notifications dispatch directly in-process),
+so nothing was lost. Removed the now-unused `startJobRunner`/`stopJobRunner` wiring
+in `app.ts`, the four `src/workers/*.worker.ts` wrappers, and
+`packages/queue/crontab.txt`. `/api/health` still reports `jobRunner: running`.
+The `@digilog/queue` package is left installed but unused (removable later).
+Verified: API typecheck clean; scheduler starts; all three sweep functions run
+cleanly against the live DB.
+
 ## [Unreleased] — Self-host fonts for air-gapped (offline) deployment (2026-07-25)
 
 Removed the only baked-in Internet dependency so the app renders identically with

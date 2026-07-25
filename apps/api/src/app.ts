@@ -41,11 +41,17 @@ import notificationDeliveryRoutes from './modules/notification-delivery/routes.j
 import userGroupRoutes from './modules/user-groups/routes.js';
 import notificationRulesRoutes from './modules/notification-rules/routes.js';
 
-import { notificationTask } from './workers/notification.worker.js';
-import { pmOverdueCheckTask } from './workers/pm-overdue.worker.js';
-import { passwordExpiryCheckTask } from './workers/password-expiry.worker.js';
-import { sessionSweepTask } from './workers/session-sweep.worker.js';
-import { startJobRunner, stopJobRunner } from '@digilog/queue';
+// Scheduled maintenance now runs IN-PROCESS via node-cron (2026-07-25) — no
+// Postgres job queue (graphile-worker) and no OS/Windows cron dependency. The
+// former graphile-worker `notification` task was already dead (no producers
+// since the 2026-05-17 rule-chain/alarm removal); notifications are dispatched
+// directly in-process via dispatchNotification. We call the sweep SERVICE
+// functions straight from cron ticks (the old *.worker.ts wrappers only added a
+// graphile-worker `helpers.logger`, which we replace with app.log here).
+import cron, { type ScheduledTask } from 'node-cron';
+import { sweepOverdueDeviations } from './modules/pm-schedules/pm-deviations.js';
+import { sweepExpiredSessions } from './modules/auth/session-sweep.js';
+import { sweepPasswordExpiryNotifications } from './modules/auth/password-expiry-sweep.js';
 import { AppError } from './lib/errors.js';
 import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
@@ -297,6 +303,8 @@ app.addHook('onRequest', (_req, _reply, done) => {
 // stopped with nothing to notice it — the session sweep writes the LOGOUT audit
 // rows, so its silent death is a §11 gap.
 let jobRunnerStatus: 'starting' | 'running' | 'failed' = 'starting';
+// In-process node-cron scheduled tasks; stopped on graceful shutdown.
+const cronTasks: ScheduledTask[] = [];
 
 app.get('/api/health', {
   schema: {
@@ -437,45 +445,44 @@ try {
   app.log.info(`DigiLog API running on ${proto}://localhost:${port}`);
   app.log.info(`Swagger UI: ${proto}://localhost:${port}/docs`);
 
-  // Phase 2 — single graphile-worker Runner registers ALL task identifiers
-  // and the maintenance crontab (Task 2.8). The legacy BullMQ path was
-  // dropped in Task 2.10; graphile-worker is the only queue backend now.
+  // In-process scheduler (node-cron). Runs inside this Node process — no
+  // Postgres job queue and no OS/Windows cron. Each tick runs a sweep guarded so
+  // it can't overlap itself (mirrors the old `max=1`) and swallows nothing (a
+  // failure is logged, per CLAUDE.md). Cron fields use the server's LOCAL time
+  // (set process.env.TZ to change). Missed runs while the process is down are
+  // NOT backfilled — same as the old `fill=0s`.
   try {
-    // crontab.txt lives at <repo>/packages/queue/crontab.txt; src/app.ts is
-    // at <repo>/apps/api/src/app.ts so the relative hop is 3 dot-dots.
-    // Override via MAINTENANCE_CRONTAB_PATH for non-default monorepo layouts.
-    const crontabPath =
-      process.env.MAINTENANCE_CRONTAB_PATH ??
-      path.resolve(__dirname, '../../../packages/queue/crontab.txt');
-    await startJobRunner({
-      taskList: {
-        
-        // `notification` task handler — closes the producer/consumer gap
-        // flagged in the 2026-05-12 deep review. Before this commit
-        // `enqueueNotificationJob` posted to a task name with no handler
-        // and jobs leaked into graphile_worker.jobs forever. See
-        // apps/api/src/workers/notification.worker.ts for the mapping
-        // from queue payload to `dispatchNotification` event types.
-        notification: notificationTask,
-        
-        pm_overdue_check: pmOverdueCheckTask,
-        password_expiry_check: passwordExpiryCheckTask,
-        session_sweep: sessionSweepTask,
-      },
-      crontabPath,
-    });
+    const inFlight = new Set<string>();
+    const runSweep = async (name: string, fn: () => Promise<unknown>) => {
+      if (inFlight.has(name)) { app.log.warn(`[cron] ${name} still running — skipping this tick`); return; }
+      inFlight.add(name);
+      try {
+        const r = await fn();
+        app.log.info({ job: name, result: r }, `[cron] ${name} completed`);
+      } catch (e) {
+        app.log.warn({ job: name, err: e }, `[cron] ${name} failed`);
+      } finally {
+        inFlight.delete(name);
+      }
+    };
+
+    // Session reaper — every 5 min (terminates idle/expired sessions + LOGOUT audit)
+    cronTasks.push(cron.schedule('*/5 * * * *', () => runSweep('session_sweep', sweepExpiredSessions)));
+    // Password-expiry notifications — daily 00:00
+    cronTasks.push(cron.schedule('0 0 * * *', () => runSweep('password_expiry_check', sweepPasswordExpiryNotifications)));
+    // PM overdue deviation sweep — daily 03:00
+    cronTasks.push(cron.schedule('0 3 * * *', () => runSweep('pm_overdue_check', sweepOverdueDeviations)));
+
     jobRunnerStatus = 'running';
-    app.log.info('graphile-worker job runner started');
+    app.log.info('in-process node-cron scheduler started (session_sweep 5m, password_expiry_check 00:00, pm_overdue_check 03:00)');
   } catch (runnerErr) {
-    // Not fatal — the HTTP surface is still usable and this is a single-process
-    // local API, so exiting would take the whole app down over background jobs.
-    // But it IS an error, not a warning: every scheduled job (notifications, the
+    // Not fatal — the HTTP surface is still usable. But every scheduled job (the
     // PM-overdue sweep, password-expiry warnings, the LOGOUT-writing session
     // sweep) is dead until this is fixed. /api/health reports `jobRunner`.
     jobRunnerStatus = 'failed';
     app.log.error(
       { err: runnerErr },
-      'graphile-worker job runner FAILED to start — all scheduled jobs (notifications, PM overdue, password expiry, session sweep) will not run. Server continuing.',
+      'node-cron scheduler FAILED to start — scheduled jobs (PM overdue, password expiry, session sweep) will not run. Server continuing.',
     );
   }
 } catch (err) {
@@ -493,19 +500,12 @@ const shutdown = async (signal: string) => {
   shutdownTimeout.unref();
 
   try {
-    await stopJobRunner();
+    // Stop the in-process node-cron schedules.
+    for (const t of cronTasks) {
+      try { await t.stop(); } catch (cErr) { app.log.error({ err: cErr }, 'Shutdown: stopping a cron task failed'); }
+    }
 
     await app.close();
-    // Close queue + tsdb in their own try blocks so one failure doesn't
-    // prevent the next teardown step. Each failure is logged so partial-
-    // shutdown state is debuggable (CLAUDE.md "Never swallow exceptions").
-    try {
-      const { closeProducer } = await import('@digilog/queue');
-      await closeProducer();
-    } catch (qErr) {
-      app.log.error({ err: qErr }, 'Shutdown: closeProducer (graphile-worker) failed');
-    }
-    
   } catch (err) {
     app.log.error(err as Error, 'Error during shutdown');
   }
