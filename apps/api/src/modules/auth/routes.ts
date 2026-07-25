@@ -3,9 +3,8 @@ import { loginSchema, passwordChangeSchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { AppError } from '../../lib/errors.js';
 import { authService } from './auth.service.js';
-import { mfaService } from './mfa.service.js';
 import { prisma } from '../../lib/prisma.js';
-import { signToken, verifyMfaToken } from '../../lib/jwt.js';
+import { signToken } from '../../lib/jwt.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { signOfflineReplayToken } from '../../lib/offline-replay-token.js';
 
@@ -53,11 +52,6 @@ export default async function authRoutes(app: FastifyInstance) {
               },
             },
             expiresIn: { type: 'string' },
-            // MFA step-up (S6 Option B) — Fastify strips undeclared fields, so
-            // these MUST be declared or the SUPER_ADMIN MFA branch returns blank.
-            mfaRequired: { type: 'boolean' },
-            mfaEnrollmentRequired: { type: 'boolean' },
-            mfaToken: { type: 'string' },
           },
         },
         ...errorResponses,
@@ -80,83 +74,6 @@ export default async function authRoutes(app: FastifyInstance) {
       }
       // Audit API-2: attemptsRemaining block removed — field no longer sent in response
       throw err; // global error handler handles all other AppErrors
-    }
-  });
-
-  // ── MFA step-up (S6 Option B) — public; authenticated by the short-lived mfaToken ──
-  const mfaLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute', keyGenerator: (req: any) => req.ip } }, bodyLimit: 4096 };
-  const sessionUserResponse = {
-    200: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean' }, token: { type: 'string' },
-        user: { type: 'object', properties: { id: { type: 'string' }, username: { type: 'string' }, fullName: { type: 'string' }, role: { type: 'string' }, forcePasswordChange: { type: 'boolean' }, isTemporaryPassword: { type: 'boolean' } } },
-        expiresIn: { type: 'string' },
-        backupCodes: { type: 'array', items: { type: 'string' } },
-      },
-    },
-    ...errorResponses,
-  };
-
-  // POST /api/auth/mfa/verify — second factor for an enrolled SUPER_ADMIN
-  app.post('/mfa/verify', {
-    ...mfaLimit,
-    schema: {
-      tags: ['Auth'], summary: 'Verify MFA second factor', security: [],
-      body: { type: 'object', required: ['mfaToken', 'code'], additionalProperties: false, properties: { mfaToken: { type: 'string' }, code: { type: 'string' }, force: { type: 'boolean' } } },
-      response: sessionUserResponse,
-    },
-  }, async (req, reply) => {
-    const { mfaToken, code, force } = req.body as { mfaToken: string; code: string; force?: boolean };
-    let sub: string;
-    try { ({ sub } = await verifyMfaToken(mfaToken, 'challenge')); }
-    catch { return reply.code(401).send({ error: 'MFA_TOKEN_INVALID', message: 'Your login step expired. Please sign in again.' }); }
-    try {
-      return await mfaService.verify(sub, code, req.ip, req.headers['user-agent'], force);
-    } catch (err) {
-      if (err instanceof AppError && err.code === 'SESSION_CONFLICT') {
-        return reply.code(409).send({ error: err.code, message: err.message, activeSession: (err as any).activeSession });
-      }
-      throw err;
-    }
-  });
-
-  // POST /api/auth/mfa/enroll/start — generate the pending secret + QR URI
-  app.post('/mfa/enroll/start', {
-    ...mfaLimit,
-    schema: {
-      tags: ['Auth'], summary: 'Begin MFA enrolment', security: [],
-      body: { type: 'object', required: ['mfaToken'], additionalProperties: false, properties: { mfaToken: { type: 'string' } } },
-      response: { 200: { type: 'object', properties: { otpauthUri: { type: 'string' }, secret: { type: 'string' } } }, ...errorResponses },
-    },
-  }, async (req, reply) => {
-    const { mfaToken } = req.body as { mfaToken: string };
-    let sub: string;
-    try { ({ sub } = await verifyMfaToken(mfaToken, 'enroll')); }
-    catch { return reply.code(401).send({ error: 'MFA_TOKEN_INVALID', message: 'Your login step expired. Please sign in again.' }); }
-    return mfaService.enrollStart(sub);
-  });
-
-  // POST /api/auth/mfa/enroll/verify — confirm a code, enable MFA, return backup codes + session
-  app.post('/mfa/enroll/verify', {
-    ...mfaLimit,
-    schema: {
-      tags: ['Auth'], summary: 'Complete MFA enrolment', security: [],
-      body: { type: 'object', required: ['mfaToken', 'code'], additionalProperties: false, properties: { mfaToken: { type: 'string' }, code: { type: 'string' }, force: { type: 'boolean' } } },
-      response: sessionUserResponse,
-    },
-  }, async (req, reply) => {
-    const { mfaToken, code, force } = req.body as { mfaToken: string; code: string; force?: boolean };
-    let sub: string;
-    try { ({ sub } = await verifyMfaToken(mfaToken, 'enroll')); }
-    catch { return reply.code(401).send({ error: 'MFA_TOKEN_INVALID', message: 'Your login step expired. Please sign in again.' }); }
-    try {
-      return await mfaService.enrollVerify(sub, code, req.ip, req.headers['user-agent'], force);
-    } catch (err) {
-      if (err instanceof AppError && err.code === 'SESSION_CONFLICT') {
-        return reply.code(409).send({ error: err.code, message: err.message, activeSession: (err as any).activeSession });
-      }
-      throw err;
     }
   });
 

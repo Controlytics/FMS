@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { checkExistingUserSession, type ActiveSessionInfo } from '@/hooks/use-single-tab';
-import { MfaChallenge, MfaEnroll } from './mfa-step';
 
 export function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
@@ -38,11 +37,6 @@ export function LoginPage() {
   const [showSessionConflictDialog, setShowSessionConflictDialog] = useState(false);
   const [pendingCredentials, setPendingCredentials] = useState<{ username: string; password: string } | null>(null);
   const [forceLoginLoading, setForceLoginLoading] = useState(false);
-
-  // SUPER_ADMIN MFA step-up (S6 Option B). When set, the card renders the MFA UI
-  // instead of the password form. `password` is retained to complete the session
-  // (offline-replay grant) after the second factor.
-  const [mfa, setMfa] = useState<{ mode: 'challenge' | 'enroll'; token: string; password: string } | null>(null);
 
   // Check for existing system session on mount
   useEffect(() => {
@@ -72,9 +66,7 @@ export function LoginPage() {
     setError('');
 
     try {
-      const res = await login(data.username, data.password);
-      if (res?.mfaRequired) { setMfa({ mode: 'challenge', token: res.mfaToken!, password: data.password }); return; }
-      if (res?.mfaEnrollmentRequired) { setMfa({ mode: 'enroll', token: res.mfaToken!, password: data.password }); return; }
+      await login(data.username, data.password);
     } catch (err: any) {
       if (err.code === 'SESSION_CONFLICT' && err.activeSession) {
         setPendingCredentials({ username: data.username, password: data.password });
@@ -171,12 +163,6 @@ export function LoginPage() {
               <p className="text-sm text-slate-500 font-medium">{branding.appTagline}</p>
             </div>
 
-            {mfa ? (
-              mfa.mode === 'challenge'
-                ? <MfaChallenge mfaToken={mfa.token} password={mfa.password} branding={branding} onCancel={() => setMfa(null)} />
-                : <MfaEnroll mfaToken={mfa.token} password={mfa.password} branding={branding} onCancel={() => setMfa(null)} />
-            ) : (
-            <>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
               {error && (
                 <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-red-50 to-red-100 border border-red-200 p-4">
@@ -300,9 +286,6 @@ export function LoginPage() {
                 Contact Admin
               </a>
             </div>
-
-            </>
-            )}
 
             {/* Company info */}
             <div className="mt-6 pt-6 border-t border-slate-200 text-center">

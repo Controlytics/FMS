@@ -178,9 +178,6 @@ export function matchesPublicPath(url: string, prefixes: string[]): boolean {
 const isProduction = process.env.NODE_ENV === 'production';
 const PUBLIC_PATHS = [
   '/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout',
-  // MFA step-up (S6 Option B): part of the login flow, BEFORE a session exists.
-  // These authenticate via the short-lived mfaToken, not a session JWT.
-  '/api/auth/mfa/verify', '/api/auth/mfa/enroll/start', '/api/auth/mfa/enroll/verify',
   '/api/health',
   '/api/guest/cleaning-request',  // guest (unauthenticated) filter cleaning request
 

@@ -129,7 +129,6 @@ if (Test-Path $envFile) {
   $verify        = NewSecret 48
   $offline       = NewSecret 48
   $auditKey      = NewSecret 48
-  $mfaEncKey     = NewSecret 48
   $dbUrl = "postgresql://digilog:$appDbPassword@localhost:$PgPort/digilog_db?schema=public"
   $envBody = @"
 DATABASE_URL=$dbUrl
@@ -141,10 +140,6 @@ OFFLINE_REPLAY_SECRET=$offline
 # all v3 audit rows become permanently unverifiable. Do NOT remove to "fix" a verify
 # error — losing this key is itself the compliance failure. See lib/hash-chain.ts.
 AUDIT_CHAIN_KEY=$auditKey
-# SUPER_ADMIN MFA (S6 Option B): AES-256-GCM key encrypting TOTP secrets at rest.
-# Per-install; MUST be stable + backed up. If lost/changed, enrolled SUPER_ADMINs
-# can't pass MFA — recover with `npx tsx scripts/reset-superadmin-mfa.ts` to re-enrol.
-MFA_ENC_KEY=$mfaEncKey
 JWT_EXPIRES_IN=1h
 NODE_ENV=production
 PORT=$ApiPort

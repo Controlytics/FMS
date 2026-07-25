@@ -21,9 +21,9 @@ interface User {
 }
 
 interface LoginResponse {
-  success?: boolean;
-  token?: string;
-  user?: {
+  success: boolean;
+  token: string;
+  user: {
     id: string;
     username: string;
     fullName: string;
@@ -31,11 +31,6 @@ interface LoginResponse {
     forcePasswordChange: boolean;
     isTemporaryPassword: boolean;
   };
-  // MFA step-up (S6 Option B) — present instead of token for a SUPER_ADMIN.
-  mfaRequired?: boolean;
-  mfaEnrollmentRequired?: boolean;
-  mfaToken?: string;
-  backupCodes?: string[];
 }
 
 /** Check if an error is a network failure (not a real API error like 401) */
@@ -73,10 +68,13 @@ export function useAuth() {
   // Use fetched user when online, cached user as fallback when offline
   const user = fetchedUser ?? (getToken() ? getCachedUser() : undefined);
 
-  // Set the session token + mint the offline-replay grant. Does NOT navigate —
-  // callers decide when (the MFA enrolment wizard shows backup codes first).
-  const finalizeSession = async (res: LoginResponse, password: string) => {
-    sessionStorage.setItem('access_token', res.token!);
+  const login = async (username: string, password: string, force?: boolean) => {
+    const res = await apiClient.post<LoginResponse>('/api/auth/login', {
+      username,
+      password,
+      ...(force && { force }),
+    });
+    sessionStorage.setItem('access_token', res.token);
 
     // Audit 2026-05-04 fix C1: fetch an offline-replay grant token using the
     // password the user just supplied (still in scope) so the sync engine can
@@ -94,7 +92,7 @@ export function useAuth() {
     // and the operator knows to log back in. The sync engine's needs-reauth
     // pre-flight is the safety net if all three login attempts to mint a
     // grant silently fail.
-    if (!res.user?.forcePasswordChange) {
+    if (!res.user.forcePasswordChange) {
       const mintGrant = async (): Promise<void> => {
         const grant = await apiClient.post<{ token: string; expiresAt: string }>(
           '/api/auth/offline-grant',
@@ -128,51 +126,19 @@ export function useAuth() {
       }
     }
 
-    await mutate();
-    return res;
-  };
-
-  // Route after a completed login (shared by password, MFA-verify, and the
-  // enrolment wizard's final "Continue").
-  const postLoginNavigate = (res: LoginResponse) => {
-    if (res.user?.forcePasswordChange) {
+    if (res.user.forcePasswordChange) {
       navigate('/change-password', { replace: true });
-      return;
+    } else {
+      await mutate();
+      // Navigate to returnUrl if present (e.g., from QR code scan), otherwise home
+      // Validate returnUrl is internal pathname only (prevent open redirect)
+      const params = new URLSearchParams(window.location.search);
+      const returnUrl = params.get("returnUrl");
+      const isSafeReturnUrl = returnUrl && returnUrl.startsWith('/') && !returnUrl.startsWith('//') && !returnUrl.includes(':');
+      navigate(isSafeReturnUrl ? returnUrl : "/", { replace: true });
+
     }
-    // returnUrl must be an internal pathname only (prevent open redirect).
-    const params = new URLSearchParams(window.location.search);
-    const returnUrl = params.get('returnUrl');
-    const isSafeReturnUrl = returnUrl && returnUrl.startsWith('/') && !returnUrl.startsWith('//') && !returnUrl.includes(':');
-    navigate(isSafeReturnUrl ? returnUrl : '/', { replace: true });
-  };
 
-  const login = async (username: string, password: string, force?: boolean) => {
-    const res = await apiClient.post<LoginResponse>('/api/auth/login', {
-      username, password, ...(force && { force }),
-    });
-    // SUPER_ADMIN MFA step-up: no token yet — hand back to the login page's MFA UI.
-    if (res.mfaRequired || res.mfaEnrollmentRequired) return res;
-    await finalizeSession(res, password);
-    postLoginNavigate(res);
-    return res;
-  };
-
-  // MFA (S6 Option B) — second-factor + enrolment, all keyed by the short-lived mfaToken.
-  const mfaVerify = async (mfaToken: string, code: string, password: string, force?: boolean) => {
-    const res = await apiClient.post<LoginResponse>('/api/auth/mfa/verify', { mfaToken, code, ...(force && { force }) });
-    await finalizeSession(res, password);
-    postLoginNavigate(res);
-    return res;
-  };
-
-  const mfaEnrollStart = async (mfaToken: string) =>
-    apiClient.post<{ otpauthUri: string; secret: string }>('/api/auth/mfa/enroll/start', { mfaToken });
-
-  // Completes enrolment: sets the session + returns backup codes to show ONCE.
-  // Does not navigate — the wizard shows the codes, then calls postLoginNavigate.
-  const mfaEnrollVerify = async (mfaToken: string, code: string, password: string, force?: boolean) => {
-    const res = await apiClient.post<LoginResponse>('/api/auth/mfa/enroll/verify', { mfaToken, code, ...(force && { force }) });
-    await finalizeSession(res, password);
     return res;
   };
 
@@ -279,11 +245,6 @@ export function useAuth() {
     login,
     logout,
     mutate,
-    // MFA (S6 Option B)
-    mfaVerify,
-    mfaEnrollStart,
-    mfaEnrollVerify,
-    postLoginNavigate,
   };
 }
 
