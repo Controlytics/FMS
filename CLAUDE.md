@@ -194,6 +194,7 @@ GET  /api/config/password-policy/current — Password policy (public endpoint)
 - Root: `README`, `CLAUDE`, `AGENTS`, `CHANGELOG`, `PROJECT_SUMMARY`, `PROJECT_ARCHITECTURE`, `API_REFERENCE`, `BACKEND_GUIDE`, `FRONTEND_GUIDE`, `OFFLINE_SYNC_ARCHITECTURE`, `PHASE_5_RECENT_WORK`, `DEPLOY-WINDOWS`, `LOCAL_SETUP_WINDOWS`, `windowsIssues`
 - Per-package: `apps/{api,web}/{CLAUDE,DECISIONS}.md`, `packages/shared/CLAUDE.md`
 - Reference: `docs/`, `future/`, `tasks/todo.md`, `PROJECT_HANDOVER/`
+- **Compliance/admin architecture flow:** [`docs/architecture-flows/digilog-architecture.md`](docs/architecture-flows/digilog-architecture.md) (+ `.html` artifact) — deep end-to-end flows for the **21 CFR Part 11 admin surface**: user management/RBAC, audit trail + hash chain, password policy, re-auth, notifications, backup/restore, configuration, electronic signatures. 12 Mermaid diagrams, ER schema, endpoint + model-field tables, an auditor verification matrix (with `file:line` proof + 2 known RBAC gaps), and §11 coverage. **Filter-management/FMMS operations are deliberately excluded (separate project).** Verified against branch `RFID` 2026-07-18.
 
 **Per-change mapping:** see [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) "Change → Docs map" — read it before touching code that affects counts, modules, shared types, or any public surface. Same file holds the **12-touchpoint rule** for new config defs and the **pre-deletion rule** with receipts.
 

@@ -1,0 +1,1095 @@
+<title>DigiLog &#8212; Platform Architecture (User Mgmt, Audit, Security)</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --surface: #ffffff; --surface-2: #eef2f5; --ink: #16232e;
+    --ink-soft: #45596a; --ink-faint: #6b7d8c; --line: #d5dee5; --line-strong: #b7c6d0;
+    --accent: #0e7c86; --accent-deep: #0a5a62; --accent-soft: #d6ecee;
+    --fe: #2563a8; --fe-bg: #e2edf8;
+    --be: #0e7c86; --be-bg: #d8ecee;
+    --db: #7a4bb0; --db-bg: #ece0f6;
+    --wk: #b06a12; --wk-bg: #f6e7cf;
+    --sec: #a63a4d; --sec-bg: #f6dfe3;
+    --ok: #1f7a44; --warn: #b06a12; --crit: #a63a4d;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0f171d; --surface:#17232c; --surface-2:#1d2b35; --ink:#e7eef2;
+      --ink-soft:#b3c2cd; --ink-faint:#8598a5; --line:#2a3a45; --line-strong:#3a4d59;
+      --accent:#3fb6c0; --accent-deep:#6fd0d8; --accent-soft:#12333a;
+      --fe:#6ba6e0; --fe-bg:#16283a; --be:#3fb6c0; --be-bg:#123037;
+      --db:#b18ee0; --db-bg:#241a33; --wk:#e0a94a; --wk-bg:#2e2413;
+      --sec:#e08497; --sec-bg:#2e1820;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:#f4f6f8; --surface:#fff; --surface-2:#eef2f5; --ink:#16232e; --ink-soft:#45596a;
+    --ink-faint:#6b7d8c; --line:#d5dee5; --line-strong:#b7c6d0; --accent:#0e7c86; --accent-deep:#0a5a62;
+    --accent-soft:#d6ecee; --fe:#2563a8; --fe-bg:#e2edf8; --be:#0e7c86; --be-bg:#d8ecee;
+    --db:#7a4bb0; --db-bg:#ece0f6; --wk:#b06a12; --wk-bg:#f6e7cf; --sec:#a63a4d; --sec-bg:#f6dfe3;
+  }
+  :root[data-theme="dark"] {
+    --bg:#0f171d; --surface:#17232c; --surface-2:#1d2b35; --ink:#e7eef2; --ink-soft:#b3c2cd;
+    --ink-faint:#8598a5; --line:#2a3a45; --line-strong:#3a4d59; --accent:#3fb6c0; --accent-deep:#6fd0d8;
+    --accent-soft:#12333a; --fe:#6ba6e0; --fe-bg:#16283a; --be:#3fb6c0; --be-bg:#123037;
+    --db:#b18ee0; --db-bg:#241a33; --wk:#e0a94a; --wk-bg:#2e2413; --sec:#e08497; --sec-bg:#2e1820;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans);
+    line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap { display:grid; grid-template-columns:250px minmax(0,1fr); max-width:1320px; margin:0 auto; }
+
+  aside { position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+    padding:28px 18px 40px; border-right:1px solid var(--line); background:var(--surface); }
+  aside .brand { font-weight:700; font-size:15px; letter-spacing:.02em; }
+  aside .brand small { display:block; font-weight:500; font-size:11px; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--accent); margin-top:3px; }
+  aside nav { margin-top:22px; display:flex; flex-direction:column; gap:1px; }
+  aside nav a { font-size:12.5px; color:var(--ink-soft); text-decoration:none; padding:5px 9px;
+    border-radius:6px; border-left:2px solid transparent; }
+  aside nav a:hover { background:var(--surface-2); color:var(--ink); }
+  aside nav a.eyebrow { font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--ink-faint); margin-top:14px; padding-left:9px; pointer-events:none; }
+
+  main { padding:40px 44px 90px; min-width:0; }
+  header.page { border-bottom:2px solid var(--line-strong); padding-bottom:22px; margin-bottom:8px;
+    display:flex; justify-content:space-between; align-items:flex-end; gap:20px; flex-wrap:wrap; }
+  header.page h1 { font-size:27px; margin:0 0 6px; letter-spacing:-.01em; text-wrap:balance; }
+  header.page .lede { color:var(--ink-soft); font-size:14px; max-width:62ch; margin:0; }
+  .pdf-btn { font-family:var(--sans); font-size:12.5px; font-weight:600; cursor:pointer;
+    background:var(--accent); color:#fff; border:none; border-radius:8px; padding:9px 15px;
+    white-space:nowrap; box-shadow:0 1px 2px rgba(0,0,0,.15); }
+  .pdf-btn:hover { background:var(--accent-deep); }
+  .pdf-btn:focus-visible { outline:2px solid var(--accent-deep); outline-offset:2px; }
+
+  .meta-row { display:flex; gap:26px; flex-wrap:wrap; margin:18px 0 30px; font-size:12px; color:var(--ink-faint); }
+  .meta-row b { color:var(--ink-soft); font-weight:600; }
+
+  section { margin:46px 0 0; scroll-margin-top:16px; }
+  section > h2 { font-size:20px; margin:0 0 4px; padding-top:8px; letter-spacing:-.01em;
+    display:flex; align-items:baseline; gap:11px; }
+  section > h2 .num { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--accent);
+    background:var(--accent-soft); border-radius:5px; padding:3px 7px; }
+  section > .sub { color:var(--ink-soft); font-size:13.5px; margin:2px 0 18px; max-width:74ch; }
+  h3 { font-size:14.5px; margin:26px 0 9px; }
+  h3::before { content:""; display:inline-block; width:7px; height:7px; border-radius:2px;
+    background:var(--accent); margin-right:8px; vertical-align:middle; }
+  p { margin:9px 0; font-size:13.5px; color:var(--ink-soft); }
+  p strong, li strong { color:var(--ink); font-weight:650; }
+  code { font-family:var(--mono); font-size:12px; background:var(--surface-2); padding:1.5px 5px;
+    border-radius:4px; color:var(--accent-deep); border:1px solid var(--line); }
+  ul { margin:9px 0; padding-left:20px; }
+  li { font-size:13px; color:var(--ink-soft); margin:4px 0; }
+
+  /* ============ FLOW DIAGRAM SYSTEM (nodes + lines) ============ */
+  .flowwrap { background:var(--surface); border:1px solid var(--line-strong); border-radius:14px;
+    padding:26px 24px; margin:16px 0 6px; overflow-x:auto; box-shadow:0 1px 3px rgba(15,30,40,.06); }
+  .flow { display:flex; flex-direction:column; gap:22px; min-width:560px; }
+  .lane { display:flex; flex-direction:column; gap:7px; }
+  .lane-label { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint);
+    font-weight:700; padding-left:2px; }
+  .rail { display:flex; align-items:center; gap:0; flex-wrap:nowrap; }
+
+  .node { position:relative; background:var(--surface-2); border:1px solid var(--line-strong);
+    border-left:3px solid var(--ink-faint); border-radius:10px; padding:9px 12px; min-width:118px;
+    max-width:210px; flex:0 0 auto; }
+  .node .k { font-size:9px; letter-spacing:.07em; text-transform:uppercase; font-weight:700;
+    display:block; margin-bottom:2px; color:var(--ink-faint); }
+  .node .t { display:block; font-size:11.5px; color:var(--ink); font-weight:650; line-height:1.32; }
+  .node .d { display:block; font-size:10px; color:var(--ink-faint); margin-top:3px; line-height:1.35; }
+  .node code { font-size:10px; padding:0 3px; }
+
+  .n-fe  { background:var(--fe-bg);  border-color:var(--fe);  border-left-color:var(--fe); }
+  .n-fe .k  { color:var(--fe); }
+  .n-be  { background:var(--be-bg);  border-color:var(--be);  border-left-color:var(--be); }
+  .n-be .k  { color:var(--be); }
+  .n-db  { background:var(--db-bg);  border-color:var(--db);  border-left-color:var(--db); }
+  .n-db .k  { color:var(--db); }
+  .n-wk  { background:var(--wk-bg);  border-color:var(--wk);  border-left-color:var(--wk); }
+  .n-wk .k  { color:var(--wk); }
+  .n-sec { background:var(--sec-bg); border-color:var(--sec); border-left-color:var(--sec); }
+  .n-sec .k { color:var(--sec); }
+
+  /* gate / decision node */
+  .n-gate { background:var(--sec-bg); border:1px dashed var(--sec); border-left:3px solid var(--sec);
+    border-radius:10px; }
+  .n-gate .t::before { content:""; display:inline-block; width:7px; height:7px; background:var(--sec); transform:rotate(45deg); margin-right:6px; vertical-align:middle; }
+
+  /* horizontal connector with arrowhead */
+  .arrow { flex:0 0 30px; height:2px; background:var(--line-strong); align-self:center; position:relative; }
+  .arrow::after { content:""; position:absolute; right:-1px; top:-4px; border:5px solid transparent;
+    border-left-color:var(--line-strong); }
+  .arrow[data-l]::before { content:attr(data-l); position:absolute; top:-15px; left:50%;
+    transform:translateX(-50%); font-size:8.5px; color:var(--ink-faint); white-space:nowrap;
+    letter-spacing:.02em; font-weight:600; }
+  .arrow.wide { flex-basis:46px; }
+
+  /* branch: stacked outcome nodes off a single point */
+  .branch { display:flex; flex-direction:column; gap:8px; flex:0 0 auto; }
+  .branch .brow { display:flex; align-items:center; }
+  .arrow.up::after, .arrow.down::after { top:-4px; }
+
+  /* small feeder stack (multiple sources into one node) */
+  .stack { display:flex; flex-direction:column; gap:6px; flex:0 0 auto; }
+
+  .join { flex:0 0 22px; align-self:stretch; position:relative; }
+  .join::before { content:""; position:absolute; left:10px; top:12%; bottom:12%; width:2px; background:var(--line-strong); }
+  .join::after { content:""; position:absolute; left:10px; top:50%; width:12px; height:2px; background:var(--line-strong); }
+  .join .tip { position:absolute; right:-1px; top:calc(50% - 4px); border:5px solid transparent; border-left-color:var(--line-strong); }
+
+  .cap { font-size:11.5px; color:var(--ink-faint); margin:8px 2px 24px; font-style:italic; }
+
+  /* ER (mermaid) card &#8212; kept relational */
+  .diagram { background:#fff; border:1px solid var(--line-strong); border-radius:12px; padding:20px 18px;
+    margin:16px 0 8px; overflow-x:auto; box-shadow:0 1px 3px rgba(15,30,40,.06); }
+  .diagram pre.mermaid { margin:0; min-width:520px; text-align:center; }
+
+  /* ER &#8212; hand-drawn rectangle boxes + connector lines */
+  .er-svg { width:100%; height:auto; min-width:820px; display:block; }
+  .er-box { fill:var(--surface); stroke:var(--line-strong); stroke-width:1.2; }
+  .er-div { stroke:var(--line); stroke-width:1; }
+  .er-name { fill:var(--ink); font-size:12.5px; font-weight:700; font-family:var(--sans); }
+  .er-f { fill:var(--ink-soft); font-size:10.5px; font-family:var(--mono); }
+  .er-k { fill:var(--accent-deep); font-weight:700; }
+  .er-tag { fill:var(--ink-faint); font-size:9px; font-style:italic; font-family:var(--sans); }
+  .st-id { fill:var(--be); } .st-cfg { fill:var(--db); } .st-audit { fill:var(--sec); }
+  .st-notif { fill:var(--wk); } .st-admin { fill:var(--fe); }
+  .er-fk   { stroke:var(--sec); stroke-width:2; fill:none; }
+  .er-soft { stroke:var(--wk); stroke-width:1.7; stroke-dasharray:6 4; fill:none; }
+  .er-lbl { fill:var(--ink-soft); font-size:9px; font-weight:700; font-family:var(--sans); }
+  .er-lbl-bg { fill:var(--surface); opacity:.9; }
+
+  /* Tables */
+  .tbl-scroll { overflow-x:auto; margin:14px 0 6px; border:1px solid var(--line); border-radius:10px; }
+  table { border-collapse:collapse; width:100%; font-size:12px; min-width:560px; }
+  thead th { background:var(--surface-2); text-align:left; padding:9px 11px; font-weight:650; color:var(--ink);
+    border-bottom:1px solid var(--line-strong); white-space:nowrap; font-size:11px; letter-spacing:.03em; text-transform:uppercase; }
+  tbody td { padding:8px 11px; border-bottom:1px solid var(--line); vertical-align:top; color:var(--ink-soft); }
+  tbody tr:last-child td { border-bottom:none; }
+  tbody tr:hover td { background:var(--surface-2); }
+  td code, th code { font-size:11px; }
+  .mono { font-family:var(--mono); font-size:11px; color:var(--ink); }
+  .method { font-family:var(--mono); font-weight:700; font-size:10.5px; padding:2px 6px; border-radius:4px; }
+  .get { background:var(--fe-bg); color:var(--fe); }
+  .post { background:var(--be-bg); color:var(--be); }
+  .put { background:var(--wk-bg); color:var(--wk); }
+  .del { background:var(--sec-bg); color:var(--sec); }
+  .pill { display:inline-block; font-size:10.5px; font-weight:650; padding:2px 8px; border-radius:20px; }
+  .pill.ok { background:var(--be-bg); color:var(--ok); }
+  .pill.warn { background:var(--wk-bg); color:var(--warn); }
+  .pill.crit { background:var(--sec-bg); color:var(--crit); }
+
+  .note { border-left:3px solid var(--accent); background:var(--accent-soft); padding:11px 15px;
+    border-radius:0 8px 8px 0; margin:16px 0; font-size:12.5px; color:var(--ink-soft); }
+  .note.crit { border-left-color:var(--crit); background:var(--sec-bg); }
+  .note.warn { border-left-color:var(--warn); background:var(--wk-bg); }
+  .note b { color:var(--ink); }
+  :root[data-theme="dark"] .note { background:var(--surface-2); }
+
+  .legend { display:flex; flex-wrap:wrap; gap:8px 16px; margin:14px 0 4px; font-size:12px; }
+  .legend span { display:inline-flex; align-items:center; gap:7px; color:var(--ink-soft); }
+  .swatch { width:13px; height:13px; border-radius:4px; border:1px solid rgba(0,0,0,.15); }
+
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:16px 0; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 15px; }
+  .card h4 { margin:0 0 4px; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--accent); }
+  .card p { margin:0; font-size:12.5px; }
+  .card .mono { display:block; margin-top:6px; }
+
+  footer { margin-top:60px; padding-top:20px; border-top:1px solid var(--line); font-size:11.5px; color:var(--ink-faint); }
+
+  @media print {
+    :root { --bg:#fff; --surface:#fff; --surface-2:#f2f5f7; --ink:#111; --ink-soft:#333; --ink-faint:#555;
+      --line:#ccc; --line-strong:#999; --accent:#0a5a62; --accent-soft:#e6f2f3; }
+    body { background:#fff; }
+    .wrap { display:block; max-width:none; }
+    aside, .pdf-btn { display:none; }
+    main { padding:0 8px; }
+    section { page-break-before:always; margin-top:0; }
+    #overview, #legend { page-break-before:avoid; }
+    .flowwrap, .diagram { break-inside:avoid; box-shadow:none; border-color:#999; }
+    tr, .note, .card, .lane { break-inside:avoid; }
+    h2, h3 { break-after:avoid; }
+    a { color:inherit; text-decoration:none; }
+  }
+</style>
+
+<div class="wrap">
+  <aside>
+    <div class="brand">DigiLog <small>Architecture Flow</small></div>
+    <nav>
+      <a class="eyebrow">Foundations</a>
+      <a href="#overview">System Flow</a>
+      <a href="#legend">Legend</a>
+      <a href="#schema">Database Schema</a>
+      <a class="eyebrow">Subsystem flows</a>
+      <a href="#users">1 &#183; User Management</a>
+      <a href="#audit">2 &#183; Audit Trail</a>
+      <a href="#password">3 &#183; Password Policy</a>
+      <a href="#reauth">4 &#183; Re-authentication</a>
+      <a href="#notifications">5 &#183; Notifications</a>
+      <a href="#backup">6 &#183; Backup &amp; Restore</a>
+      <a href="#config">7 &#183; Configuration</a>
+      <a href="#esign">8 &#183; Electronic Signatures</a>
+      <a class="eyebrow">Proof for review</a>
+      <a href="#verify">Verification Matrix</a>
+      <a href="#compliance">21 CFR Coverage</a>
+      <a class="eyebrow">Appendix</a>
+      <a href="#crossref">Cross-cutting Libs</a>
+    </nav>
+  </aside>
+
+  <main>
+    <header class="page">
+      <div>
+        <h1>DigiLog Platform Architecture</h1>
+        <p class="lede">End-to-end request &amp; data flows for the identity, compliance &amp; administration surface &#8212;
+          user management, audit trail, password policy, re-auth, notifications, backup/restore and configuration.
+          Filter-operations flows are out of scope.</p>
+      </div>
+      <button class="pdf-btn" onclick="window.print()">&#11015; Save as PDF</button>
+    </header>
+
+    <div class="meta-row">
+      <span><b>Stack</b> Fastify (TS) &#183; React/Vite SPA &#183; PostgreSQL 18 &#183; graphile-worker</span>
+      <span><b>Compliance</b> 21 CFR Part 11</span>
+      <span><b>Tenancy</b> single-tenant &#183; single-site</span>
+      <span><b>Generated</b> 2026-07-18</span>
+    </div>
+
+    <!-- ============ OVERVIEW FLOW ============ -->
+    <section id="overview">
+      <h2><span class="num">A</span> System Request Flow</h2>
+      <p class="sub">Every call travels the same rail: the SPA sends a Bearer JWT (plus an
+        <code>x-reauth-password</code> header on sensitive actions); Fastify runs three gates in order before any
+        handler; the handler reads/writes Postgres and always writes a hash-chained audit row. Background crons run in
+        an in-process graphile-worker runner.</p>
+
+      <div class="flowwrap">
+        <div class="flow">
+          <div class="lane">
+            <div class="lane-label">Primary request rail</div>
+            <div class="rail">
+              <div class="node n-fe"><span class="k">Frontend</span><span class="t">React SPA</span><span class="d">routes &#183; useAuth &#183; useCan &#183; useReauth</span></div>
+              <div class="arrow wide" data-l="HTTPS + JWT"></div>
+              <div class="node n-sec"><span class="k">Gate 1</span><span class="t">auth.ts</span><span class="d">JWT verify &#183; session &#183; force-pw-change</span></div>
+              <div class="arrow" data-l="ok"></div>
+              <div class="node n-sec"><span class="k">Gate 2</span><span class="t">rbac.ts</span><span class="d">requirePermission</span></div>
+              <div class="arrow" data-l="ok"></div>
+              <div class="node n-sec"><span class="k">Gate 3</span><span class="t">reauth-check</span><span class="d">enforceReauth</span></div>
+              <div class="arrow" data-l="pass"></div>
+              <div class="node n-be"><span class="k">Backend</span><span class="t">Module handler</span><span class="d">route &#8594; service &#8594; repository</span></div>
+              <div class="arrow" data-l="write"></div>
+              <div class="node n-db"><span class="k">Database</span><span class="t">PostgreSQL</span><span class="d">digilog_db</span></div>
+            </div>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">Every mutation also</div>
+            <div class="rail">
+              <div class="node n-be"><span class="k">Backend</span><span class="t">lib/audit.ts</span><span class="d">same transaction</span></div>
+              <div class="arrow" data-l="+ hash chain"></div>
+              <div class="node n-db"><span class="k">Database</span><span class="t">audit_trail</span><span class="d">immutable &#183; chained</span></div>
+            </div>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">Background runner (graphile-worker, in-process)</div>
+            <div class="rail">
+              <div class="stack">
+                <div class="node n-wk"><span class="k">Cron 00:00</span><span class="t">password_expiry_check</span></div>
+                <div class="node n-wk"><span class="k">Cron 03:00</span><span class="t">pm_overdue_check</span></div>
+                <div class="node n-wk"><span class="k">Every 5 min</span><span class="t">session_sweep</span></div>
+              </div>
+              <div class="join"><span class="tip"></span></div>
+              <div class="node n-db"><span class="k">Database</span><span class="t">notifications &#183; users &#183; audit_trail</span></div>
+            </div>
+          </div>
+
+          <div class="lane">
+            <div class="lane-label">Shared source of truth</div>
+            <div class="rail">
+              <div class="node"><span class="k">packages/shared</span><span class="t">PERMISSION_TREE</span><span class="d">permissions &#183; reauth-actions &#183; audit-actions</span></div>
+              <div class="arrow wide" data-l="derives gates"></div>
+              <div class="node n-sec"><span class="t">rbac.ts + useCan</span><span class="d">FE visibility = BE authorization</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">Figure A &#8212; Three gates, one write path, one audit write. The shared catalog keeps the two tiers from drifting.</p>
+    </section>
+
+    <!-- ============ LEGEND ============ -->
+    <section id="legend">
+      <h2><span class="num">B</span> Legend</h2>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--fe-bg);border-color:var(--fe)"></span> Frontend</span>
+        <span><span class="swatch" style="background:var(--be-bg);border-color:var(--be)"></span> Backend</span>
+        <span><span class="swatch" style="background:var(--db-bg);border-color:var(--db)"></span> Database</span>
+        <span><span class="swatch" style="background:var(--wk-bg);border-color:var(--wk)"></span> Worker / cron</span>
+        <span><span class="swatch" style="background:var(--sec-bg);border-color:var(--sec)"></span> Security gate</span>
+        <span>&#9671; decision / branch</span>
+      </div>
+      <div class="legend" style="margin-top:10px">
+        <span><span class="method get">GET</span> read</span>
+        <span><span class="method post">POST</span> create/action</span>
+        <span><span class="method put">PUT</span> update</span>
+        <span><span class="method del">DELETE</span> destroy</span>
+        <span><span class="pill warn">reauth</span></span>
+        <span><span class="pill crit">SUPER_ADMIN</span></span>
+      </div>
+    </section>
+
+    <!-- ============ ER SCHEMA ============ -->
+    <section id="schema">
+      <h2><span class="num">C</span> Database Schema &#8212; Entity&#8211;Relationship</h2>
+      <p class="sub">The models behind these subsystems in <code>apps/api/prisma/schema.prisma</code>. Note the two
+        link styles: <b>hard FKs</b> (solid crow's-foot, <code>ON DELETE CASCADE</code>) vs DigiLog's <b>soft links</b>
+        &#8212; <code>User.role</code>&#8594;<code>Role.name</code> by <em>string</em>, and several <code>userId</code> columns
+        that reference <code>users.id</code> <em>by convention</em> with no database FK (dashed lines). Standalone
+        stores (<code>SYSTEM_CONFIG</code>, <code>ADMIN_REQUEST</code>) are keyed/self-service and have no relations.</p>
+      <div class="diagram">
+        <svg class="er-svg" viewBox="0 0 1070 620" role="img" aria-label="Entity relationship diagram">
+          <!-- ===== connector lines (behind boxes) ===== -->
+          <line class="er-soft" x1="260" y1="110" x2="440" y2="265"/>
+          <line class="er-soft" x1="150" y1="185" x2="150" y2="160"/>
+          <line class="er-soft" x1="260" y1="346" x2="440" y2="325"/>
+          <line class="er-fk"   x1="830" y1="105" x2="690" y2="278"/>
+          <line class="er-fk"   x1="830" y1="231" x2="690" y2="300"/>
+          <line class="er-soft" x1="830" y1="346" x2="690" y2="330"/>
+          <line class="er-soft" x1="565" y1="455" x2="565" y2="371"/>
+          <line class="er-soft" x1="830" y1="478" x2="690" y2="350"/>
+
+          <!-- ===== ROLE ===== -->
+          <rect class="er-box" x="40" y="50" width="220" height="110" rx="9"/>
+          <rect class="st-id" x="40" y="59" width="5" height="92"/>
+          <text class="er-name" x="56" y="72">ROLE</text>
+          <line class="er-div" x1="52" y1="80" x2="250" y2="80"/>
+          <text class="er-f" x="56" y="98">name <tspan class="er-k">PK</tspan></text>
+          <text class="er-f" x="56" y="115">hierarchyLevel</text>
+          <text class="er-f" x="56" y="132">permissions[]</text>
+          <text class="er-f" x="56" y="149">isSystem</text>
+
+          <!-- ===== ROLE_CONFIG ===== -->
+          <rect class="er-box" x="40" y="185" width="220" height="92" rx="9"/>
+          <rect class="st-cfg" x="40" y="194" width="5" height="74"/>
+          <text class="er-name" x="56" y="207">ROLE_CONFIG</text>
+          <line class="er-div" x1="52" y1="215" x2="250" y2="215"/>
+          <text class="er-f" x="56" y="233">role <tspan class="er-k">UK</tspan> &#8594;name</text>
+          <text class="er-f" x="56" y="250">permissions{}</text>
+          <text class="er-f" x="56" y="267">sidebarItems</text>
+
+          <!-- ===== USER_CONFIG ===== -->
+          <rect class="er-box" x="40" y="300" width="220" height="92" rx="9"/>
+          <rect class="st-cfg" x="40" y="309" width="5" height="74"/>
+          <text class="er-name" x="56" y="322">USER_CONFIG</text>
+          <line class="er-div" x1="52" y1="330" x2="250" y2="330"/>
+          <text class="er-f" x="56" y="348">userId <tspan class="er-k">UK</tspan></text>
+          <text class="er-f" x="56" y="365">permissions{}</text>
+          <text class="er-f" x="56" y="382">sidebarItems</text>
+
+          <!-- ===== SYSTEM_CONFIG ===== -->
+          <rect class="er-box" x="40" y="420" width="220" height="92" rx="9"/>
+          <rect class="st-cfg" x="40" y="429" width="5" height="74"/>
+          <text class="er-name" x="56" y="442">SYSTEM_CONFIG</text>
+          <line class="er-div" x1="52" y1="450" x2="250" y2="450"/>
+          <text class="er-f" x="56" y="468">configKey <tspan class="er-k">UK</tspan></text>
+          <text class="er-f" x="56" y="485">configValue json</text>
+          <text class="er-f" x="56" y="502">updatedAt</text>
+          <text class="er-tag" x="45" y="527">standalone &#183; keyed blob store</text>
+
+          <!-- ===== ADMIN_REQUEST ===== -->
+          <rect class="er-box" x="440" y="40" width="250" height="92" rx="9"/>
+          <rect class="st-admin" x="440" y="49" width="5" height="74"/>
+          <text class="er-name" x="456" y="62">ADMIN_REQUEST</text>
+          <line class="er-div" x1="452" y1="70" x2="680" y2="70"/>
+          <text class="er-f" x="456" y="88">id <tspan class="er-k">PK</tspan></text>
+          <text class="er-f" x="456" y="105">type &#183; CREATE_USER | UNLOCK</text>
+          <text class="er-f" x="456" y="122">status</text>
+          <text class="er-tag" x="445" y="147">standalone &#183; public intake</text>
+
+          <!-- ===== USER (hub) ===== -->
+          <rect class="er-box" x="440" y="225" width="250" height="146" rx="9" style="stroke-width:2"/>
+          <rect class="st-id" x="440" y="234" width="5" height="128"/>
+          <text class="er-name" x="456" y="247">USER <tspan class="er-tag">&#183; hub</tspan></text>
+          <line class="er-div" x1="452" y1="255" x2="680" y2="255"/>
+          <text class="er-f" x="456" y="273">id <tspan class="er-k">PK</tspan></text>
+          <text class="er-f" x="456" y="290">username <tspan class="er-k">UK</tspan></text>
+          <text class="er-f" x="456" y="307">role <tspan class="er-k">FK</tspan> &#8594;roles.name</text>
+          <text class="er-f" x="456" y="324">status enum</text>
+          <text class="er-f" x="456" y="341">passwordChangedAt</text>
+          <text class="er-f" x="456" y="358">forcePasswordChange</text>
+
+          <!-- ===== AUDIT_TRAIL ===== -->
+          <rect class="er-box" x="440" y="455" width="250" height="128" rx="9"/>
+          <rect class="st-audit" x="440" y="464" width="5" height="110"/>
+          <text class="er-name" x="456" y="477">AUDIT_TRAIL</text>
+          <line class="er-div" x1="452" y1="485" x2="680" y2="485"/>
+          <text class="er-f" x="456" y="503">id <tspan class="er-k">PK</tspan></text>
+          <text class="er-f" x="456" y="520">userId &#183; actor (no FK)</text>
+          <text class="er-f" x="456" y="537">action &#183; before/after</text>
+          <text class="er-f" x="456" y="554">checksum &#183; previousChecksum</text>
+          <text class="er-f" x="456" y="571">chainPosition</text>
+
+          <!-- ===== SESSION ===== -->
+          <rect class="er-box" x="830" y="50" width="220" height="110" rx="9"/>
+          <rect class="st-id" x="830" y="59" width="5" height="92"/>
+          <text class="er-name" x="846" y="72">SESSION</text>
+          <line class="er-div" x1="842" y1="80" x2="1040" y2="80"/>
+          <text class="er-f" x="846" y="98">id <tspan class="er-k">PK</tspan></text>
+          <text class="er-f" x="846" y="115">userId <tspan class="er-k">FK</tspan></text>
+          <text class="er-f" x="846" y="132">tokenHash <tspan class="er-k">UK</tspan></text>
+          <text class="er-f" x="846" y="149">expiresAt &#183; reason</text>
+
+          <!-- ===== PASSWORD_HISTORY ===== -->
+          <rect class="er-box" x="830" y="185" width="220" height="92" rx="9"/>
+          <rect class="st-id" x="830" y="194" width="5" height="74"/>
+          <text class="er-name" x="846" y="207">PASSWORD_HISTORY</text>
+          <line class="er-div" x1="842" y1="215" x2="1040" y2="215"/>
+          <text class="er-f" x="846" y="233">id <tspan class="er-k">PK</tspan></text>
+          <text class="er-f" x="846" y="250">userId <tspan class="er-k">FK</tspan></text>
+          <text class="er-f" x="846" y="267">passwordHash</text>
+
+          <!-- ===== PASSWORD_RESET_REQUEST ===== -->
+          <rect class="er-box" x="830" y="300" width="220" height="92" rx="9"/>
+          <rect class="st-id" x="830" y="309" width="5" height="74"/>
+          <text class="er-name" x="846" y="322">PASSWORD_RESET_REQ</text>
+          <line class="er-div" x1="842" y1="330" x2="1040" y2="330"/>
+          <text class="er-f" x="846" y="348">id <tspan class="er-k">PK</tspan></text>
+          <text class="er-f" x="846" y="365">userId &#183; by convention</text>
+          <text class="er-f" x="846" y="382">status</text>
+
+          <!-- ===== NOTIFICATION ===== -->
+          <rect class="er-box" x="830" y="430" width="220" height="110" rx="9"/>
+          <rect class="st-notif" x="830" y="439" width="5" height="92"/>
+          <text class="er-name" x="846" y="452">NOTIFICATION</text>
+          <line class="er-div" x1="842" y1="460" x2="1040" y2="460"/>
+          <text class="er-f" x="846" y="478">id <tspan class="er-k">PK</tspan></text>
+          <text class="er-f" x="846" y="495">forUserId &#183; forRole</text>
+          <text class="er-f" x="846" y="512">targetUserId</text>
+          <text class="er-f" x="846" y="529">isRead</text>
+
+          <!-- ===== relationship labels (on top) ===== -->
+          <g>
+            <rect class="er-lbl-bg" x="300" y="177" width="86" height="14" rx="3"/>
+            <text class="er-lbl" x="343" y="187" text-anchor="middle">role &#183; by name</text>
+            <rect class="er-lbl-bg" x="158" y="165" width="26" height="13" rx="3"/>
+            <text class="er-lbl" x="171" y="175" text-anchor="middle">1:1</text>
+            <rect class="er-lbl-bg" x="300" y="329" width="82" height="14" rx="3"/>
+            <text class="er-lbl" x="341" y="339" text-anchor="middle">1:1 override</text>
+            <rect class="er-lbl-bg" x="716" y="176" width="70" height="14" rx="3"/>
+            <text class="er-lbl" x="751" y="186" text-anchor="middle">FK cascade</text>
+            <rect class="er-lbl-bg" x="716" y="258" width="70" height="14" rx="3"/>
+            <text class="er-lbl" x="751" y="268" text-anchor="middle">FK cascade</text>
+            <rect class="er-lbl-bg" x="716" y="331" width="76" height="14" rx="3"/>
+            <text class="er-lbl" x="754" y="341" text-anchor="middle">convention</text>
+            <rect class="er-lbl-bg" x="527" y="406" width="76" height="14" rx="3"/>
+            <text class="er-lbl" x="565" y="416" text-anchor="middle">actor &#183; soft</text>
+            <rect class="er-lbl-bg" x="720" y="395" width="72" height="14" rx="3"/>
+            <text class="er-lbl" x="756" y="405" text-anchor="middle">for / target</text>
+          </g>
+        </svg>
+      </div>
+      <div class="legend" style="margin:2px 2px 0">
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--sec)" stroke-width="2"/></svg> FK &#183; <code style="font-size:10px">ON DELETE CASCADE</code></span>
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--wk)" stroke-width="1.7" stroke-dasharray="6 4"/></svg> soft link &#8212; no DB foreign key (by name / convention)</span>
+      </div>
+      <p class="cap">Figure C &#8212; Entity&#8211;relationship model. <code>USER</code> is the hub; solid red = hard FK with
+        cascade delete, dashed amber = DigiLog's soft links. <code>SYSTEM_CONFIG</code> &amp; <code>ADMIN_REQUEST</code>
+        are standalone (no relations).</p>
+
+      <h3>Relationship reference</h3>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>From &#8594; To</th><th>Card.</th><th>Link column</th><th>Type</th></tr></thead>
+        <tbody>
+          <tr><td>USER &#8594; ROLE</td><td>many : 1</td><td><code>users.role</code> &#8594; <code>roles.name</code></td><td><span class="pill warn">soft &#183; by name</span></td></tr>
+          <tr><td>ROLE_CONFIG &#8594; ROLE</td><td>1 : 1</td><td><code>role_configs.role</code> (unique)</td><td><span class="pill warn">soft &#183; by name</span></td></tr>
+          <tr><td>USER_CONFIG &#8594; USER</td><td>1 : 1</td><td><code>user_configs.userId</code> (unique)</td><td><span class="pill warn">soft &#183; by convention</span></td></tr>
+          <tr><td>SESSION &#8594; USER</td><td>many : 1</td><td><code>sessions.userId</code></td><td><span class="pill crit">FK &#183; CASCADE</span></td></tr>
+          <tr><td>PASSWORD_HISTORY &#8594; USER</td><td>many : 1</td><td><code>password_history.userId</code></td><td><span class="pill crit">FK &#183; CASCADE</span></td></tr>
+          <tr><td>PASSWORD_RESET_REQUEST &#8594; USER</td><td>many : 1</td><td><code>password_reset_requests.userId</code></td><td><span class="pill warn">soft &#183; by convention</span></td></tr>
+          <tr><td>AUDIT_TRAIL &#8594; USER (actor)</td><td>many : 1</td><td><code>audit_trail.user_id</code></td><td><span class="pill warn">soft &#183; varchar, no FK</span></td></tr>
+          <tr><td>NOTIFICATION &#8594; USER</td><td>many : 1</td><td><code>forUserId</code> / <code>targetUserId</code></td><td><span class="pill warn">soft &#183; username/id</span></td></tr>
+          <tr><td>SYSTEM_CONFIG</td><td>&#8212;</td><td><code>configKey</code> (referenced from code)</td><td>standalone blob store</td></tr>
+          <tr><td>ADMIN_REQUEST</td><td>&#8212;</td><td>public intake, no relation</td><td>standalone</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note"><b>Why soft links matter.</b> Because roles are joined by <em>name</em> and the audit actor is a
+        plain <code>varchar</code>, deleting a role or user does <b>not</b> cascade to config rows or rewrite history &#8212;
+        <code>audit_trail</code> keeps the original actor id forever (21 CFR &#167;11.10(e)), and the hash chain is never
+        touched by identity changes. Backups strip <code>password_hash</code> from <code>USER</code> and
+        <code>PASSWORD_HISTORY</code> to a sentinel and re-apply on restore.</div>
+    </section>
+
+    <!-- ============ 1. USER MANAGEMENT ============ -->
+    <section id="users">
+      <h2><span class="num">1</span> User Management &amp; RBAC</h2>
+      <p class="sub">Four modules cooperate: <code>users/</code>, <code>auth/</code>, <code>roles/</code>, and the
+        role-config in <code>config/&#8230;/roles.routes.ts</code>. Two escalation guards bracket every write.</p>
+
+      <h3>Create-user flow</h3>
+      <div class="flowwrap"><div class="flow"><div class="lane"><div class="rail">
+        <div class="node n-fe"><span class="k">SPA</span><span class="t">/users/create</span><span class="d">gen temp pw &#183; pick role</span></div>
+        <div class="arrow" data-l="reauth"></div>
+        <div class="node n-fe"><span class="k">Dialog</span><span class="t">ReauthDialog</span><span class="d">x-reauth-password</span></div>
+        <div class="arrow wide"></div>
+        <div class="node n-be"><span class="k">POST</span><span class="t">/api/users</span></div>
+        <div class="arrow" data-l="gate"></div>
+        <div class="node n-sec"><span class="k">Gate</span><span class="t">USER_CREATE + enforceReauth</span></div>
+        <div class="arrow"></div>
+        <div class="node n-be"><span class="k">Service</span><span class="t">userService.create</span><span class="d">hierarchy &#183; policy &#183; bcrypt</span></div>
+        <div class="arrow" data-l="insert"></div>
+        <div class="node n-db"><span class="k">DB</span><span class="t">users + password_history</span><span class="d">forcePasswordChange=true</span></div>
+        <div class="arrow" data-l="audit"></div>
+        <div class="node n-db"><span class="k">DB</span><span class="t">audit_trail</span><span class="d">USER_CREATED + notify ADMIN</span></div>
+      </div></div></div></div>
+      <p class="cap">Figure 1a &#8212; The new account is born requiring a forced password change.</p>
+
+      <h3>Login + forced first-login change</h3>
+      <div class="flowwrap"><div class="flow"><div class="lane"><div class="rail">
+        <div class="node n-be"><span class="k">POST</span><span class="t">/api/auth/login</span><span class="d">public &#183; 10/min</span></div>
+        <div class="arrow"></div>
+        <div class="node n-gate"><span class="k">verify</span><span class="t">bcrypt + lockout</span></div>
+        <div class="branch">
+          <div class="brow"><div class="arrow" data-l="fail"></div><div class="node n-sec"><span class="t">LOCKED at maxFailedAttempts</span></div></div>
+          <div class="brow"><div class="arrow" data-l="ok"></div><div class="node n-be"><span class="t">Session + JWT</span><span class="d">audit LOGIN_SUCCESS</span></div></div>
+        </div>
+        <div class="arrow"></div>
+        <div class="node n-gate"><span class="k">auth.ts</span><span class="t">forcePasswordChange?</span></div>
+        <div class="branch">
+          <div class="brow"><div class="arrow" data-l="no"></div><div class="node n-fe"><span class="t">app shell</span></div></div>
+          <div class="brow"><div class="arrow" data-l="yes"></div><div class="node n-sec"><span class="t">403 &#183; redirect /change-password</span></div></div>
+        </div>
+        <div class="arrow"></div>
+        <div class="node n-be"><span class="k">change-password</span><span class="t">validate &#183; hash &#183; clear flags</span><span class="d">terminate other sessions</span></div>
+      </div></div></div></div>
+      <p class="cap">Figure 1b &#8212; The forced-change gate is server-side in <code>plugins/auth.ts</code>; the SPA mirrors it.</p>
+
+      <h3>Backend endpoints</h3>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Method &#183; Path</th><th>Gate</th><th>Reauth</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/users</span></td><td><code>USER_CREATE</code></td><td>CREATE_USER</td><td>Create user + temp password</td></tr>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/users</span></td><td><code>USER_READ</code></td><td>&#8212;</td><td>List (hides higher-privilege roles)</td></tr>
+          <tr><td><span class="method put">PUT</span> <span class="mono">/api/users/:id</span></td><td><code>USER_UPDATE</code></td><td>UPDATE_USER</td><td>Update; role change kills sessions</td></tr>
+          <tr><td><span class="method del">DELETE</span> <span class="mono">/api/users/:id</span></td><td><span class="pill crit">SUPER_ADMIN</span></td><td>DELETE_USER</td><td>Hard delete (never SUPER_ADMIN)</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/users/bulk-delete</span></td><td><span class="pill crit">SUPER_ADMIN</span> &#183; 5/min</td><td>BULK_DELETE_USERS</td><td>Bulk hard delete</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/users/:id/enable &#183; /disable</span></td><td><code>USER_ENABLE_DISABLE</code></td><td>ENABLE/DISABLE_USER</td><td>Disable terminates sessions</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/users/:id/unlock</span></td><td><code>USER_UNLOCK</code></td><td>UNLOCK_USER</td><td>Unlock w/ temp pw</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/users/:id/reset-password</span></td><td><code>USER_RESET_PASSWORD</code></td><td>RESET_PASSWORD</td><td>Admin temp-password reset</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/auth/login</span></td><td>public &#183; 10/min</td><td>&#8212;</td><td>Authenticate &#8594; JWT + session</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/auth/change-password</span></td><td>bearer &#183; 5/min</td><td>&#8212;</td><td>Self / first-login change</td></tr>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/auth/me</span></td><td>bearer</td><td>&#8212;</td><td>Profile + effective permissions[]</td></tr>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/roles</span></td><td><code>ROLE_MANAGE</code></td><td>&#8212;</td><td>List roles (SA hidden from non-SA)</td></tr>
+          <tr><td><span class="method put">PUT</span> <span class="mono">/api/config/roles/:role</span></td><td><code>ROLE_MANAGE</code></td><td>UPDATE_ROLE_CONFIG</td><td>Feature toggles &#8594; rebuild role perms</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note"><b>Escalation guards.</b> <code>assertRoleWithinCallerPrivilege</code> &#8212; a non-SA cannot
+        create/raise a role at or above its hierarchy nor grant a permission it lacks. <code>assertCanManageTarget</code>
+        &#8212; cannot manage a user outranking the caller nor change one's own role.</div>
+
+      <h3>Key files</h3>
+      <ul>
+        <li><span class="mono">apps/api/src/modules/{users,auth,roles}/{routes,*.service,*.repository}.ts</span></li>
+        <li><span class="mono">apps/api/src/plugins/{auth.ts, rbac.ts}</span> &#183; <span class="mono">lib/{reauth-check,jwt,password}.ts</span></li>
+        <li><span class="mono">apps/api/src/modules/config/{config.service.ts, static-routes/roles.routes.ts}</span></li>
+        <li><span class="mono">packages/shared/src/types/{permission-tree,permissions,reauth-actions}.ts</span></li>
+        <li><span class="mono">apps/web/src/routes/users/{list,create,edit,reset-requests}.tsx</span> &#183; <span class="mono">routes/config/role-access.tsx</span></li>
+      </ul>
+    </section>
+
+    <!-- ============ 2. AUDIT ============ -->
+    <section id="audit">
+      <h2><span class="num">2</span> Audit Trail &#8212; Tamper-Evident Hash Chain</h2>
+      <p class="sub">Every mutation calls <code>auditLog()</code> inside the business transaction. Each row's checksum
+        binds it <em>and its predecessor</em>, so any edit, insert or delete is detectable.</p>
+
+      <h3>Write path + chain construction</h3>
+      <div class="flowwrap"><div class="flow"><div class="lane"><div class="rail">
+        <div class="node n-be"><span class="k">Handler</span><span class="t">mutate (same tx)</span></div>
+        <div class="arrow"></div>
+        <div class="node n-gate"><span class="k">guard</span><span class="t">userId or SYSTEM?</span></div>
+        <div class="branch">
+          <div class="brow"><div class="arrow" data-l="no"></div><div class="node n-sec"><span class="t">throw &#183; &#167;11.10(e)</span></div></div>
+          <div class="brow"><div class="arrow" data-l="yes"></div><div class="node n-be"><span class="t">assemble baseFields</span><span class="d">actor &#183; role &#183; before/after &#183; reason</span></div></div>
+        </div>
+        <div class="arrow"></div>
+        <div class="node n-be"><span class="k">lock</span><span class="t">pg_advisory_xact_lock</span><span class="d">serialize writers</span></div>
+        <div class="arrow"></div>
+        <div class="node n-db"><span class="k">read</span><span class="t">predecessor checksum</span><span class="d">ORDER BY chain_position DESC</span></div>
+        <div class="arrow"></div>
+        <div class="node n-be"><span class="k">hash</span><span class="t">V3 HMAC or V2 SHA-256</span><span class="d">binds prevChecksum</span></div>
+        <div class="arrow" data-l="insert"></div>
+        <div class="node n-db"><span class="k">DB</span><span class="t">audit_trail</span><span class="d">chain_position = BIGSERIAL</span></div>
+      </div></div></div></div>
+      <p class="cap">Figure 2a &#8212; Advisory lock keeps <code>chain_position</code> monotonic; JSON keys are recursively sorted before hashing.</p>
+
+      <h3>Read &#183; verify &#183; redact vs delete</h3>
+      <div class="flowwrap"><div class="flow">
+        <div class="lane"><div class="lane-label">Read &amp; verify</div><div class="rail">
+          <div class="node n-be"><span class="k">GET</span><span class="t">/api/audit</span><span class="d">integrityValid per row + enrichment</span></div>
+          <div class="arrow" data-l="verifyAuditChecksum"></div>
+          <div class="node n-sec"><span class="k">GET</span><span class="t">/verify-chain (SA)</span><span class="d">MISMATCH &#183; LINK &#183; GAP</span></div>
+        </div></div>
+        <div class="lane"><div class="lane-label">Redact &#8212; compliant path</div><div class="rail">
+          <div class="node n-sec"><span class="k">POST</span><span class="t">/:id/redact (SA)</span></div>
+          <div class="arrow"></div>
+          <div class="node n-db"><span class="t">NULL before/after &#183; keep checksum</span><span class="d">chain STAYS valid &#183; stamped</span></div>
+        </div></div>
+        <div class="lane"><div class="lane-label">Hard delete &#8212; loud &amp; breaks chain</div><div class="rail">
+          <div class="node n-sec"><span class="k">DELETE</span><span class="t">/:id &#183; AUDIT_DELETE</span></div>
+          <div class="arrow" data-l="meta-row first"></div>
+          <div class="node n-db"><span class="t">disable no_delete trigger &#183; delete</span></div>
+          <div class="arrow"></div>
+          <div class="node n-sec"><span class="t">verify-chain now INVALID</span></div>
+        </div></div>
+      </div></div>
+      <p class="cap">Figure 2b &#8212; Redaction withholds payload but keeps links; hard delete deliberately breaks verification.</p>
+
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Method &#183; Path</th><th>Gate</th><th>Reauth</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/audit</span></td><td><code>AUDIT_READ</code></td><td>&#8212;</td><td>Filtered list, integrity per row</td></tr>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/audit/verify-chain</span></td><td><span class="pill crit">SUPER_ADMIN</span></td><td>&#8212;</td><td>Walk chain (API-only, no UI)</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/audit/:id/redact</span></td><td><span class="pill crit">SUPER_ADMIN</span></td><td>REDACT_AUDIT_RECORD</td><td>Chain-preserving redaction</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/audit/bulk-redact</span></td><td><span class="pill crit">SUPER_ADMIN</span></td><td>BULK_REDACT_AUDIT_RECORDS</td><td>Redact 1&#8211;1000 rows</td></tr>
+          <tr><td><span class="method del">DELETE</span> <span class="mono">/api/audit/:id</span></td><td><code>AUDIT_DELETE</code></td><td>DELETE_AUDIT_RECORD</td><td>Physical delete (breaks chain)</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/audit/bulk-delete</span></td><td><code>AUDIT_DELETE</code> &#183; 5/min</td><td>BULK_DELETE_AUDIT_RECORDS</td><td>Physical bulk delete</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/audit/report-export-log</span></td><td>authenticated</td><td>&#8212;</td><td>Fail-closed export log before client export</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note warn"><b>Immutability.</b> Trigger <code>audit_trail_no_delete</code>
+        (<code>prisma/sql/invariants.sql</code>) blocks all physical deletes; delete endpoints must
+        <code>DISABLE TRIGGER</code> for their transaction window (ACCESS-EXCLUSIVE lock).</div>
+
+      <h3>Key files</h3>
+      <ul>
+        <li><span class="mono">apps/api/src/modules/audit/routes.ts</span> &#183; <span class="mono">lib/{audit,hash-chain,audit-verify,audit-diff}.ts</span></li>
+        <li><span class="mono">apps/api/prisma/sql/invariants.sql</span> &#183; <span class="mono">schema.prisma &#8594; model AuditTrail</span></li>
+        <li><span class="mono">packages/shared/src/types/{audit-actions,audit-templates}.ts</span></li>
+        <li><span class="mono">apps/web/src/routes/audit/{index.tsx, audit-helpers.ts, components/*}</span></li>
+      </ul>
+    </section>
+
+    <!-- ============ 3. PASSWORD POLICY ============ -->
+    <section id="password">
+      <h2><span class="num">3</span> Password Policies &amp; Expiry</h2>
+      <p class="sub">Policy is a keyed blob (<code>system_config['password-policy']</code>). Expiry is derived at
+        login-time from live policy &#8212; not a frozen column &#8212; so edits apply retroactively.</p>
+
+      <div class="flowwrap"><div class="flow">
+        <div class="lane"><div class="lane-label">Set / change &#183; authService.changePassword</div><div class="rail">
+          <div class="node n-be"><span class="t">verify current pw</span><span class="d">unless temp &#183; counts toward lockout</span></div>
+          <div class="arrow"></div>
+          <div class="node n-sec"><span class="t">length &#183; complexity &#183; userId rules</span></div>
+          <div class="arrow"></div>
+          <div class="node n-sec"><span class="t">reuse: bcrypt-compare last N / 365d</span></div>
+          <div class="arrow"></div>
+          <div class="node n-db"><span class="t">bcrypt hash &#183; terminate other sessions</span></div>
+        </div></div>
+        <div class="lane"><div class="lane-label">Expiry (derived, live)</div><div class="rail">
+          <div class="node n-be"><span class="t">anchor = MAX(changedAt, policy.updatedAt)</span></div>
+          <div class="arrow"></div>
+          <div class="node n-gate"><span class="t">now &#8722; anchor &gt; expiryDays?</span></div>
+          <div class="arrow" data-l="yes"></div>
+          <div class="node n-sec"><span class="t">login sets forcePasswordChange</span><span class="d">audit PASSWORD_EXPIRED &#183; SA exempt</span></div>
+        </div></div>
+        <div class="lane"><div class="lane-label">Daily cron 00:00 &#183; password_expiry_check</div><div class="rail">
+          <div class="node n-wk"><span class="t">ENABLED, non-SA users</span></div>
+          <div class="arrow"></div>
+          <div class="node n-gate"><span class="t">expired?</span></div>
+          <div class="branch">
+            <div class="brow"><div class="arrow" data-l="yes"></div><div class="node n-db"><span class="t">PASSWORD_EXPIRED_NOTICE &#8594; user + ADMIN</span></div></div>
+            <div class="brow"><div class="arrow" data-l="window"></div><div class="node n-db"><span class="t">PASSWORD_EXPIRY_WARNING &#183; 1/user/day</span></div></div>
+          </div>
+        </div></div>
+      </div></div>
+      <p class="cap">Figure 3 &#8212; The <code>policy.updatedAt</code> grace floor prevents mass lockout when expiry is shortened; sweep and login share the anchor math.</p>
+
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Method &#183; Path</th><th>Gate</th><th>Reauth</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/config/password-policy/current</span></td><td>any authenticated</td><td>&#8212;</td><td>Live policy for FE validation</td></tr>
+          <tr><td><span class="method put">PUT</span> <span class="mono">/api/config/password-policy</span></td><td><code>CONFIG_UPDATE</code></td><td>UPDATE_PASSWORD_POLICY</td><td>Edit policy; busts cache</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/auth/change-password</span></td><td>bearer &#183; 5/min</td><td>&#8212;</td><td>Enforces full policy on set</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/users/password-expiry-sweep</span></td><td><code>CONFIG_UPDATE</code></td><td>&#8212;</td><td>Manual on-demand sweep</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Key files</h3>
+      <ul>
+        <li><span class="mono">apps/api/src/modules/config/defs/password-policy.def.ts</span> &#183; <span class="mono">lib/{password,password-expiry}.ts</span></li>
+        <li><span class="mono">apps/api/src/modules/auth/{auth.service.ts, password-expiry-sweep.ts}</span> &#183; <span class="mono">workers/password-expiry.worker.ts</span></li>
+        <li><span class="mono">apps/web/src/routes/auth/change-password.tsx</span> &#183; <span class="mono">lib/password-utils.ts</span></li>
+      </ul>
+    </section>
+
+    <!-- ============ 4. REAUTH ============ -->
+    <section id="reauth">
+      <h2><span class="num">4</span> Re-authentication Flow</h2>
+      <p class="sub">Sensitive actions require a fresh password re-verification (21 CFR &#167;11.200). The
+        <code>action-reauth</code> config stores a <code>{ ACTION: [roles&#8230;] }</code> map. This deployment has re-auth
+        <b>ON</b> (~80/82 actions, no SA bypass on config).</p>
+
+      <div class="flowwrap"><div class="flow"><div class="lane"><div class="rail">
+        <div class="node n-fe"><span class="k">User</span><span class="t">gated action</span><span class="d">e.g. Delete Audit</span></div>
+        <div class="arrow"></div>
+        <div class="node n-fe"><span class="k">Hook</span><span class="t">useReauth.execute</span></div>
+        <div class="arrow"></div>
+        <div class="node n-gate"><span class="t">reauth-required for role?</span></div>
+        <div class="arrow" data-l="yes"></div>
+        <div class="node n-fe"><span class="k">Dialog</span><span class="t">ReauthDialog</span><span class="d">x-reauth-password</span></div>
+        <div class="arrow wide"></div>
+        <div class="node n-sec"><span class="k">Backend</span><span class="t">enforceReauth</span></div>
+        <div class="branch">
+          <div class="brow"><div class="arrow" data-l="offline"></div><div class="node n-be"><span class="t">grant token &#8594; pass</span></div></div>
+          <div class="brow"><div class="arrow" data-l="online"></div><div class="node n-sec"><span class="t">verify pw &#183; shared lockout</span></div></div>
+        </div>
+        <div class="arrow" data-l="proceed"></div>
+        <div class="node n-db"><span class="k">DB</span><span class="t">mutation + auditLog</span><span class="d">signatureMeaning</span></div>
+      </div></div></div></div>
+      <p class="cap">Figure 4 &#8212; Re-auth shares the same lockout accounting as login, so it is not a non-locking brute-force oracle.</p>
+
+      <div class="note"><b>Config-shape defense.</b> <code>normalizeActionReauthConfig</code> rejects a legacy nested
+        shape (returns <code>{}</code> and warns) &#8212; a malformed save turns re-auth <em>off loudly</em> rather than
+        silently mis-gating. Cache TTL 10s; config at <code>/config/action-reauth</code> (SUPER_ADMIN).</div>
+    </section>
+
+    <!-- ============ 5. NOTIFICATIONS ============ -->
+    <section id="notifications">
+      <h2><span class="num">5</span> Notifications</h2>
+      <p class="sub">In-app notifications are written <b>synchronously</b> at event time via
+        <code>createNotification()</code> &#8212; the queue task is a dead drain. The bell polls unread count every 30s.</p>
+
+      <div class="flowwrap"><div class="flow"><div class="lane"><div class="rail">
+        <div class="stack">
+          <div class="node n-be"><span class="k">auth</span><span class="t">ACCOUNT_LOCKED &#183; RESET_REQUEST</span></div>
+          <div class="node n-be"><span class="k">users</span><span class="t">USER_CREATED &#183; ROLE_CHANGED</span></div>
+          <div class="node n-wk"><span class="k">cron</span><span class="t">PM_OVERDUE</span></div>
+          <div class="node n-wk"><span class="k">cron</span><span class="t">EXPIRY_WARNING / EXPIRED</span></div>
+        </div>
+        <div class="join"><span class="tip"></span></div>
+        <div class="node n-be"><span class="k">factory</span><span class="t">createNotification()</span></div>
+        <div class="arrow" data-l="insert"></div>
+        <div class="node n-gate"><span class="t">buildVisibilityFilter</span><span class="d">per-role addressing</span></div>
+        <div class="branch">
+          <div class="brow"><div class="arrow" data-l="SA"></div><div class="node n-db"><span class="t">all</span></div></div>
+          <div class="brow"><div class="arrow" data-l="ADMIN"></div><div class="node n-db"><span class="t">self &#183; forRole=ADMIN &#183; general</span></div></div>
+          <div class="brow"><div class="arrow" data-l="other"></div><div class="node n-db"><span class="t">forUserId=self only</span></div></div>
+        </div>
+        <div class="arrow wide"></div>
+        <div class="stack">
+          <div class="node n-fe"><span class="k">SPA</span><span class="t">bell &#183; /unread-count 30s</span></div>
+          <div class="node n-fe"><span class="k">SPA</span><span class="t">/notifications center</span></div>
+        </div>
+      </div></div></div></div>
+      <p class="cap">Figure 5 &#8212; Config-gated types (QNN, guest-cleaning) bypass normal addressing and follow their own recipient config.</p>
+
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Method &#183; Path</th><th>Gate</th><th>Reauth</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/notifications</span></td><td>auth (per-user)</td><td>&#8212;</td><td>List, paginated</td></tr>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/notifications/unread-count</span></td><td>auth</td><td>&#8212;</td><td>Badge count (30s poll)</td></tr>
+          <tr><td><span class="method put">PUT</span> <span class="mono">/&#8230;/mark-all-read &#183; /:id/read</span></td><td>auth</td><td>&#8212;</td><td>Read-state mutations</td></tr>
+          <tr><td><span class="method del">DELETE</span> <span class="mono">/api/notifications/:id</span></td><td><code>NOTIFICATION_DELETE</code></td><td>DELETE_NOTIFICATION</td><td>Hard-delete one (audited first)</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/notifications/bulk-delete</span></td><td><code>NOTIFICATION_DELETE</code> &#183; 5/min</td><td>BULK_DELETE_NOTIFICATIONS</td><td>Hard-delete selected</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note"><b>Delete is audited fail-closed</b> &#8212; the <code>NOTIFICATION_DELETED</code> row is written in
+        the same transaction before the physical delete, so a delete can't commit without its record.</div>
+
+      <h3>Key files</h3>
+      <ul>
+        <li><span class="mono">apps/api/src/modules/notifications/{routes, notification.service, notification.repository}.ts</span></li>
+        <li><span class="mono">apps/api/src/workers/{notification.worker,pm-overdue.worker}.ts</span> &#183; <span class="mono">packages/queue/crontab.txt</span></li>
+        <li><span class="mono">apps/web/src/routes/notifications/index.tsx</span> &#183; <span class="mono">components/layout/header.tsx</span></li>
+      </ul>
+    </section>
+
+    <!-- ============ 6. BACKUP ============ -->
+    <section id="backup">
+      <h2><span class="num">6</span> Backup &amp; Restore</h2>
+      <p class="sub">Backups are <b>ephemeral downloads</b> &#8212; no stored model. Tables are discovered from
+        <code>pg_tables</code> and topologically sorted by FK dependency. Credentials are stripped on export and
+        re-applied on restore.</p>
+
+      <div class="flowwrap"><div class="flow">
+        <div class="lane"><div class="lane-label">Export &#183; BACKUP_EXPORT + reauth</div><div class="rail">
+          <div class="node n-be"><span class="k">GET</span><span class="t">/api/backup/export</span></div>
+          <div class="arrow"></div>
+          <div class="node n-db"><span class="t">getAllTables &#183; topo-sort FK</span></div>
+          <div class="arrow"></div>
+          <div class="node n-sec"><span class="t">strip password_hash &#8594; sentinel</span></div>
+          <div class="arrow"></div>
+          <div class="node n-be"><span class="t">json / bak / sql / csv + SHA-256</span></div>
+          <div class="arrow" data-l="stream"></div>
+          <div class="node n-fe"><span class="t">download &#183; audit BACKUP_CREATED</span></div>
+        </div></div>
+        <div class="lane"><div class="lane-label">Restore &#183; BACKUP_RESTORE + reauth</div><div class="rail">
+          <div class="node n-be"><span class="k">POST</span><span class="t">/api/backup/restore</span></div>
+          <div class="arrow"></div>
+          <div class="node n-sec"><span class="t">verify checksum + audit chain</span></div>
+          <div class="arrow"></div>
+          <div class="node n-gate"><span class="t">complete? tampered?</span><span class="d">refuse unless force</span></div>
+          <div class="arrow" data-l="ok"></div>
+          <div class="node n-db"><span class="t">TX 300s: disable triggers &#183; TRUNCATE</span></div>
+          <div class="arrow"></div>
+          <div class="node n-db"><span class="t">insert FK-safe &#183; re-apply hashes &#183; resync seq</span></div>
+          <div class="arrow"></div>
+          <div class="node n-be"><span class="t">re-enable &#183; audit BACKUP_RESTORED</span></div>
+        </div></div>
+      </div></div>
+      <p class="cap">Figure 6 &#8212; Restore truncates all tables but only repopulates those present, so an incomplete backup is refused. <code>BACKUP_RESTORE</code> is <em>not</em> implied by <code>BACKUP_MANAGE</code>.</p>
+
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Method &#183; Path</th><th>Gate</th><th>Reauth</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/backup/export?format=</span></td><td><code>BACKUP_EXPORT</code></td><td>EXPORT_BACKUP</td><td>Generate + stream (json/bak/sql/csv)</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/backup/validate</span></td><td><code>BACKUP_EXPORT</code> &#8744; <code>RESTORE</code></td><td>&#8212;</td><td>Dry-run: parse, counts, checksum</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/backup/restore</span></td><td><code>BACKUP_RESTORE</code></td><td>RESTORE_BACKUP</td><td>Overwrite entire DB (100 MB cap)</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note crit"><b>Historical defect (fixed).</b> Restore was 100% broken 2026-07-04 &#8594; 07-15: a
+        credential-preservation query selected a non-existent column (<code>users.password_history_hashes</code>),
+        aborting the transaction (PG 42703 &#8594; 25P02) while a <code>try/catch</code> swallowed the JS error. Fixed in
+        <code>34b04cf</code> and verified with a real export&#8594;restore round-trip.</div>
+
+      <h3>Key files</h3>
+      <ul>
+        <li><span class="mono">apps/api/src/modules/backup/{routes, backup.service, backup.repository, backup.helpers}.ts</span></li>
+        <li><span class="mono">packages/shared/src/types/permissions.ts</span> (BACKUP_MANAGE/EXPORT/RESTORE)</li>
+        <li><span class="mono">apps/web/src/routes/config/backup.tsx</span></li>
+      </ul>
+    </section>
+
+    <!-- ============ 7. CONFIG ============ -->
+    <section id="config">
+      <h2><span class="num">7</span> Configuration System</h2>
+      <p class="sub">Def-driven: 36 <code>*.def.ts</code> files describe each config surface. At startup they are
+        registered and a <code>system_config</code> row is seeded per def. Custom pages use hardcoded routes; the rest
+        are served by auto-generated <code>/api/config/dynamic/:key</code> routes.</p>
+
+      <div class="flowwrap"><div class="flow">
+        <div class="lane"><div class="lane-label">Startup</div><div class="rail">
+          <div class="node n-be"><span class="t">discoverAndRegisterConfigs</span><span class="d">import 36 defs</span></div>
+          <div class="arrow"></div>
+          <div class="node n-db"><span class="t">seedDefaults &#8594; system_config</span></div>
+        </div></div>
+        <div class="lane"><div class="lane-label">Change flow &#183; FE &#8594; API &#8594; DB &#8594; consumers</div><div class="rail">
+          <div class="node n-fe"><span class="k">SPA</span><span class="t">config / dynamic-config</span><span class="d">useReauth.execute</span></div>
+          <div class="arrow"></div>
+          <div class="node n-be"><span class="k">PUT</span><span class="t">/api/config/:key</span></div>
+          <div class="arrow"></div>
+          <div class="node n-sec"><span class="t">CONFIG_UPDATE + enforceReauth</span></div>
+          <div class="arrow"></div>
+          <div class="node n-be"><span class="t">shallow-merge &#183; Zod &#183; upsert</span></div>
+          <div class="arrow" data-l="bust caches"></div>
+          <div class="branch">
+            <div class="brow"><div class="arrow"></div><div class="node n-db"><span class="t">auth reads password-policy</span></div></div>
+            <div class="brow"><div class="arrow"></div><div class="node n-db"><span class="t">reauth-check reads action-reauth</span></div></div>
+            <div class="brow"><div class="arrow"></div><div class="node n-db"><span class="t">rbac reads role permissions</span></div></div>
+          </div>
+        </div></div>
+      </div></div>
+      <p class="cap">Figure 7 &#8212; Shallow-merge means a tab sending only its own fields won't reset the others; a corrupt blob falls back to schema defaults, never <code>{}</code>.</p>
+
+      <h3>User / security / notification config defs</h3>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>moduleKey</th><th>Category</th><th>Role</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>password-policy</code></td><td>Security</td><td>&#8212;</td><td>Length, complexity, reuse, expiry</td></tr>
+          <tr><td><code>session</code></td><td>Security</td><td>&#8212;</td><td>Session duration, idle timeout</td></tr>
+          <tr><td><code>login-security</code></td><td>Security</td><td>&#8212;</td><td>Lockout type + duration</td></tr>
+          <tr><td><code>action-reauth</code></td><td>Security</td><td><span class="pill crit">SA</span></td><td>Per-role re-auth action map</td></tr>
+          <tr><td><code>roles</code></td><td>User</td><td><span class="pill crit">SA</span></td><td>Role/permission/sidebar/reauth</td></tr>
+          <tr><td><code>user-id</code></td><td>User</td><td>ADMIN</td><td>Auto-generated User ID format</td></tr>
+          <tr><td><code>access-matrix</code></td><td>Access</td><td><span class="pill crit">SA</span></td><td>Which roles open which config modules</td></tr>
+          <tr><td><code>audit-templates</code></td><td>Access</td><td><span class="pill crit">SA</span></td><td>Custom audit description text</td></tr>
+          <tr><td><code>export-limit</code></td><td>Access</td><td><span class="pill crit">SA</span></td><td>Max rows per export</td></tr>
+          <tr><td><code>notification-rules</code></td><td>Notifications</td><td><span class="pill crit">SA</span></td><td>Event alerts + recipients</td></tr>
+          <tr><td><code>notification-email / -sms</code></td><td>Notifications</td><td><span class="pill crit">SA</span></td><td>SMTP / SMS channel config</td></tr>
+          <tr><td><code>qnn-notifications</code></td><td>Notifications</td><td><span class="pill crit">SA</span></td><td>Roles allowed to see QNN entries</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Key files</h3>
+      <ul>
+        <li><span class="mono">apps/api/src/modules/config/{config.service,config.repository,routes,dynamic-routes}.ts</span></li>
+        <li><span class="mono">apps/api/src/modules/config/defs/*.def.ts</span> &#183; <span class="mono">static-routes/*.routes.ts</span></li>
+        <li><span class="mono">apps/api/src/lib/{config-registry,config-discovery}.ts</span></li>
+        <li><span class="mono">apps/web/src/routes/config/{index,dynamic-config,role-access}.tsx</span></li>
+      </ul>
+    </section>
+
+    <!-- ============ 8. ELECTRONIC SIGNATURES ============ -->
+    <section id="esign">
+      <h2><span class="num">8</span> Electronic Signatures</h2>
+      <p class="sub">There is <b>no <code>ElectronicSignature</code> model</b> (dropped 2026-07-04). A compliant e-signature
+        is assembled from <b>three</b> live parts: <b>(a)</b> re-authentication (password re-verify) as the signing
+        <em>act</em>, <b>(b)</b> the <code>signatureMeaning</code> field written into the hash-chained audit row as the
+        signing <em>intent</em>, and <b>(c)</b> the <code>ReportReview</code> submit&#8594;review&#8594;approve workflow
+        that carries the signer identity + timestamp on the record itself.</p>
+
+      <h3>Two-person review &amp; approve signing flow</h3>
+      <div class="flowwrap"><div class="flow"><div class="lane"><div class="rail">
+        <div class="node n-fe"><span class="k">Stage 1</span><span class="t">Generate report</span><span class="d">POST /report-reviews &#183; no reauth</span></div>
+        <div class="arrow" data-l="snapshot"></div>
+        <div class="node n-db"><span class="k">status</span><span class="t">PENDING_REVIEW</span><span class="d">dataSnapshot frozen &#183; assignee set</span></div>
+        <div class="arrow" data-l="reviewer"></div>
+        <div class="node n-sec"><span class="k">Stage 2</span><span class="t">enforceReauthAlways</span><span class="d">REVIEW_REPORT &#183; password</span></div>
+        <div class="node n-gate"><span class="t">SoD: reviewer &#8800; generator</span></div>
+        <div class="branch">
+          <div class="brow"><div class="arrow" data-l="reject +remarks"></div><div class="node n-sec"><span class="t">REJECTED</span></div></div>
+          <div class="brow"><div class="arrow" data-l="sign"></div><div class="node n-db"><span class="t">PENDING_APPROVAL</span><span class="d">reviewedBy / reviewedAt</span></div></div>
+        </div>
+        <div class="arrow" data-l="approver"></div>
+        <div class="node n-sec"><span class="k">Stage 3</span><span class="t">enforceReauthAlways</span><span class="d">APPROVE_REPORT &#183; password</span></div>
+        <div class="node n-gate"><span class="t">SoD: approver &#8800; gen &amp; reviewer</span></div>
+        <div class="arrow" data-l="sign"></div>
+        <div class="node n-db"><span class="k">status</span><span class="t">APPROVED</span><span class="d">approvedBy / approvedAt + audit</span></div>
+      </div></div></div></div>
+      <p class="cap">Figure 8 &#8212; Each signing act = password proof (<code>enforceReauthAlways</code>) + separation-of-duties
+        gate + an audit row carrying <code>signatureMeaning</code>. An atomic <code>decideIfStill</code> guard
+        (<code>updateMany WHERE status=expected</code>) makes a row impossible to both approve and reject
+        (<code>409 CONCURRENT_DECISION</code>). PDF re-download prints the <code>Printed / Reviewed / Approved By</code> block.</p>
+
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Method &#183; Path</th><th>Gate</th><th>Reauth</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/report-reviews</span></td><td><code>REPORT_REVIEW_SUBMIT</code></td><td>&#8212; (unsigned)</td><td>Submit generated report &#8594; PENDING_REVIEW</td></tr>
+          <tr><td><span class="method get">GET</span> <span class="mono">/api/report-reviews/queue</span></td><td>any review perm</td><td>&#8212;</td><td>My actionable items (30s poll)</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/report-reviews/:id/review</span></td><td><code>REPORT_REVIEW</code></td><td><span class="pill warn">always</span> REVIEW_REPORT</td><td>Stage 2 sign: approve or reject</td></tr>
+          <tr><td><span class="method post">POST</span> <span class="mono">/api/report-reviews/:id/approve</span></td><td><code>REPORT_APPROVE</code></td><td><span class="pill warn">always</span> APPROVE_REPORT</td><td>Stage 3 sign: approve or reject</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>21 CFR Part 11 signature requirements &#8212; honest verdicts</h3>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Requirement</th><th>How met</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>&#167;11.200 unique to one individual / two components</td><td>Username + password re-verified at each act; session (<code>req.user.sub</code>) ties it to the login</td><td><span class="pill warn">Partial</span> only password re-presented at sign time; session is the 2nd component</td></tr>
+          <tr><td>&#167;11.50(a)(3) signature meaning</td><td><code>signatureMeaning</code> in audit + <code>Printed/Reviewed/Approved By</code> PDF label</td><td><span class="pill warn">Partial</span> stored &amp; checksummed but <b>never rendered in the audit UI</b></td></tr>
+          <tr><td>&#167;11.70 link to record</td><td>Same DB row (<code>*By/*At</code>) + hash-chained audit row (<code>targetType/targetId</code>); <code>dataSnapshot</code> frozen at submit</td><td><span class="pill ok">Met</span> procedurally (FK + chain, not a per-signature digest)</td></tr>
+          <tr><td>Non-repudiation</td><td>Hash chain (+ optional keyed HMAC V3), separation of duties, atomic decide, lockout on bad reauth</td><td><span class="pill warn">Partial</span> rests on password secrecy + DB integrity, not a signer-held key</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note crit"><b>Compliance gaps to flag.</b> (1) <b>No cryptographic per-user signing key / PKI</b> &#8212;
+        signing is a password comparison against a stored bcrypt hash; there is no artifact only the signer could
+        produce. (2) <code>signatureMeaning</code> is <b>invisible in the web UI</b> (0 references in
+        <code>apps/web/src</code>) &#8212; a &#167;11.50 display gap. (3) <b>Stage&#8209;1 &ldquo;Printed By&rdquo; is not
+        reauth-signed</b> &#8212; only review &amp; approve require a password. (4) PDF prints the <em>print</em>
+        timestamp, not the sign timestamp, and omits the meaning string.</div>
+
+      <h3>Key files</h3>
+      <ul>
+        <li><span class="mono">apps/api/src/modules/report-reviews/{routes,service}.ts</span> &#183; <span class="mono">schema.prisma &#8594; model ReportReview</span></li>
+        <li><span class="mono">apps/api/src/lib/{reauth-check,audit,hash-chain}.ts</span> (signing act + meaning in checksum)</li>
+        <li><span class="mono">apps/api/src/modules/config/defs/report-signatories.def.ts</span> &#183; <span class="mono">static-routes/report-signatories.routes.ts</span></li>
+        <li><span class="mono">apps/web/src/routes/report-reviews/index.tsx</span> &#183; <span class="mono">lib/{pdf-report,report-review}.ts</span></li>
+      </ul>
+    </section>
+
+    <!-- ============ VERIFICATION MATRIX ============ -->
+    <section id="verify">
+      <h2><span class="num">V</span> Verification Matrix &#8212; Proof for Review</h2>
+      <p class="sub">Auditor-grade check: each capability confirmed against live code with a source anchor. Verified
+        2026-07-18 on branch <code>RFID</code> by reading/grepping the repository &#8212; not from prose. Real gaps are
+        listed honestly, not omitted.</p>
+
+      <h3>RBAC &amp; permissions</h3>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Capability</th><th>Status</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td>102 permission constants</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">permissions.ts</span> (grep = 102)</td></tr>
+          <tr><td>83 privileges &#183; 92 reauth &#183; 27 sidebar items</td><td><span class="pill ok">&#10003; verified</span></td><td>counts match; <span class="mono">legacy-maps-derived.test.ts:52</span></td></tr>
+          <tr><td>PERMISSION_TREE single source; maps derived + frozen-snapshot drift lock</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">permission-tree.ts:873</span>, <span class="mono">legacy-maps-derived.test.ts</span></td></tr>
+          <tr><td><code>_MANAGE</code>&#8594;CRUD &amp; <code>_VIEW</code>&#8592;<code>_READ</code> expansion; <code>_RESTORE</code> excluded</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">permissions.ts:225-264</span></td></tr>
+          <tr><td>4 decorators (requirePermission/Any/Role/SuperAdmin) + SA bypass</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">rbac.ts:58,93,121,142,66</span></td></tr>
+          <tr><td>Role-perms cache 5s &#183; auth cache 30s + invalidation fns</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">rbac.ts:31</span>, <span class="mono">auth.ts:102,151</span></td></tr>
+          <tr><td>Escalation guard on role create/update (no self/above, no over-grant)</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">role.service.ts:23,262,301</span></td></tr>
+          <tr><td>User-management hierarchy guard (can't manage a higher role, no self-role-change)</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">user.service.ts:24,180</span></td></tr>
+          <tr><td>Roles CRUD; custom-role delete blocks if users assigned</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">roles/routes.ts</span>, <span class="mono">role.service.ts:353</span></td></tr>
+          <tr><td>Grant rebuild (permissions full-rebuild vs sidebar additive)</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">config.service.ts:176-214</span></td></tr>
+          <tr><td>Per-user override precedence (user &gt; role config)</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">config.service.ts:284-294</span></td></tr>
+          <tr><td>Frontend <code>useCan</code> gating (20 files) + <code>RequireRole</code> route guards</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">use-can.ts:24</span>, <span class="mono">require-role.tsx</span></td></tr>
+          <tr><td>System roles cannot be deleted</td><td><span class="pill crit">GAP</span></td><td>schema says so but <b>no <code>isSystem</code> check</b> in <span class="mono">role.service.ts:346</span> / <span class="mono">role.repository.ts:95</span></td></tr>
+          <tr><td>Role-delete respects caller hierarchy</td><td><span class="pill crit">GAP</span></td><td><code>delete()</code> never calls <code>assertRoleWithinCallerPrivilege</code> (<span class="mono">role.service.ts:346</span>)</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Configuration</h3>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>Capability</th><th>Status</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td>36 config defs &#183; 34 config pages</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">ls defs/*.def.ts</span> = 36</td></tr>
+          <tr><td>Startup discovery imports all 36 + seedDefaults + dead-key cleanup</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">config-discovery.ts:12,64,78</span></td></tr>
+          <tr><td>Registry + manifest (role/perm filtered)</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">config-registry.ts:62,133</span></td></tr>
+          <tr><td>12 setting types + visibleWhen + maskedInApi + dynamicOptionsSource</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">config-registry.ts:6-20,43,51</span></td></tr>
+          <tr><td>configEndpoint typed blobs (6) + dynamic routes + manifest</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">routes.ts:143</span>, <span class="mono">dynamic-routes.ts</span></td></tr>
+          <tr><td>4 public <code>/current</code> reads (no admin perm)</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">routes.ts:151-187</span></td></tr>
+          <tr><td>19 custom-page config surfaces (static-routes)</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">static-routes/*.routes.ts</span></td></tr>
+          <tr><td>Partial shallow-merge + <code>_</code>-field strip</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">config.service.ts:89,103</span></td></tr>
+          <tr><td>Corrupt blob &#8594; schema defaults (not <code>{}</code>)</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">config.service.ts:71</span></td></tr>
+          <tr><td>Reauth resolution + secret redaction in audit</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">routes.ts:35</span>, <span class="mono">config.service.ts:15</span></td></tr>
+          <tr><td>All 15 user/security/notification defs exist</td><td><span class="pill ok">&#10003; verified</span></td><td>each <span class="mono">defs/&lt;name&gt;.def.ts</span></td></tr>
+          <tr><td>Default-deny config-card access for non-SA</td><td><span class="pill ok">&#10003; verified</span></td><td><span class="mono">can-access-module.ts:29</span></td></tr>
+          <tr><td><code>cron</code> type has no editor widget; <code>notIn</code> operator is a no-op</td><td><span class="pill warn">minor</span></td><td><span class="mono">dynamic-config.tsx:42,396</span></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <!-- ============ 21 CFR COVERAGE ============ -->
+    <section id="compliance">
+      <h2><span class="num">C11</span> 21 CFR Part 11 Coverage</h2>
+      <p class="sub">Where each Part 11 control is implemented across the subsystems in this document.</p>
+      <div class="tbl-scroll"><table>
+        <thead><tr><th>&#167; Control</th><th>Mechanism</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td>&#167;11.10(d) limit access to authorized individuals</td><td>RBAC gates + escalation guards; backup strips password hashes</td><td>rbac.ts, role/user.service.ts</td></tr>
+          <tr><td>&#167;11.10(e) audit trail of operator entries</td><td>Transactional <code>auditLog</code> requires actor; before/after/reason/actor/timestamp</td><td>lib/audit.ts</td></tr>
+          <tr><td>&#167;11.10(c)/(e) protect records, no unauthorized deletion</td><td><code>audit_trail_no_delete</code> trigger + tamper-evident hash chain + verify-chain</td><td>invariants.sql, hash-chain.ts</td></tr>
+          <tr><td>&#167;11.10(g) authority checks</td><td>Per-action permission gates + reauth; password expiry (SA-exempt documented)</td><td>rbac.ts, reauth-check.ts</td></tr>
+          <tr><td>&#167;11.50 signature manifestations (name / date / meaning)</td><td><code>signatureMeaning</code> in audit + PDF signature block <span class="pill warn">UI display gap</span></td><td>audit.ts, pdf-report.ts</td></tr>
+          <tr><td>&#167;11.70 signature&#8211;record linking</td><td>ReportReview <code>*By/*At</code> columns + hash-chained audit target</td><td>report-reviews/service.ts</td></tr>
+          <tr><td>&#167;11.100 uniqueness of signatures</td><td>Unique username + single-active-session; password secrecy <span class="pill warn">no PKI</span></td><td>auth.service.ts</td></tr>
+          <tr><td>&#167;11.200 signature components &amp; controls</td><td>Password re-verify at signing (<code>enforceReauthAlways</code>) + separation of duties</td><td>reauth-check.ts, report-reviews</td></tr>
+          <tr><td>&#167;11.300 identification-code / password controls</td><td>Policy (length/complexity/reuse/expiry), lockout, forced change</td><td>password-policy.def.ts, auth.service.ts</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note warn"><b>Standing gaps against Part 11 (be candid with the reviewer):</b> no per-user cryptographic
+        signing key (signatures rest on password + DB integrity); <code>signatureMeaning</code> not surfaced in the
+        audit UI; two RBAC delete-path guards missing (see Verification Matrix). None block day-to-day operation; all
+        are worth a remediation ticket.</div>
+    </section>
+
+    <!-- ============ APPENDIX ============ -->
+    <section id="crossref">
+      <h2><span class="num">D</span> Cross-cutting Libraries</h2>
+      <div class="grid3">
+        <div class="card"><h4>Auth gate</h4><p>JWT verify, session lifecycle, forced-change &amp; expiry.<span class="mono">plugins/auth.ts</span></p></div>
+        <div class="card"><h4>RBAC gate</h4><p>requirePermission, 5s role-perms cache.<span class="mono">plugins/rbac.ts</span></p></div>
+        <div class="card"><h4>Re-auth</h4><p>enforceReauth, shared lockout.<span class="mono">lib/reauth-check.ts</span></p></div>
+        <div class="card"><h4>Audit</h4><p>Transactional write + advisory-lock chain.<span class="mono">lib/audit.ts &#183; lib/hash-chain.ts</span></p></div>
+        <div class="card"><h4>Password</h4><p>bcrypt hash/verify, expiry anchor math.<span class="mono">lib/password.ts &#183; lib/password-expiry.ts</span></p></div>
+        <div class="card"><h4>Shared truth</h4><p>PERMISSION_TREE derives every map.<span class="mono">packages/shared/src/types/*</span></p></div>
+      </div>
+
+      <div class="note"><b>How the tiers agree.</b> The SPA gates buttons with <code>useCan('&lt;node-id&gt;')</code>
+        against the same <code>PERMISSION_TREE</code> gate the backend enforces with <code>requirePermission</code> &#8212;
+        so FE visibility and BE authorization never drift.</div>
+
+      <footer>
+        DigiLog architecture flow reference &#183; scope: identity, compliance &amp; administration (filter-operations
+        excluded) &#183; every endpoint, gate and file path verified against branch <code>RFID</code> at generation time.
+        Use <b>Save as PDF</b> (top-right) &#8594; browser print dialog &#8594; &#8220;Save as PDF&#8221;.
+      </footer>
+    </section>
+  </main>
+</div>
