@@ -68,17 +68,60 @@ export function computeFinalStageKey(profile: { nodes: any[]; edges: any[] }): s
 }
 
 /**
- * True when a filter has reached (or passed through) its final cleaning stage:
- *  - Active cycle (currentCycleId != null): filter is currently parked at the
- *    final stage identified in finalStageByFilter for this filter.
- *  - No cycle (currentCycleId == null): lifecycle state is
- *    CLEANING_CYCLE_COMPLETED (cycle auto-completed on the last advance).
- * Everything else — no cycle started, mid-cycle at a non-final stage — is false.
+ * The set of stage keys at which a sibling counts as READY for the AHU's final
+ * step — the final STAGE itself plus every DIRECT predecessor of it.
+ *
+ * 2026-08-10 — why predecessors are included (operator-specified rule):
+ * "all filters reached Storage In, then only should filters be submitted at
+ * Storage Out". Requiring siblings to be AT the final stage is unsatisfiable in
+ * practice: the gate now runs BEFORE the advance commits (dialog-first, see
+ * `73c532c`), so at gate time every scanned filter is still parked at the
+ * predecessor. Under the old rule reaching Storage Out required already being at
+ * Storage Out, so INTERLOCK could never be satisfied for a whole AHU and POPUP
+ * always warned. Readiness therefore means "staged and waiting to take the final
+ * step", which is what the operator's rule describes.
+ *
+ * This is NOT a loosening of the compliance gate: a filter still mid-wash or
+ * mid-dry, or one that never started a cycle, is still not ready and still
+ * blocks. Only the threshold moved from an unreachable state to the real one.
+ *
+ * Computed PER FILTER from that filter's own frozen cycle profile — an AHU can
+ * legitimately mix profiles (AHU-027 runs 5 filters on `Require` and 1 on
+ * `DRYIN`), and a single global threshold would silently mis-judge the odd one.
  */
-export function reachedFinal(f: CountedFilter, finalStageByFilter: Map<string, string | null>): boolean {
+export function computeReadyStageKeys(profile: { nodes: any[]; edges: any[] }): Set<string> {
+  const finalKey = computeFinalStageKey(profile);
+  const ready = new Set<string>();
+  if (!finalKey) return ready;
+  ready.add(finalKey);
+  for (const node of profile.nodes) {
+    if (node.nodeType !== 'STAGE' || !node.stateKey || node.stateKey === finalKey) continue;
+    // findReachable walks THROUGH checklist nodes, so `S → CHECKLIST → FINAL`
+    // counts as a direct predecessor — correct, since the checklist is part of
+    // leaving S, not a stage a filter can park at.
+    const r = executor.findReachable(node.id, profile.nodes, profile.edges);
+    if (r.reachableStages.includes(finalKey)) ready.add(node.stateKey as string);
+  }
+  return ready;
+}
+
+/**
+ * True when a filter is READY for its AHU's final cleaning step:
+ *  - Active cycle: parked at the final stage OR at a direct predecessor of it
+ *    (see computeReadyStageKeys — this is the "all at Storage In" rule).
+ *  - No cycle: lifecycle state is CLEANING_CYCLE_COMPLETED (the cycle already
+ *    finished, so the filter is past the final step entirely).
+ * Everything else — never started, or mid-cycle at an earlier stage — is false
+ * and blocks/warns exactly as before.
+ *
+ * Renamed from `reachedFinal` 2026-08-10: "reached final" now describes only one
+ * of the two accepted states and was the source of the confusion this rule
+ * change resolves.
+ */
+export function isReadyForFinalStage(f: CountedFilter, readyStagesByFilter: Map<string, Set<string>>): boolean {
   if (f.currentCycleId != null) {
-    const finalKey = finalStageByFilter.get(f.id);
-    return !!finalKey && f.currentLifecycleState === finalKey;
+    const ready = readyStagesByFilter.get(f.id);
+    return !!ready && !!f.currentLifecycleState && ready.has(f.currentLifecycleState);
   }
   return f.currentLifecycleState === 'CLEANING_CYCLE_COMPLETED';
 }
@@ -174,15 +217,16 @@ export async function computeAhuCompletionStatus(
 }> {
   const all = await loadCountedFilters(ahuId, set);
 
-  // Build the final-stage key for EVERY filter that has an active cycle (was
+  // Build the ready-stage SET for EVERY filter that has an active cycle (was
   // just the siblings — now the full roster so `done` is correct for the row
-  // the operator is currently on, too). loadLocalContext resolves via the
-  // frozen cycle.profileId, so a null FilterDetails.filterProfileId is safe.
-  const finalStageByFilter = new Map<string, string | null>();
+  // the operator is currently on, too). Per filter, not one global threshold:
+  // an AHU may mix cleaning profiles, and each cycle pins its own. Resolved via
+  // the frozen cycle.profileId, so a null FilterDetails.filterProfileId is safe.
+  const readyStagesByFilter = new Map<string, Set<string>>();
   for (const f of all) {
     if (!f.currentCycleId) continue;
     const loaded = await loadLocalContext(f.id, SYSTEM_CTX);
-    finalStageByFilter.set(f.id, computeFinalStageKey(loaded.ctx.profile));
+    readyStagesByFilter.set(f.id, computeReadyStageKeys(loaded.ctx.profile));
   }
 
   // Full roster (INCLUDING the filter being cleaned) with a done flag — powers
@@ -191,12 +235,12 @@ export async function computeAhuCompletionStatus(
     id: f.id,
     name: f.name,
     stage: f.currentLifecycleState ?? 'Not started',
-    done: reachedFinal(f, finalStageByFilter),
+    done: isReadyForFinalStage(f, readyStagesByFilter),
   }));
 
   // Block decision still EXCLUDES the current filter (it's the one completing).
   const pending = all
-    .filter(f => f.id !== excludeFilterId && !reachedFinal(f, finalStageByFilter))
+    .filter(f => f.id !== excludeFilterId && !isReadyForFinalStage(f, readyStagesByFilter))
     .map(f => ({ id: f.id, name: f.name, stage: f.currentLifecycleState ?? 'Not started' }));
 
   const ahu = await prisma.assetInstance.findUnique({ where: { id: ahuId }, select: { name: true } });
@@ -210,9 +254,15 @@ export async function computeAhuCompletionStatus(
  * Powers the multi-AHU carousel dialog. Pending AHUs (allAtFinal=false) are
  * returned first, then alphabetical by name.
  *
- * Uses computeAhuCompletionStatus(ahuId, '') — exclude NONE — because a filter
- * sitting at its terminal checklist is already `reachedFinal`, so co-batched
- * siblings in the same AHU never false-block each other.
+ * Uses computeAhuCompletionStatus(ahuId, '') — exclude NONE.
+ *
+ * 2026-08-10: the original justification for excluding nothing ("a filter at its
+ * terminal checklist is already reachedFinal") stopped being true when the gate
+ * moved pre-advance — at that point every co-batched filter is still at the
+ * PREDECESSOR stage. The call is still correct, for a different reason: under
+ * the ready-stage rule the predecessor counts as ready, so co-batched siblings
+ * still never false-block each other, and excluding nothing is what lets the
+ * dialog show the operator the AHU's complete roster.
  */
 export async function computeAhuBatchStatus(
   filterIds: string[],
@@ -412,7 +462,10 @@ export async function assertAhuInterlockSatisfied(params: {
     throw new AppError(
       422,
       'AHU_INTERLOCK_PENDING',
-      'All filters belonging to this AHU must reach their final cleaning stage before submission.',
+      // 2026-08-10: wording follows the rule, which is now "every sibling is
+      // staged and waiting for the final step" — not "already at it", a state
+      // no cycle could reach.
+      'All filters belonging to this AHU must be ready for the final cleaning stage before submission.',
       // ahuName + full roster mirror the completion-status endpoint so the
       // client's safety-net dialog (if the state changed between the pre-check
       // and submit) renders the same rich list.

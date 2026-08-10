@@ -1,7 +1,9 @@
 /** Remaining Filters Dialog — AHU completion pre-flight (Task 7 + 2026-07-02 redesign).
  *
  * Shown BEFORE a filter's terminal (completing) checklist opens when sibling
- * filters in the same AHU have not all reached their final cleaning stage.
+ * filters in the same AHU are not all ready for the final cleaning stage
+ * (2026-08-10: "ready" = parked at the final stage or at its direct
+ * predecessor — e.g. Storage In before Storage Out — or already completed).
  *
  * Multi-AHU (2026-07-02): when a submission batch spans several AHUs, each AHU is
  * a card in a ◀ ▶ carousel. A single AHU renders one card with no arrows.
@@ -65,7 +67,7 @@ export function RemainingFiltersDialog({
   const anyReady = ahus.some((a) => a.allAtFinal);
 
   // Count only cycles that actually finished (checklist submitted), not filters
-  // merely parked at their final stage.
+  // merely staged and ready for the final step.
   const doneCount = ahu ? ahu.filters.filter((f) => f.stage === 'CLEANING_CYCLE_COMPLETED').length : 0;
 
   return (
@@ -166,11 +168,11 @@ export function RemainingFiltersDialog({
                     const isCurrent = currentSet.has(f.id);
                     // "Completed" ONLY when the cycle is actually finished
                     // (terminal checklist submitted → CLEANING_CYCLE_COMPLETED).
-                    // A filter parked AT its final stage (e.g. Storage Out) with
-                    // the checklist still pending is `done` for the interlock
-                    // (reached final) but is NOT completed — show its real stage.
+                    // A filter that is READY (staged at Storage In, or parked at
+                    // Storage Out with its checklist pending) satisfies the
+                    // interlock but is NOT completed — show its real stage.
                     const isCompleted = f.stage === 'CLEANING_CYCLE_COMPLETED';
-                    const atFinal = f.done && !isCompleted; // reached final, checklist pending
+                    const atFinal = f.done && !isCompleted; // ready, cycle not yet finished
                     const rowBg = isCompleted ? 'bg-emerald-50/40' : atFinal ? 'bg-sky-50/40' : 'bg-white';
                     const badge = isCompleted
                       ? 'bg-emerald-100 text-emerald-700'

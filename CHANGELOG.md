@@ -1,5 +1,53 @@
 # Changelog
 
+## [Unreleased] — AHU readiness is "all at Storage In", not "all at Storage Out" (2026-08-10)
+
+### Fixed — the AHU interlock demanded a state no cycle could reach
+
+Operator rule, as stated: *all filters must have reached Storage In, and only
+then may filters be submitted at Storage Out.*
+
+**The previous rule was circular.** A sibling counted as done only when parked
+**at** the final stage (`reachedFinal`: `currentLifecycleState === finalStageKey`).
+Since the final stage IS Storage Out, clearing the gate for Storage Out required
+every sibling to already be at Storage Out. This became unsatisfiable when the
+gate moved to run BEFORE the advance commits (dialog-first, `73c532c`): at gate
+time every scanned filter is still parked at the predecessor. Result — under
+INTERLOCK a whole AHU could never be cleared, and under POPUP the dialog warned
+on every submission.
+
+**New rule.** A sibling is READY when it is at the final stage, at a **direct
+predecessor** of the final stage, or its cycle is already
+`CLEANING_CYCLE_COMPLETED`. For every active profile here (`Require`, `CWH`,
+`L1`, `FD`, `DRYIN`, `L22`) the predecessor of Storage Out is Storage In, which
+is exactly the operator's rule.
+
+**This is not a loosening.** A filter still mid-wash or mid-dry, or one that
+never started a cycle, is still not ready and still blocks — only the threshold
+moved off an unreachable state onto the real one.
+
+- `reachedFinal` → **`isReadyForFinalStage`**; the old name described only one of
+  the two accepted states and was the source of the confusion.
+- New `computeReadyStageKeys(profile)` = final stage ∪ its direct predecessors.
+  `findReachable` walks through CHECKLIST nodes, so `S → CHECKLIST → FINAL`
+  correctly counts S as a predecessor — the checklist is part of leaving S, not
+  a state a filter can park at.
+- **Computed per filter, not once per AHU.** Each cycle pins its own profile and
+  a single AHU legitimately mixes them (AHU-027 runs 5 filters on `Require` and
+  1 on `DRYIN`); one global threshold would silently mis-judge the odd one.
+- 422 message and the Remaining Filters dialog copy reworded from "reach their
+  final cleaning stage" to "ready for the final cleaning stage".
+- Corrected the stale rationale on `computeAhuBatchStatus`'s `exclude: ''` — the
+  call is still right, but for a different reason under the new rule.
+
+Tests: the unit assertion `S1 → not ready` was deliberately **inverted** (S1 is
+S2's predecessor), with the reasoning recorded in the file so it doesn't read as
+a test bent to go green. The e2e fixture gained an `S0` stage so its
+"mid-cleaning sibling" sits two stages back and still blocks — preserving what
+those five tests were written to prove. API suite: 1264 passing (baseline 1257 +
+7 new), same 1 known-unrelated failure.
+
+
 ## [Unreleased] — DRY_IN dryer-temperature auto-fetch (2026-08-10)
 
 ### Fixed — instrument auto-fetch worked at Wash In but never at Dry In

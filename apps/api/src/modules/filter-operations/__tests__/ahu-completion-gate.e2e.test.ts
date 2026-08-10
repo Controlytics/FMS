@@ -234,6 +234,13 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
         createdBy: '00000000-0000-0000-0000-000000000001',
         stages: {
           create: [
+            // 2026-08-10 rule change: readiness = the final stage OR a DIRECT
+            // predecessor of it ("all filters at Storage In, then Storage Out").
+            // S0 exists so the "mid-cleaning sibling" fixture below sits two
+            // stages back and is therefore genuinely NOT ready — preserving what
+            // these tests were written to assert. With B at S1 (the predecessor)
+            // it would now, correctly, count as ready and block nothing.
+            { nodeType: 'STAGE', stateKey: 'S0', sortOrder: 0 },
             { nodeType: 'STAGE', stateKey: 'S1', sortOrder: 1 },
             { nodeType: 'STAGE', stateKey: 'S2', sortOrder: 2 },
             { nodeType: 'CHECKLIST', stateKey: null, sortOrder: 3 },
@@ -246,12 +253,14 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
     cleaningProfileId = cp.id;
 
     // Wire connections: S1 → S2 → CHECKLIST → END
+    const s0 = cp.stages.find(s => s.stateKey === 'S0')!;
     const s1 = cp.stages.find(s => s.stateKey === 'S1')!;
     const s2 = cp.stages.find(s => s.stateKey === 'S2')!;
     const cl = cp.stages.find(s => s.nodeType === 'CHECKLIST')!;
     const end = cp.stages.find(s => s.nodeType === 'END')!;
     await prisma.filterPipelineConnection.createMany({
       data: [
+        { profileId: cleaningProfileId, fromStageId: s0.id, toStageId: s1.id },
         { profileId: cleaningProfileId, fromStageId: s1.id, toStageId: s2.id },
         { profileId: cleaningProfileId, fromStageId: s2.id, toStageId: cl.id },
         { profileId: cleaningProfileId, fromStageId: cl.id, toStageId: end.id },
@@ -276,7 +285,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
     });
     filterAId = fA.id;
 
-    // ── Filter B — mid-cleaning at S1 ────────────────────────────────────────
+    // ── Filter B — mid-cleaning at S0 (not the predecessor → still blocks) ───
     const fB = await prisma.assetInstance.create({
       data: { name: `Filter B T3 ${SUFFIX}`, templateId: filterTemplateId, parentId: ahuId },
     });
@@ -311,7 +320,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
     });
     cycleBId = cycleB.id;
 
-    // ── FilterDetails: A at S2 (final), B at S1 (not final) ─────────────────
+    // ── FilterDetails: A at S2 (final), B at S0 (two stages back → NOT ready) ──
     await prisma.filterDetails.create({
       data: {
         assetInstanceId: filterAId,
@@ -325,7 +334,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
         assetInstanceId: filterBId,
         filterProfileId,
         currentCycleId: cycleBId,
-        currentLifecycleState: 'S1',
+        currentLifecycleState: 'S0',
       },
     });
   }, 30_000);
