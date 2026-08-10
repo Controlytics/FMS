@@ -42,6 +42,8 @@ import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
+// 2026-08-10: DRY_IN instrument auto-fetch, shared with the desktop drying panel.
+import { useDryerAutoFetch } from '@/lib/filter-ops/use-dryer-autofetch';
 import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist, isCompletingAdvance, isTerminalTargetWithChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from '../filter-management/components/remaining-filters-dialog';
 import { AhuSetChooserDialog, type FilterSetChoice } from '../filter-management/components/ahu-set-chooser-dialog';
@@ -4532,9 +4534,56 @@ function DryingFilterCard({
   const projection = projectDryerCountdown(cycleData, now);
   const { startedAt, durationMin, halfReached, remainingMin, remainingSecPart, progressPct } = projection;
 
+  // Phase 8.7 Wave-5: shared instrument lookup. Mobile keeps the linear
+  // option-walker (preserves byte-equivalent runtime; desktop uses the
+  // snapped flavour because of the original buildTempOptions implementation
+  // there).
+  //
+  // 2026-08-10: MOVED above the two early returns below. `useDryerAutoFetch`
+  // needs `dryerInstrument`, and a hook after a conditional return is illegal
+  // in React — the card would crash the moment a filter's readings were
+  // submitted (return null) or its dryer hadn't started (early return). Pure
+  // relocation: none of these three depend on the countdown values.
+  const dryerInstrument = findDryerTempInstrument(equipGroup);
+  const tempOptions: number[] = dryerInstrument
+    ? buildTempOptionsLinear(dryerInstrument.operatingMin, dryerInstrument.operatingMax, dryerInstrument.leastCount)
+    : [];
+  const tempUom = dryerInstrument?.uom ?? '°C';
+
+  // Persist the temperature exactly as the manual dropdown does, so a fetched
+  // value also survives navigating away and back.
+  const applyTemp = (val: number | '') => {
+    setTemp(val);
+    if (val === '') return;
+    import('@/lib/offline-store').then(({ cacheData }) => {
+      cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
+    }).catch(err => {
+      // eslint-disable-next-line no-console -- intentional structured log
+      console.warn(
+        '[mobile-operations] dryer-temp persist failed —',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+  };
+
+  // 2026-08-10: DRY_IN auto-fetch, shared with the desktop DryingFilterRow.
+  // This card — not the equipment dialog — is where the dryer temperature is
+  // actually entered, which is why "auto fetch works in Wash In but not in
+  // Dry In": the call was never wired here. Hook call sits above the early
+  // returns below (React forbids conditional hooks).
+  const autoFetch = useDryerAutoFetch({
+    filterId,
+    group: equipGroup,
+    dryerInstrument,
+    online,
+    onValue: applyTemp,
+  });
+
   // 2026-05-25: once dryer readings are submitted, hide the card entirely
   // until this filter re-enters DRY_IN in a future cycle. Desktop mirrors
   // this — see drying-filters-panel.tsx DryingFilterRow.
+  // (Both early returns now sit BELOW every hook call — see the relocation
+  // note above.)
   if (cycleData?.dryerReadingsSubmitted) return null;
 
   if (!startedAt || !durationMin) {
@@ -4546,16 +4595,6 @@ function DryingFilterCard({
     );
   }
 
-  // Phase 8.7 Wave-5: shared instrument lookup. Mobile keeps the linear
-  // option-walker (preserves byte-equivalent runtime; desktop uses the
-  // snapped flavour because of the original buildTempOptions implementation
-  // there).
-  const dryerInstrument = findDryerTempInstrument(equipGroup);
-  const tempOptions: number[] = dryerInstrument
-    ? buildTempOptionsLinear(dryerInstrument.operatingMin, dryerInstrument.operatingMax, dryerInstrument.leastCount)
-    : [];
-  const tempUom = dryerInstrument?.uom ?? '°C';
-
   const handleTempSubmit = async () => {
     if (!temp || submitting || !equipGroup) return;
     setSubmitting(true);
@@ -4563,7 +4602,13 @@ function DryingFilterCard({
       const dryInInstruments = (equipGroup.instruments ?? []).filter((i: any) => i.stageKey === 'DRY_IN');
       const readings: Record<string, number> = {};
       for (const inst of dryInInstruments) {
-        readings[inst.id] = (dryerInstrument && inst.id === dryerInstrument.id) ? Number(temp) : inst.operatingMin;
+        if (dryerInstrument && inst.id === dryerInstrument.id) { readings[inst.id] = Number(temp); continue; }
+        // 2026-08-10: use a REAL fetched value for a non-temperature DRY_IN
+        // instrument when auto-fetch returned one. `operatingMin` is a
+        // fabricated number recorded as if measured — keep it only as the
+        // manual-mode fallback it already was.
+        const auto = autoFetch.fetched[inst.id];
+        readings[inst.id] = typeof auto === 'number' ? auto : inst.operatingMin;
       }
       const { executed } = await executeOrQueue('advance', filterId, filterName, {
         targetState: 'DRY_IN',
@@ -4631,43 +4676,68 @@ function DryingFilterCard({
         </div>
       )}
       {/* Temperature selection — only when half-time reached and not yet submitted */}
-      {halfReached && !cycleData?.dryerReadingsSubmitted && tempOptions.length > 0 && (
+      {halfReached && !cycleData?.dryerReadingsSubmitted && (autoFetch.isAuto ? !!dryerInstrument : tempOptions.length > 0) && (
+        <>
+        {/* 2026-08-10: auto-fetch mode swaps the stepped dropdown for a free
+            numeric input + "Get Values", matching the WASH_IN equipment dialog.
+            Offline `isAuto` is false and the original dropdown is used. */}
+        {autoFetch.isAuto && (
+          <button
+            type="button"
+            onClick={autoFetch.getValues}
+            disabled={submitting || autoFetch.fetching}
+            className="w-full mt-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-xl bg-cyan-600 text-white active:bg-cyan-500 disabled:opacity-50"
+          >
+            {autoFetch.fetching
+              ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+            {autoFetch.fetching ? 'Fetching…' : 'Get Values'}
+          </button>
+        )}
+        {autoFetch.isAuto && autoFetch.status && (
+          <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">{autoFetch.status}</div>
+        )}
         <div className="flex items-center gap-2 pt-1">
+          {autoFetch.isAuto ? (
+            <div className="flex-1 flex items-center gap-2">
+              <input
+                type="number"
+                step="any"
+                inputMode="decimal"
+                value={temp}
+                onChange={e => {
+                  autoFetch.markEdited();
+                  applyTemp(e.target.value === '' ? '' : Number(e.target.value));
+                }}
+                disabled={submitting}
+                placeholder={autoFetch.fetching ? 'Fetching…' : `Enter or fetch ${tempUom}`}
+                className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:border-amber-400 outline-none"
+              />
+              {autoFetch.source === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
+              {autoFetch.source === 'AUTO_OVERRIDDEN' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700">Auto · edited</span>}
+            </div>
+          ) : (
           <select
             value={temp}
-            onChange={e => {
-              const val = e.target.value ? Number(e.target.value) : '';
-              setTemp(val);
-              if (val !== '') {
-                // Persist dryer temp so it survives navigation. Surface IDB
-                // failures so "temp got lost" isn't a silent mystery.
-                import('@/lib/offline-store').then(({ cacheData }) => {
-                  cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
-                }).catch(err => {
-                  // eslint-disable-next-line no-console -- intentional structured log
-                  console.warn(
-                    '[mobile-operations] dryer-temp persist failed —',
-                    err instanceof Error ? err.message : String(err),
-                  );
-                });
-              }
-            }}
+            onChange={e => applyTemp(e.target.value ? Number(e.target.value) : '')}
             disabled={submitting}
             className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:border-amber-400 outline-none"
           >
             <option value="">Select {tempUom}...</option>
             {tempOptions.map(v => <option key={v} value={v}>{formatByLeastCount(v, dryerInstrument?.leastCount)} {tempUom}</option>)}
           </select>
+          )}
           <button
             onClick={handleTempSubmit}
-            disabled={!temp || submitting}
+            disabled={!temp || submitting || autoFetch.fetching}
             className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-bold disabled:opacity-40 active:opacity-90"
           >
             {submitting ? '...' : 'Submit'}
           </button>
         </div>
+        </>
       )}
-      {halfReached && !cycleData?.dryerReadingsSubmitted && tempOptions.length === 0 && (
+      {halfReached && !cycleData?.dryerReadingsSubmitted && !dryerInstrument && (
         <div className="text-[10px] text-red-500">No temperature instrument configured for this equipment group</div>
       )}
     </div>

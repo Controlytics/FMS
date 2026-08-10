@@ -1,5 +1,54 @@
 # Changelog
 
+## [Unreleased] — DRY_IN dryer-temperature auto-fetch (2026-08-10)
+
+### Fixed — instrument auto-fetch worked at Wash In but never at Dry In
+
+Reported as: air pressure and water pressure auto-fetch fine at WASH_IN with
+auto-fetch enabled on the equipment group, but the DRY_IN dryer temperature
+never does.
+
+**Root cause — the DRY_IN reading is not collected where auto-fetch was wired.**
+Phase 4a added the "Get Values" button to the *equipment dialog*, which owns
+WASH_IN air/water pressure. The dryer temperature is collected somewhere else
+entirely: the **"Currently Drying" countdown panel** — `drying-filters-panel.tsx`
+on desktop and an inline `DryingFilterCard` in `mobile-operations.tsx` on the
+tablet. Neither panel ever called `POST /api/equipment-groups/fetch-readings`,
+so the operator only ever got the manual stepped dropdown. This is the
+`DRY_IN fetch at SUBMIT_READINGS` item that Phase 4 left open.
+
+**Nothing was wrong server-side.** `fetchStageReadings` already accepts `DRY_IN`
+explicitly and `resolveStageContext` filters instruments by `stageKey`; the
+configured endpoints return `temperature` correctly. Purely the missing client
+call. No API change.
+
+- **New shared hook** `lib/filter-ops/use-dryer-autofetch.ts` — online-only,
+  2-minute poll at 5s intervals, aborts on unmount, `AUTO` / `AUTO_OVERRIDDEN`
+  provenance. A hook rather than copy-paste because the tablet keeps its own
+  inline copy of every dialog and two hand-mirrored poll loops is exactly how
+  the surfaces drift.
+- **Both panels** swap the stepped dropdown for a free numeric input plus a
+  "Get Values" button when the DRY_IN instrument has `autoFetchEnabled`, with
+  the same Auto / Auto·edited badges as the WASH_IN dialog. Offline, `isAuto`
+  is false and the original dropdown is unchanged (P5: offline = manual).
+- **Missing `autoFetchEnabled` is treated as OFF** (`=== true`), so a cycle
+  pinned to a pre-2026-06-13 `EquipmentGroupVersion` snapshot — which has no
+  such key — degrades to the manual dropdown instead of showing a button that
+  could never resolve a `responseKey`.
+- **Submit no longer fabricates sibling readings when real ones exist.** Both
+  panels wrote `operatingMin` for every non-temperature DRY_IN instrument — a
+  made-up number recorded as if measured. A fetched value now wins; the
+  `operatingMin` fallback survives only for manual mode.
+- **React-correctness fix in the tablet card**: `dryerInstrument` / `tempOptions`
+  / `tempUom` moved above the two early returns (`dryerReadingsSubmitted`,
+  dryer-not-started). The new hook needs `dryerInstrument`, and a hook after a
+  conditional return would have crashed the card. Pure relocation — none of the
+  three depend on the countdown values.
+
+Web suite: 659 passing (50 files), up from 651 — 8 new cases covering the enable
+rule, the legacy-snapshot degradation, sibling-value retention, and provenance.
+
+
 ## [Unreleased] — AHU completion pre-flight fires again at Storage Out (2026-08-10)
 
 ### Fixed — the POPUP / INTERLOCK dialog silently stopped appearing

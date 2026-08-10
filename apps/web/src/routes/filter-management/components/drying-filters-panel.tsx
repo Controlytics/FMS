@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { useOffline } from '@/hooks/use-offline';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
+// 2026-08-10: DRY_IN instrument auto-fetch. Shared with the tablet's inline
+// DryingFilterCard so the two surfaces can't drift.
+import { useDryerAutoFetch } from '@/lib/filter-ops/use-dryer-autofetch';
 // Phase 8.7 Wave-5: countdown helpers + temperature-options + instrument
 // lookup live in lib/filter-ops/use-dryer-countdown.ts, shared with the
 // mobile DryingFilterCard. Layout stays per-page (desktop = compact row,
@@ -71,7 +74,7 @@ function DryingFilterRow({
   setToast: (t: { type: 'success' | 'error'; message: string } | null) => void;
   setPopupError: (msg: string) => void;
 }) {
-  const { executeOrQueue } = useOffline();
+  const { executeOrQueue, online } = useOffline();
   const { data: state, mutate: refreshState } = useSWR<any>(`/api/filters/${filterId}/current-state`, { refreshInterval: 15000 });
   const [temp, setTemp] = useState<number | ''>('');
   const [submitting, setSubmitting] = useState(false);
@@ -130,6 +133,33 @@ function DryingFilterRow({
     : [];
   const tempUom = dryerInstrument?.uom ?? '°C';
 
+  // Persist the temperature the same way the manual dropdown does, so a fetched
+  // value also survives a mid-cycle page refresh.
+  const applyTemp = useCallback((val: number | '') => {
+    setTemp(val);
+    if (val === '') return;
+    import('@/lib/offline-store').then(({ cacheData }) => {
+      cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
+    }).catch(err => {
+      // eslint-disable-next-line no-console -- intentional structured log
+      console.warn(
+        '[filter-operations] dryer-temp persist failed —',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+  }, [filterId]);
+
+  // 2026-08-10: DRY_IN auto-fetch. MUST be called before the early returns
+  // below — React forbids a conditional hook. `isAuto` folds in the online-only
+  // rule, so offline this collapses to the pre-existing manual dropdown.
+  const autoFetch = useDryerAutoFetch({
+    filterId,
+    group: resolvedGroup,
+    dryerInstrument,
+    online,
+    onValue: applyTemp,
+  });
+
   // 2026-05-25: once dryer readings are submitted, hide the row entirely until
   // the next time this filter re-enters DRY_IN (i.e. until a fresh cycle for
   // this filter reaches DRY_IN, at which point dryerReadingsSubmitted is
@@ -159,8 +189,14 @@ function DryingFilterRow({
       const dryInInstruments = (resolvedGroup.instruments ?? []).filter((i: any) => i.stageKey === 'DRY_IN');
       const readings: Record<string, number> = {};
       for (const inst of dryInInstruments) {
-        if (dryerInstrument && inst.id === dryerInstrument.id) readings[inst.id] = Number(temp);
-        else readings[inst.id] = inst.operatingMin;
+        if (dryerInstrument && inst.id === dryerInstrument.id) { readings[inst.id] = Number(temp); continue; }
+        // 2026-08-10: prefer a REAL fetched value for a non-temperature DRY_IN
+        // instrument. The `operatingMin` fallback below is a fabricated number
+        // recorded as if it were measured — keep it only where nothing was
+        // fetched (manual mode, or the key missed), which is the pre-existing
+        // behaviour, but never overwrite a genuine reading with it.
+        const auto = autoFetch.fetched[inst.id];
+        readings[inst.id] = typeof auto === 'number' ? auto : inst.operatingMin;
       }
       const { executed } = await executeOrQueue('advance', filterId, filterName, {
         targetState: 'DRY_IN',
@@ -228,32 +264,49 @@ function DryingFilterRow({
               <option key={g.id} value={g.id}>{g.name}</option>
             ))}
           </select>
-        ) : tempOptions.length === 0 ? (
+        ) : !dryerInstrument || (!autoFetch.isAuto && tempOptions.length === 0) ? (
           <span className="text-xs text-red-600">No dryer temperature instrument configured</span>
         ) : (
           <>
+            {/* 2026-08-10: auto-fetch replaces the stepped dropdown with a free
+                numeric input + a Get Values button — same affordance the WASH_IN
+                equipment dialog uses. Offline `isAuto` is false and this whole
+                branch falls back to the original dropdown. */}
+            {autoFetch.isAuto ? (
+              <>
+                <button
+                  type="button"
+                  onClick={autoFetch.getValues}
+                  disabled={!halfElapsed || submitting || autoFetch.fetching}
+                  title={halfElapsed ? 'Fetch the dryer temperature from the instrument' : 'Available once the dryer reaches its halfway point'}
+                  className="inline-flex items-center gap-1.5 rounded border border-cyan-600 bg-cyan-600 px-2 py-1 text-xs font-semibold text-white hover:bg-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {autoFetch.fetching
+                    ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                  {autoFetch.fetching ? 'Fetching…' : 'Get Values'}
+                </button>
+                <input
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  value={temp}
+                  onChange={(e) => {
+                    autoFetch.markEdited();
+                    applyTemp(e.target.value === '' ? '' : Number(e.target.value));
+                  }}
+                  disabled={!halfElapsed || submitting}
+                  placeholder={autoFetch.fetching ? 'Fetching…' : tempUom}
+                  className="w-24 rounded border border-slate-300 px-2 py-1 text-slate-800 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={`${formatByLeastCount(dryerInstrument.operatingMin, dryerInstrument.leastCount)}–${formatByLeastCount(dryerInstrument.operatingMax, dryerInstrument.leastCount)} ${tempUom}`}
+                />
+                {autoFetch.source === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
+                {autoFetch.source === 'AUTO_OVERRIDDEN' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700">Auto · edited</span>}
+              </>
+            ) : (
             <select
               value={temp}
-              onChange={(e) => {
-                const val = e.target.value ? Number(e.target.value) : '';
-                setTemp(val);
-                if (val !== '') {
-                  // Persist the selected dryer temp so it survives a page
-                  // refresh mid-cycle. Failure here is recoverable — the
-                  // operator can re-select on reload — but worth a warn so
-                  // operators see IDB issues instead of mysterious "temp got
-                  // lost" behavior.
-                  import('@/lib/offline-store').then(({ cacheData }) => {
-                    cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
-                  }).catch(err => {
-                    // eslint-disable-next-line no-console -- intentional structured log
-                    console.warn(
-                      '[filter-operations] dryer-temp persist failed —',
-                      err instanceof Error ? err.message : String(err),
-                    );
-                  });
-                }
-              }}
+              onChange={(e) => applyTemp(e.target.value ? Number(e.target.value) : '')}
               disabled={!halfElapsed || submitting}
               className="rounded border border-slate-300 px-2 py-1 text-slate-800 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
               title={dryerInstrument ? `${formatByLeastCount(dryerInstrument.operatingMin, dryerInstrument.leastCount)}–${formatByLeastCount(dryerInstrument.operatingMax, dryerInstrument.leastCount)} ${tempUom} (step ${dryerInstrument.leastCount})` : ''}
@@ -263,6 +316,7 @@ function DryingFilterRow({
                 <option key={v} value={v}>{formatByLeastCount(v, dryerInstrument?.leastCount)}{tempUom}</option>
               ))}
             </select>
+            )}
             <button
               type="button"
               onClick={handleSubmit}
@@ -274,6 +328,9 @@ function DryingFilterRow({
           </>
         )}
       </div>
+      {autoFetch.isAuto && autoFetch.status && (
+        <div className="text-[11px] text-slate-500">{autoFetch.status}</div>
+      )}
     </div>
   );
 }
