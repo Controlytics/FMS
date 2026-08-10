@@ -24,7 +24,10 @@
  * Behaviour mirrors `handleGetValuesMobile` in the equipment dialog exactly:
  *  - ONLINE ONLY. Offline the caller keeps the manual stepped dropdown (P5
  *    decision: offline = manual). `enabled` folds `online` in.
- *  - Polls for up to 2 minutes, 5s apart, until the value arrives.
+ *  - Polls for up to 1 MINUTE, 5s apart, until the value arrives (2026-08-10,
+ *    was 2 minutes). On timeout `timedOut` goes true and the panels swap back to
+ *    the ORIGINAL stepped dropdown — the normal equipment-group flow — instead
+ *    of leaving the operator staring at an empty numeric box.
  *  - Aborts cleanly on unmount so a closed panel can't keep polling.
  *  - Provenance: AUTO on a fetched value. The value is then LOCKED — see
  *    `locked` below.
@@ -56,6 +59,12 @@ export interface DryerAutoFetchResult {
    * fallback, otherwise a dead endpoint dead-ends the operator.
    */
   locked: boolean;
+  /**
+   * The 1-minute budget expired without a value → render the manual stepped
+   * dropdown. Cleared when the operator presses "Get Values" again, so a
+   * transient outage doesn't strand the field on the dropdown.
+   */
+  timedOut: boolean;
   fetching: boolean;
   status: string;
   source: ReadingSource;
@@ -85,6 +94,7 @@ export function useDryerAutoFetch(params: {
   const [status, setStatus] = useState('');
   const [source, setSource] = useState<ReadingSource>('MANUAL');
   const [fetched, setFetched] = useState<Record<string, number>>({});
+  const [timedOut, setTimedOut] = useState(false);
   const cancelRef = useRef(false);
 
   // A panel row unmounts as soon as the reading is submitted (the parent hides
@@ -105,6 +115,7 @@ export function useDryerAutoFetch(params: {
     setSource('MANUAL');
     setFetched({});
     setStatus('');
+    setTimedOut(false);
   }, []);
 
   const markEdited = useCallback(() => {
@@ -114,12 +125,13 @@ export function useDryerAutoFetch(params: {
   const getValues = useCallback(async () => {
     if (!isAuto || !group || !dryerInstrument || fetching) return;
     cancelRef.current = false;
+    setTimedOut(false);
     setFetching(true);
     setStatus('Fetching dryer temperature…');
     const start = Date.now();
     let got = false;
     try {
-      while (!got && (Date.now() - start) < 120_000) {
+      while (!got && (Date.now() - start) < 60_000) {
         if (cancelRef.current) return;
         let res: any = null;
         try {
@@ -150,10 +162,11 @@ export function useDryerAutoFetch(params: {
     } finally {
       if (!cancelRef.current) {
         setFetching(false);
-        setStatus(got ? 'Temperature fetched.' : "Couldn't fetch — enter manually.");
+        if (!got) setTimedOut(true);
+        setStatus(got ? 'Temperature fetched.' : "Couldn't fetch in 1 minute — select the value manually.");
       }
     }
   }, [isAuto, group, dryerInstrument, fetching, filterId, onValue]);
 
-  return { isAuto, locked: source === 'AUTO', fetching, status, source, fetched, getValues, markEdited, reset };
+  return { isAuto, locked: source === 'AUTO', timedOut, fetching, status, source, fetched, getValues, markEdited, reset };
 }

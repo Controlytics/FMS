@@ -206,6 +206,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [readings, setReadings] = useState<Record<string, number>>({});
   // Instrument auto-fetch (2026-06-13) — mirrors the shared web EquipmentDialog.
   const [equipSource, setEquipSource] = useState<Record<string, 'MANUAL' | 'AUTO' | 'AUTO_OVERRIDDEN'>>({});
+  /**
+   * Instruments whose fetch ran out the 1-minute budget (2026-08-10) — they
+   * revert to the normal stepped dropdown until "Get Values" is pressed again.
+   * Per-instrument: in a 2-instrument Wash In group one reading can land while
+   * the other times out, and only the latter should revert.
+   */
+  const [equipManualFallback, setEquipManualFallback] = useState<Set<string>>(new Set());
   const [equipFetching, setEquipFetching] = useState(false);
   const [equipFetchStatus, setEquipFetchStatus] = useState('');
   const [equipPending, setEquipPending] = useState<Set<string>>(new Set());
@@ -2314,13 +2321,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       .map((i: any) => i.id);
     if (autoIds.length === 0) return;
     equipCancelRef.current = false;
+    // A retry clears the previous timeout so a transient outage doesn't strand
+    // the instrument on the dropdown for the rest of the dialog's life.
+    setEquipManualFallback(new Set());
     setEquipFetching(true);
     const pending = new Set<string>(autoIds);
     setEquipPending(new Set(pending));
     setEquipFetchStatus(`Fetching ${autoIds.length} reading(s)…`);
     const start = Date.now();
     try {
-      while (pending.size > 0 && (Date.now() - start) < 120_000) {
+      // 1 minute (was 2) — operator request 2026-08-10.
+      while (pending.size > 0 && (Date.now() - start) < 60_000) {
         if (equipCancelRef.current) return;
         let res: any = null;
         try {
@@ -2344,7 +2355,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     } finally {
       if (!equipCancelRef.current) {
         setEquipFetching(false);
-        setEquipFetchStatus(pending.size > 0 ? `${pending.size} reading(s) couldn't be fetched — enter manually.` : 'All readings fetched.');
+        if (pending.size > 0) setEquipManualFallback(new Set(pending));
+        setEquipFetchStatus(pending.size > 0 ? `${pending.size} reading(s) couldn't be fetched in 1 minute — select them manually.` : 'All readings fetched.');
       }
     }
   };
@@ -4155,7 +4167,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-4 rounded-t-3xl"><h2 className="text-lg font-bold text-white">{equipDialog.stage === 'DRY_IN' ? 'Dryer Temperature' : 'Equipment Readings'}</h2><p className="text-amber-100 text-sm">{equipDialog.filterName}</p></div>
             <div className="p-5 space-y-3 overflow-y-auto flex-1">
               {!equipDialog.cycleGroup && (equipDialog.groups as any[]).map((g: any) => (
-                <button key={g.id} onClick={() => { setSelectedEquipGroup(g); setReadings({}); setEquipSource({}); setEquipFetchStatus(''); setEquipPending(new Set()); }} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedEquipGroup?.id === g.id ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
+                <button key={g.id} onClick={() => { setSelectedEquipGroup(g); setReadings({}); setEquipSource({}); setEquipFetchStatus(''); setEquipPending(new Set()); setEquipManualFallback(new Set()); }} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedEquipGroup?.id === g.id ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
                   <div className="text-sm font-medium text-slate-800">{g.name}</div>
                 </button>
               ))}
@@ -4163,7 +4175,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 const stageInsts = (selectedEquipGroup.instruments ?? []).filter((i: any) => i.stageKey === equipDialog.stage);
                 // Auto-fetch is online-only. Offline → every instrument reverts to
                 // the manual stepped-dropdown (operatingMin/Max + leastCount). P5.
-                const isAutoInstrument = (i: any): boolean => i.autoFetchEnabled === true && online;
+                // A timed-out instrument reverts to the dropdown — but only if
+                // the dropdown would actually have entries (a zero/absent
+                // leastCount yields none, and an empty select is a dead end).
+                const isAutoInstrument = (i: any): boolean =>
+                  i.autoFetchEnabled === true
+                  && online
+                  && !(equipManualFallback.has(i.id) && genOpts(i.operatingMin, i.operatingMax, i.leastCount).length > 0);
                 const hasAuto = stageInsts.some(isAutoInstrument);
                 return (
                   <>
@@ -4710,7 +4728,9 @@ function DryingFilterCard({
           <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">{autoFetch.status}</div>
         )}
         <div className="flex items-center gap-2 pt-1">
-          {autoFetch.isAuto ? (
+          {/* Timed-out fetch reverts to the stepped dropdown (2026-08-10), but
+              only when it has entries — an empty select would dead-end. */}
+          {autoFetch.isAuto && !(autoFetch.timedOut && tempOptions.length > 0) ? (
             <div className="flex-1 flex items-center gap-2">
               <input
                 type="number"

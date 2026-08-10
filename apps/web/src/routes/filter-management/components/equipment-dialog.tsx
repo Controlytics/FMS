@@ -26,7 +26,11 @@ type ReadingSource = 'MANUAL' | 'AUTO' | 'AUTO_OVERRIDDEN';
 
 // Auto-fetch retry budget (2026-06-13): poll the server proxy for up to ~2
 // minutes (two 1-min windows) before falling back to manual entry per the spec.
-const FETCH_BUDGET_MS = 120_000;
+// 2026-08-10 (operator request): 1 minute, was 2. When the budget runs out the
+// still-unfetched instruments revert to the ORIGINAL stepped dropdown rather
+// than leaving a bare numeric box — two minutes of staring at an empty field
+// was the complaint.
+const FETCH_BUDGET_MS = 60_000;
 const FETCH_INTERVAL_MS = 5_000;
 
 function generateReadingOptions(opMin: number, opMax: number, leastCount: number): number[] {
@@ -47,6 +51,14 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
   const [fetching, setFetching] = useState(false);
   const [fetchStatus, setFetchStatus] = useState('');
   const [pendingAuto, setPendingAuto] = useState<Set<string>>(new Set());
+  /**
+   * Instruments whose fetch ran out the budget (2026-08-10). They fall back to
+   * the manual stepped dropdown — the normal equipment-group flow — until the
+   * operator presses "Get Values" again, which clears them and retries.
+   * Per-instrument, not per-stage: in a 2-instrument Wash In group one reading
+   * can arrive while the other times out, and only the latter should revert.
+   */
+  const [manualFallback, setManualFallback] = useState<Set<string>>(new Set());
   const cancelRef = useRef(false);
 
   // Reset internal state when dialog opens/closes. Cleanup aborts any in-flight
@@ -119,6 +131,9 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
     if (autoIds.length === 0) return;
 
     cancelRef.current = false;
+    // Retrying clears any previous timeout, so a transient outage doesn't strand
+    // the instrument on the dropdown for the rest of the dialog's life.
+    setManualFallback(new Set());
     setFetching(true);
     const pending = new Set<string>(autoIds);
     setPendingAuto(new Set(pending));
@@ -152,8 +167,10 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
     } finally {
       if (!cancelRef.current) {
         setFetching(false);
+        // Timed-out instruments revert to the manual dropdown.
+        if (pending.size > 0) setManualFallback(new Set(pending));
         setFetchStatus(pending.size > 0
-          ? `${pending.size} reading(s) couldn't be fetched — enter them manually below.`
+          ? `${pending.size} reading(s) couldn't be fetched in 1 minute — select them manually below.`
           : 'All readings fetched.');
       }
     }
@@ -205,7 +222,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
               <div className="text-sm text-slate-500 mb-1">Select Equipment Group:</div>
               <div className="space-y-2">
                 {dialog.groups.map((g: any) => (
-                  <button key={g.id} onClick={() => { setSelectedEquipmentGroup(g); setInstrumentReadings({}); setSource({}); setInternalError(''); setFetchStatus(''); setPendingAuto(new Set()); }}
+                  <button key={g.id} onClick={() => { setSelectedEquipmentGroup(g); setInstrumentReadings({}); setSource({}); setInternalError(''); setFetchStatus(''); setPendingAuto(new Set()); setManualFallback(new Set()); }}
                     className={`w-full text-left px-4 py-3 rounded-xl transition-all ${selectedEquipmentGroup?.id === g.id ? 'bg-cyan-50 border-2 border-cyan-500' : 'bg-slate-100 border-2 border-transparent hover:border-slate-300'}`}>
                     <div className="text-sm font-medium text-slate-800">{g.name}</div>
                     <div className="text-xs text-slate-400 mt-0.5">
@@ -242,9 +259,15 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                 const val = instrumentReadings[inst.id];
                 const src = source[inst.id];
                 const outOfRange = val !== undefined && (val < inst.operatingMin || val > inst.operatingMax);
-                const auto = isAutoInstrument(inst);
                 const isWaiting = fetching && pendingAuto.has(inst.id);
-                const options = auto ? [] : generateReadingOptions(inst.operatingMin, inst.operatingMax, inst.leastCount);
+                // Options are needed BEFORE deciding the control: a timed-out
+                // instrument can only revert to the dropdown if the dropdown
+                // would actually have entries. A zero/absent leastCount yields
+                // none, and swapping in an empty select would dead-end the
+                // operator — keep the numeric input in that case.
+                const options = generateReadingOptions(inst.operatingMin, inst.operatingMax, inst.leastCount);
+                const timedOut = manualFallback.has(inst.id) && options.length > 0;
+                const auto = isAutoInstrument(inst) && !timedOut;
                 return (
                   <div key={inst.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
                     <div className="flex items-center justify-between">

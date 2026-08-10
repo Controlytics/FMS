@@ -275,7 +275,11 @@ function DryingFilterRow({
                 numeric input + a Get Values button — same affordance the WASH_IN
                 equipment dialog uses. Offline `isAuto` is false and this whole
                 branch falls back to the original dropdown. */}
-            {autoFetch.isAuto ? (
+            {/* A timed-out fetch reverts to the ORIGINAL stepped dropdown
+                (2026-08-10) — but only when that dropdown has entries; a
+                zero/absent leastCount yields none and an empty select would be
+                a dead end, so the numeric input stays in that case. */}
+            {autoFetch.isAuto && !(autoFetch.timedOut && tempOptions.length > 0) ? (
               <>
                 <button
                   type="button"

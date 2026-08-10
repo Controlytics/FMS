@@ -112,6 +112,23 @@ describe('useDryerAutoFetch — getValues', () => {
     expect(hook.result.current.locked).toBe(false);
   });
 
+  it('sets timedOut once the 1-minute budget is exhausted → panel shows the dropdown', async () => {
+    // Deterministic without waiting a real minute or fighting fake timers:
+    // stub Date.now so the budget is already blown at the loop's first check.
+    // That exercises the give-up branch (`got === false` → timedOut) directly.
+    // The "one poll then give up" path is covered by the failed-fetch test above.
+    (apiClient.post as any).mockResolvedValue({ results: [] });
+    const seq = [0, 61_000, 61_000];
+    let i = 0;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => seq[Math.min(i++, seq.length - 1)]);
+    const { hook } = setup();
+    await act(async () => { await hook.result.current.getValues(); });
+    nowSpy.mockRestore();
+
+    expect(hook.result.current.timedOut).toBe(true);
+    expect(hook.result.current.locked).toBe(false); // reverts to manual, not locked
+  });
+
   it('does not call the endpoint at all when auto-fetch is off', async () => {
     const { hook, onValue } = setup({ online: false });
     await act(async () => { await hook.result.current.getValues(); });
