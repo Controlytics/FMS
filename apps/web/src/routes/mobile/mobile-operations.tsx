@@ -2279,7 +2279,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
   // Mark a value the operator typed/picked. Editing an auto-filled value flips
   // provenance to AUTO_OVERRIDDEN (never silently stays AUTO).
+  /**
+   * A successfully auto-fetched value is LOCKED (2026-08-10, operator request) —
+   * mirrors equipment-dialog.tsx; see the full rationale there. Supersedes the
+   * 2026-06-13 AUTO_OVERRIDDEN decision; that state is now unreachable.
+   *
+   * Keyed on source === 'AUTO', not on the instrument being auto-configured, so
+   * a fetch that never lands still leaves a typeable manual-fallback field.
+   */
+  const isEquipLocked = (instId: string): boolean => equipSource[instId] === 'AUTO';
+
   const setEquipReading = (instId: string, raw: string) => {
+    if (isEquipLocked(instId)) return;
     setReadings(prev => {
       const next = { ...prev };
       const n = Number(raw);
@@ -2287,7 +2298,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       else next[instId] = n;
       return next;
     });
-    setEquipSource(prev => ({ ...prev, [instId]: (prev[instId] === 'AUTO' || prev[instId] === 'AUTO_OVERRIDDEN') ? 'AUTO_OVERRIDDEN' : 'MANUAL' }));
+    setEquipSource(prev => ({ ...prev, [instId]: 'MANUAL' }));
   };
 
   // "Get Values": poll the SSRF-hardened server proxy, filling each auto
@@ -4172,13 +4183,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                         <div key={inst.id}>
                           <div className="flex items-center gap-2">
                             <label className="text-sm font-medium text-slate-700">{inst.description} ({inst.uom})</label>
-                            {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
-                            {src === 'AUTO_OVERRIDDEN' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700">Auto · edited</span>}
+                            {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
                           </div>
                           {isAutoInstrument(inst) ? (
                             <input type="number" step="any" inputMode="decimal" value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)}
+                              readOnly={isEquipLocked(inst.id)}
+                              aria-readonly={isEquipLocked(inst.id)}
                               placeholder={equipFetching && equipPending.has(inst.id) ? 'Fetching…' : 'Enter or fetch'}
-                              className={`w-full mt-1 border rounded-xl px-4 py-3 text-sm bg-white ${oor ? 'border-amber-400' : 'border-slate-200'}`} />
+                              className={`w-full mt-1 border rounded-xl px-4 py-3 text-sm ${isEquipLocked(inst.id) ? 'bg-slate-100 text-slate-600' : 'bg-white'} ${oor ? 'border-amber-400' : 'border-slate-200'}`} />
                           ) : (
                             <select value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)} className="w-full mt-1 border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white">
                               <option value="">Select...</option>{genOpts(inst.operatingMin, inst.operatingMax, inst.leastCount).map(v => <option key={v} value={v}>{formatByLeastCount(v, inst.leastCount)} {inst.uom}</option>)}
@@ -4705,16 +4717,19 @@ function DryingFilterCard({
                 step="any"
                 inputMode="decimal"
                 value={temp}
+                // Fetched value is READ-ONLY (2026-08-10); typeable only before
+                // the fetch lands or after it gives up (manual fallback).
                 onChange={e => {
-                  autoFetch.markEdited();
+                  if (autoFetch.locked) return;
                   applyTemp(e.target.value === '' ? '' : Number(e.target.value));
                 }}
+                readOnly={autoFetch.locked}
+                aria-readonly={autoFetch.locked}
                 disabled={submitting}
                 placeholder={autoFetch.fetching ? 'Fetching…' : `Enter or fetch ${tempUom}`}
-                className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:border-amber-400 outline-none"
+                className={`flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-amber-400 outline-none ${autoFetch.locked ? 'bg-slate-100 text-slate-600' : 'bg-white text-slate-800'}`}
               />
-              {autoFetch.source === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
-              {autoFetch.source === 'AUTO_OVERRIDDEN' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700">Auto · edited</span>}
+              {autoFetch.locked && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
             </div>
           ) : (
           <select

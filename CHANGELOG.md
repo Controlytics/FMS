@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased] — Auto-fetched instrument readings are read-only (2026-08-10)
+
+### Changed — an instrument value can no longer be hand-edited after it is fetched
+
+Operator request: at Wash In and Dry In, a value pulled from the instrument was
+still typeable. It no longer is.
+
+**This supersedes a locked design decision.** 2026-06-13 deliberately allowed
+editing an auto value and flipped its provenance to `AUTO_OVERRIDDEN`. That is
+now reversed — an instrument reading is not the operator's to correct.
+`AUTO_OVERRIDDEN` is unreachable by construction; `markEdited` is retained as an
+inert no-op so call sites compile. **Do not re-introduce the flip** — it will
+read like a regression fix and is the opposite.
+
+Four sites, all client-side (the tablet keeps its own inline copy of both
+dialogs):
+
+| Surface | Stage | File |
+|---|---|---|
+| desktop | WASH_IN | `components/equipment-dialog.tsx` |
+| tablet | WASH_IN | inline dialog in `mobile-operations.tsx` |
+| desktop | DRY_IN | `components/drying-filters-panel.tsx` |
+| tablet | DRY_IN | `DryingFilterCard` in `mobile-operations.tsx` |
+
+- **Locked on `source === 'AUTO'`, never on "the instrument is auto-configured".**
+  An auto instrument whose fetch hasn't landed — or that gave up after the ~2
+  minute budget — must stay typeable, otherwise a dead endpoint dead-ends the
+  operator with an empty, uneditable field they cannot submit. Both the shared
+  `useDryerAutoFetch` hook (new `locked` flag) and the two equipment dialogs
+  key off the fetched-value state, not the config flag.
+- Locked fields render greyed with a `readOnly` input, `aria-readonly`, and a
+  tooltip pointing at "Get Values" as the way to re-read. The badge changes from
+  `Auto` to `Auto · locked`; the `Auto · edited` badge is gone.
+- **Out-of-range fetched values stay locked.** The submit-time confirmation
+  already records them as a deviation, which is the correct handling — hand-
+  correcting a bad sensor reading is precisely what this change prevents. A
+  wrong instrument value now goes in as-is with a confirmation rather than being
+  quietly adjusted.
+
+Web suite: 660 passing (50 files). The `AUTO → AUTO_OVERRIDDEN` test was
+replaced by two: one pinning that a fetched value locks, one pinning that a
+FAILED fetch leaves the field unlocked — the manual-fallback path that the
+`isAuto`-vs-`source` distinction protects.
+
+
 ## [Unreleased] — AHU readiness is "all at Storage In", not "all at Storage Out" (2026-08-10)
 
 ### Fixed — the AHU interlock demanded a state no cycle could reach

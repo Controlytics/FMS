@@ -87,15 +87,29 @@ describe('useDryerAutoFetch — getValues', () => {
     await waitFor(() => expect(hook.result.current.fetched['i-other']).toBe(12.5));
   });
 
-  it('flips AUTO → AUTO_OVERRIDDEN when the operator edits, and never back', async () => {
+  it('LOCKS the value once fetched — an instrument reading is not hand-editable', async () => {
+    // 2026-08-10 operator rule, superseding the 2026-06-13 AUTO_OVERRIDDEN
+    // design: markEdited is now inert and the panels render the input readOnly.
     (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: true, value: 70 }] });
     const { hook } = setup();
+    expect(hook.result.current.locked).toBe(false); // typeable before the fetch
     await act(async () => { await hook.result.current.getValues(); });
-    await waitFor(() => expect(hook.result.current.source).toBe('AUTO'));
+    await waitFor(() => expect(hook.result.current.locked).toBe(true));
     act(() => { hook.result.current.markEdited(); });
-    await waitFor(() => expect(hook.result.current.source).toBe('AUTO_OVERRIDDEN'));
-    act(() => { hook.result.current.markEdited(); });
-    expect(hook.result.current.source).toBe('AUTO_OVERRIDDEN');
+    expect(hook.result.current.source).toBe('AUTO');
+    expect(hook.result.current.locked).toBe(true);
+  });
+
+  it('stays UNLOCKED when the fetch never returns a value (manual fallback)', async () => {
+    // Load-bearing: locking on `isAuto` instead of `source === AUTO` would leave
+    // the operator with an empty, uneditable field whenever the endpoint is down.
+    (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: false, error: 'boom' }] });
+    const { hook } = setup();
+    // One poll pass, then abort the loop by unmounting rather than waiting 2 min.
+    const p = act(async () => { await hook.result.current.getValues(); });
+    hook.unmount();
+    await p;
+    expect(hook.result.current.locked).toBe(false);
   });
 
   it('does not call the endpoint at all when auto-fetch is off', async () => {

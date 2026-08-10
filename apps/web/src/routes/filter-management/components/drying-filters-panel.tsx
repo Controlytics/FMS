@@ -135,6 +135,9 @@ function DryingFilterRow({
 
   // Persist the temperature the same way the manual dropdown does, so a fetched
   // value also survives a mid-cycle page refresh.
+  // `locked` is read off the hook's ref-free state at call time via the guard in
+  // the input's onChange; this setter stays unguarded because the auto-fetch
+  // itself calls it to APPLY the fetched value.
   const applyTemp = useCallback((val: number | '') => {
     setTemp(val);
     if (val === '') return;
@@ -291,17 +294,23 @@ function DryingFilterRow({
                   step="any"
                   inputMode="decimal"
                   value={temp}
+                  // A fetched value is READ-ONLY (2026-08-10). Still typeable
+                  // before the fetch lands / after it gives up — that's the
+                  // manual fallback.
                   onChange={(e) => {
-                    autoFetch.markEdited();
+                    if (autoFetch.locked) return;
                     applyTemp(e.target.value === '' ? '' : Number(e.target.value));
                   }}
+                  readOnly={autoFetch.locked}
+                  aria-readonly={autoFetch.locked}
                   disabled={!halfElapsed || submitting}
                   placeholder={autoFetch.fetching ? 'Fetching…' : tempUom}
-                  className="w-24 rounded border border-slate-300 px-2 py-1 text-slate-800 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                  title={`${formatByLeastCount(dryerInstrument.operatingMin, dryerInstrument.leastCount)}–${formatByLeastCount(dryerInstrument.operatingMax, dryerInstrument.leastCount)} ${tempUom}`}
+                  className={`w-24 rounded border px-2 py-1 text-sm disabled:opacity-40 disabled:cursor-not-allowed ${autoFetch.locked ? 'bg-slate-100 text-slate-600 border-slate-300 cursor-not-allowed' : 'border-slate-300 text-slate-800'}`}
+                  title={autoFetch.locked
+                    ? 'Fetched from the instrument — not editable. Press Get Values to re-read.'
+                    : `${formatByLeastCount(dryerInstrument.operatingMin, dryerInstrument.leastCount)}–${formatByLeastCount(dryerInstrument.operatingMax, dryerInstrument.leastCount)} ${tempUom}`}
                 />
-                {autoFetch.source === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
-                {autoFetch.source === 'AUTO_OVERRIDDEN' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700">Auto · edited</span>}
+                {autoFetch.locked && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
               </>
             ) : (
             <select

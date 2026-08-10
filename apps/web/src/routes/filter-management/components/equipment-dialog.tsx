@@ -78,9 +78,25 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
 
   const hasAuto = stageInstrumentsOf(selectedEquipmentGroup).some(isAutoInstrument);
 
-  // Mark a value the operator typed/picked. If it was auto-filled, an edit flips
-  // provenance to AUTO_OVERRIDDEN (never silently stays AUTO).
+  /**
+   * A successfully auto-fetched value is LOCKED (2026-08-10, operator request).
+   *
+   * Supersedes the 2026-06-13 decision that editing an auto value flips it to
+   * AUTO_OVERRIDDEN: an instrument reading is not the operator's to correct, so
+   * the field goes read-only the moment a real value lands. `AUTO_OVERRIDDEN`
+   * is now unreachable by construction — kept only in the union type so historic
+   * references still compile; nothing sets it. Do NOT re-introduce the flip.
+   *
+   * Locked on `source === 'AUTO'`, NOT on `isAutoInstrument` — an auto-configured
+   * instrument whose fetch hasn't landed (or timed out after ~2 min) must stay
+   * typeable, otherwise a dead endpoint dead-ends the operator. Re-pressing
+   * "Get Values" is the way to replace a locked value.
+   */
+  const isLocked = (instId: string): boolean => source[instId] === 'AUTO';
+
+  // Mark a value the operator typed/picked. No-op on a locked (auto-fetched) one.
   const setManualReading = (instId: string, raw: string) => {
+    if (isLocked(instId)) return;
     setInstrumentReadings(prev => {
       const next = { ...prev };
       const n = Number(raw);
@@ -88,7 +104,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
       else next[instId] = n;
       return next;
     });
-    setSource(prev => ({ ...prev, [instId]: (prev[instId] === 'AUTO' || prev[instId] === 'AUTO_OVERRIDDEN') ? 'AUTO_OVERRIDDEN' : 'MANUAL' }));
+    setSource(prev => ({ ...prev, [instId]: 'MANUAL' }));
     setInternalError('');
   };
 
@@ -235,8 +251,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-slate-700">{inst.description}</span>
                         <span className="text-xs text-slate-400 font-mono">{inst.instrumentId}</span>
-                        {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
-                        {src === 'AUTO_OVERRIDDEN' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700">Auto · edited</span>}
+                        {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
                       </div>
                       <span className="text-xs text-slate-400">{formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)} {inst.uom}</span>
                     </div>
@@ -250,8 +265,11 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                           type="number" step="any" inputMode="decimal"
                           value={val ?? ''}
                           onChange={e => setManualReading(inst.id, e.target.value)}
+                          readOnly={isLocked(inst.id)}
+                          aria-readonly={isLocked(inst.id)}
+                          title={isLocked(inst.id) ? 'Fetched from the instrument — not editable. Press Get Values to re-read.' : undefined}
                           placeholder={isWaiting ? 'Fetching…' : 'Enter or fetch value'}
-                          className={`w-full bg-white border rounded-lg px-3 py-2.5 text-slate-800 text-sm outline-none ${outOfRange ? 'border-amber-400 focus:border-amber-500' : 'border-slate-300 focus:border-cyan-500'}`}
+                          className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${isLocked(inst.id) ? 'bg-slate-100 text-slate-600 cursor-not-allowed border-slate-300' : 'bg-white text-slate-800'} ${outOfRange ? 'border-amber-400 focus:border-amber-500' : isLocked(inst.id) ? '' : 'border-slate-300 focus:border-cyan-500'}`}
                         />
                         <span className="text-xs text-slate-400 shrink-0">{inst.uom}</span>
                       </div>

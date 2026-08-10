@@ -26,8 +26,20 @@
  *    decision: offline = manual). `enabled` folds `online` in.
  *  - Polls for up to 2 minutes, 5s apart, until the value arrives.
  *  - Aborts cleanly on unmount so a closed panel can't keep polling.
- *  - Provenance: AUTO on a fetched value, AUTO_OVERRIDDEN once the operator
- *    edits it (matches the badges the equipment dialog shows).
+ *  - Provenance: AUTO on a fetched value. The value is then LOCKED — see
+ *    `locked` below.
+ *
+ * 2026-08-10 (operator request): a successfully fetched value is READ-ONLY.
+ * This supersedes the 2026-06-13 decision that an edit flips provenance to
+ * AUTO_OVERRIDDEN — an instrument reading is not the operator's to correct.
+ * `AUTO_OVERRIDDEN` is unreachable by construction; `markEdited` is retained as
+ * an inert no-op so call sites keep compiling, and the field is locked in the
+ * UI so it can never fire. Do NOT re-introduce the flip.
+ *
+ * An out-of-range fetched value stays locked too: the submit-time confirm
+ * records it as a deviation, which is the correct handling — hand-correcting a
+ * sensor reading is exactly what this change prevents. Re-pressing "Get Values"
+ * is the only way to replace it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
@@ -37,13 +49,23 @@ export type ReadingSource = 'MANUAL' | 'AUTO' | 'AUTO_OVERRIDDEN';
 export interface DryerAutoFetchResult {
   /** Show the "Get Values" button + free numeric input instead of the dropdown. */
   isAuto: boolean;
+  /**
+   * A real value has been fetched → the input must be read-only. Keyed on
+   * `source === 'AUTO'`, NOT on `isAuto`: an auto instrument whose fetch hasn't
+   * landed (or gave up after 2 minutes) must stay typeable as the manual
+   * fallback, otherwise a dead endpoint dead-ends the operator.
+   */
+  locked: boolean;
   fetching: boolean;
   status: string;
   source: ReadingSource;
   /** Values keyed by instrumentId for EVERY auto DRY_IN instrument fetched. */
   fetched: Record<string, number>;
   getValues: () => Promise<void>;
-  /** Call when the operator types over a fetched value. */
+  /**
+   * Inert since 2026-08-10 — a fetched value is locked, so there is nothing to
+   * override. Retained so both panels keep compiling; calling it does nothing.
+   */
   markEdited: () => void;
   reset: () => void;
 }
@@ -86,7 +108,7 @@ export function useDryerAutoFetch(params: {
   }, []);
 
   const markEdited = useCallback(() => {
-    setSource((s) => (s === 'AUTO' ? 'AUTO_OVERRIDDEN' : s));
+    /* no-op — fetched values are locked; see the AUTO_OVERRIDDEN note above. */
   }, []);
 
   const getValues = useCallback(async () => {
@@ -133,5 +155,5 @@ export function useDryerAutoFetch(params: {
     }
   }, [isAuto, group, dryerInstrument, fetching, filterId, onValue]);
 
-  return { isAuto, fetching, status, source, fetched, getValues, markEdited, reset };
+  return { isAuto, locked: source === 'AUTO', fetching, status, source, fetched, getValues, markEdited, reset };
 }
