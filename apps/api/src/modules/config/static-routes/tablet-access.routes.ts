@@ -61,9 +61,12 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
     // SUPER_ADMIN bypass — hardcoded so they cannot be locked out of the
     // tablet by their own (or someone else's) tablet-access config.
     if (role === 'SUPER_ADMIN') {
+      // 2026-08-10: 'approvals' dropped with the tablet Approvals screen —
+      // the key gated a view that no longer exists. Desktop /approvals and the
+      // BLOCK_CHANGE_APPROVE permission are unaffected.
       return { role, allowed: [
         'login', 'filter_cleaning', 'filter_status', 'my_tasks',
-        'approvals', 'rfid_assign', 'logout',
+        'rfid_assign', 'logout',
       ], configured: false };
     }
 

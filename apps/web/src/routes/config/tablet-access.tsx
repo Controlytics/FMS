@@ -8,7 +8,6 @@ const FEATURES = [
   { key: 'filter_cleaning', label: 'Filter Cleaning', description: 'Start/advance cleaning cycles, scan filters' },
   { key: 'filter_status', label: 'Filter Status', description: 'View current filter states and cleaning progress' },
   { key: 'my_tasks', label: 'My Tasks', description: 'View PM schedule tasks and due filters' },
-  { key: 'approvals', label: 'Approvals', description: 'View and process block change approval requests' },
   { key: 'rfid_assign', label: 'RFID Assign', description: 'Assign or remove RFID tags on filters from the tablet' },
   { key: 'logout', label: 'Logout', description: 'Allow logout from the tablet app' },
 ];
@@ -66,7 +65,17 @@ export function TabletAccessConfigPage() {
   const save = async () => {
     setSaving(true);
     try {
-      await apiClient.put('/api/config/tablet-access', localConfig);
+      // 2026-08-10: drop feature keys that no longer exist before saving.
+      // `localConfig` is the server's stored value verbatim, so a retired key
+      // (e.g. 'approvals', removed with the tablet Approvals screen) would be
+      // written straight back on every save and linger forever. Sanitising here
+      // makes the stored config self-heal on the next save, through the normal
+      // audited PUT rather than a manual DB edit.
+      const known = new Set(FEATURES.map(f => f.key));
+      const cleaned: TabletConfig = Object.fromEntries(
+        Object.entries(localConfig).map(([role, feats]) => [role, (feats ?? []).filter(f => known.has(f))]),
+      );
+      await apiClient.put('/api/config/tablet-access', cleaned);
       mutate('/api/config/tablet-access');
       toast.success('Saved', 'Tablet access configuration updated');
       setDirty(false);

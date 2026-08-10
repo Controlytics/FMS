@@ -29,10 +29,18 @@ left a reachable orphan:
   never raise one, set Config → Block Change Approval to `CONFIRM` (operator
   self-confirm) or `NONE` — that is config, not code.
 
-**Known dead affordance:** the `approvals` key remains in Config → Tablet Access
-as a per-role checkbox that no longer gates anything (removing it was the
-declined option 3 — it needs a shared-config change plus a `role_configs`
-backfill). Say the word and it goes.
+**Follow-up, same day — the dead checkbox is gone too.** `approvals` removed from
+the Config → Tablet Access feature list and from the SUPER_ADMIN bypass array in
+`tablet-access.routes.ts`, and stripped from the stored `system_config`
+`tablet-access` row (OPERATOR and SUPERVISOR each had it; QA and MAINTENANCE were
+already empty). The row was edited directly in SQL, which means **no
+`CONFIG_CHANGED` audit row was written for that cleanup** — worth knowing, though
+it touches a config row, not `audit_trail`, so no hash chain is involved.
+
+The page's `save()` now **sanitises unknown feature keys before the PUT**. It
+previously submitted the server's stored array verbatim, so a retired key would
+be written straight back on every save and linger indefinitely; any future
+removed feature now self-heals through the normal audited PUT.
 
 Web suite: 661 passing (50 files), unchanged — no test covered the tablet
 Approvals screen.
