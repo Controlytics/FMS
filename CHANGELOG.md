@@ -1,5 +1,634 @@
 # Changelog
 
+## [Unreleased] — AHU completion pre-flight fires again at Storage Out (2026-08-10)
+
+### Fixed — the POPUP / INTERLOCK dialog silently stopped appearing
+
+Reported as "AHU cleaning verification is not happening at Storage Out": with
+`ahu-completion-process` set to `POPUP`, submitting filters at Storage Out showed
+no confirmation dialog — no AHU name, no sibling-filter roster, no per-filter
+cleaning-stage cards. Under `INTERLOCK` the operator got the raw server 422
+instead of the pre-flight roster (the server gate never stopped enforcing, so no
+filter was ever allowed to finish early — this was a UI-visibility defect, not a
+compliance hole).
+
+**Root cause — a regression from the 2026-07-16 dialog-first refactor**
+(commits `f8df2f4` / `f6576bc` / `81ad66b`). The pre-flight's trigger,
+`isTerminalChecklist`, tests the filter's **current** lifecycle state. That was
+correct while the terminal checklist opened *after* the advance had committed —
+by then `currentState` was the final stage. Dialog-first inverted the order: the
+advance is parked and the checklist opens with nothing written, so at gate time
+the filter is still at the **previous** stage (`STORAGE_IN`, whose `stageLookup`
+entry has `leadsToEnd: false` and a non-empty `nextStages`). The predicate
+returned false and the gate short-circuited to `proceed`. Every active pipeline
+that ends `… → STORAGE_OUT → CHECKLIST → END` — `CWH`, `L1`, `FD`, `Require` —
+lost the popup entirely.
+
+- **New predicate** `isTerminalTargetWithChecklist(targetState, stageLookup)`
+  (`lib/filter-ops/ahu-completion-check.ts`) tests the stage being advanced
+  **into**. It is the exact complement of `isCompletingAdvance` on
+  `pendingChecklistProfileIds`, so at most one of the two fires per submit and a
+  checklist-terminated pipeline still warns exactly once.
+- **Batch path** — `mobile-operations.tsx` deferred-advance dispatch now gates on
+  the target stage instead of `currentState`.
+- **Single-filter path** — `useFilterOperationsCore` opens the dialog-first
+  checklist itself, so a page-level pre-flight had no seam to run in and
+  single-scan submits bypassed the gate on **both** pages. The hook now accepts
+  `onBeforeDeferredChecklist(filterId, targetState)`, invoked while nothing is
+  written; `'blocked'` returns `{ executed: false, deferred: true, blocked: true }`.
+  A throw inside it is treated as `proceed` — an advisory pre-flight must never
+  dead-end a legitimate cleaning operation. Both pages wire it to the new gate.
+- Unchanged and still correct: the three `gateAhuBeforeChecklist` sites where the
+  filter is **already** parked at its terminal stage with a pending checklist
+  (no advance in flight), and the cycle-START sites (target is never final).
+
+Also in this change set (same session, previously uncommitted): the
+checklist-**less** completion path — pipelines ending `… → STORAGE_OUT → END`
+(`DRYIN`, `L22`) auto-complete inside `advance()` and never opened a terminal
+checklist, so the gate was unreachable there too. `isCompletingAdvance` +
+`gateAhuBeforeCompletingAdvance` cover it client-side, and `prepareAdvance` now
+runs `assertAhuInterlockSatisfied` when `completesCycle` — closing the matching
+server-side INTERLOCK hole. `/advance` accepts `filterSet` so the server scopes
+the sibling roster to the same A/B/All choice the operator picked.
+
+**Known limitation (pre-existing, now more visible):** both gates sample
+`stageLookup` from `filterIds[0]` only. A batch mixing a checklist-less profile
+with a checklist-terminated one can show the dialog twice in one submit.
+
+Web suite: 651 passing (49 files), up from 644 — 7 new predicate cases including
+an explicit complement/disjointness assertion.
+
+## [Unreleased] — Audit trail names both filters on a replacement (2026-08-10)
+
+### Fixed — "Filter X replaced by superadmin" never said what replaced it
+
+Reported against `L9/AHU-91/SB/00-05`. The audit line named only the filter being
+replaced, so an inspector could not follow the chain to the successor record —
+the single most useful fact on that row.
+
+**No data was missing.** Every one of the 137 `FILTER_REPLACED` rows already
+carries `oldFilterId`, `oldFilterName`, `newFilterId`, `newFilterName` and
+`identifiersMoved` in `after_value` (written together at the one audit site in
+`filter-operations.service.ts`). This was purely a display gap, so **no audit row
+was rewritten and no checksum or hash-chain link was touched.**
+
+Two surfaces changed:
+
+- **Summary line** — the `FILTER_REPLACED` template becomes
+  `Filter "{oldFilterName}" replaced with "{newFilterName}" by {actor}`, with the
+  two new placeholders substituted in `getAuditSummary`. `oldFilterName` falls
+  back to the enriched target name, because `audit/routes.ts` already stamps the
+  OLD filter's name at read time (`targetId` *is* `oldFilterId`) — so a row
+  predating the stored field still reads correctly.
+- **Detail modal** — a new **Replacement** panel showing both names *and* both
+  UUIDs side by side, plus the RFID-identifier move count.
+
+The UUIDs deliberately live in the modal, not the table row: two 36-character ids
+would make the row unreadable. They were previously invisible everywhere —
+`pruneUuids()` strips them from the generic before/after panels (they are
+UUID-valued *and* their keys end in `Id`), and the modal's header grid has no
+Target ID field. Rather than loosen that pruning globally — which would dump raw
+UUIDs across the whole audit surface — the replacement pair gets its own panel.
+
+**Trap avoided:** `config/audit-templates.tsx` has its own hardcoded five-placeholder
+preview substituter. Without updating it, an admin editing this template on
+Config → Display Settings → Audit Text would have seen the literal text
+`{newFilterName}` in the live preview — the same failure that historically hit
+`{reason}`, `{stage}`, `{stageKey}` and `{currentState}`. Sample values and chip
+colours added there too, with a comment pinning the three-place contract.
+
+Verified in the browser against the real record: the row now reads
+*Filter "L9/AHU-91/SB/00-05" replaced with "L9/AHU-91/SB/00-06" by superadmin*,
+and the modal shows both ids (`8eda96c6-…` / `306012d7-…`). 3 tests added
+(including one asserting no literal `{placeholder}` survives); web suite 647/647.
+
+No admin override is stored for this template key, so the new default is live
+immediately — a future edit on Config → Display Settings → Audit Text can still
+override it.
+
+## [Unreleased] — `digilog_db` migration ledger repaired, mirror triggers restored (2026-08-10)
+
+Two defects on the live dev database, both found while investigating which
+databases each project connects to. **No application code changed.**
+
+### `_prisma_migrations` was blocking all future migrations
+
+`digilog_db` held 4 rows for 8 migrations, and
+`20260704121326_drop_reports_generate_sign` was recorded **failed** — it had hit
+42P01 because the reports tables were already dropped out-of-band before it ran.
+A failed row makes `prisma migrate deploy` refuse everything.
+
+The schema itself was current. Proved by diffing `digilog_db` against the
+freshly migrations-built `digilog_test_db`: **columns 740 = 740 (zero diff),
+indexes 227 = 227 (zero diff), 23 = 23 enum types.** All four unrecorded
+migrations' effects were physically present. Repaired with five
+`prisma migrate resolve --applied` calls — metadata only, no schema or data
+touched.
+
+One subtlety worth recording: **`--applied` does not clear a *failed* migration.**
+It printed a box rather than *"marked as applied"* and inserted a second row,
+leaving the failed one live; `migrate status` reported clean anyway. Querying
+`_prisma_migrations` directly caught it, and
+`migrate resolve --rolled-back 20260704121326_drop_reports_generate_sign`
+produced Prisma's canonical two-row shape (the failed attempt marked rolled-back,
+the applied record separate). `migrate status` now reports *"8 migrations found /
+Database schema is up to date!"*.
+
+Only cosmetic residue: `NotificationType` has the same 33 labels in both DBs but
+in a different **order** (dev has `PASSWORD_EXPIRY_*` before `STAGE_APPROVAL_*`,
+the migrations-built DB after), because `ADD VALUE` appends and the two arrived
+in different sequences. Harmless unless something sorts or range-compares on that
+enum; nothing does.
+
+### The two mirror triggers were missing — and restoring them was not safe by default
+
+`digilog_db` had 3 of the 5 user triggers the baseline defines. **Root cause:**
+`prisma/sql/invariants.sql`, which the seed runs, creates only
+`trg_filter_event_consistency`, `trg_asset_relationship_pair` and
+`audit_trail_no_delete`. The two mirror triggers
+(`trg_mirror_asset_instance_iud`, `trg_mirror_typed_to_asset_instance`) exist
+**only** in the baseline migration — whose SQL never executed against
+`digilog_db`.
+
+**Their absence was breaking filter creation, not just risking drift.**
+`filter.service.ts:40-60` inserts into `filters` **only**, then creates the
+`FilterDetails` sidecar whose FK targets `asset_instances` — relying on the
+mirror to have created that row, as its own comment says (*"The reverse-mirror
+trigger has now created the asset_instances row (same id) within this txn, so the
+FilterDetails FK resolves"*). Proved by counterfactual: with the trigger disabled
+inside a rolled-back transaction, that exact sequence fails with
+
+```
+ERROR: insert or update on table "filter_details" violates foreign key constraint
+       "filter_details_asset_instance_id_fkey"
+DETAIL: Key (asset_instance_id)=(…) is not present in table "asset_instances".
+```
+
+So single-filter create through that service could not have worked on
+`digilog_db`. The 376/376 row parity came from restores, which populate both
+tables directly, not from live mirroring.
+
+Their absence had also caused drift: **16 filters** where
+`asset_instances.attributes.lastCleaningDate` was stale (`NA` / 2026-07-10)
+while `filters.attributes` carried the correct recent date. `filters` is the
+authoritative side — `filter.service.ts` writes through `tx.filter.update`, and
+`asset_instances` was supposed to receive the mirror.
+
+**Order was load-bearing.** Arming the triggers first would have let the next
+`asset_instances` write mirror the *stale* value back down and destroy 16 real
+cleaning dates. So the reconcile (`asset_instances ← filters`) ran first, then
+the triggers were created from the baseline SQL verbatim.
+
+Two apparent `ahu_id` mismatches turned out **not** to be drift: both filters are
+parented to a block, and the trigger's own rule sets `ahu_id` to NULL unless the
+parent is an AHU — real parent drift was 0. Row counts, ids, and
+name/status/is_active matched exactly across all four hierarchy kinds.
+
+Verified after: **5/5 triggers (all enabled) and 123/123 functions, diff-empty
+against the migrations-built reference; attribute drift 0.** Create, update and
+delete were all exercised against live rows inside transactions that were rolled
+back — including the full `filters → asset_instances → filter_details` create
+path — leaving zero probe rows. Data intact: 17,405 audit rows, 155 users, 376
+filters, 510 asset instances, 626 cycles.
+
+Rollback point: `pg_dump -Fc` taken before any change, kept at
+`~/Documents/digilog-db-backups/digilog_db-2026-08-10-pre-ledger-and-trigger-fix.dump`
+alongside the exact `restore-mirror-triggers.sql` that was applied.
+
+### Prevention — the mirror triggers added to `invariants.sql`
+
+`prisma/sql/invariants.sql` runs on **every seed** and previously created only 3
+of the 5 triggers. Both mirror triggers are now Invariant 5 in that file, so any
+future seed-built or adopted database gets all five instead of repeating this.
+The baseline migration remains the authoritative installer, matching the file's
+existing "defense-in-depth for non-migration workflows" framing.
+
+The function bodies are copied from the baseline unchanged apart from
+`CREATE FUNCTION` → `CREATE OR REPLACE FUNCTION`, with a header comment saying so
+and flagging the install-order hazard (reconcile before arming, or the mirror
+propagates whichever side is stale).
+
+Verified through **both** application paths against `digilog_test_db`: `psql -f`
+and the seed's own hand-rolled `$$`-aware splitter — the latter being the one
+that could plausibly choke on PL/pgSQL bodies. Both produce 5 triggers and 123
+functions; `filter-operations` suite 158 passed / 4 skipped.
+
+One caveat recorded for whoever compares databases later: the stored function
+bodies differ between `digilog_db` and `digilog_test_db` in **line endings only**
+(the file is CRLF, and the two application paths normalise differently).
+Logically identical — verified by diffing with CR stripped — but it means
+`md5(prosrc)` is **not** a valid cross-database drift check for these functions.
+
+⚠️ The 16-row reconcile was raw SQL and so has **no `audit_trail` entry**. It
+repaired a mirror column rather than recording a new business fact — the
+authoritative `filters` write was audited when it originally happened — but it is
+noted here rather than left implicit.
+
+## [Unreleased] — AHU completion POPUP now fires on checklist-less cycle completion (2026-08-10)
+
+### Fixed — no popup at Storage Out
+
+Reported: **Config → AHU Cleaning Completion Process** set to `POPUP`, but no
+warning appeared when a filter was submitted at Storage Out.
+
+The config was saved correctly (`system_config['ahu-completion-process'] =
+{"mode":"POPUP"}`). The gate simply could not be reached. `gateAhuBeforeChecklist`
+was wired **only** to the terminal-checklist open — it sits inside
+`if (dialogChecklists)` in every one of its call sites — on the assumption that a
+pipeline always ends `… → FINAL STAGE → CHECKLIST → END`. A pipeline that ends
+`… → FINAL STAGE → END` auto-completes inside `advance()` with no checklist, so
+the gate never ran and both POPUP and INTERLOCK silently did nothing.
+
+Measured on the live dev DB: **20 of 31 in-flight cycles** are pinned to a
+profile version whose STORAGE_OUT edges straight to END —
+
+| profile version | in-flight cycles | node before END |
+|---|---|---|
+| CWH v12 (archived) | 1 | STORAGE_OUT |
+| DRYIN v3 (**active**) | 2 | STORAGE_OUT |
+| FD v5 / v7 / v8 (archived) | 1 / 6 / 6 | STORAGE_OUT |
+| L1 v3 (archived) | 1 | STORAGE_OUT |
+| Require v5 (archived) | 3 | STORAGE_OUT |
+| CWH v13, L1 v7/v8, Require v7 | 11 | CHECKLIST |
+
+Note FD's live v11 **already** ends with a checklist — the documented remedy
+("add a Checklist node before END") had been applied and still didn't help,
+because cycles freeze `cleaning_cycles.profile_id` at start and keep the old
+graph. So this could not be fixed by configuration alone.
+
+**The fix** — a second, disjoint trigger. New `isCompletingAdvance(targetState,
+stageLookup)` in `lib/filter-ops/ahu-completion-check.ts` is true when advancing
+INTO a stage that `leadsToEnd`, has no `nextStages`, **and** has no
+`pendingChecklistProfileIds`. That last clause is exactly the case
+`isTerminalChecklist` already covers, so at most one of the two fires for any
+stage — a checklist-terminated pipeline still warns once, at checklist-open, and
+never twice. The shared tail of the pre-flight (A/B/All chooser → batch
+completion-status → warn/block dialog, including the INTERLOCK fail-safe) was
+extracted to `runAhuGate()` in both surfaces so the new path reuses it rather
+than duplicating it.
+
+Wired into the advance funnels only — **one call per submission, before the
+loop**, never per filter (the tablet submits 50–100 tags):
+`filter-operations.tsx` `advanceBatch()` + the reason-dialog batch advance;
+`mobile-operations.tsx` `handleSubmitQueue()`. WASH_IN / DRY_IN / dryer /
+equipment / start-and-advance paths are untouched — their target stage can never
+complete a cycle.
+
+Verified read-only against the live server (no data mutated): `GET
+/api/filters/:id/current-state` returns `STORAGE_OUT: {nextStages: [],
+pendingChecklistProfileIds: [], leadsToEnd: true}` for an FD v7 filter (predicate
+→ true, popup now fires) and `pendingChecklistProfileIds: ['f43cc6f4…']` for a
+CWH v13 filter (predicate → false, unchanged, no double popup). 5 unit tests
+added; web suite 644/644.
+
+### Also fixed — INTERLOCK now enforced server-side on the advance path
+
+`assertAhuInterlockSatisfied` was called from `cycle-write/submit-checklist.ts`
+**only**, so on a checklist-less pipeline INTERLOCK was not enforced anywhere on
+the server — a client-side block alone would have been bypassed by offline
+replay and by direct API calls. `prepareAdvance` now runs the same assert,
+guarded by its existing `completesCycle`:
+
+```ts
+const completesCycle = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget;
+…
+if (completesCycle) await assertAhuInterlockSatisfied({ filterId, isOfflineReplay, set });
+```
+
+`completesCycle` is the exact discriminator and the two gates can never both fire
+for one cycle: it is false whenever an **active** checklist follows the target
+stage, which is precisely the case `submit-checklist` owns. Because it filters on
+`ChecklistProfile.isActive`, the server also closes the *inactive terminal
+checklist* gap noted below — a pipeline pointing at a deactivated checklist
+auto-completes in `advance()` and is now gated there.
+
+Placement mirrors `submit-checklist`: inside `prepareAdvance`, before the
+returned plan and therefore before any transaction, so a thrown 422 aborts with
+no partial write. Offline replay stays exempt (inside the assert). `POST
+/:id/advance` gained the same optional `filterSet` body field
+(`ALL | SET_A | SET_B`) that `/:id/submit-checklist` already had, so the gate
+scopes to the same A/B/All roster the operator picked in the pre-popup chooser;
+both web surfaces now send it on the advance payload. `/bulk-operate` routes
+through `service.advance` per item with per-item try/catch, so a gated item
+fails that item and the rest of the batch still commits.
+
+Unchanged for POPUP/NONE: the assert short-circuits on mode before any query.
+
+### Known gaps, deliberately not fixed here
+
+- **The Config-page warning under-reports.** `findProfilesWithoutFinalChecklist`
+  filters `status: 'ACTIVE'`, so the amber banner would have named only DRYIN /
+  L22 / Profile — never the 18 in-flight cycles pinned to archived FD v5/7/8,
+  CWH v12, L1 v3, Require v5. Its text is also INTERLOCK-only wording, though
+  the hole was identical for POPUP.
+- **Inactive terminal checklist — client warning only.** `buildStageLookup`'s
+  `pendingChecklistProfileIds` does not apply the `isActive` predicate, so on a
+  pipeline pointing at a *deactivated* checklist the client-side popup still
+  doesn't warn (it reads as "has a checklist"). The server-side INTERLOCK gate
+  above **does** cover this case, so enforcement is correct; only the advisory
+  POPUP is silent. All 5 checklist profiles in this deployment are active.
+### Test infrastructure — `digilog_test_db` rebuilt, and the new gate is covered
+
+The gate could not initially be tested: `digilog_test_db` held **24 of 62
+tables**, so `ahu-completion-gate.e2e.test.ts` died in `beforeAll` and 59 tests
+in `modules/filter-operations/` skipped.
+
+Root cause, proved rather than assumed: the DB was also missing **17 of 23
+enums, 83 of 121 functions, and 2 of 3 standalone sequences**. `deviation_number_seq`
+and `qnn_seq` are bare `CREATE SEQUENCE` statements — `DROP TABLE` does not
+remove them, and nor does it drop enum types. Their absence proves the baseline
+SQL **never executed**; its `_prisma_migrations` row was written by
+`prisma migrate resolve --applied`, which stamps a migration done without running
+it. The 24 survivors were exactly the 21 CFR §11 admin surface. A later
+`migrate deploy` then died on `ALTER TABLE "report_instances"` (42P01) and that
+failed row blocked all subsequent migrations.
+
+Repair-in-place was impossible — clearing the failed row unblocks `deploy`, but
+`deploy` still won't create the missing tables, because Prisma believes the
+baseline is applied and the baseline is the only migration that creates them.
+The DB was therefore dropped and rebuilt (extensions → `migrate deploy` → seed).
+It now matches `digilog_db` exactly except for two functions **dev is missing**
+(`fn_mirror_asset_instance`, `fn_mirror_typed_to_asset_instance`) — the
+pre-existing dev drift already tracked in `tasks/todo.md`.
+
+New file `ahu-interlock-advance-gate.test.ts` (7 tests) covers the gate against
+a real Fastify + Prisma stack: an AHU with two filters on a `START → S1 → S2 →
+END` pipeline. **Mutation-verified** — with `advance.ts` stashed, the completing
+advance returns **200** and persists a `STATE_TRANSITION` FilterEvent to S2 with
+a sibling still mid-cleaning; that is the bug, reproduced. The other 5 tests
+(intermediate advance not gated, POPUP/NONE not gated, checklist-terminated
+pipeline not gated) pass in both states, so they pin the boundaries rather than
+the fix. `ahu-completion-gate.e2e.test.ts` now runs 33/33.
+
+API suite: **1257 passing / 1 failed / 20 skipped (125 files)**. The 4 failing
+files are unrelated and confirmed identical by stash-and-compare — three
+(`filter-partial-update`, `filter-replace-duplicate-name`,
+`retire-replace-identifier-invariant`) depend on an **ambient AHU row** a
+freshly-seeded DB doesn't have, and `backup-format-current.e2e.test.ts` asserts
+a `json` default that the same 2026-08-08 backup work deliberately changed to
+`dump`.
+
+## [Unreleased] — Config Save buttons gated on unsaved changes (2026-08-10)
+
+### Fixed — "Save" stayed clickable after saving, and on a freshly-loaded page
+
+Reported on **Config → User ID Format**: pressing *Save Configuration* saved the
+row but left the button enabled, so it was impossible to tell whether the change
+had landed and the same payload could be re-submitted (each re-submit writes an
+audit row). The page tracked only `saving`; it had no notion of *changed*.
+
+A sweep of all 34 config pages found **10 more** with the same shape — local
+state seeded from SWR in a `useEffect`, Save gated on `saving` alone. Every one
+now computes a `dirty` flag and ANDs it into the existing `disabled` condition
+(the `!canWrite` / `!isSuperAdmin` guards already there are preserved):
+
+`user-id`, `dynamic-config` (the generic page behind most `*.def.ts` modules —
+export-limit, backup-format, session, login-security, stage-interlock, …),
+`pagination`, `dashboard-cards`, `export-options`, `report-signatories`,
+`replacement-schedule-filters` (both matrices), `filter-cleaning-reasons`,
+`filter-field-options`, `ldap`, `cleaning-profile-assignment`.
+
+Two comparison shapes, chosen per page — matching the idiom already used by
+`access-matrix.tsx` / `report-page-titles.tsx`:
+
+- **Direct compare** against the SWR data where local state round-trips to the
+  server shape. Self-correcting: a successful save revalidates, the seeding
+  effect reseeds, and the button disables again with no reload. A failed save or
+  a cancelled reauth never revalidates, so the edits stay dirty and re-savable.
+- **Baseline snapshot** taken inside the seeding effect where the seed *derives*
+  state and the raw payload is not the same shape as what the page edits
+  (`dashboard-cards` defaults absent roles to all-cards; `pagination` splits into
+  three `useState`s with fallbacks; `dynamic-config` coerces as you type).
+
+Three second-order bugs surfaced and were fixed while verifying in the browser —
+all cases where a **no-op round trip left the button stuck enabled**:
+
+- `replacement-schedule-filters` — an unset role is *absent* from the stored map
+  but becomes an explicit `false` once toggled on and back off. Now compared
+  normalised over the role list.
+- `export-options` / `report-signatories` — same class: an unset cell is absent
+  server-side but becomes an explicit `'BOTH'` / `'Printed By'`. Now compared
+  through the same fallback the grid renders with.
+- `dashboard-cards` / `dynamic-config` multiselect — `cards` is a *set*, but the
+  toggle filters a key out and re-appends it at the end. Both comparisons are
+  now order-insensitive.
+
+`pagination` additionally gained `reconcileOptions()`, extracted from the
+count/limit effect so the **initial seed** applies the same normalisation. A
+stored row whose `count` disagrees with `options.length` (or which predates the
+`count` field) was otherwise rewritten one tick after load — which would have
+made the page paint as already-dirty before the user touched anything.
+
+**Not changed** (correct as-is): create/edit *dialogs* (`help`,
+`notification-rules`, `equipment-groups`, `role-form-dialog`, `field-ids` inline
+edit, `filter-data-management` row edit) — they close on save, so the
+"still enabled after saving" state cannot occur; `ahu-filter-set-config`, which
+saves per-row on dropdown change and has no page-level Save; and the 13 pages
+that already gated correctly (`access-matrix`, `action-reauth`,
+`audit-templates`, `branding`, `datetime`, `offline-cache`, email/SMS settings,
+`password-policy`, `report-labels`, `report-page-titles`, `role-access` tabs,
+`role-assignments`, `tablet-access`).
+
+Verified in the browser (Playwright, superadmin): every touched page loads with
+Save **disabled**, enables on a real edit, and disables again both on reverting
+the edit and after a successful save — with no reload. No new console errors.
+
+## [Unreleased] — Real database backup: pg_dump format + plain-.sql made restorable (2026-08-08)
+
+### Added — `dump` format (pg_dump custom archive), now the DEFAULT
+
+`GET /api/backup/export?format=dump` shells out to `pg_dump -Fc --no-owner
+--no-privileges`. This is the first backup format that carries the **schema** as
+well as the data — sequences, functions, triggers, constraints — so it can
+rebuild the database from nothing, and it is the only format pgAdmin's
+right-click **Restore** dialog accepts (that dialog drives `pg_restore`, which
+cannot read a plain .sql). Restore is by upload as before: the route sniffs the
+`PGDMP` magic bytes (content, not filename) and routes to `pg_restore`.
+
+New `apps/api/src/modules/backup/pg-tools.ts` locates the binaries — `PG_BIN_DIR`
+override first, then `C:\Program Files\PostgreSQL\{18,17,16,15}\bin`, then PATH —
+because the Windows installer does not put them on PATH. **pg_dump's major
+version must be >= the server's**; asserted at call time (`assertPgDumpVersion`),
+not assumed, since a machine can have several installs and a stale one first on
+PATH. Missing/old/failed tooling returns **503** with an actionable message
+instead of a 500.
+
+Two deviations from the plan, both forced by measured behaviour:
+
+- **`pg_restore --clean --if-exists` cannot be used on this schema.** It emits
+  `DROP INDEX IF EXISTS public.quality_notifications_qnn_key`, but that index
+  backs a UNIQUE CONSTRAINT and PostgreSQL refuses to drop it independently.
+  Under `--single-transaction` that one error aborts the restore. The restore
+  therefore empties the schema first (`DROP SCHEMA public CASCADE; CREATE SCHEMA
+  public`) and loads into a genuinely clean target. The archive recreates the
+  extensions (ltree, pgcrypto) itself — confirmed via `pg_restore -l`.
+- **A safety dump is taken before the drop**, and restored automatically if
+  `pg_restore` then fails. Emptying the schema is irreversible; without it a
+  failed restore would leave an empty database and no way back. If the rollback
+  *also* fails the temp directory is preserved and the API says so explicitly
+  (`RESTORE_FAILED_NO_ROLLBACK`, 500) rather than reporting a generic failure.
+
+`dump` is now the default for `/api/backup/export` and in the `backup-format`
+config (options: dump / json / bak). **Behavioural change:** an unqualified
+`GET /api/backup/export` now returns a binary archive, not JSON.
+
+### Fixed — the plain `.sql` export could not be replayed by psql or pgAdmin
+
+Three faults, each of which aborted the transaction and rolled the whole restore
+back:
+
+1. **Enum-array columns emitted as jsonb.** `notification_rules.event_types` is
+   `"NotificationEventType"[]`, but a JS array reached `escapeSqlValue` as a
+   plain object and came out as `'[...]'::jsonb` → SQLSTATE 42804. ARRAY columns
+   are now discovered from `information_schema` and emitted as real array
+   literals cast to the element type (`'{"A","B"}'::"NotificationEventType"[]`),
+   with the type name quoted because the enums are CamelCase.
+2. **Self-referencing FK enforced mid-load.** `asset_instances.parent_id` —
+   children could be written before their parent. **`SET CONSTRAINTS ALL
+   DEFERRED` does NOT fix this and was not used**: it only affects constraints
+   declared DEFERRABLE, and all 47 FKs here are NOT DEFERRABLE (verified against
+   the live database and reproduced directly — the FK still fires immediately).
+   Making them deferrable would mean altering 47 constraints on a populated
+   21 CFR database to fix a file-format bug. The script instead writes the
+   self-ref column NULL and patches it up once every row exists — the same
+   two-pass the in-app restore already uses, with no schema change.
+3. **Mirror triggers caused duplicate keys.** Loading `asset_instances` fires
+   `trg_mirror_asset_instance_iud`, which inserts the matching `filters` rows;
+   the script's own `INSERT INTO filters` then collided on `filters_pkey`. The
+   script now suspends user triggers for the load and restores them afterwards.
+   `DISABLE TRIGGER USER` (not `ALL`) is deliberate — `ALL` includes the internal
+   FK constraint triggers and requires SUPERUSER, which `digilog` is not.
+
+   The trigger set is computed **on the target at restore time**, via a DO block
+   over `pg_trigger`, not baked in from the source at backup time. That
+   distinction was caught by the end-to-end test: this development database is
+   itself missing the mirror triggers, so a source-derived list named only 3
+   tables and left the mirrors armed on any correctly-migrated target. Per-trigger
+   enabled state is captured into a temp table first, so a trigger an operator had
+   deliberately disabled does not come back armed.
+
+Also: `parseSqlValues` now understands `::"Type"[]` casts (new
+`parsePgArrayLiteral`), so the app's own restore of its own `.sql` still works —
+without it, fixing the export would have broken the import.
+
+### Verified (not assumed)
+
+Against `digilog_restore_test`, built fresh from migrations (it therefore HAS the
+mirror triggers that live `digilog_db` is missing):
+
+- `.dump`: `pg_restore` completes with **empty stderr / zero errors**; all
+  **62/62 tables** match the source.
+- `.sql`: `psql -v ON_ERROR_STOP=1 -f` reaches **COMMIT with 0 ERROR lines**;
+  all **61/61 tables** match the counts the backup declares.
+- Integrity: audit_trail **3308 bad / 41 broken links before and after** — the
+  restore introduced zero new checksum failures; filter_events 5401/5401 keep
+  their checksums.
+- Trigger state after restore: all 5 user triggers back to enabled (`O`),
+  including the two mirrors disabled during the load.
+
+## [Unreleased] — Notification Rules page error: ZodError answered as 500 (2026-08-08)
+
+Opening **Config → Notification Rules** raised an error toast. Two defects, one symptom:
+
+1. **ZodError → 500 (the defect class).** Four routes validate with zod directly
+   rather than a Fastify JSON schema — `<schema>.parse(req.query)` in
+   `users`, `audit`, and the assets `instance`/`template` routes. A `ZodError`
+   carries no `statusCode` and no `.validation`, so it fell past every branch of
+   the global error handler into "Genuine internal errors": **any bad query param
+   on those routes answered `500 INTERNAL_ERROR` and additionally fired a
+   `SYSTEM_ERROR` notification dispatch** — a client-side validation failure paged
+   the system as though the server had crashed. `app.ts` now maps `ZodError` to
+   **400 `VALIDATION_ERROR`** with the issue list, placed *before* the
+   SYSTEM_ERROR dispatch so validation failures never generate that notification.
+2. **`userQuerySchema.limit` capped at 100 while callers asked for 500.** The
+   notification-rules rule/group editors and `SendForReviewButton` request
+   `/api/users?limit=500` — recipient pickers legitimately need every user in one
+   page, and this install has 154. Ceiling raised 100 → 1000. Capping the callers
+   at 100 instead would have been worse: 54 users would silently disappear from a
+   recipient picker with nothing on screen to say so. The `.default(20)` (not the
+   `.max()`) is what protects against a *missing* limit, and it is unchanged.
+
+Also fixed on the same page, previously hidden behind the toast: `GET
+/api/notification-rules` returns `{ data, total }`, but the page typed it as
+`NotificationRule[]` and tested `!rules?.length` — truthy on the envelope object,
+so it rendered **"No notification rules yet" while a rule existed in the DB**. Now
+unwrapped (defensively, so a plain-array response still works).
+
+`e2e/test-helper.ts`'s error handler documents itself as matching production but
+lacked this branch, so it would have passed a test production fails. Given the
+same ZodError mapping.
+
+Tests: 3 new in `e2e/users.test.ts` (limit=500 → 200; limit=1001 → 400 not 500;
+non-numeric → 400) + shared schema cases updated. API suite: 1145 passing, the
+13 pre-existing `digilog_test_db` missing-table failures unchanged.
+
+## [Unreleased] — Restore audit-chain verification fixed + Backup Format config (2026-08-08)
+
+### Fixed — restore refused valid backups (`BACKUP_AUDIT_CHAIN_INVALID`)
+
+`verifyBackupAuditChain` (backup.repository.ts) passed only **6 of the 14 fields**
+the audit writer hashes. `audit.ts` expanded the checksum envelope on 2026-07-04 to
+cover `userName / userRole / beforeValue / reason / ipAddress / userAgent /
+sessionId / signatureMeaning`, and `verifyAuditChecksum` only falls back to the
+6-field formula for rows written BEFORE that change — so **every row written since
+verified as tampered on the restore path**. `redactedAt` was missing too, sending
+redacted rows down the recompute path instead of the null-payload assertion they
+require. Measured on the dev DB: **5487 of 17087 rows failed the backup verifier
+versus 3308 under the full field set — 2179 untouched, genuinely valid rows were
+being reported as forged.** The field list now mirrors `expandedFields` exactly.
+
+Three further defects in the same path:
+
+- **It threw at the first offender.** The refusal said "row 0" having never
+  examined the other 17k rows, so an operator could not tell one bad row from a
+  wholly forged file — the judgement §11 expects them to exercise before
+  overriding. It now walks every row and returns an aggregate `chainReport`
+  (`checksumFailures`, `linkFailures`, capped samples).
+- **The message asserted tampering as fact** ("backup is tampered or corrupt").
+  The common real cause is that historical rows already failed verification in the
+  SOURCE database at export time — e.g. hard-deleted audit records permanently
+  break every downstream link (see the `AUDIT_DELETE` notes in CLAUDE.md). The
+  wording now states non-verification and names both possible causes.
+- **The `force` override was unreachable.** `backup/routes.ts` has always read
+  `file.fields.force`, but `backup.tsx` never sent it — so the documented,
+  audited escape hatch did not exist for operators, who hit a hard "Restore
+  Failed" with no way forward. The restore UI now shows the integrity summary
+  (surfaced on the **validate** step, before committing) and offers an explicit
+  "Restore Anyway (Override)" gated behind an acknowledgment checkbox. Still
+  recorded as `forced=true` on the `BACKUP_RESTORED` audit row.
+
+`POST /api/backup/validate` now returns an `auditChain` report so anomalies appear
+before the operator commits, rather than as a failure afterwards.
+
+**Not fixed (pre-existing, unchanged by this work):** the dev DB carries **3308
+audit rows that genuinely fail verification under every known formula** (brute
+force over all 14 fields × 4 formulas reproduces none of their checksums) plus 41
+broken links traceable to 171 hard-deleted rows. Known since 2026-07-15 (then
+3408); the standing decision is not to recompute historical checksums. Restoring
+this database's own backups therefore requires the override above.
+
+### Added — Backup Format configuration (config def 36 → 37)
+
+New `backup-format` config def (`defaultFormat`) setting the format preselected on
+Backup & Restore. Kept as its own surface because `backup.def` is a link-card for
+the custom page (`settings: []`, `hasCustomPage: true`) — a setting added there
+would never render. Renders via the dynamic config page, so no new
+`routes/config/*.tsx` (pages stay 34), following the `export-limit.def` precedent.
+
+Offers **only the two restorable formats (JSON, BAK)**: `POST /api/backup/restore`
+cannot read SQL or CSV back, so defaulting to one would quietly produce a shelf of
+backups the application can never restore. Both remain available ad hoc on the page.
+
+It is a **default, not a lock** — the page preselects it, shows which format is
+configured, flags when the current selection deviates, and the operator may still
+choose another format for a given export. Public read at
+`GET /api/config/backup-format/current` (BACKUP_EXPORT does not imply CONFIG_READ,
+so the admin-gated route would 403 a backup operator into a silent fallback).
+
+Tests: 8 unit (`backup-chain.test.ts`, incl. the exact regression) + 5 e2e
+(`backup-format-current.e2e.test.ts`). API suite unchanged at 13 pre-existing
+failures, +13 passing.
+
 ## [Unreleased] — Scheduled jobs moved to in-process node-cron (2026-07-25)
 
 Replaced the graphile-worker (Postgres-backed) scheduler with **`node-cron`**

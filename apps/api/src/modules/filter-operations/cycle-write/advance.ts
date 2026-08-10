@@ -41,6 +41,7 @@ import {
   notifyStageApprovalRequested,
   type FilterApprovalDetails,
 } from '../stage-interlock.js';
+import { assertAhuInterlockSatisfied } from '../ahu-completion-gate.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
 type TxClient = Prisma.TransactionClient;
@@ -486,6 +487,36 @@ export async function prepareAdvance(
       'INTERLOCK_TERMINAL_STAGE',
       `This cleaning cycle would complete directly out of ${prettyStageLabel(targetState)}, but the QA stage interlock is enabled for that stage — a filter cannot complete a cycle without the required QA approval. An administrator must add a stage after ${prettyStageLabel(targetState)} or disable the stage interlock.`,
     );
+  }
+
+  // ── AHU completion interlock (2026-08-10) ───────────────────────────────────
+  // Twin of the gate in submit-checklist.ts:243. That one covers pipelines that
+  // end `… → FINAL STAGE → CHECKLIST → END`, where the checklist submit completes
+  // the cycle. This one covers `… → FINAL STAGE → END`, where THIS advance
+  // completes it — previously ungated, so on such a pipeline INTERLOCK silently
+  // allowed a filter to finish while its AHU siblings were still mid-cleaning
+  // (mode read from config, so the whole check is a single indexed lookup for
+  // the NONE/POPUP majority).
+  //
+  // `completesCycle` is the exact discriminator and the two gates cannot both
+  // fire for one cycle: it is false whenever an ACTIVE checklist follows the
+  // target stage (`hasPendingChecklistAfterTarget`), which is precisely the case
+  // submit-checklist owns. Note it uses `isActive`-filtered checklist profiles,
+  // so a pipeline pointing at a DEACTIVATED checklist — which auto-completes
+  // here — is correctly gated by this branch rather than falling through both.
+  //
+  // Placed BEFORE the returned plan (and therefore before any transaction), so a
+  // thrown 422 aborts with no partial write — same contract as submit-checklist.
+  // Offline replay is exempt inside the assert itself (D2 best-effort decision).
+  if (completesCycle) {
+    // Operator's runtime filter-set choice rides in the advance body exactly as
+    // it does in the submit-checklist body, so the server scopes to the SAME
+    // roster the pre-popup chooser showed — no UI-says-green / server-422 split.
+    const set: 'ALL' | 'SET_A' | 'SET_B' | undefined =
+      data.filterSet === 'SET_A' || data.filterSet === 'SET_B' || data.filterSet === 'ALL'
+        ? data.filterSet
+        : undefined;
+    await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
   }
 
   // Offline exemption (see leave-gate note above): don't raise the gate for an

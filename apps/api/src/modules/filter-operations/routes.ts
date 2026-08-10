@@ -336,6 +336,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           instrumentReadings: { type: 'object', additionalProperties: { type: 'number' }, maxProperties: MAX_OBJECT_PROPS },
           dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
           dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
+          // 2026-08-10: operator's AHU filter-set choice, mirroring the field of
+          // the same name on /:id/submit-checklist. Only read when THIS advance
+          // completes the cycle (pipelines ending `… → STAGE → END`, no
+          // checklist), where the AHU interlock now runs — it scopes the sibling
+          // roster to the same A/B/All choice the pre-popup chooser showed.
+          filterSet: { type: 'string', enum: ['ALL', 'SET_A', 'SET_B'] },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
           // Phase 8.7 cutover (decision-tape architecture): required staleness

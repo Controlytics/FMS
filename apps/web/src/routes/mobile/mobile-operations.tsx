@@ -42,7 +42,7 @@ import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
-import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist } from '../../lib/filter-ops/ahu-completion-check';
+import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist, isCompletingAdvance, isTerminalTargetWithChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from '../filter-management/components/remaining-filters-dialog';
 import { AhuSetChooserDialog, type FilterSetChoice } from '../filter-management/components/ahu-set-chooser-dialog';
 
@@ -75,7 +75,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const reauth = useReauth();
   // ─── D1/D2/D4 Day 3b — useFilterOperationsCore is now authoritative ──────
   // Owns all dialog state + executeOrQueue invocations for the five dialogs.
-  const core = useFilterOperationsCore();
+  // The AHU completion pre-flight for the hook's OWN dialog-first deferral
+  // (single-filter advance / start-and-advance). Without this seam the popup
+  // could only be wired to the batch handlers, so a single-scan Storage Out
+  // submit skipped it. Defined below in the component body — this arrow defers
+  // the lookup to call time, which is always after initialisation.
+  const core = useFilterOperationsCore({
+    onBeforeDeferredChecklist: (filterId, targetState) =>
+      gateAhuBeforeDeferredChecklist([filterId], targetState),
+  });
   // Task 7: AHU completion mode (NONE / POPUP / INTERLOCK) from config.
   const ahuMode = useAhuCompletionMode();
   const mobileNav = useNavigate();
@@ -952,6 +960,20 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
     // and the operator's UI was stuck until refresh.
     try {
+    // AHU pre-flight for the checklist-less completion case (2026-08-10). ONE
+    // call for the whole queue, before the loop — the tablet submits 50–100
+    // tags and the check is per-AHU, not per-filter. Pipelines that end with a
+    // terminal checklist are unaffected (isCompletingAdvance returns false) and
+    // keep warning at checklist-open via gateAhuBeforeChecklist below.
+    // Deliberately INSIDE the D6 try/finally: a throw here (rather than the
+    // handled 'blocked' return) would otherwise skip the finally and leave the
+    // tablet spinner stuck — the exact failure D6 exists to prevent.
+    if (
+      (await gateAhuBeforeCompletingAdvance(
+        scanQueueSnapshot.map(q => q.filterId),
+        activeStage.key,
+      )) === 'blocked'
+    ) return;
     for (const item of scanQueue) {
       try {
         const cached = cachedFilterById.get(item.filterId);
@@ -1296,6 +1318,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           targetState: activeStage.key,
           cleaningAreaId: selectedBlock?.id,
           remarks: remarks || `${activeStage.label} - ${item.filterName}`,
+          // Operator's A/B/All pick from the AHU pre-flight before this loop.
+          // Only set when this advance completes the cycle; scopes the server
+          // INTERLOCK gate to the roster the popup showed (mirrors the
+          // submit-checklist payload). Absent when the pre-flight didn't run.
+          ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
         };
         const preChecklists = await resolveChecklistForTargetStage(
           item.filterId,
@@ -1324,8 +1351,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           continue;
         }
         const { executed, result } = await executeOrQueue('advance', item.filterId, item.filterName, {
-          targetState: activeStage.key, cleaningAreaId: selectedBlock?.id,
-          remarks: remarks || `${activeStage.label} - ${item.filterName}`,
+          ...advancePayload,
         }, activeStage.key);
         if (!executed) {
           // Perf (2026-07-09): recompute this filter's cache row per item, but do
@@ -1444,8 +1470,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // they stay in the scan queue for a re-submit, matching the legacy path's
       // "the rest can be triggered on the next scan" behaviour.
       const primary = deferredAdvances.get(chosen[0].filterId)!;
-      // AHU pre-flight BEFORE the (terminal) checklist opens — same as legacy.
-      if ((await gateAhuBeforeChecklist(chosen.map(m => m.filterId))) === 'proceed') {
+      // AHU pre-flight BEFORE the (terminal) checklist opens. Dialog-first means
+      // NOTHING is written yet, so the filter is still at the previous stage —
+      // the gate must test the TARGET stage, not `currentState`. Using the
+      // current-state variant here is exactly what silently disabled the popup
+      // at Storage Out after 2026-07-16.
+      if ((await gateAhuBeforeDeferredChecklist(chosen.map(m => m.filterId), activeStage.key)) === 'proceed') {
         const parked = new Map<string, { targetState: string; payload: Record<string, unknown> }>();
         for (const m of chosen) {
           const d = deferredAdvances.get(m.filterId)!;
@@ -2706,7 +2736,62 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       catch { /* genuinely offline → keep cached fallback */ }
     }
     if (!isTerminalChecklist(termState?.currentState, termState?.stageLookup)) return 'proceed';
+    return runAhuGate(filterIds);
+  };
 
+  // 2026-08-10: second entry point — an advance that COMPLETES the cycle with no
+  // checklist after it (`… → FINAL STAGE → END`). Those pipelines never open a
+  // terminal checklist, so gateAhuBeforeChecklist could never fire for them and
+  // the AHU popup silently did nothing at Storage Out. Disjoint from the
+  // checklist path by construction — see isCompletingAdvance.
+  const gateAhuBeforeCompletingAdvance = async (
+    filterIds: string[],
+    targetState: string | undefined,
+    known?: { stageLookup?: any },
+  ): Promise<'proceed' | 'blocked'> => {
+    ahuSetChoiceRef.current = null;
+    if (ahuMode === 'NONE' || filterIds.length === 0 || !targetState) return 'proceed';
+    let st: any = known?.stageLookup ? known : null;
+    if (!st) {
+      st = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
+      try { st = await apiClient.get<any>(`/api/filters/${filterIds[0]}/current-state`); }
+      catch { /* genuinely offline → keep cached fallback */ }
+    }
+    if (!isCompletingAdvance(targetState, st?.stageLookup)) return 'proceed';
+    return runAhuGate(filterIds);
+  };
+
+  /**
+   * 2026-08-10: third entry point — the DIALOG-FIRST terminal checklist.
+   *
+   * The 2026-07-16 dialog-first refactor parks the advance and opens the
+   * checklist BEFORE anything is written, so at this point the filter is still
+   * at the PREVIOUS stage (Storage In) and `gateAhuBeforeChecklist` — which
+   * tests `currentState` — could no longer recognise the terminal step. That is
+   * why the AHU popup stopped appearing at Storage Out. Test the TARGET stage
+   * instead; `isTerminalTargetWithChecklist` is the exact complement of
+   * `isCompletingAdvance`, so the pre-loop gate and this one never both fire.
+   */
+  const gateAhuBeforeDeferredChecklist = async (
+    filterIds: string[],
+    targetState: string | undefined,
+  ): Promise<'proceed' | 'blocked'> => {
+    ahuSetChoiceRef.current = null;
+    if (ahuMode === 'NONE' || filterIds.length === 0 || !targetState) return 'proceed';
+    let st: any = await getCache<any>(`filter-state-${filterIds[0]}`).catch(() => null);
+    try { st = await apiClient.get<any>(`/api/filters/${filterIds[0]}/current-state`); }
+    catch { /* genuinely offline → keep cached fallback */ }
+    if (!isTerminalTargetWithChecklist(targetState, st?.stageLookup)) return 'proceed';
+    return runAhuGate(filterIds);
+  };
+
+  /**
+   * Shared tail of both AHU pre-flights: optional A/B/All chooser, batch
+   * completion-status check, then the warn/block dialog. Extracted 2026-08-10
+   * so the checklist-less completion path reuses the exact same behaviour
+   * (including the INTERLOCK fail-safe) rather than a parallel copy.
+   */
+  const runAhuGate = async (filterIds: string[]): Promise<'proceed' | 'blocked'> => {
     // Only ask A / B / All when the batch actually spans both sets — otherwise
     // the choice is meaningless (proceed as ALL). Cancel = don't proceed.
     let set: FilterSetChoice | undefined;

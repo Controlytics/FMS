@@ -25,7 +25,7 @@
  * is responsible for displaying the dialog. This hook treats REAUTH as
  * "not my problem — propagate".
  */
-import { useReducer, useState, useCallback } from 'react';
+import { useReducer, useState, useCallback, useRef } from 'react';
 import { useOffline } from '../../hooks/use-offline';
 import {
   reduceDialogState,
@@ -179,6 +179,33 @@ export interface AdvanceOutcome {
   result?: any;
   dialogOpened: boolean;
   deferred?: boolean;
+  /**
+   * The page's `onBeforeDeferredChecklist` veto returned 'blocked' (2026-08-10).
+   * Nothing was written and no dialog opened. `deferred` is also true so every
+   * existing "don't report success on a deferral" caller check keeps holding
+   * without modification.
+   */
+  blocked?: boolean;
+}
+
+export interface UseFilterOperationsCoreOptions {
+  /**
+   * Page-supplied veto that runs immediately BEFORE a dialog-first deferral
+   * opens its checklist (2026-08-10). Added because the hook itself opens that
+   * dialog for the single-filter paths, so a page-level pre-flight had no seam
+   * to run in — the AHU completion popup could only be wired to the batch
+   * handlers, and single-scan Storage Out submits bypassed it entirely.
+   *
+   * Return `'blocked'` to abort: nothing has been written at this point (that is
+   * the whole point of dialog-first), so the caller gets
+   * `{ executed: false, deferred: true, blocked: true }` and must not report
+   * success. Any throw is treated as `'proceed'` — an advisory pre-flight must
+   * never be able to dead-end a cleaning operation.
+   */
+  onBeforeDeferredChecklist?: (
+    filterId: string,
+    targetState: string,
+  ) => Promise<'proceed' | 'blocked'>;
 }
 
 export interface UseFilterOperationsCoreResult {
@@ -279,11 +306,41 @@ async function resolveAndDispatchChecklist(
   return 'none';
 }
 
-export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
+/**
+ * Run the page's dialog-first veto, defaulting to 'proceed' when absent or when
+ * it throws. The AHU pre-flight is advisory (POPUP) or backed by a server 422
+ * (INTERLOCK) — a transient failure inside it must never dead-end the operator
+ * at a stage they are legitimately allowed to submit.
+ */
+async function runBeforeDeferred(
+  fn: UseFilterOperationsCoreOptions['onBeforeDeferredChecklist'],
+  filterId: string,
+  targetState: string,
+): Promise<'proceed' | 'blocked'> {
+  if (!fn) return 'proceed';
+  try {
+    return await fn(filterId, targetState);
+  } catch (e) {
+    console.error('[filter-ops] onBeforeDeferredChecklist failed; proceeding', e);
+    return 'proceed';
+  }
+}
+
+export function useFilterOperationsCore(
+  opts?: UseFilterOperationsCoreOptions,
+): UseFilterOperationsCoreResult {
   const { executeOrQueue, online } = useOffline();
   const [dialogState, dispatch] = useReducer(reduceDialogState, { kind: 'none' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The page passes a fresh closure every render (it reads page state: AHU mode,
+  // online, dialog setters). `advance`/`startAndAdvance` are memoized on
+  // executeOrQueue alone, so reading `opts` directly would capture the FIRST
+  // render's closure and gate against stale state. A ref kept current each
+  // render is the standard fix.
+  const beforeDeferredRef = useRef(opts?.onBeforeDeferredChecklist);
+  beforeDeferredRef.current = opts?.onBeforeDeferredChecklist;
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -341,6 +398,11 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
             online,
           );
           if (pending.length > 0) {
+            // Page veto (AHU completion pre-flight) — runs while nothing is
+            // written, so 'blocked' is a clean abort.
+            if ((await runBeforeDeferred(beforeDeferredRef.current, args.filterId, args.targetState)) === 'blocked') {
+              return { executed: false, deferred: true, dialogOpened: false, blocked: true };
+            }
             // Nothing is written. The intent rides on the dialog; submit sends
             // ONE advance-with-checklist, Close discards it with the dialog.
             dispatch({
@@ -460,6 +522,9 @@ export function useFilterOperationsCore(): UseFilterOperationsCoreResult {
             online,
           );
           if (pending.length > 0) {
+            if ((await runBeforeDeferred(beforeDeferredRef.current, args.filterId, args.targetState)) === 'blocked') {
+              return { executed: false, deferred: true, dialogOpened: false, blocked: true };
+            }
             dispatch({
               type: 'open_checklist',
               filterId: args.filterId,
