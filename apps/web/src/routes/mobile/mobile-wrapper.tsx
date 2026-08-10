@@ -13,7 +13,6 @@ import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { scopeFiltersToCascade, countByStage } from '@/lib/filter-status-scope';
 import { resolveAncestry, type FilterAncestry } from '@/lib/filter-ancestry';
-import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { useOfflineConfig } from '../../hooks/use-offline-config';
@@ -25,7 +24,7 @@ import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../lib/filter-constants';
 
-type View = 'home' | 'status' | 'my-tasks' | 'approvals' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications';
+type View = 'home' | 'status' | 'my-tasks' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications';
 
 // Show "NA" when a replacement-schedule value wasn't entered (null/empty) or was
 // a stray "[object Object]" from a non-text spreadsheet cell.
@@ -123,10 +122,6 @@ export function MobileWrapperPage() {
   useOfflineConfig();
   const { online, pendingCount, syncing, lastSyncMessage, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const reauth = useReauth();
-  // Audit 2026-05-04 follow-up: shared block-change approval flow with web
-  // approvals page so the two implementations can't drift again. Uses its
-  // own reauth instance (the `reauth` above is for RFID assign/unassign).
-  const blockChangeApproval = useBlockChangeApproval();
   const mobileNav = useNavigate();
 
   // Tablet access control — which features are allowed for this role.
@@ -164,7 +159,6 @@ export function MobileWrapperPage() {
     const featureForView: Partial<Record<View, string>> = {
       status: 'filter_status',
       'my-tasks': 'my_tasks',
-      approvals: 'approvals',
       'rfid-assign': 'rfid_assign',
       operations: 'filter_cleaning',
     };
@@ -279,7 +273,7 @@ export function MobileWrapperPage() {
   const [taskStatus, setTaskStatus] = useState<'all' | 'pending' | 'completed' | 'overdue'>('all');
   const [taskFiltersOpen, setTaskFiltersOpen] = useState(false);
 
-  // My Tasks + Approvals. The /due key carries the from/to period so the server
+  // My Tasks. The /due key carries the from/to period so the server
   // returns tasks for the selected window (empty = "due now + overdue").
   const dueKey = (() => {
     if (!online) return null;
@@ -305,13 +299,6 @@ export function MobileWrapperPage() {
     try { await apiClient.put('/api/notifications/mark-all-read', {}); mutateNotifs(); } catch { /* ignore */ }
   };
 
-  const isApprover = user?.role === 'SUPER_ADMIN' || (user?.permissions ?? []).includes('BLOCK_CHANGE_APPROVE');
-  const [approvalsFilter, setApprovalsFilter] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'>(isApprover ? 'PENDING' : 'ALL');
-  const approvalsKey = online
-    ? `/api/block-change-requests?page=1&limit=50&status=${approvalsFilter}${!isApprover ? '&mine=true' : ''}`
-    : null;
-  const { data: approvalsData, mutate: mutateApprovals, isLoading: approvalsLoading } =
-    useSWR<any>(approvalsKey, { refreshInterval: view === 'approvals' ? 30000 : 120000 });
 
   // Issue #7 fix (2026-05-18): cleaning-cycles list for mobile.
   // 2026-05-20: also load when view==='status' so the new stage-detail drill-down
@@ -349,7 +336,6 @@ export function MobileWrapperPage() {
 
   // Offline data from IndexedDB cache
   const [offlineTasks, setOfflineTasks] = useState<any>(null);
-  const [offlineApprovals, setOfflineApprovals] = useState<any[]>([]);
   const [offlineFilters, setOfflineFilters] = useState<any[]>([]);
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
   const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
@@ -444,15 +430,12 @@ export function MobileWrapperPage() {
   const replBatchResultRef = useRef<{ done: number; failed: string[] } | null>(null);
 
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
-  const [processingApproval, setProcessingApproval] = useState<string | null>(null);
-  const [approvalComment, setApprovalComment] = useState('');
 
   // Cache live SWR data for offline fallback
   useEffect(() => { if (instancesData?.data) cacheFilterData(instancesData.data); }, [instancesData]);
   // Only snapshot the unfiltered "due now" view for offline use — caching a
   // period-filtered result would make the offline My Tasks show the wrong set.
   useEffect(() => { if (dueTasksData && !taskFrom && !taskTo) cache('due-tasks', dueTasksData); }, [dueTasksData, taskFrom, taskTo]);
-  useEffect(() => { if (approvalsData?.data) cache('approvals', approvalsData.data); }, [approvalsData]);
 
   // Load cached data for offline use
   const refreshOfflineData = () => {
@@ -460,7 +443,6 @@ export function MobileWrapperPage() {
     getCache<any[]>('templates').then(t => setOfflineTemplates(t ?? []));
     getCache<any[]>('cleaning-reasons').then(r => setOfflineReasons(r ?? []));
     getCache<any>('due-tasks').then(t => { if (t) setOfflineTasks(t); });
-    getCache<any[]>('approvals').then(a => { if (a) setOfflineApprovals(a); });
   };
   useEffect(() => { refreshOfflineData(); }, []);
   useEffect(() => { if (!online) refreshOfflineData(); }, [online]);
@@ -471,7 +453,6 @@ export function MobileWrapperPage() {
   // updating the counts.
   useEffect(() => { refreshOfflineData(); }, [pendingCount]);
 
-  const approvals: any[] = (online ? approvalsData?.data : null) ?? offlineApprovals;
   const tasksSource = (online ? dueTasksData : null) ?? offlineTasks;
 
   // ── My Tasks filtering (mirrors desktop my-tasks/index.tsx) ──
@@ -862,27 +843,6 @@ export function MobileWrapperPage() {
     openStage('WASH_IN');
   };
 
-  // ---- Approvals handlers ----
-  const handleApprovalAction = (requestId: string, action: 'approve' | 'reject') => {
-    setProcessingApproval(requestId);
-    setError('');
-    blockChangeApproval.process(requestId, action, approvalComment.trim(), {
-      mutateKeys: approvalsKey ? [approvalsKey] : [],
-      onSuccess: () => {
-        setSuccess(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
-        setApprovalComment('');
-        // mutateApprovals is the SWR key-bound mutator; the hook also fires
-        // mutate(approvalsKey) but we keep this for the local SWR instance.
-        void mutateApprovals();
-        setProcessingApproval(null);
-      },
-      onError: (e: any) => {
-        setError(e.message ?? `Failed to ${action} request`);
-        setProcessingApproval(null);
-      },
-    });
-  };
-
   // Android hardware/gesture back button (Capacitor APK only — no-op on web).
   // Contract: dismiss the topmost overlay → else return to the Home view → else
   // (already Home) swallow. We deliberately NEVER call App.exitApp(): exiting
@@ -899,11 +859,6 @@ export function MobileWrapperPage() {
       setRfidSubmitting(false);
       setReplaceSubmitting(false);
       setReplTaskSubmitting(false);
-      return;
-    }
-    if (blockChangeApproval.reauth.isOpen) {
-      blockChangeApproval.reauth.cancel();
-      setProcessingApproval(null);
       return;
     }
     // 2. Filter-lookup scan modal.
@@ -1053,7 +1008,7 @@ export function MobileWrapperPage() {
               </div>
 
               {/* 2026-05-21 follow-up: removed Cleaning Pipeline hero + the
-                  My Tasks / Approvals / Cycles cards on operator request.
+                  My Tasks / Cycles cards on operator request.
                   Those views are still reachable via the wrapper's existing
                   setView() entry points (header chips / future bottom nav).
                   Home stays focused on the operator's primary task: tap a
@@ -1727,162 +1682,7 @@ export function MobileWrapperPage() {
           </div>
         )}
 
-        {/* === APPROVALS VIEW === */}
-        {view === 'approvals' && (
-          <div className="p-4 space-y-4">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Approvals</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {isApprover ? 'Review and act on pending block change requests' : 'Track the status of requests you submitted'}
-              </p>
-            </div>
 
-            {/* Status filter pills */}
-            {online && (
-              <div className="bg-slate-100 rounded-xl p-1 flex gap-1 overflow-x-auto">
-                {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map(opt => (
-                  <button
-                    key={opt}
-                    onClick={() => setApprovalsFilter(opt)}
-                    className={`flex-1 min-w-[70px] px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
-                      approvalsFilter === opt
-                        ? 'bg-white text-cyan-700 shadow-sm'
-                        : 'text-slate-500 active:bg-slate-200'
-                    }`}
-                  >
-                    {opt === 'ALL' ? 'All' : opt[0] + opt.slice(1).toLowerCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {!online && (
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
-                Approvals requires an internet connection.
-              </div>
-            )}
-
-            {online && approvalsLoading && (
-              <div className="space-y-3">
-                {Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="bg-white border border-slate-200 rounded-2xl h-32 animate-pulse" />
-                ))}
-              </div>
-            )}
-
-            {online && !approvalsLoading && approvals.length === 0 && (
-              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
-                <div className="p-10 text-center">
-                  <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 flex items-center justify-center">
-                    <span className="text-3xl">{'\u2705'}</span>
-                  </div>
-                  <div className="text-sm font-semibold text-slate-700">
-                    {approvalsFilter === 'ALL'
-                      ? (isApprover ? 'No requests' : 'No requests submitted yet')
-                      : `No ${approvalsFilter.toLowerCase()} requests`}
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    {isApprover ? 'Change the filter above to see other statuses' : 'Block change requests you submit will appear here'}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {online && approvals.map((req: any) => {
-              const processing = processingApproval === req.id;
-              // Per-status styling
-              const statusMeta =
-                req.status === 'APPROVED'
-                  ? { label: 'Approved', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500', bar: 'from-emerald-400 to-emerald-500' }
-                : req.status === 'REJECTED'
-                  ? { label: 'Rejected', badge: 'bg-rose-50 text-rose-700 border-rose-100',        dot: 'bg-rose-500',    bar: 'from-rose-400 to-rose-500' }
-                : req.status === 'EXPIRED'
-                  ? { label: 'Used',     badge: 'bg-slate-100 text-slate-600 border-slate-200',    dot: 'bg-slate-400',   bar: 'from-slate-400 to-slate-500' }
-                  : { label: 'Pending',  badge: 'bg-amber-50 text-amber-700 border-amber-100',     dot: 'bg-amber-500',   bar: 'from-amber-400 to-orange-500' };
-              return (
-                <div key={req.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                  <div className={`h-1.5 bg-gradient-to-r ${statusMeta.bar}`} />
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-base font-bold text-slate-800 truncate">{req.filterName}</h3>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          Requested by {req.requestedByName ?? req.requestedBy} {'\u2022'} {req.createdAt ? formatTime(new Date(req.createdAt)) : ''}
-                        </div>
-                      </div>
-                      <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${statusMeta.badge}`}>
-                        <span className={`w-1 h-1 rounded-full ${statusMeta.dot}`} />
-                        {statusMeta.label}
-                      </span>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-xl p-3 text-xs space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 w-16">From:</span>
-                        <span className="font-semibold text-slate-700">{req.fromBlockName}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 w-16">To:</span>
-                        <span className="font-semibold text-cyan-700">{req.toBlockName}</span>
-                      </div>
-                      {req.reason && (
-                        <div className="flex items-start gap-2 pt-1">
-                          <span className="text-slate-500 w-16">Reason:</span>
-                          <span className="text-slate-600 flex-1">{req.reason}</span>
-                        </div>
-                      )}
-                      {/* Surface approval/rejection metadata when present */}
-                      {(req.status === 'APPROVED' || req.status === 'REJECTED') && (req.processedByName || req.processedAt) && (
-                        <div className="flex items-start gap-2 pt-1 border-t border-slate-200 mt-2">
-                          <span className="text-slate-500 w-16">{req.status === 'APPROVED' ? 'Approved by:' : 'Rejected by:'}</span>
-                          <span className="text-slate-600 flex-1">
-                            {req.processedByName ?? '\u2014'}
-                            {req.processedAt ? ` \u2022 ${formatTime(new Date(req.processedAt))}` : ''}
-                          </span>
-                        </div>
-                      )}
-                      {req.processedComment && (
-                        <div className="flex items-start gap-2 pt-1">
-                          <span className="text-slate-500 w-16">Comment:</span>
-                          <span className="text-slate-600 flex-1 italic">{req.processedComment}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Only show Approve/Reject for rows that are still pending */}
-                    {isApprover && req.status === 'PENDING' && (
-                      <div className="space-y-2">
-                        <input
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 outline-none"
-                          placeholder="Comment (required) *"
-                          value={processingApproval === req.id ? approvalComment : ''}
-                          onChange={e => { setProcessingApproval(req.id); setApprovalComment(e.target.value); }}
-                        />
-                        <div className="flex gap-2">
-                        <button
-                          onClick={() => handleApprovalAction(req.id, 'reject')}
-                          disabled={processing || !(processingApproval === req.id && approvalComment.trim())}
-                          className="flex-1 py-2.5 bg-white border border-rose-200 text-rose-700 rounded-xl text-sm font-semibold active:bg-rose-50 disabled:opacity-50"
-                        >
-                          {processing ? '\u2026' : 'Reject'}
-                        </button>
-                        <button
-                          onClick={() => handleApprovalAction(req.id, 'approve')}
-                          disabled={processing || !(processingApproval === req.id && approvalComment.trim())}
-                          className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-500/25 active:shadow-none disabled:opacity-50"
-                        >
-                          {processing ? '\u2026' : 'Approve'}
-                        </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         {/* === NOTIFICATIONS VIEW === */}
         {view === 'notifications' && (
@@ -3314,12 +3114,6 @@ export function MobileWrapperPage() {
               <span className="text-[10px] font-semibold">My Tasks</span>
             </button>
           )}
-          {hasFeature('approvals') && (
-            <button onClick={() => setView('approvals')} className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors ${view === 'approvals' ? 'text-cyan-600' : 'text-slate-400'}`}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              <span className="text-[10px] font-semibold">Approvals</span>
-            </button>
-          )}
         </div>
       )}
 
@@ -3332,16 +3126,6 @@ export function MobileWrapperPage() {
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setReplaceSubmitting(false); setReplTaskSubmitting(false); }}
         actionLabel="RFID Tag"
-      />
-      <ReauthDialog
-        open={blockChangeApproval.reauth.isOpen}
-        password={blockChangeApproval.reauth.password}
-        error={blockChangeApproval.reauth.error}
-        isVerifying={blockChangeApproval.reauth.isVerifying}
-        onPasswordChange={blockChangeApproval.reauth.setPassword}
-        onConfirm={blockChangeApproval.reauth.confirm}
-        onCancel={() => { blockChangeApproval.reauth.cancel(); setProcessingApproval(null); }}
-        actionLabel="Process Block Change"
       />
       {/* W4: read-only blocker overlay when hard-cutoff window elapsed */}
       <HardCutoffBlocker />

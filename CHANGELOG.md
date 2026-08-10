@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] — Approvals removed from the tablet app (2026-08-10)
+
+### Removed — the tablet Approvals tab and screen
+
+Operator request. Approving moves to the desktop `/approvals` page only.
+
+Deleted from **both** tablet files — the tablet keeps two copies of this screen
+(`mobile-wrapper.tsx` and `mobile-operations.tsx`), and missing one would have
+left a reachable orphan:
+
+- bottom-nav **Approvals** tab and the Home quick-access card
+- the `view === 'approvals'` screen in both files (~20 KB of JSX)
+- block-change **approve / reject** actions, their handler, reauth dialog and
+  `useBlockChangeApproval` wiring on the tablet
+- the read-only **stage-approvals** list (the 2026-07-10 C3 addition)
+- `'approvals'` SWR keys, offline cache entry, filter/comment/processing state
+- `'approvals'` from both `View` unions and from the view→feature redirect map
+
+**Deliberately kept** (not part of this request):
+
+- the desktop `/approvals` page — unchanged
+- every backend endpoint (`/api/block-change-requests`, `/api/stage-approvals`)
+  and all audit records — no §11 surface was touched
+- the **cross-block request flow in operations**. An operator can still hit a
+  filter whose home block differs from the selected one and submit a block-change
+  request; it now has to be actioned on desktop. If you would rather the tablet
+  never raise one, set Config → Block Change Approval to `CONFIRM` (operator
+  self-confirm) or `NONE` — that is config, not code.
+
+**Known dead affordance:** the `approvals` key remains in Config → Tablet Access
+as a per-role checkbox that no longer gates anything (removing it was the
+declined option 3 — it needs a shared-config change plus a `role_configs`
+backfill). Say the word and it goes.
+
+Web suite: 661 passing (50 files), unchanged — no test covered the tablet
+Approvals screen.
+
+
 ## [Unreleased] — Auto-fetched instrument readings are read-only (2026-08-10)
 
 ### Changed — an instrument value can no longer be hand-edited after it is fetched
