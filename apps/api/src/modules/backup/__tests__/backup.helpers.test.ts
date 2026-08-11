@@ -110,6 +110,44 @@ describe('backup.helpers', () => {
     });
   });
 
+  /**
+   * Fault 1 of the 2026-08-08 "plain .sql cannot be restored" set: a JS array
+   * reached escapeSqlValue as a plain object and was emitted as ::jsonb.
+   * Postgres rejects that for an ARRAY column with SQLSTATE 42804 and rolls the
+   * entire restore back.
+   */
+  describe('escapeSqlValue — ARRAY columns', () => {
+    it('emits a Postgres array literal cast to the element type, never jsonb', () => {
+      const out = escapeSqlValue(['CHECKLIST_APPROVED', 'CHECKLIST_REJECTED'], 'NotificationEventType');
+      expect(out).toBe(`'{"CHECKLIST_APPROVED","CHECKLIST_REJECTED"}'::"NotificationEventType"[]`);
+      expect(out).not.toContain('jsonb');
+    });
+
+    it('quotes the element type — the enum types are CamelCase and case-sensitive', () => {
+      // Unquoted, Postgres folds the identifier to lower case and cannot find it.
+      expect(escapeSqlValue(['A'], 'NotificationEventType')).toContain('::"NotificationEventType"[]');
+    });
+
+    it('renders an empty array as {}', () => {
+      expect(escapeSqlValue([], 'NotificationEventType')).toBe(`'{}'::"NotificationEventType"[]`);
+    });
+
+    it('escapes quotes and backslashes inside elements', () => {
+      // Inside an array literal the element is double-quoted and \ / " are
+      // backslash-escaped; the surrounding SQL single-quoting is separate.
+      expect(escapeSqlValue(['say "hi"'], 'text')).toBe(`'{"say \\"hi\\""}'::"text"[]`);
+      expect(escapeSqlValue(['back\\slash'], 'text')).toBe(`'{"back\\\\slash"}'::"text"[]`);
+    });
+
+    it("doubles single quotes so the literal survives SQL quoting", () => {
+      expect(escapeSqlValue(["it's"], 'text')).toBe(`'{"it''s"}'::"text"[]`);
+    });
+
+    it('still uses jsonb when no element type is given (non-array object columns)', () => {
+      expect(escapeSqlValue({ a: 1 })).toContain('::jsonb');
+    });
+  });
+
   describe('generateSqlInserts', () => {
     it('returns comment for empty rows', () => {
       const result = generateSqlInserts('users', []);

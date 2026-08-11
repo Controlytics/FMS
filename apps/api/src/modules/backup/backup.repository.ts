@@ -246,6 +246,89 @@ export class BackupTooLargeError extends Error {
   }
 }
 
+/**
+ * Every ARRAY column in the public schema, mapped table → column → ELEMENT type
+ * name (e.g. `notification_rules.event_types` → `NotificationEventType`).
+ *
+ * The plain-SQL exporter needs this because a JS array reaches `escapeSqlValue`
+ * as a plain object and was emitted as `'[...]'::jsonb`. Postgres then refuses
+ * the INSERT with SQLSTATE 42804 — `column "event_types" is of type
+ * "NotificationEventType"[] but expression is of type jsonb` — which aborts the
+ * transaction and rolls the ENTIRE restore back. Knowing the real element type
+ * lets us emit `'{...}'::"NotificationEventType"[]` instead.
+ *
+ * `udt_name` for an array column is the element type prefixed with `_`
+ * (PostgreSQL's internal convention), so the leading underscore is stripped.
+ * The name is returned unquoted; the caller quotes it, which matters here
+ * because the enum types are CamelCase and therefore case-sensitive.
+ */
+export async function getArrayColumns(): Promise<Record<string, Record<string, string>>> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ table_name: string; column_name: string; udt_name: string }>>(
+    `SELECT table_name, column_name, udt_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND data_type = 'ARRAY'`,
+  );
+  const out: Record<string, Record<string, string>> = {};
+  for (const r of rows) {
+    const element = r.udt_name.startsWith('_') ? r.udt_name.slice(1) : r.udt_name;
+    (out[r.table_name] ??= {})[r.column_name] = element;
+  }
+  return out;
+}
+
+/** Self-referencing FK columns per table — exported for the SQL writer. */
+export async function getSelfReferencingColumns(): Promise<Record<string, string[]>> {
+  return getSelfRefColumns(await getAllTables());
+}
+
+/** Server major version (e.g. 18) — pg_dump must be at least this new. */
+export async function getServerMajorVersion(): Promise<number> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ v: string }>>(`SHOW server_version`);
+  const raw = rows[0]?.v ?? '';
+  const major = Number(raw.split('.')[0]);
+  if (!Number.isFinite(major)) {
+    throw new Error(`Could not parse PostgreSQL server_version from "${raw}".`);
+  }
+  return major;
+}
+
+/**
+ * Empty the public schema so a custom-format archive can be restored into a
+ * genuinely clean target.
+ *
+ * Why not `pg_restore --clean --if-exists`: it provably fails on THIS schema.
+ * --clean emits `DROP INDEX IF EXISTS public.quality_notifications_qnn_key`,
+ * but that index backs a UNIQUE CONSTRAINT, and PostgreSQL refuses to drop it
+ * independently ("...requires it. HINT: You can drop constraint ... instead").
+ * Under --single-transaction that one error aborts the whole restore; without
+ * it, you get a half-dropped database that reports success. Dropping the schema
+ * outright sidesteps the entire dependency-ordering problem.
+ *
+ * The archive recreates the extensions (ltree, pgcrypto) itself — verified via
+ * `pg_restore -l`, which lists both — so dropping them here is safe.
+ */
+export async function resetPublicSchema(): Promise<void> {
+  await prisma.$executeRawUnsafe(`DROP SCHEMA public CASCADE`);
+  await prisma.$executeRawUnsafe(`CREATE SCHEMA public`);
+}
+
+/**
+ * Snapshot of which user triggers are currently enabled, so a restore can put
+ * them back EXACTLY as it found them rather than blanket-enabling everything
+ * (which would silently arm a trigger an operator had deliberately disabled).
+ */
+export async function getUserTriggerState(): Promise<Array<{ table: string; trigger: string; enabled: boolean }>> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ relname: string; tgname: string; tgenabled: string }>>(
+    `SELECT c.relname::text AS relname, t.tgname::text AS tgname, t.tgenabled::text AS tgenabled
+       FROM pg_trigger t
+       JOIN pg_class c ON c.oid = t.tgrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE NOT t.tgisinternal AND n.nspname = 'public'`,
+  );
+  // tgenabled: 'O' = enabled (origin), 'D' = disabled, 'R'/'A' = replica/always.
+  return rows.map(r => ({ table: r.relname, trigger: r.tgname, enabled: r.tgenabled !== 'D' }));
+}
+
 export async function fetchAllTablesRaw(): Promise<Record<string, Record<string, any>[]>> {
   const tables = await getAllTables();
 
@@ -280,64 +363,137 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
 // order, with a second pass for nullable self-referencing columns.
 // ---------------------------------------------------------------------------
 
+/** Aggregate outcome of a chain walk over a backup's audit_trail rows. */
+export interface BackupChainReport {
+  totalRows: number;
+  preChainRows: number;
+  chainedRows: number;
+  /** Rows whose stored checksum does not match a recomputation of their own fields. */
+  checksumFailures: number;
+  /** Rows whose previous_checksum does not point at the preceding row's checksum. */
+  linkFailures: number;
+  /** First few offenders, for the operator-facing summary. */
+  samples: Array<{ index: number; id: string; position: string | null; kind: 'checksum' | 'link' }>;
+}
+
 /**
  * Audit 2026-05-04 fix #7 (api-supporting H5 — restore silently rewrites
  * audit trail). Verify the chain integrity of audit_trail rows in the
- * backup BEFORE installing them. Tampered or partial backups are refused;
- * operator can pass `force: true` to override (intentional, audited).
+ * backup BEFORE installing them. Anomalous backups are refused; the operator
+ * can pass `force: true` to override (intentional, audited).
  *
- * Returns the count of chained / pre-chain rows it inspected. Throws with
- * a structured error on anomaly so the caller surfaces a clean 400.
+ * Walks EVERY row and returns an aggregate report. It used to throw at the
+ * FIRST offender, so the refusal said "row 0" having never looked at the other
+ * 17k rows — an operator could not tell one bad row from a wholly forged file,
+ * which is exactly the judgement §11 expects them to exercise before overriding.
+ *
+ * 2026-08-08 field-set fix: this passed only 6 of the 14 fields the writer
+ * hashes. `audit.ts` expanded the checksum envelope on 2026-07-04 to cover
+ * userName / userRole / beforeValue / reason / ipAddress / userAgent /
+ * sessionId / signatureMeaning, and `verifyAuditChecksum` only falls back to
+ * the 6-field formula for rows written BEFORE that change. So every row
+ * written since verified as "tampered" here — measured on the dev DB, 5487 of
+ * 17087 rows failed this path versus 3308 under the full field set: 2179
+ * untouched, genuinely valid rows were being reported as forged. `redactedAt`
+ * was missing too, so redacted rows took the recompute path instead of the
+ * null-payload assertion they require. The field list below MUST stay
+ * byte-identical to `expandedFields` in hash-chain.ts.
  */
-async function verifyBackupAuditChain(rows: Array<Record<string, any>>): Promise<{
-  preChainRows: number;
-  chainedRows: number;
-}> {
+export async function verifyBackupAuditChain(
+  rows: Array<Record<string, any>>,
+): Promise<BackupChainReport> {
   const { verifyAuditChecksum } = await import('../../lib/hash-chain.js');
-  let preChainRows = 0;
-  let chainedRows = 0;
+  const report: BackupChainReport = {
+    totalRows: rows.length,
+    preChainRows: 0,
+    chainedRows: 0,
+    checksumFailures: 0,
+    linkFailures: 0,
+    samples: [],
+  };
   // Sort by chain_position (NULLs first — pre-chain era) for deterministic walk.
   const sorted = [...rows].sort((a, b) => {
     const ap = a.chain_position == null ? -1 : Number(a.chain_position);
     const bp = b.chain_position == null ? -1 : Number(b.chain_position);
     return ap - bp;
   });
+  const addSample = (index: number, row: Record<string, any>, kind: 'checksum' | 'link') => {
+    if (report.samples.length >= 5) return;
+    report.samples.push({
+      index,
+      id: String(row.id),
+      position: row.chain_position == null ? null : String(row.chain_position),
+      kind,
+    });
+  };
+
   let priorChecksum: string | null = null;
   for (let i = 0; i < sorted.length; i++) {
     const row = sorted[i];
     const perRowOk = verifyAuditChecksum({
       timestamp: row.timestamp,
       userId: row.user_id ?? null,
+      userName: row.user_name ?? null,
+      userRole: row.user_role ?? null,
       action: row.action,
       targetType: row.target_type ?? null,
       targetId: row.target_id ?? null,
+      beforeValue: row.before_value ?? undefined,
       afterValue: row.after_value ?? undefined,
+      reason: row.reason ?? null,
+      ipAddress: row.ip_address ?? null,
+      userAgent: row.user_agent ?? null,
+      sessionId: row.session_id ?? null,
+      signatureMeaning: row.signature_meaning ?? null,
       checksum: row.checksum,
       previousChecksum: row.previous_checksum ?? null,
+      // Redacted rows can't be recomputed (payloads are NULLed by design);
+      // the verifier asserts the null-payload invariant instead.
+      redactedAt: row.redacted_at ?? null,
       // Route keyed-era rows (v3) to the HMAC path; old backups lack the column
       // (undefined → legacy V1/V2 verify, unchanged).
       checksumVersion: (row as { checksum_version?: number | null }).checksum_version ?? null,
     });
     if (!perRowOk) {
-      throw {
-        statusCode: 400,
-        message: `BACKUP_AUDIT_CHAIN_INVALID: row ${i} (id=${row.id}) per-row checksum mismatch — backup is tampered or corrupt. Pass force:true to override.`,
-      };
+      report.checksumFailures++;
+      addSample(i, row, 'checksum');
     }
     if (row.previous_checksum != null) {
-      chainedRows++;
+      report.chainedRows++;
       if (priorChecksum != null && row.previous_checksum !== priorChecksum) {
-        throw {
-          statusCode: 400,
-          message: `BACKUP_AUDIT_CHAIN_INVALID: row ${i} (id=${row.id}) chain link mismatch — backup has insertion or deletion. Pass force:true to override.`,
-        };
+        report.linkFailures++;
+        addSample(i, row, 'link');
       }
     } else {
-      preChainRows++;
+      report.preChainRows++;
     }
     priorChecksum = row.checksum;
   }
-  return { preChainRows, chainedRows };
+  return report;
+}
+
+/**
+ * Human-readable refusal built from a chain report. Deliberately does NOT say
+ * "the backup is tampered or corrupt": the common real cause is that historical
+ * rows in the SOURCE database already failed verification at export time (e.g.
+ * rows hard-deleted from audit_trail permanently break every downstream link —
+ * see the AUDIT_DELETE notes in CLAUDE.md). Stating tampering as fact when the
+ * evidence only shows non-verification is misleading in a §11 context.
+ */
+export function describeChainReport(r: BackupChainReport): string {
+  const parts: string[] = [];
+  if (r.checksumFailures > 0) {
+    parts.push(`${r.checksumFailures} of ${r.totalRows} audit rows do not match their stored checksum`);
+  }
+  if (r.linkFailures > 0) {
+    parts.push(`${r.linkFailures} chain link(s) are broken (rows inserted or deleted)`);
+  }
+  return (
+    `BACKUP_AUDIT_CHAIN_INVALID: ${parts.join('; ')}. `
+    + `This means the audit history in this file cannot be proven intact — either it was altered, `
+    + `or those rows already failed verification in the source database when the backup was taken. `
+    + `Review before proceeding; restoring anyway is permitted and is recorded in the audit trail.`
+  );
 }
 
 export async function restoreFromBackup(backup: BackupData, opts: { force?: boolean } = {}): Promise<void> {
@@ -353,7 +509,14 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
   // and because restore disables the audit_trail immutability triggers
   // (see below), there's no DB-level safeguard.
   if (Array.isArray(data.audit_trail) && data.audit_trail.length > 0 && !opts.force) {
-    await verifyBackupAuditChain(data.audit_trail);
+    const report = await verifyBackupAuditChain(data.audit_trail);
+    if (report.checksumFailures > 0 || report.linkFailures > 0) {
+      throw {
+        statusCode: 400,
+        message: describeChainReport(report),
+        chainReport: report,
+      };
+    }
   }
 
   // Only restore tables that exist in both the backup and the current DB
@@ -662,7 +825,7 @@ function toSnakeCase(s: string): string {
   return out.startsWith('_') ? out.slice(1) : out;
 }
 
-function normalizeBackupKeys(data: Record<string, any[]>): Record<string, any[]> {
+export function normalizeBackupKeys(data: Record<string, any[]>): Record<string, any[]> {
   const hasCamelCase = Object.keys(data).some(k => /[A-Z]/.test(k))
     || Object.values(data).some(rows =>
       Array.isArray(rows) && rows.length > 0 && Object.keys(rows[0]).some(k => /[A-Z]/.test(k)),

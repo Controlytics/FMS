@@ -26,6 +26,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/notification-rules.def.js'),
     import('../modules/config/defs/notification-logs.def.js'),
     import('../modules/config/defs/backup.def.js'),
+    import('../modules/config/defs/backup-format.def.js'),
     import('../modules/config/defs/roles.def.js'),
     import('../modules/config/defs/field-ids.def.js'),
     // retention.def + uns.def deleted with data-ingestion removal.

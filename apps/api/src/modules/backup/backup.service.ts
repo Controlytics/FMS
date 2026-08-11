@@ -1,5 +1,9 @@
 import { gzipSync, gunzipSync } from 'node:zlib';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import AdmZip from 'adm-zip';
+import { runPgDump, runPgRestore } from './pg-tools.js';
 
 /**
  * Decompression ceiling for uploaded backups (2 GB).
@@ -20,6 +24,14 @@ import type { RequestContext } from '../../types/context.js';
 import {
   fetchAllTablesRaw,
   restoreFromBackup,
+  verifyBackupAuditChain,
+  normalizeBackupKeys,
+  getArrayColumns,
+  getSelfReferencingColumns,
+  getUserTriggerState,
+  getServerMajorVersion,
+  resetPublicSchema,
+  type BackupChainReport,
 } from './backup.repository.js';
 import {
   computeBackupChecksum,
@@ -190,6 +202,42 @@ function parseSqlBackup(sqlContent: string): BackupData {
   };
 }
 
+/**
+ * Parse a PostgreSQL array literal — `{"A","B"}` / `{1,2}` / `{}` — into a JS
+ * array. Elements may be bare or double-quoted; inside a quoted element, `\"`
+ * and `\\` are escapes, and a bare `NULL` is a null element.
+ *
+ * Inverse of `arrayElementLiteral` in backup.helpers.ts; the pair keeps the
+ * .sql export and the in-app .sql import round-tripping.
+ */
+export function parsePgArrayLiteral(literal: string): any[] {
+  const body = literal.trim().replace(/^\{/, '').replace(/\}$/, '');
+  if (body.trim() === '') return [];
+  const out: any[] = [];
+  let cur = '';
+  let quoted = false;
+  let sawQuote = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (quoted) {
+      if (ch === '\\') { cur += body[++i] ?? ''; }
+      else if (ch === '"') { quoted = false; }
+      else cur += ch;
+    } else if (ch === '"') {
+      quoted = true;
+      sawQuote = true;
+    } else if (ch === ',') {
+      out.push(!sawQuote && cur.trim().toUpperCase() === 'NULL' ? null : cur);
+      cur = '';
+      sawQuote = false;
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(!sawQuote && cur.trim().toUpperCase() === 'NULL' ? null : cur);
+  return out;
+}
+
 /** Parse SQL VALUES string into JS values */
 function parseSqlValues(valuesStr: string): any[] {
   const result: any[] = [];
@@ -208,7 +256,19 @@ function parseSqlValues(valuesStr: string): any[] {
           i += 7;
           try { result.push(JSON.parse(current)); } catch { result.push(current); }
         } else {
-          result.push(current);
+          // Array cast — `::"NotificationEventType"[]` (2026-08-08). The SQL
+          // exporter now emits real Postgres array literals for ARRAY columns
+          // instead of ::jsonb. Without this branch the in-app restore of its
+          // OWN .sql would hand the raw literal `{"A","B"}` to
+          // jsonb_populate_recordset as a STRING, which cannot populate an
+          // array column — the export fix would have broken the import path.
+          const arrayCast = /^::"?[A-Za-z_][A-Za-z0-9_]*"?\[\]/.exec(valuesStr.slice(i + 1));
+          if (arrayCast) {
+            i += arrayCast[0].length;
+            result.push(parsePgArrayLiteral(current));
+          } else {
+            result.push(current);
+          }
         }
         current = '';
       }
@@ -483,13 +543,152 @@ export async function exportBak(
 // Export: SQL format
 // ---------------------------------------------------------------------------
 
-export async function exportSql(
+// ---------------------------------------------------------------------------
+// Export / restore: DUMP format (pg_dump custom archive) — the real full backup
+// ---------------------------------------------------------------------------
+
+/**
+ * Full physical backup via `pg_dump -Fc`.
+ *
+ * Unlike every other format here this carries the SCHEMA as well as the data —
+ * sequences, functions, triggers, constraints — so it can rebuild the database
+ * from nothing. It is also the only artifact pgAdmin's Restore dialog accepts.
+ *
+ * pg_dump writes to a file rather than stdout so a partial/failed dump never
+ * reaches the operator as a truncated-but-plausible download.
+ */
+export async function exportDump(
   username: string,
   ctx: RequestContext,
-): Promise<{ sqlContent: string; filename: string }> {
+): Promise<{ filePath: string; filename: string; cleanup: () => Promise<void> }> {
+  const serverMajor = await getServerMajorVersion();
+  const filename = `digilog_backup_${dateStamp()}.dump`;
+  const dir = await mkdtemp(join(tmpdir(), 'digilog-backup-'));
+  const filePath = join(dir, filename);
+
+  await runPgDump(filePath, { serverMajor });
+  const { size } = await stat(filePath);
+
+  await auditLog({
+    userId: ctx.userId,
+    userRole: ctx.userRole,
+    action: 'BACKUP_CREATED',
+    targetType: 'system',
+    targetId: 'database_backup',
+    afterValue: { format: 'dump', timestamp: new Date().toISOString(), bytes: size, serverMajor },
+    signatureMeaning: 'Full pg_dump database backup created by administrator',
+    ipAddress: ctx.ipAddress,
+    userAgent: ctx.userAgent,
+    sessionId: ctx.sessionId,
+  });
+
+  return { filePath, filename, cleanup: () => rm(dir, { recursive: true, force: true }) };
+}
+
+/**
+ * Restore a pg_dump custom archive over this database.
+ *
+ * Sequence matters:
+ *   1. Take a safety dump FIRST. Step 2 is irreversible, and if pg_restore then
+ *      fails the operator would be left with an empty database and no way back.
+ *   2. Empty the public schema (see resetPublicSchema for why `--clean` cannot
+ *      be used on this schema).
+ *   3. pg_restore --single-transaction --exit-on-error, so any error aborts the
+ *      whole thing rather than leaving a half-restored database reporting success.
+ *   4. On failure, roll back to the safety dump.
+ *
+ * NOTE: this replaces `audit_trail` wholesale, exactly as the JSON/BAK restore
+ * does. It is gated on BACKUP_RESTORE + re-auth and is itself audited — but the
+ * audit row is written to the RESTORED trail, so the pre-restore trail survives
+ * only inside the safety dump.
+ */
+export async function restoreDump(
+  fileBuffer: Buffer,
+  ctx: RequestContext,
+): Promise<{ success: boolean; message: string; backupTimestamp: string; backupVersion: string }> {
+  const serverMajor = await getServerMajorVersion();
+  const dir = await mkdtemp(join(tmpdir(), 'digilog-restore-'));
+  const archivePath = join(dir, 'upload.dump');
+  const safetyPath = join(dir, 'pre-restore-safety.dump');
+  // Set when a failed rollback leaves the safety dump as the ONLY copy of the
+  // operator's data — the cleanup below must not delete it.
+  let preserveDir = false;
+
+  try {
+    await writeFile(archivePath, fileBuffer);
+
+    // 1. Safety net before anything destructive.
+    await runPgDump(safetyPath, { serverMajor });
+
+    // 2 + 3. Empty, then load.
+    try {
+      await resetPublicSchema();
+      await runPgRestore(archivePath);
+    } catch (restoreErr: any) {
+      // 4. Put the database back the way we found it.
+      let rollbackNote = '';
+      try {
+        await resetPublicSchema();
+        await runPgRestore(safetyPath);
+        rollbackNote = ' The database was rolled back to its pre-restore state.';
+      } catch (rollbackErr: any) {
+        rollbackNote =
+          ` CRITICAL: the rollback ALSO failed (${rollbackErr.message}). The database may be empty.`
+          + ` A safety copy was written to ${safetyPath} — do not delete it.`;
+        // Keep the safety dump on disk for manual recovery.
+        preserveDir = true;
+        throw Object.assign(new Error(`${restoreErr.message}${rollbackNote}`), {
+          code: 'RESTORE_FAILED_NO_ROLLBACK',
+          keepDir: dir,
+        });
+      }
+      throw Object.assign(new Error(`${restoreErr.message}${rollbackNote}`), { code: 'RESTORE_FAILED' });
+    }
+
+    const timestamp = new Date().toISOString();
+    await auditLog({
+      userId: ctx.userId,
+      userRole: ctx.userRole,
+      action: 'BACKUP_RESTORED',
+      targetType: 'system',
+      targetId: 'database_restore',
+      afterValue: { format: 'dump', timestamp, bytes: fileBuffer.length },
+      signatureMeaning: 'Database restored from pg_dump archive by administrator (full schema + data)',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      sessionId: ctx.sessionId,
+    });
+
+    return {
+      success: true,
+      message: 'Database restored successfully from pg_dump archive.',
+      backupTimestamp: timestamp,
+      backupVersion: 'pg_dump',
+    };
+  } finally {
+    // Leave the directory behind only when a failed rollback needs it.
+    if (!preserveDir) await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Build the plain-SQL restore script.
+ *
+ * Split out of `exportSql` so the generator can be exercised end-to-end (dump →
+ * `psql -v ON_ERROR_STOP=1 -f`) without the audit write that `exportSql`
+ * performs — verifying a backup must never leave BACKUP_CREATED rows in the
+ * live, immutable 21 CFR audit trail.
+ */
+export async function buildSqlScript(username: string): Promise<{ sqlContent: string; totalRecords: number }> {
   const rawData = await fetchAllTablesRaw();
   const tables = Object.keys(rawData);
   const totalRecords = Object.values(rawData).reduce((sum, arr) => sum + arr.length, 0);
+
+  // Column/constraint metadata the script needs to be replayable by psql.
+  const [arrayColumns, selfRefs] = await Promise.all([
+    getArrayColumns(),
+    getSelfReferencingColumns(),
+  ]);
 
   const sqlParts: string[] = [];
   sqlParts.push('-- DigiLog Database Backup');
@@ -497,8 +696,53 @@ export async function exportSql(
   sqlParts.push(`-- Generated By: ${username}`);
   sqlParts.push(`-- Total Records: ${totalRecords}`);
   sqlParts.push(`-- Format: PostgreSQL SQL`);
+  sqlParts.push('--');
+  sqlParts.push('-- Restore with:  psql -d <database> -v ON_ERROR_STOP=1 -f <this file>');
+  sqlParts.push('-- This script replaces ALL DATA in the target database. It does NOT');
+  sqlParts.push('-- create the schema — the target must already have it (run the migrations');
+  sqlParts.push('-- first). For a full schema+data restore, use the .dump format instead,');
+  sqlParts.push("-- which is also the only format pgAdmin's Restore dialog can read.");
   sqlParts.push('');
   sqlParts.push('BEGIN;');
+  sqlParts.push('');
+
+  // ── Fault 3: mirror triggers create rows we are about to insert ourselves ──
+  // asset_instances <-> filters/ahus/areas/blocks are kept in sync by
+  // trg_mirror_asset_instance_iud / trg_mirror_typed_to_asset_instance. Loading
+  // asset_instances fires the mirror, which INSERTs the matching filters rows;
+  // the script's own "INSERT INTO filters" then collides with them and dies on
+  // filters_pkey. Disabling USER triggers for the load is also what the in-app
+  // restore does (backup.repository.ts), and it covers audit_trail's
+  // immutability trigger, which would otherwise block the TRUNCATE.
+  //
+  // DISABLE TRIGGER USER (not ALL) is deliberate: ALL includes the internal
+  // constraint triggers that enforce foreign keys and requires SUPERUSER, which
+  // the app's `digilog` role is not.
+  //
+  // The trigger set is computed on the TARGET at restore time, not baked in
+  // from the source at backup time. That distinction is load-bearing and was
+  // caught by the end-to-end test: this development database is itself missing
+  // the mirror triggers, so a source-derived list named only 3 tables and left
+  // the mirrors armed on any correctly-migrated target — reintroducing the very
+  // duplicate-key failure this is here to prevent. The original per-trigger
+  // enabled/disabled state is captured into a temp table and only those that
+  // were enabled get re-enabled, so a trigger an operator had deliberately
+  // switched off does not come back armed.
+  sqlParts.push('-- Suspend user triggers for the load (original state restored at the end).');
+  sqlParts.push(`CREATE TEMP TABLE _digilog_trigger_state ON COMMIT DROP AS
+SELECT c.relname::text AS tbl, t.tgname::text AS trg, t.tgenabled::text AS enabled
+  FROM pg_trigger t
+  JOIN pg_class c ON c.oid = t.tgrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE NOT t.tgisinternal AND n.nspname = 'public';`);
+  sqlParts.push(`DO $digilog$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT DISTINCT tbl FROM _digilog_trigger_state LOOP
+    EXECUTE format('ALTER TABLE %I DISABLE TRIGGER USER', r.tbl);
+  END LOOP;
+END
+$digilog$;`);
   sqlParts.push('');
 
   // FK-safe order: delete children first, insert parents first
@@ -508,6 +752,20 @@ export async function exportSql(
   }
   sqlParts.push('');
 
+  // ── Fault 2: self-referencing FK enforced mid-load ────────────────────────
+  // asset_instances.parent_id -> asset_instances.id, and children can be
+  // written before their parent exists.
+  //
+  // NOT fixed with `SET CONSTRAINTS ALL DEFERRED`: that only affects
+  // constraints declared DEFERRABLE, and all 47 FKs in this schema are NOT
+  // DEFERRABLE (verified against the live database, and reproduced directly —
+  // the FK still fires immediately under SET CONSTRAINTS ALL DEFERRED). Making
+  // them deferrable would mean altering all 47 on a populated 21 CFR database
+  // to fix a file-format bug. Instead the self-referencing column is written
+  // NULL and patched up after every row exists — the same two-pass the in-app
+  // restore already uses, with no schema change and nothing left weakened.
+  const selfRefUpdates: string[] = [];
+
   for (const table of tables) {
     const rows = rawData[table];
     if (rows.length === 0) {
@@ -516,17 +774,60 @@ export async function exportSql(
       continue;
     }
     const columns = Object.keys(rows[0]);
+    const tableArrays = arrayColumns[table] ?? {};
+    const tableSelfRefs = selfRefs[table] ?? [];
     sqlParts.push(`-- Table: ${table} (${rows.length} rows)`);
     for (const row of rows) {
-      const values = columns.map(col => escapeSqlValue(row[col]));
+      const values = columns.map(col => {
+        // Self-ref columns go in NULL on pass 1 (see selfRefUpdates below).
+        if (tableSelfRefs.includes(col)) return 'NULL';
+        return escapeSqlValue(row[col], tableArrays[col]);
+      });
       sqlParts.push(
         `INSERT INTO "${table}" (${columns.map(c => `"${c}"`).join(', ')}) VALUES (${values.join(', ')});`,
       );
     }
+    // Pass 2 — restore the self-references now that every row is present.
+    for (const col of tableSelfRefs) {
+      for (const row of rows) {
+        if (row[col] == null || row.id == null) continue;
+        selfRefUpdates.push(
+          `UPDATE "${table}" SET "${col}" = ${escapeSqlValue(row[col])} WHERE "id" = ${escapeSqlValue(row.id)};`,
+        );
+      }
+    }
     sqlParts.push('');
   }
 
+  if (selfRefUpdates.length) {
+    sqlParts.push(`-- Self-referencing FKs, applied once every row exists (${selfRefUpdates.length} rows).`);
+    sqlParts.push(...selfRefUpdates);
+    sqlParts.push('');
+  }
+
+  // Re-arm exactly what was armed before, per trigger (not per table), so a
+  // deliberately-disabled trigger stays disabled.
+  sqlParts.push('-- Restore the trigger state captured at the top of this script.');
+  sqlParts.push(`DO $digilog$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT tbl, trg FROM _digilog_trigger_state WHERE enabled <> 'D' LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE TRIGGER %I', r.tbl, r.trg);
+  END LOOP;
+END
+$digilog$;`);
+  sqlParts.push('');
+
   sqlParts.push('COMMIT;');
+
+  return { sqlContent: sqlParts.join('\n'), totalRecords };
+}
+
+export async function exportSql(
+  username: string,
+  ctx: RequestContext,
+): Promise<{ sqlContent: string; filename: string }> {
+  const { sqlContent, totalRecords } = await buildSqlScript(username);
 
   await auditLog({
     userId: ctx.userId,
@@ -541,7 +842,7 @@ export async function exportSql(
     sessionId: ctx.sessionId,
   });
 
-  return { sqlContent: sqlParts.join('\n'), filename: `digilog_backup_${dateStamp()}.sql` };
+  return { sqlContent, filename: `digilog_backup_${dateStamp()}.sql` };
 }
 
 // ---------------------------------------------------------------------------
@@ -683,7 +984,35 @@ export async function validate(
   checksumValid: boolean;
   checksumSupported: boolean;
   totalRecords: number;
+  auditChain: BackupChainReport | null;
 }> {
+  // pg_dump custom archives are binary and start with "PGDMP". They cannot be
+  // parsed as rows — their integrity is pg_restore's business — but they MUST
+  // report valid here, because the UI validates before it will let the operator
+  // restore. Without this branch a .dump upload failed with INVALID_JSON and
+  // the new format would have been unusable from the page.
+  if (fileBuffer.subarray(0, 5).toString('latin1') === 'PGDMP') {
+    return {
+      valid: true,
+      metadata: {
+        version: 'pg_dump',
+        timestamp: new Date().toISOString(),
+        generatedBy: 'pg_dump',
+        tableCount: 0,
+        checksum: '',
+        format: 'dump',
+      },
+      tableSummary: {},
+      // No independent digest exists for an archive — pg_restore validates its
+      // own internal structure on load. Reported honestly rather than as a
+      // green "VALID" that means nothing (same reasoning as SQL/CSV below).
+      checksumValid: false,
+      checksumSupported: false,
+      totalRecords: 0,
+      auditChain: null,
+    };
+  }
+
   const backup = parseBackupFile(fileBuffer);
 
   // #low-batch: the checksum is only an INDEPENDENT integrity check for json/bak,
@@ -703,6 +1032,17 @@ export async function validate(
     if (Array.isArray(value)) tableSummary[key] = value.length;
   }
 
+  // Run the SAME audit-chain walk the restore path runs, so the operator learns
+  // about chain anomalies on the validate step instead of discovering them as a
+  // hard failure after committing to a restore. Read-only — reports, never throws.
+  // Normalize first — older backups key this table `auditTrail` with camelCase
+  // row keys, and reading `audit_trail` raw would report "no audit rows" on
+  // exactly the old files most likely to have chain problems.
+  const auditRows = normalizeBackupKeys(backup.data)?.audit_trail;
+  const auditChain = Array.isArray(auditRows) && auditRows.length > 0
+    ? await verifyBackupAuditChain(auditRows)
+    : null;
+
   return {
     // json/bak: a tampered file (checksum mismatch) is NOT valid. SQL/CSV: no
     // independent checksum exists, but a parseable file is still restorable.
@@ -712,5 +1052,6 @@ export async function validate(
     checksumValid,
     checksumSupported,
     totalRecords: Object.values(tableSummary).reduce((s, n) => s + n, 0),
+    auditChain,
   };
 }

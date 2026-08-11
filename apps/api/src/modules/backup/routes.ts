@@ -1,4 +1,5 @@
 import { type FastifyInstance } from 'fastify';
+import { createReadStream } from 'node:fs';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
@@ -18,11 +19,11 @@ export default async function backupRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Backup'],
       summary: 'Export database backup',
-      description: 'Generates a backup of all database tables. Formats: **json** (full, restorable), **bak** (gzip-compressed JSON, ~7x smaller), **sql** (PostgreSQL INSERT statements), **csv** (ZIP of per-table CSVs). JSON and BAK include SHA-256 checksum for integrity verification.',
+      description: 'Generates a backup of the database. Formats: **dump** (pg_dump custom archive — full SCHEMA + data, the only true full backup and the only format pgAdmin\'s Restore dialog accepts), **json** (data-only, restorable in-app), **bak** (gzip-compressed JSON, ~7x smaller), **sql** (data-only PostgreSQL script, replayable with `psql -v ON_ERROR_STOP=1 -f`), **csv** (ZIP of per-table CSVs, export only). JSON and BAK include a SHA-256 checksum.',
       querystring: {
         type: 'object',
         properties: {
-          format: { type: 'string', enum: ['json', 'sql', 'csv', 'bak'], default: 'json' },
+          format: { type: 'string', enum: ['dump', 'json', 'sql', 'csv', 'bak'], default: 'dump' },
         },
       },
     },
@@ -31,12 +32,25 @@ export default async function backupRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const ctx = buildContext(req);
-    const { format = 'json' } = req.query as { format?: string };
+    const { format = 'dump' } = req.query as { format?: string };
 
     // BackupTooLargeError is thrown by fetchAllTablesRaw when any table
     // exceeds BACKUP_MAX_ROWS_PER_TABLE — closes the silent OOM mode of
     // May 16 §1.9 / delta-audit C6 until the streaming refactor lands.
+    // (The `dump` path streams through pg_dump and is not subject to it.)
     try {
+      if (format === 'dump') {
+        const { filePath, filename, cleanup } = await backupService.exportDump(req.user.username, ctx);
+        reply.header('Content-Type', 'application/octet-stream');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        // Stream from disk — a full dump can be far larger than the JSON
+        // exports and must not be buffered into the API's heap. The temp dir is
+        // removed once the response has finished either way.
+        const stream = createReadStream(filePath);
+        stream.on('close', () => { void cleanup(); });
+        stream.on('error', () => { void cleanup(); });
+        return reply.send(stream);
+      }
       if (format === 'sql') {
         const { sqlContent, filename } = await backupService.exportSql(req.user.username, ctx);
         reply.header('Content-Type', 'application/sql');
@@ -69,6 +83,10 @@ export default async function backupRoutes(app: FastifyInstance) {
           limit: err.limit,
         });
       }
+      // pg_dump missing / too old / failed — actionable, not a 500.
+      if (err?.name === 'PgToolError') {
+        return reply.code(503).send({ error: err.code, message: err.message });
+      }
       throw err;
     }
   });
@@ -85,7 +103,7 @@ export default async function backupRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Backup'],
       summary: 'Restore database from backup',
-      description: 'Upload a JSON or BAK backup file to restore the database. Validates checksum before restoring. Temporarily disables audit trail immutability triggers during restore.',
+      description: 'Upload a JSON or BAK backup file to restore the database. Validates checksum and audit-chain integrity before restoring; a chain anomaly returns 400 BACKUP_AUDIT_CHAIN_INVALID with a `chainReport` summary, which the operator can override by sending `force=true` (recorded as forced=true on the BACKUP_RESTORED audit row). Temporarily disables audit trail immutability triggers during restore.',
       consumes: ['multipart/form-data'],
       response: {
         200: {
@@ -140,6 +158,16 @@ export default async function backupRoutes(app: FastifyInstance) {
       // history.
       const forceField = (file.fields as any)?.force;
       const force = forceField?.value === 'true' || forceField?.value === true;
+
+      // A pg_dump custom archive starts with the magic string "PGDMP". It is a
+      // physical schema+data restore and goes through pg_restore, not through
+      // the row-level JSON path (which cannot recreate schema, sequences or
+      // triggers). Detected by content rather than filename so a renamed file
+      // still routes correctly.
+      if (rawBuffer.subarray(0, 5).toString('latin1') === 'PGDMP') {
+        return await backupService.restoreDump(rawBuffer, ctx);
+      }
+
       const result = await backupService.restore(rawBuffer, ctx, { force });
       return result;
     } catch (err: any) {
@@ -147,11 +175,30 @@ export default async function backupRoutes(app: FastifyInstance) {
       if (err.code && ['INVALID_BAK', 'INVALID_JSON', 'INVALID_BACKUP', 'INVALID_METADATA', 'CHECKSUM_MISMATCH'].includes(err.code)) {
         return reply.code(400).send({ error: err.code, message: err.message });
       }
+      // pg_restore path. RESTORE_FAILED means the database was rolled back to
+      // its pre-restore state; RESTORE_FAILED_NO_ROLLBACK means it was NOT and
+      // the operator must act on the preserved safety dump — never collapse
+      // those two into one message.
+      if (err.code === 'RESTORE_FAILED' || err.code === 'RESTORE_FAILED_NO_ROLLBACK') {
+        return reply.code(err.code === 'RESTORE_FAILED' ? 400 : 500)
+          .send({ error: err.code, message: err.message });
+      }
+      if (err?.name === 'PgToolError') {
+        return reply.code(503).send({ error: err.code, message: err.message });
+      }
       // Audit 2026-05-04 fix #7: structured chain-integrity refusal
       // surfaces as 400 with the BACKUP_AUDIT_CHAIN_INVALID code so the
       // operator UI can show "tampered backup, pass force to override".
+      // Audit 2026-05-04 fix #7: structured chain-integrity refusal surfaces as
+      // 400 with the BACKUP_AUDIT_CHAIN_INVALID code. The report rides along so
+      // the operator UI can show WHAT failed and HOW MUCH before offering the
+      // audited override — a bare "row 0 is bad" gives them nothing to judge.
       if (err.statusCode === 400 && typeof err.message === 'string' && err.message.startsWith('BACKUP_AUDIT_CHAIN_INVALID')) {
-        return reply.code(400).send({ error: 'BACKUP_AUDIT_CHAIN_INVALID', message: err.message });
+        return reply.code(400).send({
+          error: 'BACKUP_AUDIT_CHAIN_INVALID',
+          message: err.message,
+          chainReport: err.chainReport ?? null,
+        });
       }
       app.log.error(err);
       return reply.code(500).send({
@@ -185,6 +232,20 @@ export default async function backupRoutes(app: FastifyInstance) {
             checksumValid: { type: 'boolean' },
             checksumSupported: { type: 'boolean' },
             totalRecords: { type: 'number' },
+            // Audit-chain integrity of the backup's audit_trail rows, reported
+            // here (read-only) so the operator sees anomalies BEFORE restoring.
+            // null when the backup carries no audit rows.
+            auditChain: {
+              type: ['object', 'null'],
+              additionalProperties: true,
+              properties: {
+                totalRows: { type: 'number' },
+                preChainRows: { type: 'number' },
+                chainedRows: { type: 'number' },
+                checksumFailures: { type: 'number' },
+                linkFailures: { type: 'number' },
+              },
+            },
           },
           additionalProperties: true,
         },

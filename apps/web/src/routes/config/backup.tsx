@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -7,7 +7,23 @@ import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useBackupFormat } from '@/hooks/use-backup-format';
 import { apiUrl } from '@/lib/url-utils';
+
+/**
+ * Audit-chain integrity of the backup's audit_trail rows, as reported by
+ * POST /api/backup/validate (and echoed on a restore refusal). Distinct from
+ * `checksumValid`, which covers the FILE digest — this covers the 21 CFR §11
+ * hash chain INSIDE the file.
+ */
+interface ChainReport {
+  totalRows: number;
+  preChainRows: number;
+  chainedRows: number;
+  checksumFailures: number;
+  linkFailures: number;
+  samples?: { index: number; id: string; position: string | null; kind: 'checksum' | 'link' }[];
+}
 
 interface ValidationResult {
   valid: boolean;
@@ -22,6 +38,7 @@ interface ValidationResult {
   checksumValid: boolean;
   checksumSupported?: boolean;
   totalRecords: number;
+  auditChain?: ChainReport | null;
 }
 
 const TABLE_LABELS: Record<string, string> = {
@@ -38,13 +55,21 @@ const TABLE_LABELS: Record<string, string> = {
   passwordResetRequests: 'Password Reset Requests',
 };
 
-type BackupFormat = 'json' | 'sql' | 'csv' | 'bak';
+type BackupFormat = 'dump' | 'json' | 'sql' | 'csv' | 'bak';
 
 const FORMAT_OPTIONS: { value: BackupFormat; label: string; description: string; icon: string; ext: string; color: string }[] = [
   {
+    value: 'dump',
+    label: 'DUMP',
+    description: 'Full backup — schema AND data (pg_dump archive). The only format that can rebuild the database from nothing, and the only one pgAdmin\'s Restore accepts. Recommended.',
+    icon: 'PG',
+    ext: '.dump',
+    color: 'from-emerald-500 to-teal-600',
+  },
+  {
     value: 'json',
     label: 'JSON',
-    description: 'Full backup with checksum verification. Can be restored via this application.',
+    description: 'Data only, with checksum verification. Restorable via this application into an already-migrated database.',
     icon: '{ }',
     ext: '.json',
     color: 'from-blue-500 to-indigo-600',
@@ -52,7 +77,7 @@ const FORMAT_OPTIONS: { value: BackupFormat; label: string; description: string;
   {
     value: 'bak',
     label: 'BAK',
-    description: 'Compressed binary backup. Smallest file size, restorable via this application.',
+    description: 'Data only, gzip-compressed. Smallest file, restorable via this application.',
     icon: 'BAK',
     ext: '.bak',
     color: 'from-violet-500 to-purple-600',
@@ -96,7 +121,16 @@ export function BackupRestorePage() {
   const canRestore = isSuperAdmin || perms.includes('BACKUP_RESTORE');
   const reauth = useReauth();
   const { formatDateTime } = useDatetimeFormat();
-  const [selectedFormat, setSelectedFormat] = useState<BackupFormat>('json');
+  // Format selection seeds from the `backup-format` config (a DEFAULT, not a
+  // lock — the operator can still pick any format below). `formatTouched` stops
+  // the seeding effect from yanking the radio back to the configured value if
+  // the config resolves after the operator has already chosen something else.
+  const { defaultFormat: configuredFormat, isLoading: formatLoading } = useBackupFormat();
+  const [selectedFormat, setSelectedFormat] = useState<BackupFormat>(configuredFormat);
+  const [formatTouched, setFormatTouched] = useState(false);
+  useEffect(() => {
+    if (!formatLoading && !formatTouched) setSelectedFormat(configuredFormat);
+  }, [configuredFormat, formatLoading, formatTouched]);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const [restoring, setRestoring] = useState(false);
@@ -106,6 +140,13 @@ export function BackupRestorePage() {
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoreResult, setRestoreResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState('');
+  // Audit-chain override. `chainBlock` holds a refusal the SERVER raised (the
+  // reactive path — a file that validated clean but failed at restore time);
+  // `validation.auditChain` is the proactive path, surfaced before the operator
+  // commits. `ackForce` is the explicit acknowledgment §11 expects before the
+  // integrity check is bypassed — the backend records it as forced=true.
+  const [chainBlock, setChainBlock] = useState<{ message: string; report: ChainReport | null } | null>(null);
+  const [ackForce, setAckForce] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExport = async () => {
@@ -116,7 +157,21 @@ export function BackupRestorePage() {
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       if (password) headers['x-reauth-password'] = password;
       const response = await fetch(apiUrl(`/api/backup/export?format=${selectedFormat}`), { headers });
-      if (!response.ok) throw new Error('Export failed');
+      if (!response.ok) {
+        // Surface the server's actual reason. A bare "Export failed" hid a
+        // perfectly diagnosable pg_dump error (the 2026-08-08 `invalid URI
+        // query parameter: "schema"`) behind two useless words, and the
+        // operator had nothing to act on or report.
+        let detail = '';
+        try {
+          const body = await response.json();
+          detail = body?.message || body?.error || '';
+        } catch {
+          // Non-JSON body (proxy error page, truncated response) — the status
+          // line below is still better than nothing.
+        }
+        throw new Error(detail || `Export failed (HTTP ${response.status})`);
+      }
 
       const blob = await response.blob();
       const contentDisposition = response.headers.get('Content-Disposition');
@@ -146,6 +201,11 @@ export function BackupRestorePage() {
     setValidation(null);
     setRestoreResult(null);
     setError('');
+    // A new file must never inherit the previous file's override state —
+    // otherwise an acknowledgment made for one backup silently carries into
+    // restoring a different one.
+    setChainBlock(null);
+    setAckForce(false);
 
     setValidating(true);
     try {
@@ -172,7 +232,12 @@ export function BackupRestorePage() {
     }
   };
 
-  const handleRestore = async () => {
+  // The chain report in play: a server refusal takes precedence over the
+  // proactive validate-step report (it is the more recent, authoritative word).
+  const chainReport: ChainReport | null = chainBlock?.report ?? validation?.auditChain ?? null;
+  const chainAnomalies = chainReport ? chainReport.checksumFailures + chainReport.linkFailures : 0;
+
+  const handleRestore = async (force = false) => {
     if (!restoreFile) return;
     setRestoring(true);
     setError('');
@@ -180,6 +245,11 @@ export function BackupRestorePage() {
     await reauth.execute('RESTORE_BACKUP', async (password?) => {
       const formData = new FormData();
       formData.append('file', restoreFile);
+      // The backend has always read this field (backup/routes.ts), but nothing
+      // ever sent it — so the documented override was unreachable and an
+      // operator hit an unexplained hard failure with no way forward. Only ever
+      // sent after an explicit acknowledgment; audited as forced=true.
+      if (force) formData.append('force', 'true');
 
       const token = sessionStorage.getItem('access_token');
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -192,14 +262,20 @@ export function BackupRestorePage() {
 
       const result = await response.json();
       if (response.ok) {
+        setChainBlock(null);
         setRestoreResult({ success: true, message: result.message });
       } else {
+        if (result.error === 'BACKUP_AUDIT_CHAIN_INVALID') {
+          setChainBlock({ message: result.message, report: result.chainReport ?? null });
+        }
         setRestoreResult({ success: false, message: result.message || 'Restore failed' });
       }
 
       if (result.success) {
         setRestoreFile(null);
         setValidation(null);
+        setChainBlock(null);
+        setAckForce(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     }, {
@@ -243,13 +319,27 @@ export function BackupRestorePage() {
         <CardContent className="space-y-4">
           {/* Format Selection */}
           <div>
-            <p className="text-sm font-medium text-slate-700 mb-3">Select Backup Format</p>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <p className="text-sm font-medium text-slate-700">Select Backup Format</p>
+              {/* Surfaces the `backup-format` config on the page it governs, so
+                  an operator can see which format is the configured standard
+                  and tell a deliberate deviation from an accidental one. */}
+              <p className="text-xs text-slate-500">
+                Configured default:{' '}
+                <span className="font-semibold text-slate-700">
+                  {FORMAT_OPTIONS.find(f => f.value === configuredFormat)?.label ?? configuredFormat.toUpperCase()}
+                </span>
+                {selectedFormat !== configuredFormat && (
+                  <span className="ml-2 text-amber-600">(currently overridden for this export)</span>
+                )}
+              </p>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {FORMAT_OPTIONS.map((fmt) => (
                 <button
                   key={fmt.value}
                   type="button"
-                  onClick={() => setSelectedFormat(fmt.value)}
+                  onClick={() => { setFormatTouched(true); setSelectedFormat(fmt.value); }}
                   className={`relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all ${
                     selectedFormat === fmt.value
                       ? 'border-blue-500 bg-blue-50/50 shadow-md shadow-blue-500/10'
@@ -349,7 +439,7 @@ export function BackupRestorePage() {
                 <p className="text-xs text-slate-500 mt-1">
                   {restoreFile
                     ? `${(restoreFile.size / 1024).toFixed(1)} KB`
-                    : 'Supported formats: .json, .bak, .sql, .zip (CSV)'
+                    : 'Supported formats: .dump (full restore), .json, .bak, .sql, .zip (CSV)'
                   }
                 </p>
               </div>
@@ -462,6 +552,56 @@ export function BackupRestorePage() {
                 </div>
               </div>
 
+              {/* Audit-chain integrity (21 CFR §11). Separate from the file
+                  checksum above: this walks the hash chain of the audit_trail
+                  rows INSIDE the backup. Shown before the operator commits, so
+                  a refusal at restore time is never a surprise. */}
+              {(() => {
+                const chain = chainBlock?.report ?? validation.auditChain;
+                if (!chain) return null;
+                const anomalies = chain.checksumFailures + chain.linkFailures;
+                return (
+                  <div className={`rounded-xl border overflow-hidden ${anomalies > 0 ? 'border-amber-200' : 'border-slate-200/50'}`}>
+                    <div className={`px-4 py-2 border-b flex items-center justify-between ${anomalies > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50/80 border-slate-200/50'}`}>
+                      <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Audit Trail Integrity</p>
+                      <Badge className={anomalies > 0
+                        ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0'
+                        : 'bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0'}>
+                        {anomalies > 0 ? 'ANOMALIES FOUND' : 'CHAIN INTACT'}
+                      </Badge>
+                    </div>
+                    <div className="bg-white px-4 py-3 space-y-2">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <p className="text-xs text-slate-500">Audit Rows</p>
+                          <p className="text-sm font-semibold text-slate-800">{chain.totalRows.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500">Checksum Mismatches</p>
+                          <p className={`text-sm font-semibold ${chain.checksumFailures > 0 ? 'text-amber-700' : 'text-slate-800'}`}>
+                            {chain.checksumFailures.toLocaleString()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500">Broken Links</p>
+                          <p className={`text-sm font-semibold ${chain.linkFailures > 0 ? 'text-amber-700' : 'text-slate-800'}`}>
+                            {chain.linkFailures.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      {anomalies > 0 && (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          These rows cannot be proven intact. That may mean the file was altered — or that
+                          the rows already failed verification in the source database when the backup was
+                          taken (permanently deleted audit records break every following link). Restoring is
+                          still permitted, and the override is recorded in the audit trail.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Restore button — 2026-05-26 gated on BACKUP_RESTORE
                   (explicit, NOT covered by BACKUP_MANAGE suffix). Available when
                   the file isn't a proven-tampered json/bak (csState 'ok' or 'na');
@@ -556,17 +696,51 @@ export function BackupRestorePage() {
               <p className="text-xs text-slate-500 mt-1">{validation.totalRecords.toLocaleString()} total records across {validation.metadata.tableCount} tables</p>
             </div>
           )}
+
+          {/* Audit-chain override acknowledgment. Bypassing the §11 integrity
+              check is a deliberate, recorded act — so it needs its own explicit
+              consent, not the generic "replace all data" warning above. */}
+          {chainAnomalies > 0 && (
+            <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
+              <p className="text-sm font-semibold text-amber-800">Audit trail integrity could not be verified</p>
+              <p className="text-sm text-amber-700 mt-1">
+                {chainAnomalies.toLocaleString()} of {(chainReport?.totalRows ?? 0).toLocaleString()} audit
+                rows in this backup do not verify
+                {chainReport && chainReport.linkFailures > 0
+                  ? ` (${chainReport.checksumFailures.toLocaleString()} checksum mismatches, ${chainReport.linkFailures.toLocaleString()} broken chain links)`
+                  : ''}
+                . Proceeding restores that history as-is and is recorded as an override in the audit trail.
+              </p>
+              <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ackForce}
+                  onChange={(e) => setAckForce(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                />
+                <span className="text-sm text-amber-800">
+                  I have reviewed this and accept restoring audit history that cannot be proven intact.
+                </span>
+              </label>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setConfirmRestore(false)}>Cancel</Button>
           <Button
             variant="destructive"
-            onClick={handleRestore}
-            disabled={restoring || !canRestore}
-            title={!canRestore ? 'BACKUP_RESTORE permission required' : undefined}
+            onClick={() => handleRestore(chainAnomalies > 0)}
+            disabled={restoring || !canRestore || (chainAnomalies > 0 && !ackForce)}
+            title={
+              !canRestore
+                ? 'BACKUP_RESTORE permission required'
+                : chainAnomalies > 0 && !ackForce
+                  ? 'Acknowledge the audit-integrity warning to continue'
+                  : undefined
+            }
             className="bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {restoring ? 'Restoring...' : 'Restore Database'}
+            {restoring ? 'Restoring...' : chainAnomalies > 0 ? 'Restore Anyway (Override)' : 'Restore Database'}
           </Button>
         </DialogFooter>
       </Dialog>

@@ -9,11 +9,18 @@ const { mockFetchPrisma, mockFetchRaw, mockRestoreFromBackup, mockAuditLog, mock
   mockComputeChecksum: vi.fn(),
 }));
 
-vi.mock('../backup.repository.js', () => ({
-  fetchAllTablesPrisma: mockFetchPrisma,
-  fetchAllTablesRaw: mockFetchRaw,
-  restoreFromBackup: mockRestoreFromBackup,
-}));
+// Keep the REAL normalizeBackupKeys / verifyBackupAuditChain: they are pure
+// over their arguments (no DB), and `validate()` now calls them to report the
+// backup's audit-chain integrity. Stubbing them out would hide that path.
+vi.mock('../backup.repository.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    fetchAllTablesPrisma: mockFetchPrisma,
+    fetchAllTablesRaw: mockFetchRaw,
+    restoreFromBackup: mockRestoreFromBackup,
+  };
+});
 
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
 

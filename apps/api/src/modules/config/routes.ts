@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema } from '@digilog/shared';
+import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema, backupFormatConfigSchema } from '@digilog/shared';
 import { verifyPassword } from '../../lib/password.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
@@ -146,6 +146,7 @@ export default async function configRoutes(app: FastifyInstance) {
   configEndpoint('datetime', datetimeConfigSchema, true);
   configEndpoint('pagination', paginationConfigSchema, false);
   configEndpoint('export-limit', exportLimitConfigSchema, false);
+  configEndpoint('backup-format', backupFormatConfigSchema, false);
 
   // Public reads — all authenticated users (no admin permission required).
   app.get('/password-policy/current', {
@@ -193,5 +194,20 @@ export default async function configRoutes(app: FastifyInstance) {
     },
   }, async () => {
     return configService.getConfig('export-limit', exportLimitConfigSchema);
+  });
+
+  // Public read — all authenticated users. The Backup & Restore page preselects
+  // this format, and BACKUP_EXPORT does not imply CONFIG_READ, so gating this
+  // behind the admin endpoint above would leave a backup operator silently
+  // falling back to the built-in default instead of the configured one.
+  app.get('/backup-format/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Get the configured default backup format',
+      description: 'Retrieve the default backup file format preselected on the Backup & Restore page. Available to all authenticated users.',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    return configService.getConfig('backup-format', backupFormatConfigSchema);
   });
 }

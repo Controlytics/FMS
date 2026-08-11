@@ -317,6 +317,12 @@ describe('Phase 5 — Decision Tape + Dynamic Backup + Filter-Data-Mgmt + Sync',
   });
 
   // ── 3. Dynamic backup endpoint ─────────────────────────────────────
+  //
+  // `?format=json` is now explicit. The endpoint's default changed from `json`
+  // to `dump` (pg_dump custom archive) on 2026-08-08 when the full physical
+  // backup landed, so an unqualified /export returns a binary archive and these
+  // JSON assertions no longer describe it. These tests cover the JSON path
+  // specifically, so they name it.
   describe('GET /api/backup/export — dynamic backup', () => {
     it('returns a JSON backup with metadata + data sections', async () => {
       // /export requires reauth (EXPORT_BACKUP). Send the reauth header
@@ -324,7 +330,7 @@ describe('Phase 5 — Decision Tape + Dynamic Backup + Filter-Data-Mgmt + Sync',
       // intervenes between calls.
       const doExport = () => app.inject({
         method: 'GET',
-        url: '/api/backup/export',
+        url: '/api/backup/export?format=json',
         headers: {
           authorization: `Bearer ${adminToken}`,
           'x-reauth-password': PHASE5_PASSWORD,
@@ -356,7 +362,7 @@ describe('Phase 5 — Decision Tape + Dynamic Backup + Filter-Data-Mgmt + Sync',
       // Step 1: export — retry once if shared-DB session race kicks in.
       const doExport = () => app.inject({
         method: 'GET',
-        url: '/api/backup/export',
+        url: '/api/backup/export?format=json',
         headers: {
           authorization: `Bearer ${adminToken}`,
           'x-reauth-password': PHASE5_PASSWORD,

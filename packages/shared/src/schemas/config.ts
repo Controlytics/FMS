@@ -144,6 +144,27 @@ export const exportLimitConfigSchema = z.object({
 });
 export type ExportLimitConfig = z.infer<typeof exportLimitConfigSchema>;
 
+// Backup Format Configuration Schema (SUPER_ADMIN-only).
+//
+// Default file format preselected on the Backup & Restore page. Restricted to
+// the two formats `POST /api/backup/restore` can actually read back: SQL and
+// CSV exports are analysis/out-of-band artifacts, and defaulting to one would
+// silently produce backups the application cannot restore. The operator can
+// still choose any of the four formats ad hoc on the page — this sets the
+// starting selection, it does not lock it.
+// 2026-08-08: `dump` (pg_dump -Fc custom archive) added and made the default.
+// It is the only format that carries the SCHEMA as well as the data, the only
+// one that can rebuild the database from nothing, and the only one pgAdmin's
+// Restore dialog can read. json/bak remain data-only, in-app restorable.
+export const BACKUP_FORMATS = ['dump', 'json', 'bak'] as const;
+export type BackupFormatValue = (typeof BACKUP_FORMATS)[number];
+export const BACKUP_FORMAT_DEFAULT: BackupFormatValue = 'dump';
+
+export const backupFormatConfigSchema = z.object({
+  defaultFormat: z.enum(BACKUP_FORMATS).default(BACKUP_FORMAT_DEFAULT),
+});
+export type BackupFormatConfig = z.infer<typeof backupFormatConfigSchema>;
+
 // Offline Cache Configuration Schema (SUPER_ADMIN-only).
 //
 // `cacheStalenessHours` — TTL applied to client-side snapshot caches

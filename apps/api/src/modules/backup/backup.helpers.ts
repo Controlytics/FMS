@@ -40,12 +40,46 @@ export function computeBackupChecksum(data: Record<string, any[]>): string {
   return createHash('sha256').update(payload).digest('hex');
 }
 
-/** Escape a value for a PostgreSQL INSERT statement. */
-export function escapeSqlValue(value: any): string {
+/**
+ * Render one element inside a PostgreSQL array literal.
+ *
+ * Array-literal quoting is NOT SQL quoting: inside `{...}` an element is wrapped
+ * in DOUBLE quotes, and backslashes and double quotes within it are
+ * backslash-escaped. The whole literal is then wrapped in single quotes by the
+ * caller, at which point normal SQL single-quote doubling applies — handled once,
+ * outside, so it is not applied twice here.
+ */
+function arrayElementLiteral(value: any): string {
+  if (value === null || value === undefined) return 'NULL'; // unquoted NULL = SQL NULL element
+  const s = value instanceof Date ? value.toISOString() : String(value);
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Escape a value for a PostgreSQL INSERT statement.
+ *
+ * `elementType` must be supplied for ARRAY columns — pass the ELEMENT type name
+ * (e.g. `NotificationEventType`), unquoted. Without it a JS array is
+ * indistinguishable from any other object and gets emitted as `::jsonb`, which
+ * Postgres rejects for an array column with SQLSTATE 42804 and rolls the whole
+ * restore back. That was the first of the three faults that made the plain .sql
+ * export unrestorable (2026-08-08).
+ */
+export function escapeSqlValue(value: any, elementType?: string): string {
   if (value === null || value === undefined) return 'NULL';
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
   if (typeof value === 'number') return String(value);
   if (value instanceof Date) return `'${value.toISOString()}'`;
+
+  // ARRAY column — emit a Postgres array literal cast to the real type.
+  // The element type is quoted because the enum types are CamelCase, and an
+  // unquoted CamelCase identifier is folded to lower case and then not found.
+  if (elementType) {
+    const items = Array.isArray(value) ? value : [value];
+    const literal = `{${items.map(arrayElementLiteral).join(',')}}`;
+    return `'${literal.replace(/'/g, "''")}'::"${elementType}"[]`;
+  }
+
   if (typeof value === 'object') return `'${JSON.stringify(value).replace(/'/g, "''")}'::jsonb`;
   // String — escape single quotes
   return `'${String(value).replace(/'/g, "''")}'`;
