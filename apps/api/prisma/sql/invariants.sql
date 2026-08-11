@@ -131,5 +131,186 @@ CREATE TRIGGER audit_trail_no_delete
   BEFORE DELETE ON audit_trail
   FOR EACH ROW EXECUTE FUNCTION block_audit_trail_delete();
 
+-- ─── Invariant 5: asset_instances ↔ typed-table mirror (2026-08-10) ────────
+-- Keeps `asset_instances` and the typed hierarchy tables (blocks / areas / ahus
+-- / filters) in lockstep, both directions.
+--
+-- WHY THIS IS HERE. These two triggers are defined ONLY in the baseline
+-- migration, so any database whose baseline SQL never actually executed —
+-- adopted via `migrate resolve --applied`, or built by `db push` + seed —
+-- silently ends up without them. `digilog_db` was in exactly that state until
+-- 2026-08-10: 3 of 5 triggers, and the missing mirror meant
+-- `filterService.create` FAILED. That service inserts into `filters` only and
+-- then creates the FilterDetails sidecar whose FK targets `asset_instances`,
+-- relying on the reverse mirror to have created that row in the same txn
+-- (see filter.service.ts:52-54). Without the trigger:
+--     ERROR: insert or update on table "filter_details" violates foreign key
+--            constraint "filter_details_asset_instance_id_fkey"
+-- So this is not a nice-to-have sync — it is load-bearing for filter creation.
+--
+-- The migration remains the authoritative installer (see the file header); this
+-- copy is defense-in-depth for the non-migration paths.
+--
+-- ⚠️ The two function bodies below are VERBATIM from
+-- `prisma/migrations/00000000000000_baseline/migration.sql` (only `CREATE
+-- FUNCTION` → `CREATE OR REPLACE FUNCTION`, for idempotency). If you change one,
+-- change the other — a divergence here mirrors data incorrectly on exactly the
+-- databases that already went wrong once.
+--
+-- ⚠️ ORDER MATTERS WHEN INSTALLING ONTO AN EXISTING DATABASE. If the two sides
+-- have already drifted, arming the mirror lets whichever side is written next
+-- overwrite the other. Reconcile first, in the correct direction, THEN apply.
+-- (2026-08-10: 16 filters had a stale `lastCleaningDate` on the
+-- `asset_instances` side; `filters` was authoritative.)
+
+CREATE OR REPLACE FUNCTION public.fn_mirror_asset_instance() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_kind TEXT;
+  v_parent_kind TEXT;
+  v_block_id UUID;
+  v_area_id UUID;
+  v_ahu_id UUID;
+BEGIN
+  IF pg_trigger_depth() > 1 THEN RETURN COALESCE(NEW, OLD); END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    SELECT template_kind INTO v_kind FROM asset_templates WHERE id = OLD.template_id;
+    DELETE FROM blocks  WHERE id = OLD.id;
+    DELETE FROM areas   WHERE id = OLD.id;
+    DELETE FROM ahus    WHERE id = OLD.id;
+    DELETE FROM filters WHERE id = OLD.id;
+    RETURN OLD;
+  END IF;
+
+  SELECT template_kind INTO v_kind FROM asset_templates WHERE id = NEW.template_id;
+
+  IF NEW.parent_id IS NOT NULL THEN
+    SELECT t.template_kind INTO v_parent_kind
+    FROM asset_instances i
+    JOIN asset_templates t ON i.template_id = t.id
+    WHERE i.id = NEW.parent_id;
+  END IF;
+
+  IF v_kind = 'BLOCK' THEN
+    DELETE FROM areas WHERE id = NEW.id;
+    DELETE FROM ahus WHERE id = NEW.id;
+    DELETE FROM filters WHERE id = NEW.id;
+    INSERT INTO blocks (id, name, description, status, attributes, custom_attributes,
+                        is_active, created_at, updated_at, created_by, updated_by)
+    VALUES (NEW.id, NEW.name, NEW.description, NEW.status, NEW.attributes, NEW.custom_attributes,
+            NEW.is_active, NEW.created_at, NEW.updated_at, NEW.created_by, NEW.updated_by)
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name, description = EXCLUDED.description, status = EXCLUDED.status,
+      attributes = EXCLUDED.attributes, custom_attributes = EXCLUDED.custom_attributes,
+      is_active = EXCLUDED.is_active, updated_at = EXCLUDED.updated_at,
+      updated_by = EXCLUDED.updated_by;
+
+  ELSIF v_kind = 'AREA' THEN
+    DELETE FROM blocks WHERE id = NEW.id;
+    DELETE FROM ahus WHERE id = NEW.id;
+    DELETE FROM filters WHERE id = NEW.id;
+    v_block_id := CASE WHEN v_parent_kind = 'BLOCK' THEN NEW.parent_id ELSE NULL END;
+    INSERT INTO areas (id, block_id, name, description, status, attributes, custom_attributes,
+                       is_active, created_at, updated_at, created_by, updated_by)
+    VALUES (NEW.id, v_block_id, NEW.name, NEW.description, NEW.status, NEW.attributes,
+            NEW.custom_attributes, NEW.is_active, NEW.created_at, NEW.updated_at,
+            NEW.created_by, NEW.updated_by)
+    ON CONFLICT (id) DO UPDATE SET
+      block_id = EXCLUDED.block_id, name = EXCLUDED.name, description = EXCLUDED.description,
+      status = EXCLUDED.status, attributes = EXCLUDED.attributes,
+      custom_attributes = EXCLUDED.custom_attributes, is_active = EXCLUDED.is_active,
+      updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by;
+
+  ELSIF v_kind = 'AHU' THEN
+    DELETE FROM blocks WHERE id = NEW.id;
+    DELETE FROM areas WHERE id = NEW.id;
+    DELETE FROM filters WHERE id = NEW.id;
+    v_area_id := CASE WHEN v_parent_kind = 'AREA' THEN NEW.parent_id ELSE NULL END;
+    v_block_id := CASE WHEN v_parent_kind = 'BLOCK' THEN NEW.parent_id ELSE NULL END;
+    INSERT INTO ahus (id, area_id, block_id, name, description, status, attributes,
+                      custom_attributes, is_active, created_at, updated_at, created_by, updated_by)
+    VALUES (NEW.id, v_area_id, v_block_id, NEW.name, NEW.description, NEW.status,
+            NEW.attributes, NEW.custom_attributes, NEW.is_active, NEW.created_at,
+            NEW.updated_at, NEW.created_by, NEW.updated_by)
+    ON CONFLICT (id) DO UPDATE SET
+      area_id = EXCLUDED.area_id, block_id = EXCLUDED.block_id, name = EXCLUDED.name,
+      description = EXCLUDED.description, status = EXCLUDED.status,
+      attributes = EXCLUDED.attributes, custom_attributes = EXCLUDED.custom_attributes,
+      is_active = EXCLUDED.is_active, updated_at = EXCLUDED.updated_at,
+      updated_by = EXCLUDED.updated_by;
+
+  ELSIF v_kind = 'FILTER' THEN
+    DELETE FROM blocks WHERE id = NEW.id;
+    DELETE FROM areas WHERE id = NEW.id;
+    DELETE FROM ahus WHERE id = NEW.id;
+    v_ahu_id := CASE WHEN v_parent_kind = 'AHU' THEN NEW.parent_id ELSE NULL END;
+    INSERT INTO filters (id, ahu_id, name, description, status, attributes, custom_attributes,
+                         is_active, created_at, updated_at, created_by, updated_by)
+    VALUES (NEW.id, v_ahu_id, NEW.name, NEW.description, NEW.status, NEW.attributes,
+            NEW.custom_attributes, NEW.is_active, NEW.created_at, NEW.updated_at,
+            NEW.created_by, NEW.updated_by)
+    ON CONFLICT (id) DO UPDATE SET
+      ahu_id = EXCLUDED.ahu_id, name = EXCLUDED.name, description = EXCLUDED.description,
+      status = EXCLUDED.status, attributes = EXCLUDED.attributes,
+      custom_attributes = EXCLUDED.custom_attributes, is_active = EXCLUDED.is_active,
+      updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by;
+
+  ELSE
+    DELETE FROM blocks WHERE id = NEW.id;
+    DELETE FROM areas WHERE id = NEW.id;
+    DELETE FROM ahus WHERE id = NEW.id;
+    DELETE FROM filters WHERE id = NEW.id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_mirror_typed_to_asset_instance() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_tmpl UUID;
+BEGIN
+  IF pg_trigger_depth() > 1 THEN RETURN COALESCE(NEW, OLD); END IF;
+  IF TG_OP = 'DELETE' THEN
+    DELETE FROM asset_instances WHERE id = OLD.id;
+    RETURN OLD;
+  END IF;
+  SELECT id INTO v_tmpl FROM asset_templates
+    WHERE template_kind = 'FILTER' AND is_active = true
+    ORDER BY created_at ASC LIMIT 1;
+  IF v_tmpl IS NULL THEN
+    RAISE EXCEPTION 'No active FILTER asset_template to mirror filter % into asset_instances', NEW.id;
+  END IF;
+  INSERT INTO asset_instances
+    (id, name, description, template_id, template_version, status, attributes,
+     telemetry_config, custom_attributes, parent_id, is_active,
+     created_at, updated_at, created_by, updated_by)
+  VALUES
+    (NEW.id, NEW.name, NEW.description, v_tmpl, 1, NEW.status, NEW.attributes,
+     '{}'::jsonb, NEW.custom_attributes, NEW.ahu_id, NEW.is_active,
+     NEW.created_at, NEW.updated_at, NEW.created_by, NEW.updated_by)
+  ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name, description = EXCLUDED.description, status = EXCLUDED.status,
+    attributes = EXCLUDED.attributes, custom_attributes = EXCLUDED.custom_attributes,
+    parent_id = EXCLUDED.parent_id, is_active = EXCLUDED.is_active,
+    updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_mirror_asset_instance_iud ON asset_instances;
+CREATE TRIGGER trg_mirror_asset_instance_iud
+  AFTER INSERT OR DELETE OR UPDATE ON asset_instances
+  FOR EACH ROW EXECUTE FUNCTION public.fn_mirror_asset_instance();
+
+DROP TRIGGER IF EXISTS trg_mirror_typed_to_asset_instance ON filters;
+CREATE TRIGGER trg_mirror_typed_to_asset_instance
+  AFTER INSERT OR DELETE OR UPDATE ON filters
+  FOR EACH ROW EXECUTE FUNCTION public.fn_mirror_typed_to_asset_instance();
+
 -- Confirmation log (visible when run via psql)
-\echo 'Invariants applied: idx_cleaning_cycles_one_in_progress_per_filter + trg_filter_event_consistency + trg_asset_relationship_pair + audit_trail_no_delete'
+\echo 'Invariants applied: idx_cleaning_cycles_one_in_progress_per_filter + trg_filter_event_consistency + trg_asset_relationship_pair + audit_trail_no_delete + trg_mirror_asset_instance_iud + trg_mirror_typed_to_asset_instance'

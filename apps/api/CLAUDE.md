@@ -18,7 +18,7 @@ node apps/api/dist/app.js
 - Compiled: `apps/api/dist/`
 - Entry: `apps/api/src/app.ts`
 - Prisma schema: `apps/api/prisma/schema.prisma` (**61 models, 23 enums** — verified 2026-07-06). Step 1 added the `TemplateKind` lookup model; MT removal (2026-04-30) dropped `Organization` + 11 `organizationId` columns + 2 `orgId` columns; **Step 6 (2026-05-01)** split filter-specific cycle state (`filterProfileId`, `currentLifecycleState`, `currentCycleId`, `filterSet`) off `AssetInstance` into a 1:1 `FilterDetails` sidecar; **Phase A.3 (2026-05-01)** added the `FilterProfileVersion` sidecar; **Phase A.4 (2026-05-02)** added the `EquipmentGroupVersion` sidecar; **Step 4 (2026-05-02)** replaced `FilterProfile.applicableTemplates Json` with the `FilterProfileApplicableTemplate` join table; **2026-05-17 dropped 5 models** (`RuleChain`, `RuleChainVersion`, `RuleNode`, `RuleNodeConnection`, `Alarm`); **2026-06-11..2026-06-17 dropped 6 models** (`DeviceCredential`, `UnsMapping`, `ConnectivityStatus`, `DataStream`, `DeadLetterQueue`, `IngestionSystemConfig`) with the data-ingestion tear-out; **2026-07-01 dropped 2 orphaned tables** (`QrCode`, `LatestTelemetry` — both 0 rows; QR module gone 2026-06-06, telemetry pipeline gone Phase 7; migration `20260701071802_drop_qrcode_latesttelemetry`); **2026-07-04 dropped 2 orphaned tables** (`ChecklistReview`, `ElectronicSignature` — both 0 rows, 0 code refs; migration `20260704062157_drop_checklistreview_electronicsignature`); **2026-07-04 dropped 4 models** (`ReportTemplate`, `ReportTemplateVersion`, `ReportInstance`, `ReportSignature`) + 2 enums (`ReportTemplateStatus`, `ReportStatus`) with the reports generate/sign tear-out (migration `20260704121326_drop_reports_generate_sign`; `ReportReview` survives).
-- Config definitions: `apps/api/src/modules/config/defs/` (**36 files** — `uns.def` + `retention.def` removed 2026-06-17; `ahu-completion-process.def` added 2026-07-01; `export-limit.def` added 2026-07-14)
+- Config definitions: `apps/api/src/modules/config/defs/` (**37 files** — `uns.def` + `retention.def` removed 2026-06-17; `ahu-completion-process.def` added 2026-07-01; `export-limit.def` added 2026-07-14; `backup-format.def` added 2026-08-08)
 - Route modules: `apps/api/src/modules/` (**33 modules**, verified `ls` 2026-07-06 — `org-admin`/`tenant-admin` deleted in MT removal; `rule-chain` deleted 2026-05-17; `qr-code` deleted 2026-06-06; **`data-ingestion`, `uns`, `connectivity`, `queries` deleted 2026-06-11..2026-06-17** with the ingestion tear-out; **`reports`, `report-templates` deleted 2026-07-04** with the reports generate/sign tear-out (`report-reviews` survives); `debug-traces` re-added 2026-06-12 reading from `audit_trail` instead of dropped `ts_pipeline_traces`)
 - Config routes: monolith split into `apps/api/src/modules/config/static-routes/<surface>.routes.ts` per tab; top-level `routes.ts` is just a registration loop (~170 LOC, was 1003)
 
@@ -134,10 +134,40 @@ has a **pre-existing intermittent flake** (unrelated to this change — passes
 in isolation and in most full runs; absent `[Config] Validation failed`
 warning rules out data corruption); single-fork masks it in practice.
 
-**Verified baseline** (2026-07-15, single-fork mode):
-**1173 passing, 0 failed, 12 skipped (113 files).** Web: **573/573 (44 files)**.
-If your single-fork run shows materially different numbers, investigate before
-assuming your change broke something.
+**Verified baseline** (2026-08-10, single-fork mode, against a freshly rebuilt
+`digilog_test_db`): **1257 passing, 1 failed, 20 skipped (125 files; 4 files
+failing).** Web: **644/644 (49 files)**. If your single-fork run shows materially
+different numbers, investigate before assuming your change broke something.
+
+The 4 failing files are **known and unrelated to product code** (confirmed by
+stash-and-compare) — they are tests that depend on state a freshly-seeded DB
+doesn't have:
+
+- `e2e/{filter-partial-update, filter-replace-duplicate-name,
+  retire-replace-identifier-invariant}` — each does `prisma.ahu.findFirst()` in
+  `beforeAll` and throws *"Test DB has no AHU to hang a filter on"*. They rely on
+  **ambient hierarchy data**; the seed creates roles / admin / config / help /
+  template kinds, never AHUs or filters. Same anti-pattern that `entities.test.ts`
+  was fixed for on 2026-07-02 — these three were missed. Fix = create their own
+  fixture (see `ahu-interlock-advance-gate.test.ts` for the pattern), not
+  re-populate the DB.
+- `config/__tests__/backup-format-current.e2e.test.ts` — asserts the default
+  backup format is `json`/`bak`, but the registry seeds `dump`, which the
+  2026-08-08 backup work deliberately made the default. Stale assertion.
+
+> **The prior "1173 passing / 0 failed (2026-07-15)" baseline was measured on a
+> `digilog_test_db` that no longer existed in that form.** From 2026-07-18 until
+> 2026-08-10 that DB held only **24 of 62 tables** (plus 6/23 enums, 38/121
+> functions, 1/3 sequences): its baseline migration had been *stamped* applied
+> via `migrate resolve --applied` without ever being executed, and a later
+> `migrate deploy` died on `ALTER TABLE "report_instances"` (42P01), which then
+> blocked all further migrations. Repair-in-place was impossible — the baseline
+> is the only migration that creates those tables — so the DB was dropped and
+> rebuilt from migrations + seed (recipe in "Applying schema" above; run
+> `prisma/sql/extensions.sql` FIRST). Post-rebuild it matches `digilog_db`
+> exactly except for two functions **dev is missing**
+> (`fn_mirror_asset_instance`, `fn_mirror_typed_to_asset_instance`) — the
+> pre-existing dev drift tracked in `tasks/todo.md`, not a rebuild defect.
 
 > **Measure serially or not at all.** Concurrent agents editing this tree while
 > sharing `digilog_test_db` make the count meaningless — 2026-07-15 saw runs of the
