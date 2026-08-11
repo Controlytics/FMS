@@ -36,8 +36,18 @@ export const userQuerySchema = z.object({
   status: z.enum(['ENABLED', 'DISABLED', 'LOCKED', 'EXPIRED']).optional(),
   search: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
-  // Cap upper bound so a missing limit doesn't pull thousands of rows.
-  limit: z.coerce.number().min(1).max(100).default(20),
+  // The `.default(20)` is what stops a MISSING limit pulling thousands of rows;
+  // the `.max()` is the separate hard ceiling on an explicit request.
+  //
+  // Raised 100 → 1000 (2026-08-08). Recipient pickers legitimately need every
+  // user in one page — the notification-rules rule/group editors and
+  // SendForReviewButton all ask for `?limit=500`, and this install has 154
+  // users. At the old ceiling those callers 500'd (zod threw past the error
+  // handler); capping them at 100 instead would have been worse — 54 users
+  // would silently vanish from a recipient picker with nothing on screen to
+  // say so. The response carries only id/username/fullName/role/status-class
+  // fields, so a 1000-row page is cheap.
+  limit: z.coerce.number().min(1).max(1000).default(20),
 });
 
 export const bulkDeleteUsersSchema = z.object({

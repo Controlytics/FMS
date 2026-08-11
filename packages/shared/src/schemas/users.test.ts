@@ -145,8 +145,18 @@ describe('userQuerySchema', () => {
     expect(userQuerySchema.safeParse({ status: 'DELETED' }).success).toBe(false);
   });
 
-  it('rejects limit over 100', () => {
-    expect(userQuerySchema.safeParse({ limit: '101' }).success).toBe(false);
+  // Ceiling raised 100 → 1000 (2026-08-08) so recipient pickers can request
+  // every user in one page. 500 is the value the notification-rules editors
+  // and SendForReviewButton actually send — it used to throw a ZodError that
+  // the API answered as a 500.
+  it('accepts the limit=500 recipient pickers request', () => {
+    const result = userQuerySchema.safeParse({ limit: '500' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.limit).toBe(500);
+  });
+
+  it('rejects limit over 1000', () => {
+    expect(userQuerySchema.safeParse({ limit: '1001' }).success).toBe(false);
   });
 });
 

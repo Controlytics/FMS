@@ -226,6 +226,30 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       ...(err as any).validation ? { details: (err as any).validation } : {},
     });
   }
+  // Zod validation errors — 400, NOT 500.
+  //
+  // Four routes validate with zod directly rather than a Fastify JSON schema
+  // (`<schema>.parse(req.query)` in users / audit / assets instance + template
+  // routes). A ZodError has no `statusCode` and no `.validation`, so it fell
+  // past every branch above into the "Genuine internal errors" block below:
+  // any bad query param answered **500 INTERNAL_ERROR** and additionally fired
+  // a SYSTEM_ERROR notification dispatch — an operator typo paged the system as
+  // if the server had crashed. Surfaced 2026-08-08 as an error toast on the
+  // Notification Rules config page, whose user picker requested `?limit=500`
+  // against a schema capped at 100.
+  //
+  // Placed BEFORE the SYSTEM_ERROR dispatch precisely so client-side validation
+  // failures never generate that notification.
+  if ((err as any).name === 'ZodError' && Array.isArray((err as any).issues)) {
+    const issues = (err as any).issues as Array<{ path: (string | number)[]; message: string }>;
+    return reply.code(400).send({
+      error: 'VALIDATION_ERROR',
+      message: issues
+        .map(i => (i.path?.length ? `${i.path.join('.')}: ${i.message}` : i.message))
+        .join('; ') || 'Request validation failed',
+      details: issues,
+    });
+  }
   // Unsupported Media Type — 415 (audit API-3)
   if ((err as any).code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
     return reply.code(415).send({

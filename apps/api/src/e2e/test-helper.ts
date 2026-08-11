@@ -54,6 +54,21 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (err.statusCode === 429) {
       return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
     }
+    // Mirrors the ZodError branch in app.ts (2026-08-08). Routes that validate
+    // with `<schema>.parse(req.query)` throw a ZodError carrying no statusCode,
+    // which otherwise falls through to 500 here — the exact production bug that
+    // made a bad query param look like a server crash. Without this the harness
+    // would keep passing tests that production fails, and vice versa.
+    if ((err as any).name === 'ZodError' && Array.isArray((err as any).issues)) {
+      const issues = (err as any).issues as Array<{ path: (string | number)[]; message: string }>;
+      return reply.code(400).send({
+        error: 'VALIDATION_ERROR',
+        message: issues
+          .map(i => (i.path?.length ? `${i.path.join('.')}: ${i.message}` : i.message))
+          .join('; ') || 'Request validation failed',
+        details: issues,
+      });
+    }
     const status = err.statusCode ?? 500;
     return reply.code(status).send({ error: err.message || 'Internal Server Error' });
   });

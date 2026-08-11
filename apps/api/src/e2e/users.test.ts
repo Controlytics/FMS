@@ -100,6 +100,40 @@ describe('Users endpoints', () => {
       const body = JSON.parse(res.body);
       expect(body.limit).toBe(5);
     });
+
+    /**
+     * Regression (2026-08-08): the Notification Rules config page threw an
+     * error toast on open. Its recipient pickers request `?limit=500` (they
+     * need every user in one page) against a schema then capped at 100, so
+     * `userQuerySchema.parse` threw a ZodError — which carries no statusCode
+     * and no `.validation`, fell past every branch of the error handler, and
+     * was answered as 500 INTERNAL_ERROR *and* fired a SYSTEM_ERROR
+     * notification dispatch. Two separate defects, one symptom.
+     */
+    it('accepts limit=500 — the recipient pickers ask for it', async () => {
+      const res = await authGet(app, '/api/users?limit=500', adminToken);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).limit).toBe(500);
+    });
+
+    it('answers an out-of-range limit 400, never 500', async () => {
+      const res = await authGet(app, '/api/users?limit=1001', adminToken);
+      // The status is the point: a client-side validation failure must not be
+      // reported as a server crash (nor page anyone via SYSTEM_ERROR).
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.body);
+      expect(body.error).toBe('VALIDATION_ERROR');
+      expect(body.message).toMatch(/limit/i);
+    });
+
+    it('answers a non-numeric limit 400, never 500', async () => {
+      const res = await authGet(app, '/api/users?limit=abc', adminToken);
+      // Caught a layer earlier than the case above — Fastify's own querystring
+      // JSON schema (`limit: {type:'integer'}`) rejects it before the handler
+      // runs, so the error CODE differs by layer. The invariant worth locking
+      // is the status: bad input is the client's fault, never a 500.
+      expect(res.statusCode).toBe(400);
+    });
   });
 
   describe('GET /api/users/stats', () => {
