@@ -73,6 +73,14 @@ export default function LdapConfigPage() {
     setConfig(prev => ({ ...prev, [key]: value }));
   };
 
+  // Save enabled only when the form differs from what the server holds. The
+  // saved side is built exactly the way the seeding effect above builds it
+  // (`{...DEFAULTS, ...savedConfig}`), so key order and defaults line up and
+  // the page never paints dirty before the config loads. Test Connection is
+  // deliberately NOT gated on this — you may want to test the stored config.
+  const savedLdap: LdapConfig = savedConfig ? { ...DEFAULTS, ...savedConfig } : DEFAULTS;
+  const dirty = JSON.stringify(config) !== JSON.stringify(savedLdap);
+
   // Audit 2026-05-04 fix #5 (web-routes review H2): LDAP config edits
   // (bind credentials + base-DN) can redirect every login to an attacker-
   // controlled directory. Distinct UPDATE_LDAP_CONFIG action key (vs
@@ -358,7 +366,7 @@ export default function LdapConfigPage() {
         <Link to="/config">
           <button className="px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancel</button>
         </Link>
-        <button onClick={handleSave} disabled={saving || !canWrite}
+        <button onClick={handleSave} disabled={saving || !canWrite || !dirty}
           title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
           className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 shadow-lg shadow-green-500/25">
           {saving ? 'Saving...' : 'Save Configuration'}

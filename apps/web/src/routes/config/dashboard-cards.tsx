@@ -26,6 +26,16 @@ interface RoleConfig {
   cards: string[];
 }
 
+/**
+ * Order-insensitive serialisation of the per-role card selections, used to
+ * decide whether the page differs from what the server holds. `cards` is a set,
+ * not a sequence — `toggleCard` filters a key out and re-appends it at the end
+ * — so a plain JSON.stringify would report "changed" after unchecking a card
+ * and re-checking it.
+ */
+const serialise = (configs: RoleConfig[]) =>
+  JSON.stringify(configs.map(rc => ({ role: rc.roleName, cards: [...rc.cards].sort() })));
+
 export default function DashboardCardsConfig() {
   // Always refetch roles on mount and bypass the dedupe window so a role
   // created/deleted elsewhere is reflected here immediately (mirrors the
@@ -34,6 +44,12 @@ export default function DashboardCardsConfig() {
   const { data: rolesData } = useSWR<any>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: configData } = useSWR<any>('/api/config/dashboard-cards/current');
   const [roleConfigs, setRoleConfigs] = useState<RoleConfig[]>([]);
+  // Snapshot of roleConfigs as last seeded from the server. Compared against
+  // the live state to gate the Save button. A snapshot is needed here (rather
+  // than comparing straight to configData) because the seed *derives* state:
+  // roles missing from the saved map default to "all cards visible", so the
+  // raw config payload is not the same shape as what the page edits.
+  const [baseline, setBaseline] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const reauth = useReauth();
@@ -43,15 +59,21 @@ export default function DashboardCardsConfig() {
   useEffect(() => {
     if (!roles.length) return;
     const saved: Record<string, string[]> = configData?.roles ?? {};
-    setRoleConfigs(
-      roles.map((r: any) => ({
-        roleId: r.id,
-        roleName: r.name,
-        displayName: r.displayName ?? r.name.replace(/_/g, ' '),
-        cards: saved[r.name] ?? ALL_CARDS.map(c => c.key), // default: all visible
-      })),
-    );
+    const seeded = roles.map((r: any) => ({
+      roleId: r.id,
+      roleName: r.name,
+      displayName: r.displayName ?? r.name.replace(/_/g, ' '),
+      cards: saved[r.name] ?? ALL_CARDS.map(c => c.key), // default: all visible
+    }));
+    setRoleConfigs(seeded);
+    setBaseline(serialise(seeded));
   }, [roles, configData]);
+
+  // Save is enabled only after an actual change. After a successful save the
+  // config key is revalidated, this effect reseeds, and the baseline advances
+  // — so the button disables again with no reload. On a failed save or a
+  // cancelled reauth nothing revalidates, so the edits stay dirty.
+  const dirty = baseline !== '' && serialise(roleConfigs) !== baseline;
 
   const toggleCard = (roleIdx: number, cardKey: string) => {
     setRoleConfigs(prev => prev.map((rc, i) => {
@@ -109,7 +131,7 @@ export default function DashboardCardsConfig() {
 
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-slate-500 max-w-2xl">Configure which cards are visible on the dashboard for each role.</p>
-        <button onClick={handleSave} disabled={saving}
+        <button onClick={handleSave} disabled={saving || !dirty}
           className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>

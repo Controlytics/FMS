@@ -187,7 +187,18 @@ export function NotificationRulesPage() {
 
 // ─── Rules Tab ────────────────────────────────────────────────────────
 function RulesTab() {
-  const { data: rules, mutate } = useSWR<NotificationRule[]>('/api/notification-rules', { revalidateOnMount: true, dedupingInterval: 0 });
+  // GET /api/notification-rules answers `{ data, total }`, not a bare array.
+  // Typed as NotificationRule[] this read `rules?.length` on the envelope
+  // object → undefined → the page rendered "No notification rules yet" while
+  // rules existed in the DB. Unwrap defensively so an older/plain-array
+  // response still works.
+  const { data: rulesResponse, mutate } = useSWR<NotificationRule[] | { data: NotificationRule[]; total: number }>(
+    '/api/notification-rules',
+    { revalidateOnMount: true, dedupingInterval: 0 },
+  );
+  const rules: NotificationRule[] | undefined = Array.isArray(rulesResponse)
+    ? rulesResponse
+    : rulesResponse?.data;
   const { data: eventTypes } = useSWR<EventTypeMeta[]>('/api/notification-rules/event-types', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: groups } = useSWR<UserGroup[]>('/api/user-groups', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: templates } = useSWR<Template[]>('/api/notification-settings/templates', { revalidateOnMount: true, dedupingInterval: 0 });

@@ -37,6 +37,19 @@ export function ExportOptionsPage() {
 
   const cell = (role: string, surface: string): string => draft[role]?.[surface] ?? 'BOTH';
 
+  // Save enabled only when the draft differs from the saved matrix.
+  //
+  // The comparison is normalised over roles × surfaces using the same 'BOTH'
+  // fallback the grid renders with, NOT a raw JSON.stringify of the two
+  // objects: an unset cell is absent from the stored map but becomes an
+  // explicit 'BOTH' in the draft as soon as it is changed and changed back. A
+  // raw compare would leave the button enabled forever after that no-op.
+  const dirty = roles.some((r) =>
+    EXPORT_SURFACES.some(
+      (s) => cell(r.name, s.key) !== (matrixData?.[r.name]?.[s.key] ?? 'BOTH'),
+    ),
+  );
+
   const setCell = (role: string, surface: string, value: string) =>
     setDraft((d) => ({ ...d, [role]: { ...(d[role] ?? {}), [surface]: value } }));
 
@@ -63,7 +76,7 @@ export function ExportOptionsPage() {
           Choose which export formats each role can use on each page. Unset cells default to
           <span className="font-semibold text-emerald-700"> Both</span>. SUPER_ADMIN always has both.
         </p>
-        <button onClick={save} disabled={saving}
+        <button onClick={save} disabled={saving || !dirty}
           className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>

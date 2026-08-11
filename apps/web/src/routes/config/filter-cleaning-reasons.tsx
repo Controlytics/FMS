@@ -57,6 +57,15 @@ export function CleaningReasonsConfigPage() {
     );
   };
 
+  // Save enabled only when the local list differs from the saved one. The
+  // saved side is normalised exactly the way the seeding effect above does it,
+  // so an unloaded / non-array config compares equal to the initial `[]`
+  // instead of showing the page as dirty on first paint. `mutate()` after a
+  // successful save re-runs the effect and the button disables again; a failed
+  // save or cancelled reauth leaves `config` untouched, so it stays enabled.
+  const savedReasons: CleaningReason[] = Array.isArray(config?.value) ? config.value : [];
+  const dirty = JSON.stringify(reasons) !== JSON.stringify(savedReasons);
+
   const openAdd = () => {
     setEditing({ key: '', name: '', description: '', requiresJustification: false, isActive: true, sortOrder: reasons.length + 1 });
     setIsNewReason(true);
@@ -117,7 +126,7 @@ export function CleaningReasonsConfigPage() {
             className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm font-medium text-sm">
             + Add Reason
           </button>
-          <button onClick={save} disabled={saving || !canWrite}
+          <button onClick={save} disabled={saving || !canWrite || !dirty}
             title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
             className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 transition-all shadow-sm font-medium text-sm">
             {saving ? 'Saving...' : 'Save Changes'}

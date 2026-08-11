@@ -11,6 +11,28 @@ interface PaginationConfig {
   options: number[];
 }
 
+/**
+ * Grow / shrink the options list to exactly `count` entries.
+ *
+ * Extracted from the count/limit effect below so the INITIAL seed can apply the
+ * same normalisation. Without that, a stored row whose `count` disagrees with
+ * `options.length` (or which predates the `count` field entirely) would be
+ * rewritten by the effect one tick after load — making the page paint as
+ * already-dirty before the user touched anything.
+ */
+function reconcileOptions(prev: number[], count: number, limit: number): number[] {
+  if (prev.length === count) return prev;
+  if (prev.length < count) {
+    const next = [...prev];
+    while (next.length < count) {
+      const last = next[next.length - 1] || 10;
+      next.push(Math.min(last + 10, limit));
+    }
+    return next;
+  }
+  return prev.slice(0, count);
+}
+
 export function PaginationConfigPage() {
   const { data, mutate } = useSWR<PaginationConfig>('/api/config/pagination', { revalidateOnMount: true, dedupingInterval: 0 });
   const [limit, setLimit] = useState(100);
@@ -18,30 +40,33 @@ export function PaginationConfigPage() {
   const [options, setOptions] = useState<number[]>([10, 25, 50]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // Snapshot of the seeded values, used to gate the Save button. A snapshot is
+  // required here (rather than comparing straight to `data`) because the page
+  // decomposes the payload into three pieces of state with fallbacks — a
+  // stored row missing `count` would otherwise compare unequal forever.
+  const [baseline, setBaseline] = useState<string>('');
 
   useEffect(() => {
     if (data) {
-      setLimit(data.limit ?? 100);
-      setCount(data.count ?? data.options?.length ?? 3);
-      setOptions(data.options ?? [10, 25, 50]);
+      const nextLimit = data.limit ?? 100;
+      const nextCount = data.count ?? data.options?.length ?? 3;
+      const nextOptions = reconcileOptions(data.options ?? [10, 25, 50], nextCount, nextLimit);
+      setLimit(nextLimit);
+      setCount(nextCount);
+      setOptions(nextOptions);
+      setBaseline(JSON.stringify({ limit: nextLimit, count: nextCount, options: nextOptions }));
     }
   }, [data]);
 
   useEffect(() => {
-    setOptions(prev => {
-      if (prev.length === count) return prev;
-      if (prev.length < count) {
-        const newOpts = [...prev];
-        while (newOpts.length < count) {
-          const last = newOpts[newOpts.length - 1] || 10;
-          const next = Math.min(last + 10, limit);
-          newOpts.push(next);
-        }
-        return newOpts;
-      }
-      return prev.slice(0, count);
-    });
+    setOptions(prev => reconcileOptions(prev, count, limit));
   }, [count, limit]);
+
+  // Save is enabled only after an actual change. `handleSave` awaits `mutate()`
+  // on success, which reseeds the effect above and advances the baseline — so
+  // the button disables again with no reload. A failed save leaves `data`
+  // untouched, so the edits stay dirty and re-savable.
+  const dirty = baseline !== '' && JSON.stringify({ limit, count, options }) !== baseline;
 
   const handleOptionChange = (index: number, value: string) => {
     const num = parseInt(value, 10);
@@ -198,7 +223,7 @@ export function PaginationConfigPage() {
             <Button variant="outline" onClick={handleReset}>
               Reset to Default
             </Button>
-            <Button onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving || !dirty}>
               {saving ? 'Saving...' : 'Save Settings'}
             </Button>
           </div>

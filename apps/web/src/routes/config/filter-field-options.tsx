@@ -41,6 +41,22 @@ export function FilterFieldOptionsConfigPage() {
     }
   }, [config]);
 
+  // Save enabled only when the lists differ from what the server holds. The
+  // saved side is normalised exactly the way the seeding effect above does it
+  // (and falls back to DEFAULT_VALUE on the same condition), so the page never
+  // paints dirty before the config has loaded. Typing in the "add value" boxes
+  // does NOT count — only `value` (the committed lists) does.
+  const savedOptions: FieldOptions = (() => {
+    const v = config?.value as Partial<FieldOptions> | undefined;
+    if (!v) return DEFAULT_VALUE;
+    return {
+      ahuType: Array.isArray(v.ahuType) ? v.ahuType : [],
+      filterType: Array.isArray(v.filterType) ? v.filterType : [],
+      micronSize: Array.isArray(v.micronSize) ? v.micronSize : [],
+    };
+  })();
+  const dirty = JSON.stringify(value) !== JSON.stringify(savedOptions);
+
   const addValue = (key: ListKey) => {
     const next = draft[key].trim();
     if (!next) return;
@@ -96,7 +112,7 @@ export function FilterFieldOptionsConfigPage() {
       {/* Panel toolbar */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <p className="text-sm text-slate-500 max-w-xl">Configure the dropdown values shown on the single-filter add/edit screens.</p>
-        <button onClick={save} disabled={saving || !canWrite}
+        <button onClick={save} disabled={saving || !canWrite || !dirty}
           title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
           className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}

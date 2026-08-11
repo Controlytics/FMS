@@ -33,6 +33,19 @@ export function ReportSignatoriesPage() {
 
   const cell = (role: string, reportKey: string): string => draft[role]?.[reportKey] ?? 'Printed By';
 
+  // Save enabled only when the draft differs from the saved matrix.
+  //
+  // The comparison is normalised over roles × reports using the same
+  // 'Printed By' fallback the grid renders with, NOT a raw JSON.stringify of
+  // the two objects: an unset cell is absent from the stored map but becomes
+  // an explicit 'Printed By' in the draft as soon as it is changed and changed
+  // back. A raw compare would leave the button enabled forever after that.
+  const dirty = roles.some((r) =>
+    REPORT_TYPES.some(
+      (rt) => cell(r.name, rt.key) !== (matrixData?.[r.name]?.[rt.key] ?? 'Printed By'),
+    ),
+  );
+
   const setCell = (role: string, reportKey: string, value: string) =>
     setDraft((d) => ({ ...d, [role]: { ...(d[role] ?? {}), [reportKey]: value } }));
 
@@ -60,7 +73,7 @@ export function ReportSignatoriesPage() {
           bottom of the report. The User ID is always whoever generated it; this only changes the label.
           Unset cells default to <span className="font-semibold text-sky-700">Printed By</span>. SUPER_ADMIN always uses Printed By.
         </p>
-        <button onClick={save} disabled={saving}
+        <button onClick={save} disabled={saving || !dirty}
           className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>

@@ -102,6 +102,16 @@ export function CleaningProfileAssignmentPage() {
     return profiles.filter(p => p.status === 'ACTIVE' || !p.status || currentlyReferenced.has(p.id));
   }, [profiles, rules]);
 
+  // Save enabled only when mode/rules differ from what the server holds. The
+  // saved side applies the same fallbacks as the seeding effect above, so an
+  // unloaded config compares equal to the initial state instead of painting
+  // the page dirty. After a successful save the config key is revalidated, the
+  // effect reseeds, and the button disables again with no reload.
+  const savedMode = configData?.mode || 'BY_ENTITY';
+  const savedRules = configData?.rules || [];
+  const dirty =
+    mode !== savedMode || JSON.stringify(rules) !== JSON.stringify(savedRules);
+
   const handleModeChange = (newMode: AssignmentMode) => {
     // 2026-05-29 bug fix #6: warn before clobbering existing configured rules.
     // Previously a stray click on a different mode silently wiped a saved
@@ -332,7 +342,7 @@ export function CleaningProfileAssignmentPage() {
           <p className="text-sm text-slate-500 max-w-2xl">Configure how cleaning profiles are automatically assigned to filters.</p>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !dirty}
             className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving…' : 'Save Configuration'}

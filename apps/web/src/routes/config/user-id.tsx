@@ -146,6 +146,14 @@ export function UserIdConfigPage() {
     return example.slice(0, length);
   };
 
+  // Save is enabled only when the form differs from what the server holds.
+  // The seeding effect above does `setForm(config)` wholesale, so the two
+  // shapes match by construction and a direct compare is safe. It is also
+  // self-correcting: after a successful save `mutate()` refetches, the effect
+  // reseeds `form`, and the button disables again with no reload. On a failed
+  // save (or a cancelled reauth) `config` is unchanged, so it stays enabled.
+  const dirty = config ? JSON.stringify(form) !== JSON.stringify(config) : false;
+
   const showPrefixOptions = form.format.startsWith('PREFIX_');
   const showCustomPattern = form.format === 'CUSTOM_PATTERN';
 
@@ -390,7 +398,7 @@ export function UserIdConfigPage() {
               <Button variant="outline" onClick={() => window.history.back()}>
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={saving}>
+              <Button onClick={handleSave} disabled={saving || !dirty}>
                 {saving ? 'Saving...' : 'Save Configuration'}
               </Button>
             </div>

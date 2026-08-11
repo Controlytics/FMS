@@ -30,6 +30,17 @@ export function ReplacementScheduleFiltersPage() {
   // SUPER_ADMIN always sees the filters — not editable here.
   const roles = useMemo(() => (rolesData ?? []).filter((r) => r.name !== 'SUPER_ADMIN'), [rolesData]);
 
+  // Save enabled only when EITHER matrix differs from its saved copy.
+  //
+  // The comparison must be normalised over the role list, NOT a raw
+  // JSON.stringify of the two objects: an unset role is absent from the stored
+  // map but becomes an explicit `false` in the draft the moment it is toggled
+  // on and back off. A raw compare would leave the button enabled forever
+  // after such a no-op round trip.
+  const sameMatrix = (draft: Matrix, saved: Matrix | undefined) =>
+    roles.every((r) => !!draft[r.name] === !!saved?.[r.name]);
+  const dirty = !sameMatrix(pmDraft, pmData) || !sameMatrix(repDraft, repData);
+
   const togglePm = (role: string) => setPmDraft((d) => ({ ...d, [role]: !d[role] }));
   const toggleRep = (role: string) => setRepDraft((d) => ({ ...d, [role]: !d[role] }));
 
@@ -68,7 +79,7 @@ export function ReplacementScheduleFiltersPage() {
             SUPER_ADMIN always sees them.
           </p>
         </div>
-        <button onClick={save} disabled={saving}
+        <button onClick={save} disabled={saving || !dirty}
           className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-50">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>

@@ -49,6 +49,27 @@ function isVisible(setting: SettingDef, values: Record<string, any>): boolean {
   return true;
 }
 
+/**
+ * Order-insensitive serialisation of a settings object, used to decide whether
+ * the form differs from what the server holds. Object keys are sorted (a key
+ * the server never stored lands at the end of the local object) and array
+ * members are sorted (the multiselect editor removes-and-re-appends on toggle).
+ * Everything else is compared by value.
+ */
+function normalise(values: Record<string, any>): string {
+  const sortValue = (v: any): any => {
+    if (Array.isArray(v)) return [...v].map(sortValue).sort();
+    if (v && typeof v === 'object') {
+      return Object.keys(v).sort().reduce((acc: Record<string, any>, k) => {
+        acc[k] = sortValue(v[k]);
+        return acc;
+      }, {});
+    }
+    return v;
+  };
+  return JSON.stringify(sortValue(values));
+}
+
 function groupSettings(settings: SettingDef[]) {
   const map = new Map<string, SettingDef[]>();
   for (const s of settings) {
@@ -84,6 +105,14 @@ export function DynamicConfigPage() {
   );
 
   const [values, setValues] = useState<Record<string, any>>({});
+  // Snapshot of the values as last seeded from the server, used to gate the
+  // Save button. Snapshotted (rather than compared against `savedValues`
+  // directly) because the editors coerce as you type — number fields hold ''
+  // for empty and the json/textarea field stores parsed-or-raw — so only a
+  // baseline taken through the same seeding path compares reliably.
+  // `null` means "this module has no saved row yet", in which case Save stays
+  // enabled so an admin can persist the def defaults on a first visit.
+  const [baseline, setBaseline] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -127,12 +156,14 @@ export function DynamicConfigPage() {
   useEffect(() => {
     if (savedValues) {
       setValues(savedValues);
+      setBaseline(normalise(savedValues));
     } else if (moduleDef) {
       const defaults: Record<string, any> = {};
       for (const s of moduleDef.settings) {
         if (s.default !== undefined) defaults[s.key] = s.default;
       }
       setValues(defaults);
+      setBaseline(null);
     }
   }, [savedValues, moduleDef]);
 
@@ -183,6 +214,18 @@ export function DynamicConfigPage() {
       </div>
     );
   }
+
+  // Save is enabled only after an actual change (or when the module has never
+  // been saved — see `baseline` above). `handleSave` calls `mutate()` inside
+  // the reauth-wrapped success path, which reseeds the effect and advances the
+  // baseline, so the button disables again with no reload. A cancelled reauth
+  // or a 4xx never revalidates, so the edits stay dirty and re-savable.
+  //
+  // `normalise` sorts keys and array members before stringifying. Keys because
+  // a value the server never stored is appended to the end of the object;
+  // arrays because the multiselect editor removes-and-re-appends on toggle, so
+  // unchecking a box and re-checking it would otherwise register as a change.
+  const dirty = baseline === null || normalise(values) !== baseline;
 
   const handleChange = (key: string, value: any) => {
     setValues(prev => ({ ...prev, [key]: value }));
@@ -414,7 +457,7 @@ export function DynamicConfigPage() {
 
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={() => navigate('/config')}>Cancel</Button>
-        <Button onClick={handleSave} disabled={saving || !canWrite} title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
+        <Button onClick={handleSave} disabled={saving || !canWrite || !dirty} title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}>
           {saving ? 'Saving...' : 'Save Changes'}
         </Button>
       </div>
