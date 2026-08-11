@@ -4,6 +4,54 @@ import { getDefaultTemplates } from '@digilog/shared';
 
 const T = getDefaultTemplates();
 
+// 2026-08-10: a FILTER_REPLACED row must name BOTH filters. The old template
+// said only "Filter X replaced by Y", which never revealed what replaced it —
+// the one fact an inspector needs to follow the chain to the successor record.
+// The real row shape is taken verbatim from audit_trail (all 137 rows carry
+// these four keys; filter-operations.service.ts writes them together).
+describe('audit-helpers — FILTER_REPLACED names both filters', () => {
+  const row = {
+    action: 'FILTER_REPLACED',
+    userId: 'superadmin',
+    targetType: 'filter',
+    targetId: '8eda96c6-809d-472b-a015-436167226626',
+    afterValue: {
+      oldFilterId: '8eda96c6-809d-472b-a015-436167226626',
+      oldFilterName: 'L9/AHU-91/SB/00-05',
+      newFilterId: '306012d7-2d41-4a93-aef2-6ee7dca27003',
+      newFilterName: 'L9/AHU-91/SB/00-06',
+      identifiersMoved: 1,
+      remarks: 'Pcc',
+    },
+  };
+
+  it('renders the old AND the new filter name', () => {
+    expect(getAuditSummary(row, T)).toBe(
+      'Filter "L9/AHU-91/SB/00-05" replaced with "L9/AHU-91/SB/00-06" by superadmin',
+    );
+  });
+
+  it('leaves no literal placeholder in the output', () => {
+    // The failure mode this guards: a template placeholder with no substitution
+    // in getAuditSummary renders as the literal "{newFilterName}" — exactly what
+    // happened historically to {reason}, {stage}, {stageKey} and {currentState}.
+    expect(getAuditSummary(row, T)).not.toMatch(/\{[a-zA-Z]+\}/);
+  });
+
+  it('falls back to the enriched target name when oldFilterName is absent', () => {
+    // Read-time enrichment (audit/routes.ts) stamps the OLD filter's name as
+    // `filterName`, because targetId IS oldFilterId. A row predating the stored
+    // oldFilterName must still read correctly.
+    const legacy = {
+      ...row,
+      afterValue: { newFilterId: 'x', newFilterName: 'L9/AHU-91/SB/00-06', filterName: 'L9/AHU-91/SB/00-05' },
+    };
+    expect(getAuditSummary(legacy, T)).toBe(
+      'Filter "L9/AHU-91/SB/00-05" replaced with "L9/AHU-91/SB/00-06" by superadmin',
+    );
+  });
+});
+
 // 2026-07-08: audit rows for Block/Area/AHU/Filter must name the specific kind
 // and describe hierarchy links understandably — no "entity"/"asset" jargon.
 describe('audit-helpers — Block/Area/AHU/Filter rendering', () => {

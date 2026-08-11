@@ -630,11 +630,20 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
   },
 
   // Filter Management — replacement / retirement / bulk / block change
+  // 2026-08-10: the old template named only the filter being replaced, so the
+  // audit line ("Filter X replaced by superadmin") never said what replaced it —
+  // the one fact an inspector needs to follow the chain to the successor record.
+  // Both names have always been in afterValue (oldFilterName / newFilterName,
+  // written together at the single FILTER_REPLACED site in
+  // filter-operations.service.ts), so this is a display change only: no audit row
+  // is rewritten and no checksum is touched. The full UUIDs are shown in the
+  // detail modal's Replacement panel rather than here — two 36-char ids would
+  // make the table row unreadable.
   FILTER_REPLACED: {
     label: 'Filter Replaced',
     category: 'Filter Management',
-    template: 'Filter "{targetName}" replaced by {actor}',
-    placeholders: ['actor', 'targetName'],
+    template: 'Filter "{oldFilterName}" replaced with "{newFilterName}" by {actor}',
+    placeholders: ['actor', 'oldFilterName', 'newFilterName'],
   },
   FILTER_RETIRED: {
     label: 'Filter Retired',

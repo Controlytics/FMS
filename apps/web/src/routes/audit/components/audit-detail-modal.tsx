@@ -179,6 +179,51 @@ export function AuditDetailModal({
             <code className="text-xs font-mono text-slate-600 break-all">{selectedRecord.checksum}</code>
           </div>
 
+          {/* Replacement panel — FILTER_REPLACED only.
+              The generic before/after panels below run every value through
+              pruneUuids(), which strips both filter ids (they are UUID-valued
+              AND their keys end in "Id"). That pruning is right for the rest of
+              the audit surface — raw UUIDs everywhere is noise — so rather than
+              loosening it globally, the replacement pair gets its own panel.
+              This is the one place an inspector can follow the chain from a
+              retired filter to its successor record, and neither id appears
+              anywhere else in this modal (the header grid has no Target ID). */}
+          {selectedRecord.action === 'FILTER_REPLACED' && (() => {
+            const av = (selectedRecord.afterValue ?? {}) as Record<string, unknown>;
+            const oldName = (av.oldFilterName as string) || '';
+            const newName = (av.newFilterName as string) || '';
+            const oldId = (av.oldFilterId as string) || selectedRecord.targetId || '';
+            const newId = (av.newFilterId as string) || '';
+            if (!oldId && !newId) return null;
+            const Side = ({ heading, name, id, tone }: { heading: string; name: string; id: string; tone: 'rose' | 'emerald' }) => (
+              <div className={`p-3 rounded-xl border ${tone === 'rose' ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                <p className={`text-xs font-semibold uppercase tracking-wider ${tone === 'rose' ? 'text-rose-700' : 'text-emerald-700'}`}>{heading}</p>
+                <p className="text-sm font-semibold text-slate-800 mt-1 break-words">{name || '—'}</p>
+                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mt-2">Filter ID</p>
+                <code className="text-[11px] font-mono text-slate-600 break-all">{id || '—'}</code>
+              </div>
+            );
+            return (
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-4 py-2 bg-slate-50 border-b border-slate-200">
+                  <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Replacement</p>
+                </div>
+                <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Side heading="Replaced (old)" name={oldName} id={oldId} tone="rose" />
+                  <Side heading="Replacement (new)" name={newName} id={newId} tone="emerald" />
+                </div>
+                {typeof av.identifiersMoved === 'number' && (
+                  <div className="px-4 py-2 bg-slate-50 border-t border-slate-200">
+                    <p className="text-xs text-slate-500">
+                      RFID identifiers moved to the new filter:{' '}
+                      <span className="font-semibold text-slate-700">{String(av.identifiersMoved)}</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Before/After — visible to ALL roles. Changed-fields summary on top,
               full previous/new record collapsible below. Secrets masked. */}
           {(() => {

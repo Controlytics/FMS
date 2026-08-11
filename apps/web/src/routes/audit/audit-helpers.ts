@@ -224,6 +224,15 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const currentStateRaw = (after.currentState as string) || (before.currentState as string) || '';
   const currentState = currentStateRaw ? titleCase(currentStateRaw) : '';
 
+  // 2026-08-10: {oldFilterName} / {newFilterName} for FILTER_REPLACED. Same
+  // omission class as the 2026-05-20 / 06-22 / 07-15 fixes above — a template
+  // placeholder with no substitution here renders literally. `oldFilterName`
+  // falls back to targetName because the read-time enrichment in audit/routes.ts
+  // stamps the OLD filter's name (targetId IS oldFilterId), so a row predating
+  // the stored field still reads correctly.
+  const oldFilterName = (after.oldFilterName as string) || (before.oldFilterName as string) || targetName || '';
+  const newFilterName = (after.newFilterName as string) || (before.newFilterName as string) || '';
+
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
       .replace(/\{actor\}/g, actor)
@@ -249,7 +258,9 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{stageKey\}/g, stageKey)
       .replace(/\{filterName\}/g, filterName)
       .replace(/\{rejectToStateKey\}/g, rejectToStateKey)
-      .replace(/\{currentState\}/g, currentState);
+      .replace(/\{currentState\}/g, currentState)
+      .replace(/\{oldFilterName\}/g, oldFilterName)
+      .replace(/\{newFilterName\}/g, newFilterName);
     // Drop empty quoted placeholders: an unnamed record (e.g. a PM schedule
     // review/approve row carries no name — the AHU is shown separately) would
     // otherwise render 'PM schedule "" reviewed by EMP-123'. An empty "" is

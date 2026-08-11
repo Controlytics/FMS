@@ -88,13 +88,21 @@ export function AuditTemplatesConfigPage() {
     );
   }
 
-  // Sample data for live preview
+  // Sample data for live preview.
+  // MUST cover every placeholder any template declares — a placeholder missing
+  // here renders LITERALLY in the preview (the admin editing FILTER_REPLACED
+  // would see the text "{newFilterName}"), which is the same class of bug the
+  // dated comments in audit-helpers.ts getAuditSummary record. When you add a
+  // placeholder to a template, add it here AND to renderPreview AND to
+  // placeholderColors (a missing colour key yields an undefined chip class).
   const sampleValues: Record<string, string> = {
     actor: 'operator1',
     targetUser: 'user123',
     targetName: 'Daily Check',
     configKey: 'password-policy',
     targetType: 'Template',
+    oldFilterName: 'L9/AHU-91/SB/00-05',
+    newFilterName: 'L9/AHU-91/SB/00-06',
   };
 
   const renderPreview = (templateStr: string) => {
@@ -103,7 +111,9 @@ export function AuditTemplatesConfigPage() {
       .replace(/\{targetUser\}/g, sampleValues.targetUser)
       .replace(/\{targetName\}/g, sampleValues.targetName)
       .replace(/\{configKey\}/g, sampleValues.configKey)
-      .replace(/\{targetType\}/g, sampleValues.targetType);
+      .replace(/\{targetType\}/g, sampleValues.targetType)
+      .replace(/\{oldFilterName\}/g, sampleValues.oldFilterName)
+      .replace(/\{newFilterName\}/g, sampleValues.newFilterName);
   };
 
   const placeholderColors: Record<string, string> = {
@@ -112,6 +122,8 @@ export function AuditTemplatesConfigPage() {
     targetName: 'bg-purple-100 text-purple-700 border-purple-200',
     configKey: 'bg-amber-100 text-amber-700 border-amber-200',
     targetType: 'bg-rose-100 text-rose-700 border-rose-200',
+    oldFilterName: 'bg-slate-100 text-slate-700 border-slate-200',
+    newFilterName: 'bg-teal-100 text-teal-700 border-teal-200',
   };
 
   const categoryGradients: Record<string, string> = {
