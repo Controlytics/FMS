@@ -23,7 +23,15 @@
     "turbo": "^2.4.0"
   },
   "overrides": {
-    "tar": "^7.5.22"
+    "tar": "^7.5.22",
+    "postcss": "^8.5.26",
+    "brace-expansion": "^2.0.2",
+    "serialize-javascript": "^7.1.0",
+    "@xmldom/xmldom": "^0.9.11",
+    "lodash": "^4.18.1",
+    "dompurify": "^3.4.13",
+    "workbox-build": "^7.4.1",
+    "vite": "^7.3.6"
   },
   "dependencies": {
     "exceljs": "^4.4.0"

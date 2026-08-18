@@ -13,6 +13,28 @@ Three of the report's own claims turned out to be wrong or incomplete, and each
 is corrected in place below: the Capacitor `tar` version, the `/docs` protection
 model, and the `JWT_EXPIRES_IN` token-lifetime control.
 
+### Fixed — dependency remediation sweep (npm audit 22 → 6)
+
+Cleared the remaining npm-audit advisories across the monorepo (the original
+assessment's dependency findings were already resolved; this covers the web tree
+it did not enumerate).
+- vitest 3.2.4 → 3.2.7 (the lone **critical**), postcss → 8.5.26,
+  brace-expansion vulnerable 1.1.x dropped.
+- **vite-plugin-pwa 0.20 → 1.3.0** (major) — the key unblock: its old
+  `vite ^3||^4||^5` peer cap conflicted with vite 7 and made the resolver refuse
+  the whole workbox/PWA subtree (why `npm audit fix` kept ERESOLVE-ing). Then:
+  vite → 7.3.6, react-router-dom → 7.18.2, serialize-javascript → 7.1.0,
+  @xmldom/xmldom → 0.8.14, dompurify → 3.4.13, workbox-build → 7.4.1,
+  lodash removed, turbo → 2.10.10, @babel chain → 7.29.7.
+- **Remaining 6 are non-exploitable, accepted:** deepmerge-ts/@prisma/config/prisma
+  (a CLI-time recursive-merge DoS with no untrusted input and no `prisma.config.ts`;
+  a real fix needs the Prisma 7 major, gated on migration testing), exceljs/uuid
+  (uuidv4 no-`buf` — verified earlier), and esbuild (low, dev-server only, pinned
+  by vite's `^0.27` peer).
+- Verified: tsc clean (api+web); web suite 663/663; api `npm test` (single-fork)
+  1327 pass; web build + PWA OK; `npm ci` reproduces; API boots. No regressions
+  from the react-router / vite-plugin-pwa / vite majors.
+
 ### Fixed — VAPT findings from the 2026-08-18 penetration test
 
 A follow-up pen test (unauthenticated + authenticated, injection/authz probing,
