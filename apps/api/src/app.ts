@@ -342,6 +342,33 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       message: 'This record was modified concurrently. Please reload and try again.',
     });
   }
+  // Prisma "value too long for the column" → 400, not 500 (VAPT-5, 2026-08-18).
+  // Discovered when an input that passed the schema's max-length check overflowed
+  // a column AFTER server-side sanitization *escaped* the HTML (e.g. `<script>`
+  // → `&lt;script&gt;`, +12 chars), so a schema-valid string became too long.
+  // A rejected-input constraint is a client error, and the raw Prisma error text
+  // (source path + code snippet) must never reach the caller.
+  if ((err as any).code === 'P2000') {
+    return reply.code(400).send({
+      error: 'VALUE_TOO_LONG',
+      message: 'One or more fields exceed the maximum allowed length.',
+    });
+  }
+  // Any other Prisma known-request error: return a generic 400 and log the detail
+  // server-side. Without this, an unmapped P-code fell to the catch-all, which
+  // echoes err.message when NODE_ENV=development — and a Prisma message embeds the
+  // absolute source-file path, line, and a code snippet (CWE-209). Never leak that,
+  // in any environment; the full error is still on app.log for diagnosis.
+  if (
+    (err as any).name === 'PrismaClientKnownRequestError' ||
+    (typeof (err as any).code === 'string' && /^P\d{4}$/.test((err as any).code))
+  ) {
+    app.log.error({ err, url: _req.url, prismaCode: (err as any).code }, 'Unmapped Prisma error');
+    return reply.code(400).send({
+      error: 'DATA_CONSTRAINT',
+      message: 'The request could not be completed due to a data constraint.',
+    });
+  }
 
   // Genuine internal errors
   app.log.error(err);

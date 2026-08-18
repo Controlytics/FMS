@@ -69,6 +69,22 @@ export async function buildApp(): Promise<FastifyInstance> {
         details: issues,
       });
     }
+    // Mirrors the Prisma branches in app.ts (P2002/P2000/generic). Kept in sync
+    // so the harness reflects production error mapping — see the ZodError note
+    // above. VAPT-5 (2026-08-18): a P2000 (value too long) must surface as a clean
+    // 400 VALUE_TOO_LONG, never as a 500 carrying raw Prisma text.
+    if ((err as any).code === 'P2002') {
+      return reply.code(409).send({ error: 'CONFLICT', message: 'This record was modified concurrently. Please reload and try again.' });
+    }
+    if ((err as any).code === 'P2000') {
+      return reply.code(400).send({ error: 'VALUE_TOO_LONG', message: 'One or more fields exceed the maximum allowed length.' });
+    }
+    if (
+      (err as any).name === 'PrismaClientKnownRequestError' ||
+      (typeof (err as any).code === 'string' && /^P\d{4}$/.test((err as any).code))
+    ) {
+      return reply.code(400).send({ error: 'DATA_CONSTRAINT', message: 'The request could not be completed due to a data constraint.' });
+    }
     const status = err.statusCode ?? 500;
     return reply.code(status).send({ error: err.message || 'Internal Server Error' });
   });

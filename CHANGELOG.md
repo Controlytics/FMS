@@ -28,6 +28,18 @@ fixed here. Full log: `tasks/VAPT-2026-08-18.md`.
   `lib/spreadsheet-safe.ts`; the client path never got the guard. Fixed by running every
   cell through a `neutralizeCell` twin (identical `FORMULA_TRIGGER`, single-quote escape).
   Verified by exceljs round-trip — 0 live formulas survive; regression test added.
+- **VAPT-5 (LOW→MED) — verbose Prisma error leaked the source path (CWE-209).**
+  Found while fuzzing stored-XSS: server-side `stripHtml` *escapes* HTML, so a
+  field valid against its `max()` length overflowed the DB column after escaping,
+  Prisma raised P2000, and the catch-all echoed `err.message` (absolute source
+  path + code snippet + `prisma.user.create()` internals) when
+  `NODE_ENV=development`. The global handler now maps P2000 → 400
+  `VALUE_TOO_LONG` and any other Prisma known-request error → 400
+  `DATA_CONSTRAINT`, generic message, full detail logged server-side only, in
+  every environment — fixing both the info leak and a schema-valid input
+  causing a 500. Mirrored into the e2e harness; regression test added. Also
+  closed two coverage gaps with no findings: filter-operations authz (VIEWER
+  → 403 before resource lookup) and a browser clickjacking + stored-XSS pass.
 - **VAPT-3 (LOW) — zip-bomb restore returned HTTP 500 instead of 4xx.** The
   declared-size guard correctly rejected a 3 GiB-declared ZIP (memory stayed flat) but
   the `INVALID_ZIP` code fell through to the catch-all 500, misreporting attacker input
