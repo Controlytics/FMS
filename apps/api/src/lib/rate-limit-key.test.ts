@@ -40,6 +40,17 @@ describe('rateLimitBucket', () => {
     expect(rateLimitBucket('fe80::1%eth0')).toBe(rateLimitBucket('fe80::2'));
   });
 
+  it('handles IPv4-embedded and malformed IPv6 without mis-bucketing (branch coverage)', () => {
+    // isIPv6-valid but expandIPv6 refuses (embedded dot) -> returned as-is, not collapsed.
+    const nat64 = rateLimitBucket('64:ff9b::192.0.2.1');
+    expect(typeof nat64).toBe('string');
+    expect(nat64).not.toBe('unknown');
+    // A different embedded-IPv4 address must not share a bucket with the first.
+    expect(rateLimitBucket('64:ff9b::192.0.2.2')).not.toBe(nat64);
+    // Double "::" is malformed; must not throw and must not collapse to one bucket.
+    expect(() => rateLimitBucket('2001::db8::1')).not.toThrow();
+  });
+
   it('gives absent/blank values their own bucket rather than throwing', () => {
     expect(rateLimitBucket(undefined)).toBe('unknown');
     expect(rateLimitBucket(null)).toBe('unknown');
