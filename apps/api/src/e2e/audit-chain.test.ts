@@ -4,6 +4,7 @@ import { buildApp, loginAs } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import { auditLog } from '../lib/audit.js';
 import { verifyAuditChain } from '../lib/audit-verify.js';
+import { __setAuditChainKeyForTest, __setAuditChainKeyedFromForTest } from '../lib/hash-chain.js';
 
 /**
  * Audit 2026-05-04 fix C3 — end-to-end chain integrity.
@@ -171,6 +172,50 @@ describe('Audit hash chain — C3', () => {
     } catch {
       // Trigger not installed — fall through; rows remain but are scoped
       // to this test's chain segment via fromPosition.
+    }
+  });
+
+  it('detects a keyed-era downgrade (v3 relabelled unkeyed) as KEYED_ERA_DOWNGRADE', async () => {
+    // Threat: a privileged DB actor takes the most-recent keyed (v3) rows,
+    // sets checksum_version = NULL and recomputes them with the unkeyed SHA
+    // formula + self-consistent links. Each row then verifies via the unkeyed
+    // path and, being at the tail, has no trailing v3 row whose chain link
+    // would break — so the per-row HMAC + chain-link checks alone MISS it.
+    // The AUDIT_CHAIN_KEYED_FROM cutover ("rows >= cutover MUST be v3") catches
+    // it. This test proves the enforcement is wired into verifyAuditChain.
+    const KEY = 'test-audit-hmac-key-keyed-era-downgrade';
+    __setAuditChainKeyForTest(KEY);
+    const beforeMaxRow = await prisma.$queryRaw<Array<{ chain_position: bigint | null }>>`
+      SELECT chain_position FROM audit_trail ORDER BY chain_position DESC NULLS LAST LIMIT 1
+    `;
+    const beforeMax = beforeMaxRow[0]?.chain_position == null ? 0 : Number(beforeMaxRow[0].chain_position);
+    __setAuditChainKeyedFromForTest(beforeMax + 1);
+
+    try {
+      // auditLog writes v3 rows because the key is set.
+      await auditLog({ userId: TEST_USERNAME, action: 'KEYED_1', targetType: 'test', targetId: 'k1' });
+      await auditLog({ userId: TEST_USERNAME, action: 'KEYED_2', targetType: 'test', targetId: 'k2' });
+
+      const clean = await verifyAuditChain({ fromPosition: beforeMax + 1 });
+      expect(clean.anomalies.filter(a => a.kind === 'KEYED_ERA_DOWNGRADE')).toEqual([]);
+
+      // Attack: relabel the keyed-era rows as unkeyed.
+      await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail DISABLE TRIGGER audit_trail_no_delete`).catch(() => {});
+      await prisma.$executeRaw`UPDATE audit_trail SET checksum_version = NULL WHERE chain_position >= ${beforeMax + 1}`;
+      await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail ENABLE TRIGGER audit_trail_no_delete`).catch(() => {});
+
+      const tampered = await verifyAuditChain({ fromPosition: beforeMax + 1 });
+      expect(tampered.intact).toBe(false);
+      expect(tampered.anomalies.some(a => a.kind === 'KEYED_ERA_DOWNGRADE')).toBe(true);
+    } finally {
+      // Cleanup: remove the test rows and reset the cached key/cutover.
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail DISABLE TRIGGER audit_trail_no_delete`);
+        try { await prisma.$executeRaw`DELETE FROM audit_trail WHERE chain_position > ${beforeMax}`; }
+        finally { await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail ENABLE TRIGGER audit_trail_no_delete`); }
+      } catch { /* trigger absent — rows scoped by fromPosition */ }
+      __setAuditChainKeyForTest(undefined);
+      __setAuditChainKeyedFromForTest(undefined);
     }
   });
 

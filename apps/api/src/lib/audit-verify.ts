@@ -25,12 +25,12 @@
  *     daily snapshot).
  */
 import { prisma } from './prisma.js';
-import { verifyAuditChecksum } from './hash-chain.js';
+import { verifyAuditChecksum, getAuditChainKeyedFrom } from './hash-chain.js';
 
 export interface ChainAnomaly {
   position: number;
   id: string;
-  kind: 'PER_ROW_CHECKSUM_MISMATCH' | 'CHAIN_LINK_MISMATCH' | 'CHAIN_POSITION_GAP';
+  kind: 'PER_ROW_CHECKSUM_MISMATCH' | 'CHAIN_LINK_MISMATCH' | 'CHAIN_POSITION_GAP' | 'KEYED_ERA_DOWNGRADE';
   message: string;
   expected?: string | null;
   actual?: string | null;
@@ -102,11 +102,34 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
   let priorPosition: number | null = null;
   let highestPosition: number | null = null;
 
+  // Keyed-era cutover: any row at/after this position MUST be a v3 (keyed) row.
+  // This is the OUT-OF-BAND anchor (AUDIT_CHAIN_KEYED_FROM, held in env next to
+  // the key — not in the mutable DB). Without checking it, a DB-level actor could
+  // relabel a run of the most-recent v3 rows `checksum_version = NULL`, recompute
+  // them with the unkeyed SHA formula and self-consistent links, and pass
+  // verification — because each downgraded row verifies via the unkeyed path and,
+  // being at the tail, has no trailing v3 row whose chain link would break. The
+  // per-row HMAC check alone cannot catch that; the cutover position can.
+  const keyedFrom = getAuditChainKeyedFrom();
+
   for (const row of rows) {
     const position = row.chain_position == null
       ? -1
       : (typeof row.chain_position === 'bigint' ? Number(row.chain_position) : row.chain_position);
     if (position > (highestPosition ?? -1)) highestPosition = position;
+
+    // Keyed-era downgrade detection (see keyedFrom above).
+    if (keyedFrom != null && position >= keyedFrom && row.checksum_version !== 3) {
+      anomalies.push({
+        position,
+        id: row.id,
+        kind: 'KEYED_ERA_DOWNGRADE',
+        message: `Row ${row.id} at chain_position ${position} is in the keyed era (>= ${keyedFrom}) but is not a v3 keyed row (checksum_version=${row.checksum_version ?? 'NULL'}) — downgrade or tampering detected.`,
+        expected: '3',
+        actual: String(row.checksum_version ?? 'NULL'),
+      });
+      if (anomalies.length >= maxAnomalies) break;
+    }
 
     // Per-row checksum verification.
     const perRowOk = verifyAuditChecksum({

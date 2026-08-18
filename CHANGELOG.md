@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] — Audit keyed-chain: wire the cutover downgrade check (2026-08-18)
+
+### Fixed — KEYED_ERA_DOWNGRADE now enforced in verifyAuditChain (real security gap)
+
+Enabling the keyed HMAC audit chain (V3) uses two env vars: `AUDIT_CHAIN_KEY`
+(the HMAC secret) and `AUDIT_CHAIN_KEYED_FROM` (the out-of-band cutover — the
+first `chain_position` that must be keyed). The per-row HMAC check was active,
+but **`getAuditChainKeyedFrom()` was defined and unit-tested yet called nowhere
+in the verify path** — the cutover was never enforced.
+
+Impact: the per-row HMAC + chain-link checks alone miss a **tail-downgrade**. A
+privileged DB actor could relabel the most-recent v3 rows `checksum_version =
+NULL`, recompute them with the unkeyed SHA formula + self-consistent links, and
+pass verification — each downgraded row verifies via the unkeyed path and, being
+at the tail, has no trailing v3 row whose chain link would break. This defeats
+the whole point of keying the chain.
+
+Fix: `verifyAuditChain` now resolves `getAuditChainKeyedFrom()` once and flags
+any row at `chain_position >= cutover` whose `checksum_version !== 3` as a new
+`KEYED_ERA_DOWNGRADE` anomaly. Verified on the test DB: a clean keyed chain
+reports 0 such anomalies; after a tail-downgrade (trigger disabled, versions
+nulled) it reports them and `intact=false`. Regression test added to
+`e2e/audit-chain.test.ts` (5 tests pass). No effect where the chain is unkeyed
+(cutover unset → check skipped), so existing verify behaviour is unchanged.
+
+Found while auditing the keyed-chain enablement on the production `digilog_db`
+(where `AUDIT_CHAIN_KEYED_FROM=18233` is now set, so this enforcement is live).
+
+
 ## [Unreleased] — Security assessment: all code-level findings resolved (2026-08-18)
 
 Acting on `DigiLog-Security-Assessment-All-Vulnerabilities.docx` (17 Aug 2026),
