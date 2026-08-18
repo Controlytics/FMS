@@ -76,6 +76,20 @@ function parseWorkbook(buffer: Buffer): Promise<{ rows: ParsedRow[]; error?: str
     const ws = wb.worksheets.find((w) => w.name === 'Filters' && w.state !== 'veryHidden') ?? wb.worksheets[0];
     if (!ws) return { rows: [], error: 'Workbook has no readable sheet' };
 
+    // VAPT-4 (2026-08-18): reject an over-cap sheet by its declared row count
+    // BEFORE materializing a ParsedRow object per row. The 200-filter cap below
+    // was only checked after the full eachRow build, so a 50k-row sheet still
+    // allocated 50k objects first (a 5 MB xlsx measured +106 MB heap). The wire
+    // is bounded by the 5 MB multipart limit; this bounds the post-parse blow-up.
+    // NB the exceljs load itself is non-streaming — this does not make the parse
+    // itself streaming, it just stops us from compounding it. `rowCount` is the
+    // index of the last row carrying a value (header + data), so allow 200 + a
+    // small margin for a trailing header/blank; the authoritative `> 200` data
+    // check still runs in bulkUploadFilters().
+    if (ws.rowCount > 260) {
+      return { rows: [], error: 'Maximum 200 filters per upload' };
+    }
+
     // Map each column number to a canonical key via the header row.
     const colKey: Record<number, keyof Omit<ParsedRow, 'rowNumber'>> = {};
     ws.getRow(1).eachCell((cell, col) => {

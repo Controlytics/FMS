@@ -13,6 +13,44 @@ Three of the report's own claims turned out to be wrong or incomplete, and each
 is corrected in place below: the Capacitor `tar` version, the `/docs` protection
 model, and the `JWT_EXPIRES_IN` token-lifetime control.
 
+### Fixed — VAPT findings from the 2026-08-18 penetration test
+
+A follow-up pen test (unauthenticated + authenticated, injection/authz probing,
+destructive input tests, full-suite review) found no critical or high in DigiLog's
+own code; 49 active checks passed. Five findings surfaced; the code-level ones are
+fixed here. Full log: `tasks/VAPT-2026-08-18.md`.
+
+- **VAPT-1 (MEDIUM) — CSV/formula injection in the client-side Excel export.**
+  `apps/web/src/lib/excel-export.ts` (used by 11+ pages exporting operator-controlled
+  text — filter names, deviation reasons, audit fields) wrote raw cell values, so a
+  field like `=cmd|'/c calc'!A1` exported as a live formula that runs when an auditor
+  opens the file (CWE-1236). The backend exports already neutralize via
+  `lib/spreadsheet-safe.ts`; the client path never got the guard. Fixed by running every
+  cell through a `neutralizeCell` twin (identical `FORMULA_TRIGGER`, single-quote escape).
+  Verified by exceljs round-trip — 0 live formulas survive; regression test added.
+- **VAPT-3 (LOW) — zip-bomb restore returned HTTP 500 instead of 4xx.** The
+  declared-size guard correctly rejected a 3 GiB-declared ZIP (memory stayed flat) but
+  the `INVALID_ZIP` code fell through to the catch-all 500, misreporting attacker input
+  as a server fault. Added `INVALID_ZIP` to the 400 whitelist in `backup/routes.ts` —
+  now returns **400 INVALID_ZIP**.
+- **VAPT-4 (LOW) — bulk-upload XLSX parsed fully before the 200-row cap.** No
+  decompression guard on the xlsx path (only the 5 MB wire limit); a 50k-row sheet built
+  50k row objects before rejection (+106 MB heap in a direct test). `parseWorkbook` now
+  rejects on `ws.rowCount > 260` before materializing rows — verified: 50k-row upload
+  rejected with memory bounded. (exceljs load remains non-streaming; the 5 MB multipart
+  limit bounds the input.)
+- **VAPT-2 (LOW) — SUPER_ADMIN omitted from 78 of 80 reauth-enabled actions (real DB).**
+  Accepted risk by owner decision: consistent with SUPER_ADMIN already being exempt from
+  lockout and password policy. No change; the enable-SQL is recorded in the VAPT log for
+  an auditor who later requires it.
+- **INFO-1 — withdrawn (tester misread).** `password-policy/current` returning 401 when
+  unauthenticated is correct by design — "public" in the route means permission-free for
+  any authenticated user, and the only web consumer fetches it gated on `isAuthenticated`.
+
+Verification: API + web `tsc` clean; `npm test` (single-fork) 1326 pass / 1 pre-existing
+AHU-fixture file failing (documented test-debt, unrelated); zero regressions.
+
+
 ### Fixed — `/docs` is now opt-in and fails CLOSED (F-01 / API-07)
 
 The old rule was "`/docs` is public unless `NODE_ENV === 'production'`". That

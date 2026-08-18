@@ -171,8 +171,12 @@ export default async function backupRoutes(app: FastifyInstance) {
       const result = await backupService.restore(rawBuffer, ctx, { force });
       return result;
     } catch (err: any) {
-      // Structured errors from the service carry a code property
-      if (err.code && ['INVALID_BAK', 'INVALID_JSON', 'INVALID_BACKUP', 'INVALID_METADATA', 'CHECKSUM_MISMATCH'].includes(err.code)) {
+      // Structured errors from the service carry a code property. These are all
+      // "the uploaded file is bad" — a client error, not a server fault. INVALID_ZIP
+      // is the declared-size zip-bomb guard (VAPT-3, 2026-08-18): before this it fell
+      // through to the catch-all 500 below, which misreported an attacker-supplied
+      // file as a server error and buried it among genuine 500s in monitoring.
+      if (err.code && ['INVALID_ZIP', 'INVALID_BAK', 'INVALID_JSON', 'INVALID_BACKUP', 'INVALID_METADATA', 'CHECKSUM_MISMATCH'].includes(err.code)) {
         return reply.code(400).send({ error: err.code, message: err.message });
       }
       // pg_restore path. RESTORE_FAILED means the database was rolled back to
