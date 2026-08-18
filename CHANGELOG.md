@@ -190,19 +190,33 @@ limiter. 9 unit tests lock the bucketing property. Runtime-verified: 10x401 then
 - **F-05** — `minVersion: 'TLSv1.2'` / `maxVersion: 'TLSv1.3'` pinned in code
   instead of inherited from the Node default. Verified by negotiation, not by
   reading config: `--tls-max 1.0` and `1.1` are refused, `1.2`/`1.3` succeed.
-- **F-04** — `'unsafe-inline'` **dropped from `script-src`** whenever docs are
-  off, which is every customer install. It existed solely for Swagger UI's inline
-  bootstrap, so it is now scoped to the one configuration that needs it. Verified
-  against the built bundle: `apps/web/dist/index.html` has zero inline `<script>`
-  blocks, and the bundle's `createElement("script")` sites are React's resource
-  hoisting, which sets `src`.
-  **`style-src` keeps `'unsafe-inline'` deliberately** — React 19's stylesheet
-  `precedence` feature and html2canvas build real `<style>` elements with inline
-  CSS at runtime, and there is no browser in this environment to verify a strict
-  `style-src` against the live UI. Shipping an unverified tightening that breaks
-  PDF export would be worse than the residual risk; inline *style* is a far
-  weaker vector than inline *script*. Flagged for a future browser-backed pass.
-  Also added `base-uri 'self'` and `form-action 'self'`.
+- **F-04 — now CLOSED for both directives** (`script-src` *and* `style-src`),
+  verified in a real headless Chromium reading the browser's own
+  `securitypolicyviolation` events rather than by reasoning about the bundle.
+  With `script-src 'self'; style-src 'self'` the built SPA renders fully: React
+  mounts, the 10-theme system applies, external stylesheets load, and the page
+  reports **zero `<style>` elements and zero violations**. The relaxation is now
+  scoped to Swagger UI, which genuinely needs it — serving `/docs` strict
+  produces a `style-src-elem blocked=inline` violation from its bootstrap. Since
+  `API_DOCS` is never set on a customer install, **a customer install is always
+  strict on both directives**.
+  An earlier revision of this change kept `style-src` relaxed unconditionally,
+  on the theory that React 19's stylesheet `precedence` feature and html2canvas
+  inject `<style>` elements. **That reasoning was wrong** and the browser test
+  disproved it: nothing in this app renders a `precedence` style, and html2canvas
+  is only reachable via jsPDF's `.html()`, which `pdf-report.ts` never calls (it
+  draws with `text`/`rect`/`line`/`addImage`). Also added `base-uri 'self'` and
+  `form-action 'self'`.
+
+  **Packaging hazard surfaced by the same test:** under `SERVE_WEB` the SPA calls
+  whatever `VITE_API_URL` was baked at build time. A local `dist` built with a
+  populated `apps/web/.env.production` (e.g. `https://192.168.1.53:3000`) calls
+  that host cross-origin and `connect-src 'self'` **blocks it**. This does not
+  affect shipped builds — `.env.production` is tracked blank on purpose and
+  `getApiBase()` falls back to `''` (same-origin) — but if an installer is ever
+  built on a machine with that file populated, the CSP turns the mistake into a
+  hard failure. Keep it blank in the clean-room build.
+
 - **F-11** — dropped HSTS `preload`. That list only accepts public registrable
   domains; this is a LAN/localhost host, so the flag could never be honoured and
   only misled reviewers. 1-year `max-age` kept.

@@ -150,25 +150,30 @@ await app.register(cors, {
 // the relaxation can be scoped to the only configuration that needs it, so a
 // customer install — where API_DOCS is never set — gets the strict policy.
 //
-// SCOPE OF THIS FIX — script-src only, deliberately:
+// Both script-src and style-src are strict unless Swagger UI is actually being
+// served. Verified in a real headless Chromium against the built SPA and against
+// /docs, reading the browser's own `securitypolicyviolation` events:
 //
-//   script-src: `'unsafe-inline'` is DROPPED when docs are off. Verified against
-//   the built bundle — apps/web/dist/index.html contains zero inline <script>
-//   blocks (Vite emits external, hashed modules), and the `createElement("script")`
-//   sites in the bundle are React's resource hoisting, which sets `src` and so
-//   satisfies 'self'. This is the directive F-04 is actually about: inline script
-//   execution is the thing an XSS payload needs.
+//   The SPA needs NEITHER relaxation. With `script-src 'self'; style-src 'self'`
+//   it renders fully — React mounts, the 10-theme system applies (it uses
+//   `root.style.setProperty()`, i.e. CSSOM, which CSP does not govern), the
+//   external stylesheets load, and the page reports ZERO <style> elements and
+//   ZERO violations. Vite emits external hashed modules, so there are no inline
+//   scripts either; the bundle's `createElement("script")` sites are React's
+//   resource hoisting, which sets `src`.
 //
-//   style-src: `'unsafe-inline'` is KEPT unconditionally. React 19's stylesheet
-//   `precedence` feature and html2canvas both build real <style> elements with
-//   inline CSS text at runtime, which a strict style-src would block — that would
-//   break rendering and the PDF export. There is no browser in this environment to
-//   verify a strict style-src against the live UI, and shipping an unverified
-//   tightening that breaks exports is worse than the residual risk: inline STYLE
-//   is a far weaker vector than inline SCRIPT. Revisit with a real browser test.
+//   Swagger UI DOES need both. Serving /docs under the strict policy produces a
+//   `style-src-elem blocked=inline` violation from its bootstrap. So the
+//   relaxation is scoped to exactly that case — and because API_DOCS is never set
+//   on a customer install, a customer install is always strict.
 //
-// Note `'unsafe-eval'` was never granted and still isn't; exceljs's `new Function`
-// in the web bundle was already blocked before this change (pre-existing, unrelated).
+// An earlier revision kept style-src relaxed unconditionally on the theory that
+// React 19's stylesheet `precedence` feature and html2canvas inject <style>
+// elements. Both turned out to be inert here: nothing in this app renders a
+// `precedence` style, and html2canvas is only reachable through jsPDF's `.html()`,
+// which pdf-report.ts never calls (it draws with text/rect/line/addImage).
+//
+// `'unsafe-eval'` was never granted and still isn't.
 const docsNeedsInlineCsp = isApiDocsEnabled();
 await app.register(helmet, {
   contentSecurityPolicy: {
@@ -176,8 +181,8 @@ await app.register(helmet, {
       defaultSrc: ["'self'"],
       // Only relaxed while Swagger UI is actually being served.
       scriptSrc: ["'self'", ...(docsNeedsInlineCsp ? ["'unsafe-inline'"] : [])],
-      // Kept always — see the note above (React 19 + html2canvas inject <style>).
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      // Swagger UI's bootstrap needs this; the SPA does not (verified in-browser).
+      styleSrc: ["'self'", ...(docsNeedsInlineCsp ? ["'unsafe-inline'"] : [])],
       imgSrc: ["'self'", "data:"],
       connectSrc: ["'self'"],
       fontSrc: ["'self'"],
