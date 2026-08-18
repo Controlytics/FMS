@@ -22,7 +22,6 @@ import { useState, useEffect } from 'react';
 // vite-plugin-pwa auto-generates this virtual module at build time.
 // In dev mode it's a no-op shim; in production it wires up the SW
 // lifecycle callbacks. The .d.ts ships with the plugin.
-// eslint-disable-next-line import/no-unresolved
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 export function PwaReloadPrompt() {

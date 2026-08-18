@@ -1269,7 +1269,7 @@ export function FilterOperationsPage() {
       // React doesn't flush state between iterations of a sync `for`/await —
       // so `if (!blockChangeDialog)` would always be whatever it was at
       // function entry, not "have we set it this run". Local flag = correct.
-      let blockChangePopped = false;
+      const blockChangePopped = false;
       for (const item of batch) {
         try {
           const advPayload = {

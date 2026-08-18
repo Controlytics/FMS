@@ -52,7 +52,7 @@ export function StageApprovalsPage() {
   const switchTab = (t: 'queue' | 'all') => { setTab(t); setSelected(new Set()); };
 
   const toggleOne = (id: string) =>
-    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allSelected = queue.length > 0 && queue.every((q) => selected.has(q.id));
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(queue.map((q) => q.id)));
   const openBulk = (action: 'approve' | 'reject') => { setBulkDlg(action); setRemarks(''); };

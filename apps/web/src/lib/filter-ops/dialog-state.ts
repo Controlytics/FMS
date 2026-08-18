@@ -218,7 +218,7 @@ export function reduceDialogState(state: DialogState, event: DialogEvent): Dialo
         requestedBlockName: event.requestedBlockName,
       };
 
-    case 'advance_batch':
+    case 'advance_batch': {
       // Only valid while a checklist dialog is open.
       if (state.kind !== 'awaiting_checklist') {
         throw new Error(`advance_batch invalid from state ${state.kind} — only valid during awaiting_checklist`);
@@ -230,6 +230,7 @@ export function reduceDialogState(state: DialogState, event: DialogEvent): Dialo
       // (We don't carry the checklists payload through the queue because it
       // must be re-resolved from the up-to-date tape per filter.)
       return state; // caller dispatches open_checklist next; this transition is just an "ack".
+    }
   }
 }
 

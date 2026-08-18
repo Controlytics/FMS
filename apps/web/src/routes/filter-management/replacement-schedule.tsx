@@ -222,7 +222,7 @@ export function ReplacementSchedulePage() {
   // Per-role "show AHU filters" feature (SUPER_ADMIN configurable).
   const filtersEnabled = useReplacementFiltersEnabled();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const toggleExpand = (id: string) => setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleExpand = (id: string) => setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const { data: identsData } = useSWR<any>(filtersEnabled ? '/api/assets/identifiers' : null);
   const identMap = useMemo(() => {
     const m = new Map<string, string[]>();
