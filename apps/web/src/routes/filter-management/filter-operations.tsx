@@ -1269,7 +1269,7 @@ export function FilterOperationsPage() {
       // React doesn't flush state between iterations of a sync `for`/await —
       // so `if (!blockChangeDialog)` would always be whatever it was at
       // function entry, not "have we set it this run". Local flag = correct.
-      const blockChangePopped = false;
+      let blockChangePopped = false;
       for (const item of batch) {
         try {
           const advPayload = {
@@ -1315,6 +1315,13 @@ export function FilterOperationsPage() {
                 requestedBlockName: e.connectionInfo.requestedBlockName,
               });
               setBlockChangeReason('');
+              // Pop the structured modal ONCE (first cross-block hit). Without
+              // this assignment the flag stayed false, so the modal re-dispatched
+              // for every failing item (last-wins) and the generic failure toast
+              // below always fired on top of it. (Fixed 2026-08-18; the omission
+              // was surfaced by eslint prefer-const flagging a never-reassigned
+              // `let`.)
+              blockChangePopped = true;
             }
             failed.push(`${item.filterName}: Block change approval required`);
           } else {
