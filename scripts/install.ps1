@@ -140,6 +140,10 @@ OFFLINE_REPLAY_SECRET=$offline
 # all v3 audit rows become permanently unverifiable. Do NOT remove to "fix" a verify
 # error — losing this key is itself the compliance failure. See lib/hash-chain.ts.
 AUDIT_CHAIN_KEY=$auditKey
+# Cutover anchor for the keyed HMAC chain. A fresh install starts with an
+# empty audit_trail, so the very first audited row (chain_position 1) is
+# already keyed — every row must be v3 from the start. Do NOT change.
+AUDIT_CHAIN_KEYED_FROM=1
 # JWT lifetime ceiling in hours (integer). The Session Settings page can offer
 # a longer 'Session Duration', but signToken clamps every token to this value.
 # Unset = 1 hour. The old JWT_EXPIRES_IN key was read by nothing and was
