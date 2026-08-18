@@ -18,6 +18,12 @@ export default defineConfig({
     },
   },
   test: {
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'text-summary'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/**/*.d.ts', 'src/e2e/test-helper.ts'],
+    },
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
