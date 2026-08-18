@@ -17,6 +17,12 @@
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
+; Where the finished Setup.exe is written. build-installer.ps1 passes this as
+; /DOutputDir=<repo>\dist so its sign step + final message find the exe. When
+; ISCC is run by hand without the define, fall back to Inno's default Output\.
+#ifndef OutputDir
+  #define OutputDir "Output"
+#endif
 
 [Setup]
 AppId={{8F3B2C71-1A4D-4E9A-9C2B-DIGILOG000001}
@@ -28,6 +34,7 @@ DefaultGroupName=DigiLog
 DisableProgramGroupPage=yes
 UninstallDisplayName=DigiLog
 UninstallDisplayIcon={app}\runtime\api\dist\app.js
+OutputDir={#OutputDir}
 OutputBaseFilename=DigiLog-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes

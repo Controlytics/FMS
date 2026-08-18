@@ -98,8 +98,26 @@ Step "Build app bundle" { & (Join-Path $PSScriptRoot 'build-bundle.ps1') }
 Step "Clean-room npm ci --omit=dev" {
   Push-Location $repoRoot
   try {
-    if (Test-Path (Join-Path $cleanDir '.git-archive')) { Remove-Item -Recurse -Force (Join-Path $cleanDir '.git-archive') }
-    git archive --format=tar HEAD | tar -x -C $cleanDir
+    # Pristine, tracked-files-only checkout (no node_modules) via git archive.
+    # Use ZIP + Expand-Archive, NOT `git archive --format=tar | tar -x`: piping a
+    # native command's binary output through the PowerShell pipeline re-encodes it
+    # as text and corrupts the tar stream (and `tar` flavour/PATH is not
+    # guaranteed on a build box). Writing a zip and expanding it is fully
+    # PowerShell-native and deterministic.
+    if (Test-Path $cleanDir) { Remove-Item -Recurse -Force $cleanDir }
+    New-Item -ItemType Directory -Force -Path $cleanDir | Out-Null
+    $archiveZip = Join-Path $OutDir 'repo-archive.zip'
+    if (Test-Path $archiveZip) { Remove-Item -Force $archiveZip }
+    git archive --format=zip -o $archiveZip HEAD
+    if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: git archive" -ForegroundColor Red; exit 1 }
+    Expand-Archive -Path $archiveZip -DestinationPath $cleanDir -Force
+    # SAFETY GUARD: never run `npm ci` unless the clean-room actually holds its own
+    # package manifest. Without this, an empty $cleanDir makes npm walk UP to the
+    # live repo root and `npm ci --omit=dev` WIPES the developer's dev deps.
+    if (-not (Test-Path (Join-Path $cleanDir 'package.json')) -or -not (Test-Path (Join-Path $cleanDir 'package-lock.json'))) {
+      Write-Host "FAILED: clean-room checkout missing package.json/package-lock.json at $cleanDir (archive/extract failed). Aborting before npm ci can touch the live repo." -ForegroundColor Red
+      exit 1
+    }
     Push-Location $cleanDir
     npm ci --omit=dev
     # Generate the Prisma CLIENT (.prisma/client/index.js). `npm ci --omit=dev`
@@ -155,7 +173,7 @@ Copy-Item (Join-Path $repoRoot 'apps\api\prisma\sql') (Join-Path $stage 'runtime
 # 7. Compile the installer
 Write-Host "==> Compile installer (ISCC)" -ForegroundColor Cyan
 if (-not (Test-Path $Iscc)) { Write-Host "Inno Setup not found at $Iscc - install Inno Setup 6 to compile. Staging is ready at $stage." -ForegroundColor Yellow; exit 0 }
-& $Iscc "/DStageDir=$stage" "/DAppVersion=$AppVersion" (Join-Path $repoRoot 'installer\DigiLog.iss')
+& $Iscc "/DStageDir=$stage" "/DAppVersion=$AppVersion" "/DOutputDir=$OutDir" (Join-Path $repoRoot 'installer\DigiLog.iss')
 if ($LASTEXITCODE -ne 0) { Write-Host "ISCC failed" -ForegroundColor Red; exit 1 }
 $setupExe = Join-Path $OutDir "DigiLog-Setup-$AppVersion.exe"
 
