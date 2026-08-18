@@ -4,6 +4,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { adminRequestService } from './admin-request.service.js';
 import { prisma } from '../../lib/prisma.js';
+import { rateLimitKeyGenerator } from '../../lib/rate-limit-key.js';
 
 export default async function adminRequestRoutes(app: FastifyInstance) {
 
@@ -14,7 +15,7 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
       rateLimit: {
         max: 5,
         timeWindow: '15 minutes',
-        keyGenerator: (req: any) => req.ip,
+        keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
       },
     },
     schema: {
@@ -81,7 +82,7 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
       rateLimit: {
         max: 20,
         timeWindow: '15 minutes',
-        keyGenerator: (req: any) => req.ip,
+        keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
       },
     },
     schema: {

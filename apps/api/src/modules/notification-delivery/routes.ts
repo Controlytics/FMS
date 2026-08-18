@@ -20,6 +20,7 @@ import { maskSecrets } from '../../lib/mask-secrets.js';
 const escapeHtml = (s: unknown): string =>
   String(s ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string));
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { hardenedFetch } from '../../lib/ssrf.js';  // SAST-01: admin-typed tokenUrl
 
 const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
 
@@ -323,7 +324,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         });
       }
 
-      const tokenRes = await fetch(tokenUrl, {
+      const tokenRes = await hardenedFetch(tokenUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString().replace(/%7E/gi, '~'),

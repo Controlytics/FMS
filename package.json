@@ -21,5 +21,11 @@
   "devDependencies": {
     "madge": "^8.0.0",
     "turbo": "^2.4.0"
+  },
+  "overrides": {
+    "tar": "^7.5.22"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
   }
 }

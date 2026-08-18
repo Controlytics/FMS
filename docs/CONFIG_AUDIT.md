@@ -131,7 +131,7 @@ These are the highest-value findings: 100% provable, fully actionable, no extern
 | `graphile-worker` | 0.16.6 | **0.17.2** | Low — pool-locking change (C-1) |
 | `@fastify/multipart` | 9.4 | **10.0.0** | Still Fastify-5 compatible (C-1) |
 | `@fastify/rate-limit` | 10.3 | **11.1.0** | Still Fastify-5 compatible (C-1) |
-| `@fastify/swagger-ui` | 5.2 | **6.0.0** | Still Fastify-5 compatible (C-1) |
+| `@fastify/swagger-ui` | ~~5.2~~ **6.1.1** | — | **DONE 2026-08-18** — taken to 6.1.1 to clear the nested `@fastify/static@9.3.0` path traversal (DEP-1). Assets moved to `/docs/static/*`. Fastify-5 compatible as predicted. |
 | `lucide-react` | 0.474 | **1.22.0** | None (icon set) |
 | `@hookform/resolvers` | 4.1 | **5.4.0** | Code-level |
 | `@napi-rs/canvas` | 0.1.100 | **1.0.1** | None (API stable) |

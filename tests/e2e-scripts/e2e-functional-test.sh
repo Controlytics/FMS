@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-# DigiLog FUNCTIONAL E2E Test — Real Data Ingestion + All 170 Endpoints
+# DigiLog FUNCTIONAL E2E Test — Real Data Ingestion + Full Endpoint Surface
 # Tests actual data flow: create -> ingest -> persist -> query -> verify
 ###############################################################################
 set -euo pipefail
@@ -60,15 +60,15 @@ assert_json_field() {
   actual=$(echo "$json" | python3 -c "
 import sys,json
 try:
-  d=json.load(sys.stdin)
-  # Navigate nested fields with dot notation
-  keys='$field'.split('.')
-  v=d
-  for k in keys:
-    if isinstance(v,dict): v=v.get(k,'')
-    elif isinstance(v,list) and k.isdigit(): v=v[int(k)]
-    else: v=''
-  print(v)
+d=json.load(sys.stdin)
+# Navigate nested fields with dot notation
+keys='$field'.split('.')
+v=d
+for k in keys:
+  if isinstance(v,dict): v=v.get(k,'')
+  elif isinstance(v,list) and k.isdigit(): v=v[int(k)]
+  else: v=''
+print(v)
 except: print('')
 " 2>/dev/null)
   if [ "$actual" = "$expected" ]; then
@@ -87,11 +87,11 @@ get_id() {
   echo "$1" | python3 -c "
 import sys,json
 try:
-  d=json.load(sys.stdin)
-  if 'id' in d: print(d['id'])
-  elif 'data' in d and isinstance(d['data'],dict) and 'id' in d['data']: print(d['data']['id'])
-  elif 'data' in d and isinstance(d['data'],list) and len(d['data'])>0: print(d['data'][0]['id'])
-  else: print('')
+d=json.load(sys.stdin)
+if 'id' in d: print(d['id'])
+elif 'data' in d and isinstance(d['data'],dict) and 'id' in d['data']: print(d['data']['id'])
+elif 'data' in d and isinstance(d['data'],list) and len(d['data'])>0: print(d['data'][0]['id'])
+else: print('')
 except: print('')
 " 2>/dev/null
 }
@@ -100,10 +100,10 @@ json_len() {
   echo "$1" | python3 -c "
 import sys,json
 try:
-  d=json.load(sys.stdin)
-  if isinstance(d,list): print(len(d))
-  elif isinstance(d,dict) and 'data' in d and isinstance(d['data'],list): print(len(d['data']))
-  else: print(0)
+d=json.load(sys.stdin)
+if isinstance(d,list): print(len(d))
+elif isinstance(d,dict) and 'data' in d and isinstance(d['data'],list): print(len(d['data']))
+else: print(0)
 except: print(0)
 " 2>/dev/null
 }
@@ -112,7 +112,7 @@ TS=$(date +%s)
 
 echo ""
 cyan "================================================================"
-bold "  DigiLog FUNCTIONAL E2E Test — 170 Endpoints + Data Ingestion"
+bold "  DigiLog FUNCTIONAL E2E Test — Full Endpoint Surface + Data Ingestion"
 cyan "================================================================"
 echo "  Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "  Server: http://3.108.185.106"
@@ -133,7 +133,7 @@ if [ -z "$TOKEN" ]; then red "FATAL: Cannot login."; exit 1; fi
 
 # Verify (get reauth token)
 R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' "$BASE/api/auth/verify" -d '{"password":"Admin@123"}')
+-H 'Content-Type: application/json' "$BASE/api/auth/verify" -d '{"password":"Admin@123"}')
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status "Get verification token" 200 "$CODE" "$BODY"
 VTOKEN=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('verificationToken',''))" 2>/dev/null || echo "")
@@ -146,7 +146,7 @@ assert_json_field "Me returns admin" "$BODY" "username" "admin"
 
 # Profile update
 R=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' "$BASE/api/auth/profile" -d '{"fullName":"Admin User"}')
+-H 'Content-Type: application/json' "$BASE/api/auth/profile" -d '{"fullName":"Admin User"}')
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status "PUT /api/auth/profile" 200 "$CODE"
 assert_json_field "Profile name updated" "$BODY" "fullName" "Admin User"
@@ -164,11 +164,11 @@ R=$(curl -s -w '\n%{http_code}' "$BASE/api/config/datetime/current")
 CODE=$(echo "$R" | tail -1); assert_status "GET /api/config/datetime/current (public)" 200 "$CODE"
 
 R=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/beacon-logout" \
-  -H 'Content-Type: application/json' -d '{"token":"fake"}')
+-H 'Content-Type: application/json' -d '{"token":"fake"}')
 CODE=$(echo "$R" | tail -1); assert_status "POST /api/auth/beacon-logout (public)" 200 "$CODE"
 
 R=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/forgot-password" \
-  -H 'Content-Type: application/json' -d '{"username":"nobody"}')
+-H 'Content-Type: application/json' -d '{"username":"nobody"}')
 CODE=$(echo "$R" | tail -1); assert_status_in "POST /api/auth/forgot-password" "$CODE" "" 200 429
 
 R=$(curl -s -w '\n%{http_code}' "$BASE/api/auth/me")
@@ -194,20 +194,20 @@ CODE=$(echo "$R" | tail -1); assert_status "GET /api/users/stats" 200 "$CODE"
 UNAME="FT$(printf '%04d' $((TS % 10000)))"
 USER_JSON="{\"username\":\"$UNAME\",\"fullName\":\"Func Test User\",\"email\":\"${UNAME}@test.com\",\"role\":\"OPERATOR\",\"password\":\"Secure#9xP\",\"confirmPassword\":\"Secure#9xP\"}"
 R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' "$BASE/api/users" \
-  -d "$USER_JSON")
+-H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' "$BASE/api/users" \
+-d "$USER_JSON")
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status_in "POST /api/users (create $UNAME)" "$CODE" "$BODY" 201 200
 TEST_UID=$(get_id "$BODY")
 
 if [ -n "$TEST_UID" ]; then
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/users/$TEST_UID")
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "GET /api/users/:id" 200 "$CODE"
-  assert_json_field "User fullName correct" "$BODY" "fullName" "Func Test User"
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/users/$TEST_UID")
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "GET /api/users/:id" 200 "$CODE"
+assert_json_field "User fullName correct" "$BODY" "fullName" "Func Test User"
 
-  R=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $TOKEN" \
-    -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' \
+R=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $TOKEN" \
+  -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' \
     "$BASE/api/users/$TEST_UID" -d '{"fullName":"Updated Func User"}')
   CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
   assert_status "PUT /api/users/:id (update)" 200 "$CODE"
@@ -458,70 +458,70 @@ DTOKEN=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).
 echo "    Device token: ${DTOKEN:0:16}..."
 
 if [ -z "$DTOKEN" ]; then
-  red "FATAL: No device token generated. Skipping ingestion tests."
-  for i in $(seq 1 15); do skip_test "Ingestion test $i"; done
+red "FATAL: No device token generated. Skipping ingestion tests."
+for i in $(seq 1 15); do skip_test "Ingestion test $i"; done
 else
-  # Ingest telemetry: simple format
-  R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
-    -H 'Content-Type: application/json' "$BASE/api/data/telemetry" \
-    -d '{"temperature":25.5,"humidity":60.2,"pressure":1013.25}')
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "Ingest telemetry (simple format)" 200 "$CODE" "$BODY"
-  assert_contains "Telemetry accepted" "$BODY" "success"
+# Ingest telemetry: simple format
+R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
+  -H 'Content-Type: application/json' "$BASE/api/data/telemetry" \
+  -d '{"temperature":25.5,"humidity":60.2,"pressure":1013.25}')
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "Ingest telemetry (simple format)" 200 "$CODE" "$BODY"
+assert_contains "Telemetry accepted" "$BODY" "success"
 
-  # Ingest telemetry: timestamped format
-  R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
-    -H 'Content-Type: application/json' "$BASE/api/data/telemetry" \
-    -d '{"ts":1709000000000,"values":{"temperature":26.1,"humidity":61.0}}')
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "Ingest telemetry (timestamped)" 200 "$CODE" "$BODY"
+# Ingest telemetry: timestamped format
+R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
+  -H 'Content-Type: application/json' "$BASE/api/data/telemetry" \
+  -d '{"ts":1709000000000,"values":{"temperature":26.1,"humidity":61.0}}')
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "Ingest telemetry (timestamped)" 200 "$CODE" "$BODY"
 
-  # Ingest telemetry: batch format
-  R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
-    -H 'Content-Type: application/json' "$BASE/api/data/telemetry" \
-    -d '[{"ts":1709000001000,"values":{"temperature":26.2}},{"ts":1709000002000,"values":{"temperature":26.3}}]')
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "Ingest telemetry (batch)" 200 "$CODE" "$BODY"
+# Ingest telemetry: batch format
+R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
+  -H 'Content-Type: application/json' "$BASE/api/data/telemetry" \
+  -d '[{"ts":1709000001000,"values":{"temperature":26.2}},{"ts":1709000002000,"values":{"temperature":26.3}}]')
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "Ingest telemetry (batch)" 200 "$CODE" "$BODY"
 
-  # Ingest attributes
-  R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
-    -H 'Content-Type: application/json' "$BASE/api/data/attributes" \
-    -d '{"firmware_version":"2.1.0","serial_number":"SN-FUNC-001","location":"Lab-7"}')
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "Ingest attributes" 200 "$CODE" "$BODY"
+# Ingest attributes
+R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
+  -H 'Content-Type: application/json' "$BASE/api/data/attributes" \
+  -d '{"firmware_version":"2.1.0","serial_number":"SN-FUNC-001","location":"Lab-7"}')
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "Ingest attributes" 200 "$CODE" "$BODY"
 
-  # Ingest device event
-  R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
-    -H 'Content-Type: application/json' "$BASE/api/data/event" \
-    -d '{"event":"BOOT","data":{"reason":"power_cycle","uptime":0}}')
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "Ingest device event" 200 "$CODE" "$BODY"
+# Ingest device event
+R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $DTOKEN" \
+  -H 'Content-Type: application/json' "$BASE/api/data/event" \
+  -d '{"event":"BOOT","data":{"reason":"power_cycle","uptime":0}}')
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "Ingest device event" 200 "$CODE" "$BODY"
 
-  # Get shared attributes (device-side)
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $DTOKEN" "$BASE/api/data/attributes")
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "GET /api/data/attributes (device side)" 200 "$CODE"
+# Get shared attributes (device-side)
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $DTOKEN" "$BASE/api/data/attributes")
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "GET /api/data/attributes (device side)" 200 "$CODE"
 
-  echo "    Waiting 5s for BullMQ pipeline processing..."
-  sleep 5
+echo "    Waiting 5s for BullMQ pipeline processing..."
+sleep 5
 
-  ###########################################################################
-  # PHASE 7: VERIFY PERSISTED DATA
-  ###########################################################################
-  bold "--- PHASE 7: Verify Persisted Data ---"
+###########################################################################
+# PHASE 7: VERIFY PERSISTED DATA
+###########################################################################
+bold "--- PHASE 7: Verify Persisted Data ---"
 
-  # Query latest telemetry
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/telemetry/$INST_A/latest")
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "GET /api/telemetry/:id/latest" 200 "$CODE"
+# Query latest telemetry
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/telemetry/$INST_A/latest")
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "GET /api/telemetry/:id/latest" 200 "$CODE"
   TELEM_KEYS=$(echo "$BODY" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
 keys=set()
 if isinstance(d,list):
-  for item in d: keys.add(item.get('key',''))
+for item in d: keys.add(item.get('key',''))
 elif isinstance(d,dict):
-  for k in d: keys.add(k)
+for k in d: keys.add(k)
 print(','.join(sorted(keys)))
 " 2>/dev/null)
   echo "    Latest telemetry keys: $TELEM_KEYS"
@@ -563,52 +563,52 @@ print(len(pts))
   CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
   assert_status "GET /api/connectivity/:id (status)" 200 "$CODE"
   CONN_STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
-  echo "    Connectivity status: $CONN_STATUS"
+echo "    Connectivity status: $CONN_STATUS"
 
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/connectivity/$INST_A/snippets")
-  CODE=$(echo "$R" | tail -1); assert_status "GET /api/connectivity/:id/snippets" 200 "$CODE"
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/connectivity/$INST_A/snippets")
+CODE=$(echo "$R" | tail -1); assert_status "GET /api/connectivity/:id/snippets" 200 "$CODE"
 
-  R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" "$BASE/api/connectivity/$INST_A/test")
-  CODE=$(echo "$R" | tail -1); assert_status "POST /api/connectivity/:id/test" 200 "$CODE"
+R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" "$BASE/api/connectivity/$INST_A/test")
+CODE=$(echo "$R" | tail -1); assert_status "POST /api/connectivity/:id/test" 200 "$CODE"
 
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/connectivity/$INST_A/history")
-  CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/connectivity/:id/history" "$CODE" "" 200 500
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/connectivity/$INST_A/history")
+CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/connectivity/:id/history" "$CODE" "" 200 500
 
-  # Alarms
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/alarms/")
-  CODE=$(echo "$R" | tail -1); assert_status "GET /api/alarms/ (list)" 200 "$CODE"
+# Alarms
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/alarms/")
+CODE=$(echo "$R" | tail -1); assert_status "GET /api/alarms/ (list)" 200 "$CODE"
 
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/alarms/$INST_A")
-  CODE=$(echo "$R" | tail -1); assert_status "GET /api/alarms/:entityId" 200 "$CODE"
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/alarms/$INST_A")
+CODE=$(echo "$R" | tail -1); assert_status "GET /api/alarms/:entityId" 200 "$CODE"
 
-  # QR Code
-  R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" "$BASE/api/qr/$INST_A/generate")
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status_in "POST /api/qr/:id/generate" "$CODE" "$BODY" 200 400
+# QR Code
+R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" "$BASE/api/qr/$INST_A/generate")
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status_in "POST /api/qr/:id/generate" "$CODE" "$BODY" 200 400
 
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/qr/$INST_A")
-  CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/qr/:id" "$CODE" "" 200 404
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/qr/$INST_A")
+CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/qr/:id" "$CODE" "" 200 404
 
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/qr/$INST_A/svg")
-  CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/qr/:id/svg" "$CODE" "" 200 404
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/qr/$INST_A/svg")
+CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/qr/:id/svg" "$CODE" "" 200 404
 
-  # UNS
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/uns/tree")
-  CODE=$(echo "$R" | tail -1); assert_status "GET /api/uns/tree" 200 "$CODE"
+# UNS
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/uns/tree")
+CODE=$(echo "$R" | tail -1); assert_status "GET /api/uns/tree" 200 "$CODE"
 
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/uns/entity/$INST_A")
-  CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/uns/entity/:id" "$CODE" "" 200 404
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/uns/entity/$INST_A")
+CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/uns/entity/:id" "$CODE" "" 200 404
 
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/uns/search?q=sensor")
-  CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/uns/search" "$CODE" "" 200 400
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/uns/search?q=sensor")
+CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/uns/search" "$CODE" "" 200 400
 
-  # Checklist
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/checklist/$INST_A/responses")
-  CODE=$(echo "$R" | tail -1); assert_status "GET /api/checklist/:id/responses" 200 "$CODE"
+# Checklist
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/checklist/$INST_A/responses")
+CODE=$(echo "$R" | tail -1); assert_status "GET /api/checklist/:id/responses" 200 "$CODE"
 
-  # Revoke device token
-  R=$(curl -s -w '\n%{http_code}' -X DELETE -H "Authorization: Bearer $TOKEN" "$BASE/api/connectivity/$INST_A/token")
-  CODE=$(echo "$R" | tail -1); assert_status "DELETE /api/connectivity/:id/token (revoke)" 200 "$CODE"
+# Revoke device token
+R=$(curl -s -w '\n%{http_code}' -X DELETE -H "Authorization: Bearer $TOKEN" "$BASE/api/connectivity/$INST_A/token")
+CODE=$(echo "$R" | tail -1); assert_status "DELETE /api/connectivity/:id/token (revoke)" 200 "$CODE"
 fi
 
 ###############################################################################
@@ -627,18 +627,18 @@ echo "    Available node types: $NODE_TYPES"
 
 RC_NAME="Func Rule Chain $TS"
 R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' "$BASE/api/rule-chains" \
-  -d "{\"name\":\"$RC_NAME\",\"description\":\"Functional test\",\"isEnabled\":false}")
+-H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' "$BASE/api/rule-chains" \
+-d "{\"name\":\"$RC_NAME\",\"description\":\"Functional test\",\"isEnabled\":false}")
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status_in "POST /api/rule-chains (create)" "$CODE" "$BODY" 201 200
 RC_ID=$(get_id "$BODY")
 
 if [ -n "$RC_ID" ]; then
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/rule-chains/$RC_ID")
-  CODE=$(echo "$R" | tail -1); assert_status "GET /api/rule-chains/:id" 200 "$CODE"
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/rule-chains/$RC_ID")
+CODE=$(echo "$R" | tail -1); assert_status "GET /api/rule-chains/:id" 200 "$CODE"
 
-  R=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $TOKEN" \
-    -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' \
+R=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $TOKEN" \
+  -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' \
     "$BASE/api/rule-chains/$RC_ID" -d '{"description":"Updated func test"}')
   CODE=$(echo "$R" | tail -1); assert_status "PUT /api/rule-chains/:id" 200 "$CODE"
 
@@ -745,17 +745,17 @@ DB_STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdi
 DB_CONN=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('database',{}).get('connected',False))" 2>/dev/null)
 TOTAL=$((TOTAL+1))
 if [ "$DB_CONN" = "True" ]; then
-  green "  PASS Database is connected"; PASS=$((PASS+1))
+green "  PASS Database is connected"; PASS=$((PASS+1))
 else
-  red "  FAIL Database not connected ($DB_CONN)"; FAIL=$((FAIL+1))
+red "  FAIL Database not connected ($DB_CONN)"; FAIL=$((FAIL+1))
 fi
 
 R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" \
-  -F "file=@/dev/null;filename=test.json" "$BASE/api/backup/validate")
+-F "file=@/dev/null;filename=test.json" "$BASE/api/backup/validate")
 CODE=$(echo "$R" | tail -1); assert_status_in "POST /api/backup/validate" "$CODE" "" 200 400
 
 R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" \
-  -H "X-Verification-Token: $VTOKEN" "$BASE/api/backup/export")
+-H "X-Verification-Token: $VTOKEN" "$BASE/api/backup/export")
 CODE=$(echo "$R" | tail -1); assert_status_in "GET /api/backup/export" "$CODE" "" 200 400 403
 
 skip_test "POST /api/backup/restore (destructive)"
@@ -767,22 +767,38 @@ bold "--- PHASE 11: Swagger & Frontend ---"
 
 sleep 5
 
-R=$(curl -s -w '\n%{http_code}' "$BASE/docs")
-CODE=$(echo "$R" | tail -1); assert_status_in "GET /docs (Swagger UI)" "$CODE" "" 200 302
+# /docs is opt-in and FAIL-CLOSED (API_DOCS=on). On a hardened instance it is not
+# registered at all and answers 401 like any unknown path, so probe the mode first
+# and skip the spec assertions rather than reporting a false failure.
+# Security assessment 2026-08-17, finding F-01 / API-07.
+DOCS_CODE=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/docs")
+if [ "$DOCS_CODE" = "401" ]; then
+green "  PASS /docs disabled (API_DOCS not set) - fail-closed, spec checks skipped"
+TOTAL=$((TOTAL+1)); PASS=$((PASS+1))
+else
+assert_status_in "GET /docs (Swagger UI)" "$DOCS_CODE" "" 200 302
 
 R=$(curl -s -w '\n%{http_code}' "$BASE/docs/json")
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status "GET /docs/json (OpenAPI spec)" 200 "$CODE"
-EP_COUNT=$(echo "$BODY" | python3 -c "
+  EP_COUNT=$(echo "$BODY" | python3 -c "
 import sys,json; spec=json.load(sys.stdin)
 print(sum(len([m for m in p if m in ('get','post','put','patch','delete')]) for p in spec.get('paths',{}).values()))
-" 2>/dev/null)
-TOTAL=$((TOTAL+1))
-if [ "$EP_COUNT" = "170" ]; then
-  green "  PASS OpenAPI spec has exactly 170 endpoints"; PASS=$((PASS+1))
-else
-  red "  FAIL OpenAPI spec has $EP_COUNT endpoints (expected 170)"
-  FAIL=$((FAIL+1)); FAILURES="${FAILURES}\n  FAIL Endpoint count: $EP_COUNT != 170"
+  " 2>/dev/null)
+  # Floor, not an exact count. This asserted "exactly 170" from 2026-02-27 until
+  # 2026-08-18; the API has grown to 400+ endpoint-methods since, so it had been
+  # failing on every run and told you nothing. The intent worth keeping is "the
+  # spec registered a plausible full set of routes, not a truncated one" - a floor
+  # survives normal feature growth instead of rotting into a false failure every
+  # time an endpoint is added. Only touch EP_MIN if the API genuinely shrinks.
+  EP_MIN=300
+  TOTAL=$((TOTAL+1))
+  if [ -n "$EP_COUNT" ] && [ "$EP_COUNT" -ge "$EP_MIN" ] 2>/dev/null; then
+    green "  PASS OpenAPI spec has $EP_COUNT endpoints (>= $EP_MIN)"; PASS=$((PASS+1))
+  else
+    red "  FAIL OpenAPI spec has ${EP_COUNT:-no} endpoints (expected >= $EP_MIN)"
+    FAIL=$((FAIL+1)); FAILURES="${FAILURES}\n  FAIL Endpoint count: ${EP_COUNT:-none} < $EP_MIN"
+  fi
 fi
 
 # Frontend pages
@@ -846,13 +862,13 @@ TESTED=$((TOTAL - SKIP))
 PCT=0; [ "$TESTED" -gt 0 ] && PCT=$(( (PASS * 100) / TESTED ))
 
 echo "  Coverage:"
-echo "    API endpoints tested:    ~140 of 170 (82%)"
+echo "    API endpoints tested:    ~140 (spec now exposes $EP_COUNT)"
 echo "    Data ingestion formats:  3/3 (simple, timestamped, batch)"
 echo "    Telemetry persistence:   Verified (latest + timeseries + keys)"
 echo "    Attribute persistence:   Verified (device-side + query-side)"
 echo "    Connectivity tracking:   Verified (ONLINE status)"
 echo "    Frontend pages:          24/24"
-echo "    OpenAPI spec:            170 endpoints confirmed"
+echo "    OpenAPI spec:            $EP_COUNT endpoints confirmed"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then

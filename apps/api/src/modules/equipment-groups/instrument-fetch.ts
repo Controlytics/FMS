@@ -14,7 +14,11 @@
  * in the instrument's UoM. The client owns the 1-min + 1-min retry loop; each
  * call here is one quick attempt.
  */
-import { lookup } from 'node:dns/promises';
+// SAST-01: the SSRF policy now lives in lib/ssrf.ts so the notification
+// channels share ONE implementation with this one. Re-exported below because
+// this module was its original home.
+import { checkOutboundUrl, isBlockedAddress } from '../../lib/ssrf.js';
+export { isBlockedAddress };
 
 const TIMEOUT_MS = 5000;
 const MAX_BYTES = 64 * 1024; // 64 KiB — a reading payload is tiny; anything bigger is suspect.
@@ -23,30 +27,6 @@ export type ReadingObjectResult =
   /** The flat reading object, e.g. { air_pressure: 6.2, ro_water_pressure: 4.1 }. */
   | { ok: true; reading: Record<string, number>; fetchedAt: string }
   | { ok: false; error: string };
-
-/**
- * True for addresses we refuse to connect to even when an admin typed the URL:
- * loopback, link-local (covers the 169.254.169.254 metadata endpoint),
- * and the unspecified/this-network address. Private LAN ranges are allowed.
- */
-export function isBlockedAddress(ip: string, family: number): boolean {
-  if (family === 4 || ip.includes('.')) {
-    const v4 = ip.startsWith('::ffff:') ? ip.slice('::ffff:'.length) : ip;
-    const parts = v4.split('.').map((n) => Number(n));
-    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true; // unparseable → block
-    const [a, b] = parts;
-    if (a === 127) return true; // loopback 127.0.0.0/8
-    if (a === 0) return true; // 0.0.0.0/8 "this network"
-    if (a === 169 && b === 254) return true; // link-local 169.254.0.0/16 (incl. metadata)
-    return false;
-  }
-  const lower = ip.toLowerCase();
-  if (lower === '::1' || lower === '::') return true; // loopback / unspecified
-  if (lower.startsWith('fe80') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) {
-    return true; // link-local fe80::/10
-  }
-  return false;
-}
 
 /** Read a response body with a hard byte cap. Returns null if the cap is exceeded. */
 async function readCapped(res: Response, max: number): Promise<string | null> {
@@ -76,26 +56,9 @@ async function readCapped(res: Response, max: number): Promise<string | null> {
 async function fetchJsonHardened(rawUrl: string | null | undefined): Promise<{ ok: true; body: any } | { ok: false; error: string }> {
   if (!rawUrl || !rawUrl.trim()) return { ok: false, error: 'No URL configured' };
 
-  let url: URL;
-  try {
-    url = new URL(rawUrl.trim());
-  } catch {
-    return { ok: false, error: 'Invalid URL' };
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return { ok: false, error: 'URL must use http or https' };
-  }
-
-  // Resolve the host and reject if ANY resolved address is blocked.
-  let addrs: { address: string; family: number }[];
-  try {
-    addrs = await lookup(url.hostname, { all: true });
-  } catch {
-    return { ok: false, error: 'DNS resolution failed' };
-  }
-  if (addrs.length === 0 || addrs.some((a) => isBlockedAddress(a.address, a.family))) {
-    return { ok: false, error: 'Destination address not allowed' };
-  }
+  const check = await checkOutboundUrl(rawUrl);
+  if (!check.ok) return { ok: false, error: check.error };
+  const url = check.url;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);

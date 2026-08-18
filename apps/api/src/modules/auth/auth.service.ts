@@ -228,8 +228,15 @@ export const authService = {
         // Return session conflict — let the user decide
         const oldSession = existingSessions[0];
         const err = new AppError(409, 'SESSION_CONFLICT', 'An active session already exists for this account.');
+        // API-14 (security assessment 2026-08-17): the other session's IP address
+        // is NOT returned. The timestamps are enough for the legitimate user to
+        // recognise their own session ("yes, that was me this morning") and decide
+        // whether to force it out; the IP only adds value to someone who is NOT
+        // that user — e.g. a credential-stuffer learning where the real account
+        // holder works. The full detail (including IP) still reaches the audit
+        // trail via the session row and the FORCED_LOGOUT entry, so nothing is
+        // lost for an inspector.
         (err as any).activeSession = {
-          ipAddress: oldSession.ipAddress ?? 'Unknown',
           loginTime: oldSession.createdAt.toISOString(),
           lastActiveAt: oldSession.lastActiveAt.toISOString(),
         };

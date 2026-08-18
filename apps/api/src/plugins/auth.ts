@@ -10,6 +10,7 @@ import {
 } from '../lib/offline-replay-token.js';
 import { isPasswordExpired } from '../lib/password-expiry.js';
 import { isSuperAdminApiEnabled } from '../lib/super-admin-lock.js';
+import { isApiDocsEnabled } from '../lib/swagger.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -175,13 +176,11 @@ export function matchesPublicPath(url: string, prefixes: string[]): boolean {
 }
 
 
-const isProduction = process.env.NODE_ENV === 'production';
 const PUBLIC_PATHS = [
   '/api/auth/login', '/api/auth/forgot-password', '/api/auth/beacon-logout',
   '/api/health',
   '/api/guest/cleaning-request',  // guest (unauthenticated) filter cleaning request
 
-  ...(isProduction ? [] : ['/docs', '/docs/']),  // Swagger only public in non-production
   '/api/notification-settings/email/oauth2/code', // OAuth2 callback (no JWT - redirect from Microsoft/Google)
   // 2026-07-03: removed 6 stale JWT-skip entries whose routes were deleted in the
   // Phase 7 data-ingestion + MQTT tear-out — no route is registered for any of
@@ -198,6 +197,13 @@ async function authPlugin(app: FastifyInstance) {
     // Fully public paths (all methods). Segment-boundary match, not bare prefix.
     if (matchesPublicPath(req.url, PUBLIC_PATHS)) return;
 
+    // Swagger UI. Checked per-request (not baked into PUBLIC_PATHS) so it can
+    // never be evaluated before dotenv has populated process.env, and so tests
+    // can flip API_DOCS without reloading the module. Fail-closed: the same
+    // helper decides whether the /docs routes exist at all (see swagger.ts), so
+    // when docs are off this branch is unreachable AND there is nothing to hit.
+    if (isApiDocsEnabled() && matchesPublicPath(req.url, ['/docs'])) return;
+
     // Paths that are public only for GET requests
     if (req.method === 'GET' && matchesPublicPath(req.url, PUBLIC_GET_PATHS)) return;
 
@@ -207,12 +213,19 @@ async function authPlugin(app: FastifyInstance) {
     // surface (/api, /uploads, /docs). The SPA's own data calls hit /api/* and
     // still go through full auth below; protected uploads + Swagger are excluded
     // so this never widens their existing access rules. See EXE-PACKAGING §5.
+    //
+    // The /docs carve-out is conditional on the docs actually being served. With
+    // API_DOCS unset (the shipped installer config, which also sets
+    // SERVE_WEB=true) an unconditional carve-out would answer /docs with a 401
+    // while every other unknown path fell through to the SPA — a difference that
+    // tells an attacker this server knows about /docs, reintroducing the very
+    // leak the fail-closed gate removed. Gated, /docs is just another SPA path.
     if (
       process.env.SERVE_WEB === 'true' &&
       (req.method === 'GET' || req.method === 'HEAD') &&
       !req.url.startsWith('/api') &&
       !req.url.startsWith('/uploads') &&
-      !req.url.startsWith('/docs')
+      !(isApiDocsEnabled() && req.url.startsWith('/docs'))
     ) {
       return;
     }

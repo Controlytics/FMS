@@ -8,6 +8,7 @@ import nodemailer from "nodemailer";
 import dns from "dns";
 import type { EmailConfig, NotificationPayload, DeliveryResult, NotificationChannel as IChannel } from '../types.js';
 import { getEmailConfig } from '../config-loader.js';
+import { hardenedFetch } from '../../../lib/ssrf.js';  // SAST-01: admin-typed tokenUrl
 
 let transporter: nodemailer.Transporter | null = null;
 let currentConfigHash = "";
@@ -77,7 +78,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
       });
     }
 
-    const res = await fetch(tokenUrl, {
+    const res = await hardenedFetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString().replace(/%7E/gi, '~'),
@@ -124,7 +125,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
       grant_type: 'refresh_token',
     });
 
-    const res = await fetch(tokenUrl, {
+    const res = await hardenedFetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString().replace(/%7E/gi, '~'),
@@ -153,7 +154,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
     });
     if (config.scope) body.set('scope', config.scope);
 
-    const res = await fetch(config.tokenUrl, {
+    const res = await hardenedFetch(config.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString().replace(/%7E/gi, '~'),

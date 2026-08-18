@@ -740,8 +740,13 @@ assert_status_in "GET /assets (nginx path may conflict)" "$STATUS" 200 403
 # ============================================================
 echo -e "\n${CYAN}[18] SWAGGER DOCS${NC}"
 
+# /docs is opt-in and FAIL-CLOSED (API_DOCS=on). On a hardened instance it is not
+# registered at all and answers 401 like any unknown path, so probe the mode first
+# and skip the spec assertions rather than reporting a false failure.
+# Security assessment 2026-08-17, finding F-01 / API-07.
 STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/docs")
-assert_status_in "GET /docs" "$STATUS" 200 302
+# 401 == docs not registered (API_DOCS unset); that is the hardened, expected state.
+assert_status_in "GET /docs" "$STATUS" 200 302 401
 
 # ============================================================
 # 19: SESSION

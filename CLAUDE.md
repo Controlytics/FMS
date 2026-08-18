@@ -70,7 +70,10 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 ## Key Local URLs
 - App: http://localhost:5175 (Vite dev)
 - API: https://localhost:3000 — `API_HTTPS=true` in `apps/api/.env` (mkcert certs at `certs/server.{key,crt}` rooted by `certs/rootCA.pem`)
-- Swagger: https://localhost:3000/docs
+- Swagger: https://localhost:3000/docs — **opt-in and fail-closed**: served only when
+  `API_DOCS=on` is set in `apps/api/.env` (it is, locally). `NODE_ENV` has no say.
+  Unset it and `/docs` is not registered at all, answering like any unknown path.
+  Security assessment 2026-08-17, F-01 / API-07. Never enable on a customer machine.
 
 ### TLS notes
 - **APK requires HTTPS** — plain HTTP causes a Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate). `apps/web/.env.production` is **`skip-worktree` and tracked blank** on purpose (no dev's IP in the repo); it is set locally only (currently `https://192.168.1.53:3000`, = this PC's static IP). **The baked value only affects a FRESH install** — `getApiBase()` (`apps/web/src/lib/api-base.ts`) reads `localStorage['digilog.serverUrl']` FIRST, so a tablet with an existing Server Address keeps using it across APK updates; change it on-device. See the network IP-change runbook in memory.
@@ -91,6 +94,14 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 ## Important Notes
 - Only one database now: `digilog_db` (Prisma). TimescaleDB (`digilog_tsdb`) was dropped 2026-06-11 with the data-ingestion tear-out.
 - Input sanitization strips HTML on all text fields (`apps/api/src/lib/sanitize.ts`)
+- **Outbound calls to admin-typed URLs must use `apps/api/src/lib/ssrf.ts`** (
+  `hardenedFetch` / `checkOutboundUrl`) — scheme allowlist, DNS-resolved destination
+  check blocking loopback/link-local/metadata, no redirect-follow, hard timeout.
+  Private LAN is allowed on purpose (instruments + on-prem SMS gateways). Never
+  add a bare `fetch()` on a configurable URL. (SAST-01, 2026-08-18.)
+- **Rate limiters must use `rateLimitKeyGenerator`** (`apps/api/src/lib/rate-limit-key.ts`).
+  Keying on `req.ip` alone lets an IPv6 attacker rotate the host portion of their
+  /64 for an unlimited budget. (DEP-5, 2026-08-18.)
 - Capacitor APK uses **HTTPS** baked at build via `VITE_API_URL` (cert install required on tablet)
 - Light theme only — `bg-white`, `bg-slate-50`, `border-slate-200`, gradient dialog headers OK
 - **Sidebar RBAC redesign (2026-06-30, branch RFID):** `packages/shared/src/types/permission-tree.ts`

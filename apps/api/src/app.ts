@@ -8,7 +8,9 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { registerSwagger } from './lib/swagger.js';
+import { registerSwagger, isApiDocsEnabled } from './lib/swagger.js';
+import { rateLimitKeyGenerator } from './lib/rate-limit-key.js';
+import { JWT_MAX_EXPIRY_HOURS } from './lib/jwt.js';
 import authPlugin from './plugins/auth.js';
 import rbacPlugin from './plugins/rbac.js';
 import superAdminRoutes from "./modules/super-admin/routes.js";
@@ -76,10 +78,19 @@ const __dirname = path.dirname(__filename);
 const defaultCertDir = path.resolve(__dirname, '../../../certs');
 const tlsKeyPath  = process.env.TLS_KEY_PATH  ?? path.join(defaultCertDir, 'server.key');
 const tlsCertPath = process.env.TLS_CERT_PATH ?? path.join(defaultCertDir, 'server.crt');
+// F-05 (security assessment 2026-08-17): pin the TLS floor in code rather than
+// inheriting whatever the Node build defaults to. The scan found TLS 1.2/1.3
+// already in effect here, but only because that is the current default — a Node
+// upgrade, an OpenSSL config, or a different host could silently move it. On a
+// validated system the floor must be an explicit, reviewable property of the
+// app. TLS 1.0/1.1 are deprecated (RFC 8996); 1.2 is the floor, 1.3 is used
+// whenever the client supports it.
 const httpsOptions = process.env.API_HTTPS === 'true'
   ? {
       key: fs.readFileSync(tlsKeyPath),
       cert: fs.readFileSync(tlsCertPath),
+      minVersion: 'TLSv1.2' as const,
+      maxVersion: 'TLSv1.3' as const,
     }
   : null;
 
@@ -132,24 +143,63 @@ await app.register(cors, {
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-reauth-password'],
 });
+// F-04 (security assessment 2026-08-17): `'unsafe-inline'` in script-src
+// substantially weakens the XSS defence — it is what lets an injected inline
+// <script> actually execute. It was there for ONE reason: Swagger UI's inline
+// bootstrap. Now that /docs is opt-in and off by default (see lib/swagger.ts),
+// the relaxation can be scoped to the only configuration that needs it, so a
+// customer install — where API_DOCS is never set — gets the strict policy.
+//
+// SCOPE OF THIS FIX — script-src only, deliberately:
+//
+//   script-src: `'unsafe-inline'` is DROPPED when docs are off. Verified against
+//   the built bundle — apps/web/dist/index.html contains zero inline <script>
+//   blocks (Vite emits external, hashed modules), and the `createElement("script")`
+//   sites in the bundle are React's resource hoisting, which sets `src` and so
+//   satisfies 'self'. This is the directive F-04 is actually about: inline script
+//   execution is the thing an XSS payload needs.
+//
+//   style-src: `'unsafe-inline'` is KEPT unconditionally. React 19's stylesheet
+//   `precedence` feature and html2canvas both build real <style> elements with
+//   inline CSS text at runtime, which a strict style-src would block — that would
+//   break rendering and the PDF export. There is no browser in this environment to
+//   verify a strict style-src against the live UI, and shipping an unverified
+//   tightening that breaks exports is worse than the residual risk: inline STYLE
+//   is a far weaker vector than inline SCRIPT. Revisit with a real browser test.
+//
+// Note `'unsafe-eval'` was never granted and still isn't; exceljs's `new Function`
+// in the web bundle was already blocked before this change (pre-existing, unrelated).
+const docsNeedsInlineCsp = isApiDocsEnabled();
 await app.register(helmet, {
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],   // Swagger UI requires unsafe-inline
-      styleSrc: ["'self'", "'unsafe-inline'"],    // Swagger UI requires unsafe-inline
+      // Only relaxed while Swagger UI is actually being served.
+      scriptSrc: ["'self'", ...(docsNeedsInlineCsp ? ["'unsafe-inline'"] : [])],
+      // Kept always — see the note above (React 19 + html2canvas inject <style>).
+      styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
       connectSrc: ["'self'"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
+      baseUri: ["'self'"],       // stop an injected <base> retargeting relative URLs
+      formAction: ["'self'"],    // stop an injected form exfiltrating to another origin
     },
   },
+  // F-11: `preload` asks the browser-vendor HSTS preload list to hard-pin this
+  // host. That list only accepts public registrable domains — this deployment is
+  // a LAN host / localhost, so the flag can never be honoured and advertising it
+  // is noise that misleads a reviewer. Keep the 1-year max-age, drop the claim.
   strictTransportSecurity: {
     maxAge: 31536000,        // 1 year in seconds
     includeSubDomains: true,
-    preload: true,
   },
+  // F-12: two headers stated different framing rules — CSP said frame-ancestors
+  // 'none' while helmet's default X-Frame-Options said SAMEORIGIN. Modern
+  // browsers prefer frame-ancestors, but a reviewer reading the headers saw a
+  // contradiction. Align X-Frame-Options with the CSP rather than leave both.
+  xFrameOptions: { action: 'deny' },
 });
 // Permissions-Policy — restrict browser feature APIs (audit S-10)
 app.addHook('onSend', async (_req, reply, payload) => {
@@ -161,7 +211,14 @@ app.addHook('onSend', async (_req, reply, payload) => {
 // returned 429s, which the client treated as "offline" and retried — a
 // self-reinforcing storm that piled up failed HTTPS requests and OOM-crashed the
 // WebView. Auth routes keep their own tighter per-route limits below.
-await app.register(rateLimit, { max: 5000, timeWindow: '1 minute' });
+// DEP-5 (security assessment 2026-08-17): key on the /64 for IPv6 so an
+// attacker rotating the host portion of their prefix cannot mint a fresh
+// budget per request. IPv4 stays exact. See lib/rate-limit-key.ts.
+await app.register(rateLimit, {
+  max: 5000,
+  timeWindow: '1 minute',
+  keyGenerator: rateLimitKeyGenerator,
+});
 await app.register(multipart, {
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB max
@@ -445,7 +502,10 @@ if (process.env.SERVE_WEB === 'true') {
       const isServerRoute =
         req.url.startsWith('/api') ||
         req.url.startsWith('/uploads') ||
-        req.url.startsWith('/docs') ||
+        // Only a server route while the docs are actually served; otherwise
+        // /docs must fall through to the SPA like any other unknown path so it
+        // stays indistinguishable. See the matching gate in plugins/auth.ts.
+        (isApiDocsEnabled() && req.url.startsWith('/docs')) ||
         req.url.startsWith('/health');
       const wantsHtml = (req.headers.accept ?? '').includes('text/html');
       if (req.method === 'GET' && !isServerRoute && wantsHtml) {
@@ -467,7 +527,12 @@ try {
   await app.listen({ port, host: '0.0.0.0' });
   const proto = httpsOptions ? 'https' : 'http';
   app.log.info(`DigiLog API running on ${proto}://localhost:${port}`);
-  app.log.info(`Swagger UI: ${proto}://localhost:${port}/docs`);
+  // API-15: state the real token ceiling at boot. The Session Settings page
+  // can show a larger 'Session Duration'; this is what actually applies.
+  app.log.info(`JWT lifetime ceiling: ${JWT_MAX_EXPIRY_HOURS}h (JWT_EXPIRY_HOURS)`);
+  if (isApiDocsEnabled()) {
+    app.log.info(`Swagger UI: ${proto}://localhost:${port}/docs`);
+  }
 
   // In-process scheduler (node-cron). Runs inside this Node process — no
   // Postgres job queue and no OS/Windows cron. Each tick runs a sweep guarded so

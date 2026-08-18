@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma.js';
 import { signToken } from '../../lib/jwt.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { signOfflineReplayToken } from '../../lib/offline-replay-token.js';
+import { rateLimitKeyGenerator } from '../../lib/rate-limit-key.js';
 
 export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/login
@@ -17,7 +18,7 @@ export default async function authRoutes(app: FastifyInstance) {
       rateLimit: {
         max: 10,
         timeWindow: '1 minute',
-        keyGenerator: (req: any) => req.ip,
+        keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
       },
     },
     schema: {
@@ -290,7 +291,7 @@ export default async function authRoutes(app: FastifyInstance) {
       rateLimit: {
         max: 5,
         timeWindow: '1 minute',
-        keyGenerator: (req: any) => req.ip,
+        keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
       },
     },
     schema: {
@@ -324,7 +325,7 @@ export default async function authRoutes(app: FastifyInstance) {
       rateLimit: {
         max: 3,
         timeWindow: '15 minutes',
-        keyGenerator: (req: any) => req.ip,
+        keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
       },
     },
     schema: {

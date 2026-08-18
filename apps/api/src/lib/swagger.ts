@@ -1,7 +1,29 @@
 import type { FastifyInstance } from 'fastify';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { verifyToken } from './jwt.js';
+
+/**
+ * Is the Swagger UI (/docs) allowed to be served?
+ *
+ * FAIL CLOSED, and deliberately NOT keyed off NODE_ENV (security assessment
+ * 2026-08-17, finding F-01 / API-07). The previous rule — "public unless
+ * NODE_ENV === 'production'" — failed OPEN: a typo, an unset env, or anyone
+ * running `node dist/app.js` by hand silently published the entire API map
+ * with no warning. Exposure must be an explicit, deliberate act instead.
+ *
+ * Set API_DOCS=on to serve /docs. Anything else (unset, empty, 'off', a typo)
+ * means @fastify/swagger-ui is never registered at all — no route, no spec, no
+ * asset listing. Verified: a request to /docs then returns exactly the same
+ * `401 {"error":"UNAUTHORIZED","message":"Missing token"}` as any nonexistent
+ * path (the auth onRequest hook fires before routing), so it does not even
+ * leak that /docs is a thing this server knows about.
+ *
+ * Single source of truth: plugins/auth.ts imports this so the JWT allowlist
+ * and the route registration can never disagree.
+ */
+export function isApiDocsEnabled(): boolean {
+  return (process.env.API_DOCS ?? '').trim().toLowerCase() === 'on';
+}
 
 export async function registerSwagger(app: FastifyInstance) {
   await app.register(swagger, {
@@ -80,10 +102,19 @@ export async function registerSwagger(app: FastifyInstance) {
     },
   });
 
-  // Swagger UI is auth-gated in production (audit API-5).
-  // In non-production the auth hook is still registered but /docs is also in
-  // auth.ts PUBLIC_PATHS so the check passes via two paths — harmless.
-  const isProduction = process.env.NODE_ENV === 'production';
+  // ─── Swagger UI (/docs) — opt-in only ──────────────────────────────────────
+  // See isApiDocsEnabled() above. When disabled we do not register the plugin,
+  // so /docs and every /docs/* asset simply do not exist as routes.
+  //
+  // The old uiHooks Bearer-token check was removed with this change: it could
+  // never be satisfied by a browser (a navigation to /docs sends no
+  // Authorization header), so it protected nothing that the auth plugin did not
+  // already reject, while reading as if /docs were usable-when-authenticated.
+  if (!isApiDocsEnabled()) {
+    app.log.info('API docs disabled (set API_DOCS=on to serve /docs)');
+    return;
+  }
+
   await app.register(swaggerUi, {
     routePrefix: '/docs',
     uiConfig: {
@@ -96,19 +127,11 @@ export async function registerSwagger(app: FastifyInstance) {
       syntaxHighlight: { theme: 'monokai' },
     },
     staticCSP: false,
-    uiHooks: {
-      onRequest: async (req: any, reply: any) => {
-        if (!isProduction) return; // allow in dev without token
-        const header: string | undefined = req.headers?.authorization;
-        if (!header?.startsWith('Bearer ')) {
-          return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Bearer token required to access API docs' });
-        }
-        try {
-          await verifyToken(header.slice(7));
-        } catch {
-          return reply.code(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or expired token' });
-        }
-      },
-    },
   });
+
+  app.log.warn(
+    'API docs ENABLED at /docs — the full API surface is readable without a ' +
+    'login. Intended for development only; unset API_DOCS on any shared or ' +
+    'customer machine.',
+  );
 }

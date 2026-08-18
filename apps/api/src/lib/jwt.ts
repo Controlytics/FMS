@@ -30,7 +30,15 @@ export interface JwtPayload {
 // function clamps it to JWT_EXPIRY_HOURS (env, default 1h) so the token never
 // outlives the security policy even if the session config row drifts upward.
 // To restore 8h behaviour temporarily set JWT_EXPIRY_HOURS=8 in .env.
-const JWT_MAX_EXPIRY_HOURS = process.env.JWT_EXPIRY_HOURS
+// API-15 (security assessment 2026-08-17): this cap is exported because the
+// Session Settings page lets an admin pick a "Session Duration" of up to 24h
+// while signToken silently clamps the token to this value. Anything that shows
+// a session duration to a human must be able to state the real ceiling.
+//
+// NOTE the env var is JWT_EXPIRY_HOURS. A `JWT_EXPIRES_IN` key was present in
+// .env / .env.example / install.ps1 and read by NOTHING — it was removed
+// 2026-08-18 rather than left to imply it controlled the lifetime.
+export const JWT_MAX_EXPIRY_HOURS = process.env.JWT_EXPIRY_HOURS
   ? Number(process.env.JWT_EXPIRY_HOURS)
   : 1;
 

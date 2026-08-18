@@ -86,7 +86,10 @@ This Windows-hostility problem is permanently resolved: there's no broker to ins
 ### 5. Native node-gyp modules in the dependency tree
 
 **Beyond `canvas`:**
-- `bcrypt` (used in `apps/api/src/lib/password.ts`)
+- ~~`bcrypt`~~ — **resolved 2026-08-18.** bcrypt 6.x installs an N-API prebuild via
+  `node-gyp-build`; it no longer pulls `@mapbox/node-pre-gyp` (and so no longer needs
+  MSVC/Python). Still a native module — the ABI/staging caveat below still applies —
+  but it is no longer a *node-gyp build* risk. Verified: 3 packages, ~2s, no compile.
 - Transitively: `node-pty`, `better-sqlite3`, `sharp` (if any image processing pulls it)
 
 **Why caveats:** every one needs MSVC + Python + node-gyp on the deploy machine, OR a successful pre-built `node_modules` bundle shipped from a known-good build host

@@ -230,6 +230,8 @@ npx vite preview
 ```bash
 curl http://localhost:3000/api/health
 # or in browser: http://localhost:3000/docs (Swagger UI)
+# NOTE: /docs is served only when API_DOCS=on is set in apps/api/.env
+#       (fail-closed; NODE_ENV is not consulted). See CHANGELOG 2026-08-18.
 ```
 
 ---
@@ -341,7 +343,12 @@ npm run build
 
 ### Windows-specific issues
 - Use **Git Bash** or **WSL2** for running commands (not CMD)
-- If `bcrypt` fails to install, run: `npm install --build-from-source bcrypt`
+- `bcrypt` is **6.x** since 2026-08-18 and installs from an N-API **prebuild** via
+  `node-gyp-build` — no MSVC/Python needed. (The old `--build-from-source` tip
+  applied to bcrypt 5's `@mapbox/node-pre-gyp` and no longer does anything useful.)
+  If the prebuild is ever missing for your platform, that fallback compile is the
+  symptom to report — do not paper over it, since the packaged installer relies on
+  the prebuild being present on the build host.
 - If `sharp` errors occur: `npm install --platform=win32 --arch=x64 sharp`
 
 ---

@@ -1,5 +1,332 @@
 # Changelog
 
+## [Unreleased] — Security assessment: all code-level findings resolved (2026-08-18)
+
+Acting on `DigiLog-Security-Assessment-All-Vulnerabilities.docx` (17 Aug 2026),
+all seven priority items plus the two deferred DAST findings. Covers
+**F-01 / API-07**, **DEP-1**, **DEP-3**, **DEP-4** (HIGH); **DEP-2** (CRITICAL
+label); **DEP-5**, **F-04**, **F-05** (MEDIUM); **SAST-01**, **SAST-02**,
+**API-14**, **API-15**, **F-11/F-12** (LOW/INFO). **DEP-6/DEP-7** (exceljs/uuid)
+were investigated and found **not exploitable** — see below.
+
+Three of the report's own claims turned out to be wrong or incomplete, and each
+is corrected in place below: the Capacitor `tar` version, the `/docs` protection
+model, and the `JWT_EXPIRES_IN` token-lifetime control.
+
+### Fixed — `/docs` is now opt-in and fails CLOSED (F-01 / API-07)
+
+The old rule was "`/docs` is public unless `NODE_ENV === 'production'`". That
+**failed open**: a typo, an unset env, or anyone running `node dist/app.js` by
+hand silently published the entire API map with no warning. The whole control
+was one string comparison away from off.
+
+- New `API_DOCS` env var, checked by `isApiDocsEnabled()` in
+  `apps/api/src/lib/swagger.ts`. Only the exact value `on` (case- and
+  whitespace-tolerant) serves the docs. **`NODE_ENV` no longer has any say.**
+- When disabled, `@fastify/swagger-ui` is **not registered at all** — no route,
+  no spec, no asset listing. Verified: `/docs` then returns exactly the same
+  `401 {"error":"UNAUTHORIZED","message":"Missing token"}` as any nonexistent
+  path, so it does not even leak that `/docs` exists on this server.
+- `plugins/auth.ts` imports the same helper (single source of truth, so the JWT
+  allowlist and the route registration cannot drift apart) and checks it
+  **per-request** rather than at module load, removing any dotenv ordering
+  hazard and letting tests flip the flag.
+- Removed the `uiHooks` Bearer-token check. It could never be satisfied by a
+  browser — a navigation to `/docs` sends no `Authorization` header — so it
+  protected nothing the auth plugin did not already reject, while reading as if
+  `/docs` were usable-when-authenticated. Honest gate instead of a decorative one.
+- `apps/api/.env` sets `API_DOCS=on` so the local dev workflow is unchanged;
+  `.env.example` ships it commented out. The installer-generated `.env`
+  (`scripts/install.ps1`) does not set it, so customer machines get no `/docs`.
+- Startup now logs `API docs disabled (set API_DOCS=on to serve /docs)`, or a
+  `warn` when enabled.
+- New `apps/api/src/lib/swagger.test.ts` — 21 cases locking the contract
+  (unset / empty / `off` / `false` / `0` / `true` / `1` / `yes` / typo all
+  disabled; `NODE_ENV` cannot open the gate). The failure mode is silent, so it
+  needs a test.
+
+### Fixed — `@fastify/static` path traversal (DEP-1)
+
+- `@fastify/static` `^10.1.0` → **`^10.1.3`** (vulnerable range was `<=10.1.1`).
+  The lockfile was pinning 10.1.0 inside an already-permissive range.
+- `@fastify/swagger-ui` `^5.2.5` → **`^6.1.1`** (semver-major). Required: 5.2.5
+  bundled its own nested `@fastify/static@9.3.0`, which the direct-dependency
+  bump could not reach. v6 depends on `@fastify/static ^10.1.0`, so both now
+  dedupe to 10.1.3. Also clears the separate moderate advisory on
+  `@fastify/swagger-ui <=6.1.0`.
+- **Breaking change absorbed:** v6 serves its UI assets from `/docs/static/*`
+  instead of `/docs/*`. Verified `swagger-ui.css`, `swagger-ui-bundle.js`,
+  `swagger-initializer.js` and `index.css` all 200 at the new paths and the UI
+  renders. No application code changed.
+- Verified by attack, not just by version number — every traversal attempt is
+  rejected (`..%2f`, literal `../`, `%2e%2e%2f`, `....//`), including through
+  `/docs/static/`, which is the exact path the finding describes.
+- `npm audit` in `apps/api` now reports **zero** `@fastify/static` and
+  `@fastify/swagger-ui` advisories.
+
+### Fixed — `/docs` was still distinguishable under `SERVE_WEB=true`
+
+Caught on review, after the first two modes had been verified. Two `/docs`
+clauses predated the gate and were left unconditional:
+
+- `plugins/auth.ts` — the SERVE_WEB SPA allowance carved `/docs` out of the
+  no-token GET path.
+- `app.ts` — the `notFoundHandler`'s `isServerRoute` counted `/docs` as a server
+  surface.
+
+With `SERVE_WEB=true` **and** `API_DOCS` unset — which is exactly the shipped
+installer configuration — `/docs` therefore answered `401` while every other
+unknown path fell through to the SPA and returned `index.html`. That difference
+tells an attacker the server knows about `/docs`, reintroducing the leak the
+fail-closed gate was meant to remove.
+
+Both clauses are now gated on `isApiDocsEnabled()`. Verified across all four
+combinations of `SERVE_WEB` × `API_DOCS`; in the shipped config `/docs`,
+`/docs/json`, `/docs/static/*`, `/documentation`, `/documentation/json`,
+`/openapi.json` and `/swagger.json` all return the SPA `index.html`
+**byte-identical** (same SHA-256) to `/nonexistent-abc123`. With docs on, the UI,
+the spec, the SPA, and the JSON-404 API contract all still behave.
+
+### Fixed — `tar` archive-overwrite chain removed at the root (DEP-2, DEP-4)
+
+Report item #3. Both `tar` chains were vulnerable, **not one** — see the
+correction below.
+
+- **`bcrypt` `^5.1.1` → `^6.0.0`.** Chosen over the report's suggested
+  `overrides` pin because it removes the problem instead of papering over it:
+  bcrypt 6 drops `@mapbox/node-pre-gyp` entirely (it uses `node-gyp-build` +
+  `node-addon-api`), so `@mapbox/node-pre-gyp@1.0.11` **and** the `tar@6.2.1` it
+  dragged in are gone from the tree. That closes DEP-2's install-time half and
+  DEP-4 outright. Forcing `tar@7` *through* node-pre-gyp 1.x — which was written
+  against the tar 6 API — was the riskier path.
+- **`overrides: { "tar": "^7.5.22" }`** in the root `package.json` for the
+  remaining chain. `npm install` alone did not re-resolve the already-locked
+  nested copy; `npm update tar` was needed to actually move it.
+- `npm audit` now reports **zero** `tar`, `@mapbox/node-pre-gyp` and `bcrypt`
+  advisories. Exactly one `tar` node remains in the whole tree, at 7.5.22.
+
+**Correction to the assessment document.** §4.2 states the Capacitor chain was
+`tar@7.5.22 (already patched)`. The installed tree actually had
+**`tar@7.5.13`**, which is inside the advisory range `<=7.5.20` — so *both*
+chains were vulnerable, and the "earlier fix only patched the Capacitor side"
+claim was itself stale. `@capacitor/cli` declares `^7.5.3`, so 7.5.22 satisfies
+it without touching Capacitor.
+
+**Password-hash compatibility — the risk that actually mattered.** bcrypt is a
+native module sitting under every login on a validated system, so this was
+verified rather than assumed:
+
+- All **155** live `users.password_hash` rows are `$2b$12$`. `password_history`
+  holds 33 `$2b$12$` rows plus 162 `__BACKUP_STRIPPED__` sentinels (not hashes).
+  `sessions.token_hash` is SHA-256, not bcrypt — unaffected.
+- Hashes cross-verify **both directions**: bcrypt 6 reads bcrypt 5's hashes and
+  bcrypt 5 reads bcrypt 6's, so a rollback is safe too. Same `$2b$12$` output.
+- On malformed input (`__BACKUP_STRIPPED__`, empty, truncated) both versions
+  return `false` identically — neither throws, so the password-reuse check over
+  those 162 sentinel rows behaves exactly as before.
+- The app's own **async** path (`verifyPassword` in `lib/password.ts`, the one
+  login calls — not `compareSync`) verifies a bcrypt-5-written hash, rejects the
+  wrong password, and emits `$2b$12$`.
+- Where bcrypt 5 and 6 were run head-to-head against the real stored
+  `superadmin` hash they **agreed on every candidate**. (A live
+  `POST /api/auth/login` with `Admin@123` returns 401, but that is a stale
+  credential, not a regression — bcrypt 5 rejects it identically. The 26
+  login tests in `e2e/auth.test.ts` pass.)
+
+**Windows/packaging impact: none.** bcrypt 6 installs from an N-API prebuild
+(3 packages, ~2s, no MSVC/Python), so it does not reintroduce the node-gyp
+dependency Phase 3 deliberately removed. `scripts/build-installer.ps1` stages a
+clean-room `npm ci --omit=dev` tree from the build host and
+`scripts/stage-runtime.ps1` copies it to the target, so the customer machine
+never runs `npm install` — the prebuild resolved here is what ships.
+
+### Changed — e2e scripts tolerate the hardened state
+
+`tests/e2e-scripts/e2e-{full,functional,live}-test.sh` asserted `GET /docs` was
+200 and parsed the OpenAPI spec. Against a hardened instance that is a false
+failure. They now probe the mode first and skip the spec assertions when docs
+are disabled, reporting it as a pass.
+
+### Fixed — DEP-5 rate-limit IPv6 bypass (item #4)
+
+The library bump the report asked for was the smaller half. `@fastify/rate-limit`
+`^10.2.0` -> `^11.2.0`, **but the actual defect was ours**: all five limiters used
+`keyGenerator: (req) => req.ip`, bucketing per exact address. A single subscriber
+IPv6 allocation is a /64 — rotating the host portion mints a fresh brute-force
+budget on every request while the limiter reports healthy. Upgrading the library
+would not have touched an explicit per-IP `keyGenerator`.
+
+New `lib/rate-limit-key.ts` buckets IPv6 by /64, keeps IPv4 exact, and maps
+IPv4-mapped IPv6 back to the underlying v4. Deliberately not narrower than /64,
+which would let one abuser lock out a whole ISP. Wired into all five per-route
+limiters (`auth/routes.ts` x3, `admin-requests/routes.ts` x2) and the global
+limiter. 9 unit tests lock the bucketing property. Runtime-verified: 10x401 then
+429 on the login route.
+
+### Fixed — adm-zip; exceljs/uuid verified NOT exploitable (item #5)
+
+- **`adm-zip` `^0.5.16` -> `^0.6.0`** (semver-major) — GHSA-xcpc-8h2w-3j85, a
+  crafted ZIP triggering a 4 GB allocation on the backup-restore path. Our exact
+  API surface (`new AdmZip(buf)`, `getEntries()`, `header.size`, `getData()`,
+  `addFile`, `toBuffer`) round-trip tested; the existing declared-size zip-bomb
+  guard still works, since it depends on `header.size` being present.
+  `@types/adm-zip` -> `^0.5.8`; **no 0.6 typings exist on DefinitelyTyped** (max
+  stable is 0.5.8), so that version skew is deliberate and recorded here.
+- **`exceljs` NOT changed, and this is the right call.** It is flagged only
+  because it depends on `uuid`, and the uuid advisory (GHSA-w5hq-g745-h8pq) is a
+  missing bounds check **in v3/v5/v6 when a `buf` argument is passed**. exceljs
+  imports only `{v4}` and calls `uuidv4()` with **no arguments**, at two sites;
+  nothing in this repo imports uuid directly. There is no reachable call path.
+  npm's suggested "fix" is to downgrade to **exceljs 3.4.0**, a 2019-era major
+  that would break the data-validation dropdowns, bulk upload, PM export and
+  replacement-schedule export — a real regression traded for an unreachable bug.
+  Same discipline the report itself applied to the React and ejs "criticals".
+  (A `uuid` override to 11.x was tried and reverted: it corrupted the lock's
+  uuid branch and the win was cosmetic — silencing an advisory line, not closing
+  a path. Tree restored and verified.)
+
+### Fixed — TLS floor, CSP, HSTS, framing (item #6, plus F-11/F-12)
+
+- **F-05** — `minVersion: 'TLSv1.2'` / `maxVersion: 'TLSv1.3'` pinned in code
+  instead of inherited from the Node default. Verified by negotiation, not by
+  reading config: `--tls-max 1.0` and `1.1` are refused, `1.2`/`1.3` succeed.
+- **F-04** — `'unsafe-inline'` **dropped from `script-src`** whenever docs are
+  off, which is every customer install. It existed solely for Swagger UI's inline
+  bootstrap, so it is now scoped to the one configuration that needs it. Verified
+  against the built bundle: `apps/web/dist/index.html` has zero inline `<script>`
+  blocks, and the bundle's `createElement("script")` sites are React's resource
+  hoisting, which sets `src`.
+  **`style-src` keeps `'unsafe-inline'` deliberately** — React 19's stylesheet
+  `precedence` feature and html2canvas build real `<style>` elements with inline
+  CSS at runtime, and there is no browser in this environment to verify a strict
+  `style-src` against the live UI. Shipping an unverified tightening that breaks
+  PDF export would be worse than the residual risk; inline *style* is a far
+  weaker vector than inline *script*. Flagged for a future browser-backed pass.
+  Also added `base-uri 'self'` and `form-action 'self'`.
+- **F-11** — dropped HSTS `preload`. That list only accepts public registrable
+  domains; this is a LAN/localhost host, so the flag could never be honoured and
+  only misled reviewers. 1-year `max-age` kept.
+- **F-12** — `X-Frame-Options` was helmet's default `SAMEORIGIN` while CSP said
+  `frame-ancestors 'none'`. Aligned to `DENY`. Verified the app uses no iframes.
+
+### Fixed — SAST-01, SSRF guard now shared (item #7)
+
+The instrument auto-fetch was hardened; the SMS/email notification channels
+called admin-typed URLs with a bare `fetch`. Extracted the policy into
+`lib/ssrf.ts` as the single implementation — scheme allowlist, DNS-resolve and
+reject if **any** resolved address is blocked (closes rebinding-by-multiple-A),
+block loopback / link-local `169.254.169.254` / unspecified, **allow** private
+LAN (instruments and on-prem gateways live there), never follow redirects, hard
+timeout. Applied to the SMS HTTP-gateway URL, all three OAuth2 `tokenUrl` fetches
+in `email-channel.ts`, and the one in `notification-delivery/routes.ts`;
+`instrument-fetch.ts` now consumes the shared module instead of its own copy.
+The remaining bare `fetch` calls are hardcoded Twilio/Vonage hosts, not an SSRF
+surface. 21 tests lock the policy.
+
+### Fixed — API-14 and API-15
+
+- **API-14** — the login-conflict 409 no longer returns the other session's IP
+  address; the timestamps stay, which is what lets the legitimate user recognise
+  their own session. The IP row was removed from the login UI too. Worth stating
+  plainly: this fires **after** password verification, so the recipient already
+  proved they know the credentials — it is defence-in-depth against a
+  credential-stuffer learning where the real account holder works, not an
+  unauthenticated leak. Full detail still reaches the audit trail.
+- **API-15** — the root cause is worse than the report describes. **`JWT_EXPIRES_IN`
+  is read by no code at all** — it was set in `apps/api/.env` (`8h`),
+  `.env.example` (`1h`) and `scripts/install.ps1` (`1h`) while doing nothing. The
+  real control is `JWT_EXPIRY_HOURS` (default **1**), which `signToken` clamps
+  every token to. Meanwhile Session Settings offers "Session Duration (hours)"
+  with a default of 8 and a max of 24 that is silently capped. Removed the dead
+  key from all three files, documented `JWT_EXPIRY_HOURS` in the installer,
+  exported the cap, relabelled the config field to state the ceiling, and the API
+  now logs `JWT lifetime ceiling: 1h (JWT_EXPIRY_HOURS)` at boot.
+
+### Fixed — advisories the assessment missed entirely
+
+`npm audit` surfaced Fastify **runtime** transitives the report did not list.
+Cleared by in-range updates (no major bumps): `fast-uri`, `find-my-way`,
+`form-data`, `js-yaml`, `nanoid`, `ws`. Advisory count 16 -> 10.
+
+**Still open, deliberately:** `vite`, `vitest`, `postcss`, `esbuild` (dev/build
+only, not shipped); `prisma` / `@prisma/config` (needs a Prisma major on a
+validated DB — should be its own change with a migration test); `brace-expansion`
+and `deepmerge-ts` (transitive, no in-range fix); `exceljs`/`uuid` (verified not
+exploitable above). A blanket `npm audit fix` is blocked by a `vite-plugin-pwa`
+peer conflict.
+
+### Fixed — a pre-existing broken assertion found while verifying the above
+
+`e2e-functional-test.sh` asserted the OpenAPI spec had **exactly 170**
+endpoint-methods. That number was written 2026-02-27 (`b5c1a46`); the API now
+exposes **408**, so the assertion had been failing on every run and carried no
+signal. Not caused by this work — `@fastify/swagger` (which *generates* the
+spec) is untouched at 9.7.0; only `@fastify/swagger-ui`, the renderer, moved.
+
+Replaced with a floor (`EP_MIN=300`) that keeps the intent — "the spec
+registered a full set of routes, not a truncated one" — without rotting into a
+false failure every time an endpoint is added. Stale `170` banner and summary
+text in the same script now report the live count.
+
+### Note — `@types/bcrypt` bumped to match
+
+`@types/bcrypt` `^5.0.2` → `^6.0.0` (`latest` on npm, stable). Caught on review:
+a first pass mis-read the registry listing and concluded no 6.x types existed,
+which would have shipped a real declared-vs-installed version skew. `tsc` passes
+either way, so the typecheck alone would not have caught it.
+
+### Fixed — two pre-existing failures found while verifying (unrelated to security)
+
+Both were failing before this work and are the only files that still fail when
+run in isolation. Neither changes rendered audit text.
+
+- `packages/shared/src/types/audit-templates.ts` — `DEVIATION_OPEN_BLOCKED`
+  declared `{actor}` in `placeholders` but its template names no actor. Correct,
+  because that row is written by the overdue-PM sweep rather than a person — so
+  the **metadata** was fixed and the template string left byte-identical, since
+  it is an inspector-facing contract.
+- `backup-format-current.e2e.test.ts` — asserted the default format was
+  `json`/`bak`. The 2026-08-08 change made `dump` the default (the only format
+  carrying the schema, so it can rebuild from nothing) and the def's own help
+  text says so. The code was right; the test was stale.
+
+### Verification
+
+- `tsc` clean for both `apps/api` and `apps/web` after every step.
+- Runtime-verified against a live API in all four combinations of `SERVE_WEB` x
+  `API_DOCS`, comparing bodies by SHA-256 rather than status code: with docs
+  off, `/docs` is byte-identical to `/nonexistent-abc123`. Plus TLS floor by
+  negotiation, CSP headers, the 10x401-then-429 rate-limit ladder, and the
+  `JWT lifetime ceiling: 1h` boot log.
+- New tests: 21 (`swagger`), 9 (`rate-limit-key`), 21 (`ssrf`), 6
+  (`instrument-fetch`, which previously had none despite being an SSRF surface).
+- **Full suite: 14 failing files / 56 failing tests at baseline -> 9 / 2 after**
+  (the 2 being the pre-existing bugs above, now fixed -> 0).
+  The failing-test COUNT swings widely run to run (15, 42, 49, 59 observed) even
+  with an unchanged tree, because of the known shared-`admin` e2e race; the
+  failing FILE set is stable. Every one of those files was re-run **alone** and
+  passed. No failure is attributable to this work.
+- Dependency tree audited against HEAD: 29 version changes, all traceable to an
+  intentional bump or its transitive consequence; the 47 removals are nested
+  duplicates deduped to root. `npm ci` reproduces the lock. The remaining
+  `npm ls` complaints (125 UNMET **OPTIONAL** cross-platform binaries, a missing
+  `eslint`, and the `vite`/`vite-plugin-pwa` peer conflict) are all **identical
+  at HEAD** — pre-existing, not introduced here. Note `eslint` is declared in
+  `apps/web/package.json` but absent from the lock, so linting is currently
+  broken repo-wide; left alone because fixing it means resolving the
+  `vite-plugin-pwa` peer conflict, which deserves its own change.
+
+### Not done (from the same report)
+
+All seven priority items plus API-14/API-15 are now done. What remains is
+**host/environment work that cannot be fixed in this repo**, and it should be
+carried out on the customer's production machine, not this dev box:
+F-06 (Tailscale installed), F-07 (TLS cert valid 819 days > the 398 max — needs
+reissue), F-08 (private root CA not trusted by Windows), INFRA-1 (IIS/TeamViewer/
+second Node on the host). The report's own §7 still stands too: Nessus/OpenVAS
+was never run, destructive tests were skipped, and none of this substitutes for
+an accredited third-party VAPT.
+
 ## [Unreleased] — Approvals removed from the tablet app (2026-08-10)
 
 ### Removed — the tablet Approvals tab and screen

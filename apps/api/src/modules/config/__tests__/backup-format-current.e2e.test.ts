@@ -123,14 +123,18 @@ describe('Backup Format — public /current endpoint', () => {
     try { await app.close(); } catch { /* swallow */ }
   });
 
-  it('defaults to json before anything has been configured', async () => {
+  it('defaults to dump before anything has been configured', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/config/backup-format/current',
       headers: saHeaders,
     });
     expect(res.statusCode).toBe(200);
-    expect(['json', 'bak']).toContain(res.json().defaultFormat);
+    // 2026-08-08 made `dump` (pg_dump custom archive) the default — it is the
+    // only format that carries the SCHEMA and so can rebuild from nothing. This
+    // assertion still expected the old data-only default and had been failing
+    // ever since; the code is right, the test was stale.
+    expect(res.json().defaultFormat).toBe('dump');
   });
 
   // ── The load-bearing case: the Backup & Restore page's actual caller ────────

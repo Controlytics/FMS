@@ -47,11 +47,11 @@ get_id() {
   echo "$1" | python3 -c "
 import sys,json
 try:
-  d=json.load(sys.stdin)
-  if 'id' in d: print(d['id'])
-  elif 'data' in d and isinstance(d['data'],dict) and 'id' in d['data']: print(d['data']['id'])
-  elif 'data' in d and isinstance(d['data'],list) and len(d['data'])>0: print(d['data'][0]['id'])
-  else: print('')
+d=json.load(sys.stdin)
+if 'id' in d: print(d['id'])
+elif 'data' in d and isinstance(d['data'],dict) and 'id' in d['data']: print(d['data']['id'])
+elif 'data' in d and isinstance(d['data'],list) and len(d['data'])>0: print(d['data'][0]['id'])
+else: print('')
 except: print('')
 " 2>/dev/null
 }
@@ -84,10 +84,10 @@ CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 TOKEN=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
 
 if [ -z "$TOKEN" ]; then
-  # Retry with forceLogin
-  R=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/login" \
-    -H 'Content-Type: application/json' -d '{"username":"admin","password":"Admin@123","forceLogin":true}')
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+# Retry with forceLogin
+R=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/login" \
+  -H 'Content-Type: application/json' -d '{"username":"admin","password":"Admin@123","forceLogin":true}')
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
   TOKEN=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
 fi
 assert_status "POST /api/auth/login" 200 "$CODE" "$BODY"
@@ -98,25 +98,25 @@ CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status "GET /api/auth/me" 200 "$CODE" "$BODY"
 
 R=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' "$BASE/api/auth/profile" -d '{"fullName":"Admin User"}')
+-H 'Content-Type: application/json' "$BASE/api/auth/profile" -d '{"fullName":"Admin User"}')
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status "PUT /api/auth/profile" 200 "$CODE" "$BODY"
 
 R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' "$BASE/api/auth/verify" -d '{"password":"Admin@123"}')
+-H 'Content-Type: application/json' "$BASE/api/auth/verify" -d '{"password":"Admin@123"}')
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status "POST /api/auth/verify" 200 "$CODE" "$BODY"
 VTOKEN=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('verificationToken',''))" 2>/dev/null || echo "")
 
 R=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/forgot-password" \
-  -H 'Content-Type: application/json' -d '{"username":"admin"}')
+-H 'Content-Type: application/json' -d '{"username":"admin"}')
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status_in "POST /api/auth/forgot-password" "$CODE" "$BODY" 200 429
 
 skip_test "POST /api/auth/change-password (preserving creds)"
 
 R=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/beacon-logout" \
-  -H 'Content-Type: application/json' -d '{"token":"fake.token.here"}')
+-H 'Content-Type: application/json' -d '{"token":"fake.token.here"}')
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status "POST /api/auth/beacon-logout" 200 "$CODE" "$BODY"
 
@@ -139,19 +139,19 @@ assert_status "GET /api/users/stats" 200 "$CODE" "$BODY"
 
 UNAME="TE$(echo $TS | tail -c 5)X"
 R=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' "$BASE/api/users" \
-  -d "{\"username\":\"$UNAME\",\"fullName\":\"Test E2E\",\"email\":\"${UNAME}@test.com\",\"roleName\":\"OPERATOR\",\"password\":\"SecureP@ss9!\"}")
+-H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' "$BASE/api/users" \
+-d "{\"username\":\"$UNAME\",\"fullName\":\"Test E2E\",\"email\":\"${UNAME}@test.com\",\"roleName\":\"OPERATOR\",\"password\":\"SecureP@ss9!\"}")
 CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
 assert_status_in "POST /api/users (create)" "$CODE" "$BODY" 201 200 400 409
 TEST_USER_ID=$(get_id "$BODY")
 
 if [ -n "$TEST_USER_ID" ]; then
-  R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/users/$TEST_USER_ID")
-  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-  assert_status "GET /api/users/:id" 200 "$CODE" "$BODY"
+R=$(curl -s -w '\n%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/users/$TEST_USER_ID")
+CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+assert_status "GET /api/users/:id" 200 "$CODE" "$BODY"
 
-  R=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $TOKEN" \
-    -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' \
+R=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $TOKEN" \
+  -H "X-Verification-Token: $VTOKEN" -H 'Content-Type: application/json' \
     "$BASE/api/users/$TEST_USER_ID" -d '{"fullName":"Updated E2E"}')
   CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
   assert_status "PUT /api/users/:id" 200 "$CODE" "$BODY"
@@ -751,8 +751,8 @@ assert_status "GET /api/audit" 200 "$CODE" "$BODY"
 AUDIT_ID=$(echo "$BODY" | python3 -c "
 import sys,json
 try:
-  d=json.load(sys.stdin); items=d.get('data',[])
-  print(items[0]['id'] if items else '')
+d=json.load(sys.stdin); items=d.get('data',[])
+print(items[0]['id'] if items else '')
 except: print('')
 " 2>/dev/null)
 
@@ -829,19 +829,28 @@ skip_test "POST /api/backup/restore (destructive)"
 ###############################################################################
 cyan "━━━ 28. Swagger ━━━"
 
-R=$(curl -s -w '\n%{http_code}' "$BASE/docs")
-CODE=$(echo "$R" | tail -1); assert_status_in "GET /docs" "$CODE" "" 200 302
+# /docs is opt-in and FAIL-CLOSED (API_DOCS=on). On a hardened instance it is not
+# registered at all and answers 401 like any unknown path, so probe the mode first
+# and skip the spec assertions rather than reporting a false failure.
+# Security assessment 2026-08-17, finding F-01 / API-07.
+DOCS_CODE=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/docs")
+if [ "$DOCS_CODE" = "401" ]; then
+  green "  PASS /docs disabled (API_DOCS not set) - fail-closed, spec checks skipped"
+  TOTAL=$((TOTAL+1)); PASS=$((PASS+1))
+else
+  assert_status_in "GET /docs" "$DOCS_CODE" "" 200 302
 
-R=$(curl -s -w '\n%{http_code}' "$BASE/docs/json")
-CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
-assert_status "GET /docs/json" 200 "$CODE"
+  R=$(curl -s -w '\n%{http_code}' "$BASE/docs/json")
+  CODE=$(echo "$R" | tail -1); BODY=$(echo "$R" | sed '$d')
+  assert_status "GET /docs/json" 200 "$CODE"
 
-EP_COUNT=$(echo "$BODY" | python3 -c "
+  EP_COUNT=$(echo "$BODY" | python3 -c "
 import sys,json
 spec=json.load(sys.stdin)
 print(sum(len([m for m in p if m in ('get','post','put','patch','delete')]) for p in spec.get('paths',{}).values()))
-" 2>/dev/null || echo "?")
-echo "  OpenAPI spec: $EP_COUNT endpoints registered"
+  " 2>/dev/null || echo "?")
+  echo "  OpenAPI spec: $EP_COUNT endpoints registered"
+fi
 
 ###############################################################################
 # 29. FRONTEND PAGES

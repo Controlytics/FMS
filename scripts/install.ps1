@@ -140,8 +140,15 @@ OFFLINE_REPLAY_SECRET=$offline
 # all v3 audit rows become permanently unverifiable. Do NOT remove to "fix" a verify
 # error — losing this key is itself the compliance failure. See lib/hash-chain.ts.
 AUDIT_CHAIN_KEY=$auditKey
-JWT_EXPIRES_IN=1h
+# JWT lifetime ceiling in hours (integer). The Session Settings page can offer
+# a longer 'Session Duration', but signToken clamps every token to this value.
+# Unset = 1 hour. The old JWT_EXPIRES_IN key was read by nothing and was
+# removed 2026-08-18 (security assessment API-15).
+JWT_EXPIRY_HOURS=1
 NODE_ENV=production
+# API_DOCS is deliberately NOT set: Swagger UI at /docs is opt-in and fail-closed.
+# Adding it here would publish the full API map on the customer machine.
+# Security assessment 2026-08-17, finding F-01 / API-07. See lib/swagger.ts.
 PORT=$ApiPort
 API_HTTPS=true
 TLS_KEY_PATH=$srvKey

@@ -28,7 +28,6 @@ export function LoginPage() {
   // Session conflict state (server-side active session detected)
   const [sessionConflict, setSessionConflict] = useState<{
     type: 'same_user' | 'different_user';
-    ipAddress: string;
     loginTime: string;
     lastActiveAt?: string;
     username?: string;
@@ -385,14 +384,6 @@ export function LoginPage() {
                     </span>
                   </div>
                 )}
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                  </svg>
-                  <span className="text-sm text-slate-700">
-                    <span className="font-medium">IP Address:</span> {sessionConflict.ipAddress}
-                  </span>
-                </div>
                 <div className="flex items-center gap-2">
                   <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />

@@ -11,6 +11,7 @@
 
 import type { SmsConfig, NotificationPayload, DeliveryResult, NotificationChannel as IChannel } from '../types.js';
 import { getSmsConfig } from '../config-loader.js';
+import { hardenedFetch } from '../../../lib/ssrf.js';  // SAST-01
 
 /**
  * Normalize phone number by adding country code if missing.
@@ -172,7 +173,10 @@ async function sendViaHttpGateway(config: SmsConfig, to: string, message: string
       .replace(/\{message\}/g, message);
   }
 
-  const res = await fetch(url, {
+  // SAST-01: httpGatewayUrl is admin-typed and server-fetched — the same SSRF
+  // surface the instrument fetch already guards. Blocks loopback / link-local
+  // (169.254.169.254) and refuses redirects; on-prem LAN gateways still work.
+  const res = await hardenedFetch(url, {
     method,
     headers: httpGatewayHeaders ?? { 'Content-Type': 'application/json' },
     ...(body ? { body } : {}),

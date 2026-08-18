@@ -546,7 +546,12 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     label: 'PM Deviation Could Not Be Opened',
     category: 'PM Schedules',
     template: 'Overdue-PM deviation for AHU "{targetName}" could NOT be opened — a closed deviation already occupies this PM task',
-    placeholders: ['actor', 'targetName'],
+    // No {actor}: this row is written by the overdue-PM sweep, not a person, so
+    // the template names no actor. The placeholder list previously claimed one,
+    // which is what the "every placeholder appears in the template" test caught.
+    // Fixed by correcting the metadata — the rendered string is an inspector
+    // contract and is left byte-identical.
+    placeholders: ['targetName'],
   },
   ACKNOWLEDGE_PM_OVERDUE: {
     label: 'Overdue PM Acknowledged',
