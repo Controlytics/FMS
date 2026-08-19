@@ -1,5 +1,86 @@
 # Changelog
 
+## [Unreleased] — Installer: ship OpenSSL, prune pgAdmin, correct a wrong claim (2026-08-19)
+
+### Fixed — every FRESH install aborted at certificate generation (hard blocker)
+
+`install.ps1` step 1b resolved `openssl.exe` from `pgsql\bin` and exits 1 when it is
+absent. **It was always absent.** The PostgreSQL "binaries" distribution ships
+`libcrypto-3-x64.dll` and `libssl-3-x64.dll` and the C headers, but **no `openssl.exe`**
+— confirmed by searching the extracted zip and the built 1.0.0 staging tree.
+
+Consequence: on any machine without pre-existing certs, Setup ran `install.ps1`, which
+died before writing `digilog.env`, before provisioning the database, and before
+registering any service. Inno does not check `[Run]` exit codes, so Setup reported
+success and left an empty install. This affected `DigiLog-Setup-1.0.0.exe` and
+`1.1.0` too; it survived because the clean-VM acceptance run was deferred and no fresh
+install had ever been performed on a machine that lacked certificates.
+
+Fix: bundle the OpenSSL CLI in its **own** `{app}\openssl` directory —
+**not** in `pgsql\bin`, because the CLI build carries `libcrypto-3-x64.dll` /
+`libssl-3-x64.dll` under identical filenames at a different patch level (3.5.7 vs
+PostgreSQL's 3.5.5); unpacking it over PostgreSQL's copies would silently swap the
+crypto libraries the database itself loads. Source: FireDaemon OpenSSL 3.5.7,
+Authenticode-signed by FireDaemon Technologies Limited (EV), downloaded against the
+vendor-published SHA-256 `2591459A…74014`, which was verified on download.
+
+Four files ship (9.3 MB); the zip's 37 MB of `.pdb` symbols are excluded.
+**`openssl.cnf` is one of the four and is not optional:** OpenSSL 3.x resolves its
+config from a compiled-in `OPENSSLDIR` (`C:\Program Files\Common Files\FireDaemon SSL
+3.5`) that does not exist on a customer box. Without a config, `genrsa` still succeeds
+but `req` and `x509` fail with *"No store loader found … default or base providers"* —
+so it half-works and reads as a certificate bug. `install.ps1` now sets
+`OPENSSL_CONF` to the shipped copy and fails loudly if either file is missing.
+Provider modules (`legacy.dll` etc.) are NOT needed; default and base are built into
+libcrypto.
+
+Verified end-to-end against the staged 4-file layout: CA key, CA cert, server key,
+CSR and signing all exit 0; the issued certificate carries
+`DNS:localhost, IP Address:127.0.0.1, IP Address:<lan-ip>`; `openssl verify -CAfile`
+returns OK.
+
+### Removed — pgAdmin 4 and friends from the bundled PostgreSQL (736 MB)
+
+`build-installer.ps1` copied the entire extracted EDB tree into the installer. Measured
+contents of that 876.6 MB tree:
+
+| Directory | Size | Shipped? |
+|---|---|---|
+| `pgAdmin 4` | 689.9 MB | **no longer** — Electron app + its own `node_modules` + a full Python/SQLAlchemy runtime + unbundled `.jsx` sources |
+| `bin` | 79.9 MB | yes |
+| `lib` | 36.3 MB | yes |
+| `doc` | 30.7 MB | **no longer** |
+| `share` | 24.7 MB | yes |
+| `include` | 14.4 MB | **no longer** — C headers for building extensions |
+| `StackBuilder` | 0.7 MB | **no longer** |
+
+Staging is now an explicit `bin`/`lib`/`share` copy: **140.9 MB**, an 84% cut. Nothing
+in `scripts/`, `installer/` or `apps/` referenced any other subdirectory (the pgAdmin
+mentions in the backup module are comments about `-Fc` dumps being restorable in a
+DBA's *own* pgAdmin, not this bundled one). Shipping an unused, never-patched database
+GUI and Python runtime onto a validated GMP server was an audit surface, not just bloat.
+
+Guards added so a future prune cannot silently break the cluster: the build fails if
+any of `postgres/initdb/pg_ctl/pg_dump/pg_isready/psql` is missing from `bin`, or if
+`plpgsql.dll`, `ltree.dll` or `pgcrypto.dll` is missing from `lib` (`prisma/sql/
+extensions.sql` does `CREATE EXTENSION` on ltree + pgcrypto, and 24 of our functions
+are `LANGUAGE plpgsql`). Verified by running a real `initdb` against the pruned tree —
+exit 0.
+
+### Correction to the 2026-08-19 VC++ entry below
+
+That entry lists `openssl.exe` among the PostgreSQL binaries importing `VCRUNTIME140.dll`,
+and builds a "the first symptom is a misleading certificate failure" narrative on it.
+**`openssl.exe` was never part of the distribution**, so it could not have imported
+anything. The claim was inferred from an aggregate scan rather than checked.
+
+The VC++ finding itself stands unchanged — `postgres.exe`, `initdb.exe`, `pg_ctl.exe`
+and `pg_dump.exe` were each verified individually. What is wrong is only the mention of
+`openssl.exe` and the resulting first-symptom story: the actual first failure on a
+fresh install was `FATAL: openssl.exe not found`, which happened regardless of the VC++
+runtime. Both are now fixed, and with OpenSSL bundled the VC++ troubleshooting note
+applies to the database steps rather than to certificate generation.
+
 ## [Unreleased] — Installer: bundle the VC++ runtime + declare an OS floor (2026-08-19)
 
 ### Fixed — bare-metal first install failed on any machine without the VC++ redistributable

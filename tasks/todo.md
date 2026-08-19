@@ -1982,3 +1982,36 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       ⚠️ **Runtime path still unexercised.** `VCRedistNeeded` returns False on this machine, so the
       extract/exec/1638 branches have never run. Only the clean VM (or an elevated manual
       `VC_redist.x64.exe /install /quiet /norestart`, expect exit 1638 here) can prove them.
+
+- [x] **2026-08-19 — Installer: bundle OpenSSL (fresh-install blocker) + drop pgAdmin (736 MB).**
+      **Blocker:** `install.ps1` step 1b resolved `openssl.exe` from `pgsql\bin` and exits 1 if
+      absent — and it was ALWAYS absent. PostgreSQL's binaries zip has libcrypto/libssl + C
+      headers but **no OpenSSL CLI**. So every FRESH install died before writing digilog.env,
+      before provisioning the DB, before registering services; Inno ignores `[Run]` exit codes
+      so Setup still reported success. Present in 1.0.0 and 1.1.0. Survived because the
+      clean-VM acceptance run was deferred — no fresh install had ever run on a machine
+      without pre-existing certs. Fix: ship FireDaemon OpenSSL 3.5.7 (EV-signed; vendor
+      SHA-256 verified on download) in its OWN `{app}\openssl` dir — NOT `pgsql\bin`, since
+      the CLI carries libcrypto/libssl under identical filenames at 3.5.7 vs PG's 3.5.5 and
+      would overwrite the DB's own crypto libs. 4 files, 9.3 MB (37 MB of .pdb excluded).
+      `openssl.cnf` is one of them and is REQUIRED: OpenSSL 3.x reads config from a
+      compiled-in OPENSSLDIR that doesn't exist on a customer box, and without it `genrsa`
+      works but `req`/`x509` fail ("No store loader found ... default or base providers") —
+      half-working, so it reads as a cert bug. install.ps1 now sets OPENSSL_CONF + fails loud
+      on either missing. VERIFIED end-to-end: all 5 openssl steps exit 0, SANs =
+      `DNS:localhost, IP:127.0.0.1, IP:192.168.1.53`, `openssl verify -CAfile` = OK.
+      **Prune:** build-installer.ps1 copied the whole 876.6 MB EDB tree; 689.9 MB of it is
+      pgAdmin 4 (Electron + own node_modules + Python/SQLAlchemy + .jsx sources), plus doc
+      30.7 / include 14.4 / StackBuilder 0.7 — none referenced anywhere, never launched,
+      never patched on a validated server. Now bin/lib/share only = 140.9 MB (−84%), with
+      build guards on 6 exes + plpgsql/ltree/pgcrypto DLLs (extensions.sql needs the latter
+      two; 24 functions are LANGUAGE plpgsql). VERIFIED: real `initdb` against the pruned
+      tree, exit 0.
+      **CORRECTION to the earlier VC++ entry:** it listed `openssl.exe` among the binaries
+      importing VCRUNTIME140 — wrong, it isn't in the distribution at all; the claim was
+      inferred from an aggregate scan, not checked. The VC++ finding itself stands
+      (postgres/initdb/pg_ctl/pg_dump each verified individually); only the openssl mention
+      and the "first symptom is a certificate failure" narrative were wrong. Corrected in
+      CHANGELOG, EXE-PACKAGING-PLAN, PHARMA_DEPLOYMENT_21CFR and memory. Commit a1b53c2's
+      message retains the error (immutable) — the correction is recorded here and in the
+      docs.

@@ -113,7 +113,7 @@ Frontend build: set `apps/web/.env.production` → `VITE_API_URL=https://digilog
 
 Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 
-0. **Installs the Microsoft VC++ 2015-2022 x64 redistributable** first, if the machine does not already have >= 14.30 (registry-gated, `/install /quiet /norestart`). This is a real dependency, not boilerplate: the bundled PostgreSQL binaries — `postgres.exe`, `initdb.exe`, `pg_ctl.exe`, `pg_dump.exe` and `openssl.exe` — import `VCRUNTIME140.dll`, `vcruntime140_1.dll` and `msvcp140.dll`, which are **not part of Windows**. Dev and desktop machines almost always have it already; a freshly imaged Windows Server often does not. (Node, the Prisma engine and `bcrypt` static-link the CRT and are unaffected.) **Requires Windows 10 / Server 2016 or newer** — Setup enforces this via `MinVersion=10.0`, because below that the Universal CRT also needs KB2999226, which is not shipped.
+0. **Installs the Microsoft VC++ 2015-2022 x64 redistributable** first, if the machine does not already have >= 14.30 (registry-gated, `/install /quiet /norestart`). This is a real dependency, not boilerplate: the bundled PostgreSQL binaries — `postgres.exe`, `initdb.exe`, `pg_ctl.exe` and `pg_dump.exe` — import `VCRUNTIME140.dll`, `vcruntime140_1.dll` and `msvcp140.dll`, which are **not part of Windows**. Dev and desktop machines almost always have it already; a freshly imaged Windows Server often does not. (Node, the Prisma engine and `bcrypt` static-link the CRT and are unaffected.) **Requires Windows 10 / Server 2016 or newer** — Setup enforces this via `MinVersion=10.0`, because below that the Universal CRT also needs KB2999226, which is not shipped.
 1. Lays down a **portable Node.js LTS** (v20) — not a global install.
 2. Lays down the **built app**: `apps/api/dist`, `apps/web/dist`, `packages/*/dist`, a pruned production `node_modules` (so native binaries — Prisma engine, `bcrypt` — are real files; `@napi-rs/canvas` was removed 2026-07-04 with the reports PDF engine), `node_modules/.prisma`, and `apps/api/prisma/migrations/`.
 3. Bundles **PostgreSQL 18 portable**; runs `initdb` into `%ProgramData%\DigiLog\pgdata`, creates the `digilog` role + `digilog_db`, then **`prisma migrate deploy`** — which rebuilds the **complete** schema in one step (tables, the `deviation_number_seq`/`qnn_seq` sequences, 5 triggers, 6 functions, partial unique index) thanks to the squashed baseline migration.
@@ -125,7 +125,9 @@ Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 
 **Result:** the customer double-clicks one `.exe`, clicks through Setup, and DigiLog runs as a service with no Node/npm/terminal and **no reverse proxy**.
 
-> **Troubleshooting — install fails during *certificate* generation.** If the VC++ runtime is missing or the redist step was skipped, the first thing to break is **not** the database: `install.ps1` step 1b calls `pgsql\bin\openssl.exe` to generate the HTTPS certs, so the operator sees a certificate failure and starts debugging TLS. Check for the runtime (`HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64`) before investigating anything else.
+> **Troubleshooting — install fails during *certificate* generation.** Two distinct causes, check in this order:
+> 1. **`FATAL: openssl.exe not found`** or `openssl.cnf not found` — the installer ships the OpenSSL CLI in `{app}\openssl` (PostgreSQL contains no `openssl.exe` of its own). If either file is absent the build was made without `-OpenSslZip`; rebuild.
+> 2. **VC++ runtime missing** — `HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64` should report `Installed=1`, `Major=14`, `Minor` ≥ 30. Its absence breaks the database steps (`initdb`, `pg_ctl`, `pg_dump`), not certificate generation.
 
 ---
 

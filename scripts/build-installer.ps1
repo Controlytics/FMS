@@ -14,13 +14,15 @@
     5. stage service/ (WinSW-x64.exe)
     6. stage scripts/ (provision/register/install/uninstall)
     7. stage prereq/  (VC++ 2015-2022 x64 redistributable)
-    8. ISCC -> Setup.exe
+    8. stage openssl/ (OpenSSL CLI - PostgreSQL does NOT ship one)
+    9. ISCC -> Setup.exe
 
   Prerequisites (the build machine provides these; not committed to the repo):
     -NodeZip   path to node-vXX-win-x64.zip      (ABI must match the native build)
     -PgZip     path to postgresql-18-...-windows-x64-binaries.zip
     -WinswExe  path to WinSW-x64.exe              (github.com/winsw/winsw releases)
     -VcRedist  path to VC_redist.x64.exe          (aka.ms/vs/17/release/vc_redist.x64.exe)
+    -OpenSslZip path to openssl-3.5.x.zip           (FireDaemon OpenSSL, EV-signed + published SHA-256)
     -Iscc      path to ISCC.exe                   (Inno Setup 6)
 
   This script is authored + structured here; a full run requires those external
@@ -39,6 +41,13 @@ param(
   # any machine that lacks the runtime - so this is a build-time hard requirement,
   # not an option. Download: https://aka.ms/vs/17/release/vc_redist.x64.exe
   [Parameter(Mandatory)] [string]$VcRedistExe,
+  # OpenSSL CLI zip. MANDATORY: install.ps1 step 1b shells out to openssl.exe to
+  # generate the local CA + HTTPS server certificate, and the PostgreSQL "binaries"
+  # distribution does NOT contain openssl.exe (only the libcrypto/libssl DLLs and
+  # C headers). Without this every FRESH install aborts at cert generation with
+  # "FATAL: openssl.exe not found". Download + verify the published SHA-256 from
+  # https://kb.firedaemon.com/support/solutions/articles/4000121705
+  [Parameter(Mandatory)] [string]$OpenSslZip,
   [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
   [string]$AppVersion = '0.1.0',
   [string]$OutDir,
@@ -153,14 +162,51 @@ Step "Stage runtime" {
     -RepoRoot $repoRoot -OutDir (Join-Path $stage 'runtime')
 }
 
-# 5. Stage pgsql/ (portable PostgreSQL binaries)
-Write-Host "==> Stage pgsql" -ForegroundColor Cyan
+# 5. Stage pgsql/ - ONLY the three directories the server actually needs.
+#    The EDB "binaries" zip is 877 MB, and 736 MB of that is software DigiLog never
+#    touches: pgAdmin 4 (690 MB - an Electron app with its own node_modules, a full
+#    Python interpreter and SQLAlchemy), doc (31 MB), include (14 MB, C headers for
+#    building extensions) and StackBuilder. Copying the whole tree shipped all of it
+#    to customers, where it is never launched and never patched - pure bloat on a
+#    validated GMP server, and an audit surface nobody knows is there.
+#
+#    What IS needed:
+#      bin   - postgres/initdb/pg_ctl/pg_dump/pg_isready/psql and their DLLs.
+#              NOTE: no openssl.exe here - PostgreSQL does not ship one at all,
+#              which is why step 7b stages the CLI separately.
+#      lib   - loadable modules: plpgsql.dll (24 functions in our SQL), ltree.dll and
+#              pgcrypto.dll (prisma/sql/extensions.sql does CREATE EXTENSION on both)
+#      share - initdb's bootstrap catalogs + sample configs + timezone data, and the
+#              .control/.sql scripts for those extensions. initdb fails without it.
+#    Verified by grep: nothing in scripts/, installer/ or apps/ references any other
+#    pgsql subdirectory. (The pgAdmin mentions in the backup module are comments about
+#    the -Fc dump format being restorable in a DBA's OWN pgAdmin, not this one.)
+Write-Host "==> Stage pgsql (bin/lib/share only)" -ForegroundColor Cyan
 $pgTmp = Join-Path $OutDir 'pg-extract'
 if (Test-Path $pgTmp) { Remove-Item -Recurse -Force $pgTmp }
 Expand-Archive -Path $PgZip -DestinationPath $pgTmp -Force
 # EDB zip extracts to a 'pgsql' subfolder
 $pgRoot = (Get-ChildItem $pgTmp -Recurse -Directory -Filter 'bin' | Where-Object { Test-Path (Join-Path $_.FullName 'initdb.exe') } | Select-Object -First 1).Parent.FullName
-Copy-Item $pgRoot (Join-Path $stage 'pgsql') -Recurse -Force
+if (-not $pgRoot) { Write-Host "FAILED: could not locate pgsql root (no bin\initdb.exe) in $PgZip" -ForegroundColor Red; exit 1 }
+$pgDest = Join-Path $stage 'pgsql'
+New-Item -ItemType Directory -Force -Path $pgDest | Out-Null
+foreach ($sub in 'bin','lib','share') {
+  $src = Join-Path $pgRoot $sub
+  if (-not (Test-Path $src)) { Write-Host "FAILED: bundled PostgreSQL is missing '$sub' - refusing to ship an unusable cluster." -ForegroundColor Red; exit 1 }
+  Copy-Item $src (Join-Path $pgDest $sub) -Recurse -Force
+}
+# Fail loud if a binary an orchestrator calls did not survive the prune.
+# NOTE: openssl.exe is deliberately NOT in this list. PostgreSQL ships no OpenSSL CLI;
+# it is staged separately into stage\openssl from -OpenSslZip (see step 7b).
+foreach ($exe in 'postgres.exe','initdb.exe','pg_ctl.exe','pg_dump.exe','pg_isready.exe','psql.exe') {
+  if (-not (Test-Path (Join-Path $pgDest "bin\$exe"))) { Write-Host "FAILED: pgsql\bin\$exe missing after staging." -ForegroundColor Red; exit 1 }
+}
+# Same for the loadable modules our schema needs (silent at install, fatal at runtime).
+foreach ($mod in 'plpgsql.dll','ltree.dll','pgcrypto.dll') {
+  if (-not (Test-Path (Join-Path $pgDest "lib\$mod"))) { Write-Host "FAILED: pgsql\lib\$mod missing after staging." -ForegroundColor Red; exit 1 }
+}
+$pgMb = [math]::Round(((Get-ChildItem $pgDest -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
+Write-Host "    staged pgsql: $pgMb MB (pgAdmin/doc/include/StackBuilder excluded)" -ForegroundColor DarkGray
 
 # 6. Stage service/ + scripts/
 Write-Host "==> Stage service + scripts + prereq" -ForegroundColor Cyan
@@ -183,14 +229,51 @@ foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','un
 }
 Copy-Item (Join-Path $repoRoot 'apps\api\prisma\sql') (Join-Path $stage 'runtime\api\prisma\sql') -Recurse -Force -ErrorAction SilentlyContinue
 
-# 8. Compile the installer
+# 7b. Stage openssl/ - the OpenSSL CLI, in its OWN directory.
+#     NOT into pgsql\bin: this build ships libcrypto-3-x64.dll / libssl-3-x64.dll
+#     under the SAME filenames PostgreSQL uses, at a different patch level (3.5.7 vs
+#     PG's 3.5.5). Copying them over PostgreSQL's would silently swap the crypto
+#     libraries the database itself loads - never do that to get a CLI.
+#     Only 3 files are needed; the .pdb debug symbols in the zip are 37 MB of the 46
+#     and are deliberately excluded. LICENSE.txt ships because we redistribute.
+Write-Host "==> Stage openssl" -ForegroundColor Cyan
+$sslTmp = Join-Path $OutDir 'ssl-extract'
+if (Test-Path $sslTmp) { Remove-Item -Recurse -Force $sslTmp }
+Expand-Archive -Path $OpenSslZip -DestinationPath $sslTmp -Force
+$sslBin = Join-Path $sslTmp 'x64\bin'
+if (-not (Test-Path (Join-Path $sslBin 'openssl.exe'))) {
+  Write-Host "FAILED: no x64\bin\openssl.exe inside $OpenSslZip" -ForegroundColor Red; exit 1
+}
+$sslDest = Join-Path $stage 'openssl'
+New-Item -ItemType Directory -Force -Path $sslDest | Out-Null
+foreach ($f in 'openssl.exe','libcrypto-3-x64.dll','libssl-3-x64.dll') {
+  $src = Join-Path $sslBin $f
+  if (-not (Test-Path $src)) { Write-Host "FAILED: $f missing from the OpenSSL zip." -ForegroundColor Red; exit 1 }
+  Copy-Item $src (Join-Path $sslDest $f) -Force
+}
+# openssl.cnf is NOT optional. OpenSSL 3.x resolves its config from a compiled-in
+# OPENSSLDIR ("C:\Program Files\Common Files\FireDaemon SSL 3.5") that does not exist
+# on a customer machine; without a config the `req` and `x509` subcommands fail with
+# "No store loader found ... default or base providers", while `genrsa` still works -
+# so the failure looks like a certificate bug rather than a missing file.
+# install.ps1 points OPENSSL_CONF at this copy. Verified end-to-end: CA + server cert
+# + correct SANs + `openssl verify` OK. (Provider modules are NOT needed - default and
+# base are built into libcrypto.)
+$sslCnf = Join-Path $sslTmp 'ssl\openssl.cnf'
+if (-not (Test-Path $sslCnf)) { Write-Host "FAILED: ssl\openssl.cnf missing from the OpenSSL zip." -ForegroundColor Red; exit 1 }
+Copy-Item $sslCnf (Join-Path $sslDest 'openssl.cnf') -Force
+Copy-Item (Join-Path $sslTmp 'LICENSE.txt') (Join-Path $sslDest 'LICENSE.txt') -Force -ErrorAction SilentlyContinue
+$sslMb = [math]::Round(((Get-ChildItem $sslDest -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
+Write-Host "    staged openssl: $sslMb MB (pdb symbols excluded)" -ForegroundColor DarkGray
+
+# 9. Compile the installer
 Write-Host "==> Compile installer (ISCC)" -ForegroundColor Cyan
 if (-not (Test-Path $Iscc)) { Write-Host "Inno Setup not found at $Iscc - install Inno Setup 6 to compile. Staging is ready at $stage." -ForegroundColor Yellow; exit 0 }
 & $Iscc "/DStageDir=$stage" "/DAppVersion=$AppVersion" "/DOutputDir=$OutDir" (Join-Path $repoRoot 'installer\DigiLog.iss')
 if ($LASTEXITCODE -ne 0) { Write-Host "ISCC failed" -ForegroundColor Red; exit 1 }
 $setupExe = Join-Path $OutDir "DigiLog-Setup-$AppVersion.exe"
 
-# 9. Code sign the finished Setup.exe (M7). Skipped unless -Sign is passed; when
+# 10. Code sign the finished Setup.exe (M7). Skipped unless -Sign is passed; when
 #    skipped the installer is unsigned and SmartScreen/AV will warn (expected -
 #    see the clean-VM acceptance runbook). To sign a build later, re-run with
 #    -Sign -CertPath <pfx> -CertPassword <pw>  (or -CertSubject "CN=...").

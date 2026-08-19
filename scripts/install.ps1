@@ -74,7 +74,15 @@ else { New-Item -ItemType Directory -Force -Path $dbDir, $uploadDir, $logDir, $c
 
 # 1b. M8: HTTPS-on-LAN certs (so the Android tablet can connect over HTTPS)
 $certDir = Join-Path $DataRoot 'certs'
-$openssl = Join-Path $pgBin 'openssl.exe'
+# OpenSSL CLI ships in its OWN {app}\openssl directory, NOT in pgsql\bin: the
+# PostgreSQL "binaries" distribution contains libcrypto/libssl but no openssl.exe,
+# and the CLI build carries those DLLs under identical filenames at a different
+# patch level - so it must not be unpacked over PostgreSQL's copies.
+$openssl = Join-Path $InstallDir 'openssl\openssl.exe'
+# OpenSSL 3.x reads its config from a compiled-in OPENSSLDIR that does not exist here.
+# Without it `req`/`x509` fail ("No store loader found ... default or base providers")
+# while `genrsa` still succeeds - i.e. it half-works and looks like a cert bug.
+$env:OPENSSL_CONF = Join-Path $InstallDir 'openssl\openssl.cnf'
 # LAN IPv4 the tablet will use (default-route interface).
 $lanIp = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } |
           Select-Object -First 1).IPv4Address.IPAddress
@@ -89,6 +97,8 @@ if (Test-Path $srvCrt) {
   Write-Host "[dry-run] openssl generate rootCA + server cert (SAN: localhost,127.0.0.1,$lanIp) in $certDir" -ForegroundColor Yellow
 } elseif (-not (Test-Path $openssl)) {
   Write-Host "FATAL: openssl.exe not found at $openssl (needed for HTTPS-on-LAN)." -ForegroundColor Red; exit 1
+} elseif (-not (Test-Path $env:OPENSSL_CONF)) {
+  Write-Host "FATAL: openssl.cnf not found at $env:OPENSSL_CONF (openssl req/x509 cannot run without it)." -ForegroundColor Red; exit 1
 } else {
   New-Item -ItemType Directory -Force -Path $certDir | Out-Null
   $caKey = Join-Path $certDir 'rootCA.key'

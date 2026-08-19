@@ -22,7 +22,7 @@ you can re-run from a pristine state. Run everything as a local Administrator.
 - [ ] `node --version` and `psql --version` both **error** (nothing pre-installed - that's the point).
 - [ ] Ports free: `Test-NetConnection localhost -Port 3000` and `-Port 5433` both **fail** to connect.
 - [ ] `C:\Program Files\DigiLog` and `C:\ProgramData\DigiLog` do **not** exist.
-- [ ] At least ~1.5 GB free disk (installer ~200-300 MB + PG data + node_modules).
+- [ ] At least ~1.5 GB free disk (installer ~120-150 MB since the pgAdmin prune, + PG data + node_modules).
 - [ ] **VC++ redistributable is ABSENT** — this is the point of the whole test, and a VM that
       happens to have it proves nothing about the bare-metal path. Confirm BOTH:
       `Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64'` errors
@@ -38,6 +38,14 @@ you can re-run from a pristine state. Run everything as a local Administrator.
 
 1. [ ] Double-click `DigiLog-Setup-<ver>.exe`. (SmartScreen -> More info -> Run anyway.)
 2. [ ] Wizard: accept the install dir; set an **initial admin password** (>= 8 chars) on the prompt page.
+2a. [ ] **Certificate generation succeeds.** This is the step that silently blocked every
+        fresh install before 2026-08-19 (openssl.exe was resolved from pgsql\bin, where it
+        has never existed). Afterwards confirm all three exist and are non-empty:
+        `C:\ProgramData\DigiLog\certs\{rootCA.pem, server.crt, server.key}`, and that the
+        CLI shipped: `C:\Program Files\DigiLog\openssl\{openssl.exe, openssl.cnf,
+        libcrypto-3-x64.dll, libssl-3-x64.dll}` (4 files). Check the SANs cover the LAN IP:
+        `& 'C:\Program Files\DigiLog\openssl\openssl.exe' x509 -in 'C:\ProgramData\DigiLog\certs\server.crt' -noout -text`
+        (needs `$env:OPENSSL_CONF` pointed at the shipped openssl.cnf).
 2b. [ ] **VC++ runtime step fires.** Before the wizard reaches the file-copy progress, Setup runs the
         bundled `VC_redist.x64.exe` silently (no visible window). Afterwards confirm it landed:
         'Microsoft Visual C++ 2015-2022 Redistributable (x64)' appears in Apps & Features, and the

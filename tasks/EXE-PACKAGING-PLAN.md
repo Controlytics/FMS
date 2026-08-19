@@ -156,12 +156,40 @@ Run on the dev machine to create the `Setup.exe`. Encapsulate as `scripts/build-
    - **Size:** the full dev `node_modules` is ≈1.5 GB; a production prune (`--omit=dev`, dropping vite/vitest/tsc/turbo/etc.) is mandatory to keep the installer reasonable.
 6. **Stage `pgsql/`:** download the **PostgreSQL 18 Windows binary zip** (EnterpriseDB / "binaries only" distribution), extract `bin/` + `lib/` + `share/`.
 7. **Stage `service/`:** include WinSW (or nssm) wrapper exe + per-service XML config.
-8. **Stage `prereq/`:** Microsoft `VC_redist.x64.exe` (`https://aka.ms/vs/17/release/vc_redist.x64.exe`). **Mandatory, not optional** — see the VC++ caveat below.
-9. **Compile installer:** run Inno Setup (`ISCC.exe DigiLog.iss`) → `dist/DigiLog-Setup-vX.Y.Z.exe`.
+8. **Stage `openssl/`:** `openssl.exe` + its two DLLs + `openssl.cnf` from the FireDaemon OpenSSL zip. **Mandatory** — see the OpenSSL caveat below.
+9. **Stage `prereq/`:** Microsoft `VC_redist.x64.exe` (`https://aka.ms/vs/17/release/vc_redist.x64.exe`). **Mandatory, not optional** — see the VC++ caveat below.
+10. **Compile installer:** run Inno Setup (`ISCC.exe DigiLog.iss`) → `dist/DigiLog-Setup-vX.Y.Z.exe`.
+
+**OpenSSL caveat (verified 2026-08-19, was a fresh-install blocker):** `install.ps1`
+step 1b generates the local CA + HTTPS server cert with `openssl.exe`, and resolved it
+from `pgsql\bin` — where it has never existed. The PostgreSQL binaries distribution
+contains `libcrypto-3-x64.dll`, `libssl-3-x64.dll` and C headers, but **no OpenSSL
+CLI**. Every fresh install therefore exited 1 before writing `digilog.env`, before
+provisioning the DB and before registering any service; Inno ignores `[Run]` exit codes,
+so Setup still reported success. The installer now ships FireDaemon OpenSSL 3.5.7
+(EV-signed, vendor SHA-256 verified on download) in its **own** `{app}\openssl`
+directory — deliberately not `pgsql\bin`, because the CLI carries `libcrypto`/`libssl`
+under identical filenames at 3.5.7 vs PostgreSQL's 3.5.5 and must never overwrite the
+libraries the database loads. `openssl.cnf` ships too and is required: OpenSSL 3.x reads
+its config from a compiled-in `OPENSSLDIR` that does not exist on a customer machine,
+and without it `req`/`x509` fail ("No store loader found … default or base providers")
+while `genrsa` still succeeds. `install.ps1` sets `OPENSSL_CONF` accordingly and
+fails loudly if either file is missing.
+
+**pgsql staging is bin/lib/share only (2026-08-19):** the EDB zip is 876.6 MB, of which
+689.9 MB is pgAdmin 4 (Electron + its own node_modules + a Python/SQLAlchemy runtime),
+plus 30.7 MB doc, 14.4 MB include and StackBuilder — none of it referenced anywhere in
+this repo, none of it ever launched, and none of it patched once installed on a
+validated GMP server. Staging now copies only `bin`, `lib` and `share` (140.9 MB, −84%),
+with build-time guards on the 6 executables and the 3 loadable modules
+(`plpgsql`/`ltree`/`pgcrypto`) the schema needs. Verified by running `initdb` against the
+pruned tree (exit 0).
 
 **Native-module caveat (verified in code):** the backend depends on `bcrypt` (native, **6.x since 2026-08-18** — N-API prebuild via `node-gyp-build`, no node-gyp/MSVC on the build host) and Prisma's engine (native). These must be **built/copied for the exact Node version we bundle**. If the bundled Node's ABI differs from the dev machine's, rebuild with `npm rebuild` against the target Node before staging. *(`@napi-rs/canvas` was also native but was removed 2026-07-04 with the reports PDF engine — no longer a bundling concern.)*
 
-**VC++ runtime caveat (verified 2026-08-19, was a live bare-metal blocker):** the bundled PostgreSQL 18 binaries are MSVC-built and import `VCRUNTIME140.dll` (63 refs), `vcruntime140_1.dll` (12) and `msvcp140.dll` (9) — none of which are part of Windows, and none of which were staged. `postgres.exe`, `initdb.exe`, `pg_ctl.exe`, `pg_dump.exe` and `openssl.exe` are all affected. Scope is confined to `pgsql\bin`: `node.exe`, the Prisma query engine and `bcrypt.node` were checked and static-link the CRT, and `WinSW-x64.exe` is the self-contained .NET build (no runtime needed). Every dev/desktop box already has the redistributable, so **this is invisible to any local test run** — it only fails on a freshly imaged Server 2019/2022. Note the first symptom is NOT a database error: `install.ps1` step 1b calls `pgsql\bin\openssl.exe` to generate the HTTPS certs, so the operator sees a *certificate* failure first. `DigiLog.iss` now carries the signed Microsoft redistributable (`Flags: dontcopy`) and `PrepareToInstall()` runs it `/install /quiet /norestart` before every other step — on fresh install **and** upgrade (`upgrade.ps1` calls `pg_dump.exe`) — gated on `HKLM64\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64` requiring **>= 14.30** (`vcruntime140_1.dll` only appeared in 14.20, so a bare `Installed=1` check is insufficient). Exit codes 0/1638/3010 are treated as success (1638 = newer already present, 3010 sets `NeedsRestart`); anything else aborts with an actionable message. `[Setup] MinVersion=10.0` was added at the same time — below Windows 10 / Server 2016 the Universal CRT is also absent without KB2999226, which is not shipped.
+**VC++ runtime caveat (verified 2026-08-19, was a live bare-metal blocker):** the bundled PostgreSQL 18 binaries are MSVC-built and import `VCRUNTIME140.dll` (63 refs), `vcruntime140_1.dll` (12) and `msvcp140.dll` (9) — none of which are part of Windows, and none of which were staged. `postgres.exe`, `initdb.exe`, `pg_ctl.exe` and `pg_dump.exe` are all affected. (An earlier
+version of this note also listed `openssl.exe` — that was wrong: PostgreSQL ships no
+`openssl.exe` at all. See the OpenSSL caveat below.) Scope is confined to `pgsql\bin`: `node.exe`, the Prisma query engine and `bcrypt.node` were checked and static-link the CRT, and `WinSW-x64.exe` is the self-contained .NET build (no runtime needed). Every dev/desktop box already has the redistributable, so **this is invisible to any local test run** — it only fails on a freshly imaged Server 2019/2022. (The original note claimed the first symptom would be a certificate failure via `openssl.exe`; that was based on the same wrong premise and is retracted.) `DigiLog.iss` now carries the signed Microsoft redistributable (`Flags: dontcopy`) and `PrepareToInstall()` runs it `/install /quiet /norestart` before every other step — on fresh install **and** upgrade (`upgrade.ps1` calls `pg_dump.exe`) — gated on `HKLM64\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64` requiring **>= 14.30** (`vcruntime140_1.dll` only appeared in 14.20, so a bare `Installed=1` check is insufficient). Exit codes 0/1638/3010 are treated as success (1638 = newer already present, 3010 sets `NeedsRestart`); anything else aborts with an actionable message. `[Setup] MinVersion=10.0` was added at the same time — below Windows 10 / Server 2016 the Universal CRT is also absent without KB2999226, which is not shipped.
 
 ---
 

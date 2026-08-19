@@ -72,6 +72,11 @@ Source: "{#StageDir}\prereq\VC_redist.x64.exe"; Flags: dontcopy
 Source: "{#StageDir}\pgsql\*";   DestDir: "{app}\pgsql";   Flags: recursesubdirs createallsubdirs onlyifdoesntexist
 Source: "{#StageDir}\runtime\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StageDir}\service\*"; DestDir: "{app}\service"; Flags: recursesubdirs createallsubdirs ignoreversion
+; OpenSSL CLI, kept OUT of {app}\pgsql on purpose: it carries libcrypto/libssl DLLs
+; under the same filenames PostgreSQL uses but at a different patch level, and
+; overwriting the database's own crypto libraries to obtain a CLI is not acceptable.
+; install.ps1 resolves openssl from here. PostgreSQL ships no openssl.exe of its own.
+Source: "{#StageDir}\openssl\*"; DestDir: "{app}\openssl"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StageDir}\scripts\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Dirs]
