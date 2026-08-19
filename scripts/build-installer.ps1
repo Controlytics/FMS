@@ -13,12 +13,14 @@
     4. stage pgsql/  (portable PostgreSQL binaries)
     5. stage service/ (WinSW-x64.exe)
     6. stage scripts/ (provision/register/install/uninstall)
-    7. ISCC -> Setup.exe
+    7. stage prereq/  (VC++ 2015-2022 x64 redistributable)
+    8. ISCC -> Setup.exe
 
   Prerequisites (the build machine provides these; not committed to the repo):
     -NodeZip   path to node-vXX-win-x64.zip      (ABI must match the native build)
     -PgZip     path to postgresql-18-...-windows-x64-binaries.zip
     -WinswExe  path to WinSW-x64.exe              (github.com/winsw/winsw releases)
+    -VcRedist  path to VC_redist.x64.exe          (aka.ms/vs/17/release/vc_redist.x64.exe)
     -Iscc      path to ISCC.exe                   (Inno Setup 6)
 
   This script is authored + structured here; a full run requires those external
@@ -31,6 +33,12 @@ param(
   [Parameter(Mandatory)] [string]$NodeZip,
   [Parameter(Mandatory)] [string]$PgZip,
   [Parameter(Mandatory)] [string]$WinswExe,
+  # Microsoft VC++ 2015-2022 x64 redistributable. MANDATORY: the bundled PostgreSQL
+  # binaries import VCRUNTIME140.dll / vcruntime140_1.dll / msvcp140.dll, which are
+  # not part of Windows. Without it the installer compiles cleanly and then fails on
+  # any machine that lacks the runtime - so this is a build-time hard requirement,
+  # not an option. Download: https://aka.ms/vs/17/release/vc_redist.x64.exe
+  [Parameter(Mandatory)] [string]$VcRedistExe,
   [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
   [string]$AppVersion = '0.1.0',
   [string]$OutDir,
@@ -155,9 +163,14 @@ $pgRoot = (Get-ChildItem $pgTmp -Recurse -Directory -Filter 'bin' | Where-Object
 Copy-Item $pgRoot (Join-Path $stage 'pgsql') -Recurse -Force
 
 # 6. Stage service/ + scripts/
-Write-Host "==> Stage service + scripts" -ForegroundColor Cyan
-New-Item -ItemType Directory -Force -Path (Join-Path $stage 'service'), (Join-Path $stage 'scripts') | Out-Null
+Write-Host "==> Stage service + scripts + prereq" -ForegroundColor Cyan
+New-Item -ItemType Directory -Force -Path (Join-Path $stage 'service'), (Join-Path $stage 'scripts'), (Join-Path $stage 'prereq') | Out-Null
 Copy-Item $WinswExe (Join-Path $stage 'service\WinSW-x64.exe') -Force
+# VC++ runtime. The .iss carries it with Flags: dontcopy and PrepareToInstall()
+# runs it (registry-gated) before ANY other install step. Name is fixed because
+# [Files] and ExtractTemporaryFile() both reference it literally.
+if (-not (Test-Path $VcRedistExe)) { Write-Host "FAILED: -VcRedistExe not found: $VcRedistExe" -ForegroundColor Red; exit 1 }
+Copy-Item $VcRedistExe (Join-Path $stage 'prereq\VC_redist.x64.exe') -Force
 # apply-schema.ps1 is shared by provision-db (fresh) + upgrade; upgrade.ps1 drives
 # the upgrade [Run] entry. BOTH must ship or fresh install AND upgrade break.
 # NAMED LIST, not a glob - anything omitted here silently does not ship, and the
@@ -170,14 +183,14 @@ foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','un
 }
 Copy-Item (Join-Path $repoRoot 'apps\api\prisma\sql') (Join-Path $stage 'runtime\api\prisma\sql') -Recurse -Force -ErrorAction SilentlyContinue
 
-# 7. Compile the installer
+# 8. Compile the installer
 Write-Host "==> Compile installer (ISCC)" -ForegroundColor Cyan
 if (-not (Test-Path $Iscc)) { Write-Host "Inno Setup not found at $Iscc - install Inno Setup 6 to compile. Staging is ready at $stage." -ForegroundColor Yellow; exit 0 }
 & $Iscc "/DStageDir=$stage" "/DAppVersion=$AppVersion" "/DOutputDir=$OutDir" (Join-Path $repoRoot 'installer\DigiLog.iss')
 if ($LASTEXITCODE -ne 0) { Write-Host "ISCC failed" -ForegroundColor Red; exit 1 }
 $setupExe = Join-Path $OutDir "DigiLog-Setup-$AppVersion.exe"
 
-# 8. Code sign the finished Setup.exe (M7). Skipped unless -Sign is passed; when
+# 9. Code sign the finished Setup.exe (M7). Skipped unless -Sign is passed; when
 #    skipped the installer is unsigned and SmartScreen/AV will warn (expected -
 #    see the clean-VM acceptance runbook). To sign a build later, re-run with
 #    -Sign -CertPath <pfx> -CertPassword <pw>  (or -CertSubject "CN=...").

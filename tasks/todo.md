@@ -1955,3 +1955,30 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       in LINE ENDINGS only (file is CRLF; the two paths normalise differently). Logically identical
       (verified with CR stripped), but `md5(prosrc)` is NOT a valid cross-DB drift check for these.
 - [ ] Restore of a .dump was verified DB-to-DB, not through the HTTP upload route (login blocked).
+
+- [x] **2026-08-19 — Installer: bundle the VC++ redistributable + `MinVersion=10.0`.**
+      Found while answering a hosting question, not from a bug report: the bundled PostgreSQL 18
+      binaries import `VCRUNTIME140.dll` (63 refs), `vcruntime140_1.dll` (12) and `msvcp140.dll` (9),
+      none of which ship with Windows and none of which were staged. `postgres/initdb/pg_ctl/pg_dump/
+      openssl` all affected; `node.exe`, the Prisma query engine and `bcrypt.node` verified clean
+      (static CRT), `WinSW-x64.exe` verified self-contained .NET. **This bug is invisible to any local
+      test** — every dev box already has the redist (this one: 14.50.35719.00) — so it would have
+      surfaced first on a customer's freshly imaged Server, AND as a misleading *certificate* failure
+      (`install.ps1` step 1b calls `pgsql\bin\openssl.exe`), not a database one.
+      Fix: `installer/DigiLog.iss` carries Microsoft's signed `VC_redist.x64.exe` (14.44.35211.0,
+      Authenticode verified) as the FIRST `[Files]` entry with `Flags: dontcopy` — first because
+      `SolidCompression=yes` decompresses in list order, so a later entry would force the whole ~1 GB
+      payload to decompress before `PrepareToInstall()` could use it. `PrepareToInstall()` runs it
+      `/install /quiet /norestart` on fresh install AND upgrade (`upgrade.ps1` calls `pg_dump.exe`),
+      gated on `HKLM64\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64` >= **14.30**
+      (bare `Installed=1` is insufficient: `vcruntime140_1.dll` only appeared in 14.20). Exit codes
+      0/1638/3010 = success, else abort with an actionable message. `build-installer.ps1 -VcRedistExe`
+      is **mandatory** — optional would silently reintroduce the bug. Added `[Setup] MinVersion=10.0`
+      (below Win10/Server2016 the UCRT needs KB2999226, not shipped).
+      Verified: ISCC compiles clean (`[Code]` section compiles) before and after; staged redist is the
+      real 25,635,768-byte file. Docs synced: CHANGELOG, EXE-PACKAGING-PLAN §4, PHARMA_DEPLOYMENT §4
+      (+ troubleshooting note), M7 clean-VM runbook (pre-flight now REQUIRES the redist be absent —
+      previously the runbook could pass on a VM that had it and prove nothing).
+      ⚠️ **Runtime path still unexercised.** `VCRedistNeeded` returns False on this machine, so the
+      extract/exec/1638 branches have never run. Only the clean VM (or an elevated manual
+      `VC_redist.x64.exe /install /quiet /norestart`, expect exit 1638 here) can prove them.

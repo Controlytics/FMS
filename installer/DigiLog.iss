@@ -42,9 +42,25 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; Windows 10 / Server 2016 or newer. Below this the Universal CRT
+; (api-ms-win-crt-*.dll, imported by the bundled PostgreSQL binaries) is not
+; in-box and needs KB2999226, which we do not ship. Declaring the floor makes
+; Setup refuse cleanly instead of failing later inside install.ps1.
+MinVersion=10.0
 SetupLogging=yes
 
 [Files]
+; KEEP THIS ENTRY FIRST. With SolidCompression=yes the archive decompresses in
+; [Files] order, so a file pulled by ExtractTemporaryFile() from further down would
+; force Setup to decompress the whole ~1 GB payload before PrepareToInstall() could
+; run it. First = extracted immediately.
+; dontcopy: carried inside Setup, run by PrepareToInstall(), never placed in {app}.
+; The bundled PostgreSQL binaries (postgres/initdb/pg_ctl/pg_dump/openssl) import
+; VCRUNTIME140.dll, vcruntime140_1.dll and msvcp140.dll, which are NOT part of
+; Windows. node.exe, the Prisma query engine and bcrypt static-link the CRT and
+; do not need this.
+Source: "{#StageDir}\prereq\VC_redist.x64.exe"; Flags: dontcopy
+
 ; Program payload -> {app}. Split so upgrades handle running processes correctly:
 ;  - pgsql (bundled PostgreSQL binaries): onlyifdoesntexist. On upgrade the DB
 ;    service stays RUNNING (postgres.exe would be locked), and we WANT it up so
@@ -149,7 +165,30 @@ begin
   end;
 end;
 
-{ Runs BEFORE the [Files] copy. On upgrade, stop the API service so its running
+{ Is the VC++ 2015-2022 x64 runtime missing or too old?
+  Gate = HKLM64\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64. We require
+  >= 14.30 (VS2022 toolset, which built the bundled PostgreSQL 18): vcruntime140_1.dll
+  only appeared in 14.20, so an ancient 14.0 runtime would satisfy a bare "Installed=1"
+  check and still leave postgres.exe unable to load. Any read failure => assume needed;
+  re-running the redist when it is already current is cheap and idempotent. }
+function VCRedistNeeded: Boolean;
+var
+  Installed, Major, Minor: Cardinal;
+  Key: String;
+begin
+  Result := True;
+  Key := 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64';
+  if not RegQueryDWordValue(HKLM64, Key, 'Installed', Installed) then Exit;
+  if Installed <> 1 then Exit;
+  if not RegQueryDWordValue(HKLM64, Key, 'Major', Major) then Exit;
+  if not RegQueryDWordValue(HKLM64, Key, 'Minor', Minor) then Exit;
+  if (Major > 14) or ((Major = 14) and (Minor >= 30)) then
+    Result := False;
+end;
+
+{ Runs BEFORE the [Files] copy. Two jobs, in order:
+  (1) ensure the VC++ runtime the bundled PostgreSQL needs is present, and
+  (2) on upgrade, stop the API service so its running
   node.exe + WinSW service exe are unlocked and can be overwritten. The DB service
   is deliberately LEFT RUNNING: pgsql is copied onlyifdoesntexist (so postgres.exe
   is never overwritten and never locks the copy), and upgrade.ps1 needs the DB up
@@ -159,6 +198,38 @@ var
   ResultCode: Integer;
 begin
   Result := '';
+
+  { 1. VC++ runtime BEFORE anything else, on fresh install AND upgrade.
+       Not gated on IsUpgrade: upgrade.ps1 step 4 shells out to pg_dump.exe, which
+       has the same dependency, and the redist is idempotent.
+       Ordering matters for diagnosis - install.ps1 step 1b calls pgsql\bin\openssl.exe
+       to generate the HTTPS certs, so a missing CRT surfaces as a confusing
+       certificate failure long before initdb ever runs. }
+  if VCRedistNeeded then
+  begin
+    ExtractTemporaryFile('VC_redist.x64.exe');
+    if not Exec(ExpandConstant('{tmp}\VC_redist.x64.exe'), '/install /quiet /norestart', '',
+                SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    begin
+      Result := 'Could not start the Microsoft Visual C++ Redistributable installer.';
+      Exit;
+    end;
+    { 0 = installed, 1638 = a newer runtime is already present (success for us),
+      3010 = installed but a reboot is pending. Anything else is fatal: continuing
+      would fail inside install.ps1 with a far less obvious message. }
+    if ResultCode = 3010 then
+      NeedsRestart := True
+    else if (ResultCode <> 0) and (ResultCode <> 1638) then
+    begin
+      Result := 'The Microsoft Visual C++ Redistributable failed to install (code ' +
+                IntToStr(ResultCode) + ').' + #13#10 +
+                'DigiLog''s bundled PostgreSQL requires it. Install VC_redist.x64.exe ' +
+                'manually, then run this installer again.';
+      Exit;
+    end;
+  end;
+
+  { 2. On upgrade, free the running API so [Files] can overwrite it. }
   if IsUpgradeFlag then
   begin
     Exec('net.exe', 'stop DigiLogAPI', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

@@ -23,6 +23,14 @@ you can re-run from a pristine state. Run everything as a local Administrator.
 - [ ] Ports free: `Test-NetConnection localhost -Port 3000` and `-Port 5433` both **fail** to connect.
 - [ ] `C:\Program Files\DigiLog` and `C:\ProgramData\DigiLog` do **not** exist.
 - [ ] At least ~1.5 GB free disk (installer ~200-300 MB + PG data + node_modules).
+- [ ] **VC++ redistributable is ABSENT** — this is the point of the whole test, and a VM that
+      happens to have it proves nothing about the bare-metal path. Confirm BOTH:
+      `Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64'` errors
+      (key missing), and `Test-Path C:\Windows\System32\vcruntime140.dll` is **False**.
+      If either is present, the VM image is not clean for this purpose — use one that is, or
+      uninstall 'Microsoft Visual C++ 2015-2022 Redistributable (x64)' and re-snapshot.
+- [ ] OS is Windows 10 / Server 2016 or newer (Setup refuses below `MinVersion=10.0`). If you also
+      want to prove the floor, a Server 2012 R2 VM must be REFUSED cleanly by Setup.
 
 ---
 
@@ -30,6 +38,13 @@ you can re-run from a pristine state. Run everything as a local Administrator.
 
 1. [ ] Double-click `DigiLog-Setup-<ver>.exe`. (SmartScreen -> More info -> Run anyway.)
 2. [ ] Wizard: accept the install dir; set an **initial admin password** (>= 8 chars) on the prompt page.
+2b. [ ] **VC++ runtime step fires.** Before the wizard reaches the file-copy progress, Setup runs the
+        bundled `VC_redist.x64.exe` silently (no visible window). Afterwards confirm it landed:
+        'Microsoft Visual C++ 2015-2022 Redistributable (x64)' appears in Apps & Features, and the
+        registry key above now reports `Installed=1` with `Major`=14, `Minor`>=30.
+        A failure here aborts Setup with an explicit VC++ message — if you instead see a
+        *certificate* error, the redist did not run (see the troubleshooting note in
+        `docs/PHARMA_DEPLOYMENT_21CFR.md` §4).
 3. [ ] Let it run (status: "Setting up the DigiLog database and services..."). This can take a minute.
 4. [ ] Wizard reports success.
 

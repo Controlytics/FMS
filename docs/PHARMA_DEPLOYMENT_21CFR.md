@@ -113,6 +113,7 @@ Frontend build: set `apps/web/.env.production` → `VITE_API_URL=https://digilog
 
 Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 
+0. **Installs the Microsoft VC++ 2015-2022 x64 redistributable** first, if the machine does not already have >= 14.30 (registry-gated, `/install /quiet /norestart`). This is a real dependency, not boilerplate: the bundled PostgreSQL binaries — `postgres.exe`, `initdb.exe`, `pg_ctl.exe`, `pg_dump.exe` and `openssl.exe` — import `VCRUNTIME140.dll`, `vcruntime140_1.dll` and `msvcp140.dll`, which are **not part of Windows**. Dev and desktop machines almost always have it already; a freshly imaged Windows Server often does not. (Node, the Prisma engine and `bcrypt` static-link the CRT and are unaffected.) **Requires Windows 10 / Server 2016 or newer** — Setup enforces this via `MinVersion=10.0`, because below that the Universal CRT also needs KB2999226, which is not shipped.
 1. Lays down a **portable Node.js LTS** (v20) — not a global install.
 2. Lays down the **built app**: `apps/api/dist`, `apps/web/dist`, `packages/*/dist`, a pruned production `node_modules` (so native binaries — Prisma engine, `bcrypt` — are real files; `@napi-rs/canvas` was removed 2026-07-04 with the reports PDF engine), `node_modules/.prisma`, and `apps/api/prisma/migrations/`.
 3. Bundles **PostgreSQL 18 portable**; runs `initdb` into `%ProgramData%\DigiLog\pgdata`, creates the `digilog` role + `digilog_db`, then **`prisma migrate deploy`** — which rebuilds the **complete** schema in one step (tables, the `deviation_number_seq`/`qnn_seq` sequences, 5 triggers, 6 functions, partial unique index) thanks to the squashed baseline migration.
@@ -123,6 +124,8 @@ Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 8. Registers a **nightly DB backup** (Task Scheduler task "DigiLog Nightly Backup" → `scripts\backup-db.ps1` → `pg_dump` of `digilog_db` into `%ProgramData%\DigiLog\backups`, 14-day rotation, runs as SYSTEM with no stored password). Outcome is written every run to `backups\LAST-BACKUP-STATUS.txt` (OK/FAIL + timestamp) and appended to `logs\backup.log`; a failed run also sets a non-zero Task Scheduler "Last Run Result". **Copying dumps off-box, and periodically test-restoring them, are site procedures the installer does not perform** — see §5.2.
 
 **Result:** the customer double-clicks one `.exe`, clicks through Setup, and DigiLog runs as a service with no Node/npm/terminal and **no reverse proxy**.
+
+> **Troubleshooting — install fails during *certificate* generation.** If the VC++ runtime is missing or the redist step was skipped, the first thing to break is **not** the database: `install.ps1` step 1b calls `pgsql\bin\openssl.exe` to generate the HTTPS certs, so the operator sees a certificate failure and starts debugging TLS. Check for the runtime (`HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64`) before investigating anything else.
 
 ---
 

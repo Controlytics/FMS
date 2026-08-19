@@ -1,5 +1,65 @@
 # Changelog
 
+## [Unreleased] — Installer: bundle the VC++ runtime + declare an OS floor (2026-08-19)
+
+### Fixed — bare-metal first install failed on any machine without the VC++ redistributable
+
+`DigiLog-Setup-<ver>.exe` claimed zero prerequisites, but the bundled PostgreSQL 18
+binaries are MSVC-built and import runtime DLLs that are **not part of Windows** and
+were **not staged**. Verified by scanning the staged binaries' import strings:
+
+| DLL | references across `dist/stage/pgsql/bin` | in staging tree? |
+|---|---|---|
+| `VCRUNTIME140.dll` | 63 | ❌ |
+| `vcruntime140_1.dll` | 12 | ❌ |
+| `msvcp140.dll` | 9 | ❌ |
+
+`postgres.exe`, `initdb.exe`, `pg_ctl.exe`, `pg_dump.exe` and `openssl.exe` all
+import them. Scope is confined to `pgsql\bin`: `node.exe`, the Prisma query engine
+(`query_engine-windows.dll.node`) and `bcrypt.node` were checked and static-link the
+CRT. `WinSW-x64.exe` is the self-contained .NET build (18 MB, bundles
+`System.Private.CoreLib.dll`) and needs no runtime either.
+
+Why it was never caught: every dev/desktop box already has the redistributable
+(this one reports `v14.50.35719.00`), so **no local test run can reproduce it**. It
+only bites on a freshly imaged Windows Server 2019/2022. First visible failure would
+NOT have been database provisioning — `install.ps1` step 1b shells out to
+`pgsql\bin\openssl.exe` for HTTPS cert generation, so the operator would have seen a
+confusing *certificate* failure well before `initdb` ran.
+
+Fix (`installer/DigiLog.iss` + `scripts/build-installer.ps1`):
+- Microsoft's signed `VC_redist.x64.exe` (14.44.35211.0, Authenticode verified) ships
+  inside Setup with `Flags: dontcopy` — carried in the installer, never copied to `{app}`.
+- `PrepareToInstall()` runs it **before every other install step**, on the fresh-install
+  *and* upgrade paths (not `Check: not IsUpgrade`: `upgrade.ps1` step 4 calls
+  `pg_dump.exe`, same dependency; the redist is idempotent).
+- Registry-gated on `HKLM64\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64`,
+  requiring **>= 14.30**. A bare `Installed=1` check is not enough — `vcruntime140_1.dll`
+  only appeared in 14.20, so an old 14.0 runtime would pass and still fail to load
+  `postgres.exe`. Any registry read failure assumes "needed" (re-running is idempotent).
+- Exit codes: `0` = installed, `1638` = newer runtime already present (treated as
+  success), `3010` = sets `NeedsRestart`. Anything else aborts the install with an
+  actionable message rather than failing later inside `install.ps1`.
+- Chose the official redistributable over app-local DLLs deliberately: it is a signed
+  Microsoft package, appears in Add/Remove Programs as an IQ artifact, and receives
+  Windows Update servicing. An unpatched app-local CRT on a validated system is an
+  audit finding waiting to happen.
+- `-VcRedistExe` is a **mandatory** `build-installer.ps1` parameter. Optional would
+  reintroduce the same bug silently: the installer compiles fine without it and only
+  fails on the customer's machine.
+
+### Added — `MinVersion=10.0` in `[Setup]`
+
+The installer declared `ArchitecturesAllowed` but no OS floor, so it would happily
+start on Windows Server 2012 R2 — where the Universal CRT (`api-ms-win-crt-*.dll`,
+also imported by the PostgreSQL binaries) is absent without KB2999226, which is not
+shipped. Setup now refuses cleanly on unsupported Windows instead of failing midway
+through `install.ps1`.
+
+**Still outstanding:** the acceptance run that actually proves "no prerequisites" is a
+clean Windows Server VM with no dev tooling and no VC++ redistributable. Re-running on
+a development machine cannot validate this class of bug.
+
 ## [Unreleased] — Audit keyed-chain: wire the cutover downgrade check (2026-08-18)
 
 ### Fixed — KEYED_ERA_DOWNGRADE now enforced in verifyAuditChain (real security gap)
