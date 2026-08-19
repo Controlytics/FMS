@@ -189,11 +189,35 @@ if ($dbAlreadyInit) {
     AppPassword = $appDbPassword; SuperPassword = (NewSecret 18);
     AdminPassword = $AdminPassword; ApiDir = $apiDir; LogDir = $logDir;
     NodeExe = $nodeExe
+    # MUST be $true. provision-db starts the cluster directly (pg_ctl start) to run
+    # migrate+seed. If it is left running it keeps the data dir, port and
+    # postmaster.pid, so `sc start DigiLogDB` launches a SECOND postmaster which
+    # immediately dies on the lock; DigiLogAPI then fails 1068 (dependency not
+    # running) and this script exits before the firewall rule and backup task are
+    # created. A running cluster CANNOT be adopted by the Windows service - the
+    # service must start its own. (Fixed 2026-08-19; the old default left it up.)
+    StopWhenDone = $true
   }
   if ($DryRun) { Write-Host "[dry-run] provision-db.ps1 (DataDir=$dbDir Port=$PgPort ApiDir=$apiDir)" -ForegroundColor Yellow }
   else {
     & (Join-Path $scriptsDir 'provision-db.ps1') @provArgs
     if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: provisioning" -ForegroundColor Red; exit 1 }
+    # Prove the cluster really stopped before we register the service over the same
+    # data dir. pg_isready succeeding here means a postmaster is still holding the
+    # port, and registration would produce the 1068 cascade described above.
+    $pgReadyExe = Join-Path $pgBin 'pg_isready.exe'
+    & $pgReadyExe -h localhost -p $PgPort 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "==> cluster still accepting connections after provisioning; stopping it" -ForegroundColor Yellow
+      & (Join-Path $pgBin 'pg_ctl.exe') -D $dbDir -m fast -w stop 2>&1 | Out-Null
+      Start-Sleep -Seconds 2
+      & $pgReadyExe -h localhost -p $PgPort 2>&1 | Out-Null
+      if ($LASTEXITCODE -eq 0) {
+        Write-Host "FATAL: a PostgreSQL process is still holding port $PgPort / $dbDir." -ForegroundColor Red
+        Write-Host "       The DigiLogDB service cannot start while it runs. Stop it and re-run Setup." -ForegroundColor Red
+        exit 1
+      }
+    }
   }
 }
 

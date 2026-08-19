@@ -46,6 +46,15 @@ you can re-run from a pristine state. Run everything as a local Administrator.
         libcrypto-3-x64.dll, libssl-3-x64.dll}` (4 files). Check the SANs cover the LAN IP:
         `& 'C:\Program Files\DigiLog\openssl\openssl.exe' x509 -in 'C:\ProgramData\DigiLog\certs\server.crt' -noout -text`
         (needs `$env:OPENSSL_CONF` pointed at the shipped openssl.cnf).
+2c. [ ] **No orphaned postgres process, and BOTH services are Running.** This is the
+        failure that killed the first real deployment: provisioning left its own
+        postmaster up, so DigiLogDB could not start and DigiLogAPI failed 1068.
+        `Get-Service DigiLogDB,DigiLogAPI` must both show Running, and
+        `Get-Process postgres` must show only the service's own processes (parent
+        should NOT be cmd.exe / an installer script).
+        Also confirm the two steps that get skipped when registration fails:
+        `Get-ScheduledTask -TaskName 'DigiLog Nightly Backup'` exists, and
+        `Get-NetFirewallRule -DisplayName 'DigiLog API'` exists.
 2b. [ ] **VC++ runtime step fires.** Before the wizard reaches the file-copy progress, Setup runs the
         bundled `VC_redist.x64.exe` silently (no visible window). Afterwards confirm it landed:
         'Microsoft Visual C++ 2015-2022 Redistributable (x64)' appears in Apps & Features, and the

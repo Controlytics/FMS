@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased] — Installer: orphaned postgres blocked service startup (2026-08-19)
+
+### Fixed — fresh install left the app dead; found by the operator on the first real deployment
+
+`provision-db.ps1` starts the cluster directly (`pg_ctl start`) so it can run
+`migrate deploy` + seed. It exposes a `-StopWhenDone` switch that stops it again in a
+`finally` block — and **`install.ps1` never passed it.** Its own doc comment recorded
+the wrong assumption as intent: *"installer leaves it for the service"*.
+
+A live postmaster cannot be adopted by a Windows service. It holds the data directory,
+port 5433 and `postmaster.pid`, so `sc start DigiLogDB` launches a **second** postmaster
+that dies immediately on the lock. `DigiLogAPI` declares `<depend>DigiLogDB</depend>`, so
+it then fails with **error 1068** (dependency failed to start). Nothing listened on 3000
+and the app appeared dead — `localhost:3000` unreachable.
+
+The damage did not stop there. `register-services.ps1` gates on `$LASTEXITCODE`, so
+`install.ps1` exited 1 at step 4, meaning **steps 4b and 5 never ran**:
+- the nightly DB backup task (`DigiLog Nightly Backup`) was never registered — no backups
+- the Windows Firewall rule for TCP 3000 was never added — tablets could not connect
+
+Inno does not check `[Run]` exit codes, so Setup still displayed a success page.
+
+Fix:
+- `install.ps1` passes `StopWhenDone = $true`.
+- After provisioning it **asserts the port is actually free** via `pg_isready`; if a
+  postmaster is still up it stops it, re-checks, and aborts with an explicit message
+  rather than registering a service that cannot start.
+- `provision-db.ps1` stops with `-m fast -w` so `postmaster.pid` is gone before the
+  caller registers the service, and its misleading `.PARAMETER` note is corrected.
+
+Reported and root-caused by the operator on the first real customer-machine install —
+the class of bug no amount of local building can surface, only an actual fresh install.
+**Existing 1.1.1 installs need the firewall rule and backup task added manually**
+(see `docs/PHARMA_DEPLOYMENT_21CFR.md` §4); the database itself was never at risk.
+
 ## [Unreleased] — Installer: ship OpenSSL, prune pgAdmin, correct a wrong claim (2026-08-19)
 
 ### Fixed — every FRESH install aborted at certificate generation (hard blocker)

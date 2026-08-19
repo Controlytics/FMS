@@ -26,8 +26,14 @@
 .PARAMETER AdminPassword   INITIAL_ADMIN_PASSWORD for the app seed
 .PARAMETER ApiDir    apps/api (for prisma schema, extensions.sql, seed)
 .PARAMETER NodeExe   node.exe to run prisma/seed with (default: 'npx'/'node' on PATH)
-.PARAMETER StopWhenDone   Stop the cluster after provisioning (installer leaves
-                          it for the service in M4; the test stops it)
+.PARAMETER StopWhenDone   Stop the cluster after provisioning. The installer MUST
+                          pass this. An earlier note here claimed the installer
+                          "leaves it for the service" - that is wrong and caused a
+                          fresh-install failure: a running postmaster holds the data
+                          dir, the port and postmaster.pid, so the DigiLogDB service
+                          starts a SECOND postmaster which dies on the lock, and
+                          DigiLogAPI then fails with 1068. A live cluster cannot be
+                          handed over to a Windows service; the service starts its own.
 #>
 [CmdletBinding()]
 param(
@@ -113,8 +119,10 @@ try {
 }
 finally {
   if ($StopWhenDone) {
+    # -w: wait for shutdown to complete, so postmaster.pid is gone before the
+    # caller registers/starts the Windows service over the same data directory.
     Write-Host "==> stopping cluster (StopWhenDone)" -ForegroundColor Cyan
-    & $pgctl -D $DataDir stop -m fast | Out-Null
+    & $pgctl -D $DataDir -m fast -w stop | Out-Null
   }
 }
 exit 0  # explicit success so callers reading $LASTEXITCODE are not misled by stale codes

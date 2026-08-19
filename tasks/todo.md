@@ -2015,3 +2015,16 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       CHANGELOG, EXE-PACKAGING-PLAN, PHARMA_DEPLOYMENT_21CFR and memory. Commit a1b53c2's
       message retains the error (immutable) — the correction is recorded here and in the
       docs.
+
+- [x] **2026-08-19 — Installer: orphaned postgres blocked DigiLogDB (found on the first real install).**
+      `provision-db.ps1` starts the cluster to run migrate+seed and has a `-StopWhenDone`
+      switch to stop it; `install.ps1` never passed it, and the .PARAMETER doc enshrined the
+      wrong assumption ("installer leaves it for the service"). A live postmaster holds the
+      data dir + port 5433 + postmaster.pid, so `sc start DigiLogDB` starts a SECOND
+      postmaster that dies on the lock -> DigiLogAPI fails 1068 -> nothing on :3000.
+      Knock-on: install.ps1 exits 1 at step 4, so step 4b (nightly backup task) and step 5
+      (firewall rule TCP 3000) NEVER RAN — existing 1.1.1 installs have no backups and
+      tablets cannot reach them. Fix: pass StopWhenDone, stop with `-m fast -w`, and assert
+      via pg_isready that the port is free before registering (abort loudly otherwise).
+      Root-caused by the operator on the customer machine — this class of bug is invisible
+      to any amount of local building; only a real fresh install surfaces it.
