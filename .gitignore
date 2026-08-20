@@ -51,6 +51,10 @@ CREDENTIALS.md
 # Backup snapshots of any file (audit-relevant: schema.prisma.bak
 # would let `prisma db push` overwrite live schema from a stale snapshot).
 *.bak
+# ...including date-suffixed ones (scripts/refresh-lan-cert.ps1 writes
+# certs/server.{key,crt}.bak-YYYYMMDD[-HHMMSS]; the plain *.bak and *.key
+# patterns both miss that name shape, and server.key.bak-* is a private key).
+*.bak-*
 
 # Playwright MCP session traces (regenerated each run)
 .playwright-mcp/
