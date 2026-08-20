@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
 import { Pagination } from '@/components/ui/pagination';
+import { BlockAhuFilter, useBlockAhuScope } from '@/components/block-ahu-filter';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
@@ -29,22 +30,35 @@ export function ReplacementListPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  // Block → AHU cascade. Rows carry server-resolved blockId/ahuId (the audit row
+  // itself holds only the two filter ids) — see resolveAhuScopes in
+  // filter-operations.service.ts.
+  const scope = useBlockAhuScope();
 
   const replacements = useMemo(() => {
     if (!Array.isArray(data)) return [];
     return data;
   }, [data]);
 
+  // Stat tiles follow the Block / AHU scope but deliberately IGNORE the text
+  // search — same rule as the tablet Status tiles (2026-07-17): a tile that
+  // stays site-wide while the list is cascade-scoped is the bug that fix
+  // removed, but folding the free-text search in would make the totals jump on
+  // every keystroke.
+  const scoped = useMemo(() => replacements.filter((r: any) => scope.matches(r)), [replacements, scope]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return replacements;
-    return replacements.filter((r: any) =>
-      (r.oldFilterName ?? '').toLowerCase().includes(q) ||
-      (r.newFilterName ?? '').toLowerCase().includes(q) ||
-      (r.performedBy ?? '').toLowerCase().includes(q) ||
-      (r.remarks ?? '').toLowerCase().includes(q)
-    );
-  }, [replacements, search]);
+    if (!q) return scoped;
+    return scoped.filter((r: any) => {
+      return (r.oldFilterName ?? '').toLowerCase().includes(q) ||
+        (r.newFilterName ?? '').toLowerCase().includes(q) ||
+        (r.performedBy ?? '').toLowerCase().includes(q) ||
+        (r.remarks ?? '').toLowerCase().includes(q) ||
+        (r.ahuName ?? '').toLowerCase().includes(q) ||
+        (r.blockName ?? '').toLowerCase().includes(q);
+    });
+  }, [scoped, search]);
 
   const stats = useMemo(() => {
     const now = new Date();
@@ -52,15 +66,15 @@ export function ReplacementListPage() {
     const startOfWeek = startOfToday - 6 * 24 * 60 * 60 * 1000;
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     let today = 0, week = 0, month = 0;
-    for (const r of replacements) {
+    for (const r of scoped) {
       const t = r.replacedAt ? new Date(r.replacedAt).getTime() : 0;
       if (!t) continue;
       if (t >= startOfToday) today++;
       if (t >= startOfWeek) week++;
       if (t >= startOfMonth) month++;
     }
-    return { total: replacements.length, today, week, month };
-  }, [replacements]);
+    return { total: scoped.length, today, week, month };
+  }, [scoped]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -73,7 +87,7 @@ export function ReplacementListPage() {
   const reportL = labelsFor('replacement-list');
   const REPORT_COLS = ['sNo', 'oldFilter', 'newFilter', 'replacedOn', 'performedBy', 'remarks'];
   const reportHead = REPORT_COLS.map(k => reportL.columns[k]);
-  const reportSubtitle = reportL.subtitle || `Total: ${filtered.length} replacement${filtered.length === 1 ? '' : 's'}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`;
+  const reportSubtitle = reportL.subtitle || `Total: ${filtered.length} replacement${filtered.length === 1 ? '' : 's'}${scope.scopeLabel ? ` — ${scope.scopeLabel}` : ''}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`;
   // Phase 5C: replacement_list.export gate = ['REPLACEMENT_LIST_EXPORT'] — SAME as old isSuperAdmin||REPLACEMENT_LIST_EXPORT.
   const canExport = can('replacement_list.export');
 
@@ -172,20 +186,21 @@ export function ReplacementListPage() {
         } />
       </div>
 
-      {/* ─── Search ─── */}
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-md">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {/* ─── Search + Block / AHU scope ─── */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <svg className="absolute left-3 bottom-[13px] w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
             type="text"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search by filter, performer, or remarks..."
+            placeholder="Search by filter, AHU, block, performer, or remarks..."
             className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none transition-all"
           />
         </div>
+        <BlockAhuFilter scope={scope} onChange={() => setPage(1)} />
         {canExport && (
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <button
@@ -237,9 +252,9 @@ export function ReplacementListPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </div>
-            <p className="text-slate-700 font-semibold">{search ? 'No matching replacements' : 'No replacements yet'}</p>
+            <p className="text-slate-700 font-semibold">{search || scope.isActive ? 'No matching replacements' : 'No replacements yet'}</p>
             <p className="text-sm text-slate-400 mt-1">
-              {search ? 'Try a different search term' : 'Filter replacements will appear here'}
+              {search || scope.isActive ? 'Try a different search term or widen the Block / AHU selection' : 'Filter replacements will appear here'}
             </p>
           </div>
         </div>
@@ -251,6 +266,7 @@ export function ReplacementListPage() {
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider w-16">S.No</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">AHU / Block</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Old Filter ID</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">New Filter ID</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Replaced On</th>
@@ -265,13 +281,21 @@ export function ReplacementListPage() {
                       {(safePage - 1) * pageSize + idx + 1}
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 font-semibold">
+                      {r.ahuName ? (
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-700 truncate">{r.ahuName}</div>
+                          {r.blockName && <div className="text-[11px] text-slate-400 truncate">{r.blockName}</div>}
+                        </div>
+                      ) : <span className="text-xs text-slate-300">—</span>}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-100 font-semibold whitespace-nowrap">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                         {r.oldFilterName ?? '—'}
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 font-semibold">
+                      <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 font-semibold whitespace-nowrap">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                         {r.newFilterName ?? '—'}
                       </span>

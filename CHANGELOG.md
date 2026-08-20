@@ -1,5 +1,59 @@
 # Changelog
 
+## [Unreleased] — Block → AHU scope filter on Replacement + Retirement lists (2026-08-20)
+
+### Added — cascading Block / AHU dropdowns that scope the displayed history
+
+Both compliance history pages (`/filter-replacements`, `/filter-retirements`) had a
+free-text search but no way to narrow to a location. Added a **Block → AHU cascade**:
+picking a Block narrows the AHU dropdown to that block's AHUs, and the table, the stat
+tiles, and the PDF/Excel exports all follow the selection. Default is unscoped — these
+are §11 history pages, so with nothing selected every row still shows.
+
+- New shared `apps/web/src/components/block-ahu-filter.tsx` — `useBlockAhuScope()` +
+  `<BlockAhuFilter>`, used by both pages so the two cannot drift. Reads
+  `/api/hierarchy/{blocks,ahus,areas}?limit=500` and resolves area-nested AHUs through
+  the existing `buildAhuBlockMap()` (Area is optional in this hierarchy).
+- Changing the Block always clears the AHU — a stale AHU from the previous block would
+  empty the table with no visible reason.
+- **Stat tiles now follow the Block / AHU scope** (they deliberately still ignore the
+  free-text search, which would make the totals jump on every keystroke). This is the
+  same rule as the 2026-07-17 tablet Status-tile fix: a tile that stays site-wide while
+  the list is cascade-scoped is a bug, not a feature.
+- New on-screen **AHU / Block** column on both tables. The PDF/Excel column sets are
+  deliberately **unchanged** (they are admin-configurable via the `report-labels`
+  config, and widening them is a separate surface); the exported *subtitle* now names
+  the active scope, and both exports already cover the filtered set.
+- Search widened: both pages now also match AHU + Block name; Retirement additionally
+  matches Retired By + Remarks (it previously matched only filter name + set, while
+  both of those were already columns on screen).
+
+### Added — server-resolved `ahuId` / `ahuName` / `blockId` / `blockName`
+
+`GET /api/filters/retirements` and `GET /api/filters/replacements` now return the four
+scope fields (purely additive — the other two consumers, `filter-lifecycle.tsx` and
+`config/filter-data-management.tsx`, are unaffected). Neither list could resolve this in
+the browser:
+
+- `retire()` nulls the filter's `parentId`, leaving the original AHU only in
+  `customAttributes._preRetireParentId`;
+- a replacement row is an `audit_trail` record holding nothing but the two filter ids.
+
+New `resolveAhuScopes()` in `filter-operations.service.ts` takes an **ordered candidate
+list per row** and picks the first id that is a real AHU. Order alone is not sufficient:
+legacy data parents some filters **directly under a Block**, so a naive
+`coalesce(parentId, _preRetireParentId, …)` resolved 2 of 137 replacement rows to Block
+"CWH" and they would have silently dropped out of every block selection — the same
+failure mode as the 28 filters lost to positional parent-walking (see
+`reference_hierarchy_area_is_optional`). Preferring an id present in the typed `ahus`
+table takes live coverage to **137/137 replacements and 154/154 retirements**.
+
+Verified against the live DB: per-block row counts from the API match an independent SQL
+aggregate exactly (CWH 59 / MUPS 34 / L2 31 / FD 16 / L1 11 / MF3 2 retirements), and
+both pages were driven in the browser — MF3 → 2 rows, AHU-89 → 1 row, CWH → 56
+replacements with the AHU dropdown correctly showing only CWH's 3 AHUs.
+
+
 ## [Unreleased] — Installer: orphaned postgres blocked service startup (2026-08-19)
 
 ### Fixed — fresh install left the app dead; found by the operator on the first real deployment

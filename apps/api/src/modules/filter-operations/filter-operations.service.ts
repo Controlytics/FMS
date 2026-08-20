@@ -897,6 +897,62 @@ export class FilterOperationsService {
   }
 
   /**
+   * Resolve Block + AHU scope for the Retirement / Replacement history lists.
+   *
+   * Both pages carry a Block → AHU cascade filter, so every row needs a
+   * `blockId` / `ahuId` (plus names for display). Neither list can derive it
+   * client-side:
+   *   - a RETIRED filter has `parentId` nulled by `retire()`, its original AHU
+   *     surviving only in `customAttributes._preRetireParentId`;
+   *   - a REPLACEMENT row is an audit record that stores nothing but the two
+   *     filter ids.
+   *
+   * `candidateIds` is an ORDERED list of possible parent ids per row. The first
+   * one that is a real AHU wins — order alone is NOT enough, because legacy data
+   * parents some filters DIRECTLY under a Block (live 2026-08-20: 2 of 137
+   * replacement rows resolve to Block "CWH" via `parentId`, with the true AHU
+   * only in the sibling `_preRetireParentId`). Preferring an id that exists in
+   * the typed `ahus` table is what keeps those rows scoped instead of silently
+   * dropping out of every block selection.
+   *
+   * An AHU sits either directly under a Block (`ahu.blockId`) or under an Area
+   * (`ahu.areaId` → `area.blockId`) — Area is optional in this hierarchy — so
+   * the block is read through both paths.
+   */
+  private async resolveAhuScopes(
+    candidateIdsPerRow: string[][],
+  ): Promise<Array<{ ahuId: string | null; ahuName: string | null; blockId: string | null; blockName: string | null }>> {
+    const allIds = [...new Set(candidateIdsPerRow.flat())];
+    if (allIds.length === 0) {
+      return candidateIdsPerRow.map(() => ({ ahuId: null, ahuName: null, blockId: null, blockName: null }));
+    }
+    const ahus = await prisma.ahu.findMany({
+      where: { id: { in: allIds } },
+      select: { id: true, name: true, blockId: true, area: { select: { blockId: true } } },
+    });
+    const ahuById = new Map(ahus.map(a => [a.id, a]));
+    const blockIds = [...new Set(
+      ahus.map(a => a.blockId ?? a.area?.blockId).filter((b): b is string => !!b),
+    )];
+    const blocks = blockIds.length > 0
+      ? await prisma.block.findMany({ where: { id: { in: blockIds } }, select: { id: true, name: true } })
+      : [];
+    const blockNameById = new Map(blocks.map(b => [b.id, b.name]));
+
+    return candidateIdsPerRow.map((candidates) => {
+      const ahu = candidates.map(id => ahuById.get(id)).find(Boolean);
+      if (!ahu) return { ahuId: null, ahuName: null, blockId: null, blockName: null };
+      const blockId = ahu.blockId ?? ahu.area?.blockId ?? null;
+      return {
+        ahuId: ahu.id,
+        ahuName: ahu.name,
+        blockId,
+        blockName: blockId ? blockNameById.get(blockId) ?? null : null,
+      };
+    });
+  }
+
+  /**
    * Get all retired filters.
    */
   async getRetirements(_ctx: RequestContext) {
@@ -946,13 +1002,26 @@ export class FilterOperationsService {
       });
     }
 
-    return retirements.map((r: any) => {
+    // Block / AHU scope for the Retirement List cascade filter. `retire()` nulls
+    // parentId, so the pre-retire parent is the primary candidate; the live
+    // parentId is kept as a fallback for the handful of rows that still have one.
+    const scopes = await this.resolveAhuScopes(
+      retirements.map((r: any) => [
+        (r.customAttributes as any)?._preRetireParentId,
+        r.parentId,
+      ].filter(Boolean) as string[]),
+    );
+
+    return retirements.map((r: any, i: number) => {
       const preRetireParentId = (r.customAttributes as any)?._preRetireParentId ?? null;
       const audit = retireByFilter.get(r.id);
+      const scope = scopes[i];
       return {
         id: r.id, name: r.name, updatedAt: r.updatedAt,
         attributes: r.attributes, filterSet: r.filterSet, parentId: r.parentId,
         preRetireParentId,
+        ahuId: scope.ahuId, ahuName: scope.ahuName,
+        blockId: scope.blockId, blockName: scope.blockName,
         preRetireParentName: preRetireParentId ? parentMap.get(preRetireParentId) ?? null : null,
         remarks: audit?.remarks ?? null,
         retiredBy: audit?.retiredBy ?? null,
@@ -1004,7 +1073,35 @@ export class FilterOperationsService {
       };
     });
 
-    return mapped;
+    // Block / AHU scope for the Replacement List cascade filter. The audit row
+    // stores only the two filter ids, so the AHU is looked up off the asset rows:
+    // the NEW filter first (it is the one still in service), falling back to the
+    // OLD filter — a new filter that was itself later replaced/retired has had its
+    // parentId nulled too, leaving only `_preRetireParentId` on either side.
+    const filterIds = [...new Set(
+      mapped.flatMap(m => [m.newFilterId, m.oldFilterId]).filter((id): id is string => !!id),
+    )];
+    const instances = filterIds.length > 0
+      ? await prisma.assetInstance.findMany({
+          where: { id: { in: filterIds } },
+          select: { id: true, parentId: true, customAttributes: true },
+        })
+      : [];
+    const instById = new Map(instances.map(i => [i.id, i]));
+    const candidatesFor = (m: { newFilterId: string | null; oldFilterId: string | null }): string[] => {
+      const out: string[] = [];
+      for (const fid of [m.newFilterId, m.oldFilterId]) {
+        const inst = fid ? instById.get(fid) : undefined;
+        if (!inst) continue;
+        if (inst.parentId) out.push(inst.parentId);
+        const pre = (inst.customAttributes as any)?._preRetireParentId;
+        if (pre) out.push(pre);
+      }
+      return out;
+    };
+    const scopes = await this.resolveAhuScopes(mapped.map(candidatesFor));
+
+    return mapped.map((m, i) => ({ ...m, ...scopes[i] }));
   }
 
   async getCleaningReasons(profileId?: string) {

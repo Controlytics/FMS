@@ -4,6 +4,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
 import { useCan } from '@/hooks/use-can';
 import { Pagination } from '@/components/ui/pagination';
+import { BlockAhuFilter, useBlockAhuScope } from '@/components/block-ahu-filter';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
@@ -20,39 +21,52 @@ export function RetirementListPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  // Block → AHU cascade. Rows carry server-resolved blockId/ahuId: retire()
+  // nulls the filter's parentId, so the browser cannot derive the AHU — see
+  // resolveAhuScopes in filter-operations.service.ts.
+  const scope = useBlockAhuScope();
 
   const retirements = useMemo(() => {
     if (!Array.isArray(data)) return [];
     return data;
   }, [data]);
 
+  // Rows within the selected Block / AHU. Drives BOTH the stat tiles and the
+  // list, so the two cannot disagree (the tablet Status-tile bug, 2026-07-17).
+  const scoped = useMemo(() => retirements.filter((r: any) => scope.matches(r)), [retirements, scope]);
+
   // Filtered list driven by search
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return retirements;
-    return retirements.filter((r: any) =>
+    if (!q) return scoped;
+    return scoped.filter((r: any) =>
       (r.name ?? '').toLowerCase().includes(q) ||
-      (r.filterSet ?? '').toLowerCase().includes(q)
+      (r.filterSet ?? '').toLowerCase().includes(q) ||
+      (r.ahuName ?? '').toLowerCase().includes(q) ||
+      (r.blockName ?? '').toLowerCase().includes(q) ||
+      (r.retiredBy ?? '').toLowerCase().includes(q) ||
+      (r.remarks ?? '').toLowerCase().includes(q)
     );
-  }, [retirements, search]);
+  }, [scoped, search]);
 
-  // Stats are always computed from the full dataset (not the filtered view)
-  // so the operator sees the real picture at a glance regardless of search.
+  // Stats follow the Block / AHU scope but NOT the text search, so the operator
+  // sees the real picture for what they selected without the totals jumping on
+  // every keystroke.
   const stats = useMemo(() => {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startOfWeek = startOfToday - 6 * 24 * 60 * 60 * 1000;
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     let today = 0, week = 0, month = 0;
-    for (const r of retirements) {
+    for (const r of scoped) {
       const t = r.updatedAt ? new Date(r.updatedAt).getTime() : 0;
       if (!t) continue;
       if (t >= startOfToday) today++;
       if (t >= startOfWeek) week++;
       if (t >= startOfMonth) month++;
     }
-    return { total: retirements.length, today, week, month };
-  }, [retirements]);
+    return { total: scoped.length, today, week, month };
+  }, [scoped]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -65,7 +79,7 @@ export function RetirementListPage() {
   const reportL = labelsFor('retirement-list');
   const REPORT_COLS = ['sNo', 'filter', 'set', 'retiredOn', 'retiredBy', 'remarks'];
   const reportHead = REPORT_COLS.map(k => reportL.columns[k]);
-  const reportSubtitle = reportL.subtitle || `Total: ${filtered.length} retired filter${filtered.length === 1 ? '' : 's'}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`;
+  const reportSubtitle = reportL.subtitle || `Total: ${filtered.length} retired filter${filtered.length === 1 ? '' : 's'}${scope.scopeLabel ? ` — ${scope.scopeLabel}` : ''}${search.trim() ? ` (filtered by "${search.trim()}")` : ''}`;
   // Phase 5C: retirement_list.export gate = ['RETIREMENT_LIST_EXPORT'] — SAME as old isSuperAdmin||RETIREMENT_LIST_EXPORT.
   const canExport = can('retirement_list.export');
 
@@ -147,20 +161,21 @@ export function RetirementListPage() {
         } />
       </div>
 
-      {/* ─── Search ─── */}
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-md">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {/* ─── Search + Block / AHU scope ─── */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <svg className="absolute left-3 bottom-[13px] w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
             type="text"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search filter name or set..."
+            placeholder="Search filter, AHU, block, set, retired by, or remarks..."
             className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none transition-all"
           />
         </div>
+        <BlockAhuFilter scope={scope} onChange={() => setPage(1)} />
         {canExport && (
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <button
@@ -212,9 +227,9 @@ export function RetirementListPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
               </svg>
             </div>
-            <p className="text-slate-700 font-semibold">{search ? 'No matching retirements' : 'No retired filters yet'}</p>
+            <p className="text-slate-700 font-semibold">{search || scope.isActive ? 'No matching retirements' : 'No retired filters yet'}</p>
             <p className="text-sm text-slate-400 mt-1">
-              {search ? 'Try a different search term' : 'Filters that get retired will appear here'}
+              {search || scope.isActive ? 'Try a different search term or widen the Block / AHU selection' : 'Filters that get retired will appear here'}
             </p>
           </div>
         </div>
@@ -226,6 +241,7 @@ export function RetirementListPage() {
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider w-16">S.No</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">AHU / Block</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Filter</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Set</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Retired On</th>
@@ -238,6 +254,14 @@ export function RetirementListPage() {
                   <tr key={r.id} className="hover:bg-cyan-50/40 transition-colors">
                     <td className="px-5 py-3.5 text-sm text-slate-400 font-medium">
                       {(safePage - 1) * pageSize + idx + 1}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {r.ahuName ? (
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-700 truncate">{r.ahuName}</div>
+                          {r.blockName && <div className="text-[11px] text-slate-400 truncate">{r.blockName}</div>}
+                        </div>
+                      ) : <span className="text-xs text-slate-300">—</span>}
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
