@@ -459,6 +459,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // blocked filter even without a round trip. Server gate (Task 3) backstops
   // this online regardless.
   const { data: blockedFiltersData } = useSWR(online ? '/api/replacement-schedules/blocked-filters' : null, { refreshInterval: 30000, revalidateOnReconnect: true });
+  // Missed-PM gate (2026-08-26): cache the AHUs that still owe an earlier PM so
+  // the reason dialog fires OFFLINE too. Offline replay is exempt from the
+  // server-side gate (the answer rides in the queued payload), so without this
+  // cache an offline PM cleaning would slip past unasked.
+  const { data: pmPendingTasksData } = useSWR(online ? '/api/pm-schedules/pending-tasks-map' : null, { refreshInterval: 60000, revalidateOnReconnect: true });
   // B.13 — Cache branding/field-ids/datetime config so offline app restart doesn't
   // flash defaults or break field labels until reconnect.
   const { data: brandingData } = useSWR(online ? '/api/config/branding' : null);
@@ -571,6 +576,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const ids = (blockedFiltersData as any)?.filterIds;
     if (Array.isArray(ids)) cache('blocked-filter-ids', ids, 24 * 60 * 60 * 1000);
   }, [blockedFiltersData, cache]);
+  useEffect(() => {
+    const map = (pmPendingTasksData as any)?.ahus;
+    if (map && typeof map === 'object') cache('pm-pending-tasks', map, 24 * 60 * 60 * 1000);
+  }, [pmPendingTasksData, cache]);
   useEffect(() => { if (brandingData) cache('branding-config', brandingData, 24 * 60 * 60 * 1000); }, [brandingData, cache]);
   useEffect(() => { if (fieldIdsData) cache('field-ids-config', fieldIdsData, 24 * 60 * 60 * 1000); }, [fieldIdsData, cache]);
   useEffect(() => { if (datetimeData) cache('datetime-config', datetimeData, 24 * 60 * 60 * 1000); }, [datetimeData, cache]);
@@ -1077,6 +1086,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const rest = startIdx >= 0
             ? scanQueue.slice(startIdx + 1).map(q => ({ filterId: q.filterId, filterName: q.filterName }))
             : [];
+          // A new reason dialog = a new decision. Drop any gate answers from the
+          // previous AHU so they can never ride along onto unrelated work.
+          pmTaskAnswerRef.current = null;
           core.dispatch({
             type: 'open_reason',
             filterId: item.filterId,
@@ -1920,6 +1932,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // Operator confirms PM (completes the My Tasks PM task) or picks another
         // reason (which leaves the PM task pending).
         const isPm = !!(state.isPmDue && state.pmReasonKey);
+        // A new reason dialog = a new decision. Drop any gate answers from the
+        // previous AHU so they can never ride along onto unrelated work.
+        pmTaskAnswerRef.current = null;
         core.dispatch({ type: 'open_reason', filterId, filterName: filterName || state.filterName, stage: activeStage.key });
         setSelectedReason(isPm ? state.pmReasonKey! : '');
         setJustification('');
@@ -1985,10 +2000,72 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // Pending cycle payload — saved when reason is selected, used by equipment dialog for offline compound queue
   const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
 
+  // ── Missed-PM reason gate (2026-08-26) ────────────────────────────────────
+  // PM tasks stack, so this AHU may still owe an earlier PM. The operator must
+  // account for it before new PM work is recorded: perform it late, or write it
+  // off with a reason.
+  //
+  // Intercepting HERE, at reason-submit, is deliberate: every downstream
+  // cycle-start path (equipment dialog, no-equipment batch, single filter)
+  // builds from `cyclePayload`, so one insertion point covers them all — and it
+  // is naturally asked ONCE per batch rather than once per tag.
+  const [pmTaskDialog, setPmTaskDialog] = useState<null | {
+    ahuName: string;
+    entries: Array<{ entryId: string; plannedDate: string; overdueDays: number }>;
+  }>(null);
+  // Answers survive the dialog closing so handleReasonSubmit can re-run with them.
+  const pmTaskAnswerRef = useRef<any | null>(null);
+  const [pmIntent, setPmIntent] = useState<'COMPLETE_LATE' | 'SKIP'>('COMPLETE_LATE');
+  const [pmReasons, setPmReasons] = useState<Record<string, string>>({});
+
+  /** Is the chosen cleaning reason the configured PM reason? */
+  const isPmReasonKey = (key: string | null) => !!key && key.toUpperCase() === 'PM';
+
+  /**
+   * Outstanding PM tasks for the scanned filter's AHU. Online reads the live
+   * endpoint; offline falls back to the cached site-wide map (warmed above), so
+   * the operator is asked either way.
+   */
+  const loadPendingPmTasks = async (filterId: string): Promise<{ ahuName: string; entries: any[] } | null> => {
+    try {
+      if (online) {
+        const res: any = await apiClient.get(`/api/pm-schedules/pending-context?filterId=${filterId}`);
+        if (!res?.overdueEntries?.length) return null;
+        return { ahuName: res.ahuName, entries: res.overdueEntries };
+      }
+      const map = (await getCache<Record<string, any[]>>('pm-pending-tasks')) ?? {};
+      const cached = await getCache<any>(`filter-state-${filterId}`);
+      const ahuId = cached?.ahuId ?? cached?.parentId ?? null;
+      const entries = ahuId ? map[ahuId] : null;
+      if (!entries?.length) return null;
+      return { ahuName: entries[0]?.ahuName ?? cached?.ahuName ?? 'this AHU', entries };
+    } catch {
+      // A lookup failure must not block cleaning. The server still enforces the
+      // gate online; offline it is best-effort by design.
+      return null;
+    }
+  };
+
   const handleReasonSubmit = async () => {
     if (!reasonDialog || !selectedReason) return;
+
+    // Gate BEFORE any mutation. Skipped once answers are in hand (the ref),
+    // and skipped entirely for non-PM cleanings — a breakdown clean neither
+    // satisfies nor is blocked by a PM task.
+    if (isPmReasonKey(selectedReason) && !pmTaskAnswerRef.current) {
+      const pending = await loadPendingPmTasks(reasonDialog.filterId);
+      if (pending) {
+        setPmTaskDialog({ ahuName: pending.ahuName, entries: pending.entries });
+        setPmIntent('COMPLETE_LATE');
+        setPmReasons({});
+        setLoading(false);
+        return;
+      }
+    }
+
     setLoading(true); setError('');
-    const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(reasonDialog.filterId) };
+    const cyclePayload: Record<string, any> = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(reasonDialog.filterId) };
+    if (pmTaskAnswerRef.current) cyclePayload.pmTask = pmTaskAnswerRef.current;
     const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
 
     // Check for equipment groups BEFORE executing — works for both online and offline.
@@ -3889,6 +3966,102 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       {/* ─── DIALOGS ─── */}
 
       {/* Reason */}
+      {/* Missed-PM reason gate. Fires before any cycle-start when this AHU still
+          owes an earlier PM. Not dismissible by backdrop: the operator must
+          make an explicit choice, the same contract as the checklist dialog. */}
+      {pmTaskDialog && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="h-1.5 shrink-0 bg-gradient-to-r from-amber-400 to-orange-500" />
+            <div className="px-5 py-4 space-y-4 overflow-y-auto">
+              <div>
+                <h2 className="text-base font-bold text-slate-800">Previous scheduled task not completed</h2>
+                <p className="text-sm text-slate-600 mt-1">
+                  <span className="font-semibold">{pmTaskDialog.ahuName}</span> has
+                  {pmTaskDialog.entries.length === 1 ? ' a PM task ' : ' PM tasks '}
+                  that {pmTaskDialog.entries.length === 1 ? 'was' : 'were'} not cleaned as per schedule.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 space-y-1">
+                {pmTaskDialog.entries.map(e => (
+                  <div key={e.entryId} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-amber-900 tabular-nums">
+                      {String(e.plannedDate).slice(0, 10)}
+                    </span>
+                    <span className="text-[11px] text-amber-700">overdue by {e.overdueDays} day(s)</span>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">What are you doing now?</label>
+                <div className="space-y-2">
+                  <button type="button" onClick={() => setPmIntent('COMPLETE_LATE')}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors ${pmIntent === 'COMPLETE_LATE' ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-200 bg-white text-slate-700'}`}>
+                    <span className="font-semibold">Performing the missed PM now</span>
+                    <span className="block text-[11px] mt-0.5 opacity-80">Records it as completed late, with your reason.</span>
+                  </button>
+                  <button type="button" onClick={() => setPmIntent('SKIP')}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors ${pmIntent === 'SKIP' ? 'border-slate-500 bg-slate-100 text-slate-900' : 'border-slate-200 bg-white text-slate-700'}`}>
+                    <span className="font-semibold">Doing this period&apos;s PM instead</span>
+                    <span className="block text-[11px] mt-0.5 opacity-80">The missed PM is recorded as skipped &mdash; NOT as completed.</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* COMPLETE_LATE performs the OLDEST outstanding task; any others
+                  still have to be accounted for, so each gets its own box. */}
+              {pmTaskDialog.entries.map((e, idx) => {
+                const isLateTarget = pmIntent === 'COMPLETE_LATE' && idx === 0;
+                return (
+                  <div key={e.entryId}>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Reason for {String(e.plannedDate).slice(0, 10)}
+                      <span className="font-normal text-slate-400">
+                        {isLateTarget ? ' — performing late' : ' — not performed'}
+                      </span>
+                    </label>
+                    <textarea rows={2}
+                      value={pmReasons[e.entryId] ?? ''}
+                      onChange={ev => setPmReasons(p => ({ ...p, [e.entryId]: ev.target.value }))}
+                      placeholder="Minimum 10 characters"
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-5 py-3.5 border-t border-slate-100 flex gap-3 shrink-0 bg-white">
+              <button type="button"
+                onClick={() => { setPmTaskDialog(null); setPmReasons({}); core.dispatch({ type: 'close' }); }}
+                className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">
+                Cancel
+              </button>
+              <button type="button"
+                disabled={pmTaskDialog.entries.some(e => (pmReasons[e.entryId] ?? '').trim().length < 10)}
+                onClick={() => {
+                  const entries = pmTaskDialog.entries;
+                  const payload: any = {};
+                  if (pmIntent === 'COMPLETE_LATE') {
+                    payload.completeLate = { pmScheduleEntryId: entries[0].entryId, reason: pmReasons[entries[0].entryId].trim() };
+                    const rest = entries.slice(1);
+                    if (rest.length) payload.skips = rest.map(e => ({ pmScheduleEntryId: e.entryId, reason: pmReasons[e.entryId].trim() }));
+                  } else {
+                    payload.skips = entries.map(e => ({ pmScheduleEntryId: e.entryId, reason: pmReasons[e.entryId].trim() }));
+                  }
+                  pmTaskAnswerRef.current = payload;
+                  setPmTaskDialog(null);
+                  void handleReasonSubmit();
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+                Submit &amp; continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {reasonDialog && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end justify-center z-50">
           <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl animate-slide-up">

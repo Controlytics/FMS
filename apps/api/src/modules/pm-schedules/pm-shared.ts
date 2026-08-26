@@ -33,6 +33,45 @@ export async function checkPmEnabled() {
  * inspector different stories. The sweep previously omitted this filter, so any
  * unrelated cleaning silently suppressed/closed an overdue-PM deviation.
  */
+/**
+ * Does a cleaning cycle count toward THIS scheduled PM occurrence?
+ *
+ * PM tasks STACK: an unmet August entry does not stop September's from being
+ * generated, so two open entries for one AHU is normal. Crediting by date
+ * window alone then lets ONE cleaning satisfy BOTH — the September clean falls
+ * after August's windowStart, so the old "late cleans count" rule credited it
+ * to August too, closing two PM tasks and two deviations off a single job. That
+ * records a preventive maintenance that never happened (21 CFR §11).
+ *
+ * The rule, in one place so `pm-due-tasks.ts` (My Tasks) and `pm-deviations.ts`
+ * (the overdue sweep) cannot disagree — they describe the same fact on two
+ * surfaces, and an inspector must not get two different stories:
+ *
+ *   BOUND to this entry   (`cycle.pmScheduleEntryId === entry.id`)
+ *       → counts from windowStart with NO upper bound. This is the deliberate
+ *         "perform the overdue PM late" path: the operator said which task they
+ *         were doing, so a late completion resolves exactly that task.
+ *
+ *   BOUND to another entry
+ *       → never counts here, not even inside this window.
+ *
+ *   UNBOUND (null — a normal cleaning, or any cycle predating this column)
+ *       → counts only INSIDE [windowStart, windowEnd]. A clean that happened
+ *         while the task was genuinely due satisfies it; one performed after
+ *         the window shut does not, because nothing says it was this PM.
+ *
+ * Callers must have already filtered on the PM cleaning reason.
+ */
+export function cycleCreditsEntry(
+  cycle: { pmScheduleEntryId?: string | null },
+  entry: { id: string; windowStart: Date; windowEnd: Date },
+  at: Date,
+): boolean {
+  const bound = cycle.pmScheduleEntryId ?? null;
+  if (bound !== null) return bound === entry.id && at >= entry.windowStart;
+  return at >= entry.windowStart && at <= entry.windowEnd;
+}
+
 export async function resolvePmReasonKeys(): Promise<Set<string> | null> {
   const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-cleaning-reasons' } });
   const raw = cfg?.configValue as any;

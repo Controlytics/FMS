@@ -41,6 +41,7 @@ export async function exportEntriesXlsx(_ctx: RequestContext, year: number): Pro
     { header: 'Month', key: 'month', width: 8 },
     { header: 'Planned Date', key: 'planned', width: 14 },
     { header: 'Tolerance (days)', key: 'tol', width: 14 },
+    { header: 'Frequency (days)', key: 'freq', width: 15 },
     { header: 'Window Start', key: 'ws', width: 14 },
     { header: 'Window End', key: 'we', width: 14 },
     { header: 'Status', key: 'status', width: 12 },
@@ -65,6 +66,9 @@ export async function exportEntriesXlsx(_ctx: RequestContext, year: number): Pro
       month: MONTHS[(e.month ?? 1) - 1] ?? e.month,
       planned: fmt(e.plannedDate),
       tol: e.toleranceDays,
+      // Blank rather than "0"/"-" for a one-off: the column is only meaningful
+      // for recurring schedules, and a zero would read as a real frequency.
+      freq: e.schedule?.frequencyDays ?? '',
       ws: fmt(e.windowStart),
       we: fmt(e.windowEnd),
       status: STATUS_LABEL[e.approvalStatus] ?? e.approvalStatus,

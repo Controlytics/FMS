@@ -27,7 +27,7 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 - ☐ Roles: create, edit, delete, clone-from-template; `creatable` matrix gates who can create whom
 - ☐ `/api/roles/active` is public (contact-admin page must render without auth)
 - ☐ Permission catalog has **102 permissions** (verify against `PERMISSIONS` in `@digilog/shared`)
-- ☐ **83 feature privileges** + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
+- ☐ **84 feature privileges** + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
 - ☐ **26 sidebar items** + `SIDEBAR_PRIVILEGE_MAP` filters by current role
 - ☐ Role scope (`ORGANIZATION`, `TENANT`, etc.) respected on every listing endpoint
 
@@ -42,7 +42,7 @@ Legend: ☐ to verify, ✅ verified, ❌ blocked.
 - ☐ Datetime (locale + format)
 - ☐ User-ID (dynamic prefix/sequence rules, `/validate` endpoint)
 - ☐ Field IDs (label + required overrides per field)
-- ☐ Action reauth (**92** reauth actions across 16 categories)
+- ☐ Action reauth (**93** reauth actions across 16 categories)
 - ☐ Audit templates (default + category + custom overrides)
 - ~~☐ Alarm columns (which columns appear in the alarm table)~~ *(removed 2026-05-17 with the alarm tear-out)*
 - ☐ Pagination (rows per page default)

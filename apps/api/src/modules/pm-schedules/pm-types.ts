@@ -5,7 +5,12 @@
  */
 
 export type DueFilterStatus = 'pending' | 'cleaned_in_window' | 'in_progress';
-export type DueOverallStatus = 'pending' | 'in_progress' | 'complete' | 'overdue';
+// 'skipped' is NOT derived from cleaning cycles like the others - no cleaning
+// happened. It is an operator assertion, persisted on the entry with who/when/
+// why, that a missed PM will not be performed. Deliberately distinct from
+// 'complete': recording a skip as a completion would put a false statement in
+// the audit trail (21 CFR Part 11).
+export type DueOverallStatus = 'pending' | 'in_progress' | 'complete' | 'overdue' | 'skipped';
 
 export interface DueFilterRow {
   filterId: string;
@@ -41,6 +46,12 @@ export interface DueTaskRow {
   totalFilters: number;
   cleanedCount: number;
   overallStatus: DueOverallStatus;
+  /** Set when overallStatus is 'skipped' - the operator's recorded reason. */
+  skipReason?: string | null;
+  skippedByName?: string | null;
+  skippedAt?: Date | null;
+  /** Set when this task was performed late with a recorded justification. */
+  lateReason?: string | null;
   filters: DueFilterRow[];
   // Read-only deviation context (null unless an overdue deviation exists).
   deviation?: DueDeviationContext | null;

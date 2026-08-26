@@ -132,6 +132,11 @@ export const PERMISSIONS = {
   PM_UPLOAD: 'PM_UPLOAD',
   PM_EDIT_ENTRY: 'PM_EDIT_ENTRY',
   PM_RESUBMIT: 'PM_RESUBMIT',
+  // Skipping a scheduled PM is an operator ASSERTION that a preventive
+  // maintenance will not be performed, recorded with a justification. Held
+  // separately from PM_EXECUTE so "can clean" does not imply "can write off a
+  // missed PM" (21 CFR Part 11 segregation of duties).
+  PM_TASK_SKIP: 'PM_TASK_SKIP',
 
   // Cleaning Cycles (Phase 2)
   CYCLE_READ: 'CYCLE_READ',

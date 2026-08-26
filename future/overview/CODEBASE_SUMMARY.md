@@ -92,7 +92,7 @@
 ### Core platform (Phases 1–2)
 - Auth, users, roles
 - **102 permission constants** in `packages/shared/src/types/permissions.ts`
-- **83 feature privileges** + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
+- **84 feature privileges** + `FEATURE_TO_PERMISSION_MAP` (each maps to BOTH frontend visibility perm AND backend route perm)
 - **92 reauth actions** across 16 categories
 - **26 sidebar items** with privilege binding via `sidebar-privilege-map.ts`
 - Audit trail with hash-chain integrity (`apps/api/src/lib/hash-chain.ts`)
@@ -181,7 +181,7 @@ Full detail: `LOCAL_SETUP_WINDOWS.md` at root.
 - Audit action → `packages/shared/src/types/audit-actions.ts`
 - Audit-template (UUID-hiding) → `packages/shared/src/types/audit-templates.ts`
 - ~~Alarm column metadata → `packages/shared/src/types/alarm-columns.ts`~~ *(removed 2026-05-17 with the alarm tear-out)*
-- DB schema → `apps/api/prisma/schema.prisma` (61 models, 23 enums)
+- DB schema → `apps/api/prisma/schema.prisma` (61 models, 24 enums)
 - Migrations → `apps/api/prisma/migrations/`
 - Config def → `apps/api/src/modules/config/defs/<name>.def.ts` (30 files)
 - Config page → `apps/web/src/routes/config/<name>.tsx` (26 files)

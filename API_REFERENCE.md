@@ -331,8 +331,18 @@ DELETE /api/equipment-groups/:id                        Permission: ASSET_DELETE
 GET    /api/pm-schedules                       Permission: PM_READ
 GET    /api/pm-schedules/:id                   Permission: PM_READ
 POST   /api/pm-schedules                       Permission: PM_CREATE, Reauth
+                                               Optional `frequencyDays` (multiple of 30) makes it a
+                                               RECURRING series: `entries` must hold exactly ONE
+                                               anchor, and one PmSchedule row is written per calendar
+                                               year under a shared seriesId.
 PUT    /api/pm-schedules/:id                   Permission: PM_UPDATE, Reauth
 DELETE /api/pm-schedules/:id                   Permission: PM_DELETE, Reauth
+GET    /api/pm-schedules/pending-context       Permission: PM_READ | FILTER_OPERATE
+                                               ?ahuId= or ?filterId= — outstanding + currently-due PM
+                                               tasks for an AHU. Drives the missed-PM dialog.
+GET    /api/pm-schedules/pending-tasks-map     Permission: PM_READ | FILTER_OPERATE
+                                               Site-wide map of AHUs owing an earlier PM, keyed by
+                                               AHU id. Cached by the tablet so the gate fires offline.
 
 GET    /api/pm-schedules/:id/entries           Permission: PM_READ
 POST   /api/pm-schedules/:id/entries           Permission: PM_CREATE

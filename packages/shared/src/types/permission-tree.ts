@@ -726,6 +726,10 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'refresh', category: 'PM Schedules', permissions: ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
         reauthAction: 'RESUBMIT_PM_ENTRY', enforce: 'a',
         gate: ['PM_RESUBMIT'], configurable: true }, // 5C: per-action UI intent (old canResubmit=PM_RESUBMIT)
+      { id: 'pm.skip_task', label: 'Skip Overdue PM Task (with reason)', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Skip Task',
+        icon: 'x-circle', category: 'PM Schedules', permissions: ['PM_TASK_SKIP', 'PM_READ'],
+        reauthAction: 'SKIP_PM_TASK', enforce: 'a',
+        gate: ['PM_TASK_SKIP'], configurable: true },
       { id: 'pm.reject', label: 'Reject PM Schedule', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Reject',
         icon: 'x-circle', category: 'PM Schedules', permissions: ['PM_APPROVE', 'PM_READ'],
         reauthAction: 'REJECT_PM_SCHEDULE', enforce: 'a',
@@ -851,7 +855,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'cleaning_profiles.view', 'cleaning_profiles.create', 'cleaning_profiles.edit', 'cleaning_profiles.delete', // .toggle enforced-only 2026-07-01
   'filter_profiles.view', 'filter_profiles.create', 'filter_profiles.edit', 'filter_profiles.delete', 'filter_profiles.assign',
   'cycles.view',
-  'pm.view', 'pm.create', 'pm.edit', 'pm.delete', 'pm.execute', 'pm.approve', 'pm.review', 'pm.download_template', 'pm.upload', 'pm.edit_entry', 'pm.resubmit',
+  'pm.view', 'pm.create', 'pm.edit', 'pm.delete', 'pm.execute', 'pm.approve', 'pm.review', 'pm.download_template', 'pm.upload', 'pm.edit_entry', 'pm.resubmit', 'pm.skip_task',
   'equipment_groups.view', 'equipment_groups.create', 'equipment_groups.edit', 'equipment_groups.delete',
   'admin_requests.approve', 'admin_requests.reject',
   'debug.view', 'debug.manage',

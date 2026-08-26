@@ -1087,12 +1087,28 @@ model PmSchedule {
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
+  // ─── Recurring series (frequency_days, 2026-08-26) ──────────────────────
+  // NULL frequencyDays = a legacy one-off schedule; behaviour unchanged.
+  // Accepted values are MULTIPLES OF 30 only: 30 days means one calendar month,
+  // so the PM keeps the same day-of-month forever (see pm-recurrence.ts).
+  frequencyDays Int?      @map("frequency_days")
+  // First occurrence — every later occurrence is computed as anchor + k months,
+  // never by stepping off the previous one (stepping decays the day-of-month
+  // permanently after the first short month: 31 Jan → 28 Feb → 28 Mar → …).
+  anchorDate    DateTime? @map("anchor_date") @db.Date
+  // A series spans calendar years, but PmSchedule is unique per (entity, year,
+  // version) and PmScheduleEntry carries no year — so one series is stored as
+  // one PmSchedule row PER YEAR, tied together by this id. Used by the rollover
+  // job and by supersede-on-re-upload.
+  seriesId      String?   @map("series_id") @db.Uuid
+
   entries        PmScheduleEntry[]
   filterProfiles FilterProfile[]
 
   @@unique([entityId, year, version])
   @@index([entityId, status])
   @@index([year])
+  @@index([seriesId])
   @@map("pm_schedules")
 }
 
@@ -1132,6 +1148,27 @@ model PmScheduleEntry {
   pendingEditAt        DateTime? @map("pending_edit_at") @db.Timestamptz
 
   manualEntry Boolean @default(false) @map("manual_entry") // manual data-mgmt insert
+
+  // ─── Missed-PM resolution (2026-08-26) ──────────────────────────────────
+  // Tasks STACK: an unmet August entry does not stop September's from being
+  // generated, so an operator can be standing in front of an AHU with an older
+  // task still open. Two documented ways out, both captured at start-cycle:
+  //
+  //   Path A — perform THIS missed PM late.       → lateReason* below
+  //   Path B — perform a LATER PM instead and
+  //            justify skipping this one.          → skipped* below
+  //
+  // These MUST be stored, not derived. Every other task status in
+  // pm-due-tasks.ts is computed at read time from cleaning-cycle timestamps,
+  // but "skipped" has no cleaning behind it — it is an operator assertion, and
+  // a §11 record needs who / when / why on the row itself.
+  skippedAt     DateTime? @map("skipped_at") @db.Timestamptz
+  skippedBy     String?   @map("skipped_by") @db.Uuid
+  skippedByName String?   @map("skipped_by_name") @db.VarChar(255)
+  skipReason    String?   @map("skip_reason")
+  lateReason    String?   @map("late_reason")
+  lateReasonBy  String?   @map("late_reason_by") @db.Uuid
+  lateReasonAt  DateTime? @map("late_reason_at") @db.Timestamptz
 
   schedule   PmSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   executions PmExecution[]
@@ -1300,6 +1337,22 @@ enum DeviationStatus {
   @@map("deviation_status")
 }
 
+// HOW a deviation reached CLOSED. Null on rows closed before this existed and on
+// rows that are not yet closed.
+//   COMPLETED_LATE — the operator performed the missed PM after its window shut,
+//                    with a recorded lateness reason. The PM happened.
+//   SKIPPED        — the operator performed a LATER scheduled PM instead and
+//                    justified skipping this one. The PM did NOT happen.
+// The distinction is not cosmetic: recording a skip as a completion would assert
+// in the audit trail that a preventive maintenance was carried out when it was
+// not (21 CFR §11).
+enum DeviationClosureKind {
+  COMPLETED_LATE
+  SKIPPED
+
+  @@map("deviation_closure_kind")
+}
+
 model Deviation {
   id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   deviationNumber      String          @unique @default(dbgenerated("('DEV-' || lpad((nextval('deviation_number_seq'))::text, 6, '0'))")) @map("deviation_number") @db.VarChar(40)
@@ -1325,6 +1378,10 @@ model Deviation {
   delayDays            Int?            @map("delay_days") // completedAt − scheduledDate
   closedAt             DateTime?       @map("closed_at") @db.Timestamptz
   completionNotifiedAt DateTime?       @map("completion_notified_at") @db.Timestamptz // completion-notification guard
+  // How this deviation was resolved, and the operator's justification. Both set
+  // together at closure. NULL on rows closed before 2026-08-26 and on open rows.
+  closureKind          DeviationClosureKind? @map("closure_kind")
+  closureReason        String?               @map("closure_reason")
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -1487,6 +1544,18 @@ model CleaningCycle {
   terminationReason     String?             @map("termination_reason")
   cleaningAreaId        String?             @map("cleaning_area_id") @db.Uuid
   pmExecutionId         String?             @map("pm_execution_id") @db.Uuid
+  // Which scheduled PM occurrence this cycle is being performed FOR. Set by the
+  // start-cycle reason gate; NULL for non-PM cleanings and legacy rows.
+  //
+  // This binding is what stops ONE cleaning from satisfying TWO PM tasks. Tasks
+  // stack, so an August-overdue and a September-due entry can both be open when
+  // a cleaning happens; crediting by date window alone would close both and
+  // assert in the audit trail that two preventive maintenances occurred.
+  //
+  // Deliberately NOT reusing `pmExecutionId` above: it has zero code references
+  // anywhere in the repo (verified 2026-08-26) and points at PmExecution, whose
+  // status never advances (see pm-executions.ts header).
+  pmScheduleEntryId     String?             @map("pm_schedule_entry_id") @db.Uuid
   cleaningReasonKey     String              @map("cleaning_reason_key") @db.VarChar(100)
   cleaningReasonLabel   String              @map("cleaning_reason_label") @db.VarChar(255)
   cleaningJustification String?             @map("cleaning_justification")
@@ -1536,6 +1605,7 @@ model CleaningCycle {
   @@index([startedAt])
   @@index([cleaningReasonKey])
   @@index([pmExecutionId])
+  @@index([pmScheduleEntryId]) // PM task credit lookup (pm-due-tasks / deviation sweep)
   @@index([filterId, status, startedAt(sort: Desc)])
   @@index([equipmentGroupId]) // audit 2026-06-08: FK scanned on group edit/delete
   @@index([profileId])        // audit 2026-06-08: FK scanned on profile in-use checks

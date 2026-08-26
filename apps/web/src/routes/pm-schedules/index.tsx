@@ -23,15 +23,71 @@ interface UploadResult {
   imported: number;
   skipped: number;
   details: {
-    imported: Array<{ row: number; ahuName: string; plannedDate: string; scheduleId: string; entryId: string }>;
+    // One record per CREATED ENTRY — a recurring row expands to many.
+    imported: Array<{ row: number; ahuName: string; plannedDate: string; scheduleId: string; entryId: string; frequencyDays?: number | null }>;
     skipped: Array<{ row: number; reason: string; data?: any }>;
   };
+}
+
+/**
+ * Recurrence options offered for a PM schedule.
+ *
+ * Only MULTIPLES OF 30 are accepted by the backend: 30 days means one calendar
+ * month, which is what lets the PM keep the same day-of-month every time. The
+ * server re-validates (pm-recurrence.validateFrequency) — this list exists so an
+ * operator cannot type a value that will only be refused after submitting.
+ */
+const FREQUENCY_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 0, label: 'One-time only (no repeat)' },
+  { value: 30, label: 'Every 30 days (monthly)' },
+  { value: 60, label: 'Every 60 days (2 months)' },
+  { value: 90, label: 'Every 90 days (quarterly)' },
+  { value: 180, label: 'Every 180 days (half-yearly)' },
+  { value: 360, label: 'Every 360 days (yearly)' },
+];
+
+const frequencyLabel = (days: number) => {
+  const months = days / 30;
+  if (months === 1) return 'Monthly';
+  if (months === 3) return 'Quarterly';
+  if (months === 6) return 'Half-yearly';
+  if (months === 12) return 'Yearly';
+  return `${days} days`;
+};
+
+/**
+ * Preview the first few dates a frequency would generate.
+ *
+ * MUST mirror `apps/api/src/modules/pm-schedules/pm-recurrence.ts`: add whole
+ * calendar months to the ANCHOR (never step off the previous date, which decays
+ * the day-of-month permanently after the first short month), and clamp into
+ * short months (31 Jan → 28 Feb → 31 Mar). This is display-only — the server
+ * generates the real entries — but a preview that disagreed with what gets
+ * saved would be worse than no preview at all.
+ */
+function previewDates(anchorIso: string, frequencyDays: number, count = 6): string[] {
+  if (!anchorIso || !frequencyDays) return [];
+  const [y, m, d] = anchorIso.split('-').map(Number);
+  if (!y || !m || !d) return [];
+  const monthStep = frequencyDays / 30;
+  const out: string[] = [];
+  for (let k = 0; k < count; k++) {
+    const absolute = (m - 1) + k * monthStep;
+    const year = y + Math.floor(absolute / 12);
+    const month = ((absolute % 12) + 12) % 12;
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const day = Math.min(d, lastDay);
+    out.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+  }
+  return out;
 }
 
 interface ScheduleEntry {
   id: string; scheduleId: string; ahuId: string; ahuName: string;
   month: number; plannedDate: string; toleranceDays: number;
   windowStart: string; windowEnd: string;
+  // Recurrence, read off the parent schedule. null = a one-off entry.
+  frequencyDays?: number | null; anchorDate?: string | null; seriesId?: string | null;
   approvalStatus: 'PENDING' | 'PENDING_REVIEW' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
   approvalRemarks: string | null;
   approvedByName: string | null; approvedAt: string | null;
@@ -157,6 +213,9 @@ export function PmScheduleListPage() {
     ahuId: '',
     plannedDate: '',
     toleranceDays: 7,
+    // 0 = one-time only. Any other value must be a multiple of 30 (see
+    // FREQUENCY_OPTIONS); the backend re-validates and refuses otherwise.
+    frequencyDays: 0,
   });
   // Set when the chosen AHU already has an active schedule for the chosen year —
   // drives the "overwrite?" confirmation. `approved` gates the pending-edit path:
@@ -477,7 +536,7 @@ export function PmScheduleListPage() {
   const resetCreate = () => {
     setCreateDialog(false);
     setCreatingSchedule(false);
-    setCreateForm({ ahuId: '', plannedDate: '', toleranceDays: 7 });
+    setCreateForm({ ahuId: '', plannedDate: '', toleranceDays: 7, frequencyDays: 0 });
   };
 
   // Single entry derived from the current form (month/year come from the date).
@@ -491,6 +550,9 @@ export function PmScheduleListPage() {
     const body = {
       entityId: createForm.ahuId,
       year,
+      // 0 -> null: the backend treats null/0/absent identically (one-off), but
+      // sending null keeps the intent explicit in the request log.
+      frequencyDays: createForm.frequencyDays || null,
       entries: [{ month, plannedDate: createForm.plannedDate, toleranceDays: createForm.toleranceDays }],
     };
     setCreatingSchedule(true);
@@ -557,6 +619,15 @@ export function PmScheduleListPage() {
     } catch { /* treat as "no existing" and let create() report any real error */ }
     setCreatingSchedule(false);
     const firstEntry = existing && Array.isArray(existing.entries) && existing.entries.length > 0 ? existing.entries[0] : null;
+    // Recurring create goes straight to the backend. The "overwrite" path below
+    // stages a pending EDIT on ONE existing entry, which cannot express
+    // replacing a whole multi-year series — offering it here would quietly do
+    // something other than what the operator asked for. The server checks every
+    // year the series would cover and 409s naming them, which surfaces as a toast.
+    if (createForm.frequencyDays > 0) {
+      doCreate(year, month);
+      return;
+    }
     if (existing && existing.id && firstEntry) {
       const existingDate = firstEntry.plannedDate ? isoToDateInput(firstEntry.plannedDate, datetimeTz) : String(year);
       const ahuName = ahuInstances.find((a: any) => a.id === createForm.ahuId)?.name ?? 'this AHU';
@@ -867,6 +938,7 @@ export function PmScheduleListPage() {
                   <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">AHU</th>
                   <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Scheduled Date</th>
                   <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Tolerance</th>
+                  <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Frequency</th>
                   <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Window</th>
                   <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Approved By</th>
@@ -961,6 +1033,20 @@ export function PmScheduleListPage() {
                                 style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as any} />
                             ) : (
                               <span className="text-sm text-slate-500 font-medium">{entry.toleranceDays} days</span>
+                            )}
+                          </td>
+                          {/* Recurrence. A one-off entry shows a dash rather than
+                              "0 days", which would read as a real frequency. */}
+                          <td className="px-5 py-3 whitespace-nowrap">
+                            {entry.frequencyDays ? (
+                              <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-semibold"
+                                    style={{ color: 'var(--theme-primary-dark)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}
+                                    title={`Repeats every ${entry.frequencyDays} days on the same date${entry.anchorDate ? ` (from ${formatDate(entry.anchorDate)})` : ''}`}>
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                {frequencyLabel(entry.frequencyDays)}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-300">--</span>
                             )}
                           </td>
                           <td className="px-5 py-3 text-sm text-slate-400 tabular-nums whitespace-nowrap">
@@ -1178,14 +1264,19 @@ export function PmScheduleListPage() {
       {createDialog && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
              onClick={() => !creatingSchedule && setCreateDialog(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+          {/* max-h + internal scroll: with a frequency chosen the body grows by
+              the date preview and the overlap warning, which pushed the
+              Cancel / Create buttons off-screen on a short viewport (a tablet in
+              landscape) and left the dialog impossible to dismiss or submit. */}
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
                onClick={e => e.stopPropagation()}>
-            <div className="h-1.5" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }} />
-            <div className="px-6 py-5 space-y-4">
+            <div className="h-1.5 shrink-0" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }} />
+            <div className="px-6 py-5 space-y-4 overflow-y-auto">
               <h2 className="text-base font-bold text-slate-800">New PM Schedule</h2>
               <p className="text-sm text-slate-500 -mt-2">
-                Schedules one PM for the selected AHU on the chosen date. An AHU can
-                have one PM schedule per year.
+                Schedules a PM for the selected AHU on the chosen date. Leave Repeat as
+                one-time for a single PM, or pick a frequency to repeat it on the same
+                date. An AHU can have one active schedule per year.
               </p>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">AHU</label>
@@ -1217,8 +1308,60 @@ export function PmScheduleListPage() {
                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
                 <p className="text-xs text-slate-400 mt-1">Window: planned date ± tolerance days.</p>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Repeat</label>
+                <select value={createForm.frequencyDays}
+                        onChange={e => setCreateForm(f => ({ ...f, frequencyDays: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100 bg-white">
+                  {FREQUENCY_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">
+                  The PM repeats on the <span className="font-medium">same date</span> each time — only the month changes.
+                </p>
+              </div>
+
+              {/* Live preview. The operator sees the actual dates BEFORE saving,
+                  so a short-month clamp (31 Jan → 28 Feb) is never a surprise. */}
+              {createForm.frequencyDays > 0 && createForm.plannedDate && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <p className="text-[11px] font-semibold text-slate-600 mb-1.5">
+                    Next PM dates <span className="font-normal text-slate-400">(first 6)</span>
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {previewDates(createForm.plannedDate, createForm.frequencyDays).map((d, i) => (
+                      <span key={d}
+                            className={`text-[11px] px-2 py-0.5 rounded-md border tabular-nums ${i === 0 ? 'font-semibold' : ''}`}
+                            style={i === 0
+                              ? { color: 'var(--theme-primary-dark)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }
+                              : { color: '#475569', backgroundColor: '#fff', borderColor: '#e2e8f0' }}>
+                        {formatDate(d)}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    Dates are generated through the end of next year, then extended automatically.
+                    Uploading a new schedule for this AHU replaces the series.
+                  </p>
+                </div>
+              )}
+
+              {/* 2 × tolerance must stay clear of the shortest real gap between
+                  PMs (28 days for a monthly one — Jan 31 → Feb 28), or one
+                  cleaning would fall inside two windows. The backend refuses it;
+                  warn here so the operator finds out before submitting. */}
+              {createForm.frequencyDays > 0 && 2 * createForm.toleranceDays >= (createForm.frequencyDays === 30 ? 28 : createForm.frequencyDays - 2) && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                  <p className="text-[11px] text-amber-800">
+                    A tolerance of {createForm.toleranceDays} days is too wide for this frequency —
+                    consecutive PM windows would overlap and one cleaning could satisfy two tasks.
+                    Reduce the tolerance{createForm.frequencyDays === 30 ? ' to 13 days or fewer' : ''}.
+                  </p>
+                </div>
+              )}
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3 shrink-0 bg-white">
               <button type="button" onClick={() => setCreateDialog(false)} disabled={creatingSchedule}
                       className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
                 Cancel

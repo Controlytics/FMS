@@ -36,7 +36,14 @@ interface TaskRow {
   windowEnd: string;
   totalFilters: number;
   cleanedCount: number;
-  overallStatus: 'pending' | 'in_progress' | 'complete' | 'overdue';
+  overallStatus: 'pending' | 'in_progress' | 'complete' | 'overdue' | 'skipped';
+  // Set when overallStatus is 'skipped' - an operator recorded that this
+  // scheduled PM was NOT performed and will not be. Deliberately distinct from
+  // 'complete': the maintenance did not happen.
+  skipReason?: string | null;
+  skippedByName?: string | null;
+  skippedAt?: string | null;
+  lateReason?: string | null;
   filters: FilterRow[];
   deviation?: DeviationContext | null;
 }
@@ -58,6 +65,8 @@ const STATUS_META: Record<TaskRow['overallStatus'], { label: string; bg: string;
   in_progress: { label: 'In Progress', bg: 'bg-cyan-50',     text: 'text-cyan-700',     dot: 'bg-cyan-500',     border: 'border-cyan-200' },
   complete:    { label: 'Completed',   bg: 'bg-emerald-50',  text: 'text-emerald-700',  dot: 'bg-emerald-500',  border: 'border-emerald-200' },
   overdue:     { label: 'Overdue',     bg: 'bg-rose-50',     text: 'text-rose-700',     dot: 'bg-rose-500',     border: 'border-rose-200' },
+  // Slate, not emerald: a skipped PM must never read as a completed one.
+  skipped:     { label: 'Skipped',     bg: 'bg-slate-100',   text: 'text-slate-600',    dot: 'bg-slate-400',    border: 'border-slate-300' },
 };
 
 const FILTER_STATUS_META: Record<FilterRow['status'], { label: string; cls: string; dot: string }> = {
@@ -482,9 +491,35 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate, formatDateT
       <div className={`h-1.5 bg-gradient-to-r ${
         task.overallStatus === 'overdue' ? 'from-rose-400 to-rose-500'
         : task.overallStatus === 'complete' ? 'from-emerald-400 to-emerald-500'
+        : task.overallStatus === 'skipped' ? 'from-slate-300 to-slate-400'
         : 'from-teal-400 to-cyan-500'
       }`} />
       <div className="p-5">
+        {/* The operator's recorded justification. A skipped PM stays VISIBLE with
+            its reason rather than disappearing - the miss and why it was
+            accepted are exactly what an inspector needs to see. */}
+        {task.overallStatus === 'skipped' && task.skipReason && (
+          <div className="mb-4 rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2.5">
+            <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide mb-1">
+              Not performed as scheduled
+            </p>
+            <p className="text-sm text-slate-700">{task.skipReason}</p>
+            {(task.skippedByName || task.skippedAt) && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                Recorded by {task.skippedByName ?? 'unknown'}
+                {task.skippedAt ? ` on ${formatDate(task.skippedAt)}` : ''}
+              </p>
+            )}
+          </div>
+        )}
+        {task.overallStatus === 'complete' && task.lateReason && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+            <p className="text-[11px] font-semibold text-amber-800 uppercase tracking-wide mb-1">
+              Completed late
+            </p>
+            <p className="text-sm text-amber-900">{task.lateReason}</p>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shrink-0">
@@ -506,7 +541,7 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate, formatDateT
                   <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
                   {meta.label}
                 </span>
-                {task.deviation && task.deviation.status !== 'CLOSED' && task.overallStatus !== 'complete' && (
+                {task.deviation && task.deviation.status !== 'CLOSED' && task.overallStatus !== 'complete' && task.overallStatus !== 'skipped' && (
                   <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200"
                     title={`Deviation ${task.deviation.deviationNumber}`}>
                     Overdue by {task.deviation.overdueDays} day{task.deviation.overdueDays === 1 ? '' : 's'}

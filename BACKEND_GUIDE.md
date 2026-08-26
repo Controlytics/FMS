@@ -217,7 +217,7 @@ Automated end-to-end test suites (`*.test.ts`) — Vitest-driven, hits a live te
 
 **Note:** Phase 2/3/4/5 features (filter operations, RFID, offline replay, reports, block-change, PM My Tasks) do NOT yet have e2e tests. The archived `tests/manual-test-cases/` only covered Phase 1 — those remain a gap (logged in `PHASE_5_RECENT_WORK.md` § 11).
 
-## Database Schema (61 models, 23 enums)
+## Database Schema (61 models, 24 enums)
 
 > `apps/api/prisma/schema.prisma` is authoritative. The lists below are grouped highlights (deleted Phase 6/7 models — `Organization`, `DeviceCredential`, `RuleChain*`, `Alarm`, `ConnectivityStatus`, `DataStream`, `LatestTelemetry`, `DeadLetterQueue`, `IngestionSystemConfig`, `QrCode`, `UnsMapping` — removed; newer typed-hierarchy sidecars `Block`/`Area`/`Ahu`/`Filter` + `FilterDetails` not all listed).
 

@@ -1,5 +1,77 @@
 # Changelog
 
+## [Unreleased] - Recurring PM schedules (`frequency_days`) + missed-PM reason gate (2026-08-26)
+
+### Added - a PM schedule can now repeat on the same date
+
+`frequency_days` on the CSV/XLSX template, the single-create dialog, the bulk
+upload and the PM Schedules table. Multiples of **30 only** - 30 days means one
+calendar month, which is what lets the PM keep the **same day-of-month** every
+time. 31 Jan clamps to 28/29 Feb and recovers to 31 Mar; every occurrence is
+computed from the anchor, never by stepping off the previous one. The create
+dialog previews the first six generated dates before anything is saved.
+
+Occurrences are materialised as real rows through 31 Dec of next year (My Tasks
+filters on `approvalStatus`, `Deviation.pmScheduleEntryId` is UNIQUE and
+`PmExecution.scheduleEntryId` is an FK, so they cannot be virtual). A series
+spanning years is stored as one `PmSchedule` row per year under a shared
+`seriesId`. A **03:30 rollover job** extends every live series; a re-upload
+supersedes the previous one but retains anything past, executed,
+deviation-linked or justified.
+
+Refused at input, with the numbers named: non-multiples of 30, anything under
+30, and a tolerance wide enough to overlap. That last check measures against the
+**shortest real calendar gap** (28 days, not the nominal 30), so the maximum
+usable tolerance at frequency 30 is **13** days - a subtlety a unit test caught
+before it shipped.
+
+### Changed - an overdue PM is no longer cleared by an unrelated later cleaning
+
+PM tasks now **stack**: an unmet August entry does not stop September's from
+generating, and both appear as separate tasks. That exposed a defect in the old
+credit rule, which counted any PM cleaning completed after an entry's
+`windowStart` - so one September cleaning satisfied BOTH tasks and closed BOTH
+deviations, recording a preventive maintenance that never happened.
+
+`cycleCreditsEntry()` is now the single credit predicate, used by My Tasks in JS
+and by the deviation sweep as SQL. A cycle **bound** to an entry counts from
+`windowStart` with no upper bound; an **unbound** cycle counts only inside its
+window; a cycle bound elsewhere never counts.
+
+### Added - the missed-PM reason gate
+
+Starting a PM cleaning on an AHU that still owes an earlier PM returns **409
+`PM_PREVIOUS_TASK_PENDING`** with the outstanding entries unless the request
+accounts for every one of them:
+
+- **Perform it late** - the cycle binds to the old entry and the lateness reason
+  is recorded.
+- **Skip it** - the entry is written off with a justification and its deviation
+  closes as `SKIPPED`. Never marked complete: the PM did not happen, and
+  recording it as done would put a false statement in the audit trail.
+
+Asked **once per AHU**, not once per tag. Enforced server-side on both the
+single start-cycle and `bulk-operate`. Skipping needs its own permission
+(`PM_TASK_SKIP`) and its own re-auth action (`SKIP_PM_TASK`) - holding
+`FILTER_OPERATE` lets an operator clean, but must not by itself let them write
+off a missed PM. The tablet caches the outstanding-task map beside its
+blocked-filter set so the dialog still fires offline.
+
+My Tasks renders a skipped task in slate (never emerald) with its reason
+visible; the Deviations page distinguishes SKIPPED from LATE closures.
+
+### Schema
+
+Migration `20260826075635_pm_frequency_days_and_missed_pm_resolution` - purely
+additive: 1 enum (`DeviationClosureKind`), 13 nullable columns, 2 indexes.
+Nothing dropped, narrowed or re-typed. Drift guard PASS on both databases.
+
+Counts: permissions 102 -> 103, reauth actions 92 -> 93, feature privileges
+83 -> 84, enums 23 -> 24.
+
+Plan + full decision log: `tasks/PM-FREQUENCY-DAYS-PLAN.md`.
+
+
 ## [Unreleased] — Block → AHU scope filter on Replacement + Retirement lists (2026-08-20)
 
 ### Added — cascading Block / AHU dropdowns that scope the displayed history

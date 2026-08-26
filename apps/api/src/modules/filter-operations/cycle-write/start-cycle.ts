@@ -128,6 +128,21 @@ export async function startCycleImpl(
     throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Justification required (min 10 characters) for this cleaning reason');
   }
 
+  // ── Missed-PM reason gate (2026-08-26) ────────────────────────────────────
+  // PM tasks stack, so this AHU may still have an unresolved PM from an earlier
+  // period. Before recording new PM work the operator must account for it:
+  // perform it late (the cycle binds to that entry) or write it off with a
+  // reason. SOFT gate — it demands an explanation, never blocks the work.
+  //
+  // Offline replay is EXEMPT, mirroring the replacement gate above: the tablet
+  // already collected the answer at scan time and it rides along in the queued
+  // payload; re-deriving it on replay against a since-changed server state
+  // could strand a legitimately-queued start.
+  const { resolvePmGate } = await import('../../pm-schedules/pm-task-gate.js');
+  const pmGate = ctx.isOfflineReplay
+    ? { bindEntryId: (data.pmTask?.bindEntryId as string | undefined) ?? null, apply: null }
+    : await resolvePmGate(ctx, filterId, data.pmTask, cleaningReasonKey);
+
   const prevCycleCount = await prisma.cleaningCycle.count({ where: { filterId } });
   const seq = prevCycleCount + 1;
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -266,6 +281,10 @@ export async function startCycleImpl(
         cleaningAreaId: cleaningAreaId ?? null,
         equipmentGroupId: boundEquipmentGroupId, // #eqpin: block's sole group auto-bound at start
         equipmentGroupVersionPin, // P1: version frozen at start (null only when no group resolvable)
+        // Which scheduled PM occurrence this cycle is performed FOR. Null for a
+        // non-PM clean. This binding is what stops one cleaning from crediting
+        // two stacked PM tasks — see cycleCreditsEntry (pm-shared.ts).
+        pmScheduleEntryId: pmGate.bindEntryId,
         ...(offlineTime && { startedAt: offlineTime }),
       },
     });
@@ -318,6 +337,29 @@ export async function startCycleImpl(
 
     return newCycle;
   });
+
+  // Record the missed-PM decisions AFTER the cycle exists. Deliberately outside
+  // the cycle transaction: a PM task must never be written off by a start that
+  // then rolled back, and conversely a bookkeeping failure here must not undo a
+  // cleaning the operator has already begun. A failure leaves the older task
+  // still open — visible, and re-answerable on the next start — which is the
+  // safe direction to fail in.
+  if (pmGate.apply) {
+    try {
+      await pmGate.apply(cycle.id);
+    } catch (pmErr) {
+      // Swallowed on purpose (see above), but never silently: the cycle is
+      // live and the task is still outstanding, which an operator must be able
+      // to see in the trail.
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'CYCLE_STARTED', targetType: 'cleaning_cycle', targetId: cycle.id,
+        afterValue: { pmGateApplyFailed: true, error: (pmErr as any)?.message ?? String(pmErr) },
+        reason: 'Cleaning started, but recording the previous PM task decision failed — the earlier PM task remains outstanding',
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      }).catch(() => {});
+    }
+  }
 
   return cycle;
 }

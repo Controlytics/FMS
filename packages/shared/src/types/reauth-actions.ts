@@ -173,6 +173,9 @@ export const REAUTH_ACTIONS = {
   START_PM_TASK: { label: 'Start PM Task', category: 'PM Schedules' },
   RESUBMIT_PM_ENTRY: { label: 'Resubmit PM Entry', category: 'PM Schedules' },
   ACKNOWLEDGE_PM_OVERDUE: { label: 'Acknowledge Overdue PM Task', category: 'PM Schedules' },
+  // Writing off a missed PM with a reason. Password-challenged because it is a
+  // signed statement that a scheduled maintenance did NOT happen.
+  SKIP_PM_TASK: { label: 'Skip Overdue PM Task (with reason)', category: 'PM Schedules' },
   CREATE_EQUIPMENT_GROUP: { label: 'Create Equipment Group', category: 'Equipment Groups' },
   UPDATE_EQUIPMENT_GROUP: { label: 'Update Equipment Group', category: 'Equipment Groups' },
   DELETE_EQUIPMENT_GROUP: { label: 'Delete Equipment Group', category: 'Equipment Groups' },
