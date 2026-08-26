@@ -78,9 +78,9 @@
 
 ### Infrastructure (Windows-local-only; see `DEPLOY-WINDOWS.md`)
 - **Platform target:** Windows local install (PostgreSQL 18 vanilla, optional Nginx as reverse proxy). *(No TimescaleDB, no Mosquitto/MQTT broker, no Memurai/Redis — all removed 2026-05 / 2026-06.)*
-- **Databases:** PostgreSQL 18 — single `digilog_db` (app + `graphile_worker` schema for queue). *(The `digilog_tsdb` telemetry DB + TimescaleDB were dropped 2026-06-17.)*
+- **Databases:** PostgreSQL 18 — single `digilog_db`. *(The `digilog_tsdb` telemetry DB + TimescaleDB were dropped 2026-06-17.)*
 - ~~**Broker:** Mosquitto 2.0 (MQTT 1883)~~ *(removed 2026-06-17 — no MQTT broker anymore)*
-- **Job queue:** graphile-worker on PostgreSQL (no separate queue service)
+- **Scheduler:** in-process node-cron in `apps/api/src/app.ts` (no job queue — `packages/queue` deleted 2026-08-26)
 - ~~**Cache / pub-sub:** Memurai ≥5 / Redis~~ *(removed 2026-05-01 — pub/sub is now in-process; queue is on Postgres)*
 - **Production deployment:** the `DigiLog-Setup-<ver>.exe` installer (built by `scripts/build-installer.ps1`; runs `install.ps1`→`provision-db.ps1`+`register-services.ps1`). *(The old `package-for-production.ps1` / `install-on-target.ps1` scripts were removed 2026-07-04 — see `docs/PHARMA_DEPLOYMENT_21CFR.md`.)*
 - **Optional:** `docker-compose.yml` for a containerized dev stack

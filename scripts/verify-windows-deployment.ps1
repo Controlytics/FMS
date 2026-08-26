@@ -7,7 +7,6 @@
     the stack are alive after a DigiLog install/upgrade has finished:
 
         1. API /api/health responds 200
-        2. graphile_worker schema exists in the application database
 
     (The former report-generation/PDF check was removed 2026-07-04 with the
     server-side reports generate/sign engine — /api/reports and /api/report-templates
@@ -174,8 +173,8 @@ try {
 
 Set-CertCallback -Skip:$Insecure
 
-# ───── [1/2] API health ──────────────────────────────────
-Write-Host "[1/2] Checking API health..." -ForegroundColor Cyan
+# ───── [1/1] API health ──────────────────────────────────
+Write-Host "[1/1] Checking API health..." -ForegroundColor Cyan
 try {
     $healthUrl = "$ApiBase/api/health"
     $resp = Invoke-Api -Method GET -Url $healthUrl
@@ -193,72 +192,6 @@ try {
     Add-Result 'API health (GET /api/health)' 'FAIL' $msg
     Write-Host "     FAIL: $msg" -ForegroundColor Red
 }
-
-# ───── [2/2] graphile_worker schema ──────────────────────
-Write-Host ""
-Write-Host "[2/2] Checking graphile_worker schema..." -ForegroundColor Cyan
-try {
-    $psqlOk = $false
-    try {
-        $null = & psql --version
-        if ($LASTEXITCODE -eq 0) { $psqlOk = $true }
-    } catch {}
-    if (-not $psqlOk) {
-        Add-Result 'graphile_worker schema' 'WARN' 'psql not on PATH'
-        Write-Host "     WARN: psql not on PATH; install Postgres client tools or add bin to PATH" -ForegroundColor Yellow
-    } else {
-        $dbUrl = Read-EnvVar 'DATABASE_URL'
-        if (-not $dbUrl) {
-            Add-Result 'graphile_worker schema' 'WARN' 'DATABASE_URL not in .env'
-            Write-Host "     WARN: DATABASE_URL not found in .env; cannot run psql query" -ForegroundColor Yellow
-        } else {
-            $dsn = Parse-DatabaseUrl $dbUrl
-            if (-not $dsn) {
-                Add-Result 'graphile_worker schema' 'WARN' 'DATABASE_URL not parseable'
-                Write-Host "     WARN: could not parse DATABASE_URL" -ForegroundColor Yellow
-            } else {
-                $prevPg = $env:PGPASSWORD
-                $stderrFile = [System.IO.Path]::GetTempFileName()
-                try {
-                    $env:PGPASSWORD = $dsn.Pass
-                    Write-Host "     querying $($dsn.User)@$($dsn.Host):$($dsn.Port)/$($dsn.Db)" -ForegroundColor DarkGray
-                    $sql = 'SELECT count(*) FROM graphile_worker.jobs;'
-                    # -t (tuples only), -A (unaligned), -X (skip psqlrc), -v ON_ERROR_STOP=1
-                    # Redirect stderr to a file (NOT 2>&1) — PowerShell 5.1 wraps
-                    # native stderr lines in NativeCommandError records that flip
-                    # $? to false and pollute $out with ErrorRecord objects.
-                    $out = & psql -h $dsn.Host -p $dsn.Port -U $dsn.User -d $dsn.Db -X -A -t -v 'ON_ERROR_STOP=1' -c $sql 2> $stderrFile
-                    $exit = $LASTEXITCODE
-                    if ($exit -eq 0) {
-                        $count = ($out | Select-Object -First 1).ToString().Trim()
-                        Add-Result 'graphile_worker schema' 'PASS' "jobs row count = $count"
-                        Write-Host "     PASS (graphile_worker.jobs reachable, count=$count)" -ForegroundColor Green
-                    } else {
-                        $err = ''
-                        if (Test-Path $stderrFile) {
-                            $err = (Get-Content $stderrFile -Raw -ErrorAction SilentlyContinue)
-                            if ($err) { $err = $err.Trim() }
-                        }
-                        if (-not $err) { $err = "psql exited $exit" }
-                        Add-Result 'graphile_worker schema' 'FAIL' ("exit=$exit; $err")
-                        Write-Host "     FAIL: psql exit=$exit" -ForegroundColor Red
-                        Write-Host "     $err" -ForegroundColor DarkRed
-                    }
-                } finally {
-                    $env:PGPASSWORD = $prevPg
-                    Remove-Item $stderrFile -Force -ErrorAction SilentlyContinue
-                }
-            }
-        }
-    }
-} catch {
-    $msg = $_.Exception.Message
-    Add-Result 'graphile_worker schema' 'FAIL' $msg
-    Write-Host "     FAIL: $msg" -ForegroundColor Red
-}
-
-# (The former [3/3] report-generation/PDF check was removed 2026-07-04 with the
-#  server-side reports engine — /api/reports and /api/report-templates no longer exist.)
 
 # ───── Summary ───────────────────────────────────────────
 Write-Host ""

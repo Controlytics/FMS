@@ -92,7 +92,7 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
 
 /**
  * Retry a failed notification delivery.
- * TODO: Replace setTimeout retries with graphile-worker delayed jobs (`runAt`)
+ * TODO: Replace setTimeout retries with a durable delayed-retry mechanism
  * for durability across restarts.
  */
 async function scheduleRetry(logId: string, payload: NotificationPayload, attempt: number): Promise<void> {

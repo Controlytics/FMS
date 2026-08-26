@@ -50,6 +50,13 @@ import notificationRulesRoutes from './modules/notification-rules/routes.js';
 // directly in-process via dispatchNotification. We call the sweep SERVICE
 // functions straight from cron ticks (the old *.worker.ts wrappers only added a
 // graphile-worker `helpers.logger`, which we replace with app.log here).
+//
+// 2026-08-26: the `packages/queue` workspace and the `graphile-worker` dependency
+// were DELETED. `startJobRunner` had no caller after the 2026-07-25 move, so the
+// queue sat installed-but-never-started; its job types (ingestion, telemetry,
+// device events) all belonged to the data-ingestion layer torn out in Phase 7.
+// node-cron below is the ONLY in-app scheduler. The one scheduler outside the
+// app is the Windows Scheduled Task the installer registers for DB backups.
 import cron, { type ScheduledTask } from 'node-cron';
 import { sweepOverdueDeviations } from './modules/pm-schedules/pm-deviations.js';
 import { rolloverSeries } from './modules/pm-schedules/pm-rollover.js';

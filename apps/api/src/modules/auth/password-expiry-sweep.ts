@@ -3,7 +3,7 @@
  *
  * Idempotent daily sweep that warns each affected user as their password nears
  * expiry, then sends a one-time "expired" notice on the expiry day. Driven by
- * the `password_expiry_check` graphile-worker cron (crontab.txt, daily 00:00),
+ * the `password_expiry_check` in-process node-cron tick (daily 00:00, app.ts),
  * which the single Runner in app.ts starts alongside the API — so it fires in
  * any running instance (dev + prod). The manual admin trigger
  * `POST /api/users/password-expiry-sweep` runs it on demand (e.g. testing

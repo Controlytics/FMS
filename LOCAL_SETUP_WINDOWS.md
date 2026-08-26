@@ -163,7 +163,6 @@ npm run build
 
 This runs `turbo build` which builds all packages in dependency order:
 1. `@digilog/shared` (shared types)
-2. `@digilog/queue` (graphile-worker wrapper)
 3. `@digilog/api` (Fastify backend — TypeScript -> JavaScript)
 4. `@digilog/web` (React frontend — Vite build)
 
@@ -260,7 +259,6 @@ curl http://localhost:3000/api/health
 │   └── android/                # Capacitor Android app
 ├── packages/
 │   ├── shared/                 # Shared types & Zod schemas
-│   └── queue/                  # graphile-worker wrapper (Postgres-backed)
 ├── turbo.json                  # Turborepo build config
 ├── start-digilog.bat           # Windows start script
 ├── stop-digilog.bat            # Windows stop script
@@ -364,10 +362,10 @@ npm run build
 
 ## 15. Architecture Summary
 
-- **Backend:** Fastify 5 + TypeScript + Prisma ORM + graphile-worker job queue
+- **Backend:** Fastify 5 + TypeScript + Prisma ORM; scheduled work on in-process node-cron
 - **Frontend:** React 19 + Vite 6 + Tailwind CSS 4 + SWR + React Router 7
 - **Database:** PostgreSQL 18 + Prisma migrations (single `digilog_db` database)
-- **Queue:** PostgreSQL + graphile-worker (notification, PM-overdue, session-sweep tasks + cron)
+- **Scheduler:** in-process node-cron in the API (session-sweep, password-expiry, PM-overdue, PM-series-rollover). No queue service.
 - **Auth:** JWT tokens with bcrypt password hashing, session management
 
 ### Phase 2: Digital Filter Management System

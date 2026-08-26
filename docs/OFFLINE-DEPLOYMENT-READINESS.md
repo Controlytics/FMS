@@ -62,7 +62,6 @@ apps/web/         React 19 SPA (Vite 6 build → static dist/)
 apps/android/     Capacitor wrapper → DigiLog-FilterOps.apk (loads the SPA)
 rfid_scan_app/    Native Kotlin UHF RFID scanner (KC-series readers)
 packages/shared/  Permissions / privileges / reauth / zod schemas
-packages/queue/   graphile-worker job queue (Postgres-backed)
 ```
 
 ### Architecture diagram (Mermaid)
@@ -110,7 +109,7 @@ flowchart TB
   static SPA via `@fastify/static` (`apps/api/src/app.ts:8`). Self-hosted Node process.
 - No Docker/Kubernetes. No message broker (MQTT/Mosquitto removed 2026-06-17). No Redis
   (removed; in-process EventEmitter bus). No TimescaleDB (dropped 2026-06-11).
-- Job queue is Postgres-backed (graphile-worker) — no external queue infrastructure.
+- Scheduled work runs in-process (node-cron) — no queue service, no external scheduler.
 - Pub/sub is an in-process EventEmitter — nothing leaves the host.
 
 ---

@@ -14,7 +14,8 @@
  * sessions the client couldn't terminate itself. `expiresAt` is the always-on
  * hard cap regardless of the idle setting.
  *
- * Triggered by the `session_sweep` graphile-worker cron (every 5 min). Returns
+ * Triggered by the `session_sweep` in-process node-cron tick (every 5 min,
+ * registered in app.ts). Returns
  * the number of sessions reaped (for the cron log + tests).
  */
 import { prisma } from '../../lib/prisma.js';

@@ -203,7 +203,7 @@ fixture, this is the right default.
 
 ## Environment
 - API_PORT=3000
-- PostgreSQL: localhost:5432 (only database now — also hosts the graphile-worker job queue)
+- PostgreSQL: localhost:5432 (only database now)
 - ~~Mosquitto~~ — removed 2026-06-17 with data-ingestion tear-out (service uninstalled + `mqtt`/`aedes` deps gone)
 - ~~TimescaleDB~~ — `digilog_tsdb` database dropped 2026-06-11
 

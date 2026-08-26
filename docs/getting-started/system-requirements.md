@@ -12,7 +12,7 @@
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Node.js | 20.x or 22.x | Application runtime |
-| PostgreSQL | 18 | Primary database (Prisma ORM, **61 models, 24 enums**) — also hosts the graphile-worker queue schema. Vanilla PG 18, no extensions required. |
+| PostgreSQL | 18 | Primary database (Prisma ORM, **61 models, 24 enums**) Vanilla PG 18, no extensions required. |
 | ~~TimescaleDB~~ | REMOVED | ~~Time-series extension (database: digilog_tsdb, 7 hypertables)~~ *(removed 2026-06-17 — Phase 7 data-ingestion tear-out dropped `digilog_tsdb` + all hypertables; no TimescaleDB dependency)* |
 | ~~Mosquitto~~ | REMOVED | ~~MQTT broker~~ *(removed 2026-06-17 — Phase 7 tear-out removed the MQTT broker + data-ingestion pipeline; no MQTT dependency, `install-mosquitto.ps1` deleted)* |
 | ~~Microsoft Edge~~ | not needed | The server-side `puppeteer-core` + Edge reports PDF engine was removed 2026-07-04; PDF export is now client-side (jsPDF). No Edge/Chromium dependency. |
@@ -36,7 +36,6 @@ apps/api/     — Fastify backend (TypeScript, port 3000)
 apps/web/     — React frontend (Vite SPA, Tailwind CSS)
 packages/shared/ — Shared types, schemas, constants
 # packages/db/ — REMOVED 2026-06-17 (Phase 7): was Prisma client + TimescaleDB pool + telemetry batcher
-packages/queue/  — graphile-worker job queue (Postgres-backed)
 ```
 
 ## Ports (current)

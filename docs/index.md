@@ -7,7 +7,7 @@ A 21 CFR Part 11–compliant digital logbook + IoT data platform with an integra
 - **35 config definitions** with auto-discovery, **34 config pages**
 - **102 permissions**, **83 feature toggles**, **92 reauth actions**, **26 sidebar items**
 - **10 color themes**, configurable report layout, multi-channel notifications
-- Single PostgreSQL database (`digilog_db`); Postgres-backed **graphile-worker** job queue (no Redis)
+- Single PostgreSQL database (`digilog_db`); scheduled work on **in-process node-cron** (no job queue, no Redis)
 
 ## Where to start
 

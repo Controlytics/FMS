@@ -3,7 +3,11 @@
  *
  * Verifies the post-rewrite stack works as a coherent whole:
  *   1. Phase 0 — Fastify boots in-process via the existing e2e test helper
- *   2. Phase 2 — graphile-worker (Postgres-backed) enqueue + dispatch
+ *
+ * The graphile-worker enqueue+dispatch test was removed 2026-08-26 with the
+ * queue package itself: `startJobRunner` had no caller anywhere in the app
+ * (scheduled work moved to in-process node-cron on 2026-07-25), so the test
+ * was exercising a subsystem that no longer shipped.
  *
  * Gating
  *   The whole suite is gated on `INTEGRATION_TEST=1`. A normal
@@ -38,7 +42,6 @@
  *
  *   KEPT — these assert live subsystems and still earn their place:
  *     - Test 1: the API boots in-process and serves /api/health.
- *     - Test 2: graphile-worker addJob → task handler dispatch (`packages/queue`
  *       is very much alive; it backs notification / pm_overdue_check /
  *       session_sweep).
  */
@@ -78,14 +81,10 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
   // imports the module body unconditionally).
   let app: FastifyInstance;
 
-  // graphile-worker handles
-  let runner: import('graphile-worker').Runner | null = null;
-  let producer: import('graphile-worker').WorkerUtils | null = null;
 
   // Buffer for Test 2 — populated by the phase5_verification_ping task.
   // Declared here (above beforeAll) so the closure inside startJobRunner
   // captures the correct binding at the point the task list is built.
-  const phase5PingPayloads: unknown[] = [];
 
   beforeAll(async () => {
     // ─── 1. Boot the in-process Fastify (same pattern as e2e/audit.test) ──
@@ -94,36 +93,12 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
     };
     app = await buildApp();
 
-    // ─── 2. graphile-worker: bootstrap schema, get producer ──────────────
-    // We DON'T start the API's full job runner here — we want a tight task
-    // list for the Phase 2 verification test (a custom ping task).
-    const { getProducer, startJobRunner } = await import('../../packages/queue/src/index.js');
-    producer = await getProducer();
-    // Single Runner per process — the queue package guards against double-start.
-    runner = await startJobRunner({
-      taskList: {
-        // Custom verifier — see Test 2.
-        phase5_verification_ping: async (payload, helpers) => {
-          helpers.logger.info(`phase5 ping received: ${JSON.stringify(payload)}`);
-          // No-op success — the test asserts that addJob → handler invocation works.
-          phase5PingPayloads.push(payload);
-        },
-      },
-      concurrency: 5,
-    });
   }, 120_000);
 
   afterAll(async () => {
-    // Close in reverse order: queue runner → app. Every step logs its own
+    // Every step logs its own
     // failure (CLAUDE.md "Never swallow exceptions") but doesn't rethrow — we
     // WANT the remaining cleanup steps to run even if an earlier one bombs.
-    try {
-      const { stopJobRunner, closeProducer } = await import('../../packages/queue/src/index.js');
-      await stopJobRunner();
-      await closeProducer();
-    } catch (err) {
-      console.error('[phase5-cleanup] stop graphile-worker failed:', err);
-    }
 
     if (app) {
       try {
@@ -132,8 +107,7 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
         console.error('[phase5-cleanup] app.close() failed:', err);
       }
     }
-    // No DB fixture cleanup needed: this suite no longer creates rows. The
-    // graphile-worker job it enqueues is consumed and reaped by the runner.
+    // No DB fixture cleanup needed: this suite creates no rows.
   }, 60_000);
 
   // ─── Test 1 — Boot API (Phase 0 sanity) ──────────────────────────────────
@@ -145,22 +119,4 @@ describe.skipIf(!GATED)('windows-server-stack (Phase 5 end-to-end)', () => {
     expect(body.status).toBe('ok');
   });
 
-  // ─── Test 2 — graphile-worker enqueue + dispatch (Phase 2) ─────────────
-  it('graphile-worker: addJob → custom task handler runs to completion', async () => {
-    expect(producer, 'producer must be initialised').not.toBeNull();
-    expect(runner, 'runner must be initialised').not.toBeNull();
-
-    const probePayload = { kind: 'phase5-verify', runId: RUN_ID, ts: Date.now() };
-    await producer!.addJob('phase5_verification_ping', probePayload);
-
-    const ran = await waitFor(
-      async () =>
-        phase5PingPayloads.some(
-          (p) => (p as { runId?: string } | null)?.runId === RUN_ID,
-        ),
-      { timeoutMs: 15_000, pollMs: 100 },
-    );
-
-    expect(ran, 'phase5_verification_ping handler should have been invoked within 15s').toBe(true);
-  }, 30_000);
 });
