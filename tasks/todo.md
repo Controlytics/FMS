@@ -2161,3 +2161,19 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       The free-text states had already produced FIVE spellings of wash in/out in
       live data, each invisible to `getStageInfoFromEvents`. Verified a reading
       edit end-to-end through the real endpoint; test value restored.
+
+- [x] **2026-08-27 — normalised 6 non-canonical lifecycle states (DATA change).**
+      `WASHIN` / `WASH-IN` / `washin` -> `WASH_IN`, `WASHOUT` / `washout` ->
+      `WASH_OUT` across 6 `filter_events` rows (05 Jul – 05 Aug). Each was
+      invisible to `getStageInfoFromEvents`, which matches `toState === 'WASH_IN'`
+      exactly, so those cycles showed a blank Wash In/Out column.
+      Applied through the audited console endpoint, so all 6 carry a
+      `MANUAL_RECORD_UPDATED` row with before/after and a reason — not raw SQL.
+      **Checksums deliberately left stale.** `fromState`/`toState` ARE inside
+      `computeChecksum`, but different write paths hash different field sets
+      (advance.ts hashes 10 fields incl. attributes/remarks; start-cycle hashes 5),
+      so a recomputed checksum would LOOK freshly valid while being derived from
+      a different shape — a false attestation, worse than a stale one. Nothing
+      verifies `filter_events.checksum` on read (write-only, unlike
+      `audit_trail`), so there is no live impact; the audit rows explain the
+      discrepancy. Post-check: 0 non-canonical values remain.
