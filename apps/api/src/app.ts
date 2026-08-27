@@ -67,6 +67,7 @@ import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
 import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
+import { dateRangeGuard } from './lib/date-range-guard.js';
 import replacementScheduleRoutes from './modules/replacement-schedule/routes.js';
 import equipmentGroupRoutes from './modules/equipment-groups/routes.js';
 import syncRoutes from './modules/sync/routes.js';
@@ -465,6 +466,16 @@ app.get('/api/health', {
 await discoverAndRegisterConfigs();
 
 // Routes
+// Reject any date range whose end precedes its start, on every route.
+//
+// The UI stopped allowing it (components/ui/date-range-filter.tsx), but the API
+// answered `from > to` with an empty list — a silent wrong answer that reads as
+// "no matching records". One global hook rather than a check in each of the 13
+// range-accepting endpoints, so routes added later are covered by default.
+// Registered HERE, before the route plugins, because a Fastify hook only applies
+// to routes registered after it.
+app.addHook('preHandler', dateRangeGuard);
+
 await app.register(authRoutes, { prefix: '/api/auth' });
 await app.register(userRoutes, { prefix: '/api/users' });
 await app.register(configRoutes, { prefix: '/api/config' });

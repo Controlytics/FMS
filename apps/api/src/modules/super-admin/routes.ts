@@ -812,6 +812,56 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   });
   const idParam = { type: 'object' as const, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } };
 
+  /**
+   * Build a `where` from the shared list query (2026-08-27).
+   *
+   * The Filter Data Management tabs mirror the filters their user-facing page
+   * offers, and a filter that is applied client-side on top of a server-paginated
+   * list is a LIE — it would filter only the 50 rows that happened to come back,
+   * so "no results" could mean "none on this page". These endpoints therefore do
+   * the filtering themselves.
+   *
+   * `dateField` differs per model (createdAt / plannedDate / …), so it is passed
+   * in rather than guessed. `to` is treated as INCLUSIVE of the whole day when a
+   * bare yyyy-mm-dd is given: an operator picking "to 5 Aug" means through the
+   * end of the 5th, not 00:00 on it.
+   */
+  const listWhere = (
+    query: any,
+    dateField: string,
+    extra?: Record<string, unknown>,
+  ): Record<string, unknown> | undefined => {
+    const clauses: Record<string, unknown> = {};
+    const from = typeof query?.from === 'string' && query.from ? query.from : null;
+    const to = typeof query?.to === 'string' && query.to ? query.to : null;
+    if (from || to) {
+      const range: Record<string, Date> = {};
+      if (from) range.gte = new Date(from);
+      if (to) {
+        // Bare date (no time part) => include the whole of that day.
+        range.lte = /^\d{4}-\d{2}-\d{2}$/.test(to) ? new Date(`${to}T23:59:59.999`) : new Date(to);
+      }
+      const valid = Object.values(range).every((d) => !Number.isNaN(d.getTime()));
+      if (valid) clauses[dateField] = range;
+    }
+    for (const [k, v] of Object.entries(extra ?? {})) {
+      if (v !== undefined && v !== null && v !== '' && v !== 'ALL' && v !== 'all') clauses[k] = v;
+    }
+    return Object.keys(clauses).length > 0 ? clauses : undefined;
+  };
+
+  /** Querystring shared by the filterable data lists. */
+  const listQuery = (extra: Record<string, unknown> = {}) => ({
+    type: 'object' as const,
+    properties: {
+      page: { type: 'integer', minimum: 1, default: 1 },
+      limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+      from: { type: 'string', description: 'Inclusive start of the date range.' },
+      to: { type: 'string', description: 'Inclusive end of the date range (a bare date covers the whole day).' },
+      ...extra,
+    },
+  });
+
   // Helper: paginated list for any Prisma model
   const paginatedList = async (model: any, query: any, orderBy: any = { createdAt: 'desc' }, include?: any, where?: any) => {
     const page = Number(query.page ?? 1);
@@ -869,8 +919,18 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   };
 
   // â”€â”€â”€ Cleaning Cycles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  app.get('/data/cleaning-cycles', { preHandler: dataPreHandler, schema: dataSchema('List cleaning cycles') }, async (req) => {
-    return paginatedList(prisma.cleaningCycle, req.query, [{ startedAt: 'desc' }]);
+  app.get('/data/cleaning-cycles', {
+    preHandler: dataPreHandler,
+    schema: { ...dataSchema('List cleaning cycles'), querystring: listQuery({ status: { type: 'string' } }) },
+  }, async (req) => {
+    const q = req.query as any;
+    return paginatedList(
+      prisma.cleaningCycle,
+      req.query,
+      [{ startedAt: 'desc' }],
+      undefined,
+      listWhere(q, 'startedAt', { status: q.status }),
+    );
   });
 
   app.put('/data/cleaning-cycles/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit cleaning cycle'), params: idParam, body: mutationBody() } }, async (req, reply) => {
@@ -976,8 +1036,18 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   });
 
   // â”€â”€â”€ Filter Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  app.get('/data/filter-events', { preHandler: dataPreHandler, schema: dataSchema('List filter events') }, async (req) => {
-    return paginatedList(prisma.filterEvent, req.query, { performedAt: 'desc' });
+  app.get('/data/filter-events', {
+    preHandler: dataPreHandler,
+    schema: { ...dataSchema('List filter events'), querystring: listQuery({ eventType: { type: 'string' } }) },
+  }, async (req) => {
+    const q = req.query as any;
+    return paginatedList(
+      prisma.filterEvent,
+      req.query,
+      { performedAt: 'desc' },
+      undefined,
+      listWhere(q, 'performedAt', { eventType: q.eventType }),
+    );
   });
 
   app.put('/data/filter-events/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit filter event'), params: idParam, body: mutationBody() } }, async (req, reply) => {
@@ -1050,8 +1120,18 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   });
 
   // â”€â”€â”€ Notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  app.get('/data/notifications', { preHandler: dataPreHandler, schema: dataSchema('List notifications') }, async (req) => {
-    return paginatedList(prisma.notification, req.query, { createdAt: 'desc' });
+  app.get('/data/notifications', {
+    preHandler: dataPreHandler,
+    schema: { ...dataSchema('List notifications'), querystring: listQuery({ type: { type: 'string' } }) },
+  }, async (req) => {
+    const q = req.query as any;
+    return paginatedList(
+      prisma.notification,
+      req.query,
+      { createdAt: 'desc' },
+      undefined,
+      listWhere(q, 'createdAt', { type: q.type }),
+    );
   });
 
   app.put('/data/notifications/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit notification'), params: idParam, body: mutationBody() } }, async (req, reply) => {
@@ -1232,8 +1312,18 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     return { data: schedules.map(s => ({ id: s.id, entityId: s.entityId, entityName: nameById.get(s.entityId) ?? null, year: s.year, version: s.version, status: s.status })) };
   });
 
-  app.get('/data/pm-entries', { preHandler: dataPreHandler, schema: dataSchema('List PM schedule entries') }, async (req) => {
-    return paginatedList(prisma.pmScheduleEntry, req.query, { plannedDate: 'desc' }, { schedule: true });
+  app.get('/data/pm-entries', {
+    preHandler: dataPreHandler,
+    schema: { ...dataSchema('List PM schedule entries'), querystring: listQuery({ approvalStatus: { type: 'string' } }) },
+  }, async (req) => {
+    const q = req.query as any;
+    return paginatedList(
+      prisma.pmScheduleEntry,
+      req.query,
+      { plannedDate: 'desc' },
+      { schedule: true },
+      listWhere(q, 'plannedDate', { approvalStatus: q.approvalStatus }),
+    );
   });
 
   app.put('/data/pm-entries/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit PM schedule entry'), params: idParam, body: mutationBody() } }, async (req, reply) => {

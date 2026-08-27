@@ -5,6 +5,7 @@ import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { api } from '@/lib/api-client';
 import { Pagination } from '@/components/ui/pagination';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 interface FilterRow {
   filterId: string;
@@ -279,16 +280,16 @@ export function MyTasksPage() {
           <FilterSelect label="Area" value={areaFilter} options={areaOptions} allLabel="All areas"
             onChange={setAreaFilter} />
 
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">From</label>
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all" />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">To</label>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all" />
-          </div>
+          <DateRangeFilter
+            label="Date range"
+            size="lg"
+            from={from}
+            to={to}
+            onFromChange={setFrom}
+            onToChange={setTo}
+            fromAriaLabel="Tasks from date"
+            toAriaLabel="Tasks to date"
+          />
 
           <div className="flex flex-col gap-1 min-w-[150px]">
             <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Status</label>

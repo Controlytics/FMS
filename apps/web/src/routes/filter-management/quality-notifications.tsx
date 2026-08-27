@@ -11,6 +11,7 @@ import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { useToast } from '@/hooks/use-toast';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 const QNN_COLS = ['sNo', 'qnn', 'action', 'ahu', 'message', 'by', 'dateTime'];
 
@@ -134,12 +135,15 @@ export function QualityNotificationsPage() {
             )}
           </div>
           <div className="mt-3 flex flex-wrap items-end gap-2">
-            <label className="flex flex-col text-[11px] font-medium text-slate-500">From
-              <input type="date" value={from} onChange={e => reset(setFrom)(e.target.value)} className={inputCls} />
-            </label>
-            <label className="flex flex-col text-[11px] font-medium text-slate-500">To
-              <input type="date" value={to} onChange={e => reset(setTo)(e.target.value)} className={inputCls} />
-            </label>
+            <DateRangeFilter
+              size="sm"
+              from={from}
+              to={to}
+              onFromChange={reset(setFrom)}
+              onToChange={reset(setTo)}
+              fromAriaLabel="Quality notifications from date"
+              toAriaLabel="Quality notifications to date"
+            />
           </div>
         </div>
   

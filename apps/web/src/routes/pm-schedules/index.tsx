@@ -18,6 +18,7 @@ import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { isoToDateInput } from '@/lib/datetime-input';
 import { apiUrl } from '@/lib/url-utils';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 interface UploadResult {
   imported: number;
@@ -851,17 +852,16 @@ export function PmScheduleListPage() {
 
       {/* ─── Filters Bar ─── */}
       <div className="bg-white border border-slate-200 rounded-xl px-5 py-3.5 flex items-center gap-5 flex-wrap">
-        {/* Date range */}
-        <div className="flex items-center gap-2.5">
-          <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setSelected(new Set()); setPage(1); }}
-            className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-slate-50 focus:bg-white focus:ring-2 transition-all"
-            style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as any} />
-          <span className="text-xs text-slate-400">to</span>
-          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setSelected(new Set()); setPage(1); }}
-            className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-slate-50 focus:bg-white focus:ring-2 transition-all"
-            style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as any} />
-        </div>
+        {/* Date range. Each end keeps its own reset (selection + page) — the
+            control never fires the sibling's handler, so this stays correct. */}
+        <DateRangeFilter
+          from={dateFrom}
+          to={dateTo}
+          onFromChange={v => { setDateFrom(v); setSelected(new Set()); setPage(1); }}
+          onToChange={v => { setDateTo(v); setSelected(new Set()); setPage(1); }}
+          fromAriaLabel="PM schedule from date"
+          toAriaLabel="PM schedule to date"
+        />
         {/* Separator */}
         <div className="h-6 w-px bg-slate-200" />
         {/* Status tabs */}

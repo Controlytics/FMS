@@ -1,5 +1,99 @@
 # Changelog
 
+## [Unreleased] - One date-range control app-wide; Filter Data Management gets paging + filters (2026-08-27)
+
+### Fixed - a To date earlier than the From was accepted everywhere
+
+There were **11 From/To ranges across 10 files** — nine desktop screens and two
+on the tablet — each with its own markup and focus colour, and **not one of them
+stopped you picking a To before the From**. Nothing rejected it downstream
+either: the API accepts an inverted range and returns an empty list, so the
+operator saw "no records" with no way to tell that from "no matching records".
+
+New `components/ui/date-range-filter.tsx` is now the single control, with the
+rule exported separately (`checkRangeEdge`) for the one screen that keeps its
+own markup.
+
+- **Two layers.** `max` on From and `min` on To grey out the invalid days in the
+  native picker; every change is then re-checked in JS, because a browser still
+  lets you TYPE an out-of-range value — the input goes `:invalid` while `value`
+  updates anyway. The attributes are the UX, the JS check is the guarantee.
+- **One callback per user action.** The component never calls the sibling's
+  `onChange`; an invalid edit is rejected with a hint rather than "helpfully"
+  dragging the other end along. That matters because the call sites do more than
+  set state (`setPage(1)`, `setSelected(new Set())`, `setDownloadMsg('')`) — a
+  component that fired both callbacks would run one site's reset logic and not
+  the other's, and would change two SWR keys in a tick.
+- **Same-day ranges stay legal** — the comparison is `>` / `<`, never `>=`.
+  Three screens filter to a single day that way.
+- The Audit Trail filter keeps its own gradient From/To cards (a better design
+  than a generic control) and imports the rule, so the two cannot drift.
+- The tablet's task range keeps its `disabled={!online}` offline guard, now
+  forwarded to both ends.
+
+Converted: audit-filters, cleaning-cycles/{history,filter-lifecycle}, debug,
+deviations, filter-management/{quality-notifications,rfid-track-record},
+my-tasks, pm-schedules, mobile-wrapper (x2). Single-date fields — PM
+`editDate`/`plannedDate`, the 27 in Filter Data Management, CreateHierarchyDialog,
+FilterFieldOptionsSection — were deliberately left alone.
+
+### Added - the API rejects an inverted range instead of returning nothing
+
+The UI guard alone left every direct client, saved URL and integration exposed:
+`from > to` was accepted and answered with an empty list, which reads as "no
+matching records". A single global Fastify `preHandler`
+(`lib/date-range-guard.ts`) now returns **400 `INVALID_DATE_RANGE`** naming both
+ends — one hook rather than a check in each of the 13 range-accepting endpoints,
+so routes added later are covered without anyone opting in. It knows all three
+spellings in use (`from`/`to`, `startDate`/`endDate`, `dateFrom`/`dateTo`).
+
+Two things it deliberately does NOT do: it stays silent when either value fails
+to parse as a date (it matches on parameter NAME, and must not become a new way
+for some future non-date `from`/`to` to break), and it expands a bare end date to
+the end of that day, so an ordinary single-day filter is not rejected as
+inverted. `fromPosition`/`toPosition` on verify-chain are untouched.
+
+Verified live across seven endpoints: inverted → 400, forward / same-day /
+open-ended → 200.
+
+### Fixed - a console date filter would have 400'd two of its own tabs
+
+`/api/filters/cycles` and `/api/filters/events` declare their range as
+`format: 'date-time'`, so the bare `yyyy-mm-dd` the new filter emits was rejected
+by schema validation — touching the date filter on those two tabs would have
+returned a validation error. Bare dates are now widened to a full instant in the
+operator's local zone (start of day / last millisecond of day), which also keeps
+the whole-day rule identical on the client, in `listWhere`, and in the new guard.
+
+### Fixed - Filter Data Management could not reach past the first page
+
+Every tab was pinned to `?page=1&limit=50`. On the Audit Trail tab that is 50 of
+**18,329** rows — the remaining 99.7% were unreachable through the UI. The
+header's record count was worse: it read `genericData?.total ?? genericRows.length`,
+and `genericTabs` has been empty since each tab got its own render branch, so
+every tab except Retirements and Replacements displayed a flat **0 records**.
+
+All nine tabs now page properly and carry the filters their user-facing page
+offers: a date range everywhere, plus status / type / event-type / approval
+where the tab has one.
+
+- **Filtering is server-side wherever the endpoint supports it.** Filtering a
+  server-paginated list in the browser would only ever filter the rows that came
+  back, making "no results" indistinguishable from "none on this page". The four
+  `/api/super-admin/data/*` lists gained `from` / `to` plus their natural
+  status/type param; the three array endpoints (retirements, replacements,
+  admin-requests) return the whole set and are filtered and paged client-side,
+  which is correct there and only there.
+- **A bare `to` date covers the whole day.** Picking "to 5 Aug" means through the
+  end of the 5th, not 00:00 on it. Client and server implement the same rule —
+  verified `from=to=<day>` returns exactly that day's rows.
+- Switching tabs clears the filters: a status carried from Block Changes into PM
+  Entries would silently match nothing.
+- **15 exact-key `globalMutate` calls became prefix matchers.** The keys now
+  carry page/limit/filters, so `mutate('/api/…?limit=100')` would have matched
+  nothing and edits would have stopped refreshing the list.
+
+
 ## [Unreleased] - Filter Data Management: audit-trail retrofit + missing CRUD (2026-08-27)
 
 ### Added - every change on this console is now recorded

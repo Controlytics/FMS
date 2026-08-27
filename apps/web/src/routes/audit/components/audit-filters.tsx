@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import { checkRangeEdge } from '@/components/ui/date-range-filter';
 
 interface AuditFiltersProps {
   search: string;
@@ -27,6 +29,18 @@ export function AuditFilters({
   hasFilters,
   clearFilters,
 }: AuditFiltersProps) {
+  // This screen keeps its own From/To cards — they are a better design than the
+  // generic control — and borrows the ordering rule from it so the two can never
+  // disagree. Same contract as DateRangeFilter: an invalid edit is REJECTED,
+  // never "fixed" by moving the other end, so setPage(1) still fires exactly
+  // once per real change.
+  const [rangeHint, setRangeHint] = useState('');
+  useEffect(() => {
+    if (!rangeHint) return;
+    const t = setTimeout(() => setRangeHint(''), 4000);
+    return () => clearTimeout(t);
+  }, [rangeHint]);
+
   return (
     <Card className="border-0 shadow-xl bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
       <div className="h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
@@ -104,7 +118,15 @@ export function AuditFilters({
                   <input
                     type="datetime-local"
                     value={fromDateTime}
-                    onChange={(e) => { setFromDateTime(e.target.value); setPage(1); }}
+                    max={toDateTime || undefined}
+                    aria-describedby={rangeHint ? 'audit-range-hint' : undefined}
+                    onChange={(e) => {
+                      const problem = checkRangeEdge('from', e.target.value, toDateTime, 'datetime-local');
+                      if (problem) { setRangeHint(problem); return; }
+                      setRangeHint('');
+                      setFromDateTime(e.target.value);
+                      setPage(1);
+                    }}
                     className="flex-1 h-12 px-4 text-sm font-medium text-slate-700 bg-transparent border-0 focus:outline-none focus:ring-0 [color-scheme:light]"
                   />
                 </div>
@@ -140,7 +162,15 @@ export function AuditFilters({
                   <input
                     type="datetime-local"
                     value={toDateTime}
-                    onChange={(e) => { setToDateTime(e.target.value); setPage(1); }}
+                    min={fromDateTime || undefined}
+                    aria-describedby={rangeHint ? 'audit-range-hint' : undefined}
+                    onChange={(e) => {
+                      const problem = checkRangeEdge('to', e.target.value, fromDateTime, 'datetime-local');
+                      if (problem) { setRangeHint(problem); return; }
+                      setRangeHint('');
+                      setToDateTime(e.target.value);
+                      setPage(1);
+                    }}
                     className="flex-1 h-12 px-4 text-sm font-medium text-slate-700 bg-transparent border-0 focus:outline-none focus:ring-0 [color-scheme:light]"
                   />
                 </div>

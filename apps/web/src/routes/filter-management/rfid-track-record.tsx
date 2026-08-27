@@ -12,6 +12,7 @@ import { useReportLabels } from '../../hooks/use-report-labels';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 const RFID_COLS = ['sNo', 'dateTime', 'event', 'rfid', 'filter', 'ahu', 'user', 'reason'];
 
@@ -139,12 +140,15 @@ export function RfidTrackRecordPage() {
           </div>
           {/* Filters */}
           <div className="mt-3 flex flex-wrap items-end gap-2">
-            <label className="flex flex-col text-[11px] font-medium text-slate-500">From
-              <input type="date" value={from} onChange={e => resetPageAnd(setFrom)(e.target.value)} className={inputCls} />
-            </label>
-            <label className="flex flex-col text-[11px] font-medium text-slate-500">To
-              <input type="date" value={to} onChange={e => resetPageAnd(setTo)(e.target.value)} className={inputCls} />
-            </label>
+            <DateRangeFilter
+              size="sm"
+              from={from}
+              to={to}
+              onFromChange={resetPageAnd(setFrom)}
+              onToChange={resetPageAnd(setTo)}
+              fromAriaLabel="RFID track record from date"
+              toAriaLabel="RFID track record to date"
+            />
             <label className="flex flex-col text-[11px] font-medium text-slate-500">RFID Number
               <input type="text" value={rfid} placeholder="e.g. CA000…" onChange={e => resetPageAnd(setRfid)(e.target.value)} className={inputCls} />
             </label>

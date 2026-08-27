@@ -20,6 +20,7 @@ import { PipelineProgressBar } from './components/PipelineProgressBar';
 import { StatusIcon } from './components/StatusIcon';
 import { TraceDetailPanel } from './components/TraceDetailPanel';
 import { StatsCards } from './components/StatsCards';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 // ---------------------------------------------------------------------------
 // Main Page Component
@@ -303,27 +304,19 @@ export function DebugTracesPage() {
             />
           </div>
 
-          {/* From */}
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">From</label>
-            <Input
-              type="datetime-local"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="h-11"
-            />
-          </div>
-
-          {/* To */}
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">To</label>
-            <Input
-              type="datetime-local"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="h-11"
-            />
-          </div>
+          {/* size="lg" matches the h-11 of the `Input` primitive the rest of
+              this page uses, so the row still lines up. */}
+          <DateRangeFilter
+            label="From / To"
+            type="datetime-local"
+            size="lg"
+            from={fromDate}
+            to={toDate}
+            onFromChange={setFromDate}
+            onToChange={setToDate}
+            fromAriaLabel="Trace from date and time"
+            toAriaLabel="Trace to date and time"
+          />
         </div>
 
         {hasFilters && (

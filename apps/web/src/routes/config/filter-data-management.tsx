@@ -54,6 +54,9 @@ function getCycleDuration(cycle: any) {
 // Alarm helpers + Alarms tab removed 2026-05-17 (alarm subsystem retired).
 
 import { getAuditStatus } from '../audit/audit-helpers';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { Pagination } from '@/components/ui/pagination';
+import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
@@ -211,6 +214,71 @@ const TAB_CREATE_ENTITY: Record<string, RowEntity> = {
 const FILTER_EVENT_TYPES = ['STATE_TRANSITION', 'PARAMETER_CAPTURE', 'CHECKLIST_COMPLETED', 'BYPASS_DEVIATION', 'EQUIPMENT_LINKED', 'REMARK_ADDED', 'APPROVAL_GRANTED', 'SCRIPT_EXECUTED', 'CYCLE_STARTED', 'CYCLE_COMPLETED', 'CYCLE_TERMINATED'];
 const NOTIFICATION_TYPES = ['ACCOUNT_LOCKED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'PASSWORD_RESET_REQUEST', 'PASSWORD_RESET_APPROVED', 'PASSWORD_RESET_REJECTED', 'USER_CREATED', 'USER_UPDATED', 'ROLE_CHANGED', 'USER_CREATION_REQUEST_SUBMITTED', 'USER_CREATION_REQUEST_APPROVED', 'USER_CREATION_REQUEST_REJECTED', 'USER_LOGIN', 'USER_LOCKED', 'CHECKLIST_SUBMITTED', 'CHECKLIST_APPROVED', 'CHECKLIST_REJECTED', 'SYSTEM_ERROR', 'PM_OVERDUE', 'PM_OVERDUE_COMPLETED', 'PM_SCHEDULE_QNN', 'GUEST_CLEANING_REQUEST', 'REPORT_REVIEW_REQUESTED', 'REPORT_REVIEW_APPROVED', 'REPORT_REVIEW_REJECTED', 'PASSWORD_EXPIRY_WARNING', 'PASSWORD_EXPIRED_NOTICE', 'STAGE_APPROVAL_REQUESTED', 'STAGE_APPROVAL_APPROVED', 'STAGE_APPROVAL_REJECTED'];
 
+/**
+ * The status/type filter each tab offers, mirroring its user-facing page.
+ *
+ * `param` is only documentation here — the SWR keys above map `kindFilter` onto
+ * the right query name per tab. A tab absent from this map gets the date range
+ * and search only, because its endpoint supports nothing else and offering a
+ * dropdown that silently does nothing is worse than offering none.
+ */
+const FILTERS_BY_TAB: Record<string, { label: string; options: { value: string; label: string }[] }> = {
+  'cleaning-cycles': {
+    label: 'Status',
+    options: [
+      { value: 'IN_PROGRESS', label: 'In Progress' },
+      { value: 'COMPLETED', label: 'Completed' },
+      { value: 'TERMINATED', label: 'Terminated' },
+      { value: 'RETIRED', label: 'Retired' },
+      { value: 'REPLACED', label: 'Replaced' },
+    ],
+  },
+  'filter-events': {
+    label: 'Event Type',
+    options: FILTER_EVENT_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ') })),
+  },
+  'pm-entries': {
+    label: 'Approval',
+    options: [
+      { value: 'PENDING_REVIEW', label: 'Pending Review' },
+      { value: 'PENDING_APPROVAL', label: 'Pending Approval' },
+      { value: 'PENDING', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+  notifications: {
+    label: 'Type',
+    options: NOTIFICATION_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ') })),
+  },
+  'admin-requests': {
+    label: 'Status',
+    options: [
+      { value: 'PENDING', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+  'block-changes': {
+    label: 'Status',
+    options: [
+      { value: 'PENDING', label: 'Pending' },
+      { value: 'APPROVED', label: 'Approved' },
+      { value: 'REJECTED', label: 'Rejected' },
+      { value: 'EXPIRED', label: 'Expired' },
+    ],
+  },
+};
+
+/**
+ * Tabs whose endpoint returns the WHOLE set with no paging or date support, so
+ * the date range and the paging are applied in the browser. That is correct
+ * here and only here — doing it on a server-paginated tab would filter just the
+ * rows that came back.
+ */
+const CLIENT_PAGED_TABS = new Set(['retirements', 'replacements', 'admin-requests']);
+
+
 export function FilterDataManagementPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -223,6 +291,70 @@ export function FilterDataManagementPage() {
   const tz = datetimeConfig.timezone;
   const toInput = (iso: string | null | undefined) => isoToDatetimeInput(iso, tz);
   const [tab, setTab] = useState<string>('retirements');
+
+  // ── Pagination + filters (2026-08-27) ────────────────────────────────────
+  // Every tab used to be pinned to `?page=1&limit=50`, so records past the
+  // first page were simply unreachable — on a table with 18k audit rows that
+  // is 0.3% of the data. Each tab now pages properly and offers the filters its
+  // user-facing page offers.
+  //
+  // Filtering happens SERVER-side wherever the endpoint supports it. Filtering a
+  // server-paginated list in the browser would only ever filter the rows that
+  // came back, so "no results" would be indistinguishable from "none on this
+  // page". The two array endpoints (retirements / replacements) return the whole
+  // set, so those are filtered and paged client-side — which is correct there.
+  const { options: pageSizeOptions, defaultLimit } = usePaginationDefaults();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(defaultLimit);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  /** Status / type filter — meaning depends on the tab (see FILTERS_BY_TAB). */
+  const [kindFilter, setKindFilter] = useState('');
+
+  // Any filter change must return to page 1: staying on page 7 of a freshly
+  // narrowed result set shows an empty table that looks like a bug.
+  const resetPaging = () => setPage(1);
+  // Switching tabs clears filters — they mean different things per tab, and a
+  // status carried from Block Changes into PM Entries would silently return
+  // nothing.
+  const switchTab = (key: string) => {
+    setTab(key);
+    setEditingId(null);
+    setSearch('');
+    setPage(1);
+    setDateFrom('');
+    setDateTo('');
+    setKindFilter('');
+  };
+
+  /**
+   * Widen a bare `yyyy-mm-dd` into a full instant.
+   *
+   * `/api/filters/cycles` and `/api/filters/events` declare their range as
+   * `format: 'date-time'`, so a bare date is rejected outright by schema
+   * validation — the tab would 400 the moment anyone touched the date filter.
+   * Building the instant WITHOUT a trailing Z means it is interpreted in the
+   * operator's local zone, so "5 Aug" is their 5 Aug, not UTC's.
+   *
+   * The end is the last millisecond of the day, the same "a bare end date covers
+   * the whole day" rule as `listWhere` on the server and `inDateRange` below.
+   * All three have to agree or one filter means three different things.
+   */
+  const asInstant = (value: string, edge: 'start' | 'end') => {
+    if (!value) return '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value; // already carries a time
+    const d = new Date(`${value}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}`);
+    return Number.isNaN(d.getTime()) ? value : d.toISOString();
+  };
+
+  /** Query fragment shared by every server-filtered list. */
+  const listParams = (extra: Record<string, string> = {}) => {
+    const q = new URLSearchParams({ page: String(page), limit: String(pageSize) });
+    if (dateFrom) q.set('from', asInstant(dateFrom, 'start'));
+    if (dateTo) q.set('to', asInstant(dateTo, 'end'));
+    for (const [k, v] of Object.entries(extra)) if (v) q.set(k, v);
+    return q.toString();
+  };
   const [processing, setProcessing] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -311,6 +443,27 @@ export function FilterDataManagementPage() {
     setPromptBusy(false);
   };
 
+  /**
+   * Date-range predicate for the tabs whose endpoint returns the whole set.
+   * Compares on the row's own date field. `to` covers the whole day, matching
+   * the server-side `listWhere` helper — the two must agree or the same filter
+   * would mean different things on different tabs.
+   */
+  const inDateRange = (value: string | Date | null | undefined) => {
+    if (!dateFrom && !dateTo) return true;
+    if (!value) return false;
+    const t = new Date(value).getTime();
+    if (Number.isNaN(t)) return false;
+    if (dateFrom && t < new Date(dateFrom).getTime()) return false;
+    if (dateTo) {
+      const end = /^\d{4}-\d{2}-\d{2}$/.test(dateTo) ? new Date(`${dateTo}T23:59:59.999`) : new Date(dateTo);
+      if (t > end.getTime()) return false;
+    }
+    return true;
+  };
+  /** Slice the current page out of an already-filtered array. */
+  const clientPage = <T,>(rows: T[]): T[] => rows.slice((page - 1) * pageSize, page * pageSize);
+
   const { data: retirements, isLoading: retLoading } = useSWR<RetiredFilter[]>('/api/filters/retirements');
   const { data: replacements, isLoading: repLoading } = useSWR<ReplacementRecord[]>('/api/filters/replacements');
 
@@ -342,7 +495,7 @@ export function FilterDataManagementPage() {
   // These hit the SAME endpoints the user-facing /cleaning-cycles and
   // /filters/:id/trace?tab=events pages use, so the data-management view
   // displays the same joined+computed columns instead of raw DB rows.
-  const cyclesEnriched = useSWR<any>(tab === 'cleaning-cycles' ? '/api/filters/cycles?page=1&limit=50&includeEvents=true' : null);
+  const cyclesEnriched = useSWR<any>(tab === 'cleaning-cycles' ? `/api/filters/cycles?${listParams({ status: kindFilter })}&includeEvents=true` : null);
   // Wave 5 A-01: replaced /api/assets/instances + /api/assets/templates with
   // /api/hierarchy/filters which returns typed filter rows directly — no
   // templateKind heuristic needed. The `id` field is the same AssetInstance
@@ -355,7 +508,7 @@ export function FilterDataManagementPage() {
   const enrichedCycles: any[] = cyclesEnriched.data?.data ?? [];
   const filteredEnrichedCycles = enrichedCycles.filter(c => !search || c.filterName?.toLowerCase().includes(search.toLowerCase()) || c.cycleCode?.toLowerCase().includes(search.toLowerCase()));
 
-  const eventsEnriched = useSWR<any>(tab === 'filter-events' ? '/api/filters/events?page=1&limit=50' : null);
+  const eventsEnriched = useSWR<any>(tab === 'filter-events' ? `/api/filters/events?${listParams({ eventType: kindFilter })}` : null);
   const enrichedEvents: any[] = eventsEnriched.data?.data ?? [];
   const filteredEnrichedEvents = enrichedEvents.filter(e => !search || e.eventType?.toLowerCase().includes(search.toLowerCase()) || e.fromState?.toLowerCase().includes(search.toLowerCase()) || e.toState?.toLowerCase().includes(search.toLowerCase()));
 
@@ -363,7 +516,15 @@ export function FilterDataManagementPage() {
 
   // Remaining tabs use the same super-admin data endpoints but are rendered
   // by dedicated branches that mirror their corresponding user-facing pages.
-  const auditEnriched = useSWR<any>(tab === 'audit-trail' ? '/api/audit?page=1&limit=50' : null);
+  // /api/audit names its range startDate/endDate (not from/to) and does its own
+  // server-side search, so it builds its key rather than using listParams().
+  const auditEnriched = useSWR<any>(tab === 'audit-trail' ? (() => {
+    const q = new URLSearchParams({ page: String(page), limit: String(pageSize) });
+    if (dateFrom) q.set('startDate', asInstant(dateFrom, 'start'));
+    if (dateTo) q.set('endDate', asInstant(dateTo, 'end'));
+    if (kindFilter) q.set('action', kindFilter);
+    return `/api/audit?${q.toString()}`;
+  })() : null);
   const enrichedAudit: any[] = (auditEnriched.data as any)?.data ?? [];
   const filteredEnrichedAudit = enrichedAudit.filter(a => !search ||
     (a.action ?? '').toLowerCase().includes(search.toLowerCase()) ||
@@ -371,7 +532,7 @@ export function FilterDataManagementPage() {
     (a.userName ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (a.targetType ?? '').toLowerCase().includes(search.toLowerCase()));
 
-  const notificationsEnriched = useSWR<any>(tab === 'notifications' ? '/api/super-admin/data/notifications?limit=100' : null);
+  const notificationsEnriched = useSWR<any>(tab === 'notifications' ? `/api/super-admin/data/notifications?${listParams({ type: kindFilter })}` : null);
   const enrichedNotifications: any[] = (notificationsEnriched.data as any)?.data ?? [];
   const filteredEnrichedNotifications = enrichedNotifications.filter(n => !search ||
     (n.title ?? '').toLowerCase().includes(search.toLowerCase()) ||
@@ -379,15 +540,18 @@ export function FilterDataManagementPage() {
     (n.type ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (n.targetUserId ?? '').toLowerCase().includes(search.toLowerCase()));
 
-  const adminReqEnriched = useSWR<any>(tab === 'admin-requests' ? '/api/admin-requests' : null);
+  // /api/admin-requests supports `status` but has no paging or date range, so it
+  // returns the whole set and is paged client-side below.
+  const adminReqEnriched = useSWR<any>(tab === 'admin-requests' ? `/api/admin-requests${kindFilter ? `?status=${kindFilter}` : ''}` : null);
   const enrichedAdminReqs: any[] = (adminReqEnriched.data as any)?.data ?? (adminReqEnriched.data as any) ?? [];
   const filteredEnrichedAdminReqs = (Array.isArray(enrichedAdminReqs) ? enrichedAdminReqs : []).filter((r: any) => !search ||
     (r.requesterName ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (r.requesterEmployeeId ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (r.requestType ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (r.status ?? '').toLowerCase().includes(search.toLowerCase()));
+    (r.status ?? '').toLowerCase().includes(search.toLowerCase()))
+    .filter((r: any) => inDateRange(r.requestedAt));
 
-  const blockChangesEnriched = useSWR<any>(tab === 'block-changes' ? '/api/block-change-requests?page=1&limit=50&status=ALL' : null);
+  const blockChangesEnriched = useSWR<any>(tab === 'block-changes' ? `/api/block-change-requests?page=${page}&limit=${pageSize}&status=${kindFilter || 'ALL'}` : null);
   const enrichedBlockChanges: any[] = (blockChangesEnriched.data as any)?.data ?? [];
   const filteredEnrichedBlockChanges = enrichedBlockChanges.filter((b: any) => !search ||
     (b.filterName ?? '').toLowerCase().includes(search.toLowerCase()) ||
@@ -401,7 +565,7 @@ export function FilterDataManagementPage() {
   // super-admin route already includes joined `execution` so the status
   // pill (Completed / In Progress / Overdue / Due / Scheduled) and timing
   // info match what operators see on the detail page.
-  const pmEntriesEnriched = useSWR<any>(tab === 'pm-entries' ? '/api/super-admin/data/pm-entries?limit=100' : null);
+  const pmEntriesEnriched = useSWR<any>(tab === 'pm-entries' ? `/api/super-admin/data/pm-entries?${listParams({ approvalStatus: kindFilter })}` : null);
   const enrichedPmEntries: any[] = (pmEntriesEnriched.data as any)?.data ?? [];
   const filteredEnrichedPmEntries = enrichedPmEntries.filter(e => {
     if (!search) return true;
@@ -448,11 +612,14 @@ export function FilterDataManagementPage() {
 
   const refreshAll = () => { globalMutate('/api/filters/retirements'); globalMutate('/api/filters/replacements'); };
 
-  const filteredRetirements = (retirements ?? []).filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredRetirements = (retirements ?? [])
+    .filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()))
+    .filter(r => inDateRange((r as any).retiredAt ?? r.updatedAt));
   const filteredReplacements = (replacements ?? []).filter(r => !search ||
     r.oldFilterName.toLowerCase().includes(search.toLowerCase()) ||
     r.newFilterName.toLowerCase().includes(search.toLowerCase()) ||
-    r.performedBy.toLowerCase().includes(search.toLowerCase()));
+    r.performedBy.toLowerCase().includes(search.toLowerCase()))
+    .filter(r => inDateRange(r.replacedAt));
 
   const handleEditRetirement = (id: string, name: string) => {
     const body: any = {};
@@ -675,13 +842,13 @@ export function FilterDataManagementPage() {
       } else if (rowEditDialog.entity === 'event') {
         globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/events') || key.startsWith('/api/super-admin/data/filter-events')));
       } else if (rowEditDialog.entity === 'pm-entry') {
-        globalMutate('/api/super-admin/data/pm-entries?limit=100');
+        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/pm-entries'));
       } else if (rowEditDialog.entity === 'notification') {
-        globalMutate('/api/super-admin/data/notifications?limit=100');
+        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/notifications'));
       } else if (rowEditDialog.entity === 'admin-request') {
-        globalMutate('/api/admin-requests');
+        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/admin-requests'));
       } else if (rowEditDialog.entity === 'block-change') {
-        globalMutate('/api/block-change-requests?page=1&limit=50&status=ALL');
+        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/block-change-requests'));
       }
     } catch (e: any) {
       if (!isReauthAbort(e)) toast.error('Update failed', e?.message ?? 'Could not update record');
@@ -698,13 +865,13 @@ export function FilterDataManagementPage() {
     } else if (entity === 'event') {
       globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/events') || key.startsWith('/api/super-admin/data/filter-events')));
     } else if (entity === 'pm-entry') {
-      globalMutate('/api/super-admin/data/pm-entries?limit=100');
+      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/pm-entries'));
     } else if (entity === 'notification') {
-      globalMutate('/api/super-admin/data/notifications?limit=100');
+      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/notifications'));
     } else if (entity === 'admin-request') {
-      globalMutate('/api/admin-requests');
+      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/admin-requests'));
     } else if (entity === 'block-change') {
-      globalMutate('/api/block-change-requests?page=1&limit=50&status=ALL');
+      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/block-change-requests'));
     }
   };
 
@@ -908,19 +1075,40 @@ export function FilterDataManagementPage() {
       setChangeReason('');
       // Invalidate both the super-admin data feed AND the enriched feed used
       // by the dedicated cycles/events tabs so the row disappears immediately.
-      globalMutate(`${endpoint}?limit=50`);
+      globalMutate((key) => typeof key === 'string' && key.startsWith(endpoint));
       // Prefix-invalidate so the user-facing pages (which use different SWR keys)
       // also refresh — see submitRowEdit for the same fix.
       if (tab === 'cleaning-cycles') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/filters/cycles'));
       if (tab === 'filter-events') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/filters/events'));
-      if (tab === 'pm-entries') globalMutate('/api/super-admin/data/pm-entries?limit=100');
-      if (tab === 'audit-trail') globalMutate('/api/audit?page=1&limit=50');
-      if (tab === 'notifications') globalMutate('/api/super-admin/data/notifications?limit=100');
-      if (tab === 'admin-requests') globalMutate('/api/admin-requests');
-      if (tab === 'block-changes') globalMutate('/api/block-change-requests?page=1&limit=50&status=ALL');
+      if (tab === 'pm-entries') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/pm-entries'));
+      if (tab === 'audit-trail') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/audit'));
+      if (tab === 'notifications') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/notifications'));
+      if (tab === 'admin-requests') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/admin-requests'));
+      if (tab === 'block-changes') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/block-change-requests'));
     } catch (e: any) { if (!isReauthAbort(e)) toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
+
+  /**
+   * Total matching records for the active tab.
+   *
+   * SERVER total where the endpoint paginates, filtered-array length where it
+   * does not. Getting this wrong is not cosmetic: the header used to read
+   * `genericData?.total ?? genericRows.length`, and `genericTabs` has been empty
+   * since every tab got its own render branch — so every tab except Retirements
+   * and Replacements displayed a flat **0 records** regardless of content.
+   */
+  const totalRecords: number =
+      tab === 'retirements' ? filteredRetirements.length
+    : tab === 'replacements' ? filteredReplacements.length
+    : tab === 'admin-requests' ? filteredEnrichedAdminReqs.length
+    : tab === 'cleaning-cycles' ? (cyclesEnriched.data?.total ?? filteredEnrichedCycles.length)
+    : tab === 'filter-events' ? (eventsEnriched.data?.total ?? filteredEnrichedEvents.length)
+    : tab === 'pm-entries' ? (pmEntriesEnriched.data?.total ?? filteredEnrichedPmEntries.length)
+    : tab === 'audit-trail' ? (auditEnriched.data?.total ?? filteredEnrichedAudit.length)
+    : tab === 'notifications' ? (notificationsEnriched.data?.total ?? filteredEnrichedNotifications.length)
+    : tab === 'block-changes' ? (blockChangesEnriched.data?.total ?? filteredEnrichedBlockChanges.length)
+    : genericRows.length;
 
   const isLoading = tab === 'retirements' ? retLoading
     : tab === 'replacements' ? repLoading
@@ -959,7 +1147,7 @@ export function FilterDataManagementPage() {
           <div className="flex items-center gap-3">
             <div className="text-right">
               <div className="text-2xl font-bold text-slate-800">
-                {tab === 'retirements' ? retirements?.length ?? 0 : tab === 'replacements' ? replacements?.length ?? 0 : (genericData as any)?.total ?? genericRows.length}
+                {totalRecords}
               </div>
               <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Records</div>
             </div>
@@ -982,7 +1170,7 @@ export function FilterDataManagementPage() {
             { key: 'block-changes', label: 'Block Changes' },
             ...genericTabs.map((t: GenericTabDef) => ({ key: t.key, label: t.label })),
           ].map(t => (
-            <button key={t.key} onClick={() => { setTab(t.key); setEditingId(null); setSearch(''); }}
+            <button key={t.key} onClick={() => switchTab(t.key)}
               className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${
                 tab === t.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}>
@@ -1011,10 +1199,56 @@ export function FilterDataManagementPage() {
             <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..."
+            <input value={search} onChange={e => { setSearch(e.target.value); resetPaging(); }} placeholder="Search..."
               className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 w-52 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" />
           </div>
         </div>
+      </div>
+
+      {/* ─── Filter bar ─── Date range for every tab, plus the status/type
+          filter its user-facing page offers. Both are applied server-side
+          wherever the endpoint supports it (see listParams / listWhere); the
+          three array tabs filter in the browser over the full set. */}
+      <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center gap-4 flex-wrap shrink-0">
+        <DateRangeFilter
+          size="sm"
+          from={dateFrom}
+          to={dateTo}
+          onFromChange={v => { setDateFrom(v); resetPaging(); }}
+          onToChange={v => { setDateTo(v); resetPaging(); }}
+          fromAriaLabel="Records from date"
+          toAriaLabel="Records to date"
+        />
+
+        {FILTERS_BY_TAB[tab] && (
+          <>
+            <div className="h-6 w-px bg-slate-200" />
+            <label className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                {FILTERS_BY_TAB[tab].label}
+              </span>
+              <select
+                value={kindFilter}
+                onChange={e => { setKindFilter(e.target.value); resetPaging(); }}
+                className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[12px] text-slate-700 focus:bg-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all"
+              >
+                <option value="">All</option>
+                {FILTERS_BY_TAB[tab].options.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+
+        {(dateFrom || dateTo || kindFilter || search) && (
+          <button
+            onClick={() => { setDateFrom(''); setDateTo(''); setKindFilter(''); setSearch(''); resetPaging(); }}
+            className="ml-auto text-[12px] font-medium text-slate-500 hover:text-slate-700 underline underline-offset-2"
+          >
+            Clear all filters
+          </button>
+        )}
       </div>
 
       {/* Main Content — fills remaining height, scrolls internally */}
@@ -1048,7 +1282,7 @@ export function FilterDataManagementPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRetirements.map(r => {
+                {clientPage(filteredRetirements).map(r => {
                   const isEditing = editingId === r.id;
                   return (
                     <tr key={r.id} className={`group transition-colors ${isEditing ? 'bg-cyan-50/30' : 'hover:bg-slate-50/50'}`}>
@@ -1162,7 +1396,7 @@ export function FilterDataManagementPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredReplacements.map(r => {
+                {clientPage(filteredReplacements).map(r => {
                   const isEditing = editingId === r.id;
                   return (
                     <tr key={r.id} className={`group transition-colors ${isEditing ? 'bg-cyan-50/30' : 'hover:bg-slate-50/50'}`}>
@@ -1542,7 +1776,7 @@ export function FilterDataManagementPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {filteredEnrichedAdminReqs.map((req: any) => {
+                {clientPage(filteredEnrichedAdminReqs).map((req: any) => {
                   const typeLabel = ADMIN_REQ_TYPE_LABELS[req.requestType] ?? req.requestType;
                   const sCol = ADMIN_REQ_STATUS_COLORS[req.status] ?? 'bg-slate-50 text-slate-600 border-slate-200';
                   return (
@@ -1708,7 +1942,7 @@ export function FilterDataManagementPage() {
                                   await apiClient.put(activeGenericTab.endpoint + '/' + rowId, body);
                                   toast.success('Updated', 'Record updated silently');
                                   setEditingId(null); setEditFields({});
-                                  globalMutate(activeGenericTab.endpoint + '?limit=50');
+                                  globalMutate((key) => typeof key === 'string' && key.startsWith(activeGenericTab.endpoint));
                                 } catch (e: any) { if (!isReauthAbort(e)) toast.error('Error', e?.message ?? 'Failed'); }
                                 setProcessing(false);
                               }} disabled={processing}
@@ -1753,6 +1987,22 @@ export function FilterDataManagementPage() {
           )
         )}
         </div>
+        {/* Pagination. `totalItems` is the SERVER total where the endpoint
+            paginates, and the filtered array length where it does not — the
+            distinction matters: using the array length on a server-paginated
+            tab would report "50 of 50" while 18,000 rows sat behind it. */}
+        {totalRecords > 0 && (
+          <div className="border-t border-slate-200 px-4 py-2.5 bg-slate-50/60 shrink-0">
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={totalRecords}
+              onPageChange={setPage}
+              onPageSizeChange={size => { setPageSize(size); setPage(1); }}
+              pageSizeOptions={pageSizeOptions}
+            />
+          </div>
+        )}
       </div>
 
       {/* Delete Confirmation Dialog */}

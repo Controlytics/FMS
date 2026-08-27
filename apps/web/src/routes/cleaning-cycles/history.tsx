@@ -24,6 +24,7 @@ import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../typ
 // for the 2026-06-08 column redefinition (Duration = dryer duration; Dry In =
 // dryer-duration submission time; 'Dry By' + cycle-duration dropped).
 import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart, effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 const MSU_COLS = ['sNo', 'filter', 'statusChange', 'dateTime', 'updatedBy', 'remarks'];
 
 // Mirrors the `CAP` in filter-operations.service.ts#getCleaningRecord: the
@@ -339,19 +340,17 @@ export function CleaningCycleHistoryPage() {
               {filterInstances.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           </div>
-          {/* From + To kept together on one line (grouped as a single wrap unit). */}
-          <div className="flex items-end gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">From</label>
-              <input type="datetime-local" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1); }}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500" />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">To</label>
-              <input type="datetime-local" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1); }}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500" />
-            </div>
-          </div>
+          {/* From + To are one control, so they also wrap as one unit. */}
+          <DateRangeFilter
+            label="Date range"
+            type="datetime-local"
+            from={fromDate}
+            to={toDate}
+            onFromChange={v => { setFromDate(v); setPage(1); }}
+            onToChange={v => { setToDate(v); setPage(1); }}
+            fromAriaLabel="Cleaning history from date and time"
+            toAriaLabel="Cleaning history to date and time"
+          />
           {(selectedFilter || fromDate || toDate || searchInput || blockId || areaId || ahuId) && (
             <button onClick={() => { setSelectedFilter(''); setFromDate(''); setToDate(''); setSearchInput(''); setSearch(''); setBlockId(''); setAreaId(''); setAhuId(''); setPage(1); }}
               className="text-[12px] text-cyan-600 hover:text-cyan-700 font-medium pb-2">Clear all</button>

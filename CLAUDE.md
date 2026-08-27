@@ -350,6 +350,51 @@ not reconcile `FilterDetails.currentLifecycleState`.
 
 Plan + decision log: [`tasks/FILTER-DATA-MGMT-AUDIT-RETROFIT.md`](tasks/FILTER-DATA-MGMT-AUDIT-RETROFIT.md).
 
+## Date ranges + list filters (2026-08-27)
+
+**`apps/web/src/components/ui/date-range-filter.tsx` is the one From/To control.**
+11 ranges across 10 files were hand-rolled and none clamped To >= From; the API
+accepts an inverted range and returns empty, so it read as "no records".
+
+- `max` on From / `min` on To greys out invalid days in the picker; a JS re-check
+  on every change is the actual guard (a browser still lets you TYPE an
+  out-of-range value).
+- **The component NEVER calls the sibling's `onChange`** — invalid edits are
+  rejected, not auto-corrected. Call sites do more than set state (`setPage(1)`,
+  `setSelected(new Set())`), so firing both callbacks would run one site's reset
+  and not the other's, and change two SWR keys in one tick.
+- Comparison is `>` / `<`, never `>=`: same-day ranges are legitimate.
+- The Audit Trail filter keeps its own markup and imports `checkRangeEdge`, so
+  the rule lives in one place. Rule locked by
+  `components/ui/__tests__/date-range-filter.test.ts`.
+- The tablet task range carries `disabled={!online}` — forward it.
+
+**Filter Data Management tabs paginate for real.** Every tab was pinned to
+`?page=1&limit=50` (50 of 18,329 audit rows) and the header record count was
+hard-wired to a `genericTabs` array that has been empty for months, so 7 of 9
+tabs displayed `0 records`. Each tab now pages and offers its page's filters.
+Filtering is **server-side wherever the endpoint supports it** — filtering a
+server-paginated list in the browser filters only the rows that came back. The
+four `/api/super-admin/data/*` lists gained `from`/`to` + a status/type param
+(`listWhere` / `listQuery` in `super-admin/routes.ts`); retirements, replacements
+and admin-requests return whole arrays and are paged client-side. A bare `to`
+date covers the **whole day**, on both sides. When adding a tab filter, check the
+endpoint really supports the param — a dropdown that silently does nothing is
+worse than no dropdown.
+
+**Backend guard:** `lib/date-range-guard.ts` is a global Fastify `preHandler`
+registered in `app.ts` BEFORE the route plugins (a hook only covers routes
+registered after it). It 400s `INVALID_DATE_RANGE` on any inverted range in
+`from`/`to`, `startDate`/`endDate` or `dateFrom`/`dateTo`. It ignores values that
+don't parse as dates — it matches on parameter NAME, so it must never become a
+new way for a non-date `from`/`to` to break — and expands a bare end date to
+end-of-day so single-day filters pass. **Three places implement that same
+end-of-day rule** (this guard, `listWhere` in super-admin/routes.ts, and
+`asInstant`/`inDateRange` in the console); change one and change all three.
+Note `/api/filters/{cycles,events}` require `format: date-time`, so a bare
+`yyyy-mm-dd` is rejected by schema validation before the guard ever runs — the
+console widens bare dates to instants for that reason.
+
 ## Documentation Sync Rule
 
 **Hard rule:** every numerical claim in any doc must be backed by a `grep`/`ls` against live code at the moment the doc is touched. Don't trust prior docs — verify.

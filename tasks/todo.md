@@ -2063,3 +2063,33 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       one deliberate edit adds exactly one. Outstanding: browser click-through
       (no Playwright MCP and no connected Chrome extension in that session).
       Plan + verification table: `tasks/FILTER-DATA-MGMT-AUDIT-RETROFIT.md`.
+
+## In progress 2026-08-27 — date-range UI sweep + Filter Data Management filters
+
+- [x] **A. One date-range control app-wide.** `components/ui/date-range-filter.tsx`
+      created. 11 ranges across 10 files, none of which clamped To >= From, and
+      the API accepts an inverted range silently (returns empty). Contract: the
+      component NEVER calls the sibling's onChange — an invalid change is
+      rejected with a hint, so each call site's existing reset logic (setPage(1),
+      setSelected(new Set()), setDownloadMsg('')) stays intact and no edit fires
+      two SWR key changes. `max` on From / `min` on To grey out the picker; the
+      JS re-check is the actual guard (a browser still lets you TYPE an
+      out-of-range value). Comparison is `>` / `<` so same-day ranges stay legal.
+      Sites: audit-filters, cleaning-cycles/{history,filter-lifecycle}, debug,
+      deviations, filter-management/{quality-notifications,rfid-track-record},
+      my-tasks, pm-schedules (dateFrom/dateTo ONLY — editDate + plannedDate are
+      single dates), mobile-wrapper x2 (taskFrom/taskTo carries
+      `disabled={!online}` — MUST forward it).
+- [x] **B. Filter Data Management tabs: pagination + filters.** Every tab is
+      pinned to page 1 today (`?page=1&limit=50`), so records past the first page
+      are unreachable. Add pagination + the filters the corresponding main page
+      offers, per tab, using only query params each endpoint actually supports.
+
+  **Both landed.** A: 11 ranges converted, rule locked by 8 unit tests, audit
+  keeps its own markup and imports `checkRangeEdge`. B: 4 super-admin list
+  endpoints gained `from`/`to` + a status/type param; all 9 tabs page; 15
+  exact-key `globalMutate` calls converted to prefix matchers (they would
+  otherwise have stopped refreshing); the header record count fixed (7 of 9 tabs
+  had been showing a hard-wired 0). Verified against the live API: paging,
+  each filter, and the inclusive same-day boundary (`from=to` returns that day).
+  Outstanding: the browser click-through.

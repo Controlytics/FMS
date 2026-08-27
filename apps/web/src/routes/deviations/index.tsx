@@ -11,6 +11,7 @@ import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useToast } from '@/hooks/use-toast';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 interface DeviationRow {
   id: string;
@@ -221,12 +222,15 @@ export function DeviationsPage() {
             ))}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <label className="text-[11px] font-medium text-slate-400">From</label>
-            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setDownloadMsg(''); }}
-              className="border border-slate-200 rounded-lg px-2 py-1 text-[12px] text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none" />
-            <label className="text-[11px] font-medium text-slate-400">To</label>
-            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setDownloadMsg(''); }}
-              className="border border-slate-200 rounded-lg px-2 py-1 text-[12px] text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none" />
+            <DateRangeFilter
+              size="sm"
+              from={fromDate}
+              to={toDate}
+              onFromChange={v => { setFromDate(v); setDownloadMsg(''); }}
+              onToChange={v => { setToDate(v); setDownloadMsg(''); }}
+              fromAriaLabel="Deviations from date"
+              toAriaLabel="Deviations to date"
+            />
             {/* Phase 5C: Export gated on deviations.export (gate: PM_READ).
                 Previously UNGATED (fail-open); now correctly hidden from users without PM_READ. */}
             {can('deviations.export') && (

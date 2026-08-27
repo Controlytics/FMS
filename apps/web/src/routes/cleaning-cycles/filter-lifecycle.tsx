@@ -14,6 +14,7 @@ import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { startOfDayIso, endOfDayIso } from '@/lib/datetime-input';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
 // endpoints carry the parent id on each child: area.blockId, ahu.areaId,
@@ -759,14 +760,15 @@ export function FilterLifecycleReportPage() {
               {filterOptions.map((f) => (<option key={f.id} value={f.id}>{f.name}{f.retired ? ' (Retired)' : ''}</option>))}
             </select>
           </div>
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">From</label>
-            <input type="date" className={selectCls} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">To</label>
-            <input type="date" className={selectCls} value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          </div>
+          <DateRangeFilter
+            label="Date range"
+            from={fromDate}
+            to={toDate}
+            onFromChange={setFromDate}
+            onToChange={setToDate}
+            fromAriaLabel="Lifecycle from date"
+            toAriaLabel="Lifecycle to date"
+          />
         </div>
         {downloadMsg && (
           <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-[13px] text-amber-700">{downloadMsg}</div>

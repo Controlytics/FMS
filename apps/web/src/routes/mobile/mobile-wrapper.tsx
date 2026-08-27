@@ -23,6 +23,7 @@ import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync
 import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../lib/filter-constants';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 type View = 'home' | 'status' | 'my-tasks' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications';
 
@@ -1501,16 +1502,19 @@ export function MobileWrapperPage() {
                 {taskFiltersOpen && (
                   <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-3">
                     <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">From</label>
-                        <input type="date" disabled={!online} value={taskFrom} onChange={e => setTaskFrom(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:border-cyan-400 disabled:opacity-50" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">To</label>
-                        <input type="date" disabled={!online} value={taskTo} onChange={e => setTaskTo(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:border-cyan-400 disabled:opacity-50" />
-                      </div>
+                      {/* `disabled={!online}` is the offline guard for this
+                          surface and is forwarded to BOTH ends — do not drop it. */}
+                      <DateRangeFilter
+                        size="lg"
+                        disabled={!online}
+                        from={taskFrom}
+                        to={taskTo}
+                        onFromChange={setTaskFrom}
+                        onToChange={setTaskTo}
+                        className="col-span-2 w-full"
+                        fromAriaLabel="Tasks from date"
+                        toAriaLabel="Tasks to date"
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
@@ -1794,26 +1798,20 @@ export function MobileWrapperPage() {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">From</label>
-                  <input
-                    type="datetime-local"
-                    value={cycleFrom}
-                    onChange={(e) => setCycleFrom(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-[12px] text-slate-800 font-mono-tab focus:outline-none focus:border-cyan-500 focus:bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">To</label>
-                  <input
-                    type="datetime-local"
-                    value={cycleTo}
-                    onChange={(e) => setCycleTo(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-[12px] text-slate-800 font-mono-tab focus:outline-none focus:border-cyan-500 focus:bg-white"
-                  />
-                </div>
-              </div>
+              {/* Cycle list window. No offline guard here on purpose — this
+                  list renders from the cached snapshot, so narrowing it works
+                  offline (unlike the tasks range above, which needs the API). */}
+              <DateRangeFilter
+                type="datetime-local"
+                size="md"
+                from={cycleFrom}
+                to={cycleTo}
+                onFromChange={setCycleFrom}
+                onToChange={setCycleTo}
+                className="w-full"
+                fromAriaLabel="Cycles from date and time"
+                toAriaLabel="Cycles to date and time"
+              />
             </div>
 
             {!online && (
