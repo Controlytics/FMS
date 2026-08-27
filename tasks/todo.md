@@ -2177,3 +2177,15 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       verifies `filter_events.checksum` on read (write-only, unlike
       `audit_trail`), so there is no live impact; the audit rows explain the
       discrepancy. Post-check: 0 non-canonical values remain.
+
+- [x] **2026-08-27 — readings editable from the CYCLE dialog too (operator-reported twice).**
+      First pass put RO water / compressed air / dryer temperature only on the
+      EVENT dialog. That was not enough: readings live on just 2 of a cycle's ~12
+      steps (WASH_IN holds the two pressures, one DRY_IN holds the temperature),
+      so the cycle dialog had none and ten of the twelve steps showed none —
+      indistinguishable from "not editable". The cycle dialog now lists every
+      reading the cycle holds, grouped by stage, and writes each back to its
+      owning event via the same audited endpoint (`cyread_<eventId>_<i>` keys,
+      stripped before the cycle PUT). The Lifecycle panel shows readings inline
+      per step so the right step is obvious. Verified the dryer-temperature path
+      end-to-end (0.5 -> 62.5 -> restored) with instrument identity preserved.

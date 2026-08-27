@@ -481,6 +481,15 @@ and the per-stage performer all live on `filter_events` — readings inside
 cycle columns, which is why none of them appeared there. They are edited from
 the **Lifecycle** expander, on the event they belong to.
 
+- **Readings are editable from BOTH the cycle dialog and the event dialog.** They
+  are STORED on individual events — and only two of a cycle's ~12 steps carry any
+  (the WASH_IN transition holds RO water + compressed air, one DRY_IN holds dryer
+  temperature). So opening Edit on the cycle, or on any of the other ten steps,
+  showed no reading fields at all, which reads as "not editable". The cycle
+  dialog now surfaces every reading the cycle has, grouped by stage, and writes
+  each back to the event that owns it through the same audited event endpoint.
+  The Lifecycle panel also shows each step's readings inline, so it is obvious
+  which step to open.
 - Editing a reading changes **only its `value`**. `instrumentId`, `description`,
   `uom` and `leastCount` describe the instrument, not the operator's reading, and
   are written back untouched — rebuilding the array from the form would quietly

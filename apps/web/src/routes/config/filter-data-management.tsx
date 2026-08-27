@@ -370,6 +370,19 @@ function LifecyclePanel({
                 {ev.performedByName && <span>by {ev.performedByName}</span>}
                 {ev.remarks && <span className="text-slate-500">“{ev.remarks}”</span>}
               </div>
+              {/* Show the readings on the step that owns them. Only two of a
+                  cycle's steps carry any, so without this it is impossible to
+                  tell which step to open to correct a pressure or temperature. */}
+              {(((ev.attributes as any)?.instrumentReadings ?? []) as any[]).length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {((ev.attributes as any).instrumentReadings as any[]).map((r: any, ri: number) => (
+                    <span key={ri} className="text-[11px] text-slate-600">
+                      <span className="text-slate-400">{r.description}:</span>{' '}
+                      <span className="font-mono tabular-nums">{r.value}</span> {r.uom ?? ''}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100">
               <button onClick={() => onEditEvent(ev)}
@@ -383,6 +396,28 @@ function LifecyclePanel({
     </div>
   );
 }
+
+/** Every reading a cycle holds, grouped by the event that owns it, stage-ordered. */
+function cycleReadingGroupsOf(row: any): Array<{ eventId: string; stage: string; readings: any[] }> {
+  return [...((row?.events ?? []) as any[])]
+    .sort((a, b) => new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime())
+    .map((ev) => ({
+      eventId: ev.id,
+      stage: ev.toState ?? ev.eventType,
+      readings: ((ev.attributes as any)?.instrumentReadings ?? []) as any[],
+    }))
+    .filter((g) => g.readings.length > 0);
+}
+
+/** Form seed for those readings, keyed `cyread_<eventId>_<index>`. */
+function cycleReadingSeed(row: any): Record<string, any> {
+  const out: Record<string, any> = {};
+  cycleReadingGroupsOf(row).forEach((g) =>
+    g.readings.forEach((r, i) => { out[`cyread_${g.eventId}_${i}`] = r?.value ?? ''; }),
+  );
+  return out;
+}
+
 
 export function FilterDataManagementPage() {
   const { user } = useAuth();
@@ -516,6 +551,21 @@ export function FilterDataManagementPage() {
   const [openLifecycle, setOpenLifecycle] = useState<string | null>(null);
   /** The event's readings as stored, so identity fields survive an edit. */
   const [rowEditReadings, setRowEditReadings] = useState<any[]>([]);
+  /**
+   * Readings reachable from a CYCLE edit, grouped by the event that owns them.
+   *
+   * RO water, compressed air and dryer temperature are the columns an operator
+   * reads off the Cleaning Cycles row, but they are stored on individual events
+   * — and only two of a cycle's ~12 steps carry any (the WASH_IN transition and
+   * one DRY_IN). Opening Edit on the cycle, or on any of the other ten steps,
+   * therefore showed no reading fields at all, which reads as "not editable".
+   *
+   * So the cycle dialog surfaces every reading the cycle has, labelled by its
+   * stage, and writes each one back to the event that owns it.
+   */
+  const [cycleReadingGroups, setCycleReadingGroups] = useState<
+    Array<{ eventId: string; stage: string; readings: any[] }>
+  >([]);
 
   // Users for the "Performed By" picker. Fetched only while an event edit is
   // open — the console has nine tabs and most never need this list.
@@ -857,7 +907,11 @@ export function FilterDataManagementPage() {
         sequenceNumber: row.sequenceNumber ?? '',
         dryerDurationMinutes: row.dryerDurationMinutes ?? '',
         dryerStartedAt: toInput(row.dryerStartedAt),
+        ...cycleReadingSeed(row),
       });
+      // Every reading the cycle holds, in stage order, keyed per event.
+      const groups = cycleReadingGroupsOf(row);
+      setCycleReadingGroups(groups);
     } else if (entity === 'event') {
       // Keep the ORIGINAL readings array: the dialog edits only each reading's
       // value, and instrumentId / description / uom / leastCount are written
@@ -963,7 +1017,28 @@ export function FilterDataManagementPage() {
         body.attributes = { instrumentReadings: readings };
       }
       // The per-reading keys are UI-only — never send them to the API.
-      for (const k of Object.keys(body)) if (k.startsWith('reading_')) delete body[k];
+      for (const k of Object.keys(body)) if (k.startsWith('reading_') || k.startsWith('cyread_')) delete body[k];
+
+      // A cycle edit can also carry instrument readings, which belong to the
+      // stage events rather than to the cycle. Collect the events whose values
+      // actually changed; they are written after the cycle itself saves.
+      const readingWrites: Array<{ eventId: string; attributes: any }> = [];
+      if (rowEditDialog.entity === 'cycle') {
+        for (const g of cycleReadingGroups) {
+          let changed = false;
+          const next = g.readings.map((r: any, i: number) => {
+            const raw = rowEditFields[`cyread_${g.eventId}_${i}`];
+            if (raw === '' || raw === null || raw === undefined) return r;
+            const n = Number(raw);
+            if (!Number.isFinite(n) || n === r?.value) return r;
+            changed = true;
+            // Only the value — instrument identity, unit and least count are
+            // properties of the instrument, not of the operator's reading.
+            return { ...r, value: n };
+          });
+          if (changed) readingWrites.push({ eventId: g.eventId, attributes: { instrumentReadings: next } });
+        }
+      }
       body._changeReason = changeReason.trim();
       await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
         ? apiClient.putWithReauth(`${endpoint}/${rowEditDialog.id}`, body, pw)
@@ -972,6 +1047,18 @@ export function FilterDataManagementPage() {
         'cycle': 'Cycle', 'event': 'Event', 'pm-entry': 'PM entry',
         'notification': 'Notification', 'admin-request': 'Admin request', 'block-change': 'Block change',
       };
+      // Written after the cycle save, each through the same audited endpoint the
+      // Filter Events tab uses — so a reading correction is attributed exactly
+      // like any other event edit, with the same reason.
+      for (const w of readingWrites) {
+        await gated('SUPER_ADMIN_DATA_EDIT', (pw) => {
+          const evBody = { attributes: w.attributes, _changeReason: changeReason.trim() };
+          return pw
+            ? apiClient.putWithReauth(`/api/super-admin/data/filter-events/${w.eventId}`, evBody, pw)
+            : apiClient.put(`/api/super-admin/data/filter-events/${w.eventId}`, evBody);
+        });
+      }
+
       toast.success('Updated', `${labelMap[rowEditDialog.entity]} updated and audited`);
       setRowEditDialog(null);
       setRowEditFields({});
@@ -2269,6 +2356,41 @@ export function FilterDataManagementPage() {
                   <Field label="Termination Reason" value={rowEditFields.terminationReason} onChange={v => setRowEditFields(p => ({ ...p, terminationReason: v }))} textarea />
                   <Field label="Dryer Duration (min)" value={rowEditFields.dryerDurationMinutes} onChange={v => setRowEditFields(p => ({ ...p, dryerDurationMinutes: v }))} type="number" />
                   <Field label="Dryer Started At" value={rowEditFields.dryerStartedAt} onChange={v => setRowEditFields(p => ({ ...p, dryerStartedAt: v }))} type="datetime-local" />
+
+                  {/* Instrument readings — RO water, compressed air, dryer
+                      temperature. They are STORED on individual events (only the
+                      WASH_IN and DRY_IN transitions carry any), but they are
+                      COLUMNS on this cycle's row, so they are edited here and
+                      written back to the event that owns each one. */}
+                  {cycleReadingGroups.length > 0 && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Instrument readings
+                      </p>
+                      <div className="space-y-3">
+                        {cycleReadingGroups.map((g) => (
+                          <div key={g.eventId}>
+                            <p className="mb-1.5 text-[11px] font-semibold text-slate-400">{g.stage}</p>
+                            <div className="space-y-2">
+                              {g.readings.map((r: any, i: number) => (
+                                <Field
+                                  key={`${g.eventId}-${i}`}
+                                  label={`${r.description ?? 'Reading'}${r.uom ? ` (${r.uom})` : ''}`}
+                                  type="number"
+                                  value={rowEditFields[`cyread_${g.eventId}_${i}`]}
+                                  onChange={v => setRowEditFields(p => ({ ...p, [`cyread_${g.eventId}_${i}`]: v }))}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-400">
+                        Saved against the stage event that recorded them. The instrument, unit and
+                        least count are not editable — only the value.
+                      </p>
+                    </div>
+                  )}
                 </>
               ) : rowEditDialog.entity === 'event' ? (
                 <>
