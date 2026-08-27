@@ -18,6 +18,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn } from './pm-workflow.js';
+import { checkSeparation } from './pm-separation.js';
 
 interface ParsedRow {
   rowNum: number;
@@ -230,10 +231,45 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
         }
       }
 
-      // Last-wins per month, mirroring the previous per-row upsert where a later
-      // row for the same month overwrote the earlier one.
-      const byMonth = new Map<number, ParsedRow>();
-      for (const p of bucket) byMonth.set(p.month, p);
+      // Every uploaded row is kept (2026-08-27).
+      //
+      // This used to be `byMonth.set(p.month, p)` — "last wins per month" — so a
+      // file with two March dates for one AHU imported only the later one and
+      // said nothing. Operators schedule the same AHU many times a year with
+      // irregular gaps, sometimes twice inside a month, so that collapse was
+      // discarding real schedule rows silently.
+      //
+      // Separation is validated across the WHOLE bucket before any write: two
+      // visits must not be satisfiable by one cleaning. A partial import would
+      // leave a half-valid year, so a violation rejects the AHU's rows outright
+      // and names the dates involved.
+      const violations = checkSeparation(
+        bucket.map((p) => ({ ref: p.rowNum, plannedDate: p.plannedDate, toleranceDays: p.toleranceDays })),
+      );
+      if (violations.length > 0) {
+        // EVERY row of this AHU is reported, not just the offending ones.
+        //
+        // Nothing for the AHU is written — the year is uploaded and reviewed as
+        // one schedule, so a partial import would leave it half-valid. If only
+        // the violating rows were listed, the operator would read
+        // "3 imported, 1 skipped" while three rows silently went nowhere. That
+        // is the same class of quiet mismatch as the last-wins-per-month
+        // collapse this replaced.
+        const offenders = new Map<number, string>();
+        for (const v of violations) {
+          // Report against the LATER row — that is the one the operator moves.
+          offenders.set(Number(v.later.ref), `AHU "${ahu.name}": ${v.message}`);
+        }
+        for (const p of bucket) {
+          skipped.push({
+            row: p.rowNum,
+            reason: offenders.get(p.rowNum)
+              ?? `AHU "${ahu.name}": not imported — another visit for this AHU overlaps, and the whole year is imported together. Fix the flagged row(s) and re-upload.`,
+            data: p.raw,
+          });
+        }
+        continue;
+      }
 
       // Hard-replace + repopulate atomically: the new file fully REPLACES the
       // schedule, so old months absent from it stop generating /due tasks.
@@ -247,7 +283,7 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
         if (schedule) await tx.pmScheduleEntry.deleteMany({ where: { scheduleId: sid } });
 
         await tx.pmScheduleEntry.createMany({
-          data: [...byMonth.values()].map((p) => ({
+          data: bucket.map((p) => ({
             scheduleId: sid,
             month: p.month,
             plannedDate: p.plannedDate,

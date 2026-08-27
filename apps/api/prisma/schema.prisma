@@ -1173,7 +1173,14 @@ model PmScheduleEntry {
   schedule   PmSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   executions PmExecution[]
 
-  @@unique([scheduleId, month])
+  // Uniqueness is by DATE, not by calendar month (2026-08-27). An AHU is
+  // scheduled many times a year with irregular gaps, sometimes twice in one
+  // month; the old [scheduleId, month] key capped it at 12 a year and made the
+  // importer silently drop same-month rows. `month` survives as a display label.
+  // Visits are additionally required not to overlap each other's tolerance
+  // windows — that rule is in pm-separation.ts, since a database constraint
+  // cannot express "compare against the neighbouring row".
+  @@unique([scheduleId, plannedDate])
   @@index([scheduleId])
   @@index([windowStart, windowEnd])
   @@index([approvalStatus])

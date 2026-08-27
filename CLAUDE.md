@@ -341,6 +341,55 @@ Note `/api/filters/{cycles,events}` require `format: date-time`, so a bare
 `yyyy-mm-dd` is rejected by schema validation before the guard ever runs — the
 console widens bare dates to instants for that reason.
 
+## PM schedules: many irregular visits per AHU (2026-08-27)
+
+A year is uploaded in ONE file. The same AHU appears in it many times with
+**irregular** gaps — some near a month, some longer, some shorter. Dates are
+supplied explicitly; nothing is generated. (This is NOT the 2026-08-26
+`frequency_days` feature, which generated dates from a fixed 30-day multiple and
+was reverted the next day.)
+
+**The rule — two visits must never be satisfiable by one cleaning.** Windows are
+symmetric (`plannedDate ± toleranceDays`), so for consecutive visits sorted by
+date it is a violation when **`next.windowStart <= prev.windowEnd`**.
+
+Deliberately stricter than "next date after previous date + tolerance": the next
+visit's BACKWARD tolerance reaches into the past, so dates that look far apart
+still overlap. 10 Mar ±15 and 5 Apr ±20 are 26 days apart and overlap 16–25 Mar.
+The live data had three such pairs on AHU-0A at gaps of 31–32 days — the DATES
+looked fine, the TOLERANCES overlapped. A gap-only check passes all three.
+
+- Rule lives once, pure, in `pm-schedules/pm-separation.ts`; `pm-separation-guard.ts`
+  is the thin DB layer that throws **409 `PM_VISIT_OVERLAP`**.
+- **Four write paths, all guarded** — create, replace (`pm-schedule-crud.ts`),
+  re-submit a rejected entry, and edit an approved entry (`pm-approval.ts`).
+  The fourth needs the check **twice**: `editApprovedEntry` only STAGES
+  `pendingPlannedDate`, and it goes live later at QA approval, by which time
+  another entry may have moved. Validating only at request time lets two
+  individually-fine approvals combine into an overlap.
+- Bulk import validates the whole file per AHU **before any write** and rejects
+  that AHU's rows outright — a partial import leaves a half-valid year. **Every**
+  rejected row is reported, not only the offending one, or the operator reads
+  "1 skipped" while three rows went nowhere.
+- **`@@unique([scheduleId, plannedDate])`** replaced `[scheduleId, month]`
+  (migration `20260827120000_pm_entries_unique_by_date`; drift guard PASS). The
+  old key capped an AHU at 12 visits a year and made the importer silently
+  collapse same-month rows ("last wins") — real schedule rows discarded with no
+  error. `month` survives as a **display label only**.
+  Note Prisma may materialise `@@unique` as a CONSTRAINT or a bare unique INDEX:
+  the migration drops both spellings, because dropping only the constraint left
+  the index still enforcing one-per-month (observed on digilog_db).
+- Pre-existing overlaps are **grandfathered and flagged**, not blocked
+  (`pm-schedules/detail.tsx` amber badge) — blocking would take a live AHU out
+  of service mid-year.
+
+**Known gap:** a late-December visit with a large tolerance has a window running
+into January, but the next year is a separate `PmSchedule` row, so that pair is
+not compared. Only bites large tolerances near year end (live data has 21 Dec
+±25). Decide with the operator before closing it.
+
+Plan + decision log: [`tasks/PM-IRREGULAR-SCHEDULE-PLAN.md`](tasks/PM-IRREGULAR-SCHEDULE-PLAN.md).
+
 ## Documentation Sync Rule
 
 **Hard rule:** every numerical claim in any doc must be backed by a `grep`/`ls` against live code at the moment the doc is touched. Don't trust prior docs — verify.

@@ -2096,3 +2096,14 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       7 files); resolved keeping today's work and dropping the PM text. Also
       corrected a doc claim the revert exposed: the scheduler is back to 3 cron
       jobs, not 4. Safety tag: `pre-pm-recurrence-revert`.
+
+- [x] **2026-08-27 — PM schedules: many irregular visits per AHU.** One yearly
+      upload, same AHU many times, irregular gaps; two visits must never be
+      satisfiable by one cleaning (`next.windowStart <= prev.windowEnd` = 409
+      `PM_VISIT_OVERLAP`). Rule is pure in `pm-separation.ts`, used by all four
+      write paths — and TWICE on the edit-approved path, since it only stages
+      `pendingPlannedDate` and the value goes live later at QA approval.
+      `@@unique([scheduleId, month])` → `[scheduleId, plannedDate]`; the importer
+      no longer collapses same-month rows ("last wins" was discarding real
+      schedule rows silently). Existing overlaps grandfathered + badged.
+      Plan + verification: `tasks/PM-IRREGULAR-SCHEDULE-PLAN.md`.

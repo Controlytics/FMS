@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled } from './pm-shared.js';
+import { assertSetSeparation } from './pm-separation-guard.js';
 
 export async function getByEntity(_ctx: RequestContext, entityId: string, year?: number) {
   await checkPmEnabled();
@@ -43,6 +44,18 @@ export async function create(ctx: RequestContext, data: any) {
     where: { entityId, year, status: 'ACTIVE' },
   });
   if (existing) throw new AppError(409, 'CONFLICT', `Active PM schedule already exists for year ${year}`);
+
+  // Two visits to one AHU must never be satisfiable by a single cleaning.
+  // Checked before the write, on the whole proposed set — a schedule created
+  // with overlapping visits would generate two tasks one cleaning could close.
+  assertSetSeparation(
+    entries.map((e: any) => ({
+      ref: e.plannedDate,
+      plannedDate: new Date(e.plannedDate),
+      toleranceDays: e.toleranceDays ?? 0,
+    })),
+    `The ${year} schedule`,
+  );
 
   const schedule = await prisma.pmSchedule.create({
     data: {
@@ -90,6 +103,19 @@ export async function update(ctx: RequestContext, id: string, data: any) {
     include: { entries: true },
   });
   if (!existing) throw new AppError(404, 'NOT_FOUND', 'PM schedule not found');
+
+  // Same separation check as create, and for the same reason the entry-count
+  // check above runs here: this is archive-then-recreate, so throwing after the
+  // archive would leave the AHU with no ACTIVE schedule and silently stop task
+  // generation. Validate the whole proposed set first.
+  assertSetSeparation(
+    entries.map((e: any) => ({
+      ref: e.plannedDate,
+      plannedDate: new Date(e.plannedDate),
+      toleranceDays: e.toleranceDays ?? 0,
+    })),
+    `The ${existing.year} schedule`,
+  );
 
   // Archive + recreate atomically — a failure must not strand the schedule
   // with no ACTIVE version.

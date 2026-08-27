@@ -1,5 +1,60 @@
 # Changelog
 
+## [Unreleased] - PM schedules: many irregular visits per AHU, with overlap refused (2026-08-27)
+
+A year's PM schedule is uploaded in one file in which the same AHU appears many
+times with irregular gaps. Two things stood in the way, and one of them was
+losing data.
+
+### Fixed - the importer silently discarded schedule rows
+
+`pm-import.ts` collapsed rows with `byMonth.set(p.month, p)` — "last wins per
+month". A file with two March visits for one AHU imported **only the later one
+and said nothing**. Combined with `@@unique([scheduleId, month])`, an AHU was
+also capped at 12 visits a year.
+
+Uniqueness moves to the date (`@@unique([scheduleId, plannedDate])`, migration
+`20260827120000_pm_entries_unique_by_date`), every uploaded row is kept, and
+`month` stays only as a display label. Worth knowing for future migrations:
+Prisma may materialise `@@unique` as a table CONSTRAINT *or* as a bare unique
+INDEX — dropping only the constraint left the index in place, still enforcing
+one-per-month. The migration drops both spellings.
+
+### Added - two visits can never be satisfied by one cleaning
+
+Visits to one AHU must not have overlapping tolerance windows: for consecutive
+visits, `next.windowStart <= prev.windowEnd` is refused with **409
+`PM_VISIT_OVERLAP`**.
+
+This is stricter than "the next date must be after the previous date plus its
+tolerance", and deliberately so — the next visit's backward tolerance reaches
+into the past, so 10 Mar ±15 and 5 Apr ±20 are 26 days apart and still overlap
+16–25 Mar. The live data already had three such pairs on AHU-0A at gaps of 31
+and 32 days: the dates looked fine, the tolerances did not. A gap-only rule
+passes all three.
+
+The rule is pure and lives once (`pm-separation.ts`). All four write paths use
+it: create, replace, re-submit a rejected entry, and edit an approved entry —
+the last one **twice**, because that path only stages `pendingPlannedDate` and
+the value goes live later at QA approval, by which time another entry may have
+moved. Validating only at request time would let two individually-valid
+approvals combine into an overlap.
+
+Bulk import validates the whole file per AHU before writing anything and rejects
+that AHU's rows outright; a partial import would leave a half-valid year. Every
+rejected row is reported, not just the offending one — otherwise the response
+reads "1 skipped" while three rows quietly went nowhere.
+
+Existing overlaps are grandfathered and flagged with an amber badge on the
+schedule detail page rather than blocked, so a live AHU is not taken out of
+service mid-year.
+
+**Known gap, deliberately left:** a late-December visit with a large tolerance
+has a window reaching into January, but the following year is a separate
+`PmSchedule` row, so that pair is not compared. Only affects large tolerances
+near a year boundary; to be decided with the operator.
+
+
 ## [Unreleased] - One date-range control app-wide; Filter Data Management gets paging + filters (2026-08-27)
 
 ### Fixed - a To date earlier than the From was accepted everywhere

@@ -15,6 +15,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, type QnnAction } from './pm-workflow.js';
+import { assertSeparation } from './pm-separation-guard.js';
 
 const MS_DAY = 86400000;
 function windowsFor(planned: Date, tol: number) {
@@ -188,6 +189,22 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
     const hasPendingEdit = entry.pendingPlannedDate != null;
     const newPlannedDate = hasPendingEdit ? entry.pendingPlannedDate! : entry.plannedDate;
     const newTolerance = hasPendingEdit && entry.pendingToleranceDays != null ? entry.pendingToleranceDays : entry.toleranceDays;
+
+    // Re-check the separation rule at the moment a staged edit goes LIVE.
+    //
+    // editApprovedEntry() already validated the date when it was proposed, but
+    // approval happens later and the schedule can move underneath it — another
+    // entry added, or another pending edit approved first. Validating only at
+    // request time would let two approvals, each fine on its own, combine into
+    // an overlap. This is the last point at which it can still be refused.
+    if (hasPendingEdit) {
+      await assertSeparation(
+        entry.scheduleId,
+        { plannedDate: newPlannedDate, toleranceDays: newTolerance, entryId: entry.id },
+        'This approved change',
+      );
+    }
+
     const { windowStart, windowEnd } = windowsFor(newPlannedDate, newTolerance);
 
     await prisma.pmScheduleEntry.update({
@@ -264,6 +281,7 @@ export async function resubmitEntry(
   const planned = new Date(data.plannedDate);
   if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
   const tol = data.toleranceDays ?? entry.toleranceDays;
+  await assertSeparation(entry.scheduleId, { plannedDate: planned, toleranceDays: tol, entryId: entryId }, 'This visit');
   const { windowStart, windowEnd } = windowsFor(planned, tol);
   const nextStatus = cfg.workflowEnabled ? 'PENDING_REVIEW' : 'PENDING';
 
@@ -302,6 +320,14 @@ export async function editApprovedEntry(
 
   const planned = new Date(data.plannedDate);
   if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
+  // Checked here AND again when the pending value goes live: entries can be
+  // added or moved between the request and the approval, so a date that was
+  // clear when proposed may not be clear when applied.
+  await assertSeparation(
+    entry.scheduleId,
+    { plannedDate: planned, toleranceDays: data.toleranceDays ?? entry.toleranceDays, entryId },
+    'This visit',
+  );
   const nextStatus = cfg.workflowEnabled ? 'PENDING_REVIEW' : 'PENDING';
 
   const updated = await prisma.pmScheduleEntry.update({

@@ -16,7 +16,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
     systemConfig: { findUnique: vi.fn() },
-    pmScheduleEntry: { findUnique: vi.fn(), update: vi.fn() },
+    // findMany backs the 2026-08-27 separation guard, which reads the entry's
+    // siblings before allowing a date change.
+    pmScheduleEntry: { findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
     qualityNotification: { create: vi.fn() },
     assetInstance: { findMany: vi.fn() },
     $queryRaw: vi.fn(),
@@ -48,6 +50,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   P.systemConfig.findUnique.mockResolvedValue(WF_CONFIG);
   P.pmScheduleEntry.findUnique.mockResolvedValue(APPROVED_ENTRY);
+  // No siblings: this entry is the only visit on its schedule, so the separation
+  // guard has nothing to compare against and must let the edit through.
+  P.pmScheduleEntry.findMany.mockResolvedValue([]);
   P.pmScheduleEntry.update.mockImplementation(async ({ data }: any) => ({ ...APPROVED_ENTRY, ...data }));
   P.qualityNotification.create.mockResolvedValue({});
   P.assetInstance.findMany.mockResolvedValue([{ id: 'ahu-1', name: 'AHU-01' }]);

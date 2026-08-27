@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
@@ -14,6 +14,37 @@ export function PmScheduleDetailPage() {
   const [year, setYear] = useState(new Date().getFullYear());
   const { data: schedule, isLoading } = useSWR(entityId ? `/api/pm-schedules/${entityId}?year=${year}` : null);
   const [starting, setStarting] = useState<string | null>(null);
+
+  // Which visits overlap the one before them, and which months hold more than
+  // one visit. Both derive from the same sorted pass.
+  //
+  // The rule is duplicated from the server's pm-separation.ts on purpose: this
+  // is a read-only badge over data the server already accepted (rows scheduled
+  // before the rule was enforced are grandfathered), so it must not depend on
+  // the API returning a validation verdict it has no reason to compute.
+  const { overlapNotes, monthIsAmbiguous } = useMemo(() => {
+    const notes = new Map<string, string>();
+    const monthCounts = new Map<number, number>();
+    const rows = [...((schedule as any)?.entries ?? [])]
+      .map((e: any) => ({ ...e, _d: new Date(e.plannedDate).getTime() }))
+      .sort((a, b) => a._d - b._d);
+
+    for (const r of rows) monthCounts.set(r.month, (monthCounts.get(r.month) ?? 0) + 1);
+
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1];
+      const cur = rows[i];
+      // Same comparison as the server: next.windowStart <= prev.windowEnd.
+      if (new Date(cur.windowStart).getTime() <= new Date(prev.windowEnd).getTime()) {
+        notes.set(cur.id, formatDate(prev.plannedDate));
+      }
+    }
+    return {
+      overlapNotes: notes,
+      monthIsAmbiguous: new Set([...monthCounts.entries()].filter(([, n]) => n > 1).map(([m]) => m)),
+    };
+  }, [schedule, formatDate]);
+
   const [error, setError] = useState<string | null>(null);
   const reauth = useReauth();
 
@@ -77,6 +108,14 @@ export function PmScheduleDetailPage() {
             <span className={`px-2 py-0.5 text-xs rounded-full ${schedule.status === 'ACTIVE' ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'}`}>{schedule.status}</span>
           </div>
 
+          {overlapNotes.size > 0 && (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
+              <strong>{overlapNotes.size} visit{overlapNotes.size === 1 ? '' : 's'} overlap the previous visit's tolerance window.</strong>{' '}
+              A single cleaning inside the overlap would satisfy both, so the second PM would
+              effectively never happen. These were scheduled before the rule was enforced and
+              still work — edit the dates when convenient. New uploads and edits are refused.
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {(schedule.entries ?? []).map((entry: any) => {
               const exec = entry.execution;
@@ -91,12 +130,28 @@ export function PmScheduleDetailPage() {
               return (
                 <div key={entry.id} className={`bg-white border rounded-xl p-4 ${isOverdue ? 'border-red-600' : isDue ? 'border-amber-600' : isCompleted ? 'border-green-600' : isInProgress ? 'border-blue-600' : 'border-slate-200'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-lg font-semibold text-slate-800">{MONTHS[entry.month - 1]}</span>
+                    {/* An AHU can be visited twice in one month, so the month
+                        name alone no longer identifies a card — show the day
+                        beside it whenever the month is not unique. */}
+                    <span className="text-lg font-semibold text-slate-800">
+                      {MONTHS[entry.month - 1]}
+                      {monthIsAmbiguous.has(entry.month) && (
+                        <span className="ml-1.5 text-sm font-medium text-slate-400">
+                          {new Date(entry.plannedDate).getUTCDate()}
+                        </span>
+                      )}
+                    </span>
                     {isCompleted && <span className="px-2 py-0.5 text-xs bg-green-50 text-green-700 rounded-full">Completed</span>}
                     {isInProgress && <span className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded-full">In Progress</span>}
                     {isOverdue && <span className="px-2 py-0.5 text-xs bg-red-50 text-red-700 rounded-full">Overdue</span>}
                     {isDue && <span className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 rounded-full">Due</span>}
                   </div>
+                  {overlapNotes.has(entry.id) && (
+                    <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-700"
+                         title="One cleaning in the overlap would satisfy both visits.">
+                      Overlaps the {overlapNotes.get(entry.id)} visit
+                    </div>
+                  )}
                   <div className="text-sm text-slate-500 space-y-1">
                     <div>Planned: <span className="text-slate-600">{formatDate(entry.plannedDate)}</span></div>
                     <div>Window: <span className="text-slate-600">{formatDate(entry.windowStart)} - {formatDate(entry.windowEnd)}</span></div>
