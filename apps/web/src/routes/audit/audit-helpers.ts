@@ -62,6 +62,15 @@ export const ACTION_COLORS: Record<string, string> = {
   ASSET_IDENTIFIER_CREATED: 'bg-lime-100 text-lime-700 border-lime-200',
   ASSET_IDENTIFIER_DELETED: 'bg-red-100 text-red-700 border-red-200',
 
+  // Manual data management (Config → Filter Data Management, 2026-08-27).
+  // Amber/red rather than the usual green-for-create: every one of these is a
+  // hand-keyed change to operational history and should catch an inspector's
+  // eye in a list of workflow-generated rows.
+  MANUAL_RECORD_CREATED: 'bg-amber-100 text-amber-700 border-amber-200',
+  MANUAL_RECORD_UPDATED: 'bg-amber-100 text-amber-700 border-amber-200',
+  MANUAL_RECORD_DELETED: 'bg-red-100 text-red-700 border-red-200',
+  AUDIT_RECORD_UPDATED: 'bg-red-100 text-red-700 border-red-200',
+
   // Alarm Management — RETAINED per 21 CFR Part 11. The alarm subsystem
   // was retired 2026-05-17, but historic audit rows with these actions may
   // still exist and must continue to render with their original badge.
@@ -101,7 +110,33 @@ const kindLabel = (k: unknown): string => (typeof k === 'string' && KIND_LABELS[
 // Human record type for {recordType} (generic CREATED/UPDATED/DELETED rows).
 // Title-cases the targetType (cleaning_profile → "Cleaning Profile") with a few
 // acronym overrides so PM/AHU read correctly.
-const RECORD_TYPE_OVERRIDES: Record<string, string> = { pm_schedule: 'PM Schedule' };
+const RECORD_TYPE_OVERRIDES: Record<string, string> = {
+  pm_schedule: 'PM Schedule',
+  // 2026-08-27: targetTypes written by the Filter Data Management retrofit.
+  // {recordType} is what makes three generic MANUAL_RECORD_* actions read
+  // specifically, so every targetType they emit needs a presentable label.
+  pm_schedule_entry: 'PM Entry',
+  block_change_request: 'Block Change Request',
+  retired_filter: 'Retired Filter',
+  audit_trail: 'Audit',
+};
+
+/**
+ * Actions whose `{reason}` is the operator's typed justification, held in the
+ * audit row's own `reason` COLUMN rather than in before/afterValue.
+ *
+ * The generic `{reason}` resolution below reads before/afterValue only, so for
+ * these actions it produced an empty string — the AUDIT_RECORD_DELETED /
+ * _REDACTED templates have shipped a blank `reason: ""` since 2026-07-01. The
+ * column takes priority only for this set, so no existing row's rendering
+ * changes (a BlockChangeRequest snapshot, for instance, has its own unrelated
+ * `reason` field in afterValue).
+ */
+const JUSTIFICATION_ACTIONS = new Set([
+  'MANUAL_RECORD_CREATED', 'MANUAL_RECORD_UPDATED', 'MANUAL_RECORD_DELETED',
+  'AUDIT_RECORD_UPDATED', 'AUDIT_RECORD_DELETED', 'AUDIT_RECORD_REDACTED',
+  'AUDIT_RECORDS_BULK_DELETED', 'AUDIT_RECORDS_BULK_REDACTED',
+]);
 
 const ACTION_BADGE_OVERRIDES: Record<string, (after: any, before: any) => string> = {
   ASSET_IDENTIFIER_CREATED: (after) => {
@@ -187,7 +222,8 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   // packages/shared/src/types/audit-templates.ts:342) but had no substitution
   // here — rendered as literal "{reason}" on every cycle-start row. Read
   // cleaningReasonLabel (human-readable) with fallback to the key.
-  const reason = after.cleaningReasonLabel || before.cleaningReasonLabel
+  const reason = (JUSTIFICATION_ACTIONS.has(record.action) ? record.reason : '')
+    || after.cleaningReasonLabel || before.cleaningReasonLabel
     || after.cleaningReasonKey || before.cleaningReasonKey
     || after.reason || before.reason || '';
 

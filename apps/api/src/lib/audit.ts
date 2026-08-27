@@ -20,6 +20,18 @@ export interface AuditEntry {
   userAgent?: string;
   sessionId?: string;
   signatureMeaning?: string;
+  /**
+   * Explicit event time for BACK-DATED manual records (Config → Filter Data
+   * Management). Omit for everything else — the default is `new Date()`.
+   *
+   * Chain-safe: the same value is written to the row AND fed to the checksum
+   * (`baseFields.timestamp`), and the hash chain is ordered by
+   * `chain_position` (BIGSERIAL), not by time — so a row dated in the past
+   * still links to the row physically before it. Do NOT use this to disguise
+   * when an action was taken; it exists so a manually-entered record of a
+   * real-world event carries that event's date.
+   */
+  timestamp?: Date | string;
 }
 
 /**
@@ -104,7 +116,13 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
       `SYSTEM_AUDIT_ACTIONS in apps/api/src/lib/audit.ts and document why.`,
     );
   }
-  const timestamp = new Date();
+  // Back-dated manual records pass an explicit timestamp; everything else is
+  // stamped now. One variable feeds BOTH the checksum payload and the INSERT,
+  // so the two can never disagree.
+  const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error(`audit.timestamp is not a valid date for action='${entry.action}'`);
+  }
   const afterValueClean = entry.afterValue ? JSON.parse(JSON.stringify(entry.afterValue)) : undefined;
   const beforeValueClean = entry.beforeValue ? JSON.parse(JSON.stringify(entry.beforeValue)) : undefined;
   // Checksum field set (expanded 2026-07-04): cover EVERY persisted audit column so

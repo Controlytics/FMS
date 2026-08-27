@@ -376,10 +376,9 @@ export default async function authRoutes(app: FastifyInstance) {
   // grant via plugins/auth.ts in offline-replay mode; the grant endpoint
   // itself must hold its line.
   //
-  // Audit row records the grant issuance with action GRANT_OFFLINE_REPLAY
-  // for the audit trail (who minted what grant when, from which session/IP).
-  // The legacy `x-offline-replay: true` header is now rejected upstream in
-  // plugins/auth.ts.
+  // No audit row is written for a grant (2026-08-27) — see the handler body for
+  // what that trades away. The legacy `x-offline-replay: true` header is still
+  // rejected upstream in plugins/auth.ts.
   app.post('/offline-grant', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
     schema: {
@@ -442,19 +441,26 @@ export default async function authRoutes(app: FastifyInstance) {
 
     const grant = await signOfflineReplayToken(req.user.sub, req.user.sessionId);
 
-    // Audit grant issuance for traceability.
-    const { auditLog } = await import('../../lib/audit.js');
-    await auditLog({
-      userId: req.user.username,
-      userRole: req.user.role,
-      action: 'GRANT_OFFLINE_REPLAY',
-      targetType: 'session',
-      targetId: req.user.sessionId,
-      afterValue: { expiresAt: grant.expiresAt.toISOString() },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-      sessionId: req.user.sessionId,
-    });
+    // NO AUDIT ROW (2026-08-27, operator decision).
+    //
+    // This used to write a GRANT_OFFLINE_REPLAY row per issuance. Every tablet
+    // operator mints a grant whenever they take an offline window, so it became
+    // the single highest-volume action in the trail (1,585 rows by the time it
+    // was removed, across all eight roles) and buried the records an inspector
+    // actually reads. The operator asked for it gone.
+    //
+    // Understand what that costs before re-adding or re-removing anything: the
+    // row was the only record of WHO could replay offline work, from which
+    // session and IP. The grant itself is still password-gated and still bound
+    // to the user + session (see the block comment above — that is the C1 fix
+    // and it is untouched); what is gone is the ability to answer "who held an
+    // offline-replay window on this date" from the audit trail.
+    //
+    // The 1,585 historic rows are untouched and still render — GRANT_OFFLINE_REPLAY
+    // stays in AUDIT_TEMPLATE_DEFAULTS per the never-delete policy documented in
+    // packages/shared/src/types/audit-actions.ts. (It was never a member of
+    // AUDIT_ACTIONS itself — this endpoint emitted the string directly.) The
+    // historic rows are restricted to SUPER_ADMIN by lib/audit-visibility.ts.
 
     return { token: grant.token, expiresAt: grant.expiresAt.toISOString() };
   });

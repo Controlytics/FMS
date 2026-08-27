@@ -237,7 +237,12 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/rfid-track-record" element={<RequireRole permissions={[PERMISSIONS.ASSET_VIEW, PERMISSIONS.ASSET_READ, PERMISSIONS.FILTER_RFID_MANAGE]}><Suspense fallback={<LazyFallback />}><RfidTrackRecordPage /></Suspense></RequireRole>} />
             <Route path="/quality-notifications" element={<Suspense fallback={<LazyFallback />}><QualityNotificationsPage /></Suspense>} />
             <Route path="/filter-replacements" element={<RequireRole permissions={[PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_VIEW, PERMISSIONS.FILTER_REPLACE, PERMISSIONS.REPLACEMENT_SCHEDULE_VIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_UPLOAD, PERMISSIONS.REPLACEMENT_SCHEDULE_REVIEW, PERMISSIONS.REPLACEMENT_SCHEDULE_APPROVE]}><Suspense fallback={<LazyFallback />}><ReplacementListPage /></Suspense></RequireRole>} />
-            <Route path="/config/filter-data-management" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE, PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
+            {/* SUPER_ADMIN only (2026-08-27). Every endpoint this page calls is
+                requireRole('SUPER_ADMIN'), so the previous CONFIG_READ gate let
+                any config-reading role open a page where nothing works and the
+                lists 403 on load. RequireRole with an empty `roles` denies
+                everyone except SUPER_ADMIN, which bypasses above. */}
+            <Route path="/config/filter-data-management" element={<RequireRole roles={[]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
             <Route path="/config/tablet-access" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE, PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><TabletAccessConfigPage /></Suspense></RequireRole>} />
             <Route path="/filters" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
             <Route path="/filters/stage/:stageKey" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />

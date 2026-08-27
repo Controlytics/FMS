@@ -89,6 +89,11 @@ export const REAUTH_ACTIONS = {
   // differ, and the surviving meta-audit row records single vs bulk intent.
   DELETE_AUDIT_RECORD: { label: 'Delete Audit Record', category: 'Configuration' },
   BULK_DELETE_AUDIT_RECORDS: { label: 'Bulk Delete Audit Records', category: 'Configuration' },
+  // 2026-08-27: in-place edit of an audit row (Config → Filter Data Management
+  // → Audit Trail tab, and the Replacements tab whose records ARE audit rows).
+  // Separate key from DELETE_AUDIT_RECORD so an operator can be allowed to
+  // correct a row without being allowed to destroy one.
+  UPDATE_AUDIT_RECORD: { label: 'Edit Audit Record', category: 'Configuration' },
   // 2026-05-26 audit fix (PA-REAUTH-4): notification bulk-delete is
   // destructive (irreversible, no recycle bin) and was missing reauth.
   // Single-delete uses the same key — same blast radius per row.
@@ -97,9 +102,10 @@ export const REAUTH_ACTIONS = {
   // 2026-05-26 audit fix (PA-REAUTH-3): super-admin filter-data
   // routes (super-admin/routes.ts) can edit/delete cleaning cycles,
   // filter events, notifications, admin-requests, etc. with no audit
-  // trail (per current code comment). Adding reauth on every mutation
-  // is the bare-minimum hardening pending the larger audit-trail
-  // retrofit. Applies to every PUT/DELETE/POST in super-admin/routes.ts.
+  // trail. The audit-trail retrofit landed 2026-08-27 — every mutation now
+  // also writes a MANUAL_RECORD_* row with a mandatory reason — but the reauth
+  // step stays: it is the identity check, not the record.
+  // Applies to every PUT/DELETE/POST in super-admin/routes.ts.
   SUPER_ADMIN_DATA_EDIT: { label: 'Super-Admin Data Edit', category: 'Super Admin' },
   // LDAP config (audit 2026-05-04 fix #5 — web-routes review H2):
   // bind credentials and base-DN edits can redirect every login to an

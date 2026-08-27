@@ -848,6 +848,12 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Super Admin API access changed by {actor}',
     placeholders: ['actor'],
   },
+  // NO LONGER EMITTED (2026-08-27). The write was removed from
+  // POST /api/auth/offline-grant — every tablet offline window minted one, making
+  // it the highest-volume action in the trail (1,585 rows across all 8 roles).
+  // RETAINED per the never-delete policy in audit-actions.ts: the historic rows
+  // still render through this template. They are visible to SUPER_ADMIN only
+  // (apps/api/src/lib/audit-visibility.ts).
   GRANT_OFFLINE_REPLAY: {
     label: 'Offline Replay Granted',
     category: 'Configuration',
@@ -877,6 +883,34 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     category: 'Configuration',
     template: 'Multiple audit records redacted by {actor} — reason: "{reason}"',
     placeholders: ['actor', 'reason'],
+  },
+  AUDIT_RECORD_UPDATED: {
+    label: 'Audit Record Edited',
+    category: 'Configuration',
+    template: 'Audit record edited in place by {actor} — reason: "{reason}"',
+    placeholders: ['actor', 'reason'],
+  },
+
+  // Manual record management — Config → Filter Data Management.
+  // {recordType} is derived from the row's targetType, so one template renders
+  // "Cleaning Cycle record manually created…", "Notification record…", etc.
+  MANUAL_RECORD_CREATED: {
+    label: 'Record Manually Created',
+    category: 'Data & Approvals',
+    template: '{recordType} record manually created by {actor} — reason: "{reason}"',
+    placeholders: ['actor', 'recordType', 'reason'],
+  },
+  MANUAL_RECORD_UPDATED: {
+    label: 'Record Manually Edited',
+    category: 'Data & Approvals',
+    template: '{recordType} record manually edited by {actor} — reason: "{reason}"',
+    placeholders: ['actor', 'recordType', 'reason'],
+  },
+  MANUAL_RECORD_DELETED: {
+    label: 'Record Manually Deleted',
+    category: 'Data & Approvals',
+    template: '{recordType} record manually deleted by {actor} — reason: "{reason}"',
+    placeholders: ['actor', 'recordType', 'reason'],
   },
 };
 

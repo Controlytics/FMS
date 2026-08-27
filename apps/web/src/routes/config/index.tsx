@@ -201,7 +201,7 @@ const superAdminCards = [
   },
   {
     title: 'Filter Data Management',
-    description: 'Edit, delete, or unretire retirement and replacement records (no audit trail)',
+    description: 'Create, edit, delete or unretire operational records - every change is audited with a reason',
     href: '/config/filter-data-management',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -301,10 +301,19 @@ export function ConfigIndexPage() {
       : null,
     { revalidateOnMount: true, dedupingInterval: 10_000 },
   );
-  // Modules that may be DELEGATED to a non-admin via Configuration Access (shown in
-  // the Super Admin Settings section to a granted role). Filter Data Management edits/
-  // deletes filter records, so it's the one card admins can hand off explicitly.
-  const EXPLICIT_GRANT_KEYS = new Set(['filter-data-management']);
+  // Modules that may be DELEGATED to a non-admin via Configuration Access (shown
+  // in the Super Admin Settings section to a granted role).
+  //
+  // 2026-08-27: emptied. `filter-data-management` was the only entry, and it was
+  // never true — every endpoint behind that page is `requireRole('SUPER_ADMIN')`,
+  // so a delegated role would have seen the card, opened the page and had every
+  // button 403. No role was ever granted it (the key is absent from
+  // `access-matrix`), so nothing is taken away here. The audit rows the page
+  // writes are SUPER_ADMIN-only too — see `lib/audit-visibility.ts`.
+  //
+  // Re-add a key here only once the corresponding endpoints actually accept a
+  // permission a non-SUPER_ADMIN can hold.
+  const EXPLICIT_GRANT_KEYS = new Set<string>();
   // DEFAULT-DENY (Phase 2, gap S1): unconfigured modules are hidden from non-superadmins.
   // Was fail-OPEN — see can-access-module.ts. Card visibility only; endpoints gate server-side.
   const canAccessModule = (moduleKey: string | undefined) =>
@@ -345,9 +354,11 @@ export function ConfigIndexPage() {
 
   // Super Admin Settings cards. SUPER_ADMIN sees all; a non-admin sees ONLY the
   // cards explicitly granted to them in Configuration Access AND marked
-  // delegable (EXPLICIT_GRANT_KEYS) — so e.g. Filter Data Management can be
-  // delegated without exposing Branding / Roles / Backup / etc. The section
-  // header still renders for any role that has at least one card here.
+  // delegable (EXPLICIT_GRANT_KEYS) — which, since 2026-08-27, is none: every
+  // card in this section is backed by SUPER_ADMIN-only endpoints. The mechanism
+  // is kept because it is the right shape the moment one of them gains a
+  // delegable permission. The section header still renders for any role that
+  // has at least one card here.
   const visibleSuperAdminCards = isSuperAdmin
     ? superAdminCards
     : superAdminCards.filter(c => {

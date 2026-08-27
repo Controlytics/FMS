@@ -30,14 +30,14 @@ const HIDDEN_MODULE_KEYS = new Set([
 
 // Modules that have a hardcoded page (no config def → not in the manifest) but
 // should still be grantable per-role here. Injected as synthetic matrix rows.
-const EXTRA_MODULES: Module[] = [
-  {
-    moduleKey: 'filter-data-management',
-    moduleName: 'Filter Data Management',
-    description: 'Edit, delete, or unretire retirement and replacement records (no audit trail)',
-    category: 'filter-management',
-  },
-];
+//
+// 2026-08-27: `filter-data-management` was removed. It was offered here as a
+// grantable module, but every endpoint behind that page is
+// requireRole('SUPER_ADMIN') — so granting it produced a card that opened a page
+// where every list 403'd and every button failed. Listing a grant that cannot
+// work is worse than not offering it. The page, its route and the audit rows it
+// writes are all SUPER_ADMIN-only; see `lib/audit-visibility.ts`.
+const EXTRA_MODULES: Module[] = [];
 
 export function AccessMatrixPage() {
   const { toast } = useToast();

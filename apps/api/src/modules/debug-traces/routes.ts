@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
+import { auditVisibilityScope } from '../../lib/audit-visibility.js';
 
 /**
  * Debug Traces — repointed onto audit_trail (2026-06-12).
@@ -86,6 +87,17 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
       return { data: [], total: 0, page, limit, totalPages: 1 };
     }
 
+    // This endpoint reads audit_trail directly and `toTrace` hands back the
+    // whole row — before/after values, reason, actor, role, IP. Until 2026-08-27
+    // it applied NO row scoping, so anyone holding READ_DEBUG_TRACE could read
+    // every SUPER_ADMIN row (and, once the audit retrofit landed, every manual
+    // edit to cleaning history) straight out of the Debug Traces page — the same
+    // records /api/audit refuses them. Only SUPER_ADMIN holds that permission
+    // today, but it is grantable, so the leak was one role-config toggle away.
+    // Same scope object as /api/audit; the two can no longer drift.
+    const scope = auditVisibilityScope(req.user.role);
+    const filters: Record<string, unknown>[] = scope ? [scope] : [];
+
     const where: Record<string, unknown> = {};
     if (q.entityId) {
       where.OR = [
@@ -102,14 +114,21 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
       where.timestamp = ts;
     }
 
+    // Fold the caller's own filters and the visibility scope together under a
+    // single AND. Assigning into `where` would let an entityId search containing
+    // its own `OR` silently widen past the scope.
+    const scopedWhere: Record<string, unknown> = filters.length
+      ? { AND: [...filters, where] }
+      : where;
+
     const [rows, total] = await Promise.all([
       prisma.auditTrail.findMany({
-        where,
+        where: scopedWhere,
         orderBy: { chainPosition: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.auditTrail.count({ where }),
+      prisma.auditTrail.count({ where: scopedWhere }),
     ]);
 
     return {
@@ -125,11 +144,17 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
   app.get('/stats', {
     preHandler: [app.requirePermission('READ_DEBUG_TRACE')],
     schema: { tags: ['Debug Traces'], summary: 'Operations trace stats' },
-  }, async () => {
+  }, async (req) => {
     const now = Date.now();
+    // Scoped like the list: a count is a disclosure too — an unscoped total
+    // tells a lower role exactly how many records they are not being shown.
+    const scope = auditVisibilityScope(req.user.role);
+    const since = (ms: number) => (scope
+      ? { AND: [scope, { timestamp: { gte: new Date(now - ms) } }] }
+      : { timestamp: { gte: new Date(now - ms) } });
     const [c1h, c24h] = await Promise.all([
-      prisma.auditTrail.count({ where: { timestamp: { gte: new Date(now - 3_600_000) } } }),
-      prisma.auditTrail.count({ where: { timestamp: { gte: new Date(now - 86_400_000) } } }),
+      prisma.auditTrail.count({ where: since(3_600_000) }),
+      prisma.auditTrail.count({ where: since(86_400_000) }),
     ]);
     return {
       successRate1h: c1h > 0 ? 100 : 0,

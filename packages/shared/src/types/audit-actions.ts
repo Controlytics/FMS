@@ -115,6 +115,19 @@ export const AUDIT_ACTIONS = {
   // Audit Record Management
   AUDIT_RECORD_DELETED: 'AUDIT_RECORD_DELETED',
   AUDIT_RECORDS_BULK_DELETED: 'AUDIT_RECORDS_BULK_DELETED',
+  // In-place edit of an audit row (Config -> Filter Data Management, and the
+  // Replacements tab, whose records ARE audit rows). Written BEFORE the edit so
+  // the original field values survive in beforeValue. Editing a chained row
+  // invalidates its checksum -- verify-chain reports the break, deliberately.
+  AUDIT_RECORD_UPDATED: 'AUDIT_RECORD_UPDATED',
+
+  // Manual record management (Config -> Filter Data Management)
+  // One action per verb rather than one per table: the audit-template renderer
+  // resolves {recordType} from targetType (audit-helpers.ts), so a single
+  // template still reads "Cleaning Cycle ... " / "Notification ... " per row.
+  MANUAL_RECORD_CREATED: 'MANUAL_RECORD_CREATED',
+  MANUAL_RECORD_UPDATED: 'MANUAL_RECORD_UPDATED',
+  MANUAL_RECORD_DELETED: 'MANUAL_RECORD_DELETED',
 
   // Credentials
   DEVICE_CREDENTIAL_REGENERATED: 'DEVICE_CREDENTIAL_REGENERATED',

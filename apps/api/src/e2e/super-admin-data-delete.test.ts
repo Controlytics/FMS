@@ -83,7 +83,7 @@ describe('DELETE /api/super-admin/data/notifications/:id', () => {
     return n.id;
   };
 
-  const del = (id: string) =>
+  const del = (id: string, payload: Record<string, unknown> = { _changeReason: 'e2e delete contract check' }) =>
     app.inject({
       method: 'DELETE',
       url: `/api/super-admin/data/notifications/${id}`,
@@ -92,6 +92,11 @@ describe('DELETE /api/super-admin/data/notifications/:id', () => {
       // the action isn't configured, so this is correct either way. A WRONG
       // password would trip the lockout policy and brick the test user.
       headers: { authorization: `Bearer ${token}`, 'x-reauth-password': SA_PASSWORD },
+      // `_changeReason` became mandatory in the 2026-08-27 audit retrofit: every
+      // mutation on this module writes a MANUAL_RECORD_* audit row and the row
+      // must say why. Underscore-prefixed so it can never collide with a real
+      // column (BlockChangeRequest has its own `reason`).
+      payload,
     });
 
   beforeAll(async () => {

@@ -1,5 +1,163 @@
 # Changelog
 
+## [Unreleased] - Filter Data Management: audit-trail retrofit + missing CRUD (2026-08-27)
+
+### Added - every change on this console is now recorded
+
+Config -> Filter Data Management used to edit cleaning cycles, filter events, PM
+entries, notifications, admin requests and block changes with **no audit trail**
+- the module's own header comment had flagged the retrofit as outstanding since
+2026-05-26. All 21 mutation handlers now demand a reason and write an audit row.
+
+- **Mandatory reason** on every create / edit / delete, minimum 5 characters.
+  The body key is **`_changeReason`**, not `reason`: `reason` is a real column on
+  `BlockChangeRequest`, and a shared key would have overwritten the record's own
+  field with the operator's justification. Enforced in the JSON schema and again
+  at runtime.
+- **Three new audit actions** - `MANUAL_RECORD_CREATED` / `_UPDATED` /
+  `_DELETED` - rather than one per table. `{recordType}` resolves from
+  `targetType`, so a single template renders "Cleaning Cycle record manually
+  edited by ..." or "Notification record manually deleted by ...". Plus
+  `AUDIT_RECORD_UPDATED` for in-place audit edits.
+- **Deletes are audited before the row is destroyed**, inside the same
+  transaction, so `beforeValue` holds the record and a failed delete cannot
+  leave an audit row claiming otherwise. Cascades are recorded too: deleting a
+  cleaning cycle lists the filter events that went with it and the
+  `FilterDetails` rows it cleared.
+- `auditLog()` takes an optional **`timestamp`** so a back-dated manual record
+  carries the date the event actually happened. The same value feeds the row and
+  the checksum, and the chain is ordered by `chain_position`, so back-dating
+  cannot break it.
+- **Retirements tab**: Create (retire an existing filter, back-dated, with
+  remarks - mirrors the real `retire()` so Restore still works) and Delete
+  (removes the filter asset; **refuses with 409 `HAS_HISTORY`** when it still
+  has cleaning cycles, filter events, tags or children, naming each).
+- **Replacements tab**: Create (writes a correctly chain-linked
+  `FILTER_REPLACED` row) and Delete.
+- **Audit Trail tab**: Edit / Redact / Delete, replacing the "Immutable" label.
+  Edit is a new `PUT /api/audit/:id` (SUPER_ADMIN + `UPDATE_AUDIT_RECORD` reauth
+  + reason); Redact and Delete reuse the existing endpoints. Checksum, previous
+  checksum and chain position are not editable, and a meta-audit row
+  (`AUDIT_RECORD_UPDATED` / `_DELETED`) cannot itself be edited.
+
+### Fixed - replacement edits had been breaking the hash chain silently
+
+`PUT /filter-data/replacements/:id` writes directly into an `audit_trail` row
+(`timestamp`, `userName`, `afterValue` - all three inside the hashed payload).
+`audit_trail` carries only a **no-DELETE** trigger, never a no-UPDATE one, so
+every replacement edit ever made from this page invalidated that row's checksum
+and every chain link after it, with nothing recording that anyone had touched
+it. The edit now writes an `AUDIT_RECORD_UPDATED` meta-row first (preserving the
+original values) and returns `chainBroken: true`. Checksums are deliberately not
+recomputed - repairing one row means recomputing every downstream row, which is
+precisely the rewrite tamper-evidence exists to prevent. Verified: one edit adds
+exactly one `PER_ROW_CHECKSUM_MISMATCH`; the deliberate breakage stays loud.
+
+`{reason}` in audit templates resolved only from before/afterValue, never from
+the audit row's own `reason` column - so `AUDIT_RECORD_DELETED` and
+`AUDIT_RECORD_REDACTED` rows have rendered a blank `reason: ""` since
+2026-07-01. Fixed for the justification actions only, leaving every other row's
+rendering untouched.
+
+The console's local `getAuditStatus()` claimed to match the `/audit` page but
+used a substring heuristic, so anything containing REJECT or DENIED (e.g.
+`STAGE_APPROVAL_REJECTED`) showed "Fail" here and "Success" there. It now
+imports the shared function.
+
+### Fixed - the console never handled re-authentication
+
+`apiClient` does not prompt for a password; it rethrows `REAUTH_REQUIRED` and
+leaves the page to handle it. Filter Data Management called it directly, so with
+`SUPER_ADMIN_DATA_EDIT` switched on in Config -> Action Reauth every button on
+the page would have failed with an unexplained error toast. It is absent from
+the live config today, which is the only reason this was invisible. Every
+mutation now goes through `useReauth`, and `<ReauthDialog>` renders last so the
+password step sits above whichever dialog opened it.
+
+Retirement delete also under-counted its cascades: `information_schema` lists 5
+CASCADE foreign keys into `asset_instances.id`, and the blocker check knew about
+4 of them. `asset_relationships` and `entity_assignments` are now captured into
+the audit row's `_sideEffects` before the delete.
+
+`AUDIT_RECORD_REDACTED` was missing from the meta-audit-immutable guard, so the
+record of a redaction could be edited while the record of an edit could not.
+
+A back-dated replacement record wrote only its back-dated `FILTER_REPLACED` row,
+so a record dated last March sorted far down a timestamp-desc audit list and the
+operator saw nothing new. It now also writes a `MANUAL_RECORD_CREATED` marker
+stamped now, matching the retirement path.
+
+### Security - these audit rows are SUPER_ADMIN-only, and now structurally so
+
+New `lib/audit-visibility.ts` holds one definition of who may SEE which audit
+rows, shared by `/api/audit` (list, detail, hard-delete, bulk-delete) and by
+`/api/debug/traces`. A non-SUPER_ADMIN reader is scoped on two rules: no rows
+authored by a SUPER_ADMIN (pre-existing), and no `MANUAL_RECORD_*` /
+`AUDIT_RECORD_*` rows whoever wrote them (new).
+
+The second rule matters because the first is incidental - it protected the
+Filter Data Management rows only for as long as a SUPER_ADMIN was the one
+performing them. Every role holds `AUDIT_READ`, so the day that console opened
+to a delegated role, every manual edit to cleaning history would have become
+readable by everyone. The restriction is now a property of the record, not of
+who clicked the button.
+
+`FILTER_RETIRED` / `FILTER_REPLACED` are deliberately not restricted - they
+drive the Retirement and Replacement lists operators are meant to read.
+
+**`/api/debug/traces` applied no row scoping at all**, and its `toTrace()`
+returns the whole row: before/after values, reason, actor, role and IP. Only
+SUPER_ADMIN holds `READ_DEBUG_TRACE` today, but it is a grantable permission, so
+every SUPER_ADMIN audit row was one role-config toggle from being readable on
+the Debug Traces page. Its list and stats counts are now scoped identically (a
+count is a disclosure too). Verified by granting the permission to ADMIN: 10413
+of 18307 rows returned, zero restricted actions, zero SUPER_ADMIN-authored rows.
+
+The console is SUPER_ADMIN-only server-side, so three UI affordances that
+implied otherwise were removed: `EXPLICIT_GRANT_KEYS` (emptied), the
+`/config/filter-data-management` route (was `CONFIG_READ`/`CONFIG_UPDATE`, now
+SUPER_ADMIN), and its row in the Configuration Access grant matrix. No role had
+ever been granted it, so nothing was taken away - granting it would have opened
+a page where every list 403'd.
+
+### Removed - offline-replay grants are no longer audited
+
+`POST /api/auth/offline-grant` no longer writes a `GRANT_OFFLINE_REPLAY` audit
+row. Every tablet offline window mints a grant, so it had become the
+highest-volume action in the trail - 1,585 rows across all eight roles - and
+buried the records an inspector actually reads.
+
+State the cost plainly: that row was the only record of who could replay offline
+work, from which session and IP. The grant itself is untouched - still
+password-gated (hard-coded, deliberately not configurable via the action-reauth
+registry) and still bound to the calling user + session, so the C1 protection
+stands. What is gone is the ability to answer "who held an offline-replay window
+on this date" from the audit trail.
+
+The 1,585 historic rows are untouched and still render; they are now
+SUPER_ADMIN-only via `audit-visibility.ts`. `GRANT_OFFLINE_REPLAY` remains in
+`AUDIT_TEMPLATE_DEFAULTS` per the never-delete policy so those rows keep their
+description. (It was never a member of `AUDIT_ACTIONS` - the endpoint emitted the
+string directly.)
+
+### Changed
+
+- Reauth actions 93 -> 94 (`UPDATE_AUDIT_RECORD`). No new permission constants -
+  the console is `requireRole('SUPER_ADMIN')` end to end.
+- Swagger summaries no longer append "(no audit trail)"; the config card and
+  page banner say changes are recorded.
+- Stale counts corrected in `README.md`, `AGENTS.md`, `PROJECT_SUMMARY.md`
+  (were 102/83/92/26, live is 103/84/94/27).
+- `super-admin-data-delete.test.ts` and `super-admin-unretire.test.ts` send the
+  now-required `_changeReason`.
+
+### Not included
+
+Audit coverage and the missing CRUD only. Handlers still write what they always
+wrote downstream - editing a cycle's `status`, for instance, does not reconcile
+`FilterDetails.currentLifecycleState`.
+
+
 ## [Unreleased] - Recurring PM schedules (`frequency_days`) + missed-PM reason gate (2026-08-26)
 
 ### Added - a PM schedule can now repeat on the same date

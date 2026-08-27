@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { verifyAuditChecksum } from '../../lib/hash-chain.js';
+import { auditVisibilityScope } from '../../lib/audit-visibility.js';
 import { auditLog } from '../../lib/audit.js';
 import { auditQuerySchema } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
@@ -81,15 +82,12 @@ export default async function auditRoutes(app: FastifyInstance) {
     const query = auditQuerySchema.parse(req.query);
     const where: Record<string, unknown> = {
       AND: [
-        // A SUPER_ADMIN viewer sees SUPER_ADMIN actions too (incl. their own
-        // login/logout) — a complete 21 CFR §11 audit trail. Lower roles still
-        // never see SUPER_ADMIN rows. (Previously unconditional → SUPER_ADMIN
-        // actions were hidden from everyone, so superadmin's own logout looked
-        // "unrecorded" even though it was. Same pattern fixed in the single-row
-        // fetch below.)
-        ...(req.user.role === 'SUPER_ADMIN'
-          ? []
-          : [{ OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }]),
+        // A SUPER_ADMIN viewer sees everything — a complete 21 CFR §11 audit
+        // trail, including their own login/logout. Lower roles are scoped by
+        // `auditVisibilityScope`: no SUPER_ADMIN-authored rows, and no
+        // super-admin-console actions whoever wrote them. One definition,
+        // shared with the detail/delete reads below and with /api/debug/traces.
+        ...(auditVisibilityScope(req.user.role) ? [auditVisibilityScope(req.user.role)!] : []),
       ],
     };
 
@@ -397,15 +395,12 @@ export default async function auditRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    // Mirror the list policy: a SUPER_ADMIN viewer may fetch SUPER_ADMIN rows;
-    // lower roles cannot (so a non-SUPER_ADMIN with AUDIT_READ who knows a UUID
-    // still can't pull a SUPER_ADMIN row directly).
+    // Mirror the list policy exactly, so a non-SUPER_ADMIN who knows a UUID
+    // cannot pull directly what the list refuses to show them.
     const record = await prisma.auditTrail.findFirst({
       where: {
         id,
-        ...(req.user.role === 'SUPER_ADMIN'
-          ? {}
-          : { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }),
+        ...(auditVisibilityScope(req.user.role) ?? {}),
       },
     });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
@@ -635,6 +630,134 @@ export default async function auditRoutes(app: FastifyInstance) {
   // row is destroyed, so the deletion itself is never silent.
   // ─────────────────────────────────────────────────────────────────────────
 
+  // PUT /api/audit/:id — edit an audit record IN PLACE (2026-08-27).
+  //
+  // The Audit Trail tab of Config → Filter Data Management needs a correction
+  // path for rows that are factually wrong (a mis-keyed name, a wrong date on a
+  // manually-entered record). REDACT masks a row, DELETE destroys it; neither
+  // corrects one.
+  //
+  // Every editable field here is inside the hashed canonical payload, so this
+  // invalidates the row's checksum and every chain link after it — the same
+  // trade-off the July AUDIT_DELETE decision accepted, and for the same reason:
+  // the capability is real, so make it loud rather than pretend it isn't there.
+  // We deliberately do NOT recompute the checksum. Repairing one row means
+  // recomputing every downstream row, which is precisely the rewrite the hash
+  // chain exists to make impossible; a verifier that can be talked into
+  // re-blessing edited history is decoration.
+  //
+  // SUPER_ADMIN-only (no new permission constant): the one surface that reaches
+  // this is already SUPER_ADMIN-gated. Reauth key is UPDATE_AUDIT_RECORD, held
+  // separately from DELETE_AUDIT_RECORD so "may correct" never implies
+  // "may destroy".
+  app.put('/:id', {
+    preHandler: [app.requireRole('SUPER_ADMIN')],
+    schema: {
+      tags: ['Audit'],
+      summary: 'Edit an audit record in place (BREAKS the hash chain)',
+      description: 'Edit a single audit trail record. SUPER_ADMIN only, reauth + reason required. WARNING: invalidates this row\'s checksum and every chain link after it — verify-chain will report the downstream chain invalid, permanently. Prefer POST /:id/redact (chain-preserving) unless the row must be CORRECTED rather than masked.',
+      params: {
+        type: 'object',
+        required: ['id'],
+        properties: { id: { type: 'string', description: 'Audit record ID' } },
+      },
+      body: {
+        type: 'object',
+        required: ['reason'],
+        properties: {
+          reason: { type: 'string', minLength: 5, maxLength: 500 },
+          timestamp: { type: 'string' },
+          userName: { type: 'string', maxLength: 100 },
+          userRole: { type: 'string', maxLength: 50 },
+          action: { type: 'string', maxLength: 100 },
+          targetType: { type: 'string', maxLength: 100 },
+          targetId: { type: 'string', maxLength: 100 },
+          signatureMeaning: { type: 'string', maxLength: 500 },
+          beforeValue: {},
+          afterValue: {},
+        },
+      },
+      response: {
+        200: { type: 'object', properties: { success: { type: 'boolean' }, chainBroken: { type: 'boolean' } } },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('UPDATE_AUDIT_RECORD', req, reply);
+    if (!ok) return;
+    const { id } = req.params as { id: string };
+    const body = req.body as Record<string, unknown>;
+    const reason = String(body.reason);
+
+    const record = await prisma.auditTrail.findFirst({ where: { id } });
+    if (!record) return reply.code(404).send({ error: 'Audit record not found' });
+
+    // A meta-audit row is itself an audit row. Letting one be edited would let
+    // an operator rewrite the record of their own earlier edit, which is the
+    // one thing this whole mechanism exists to prevent.
+    const META_AUDIT_ACTIONS = new Set([
+      'AUDIT_RECORD_UPDATED', 'AUDIT_RECORD_DELETED', 'AUDIT_RECORDS_BULK_DELETED',
+      // Redactions belong here too: the record of a masking is as much a record
+      // of a change to the audit trail as the record of an edit or a deletion.
+      'AUDIT_RECORD_REDACTED', 'AUDIT_RECORDS_BULK_REDACTED',
+    ]);
+    if (META_AUDIT_ACTIONS.has(record.action)) {
+      return reply.code(409).send({
+        error: 'META_AUDIT_IMMUTABLE',
+        message: 'This row records a previous change to the audit trail and cannot itself be edited.',
+      });
+    }
+    if (record.redactedAt) {
+      return reply.code(409).send({ error: 'REDACTED', message: 'A redacted record cannot be edited.' });
+    }
+
+    // `checksum`, `previousChecksum`, `chainPosition` and `checksumVersion` are
+    // NOT editable: allowing them would let an operator hand-forge a chain link
+    // and hide the very break this edit creates.
+    const data: Record<string, unknown> = {};
+    for (const f of ['userName', 'userRole', 'action', 'targetType', 'targetId', 'signatureMeaning']) {
+      if (body[f] !== undefined) data[f] = body[f] === '' ? null : body[f];
+    }
+    for (const f of ['beforeValue', 'afterValue']) {
+      if (body[f] !== undefined) data[f] = body[f];
+    }
+    if (body.timestamp !== undefined) {
+      const ts = new Date(String(body.timestamp));
+      if (Number.isNaN(ts.getTime())) return reply.code(400).send({ error: 'INVALID', message: 'Timestamp is not a valid date.' });
+      data.timestamp = ts;
+    }
+    if (Object.keys(data).length === 0) {
+      return reply.code(400).send({ error: 'NO_CHANGES', message: 'No editable fields were supplied.' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Meta-audit FIRST (same tx) so the ORIGINAL field values survive the
+      // edit that is about to overwrite them.
+      await auditLog({
+        userId: req.user.sub,
+        userName: req.user.username,
+        userRole: req.user.role,
+        action: 'AUDIT_RECORD_UPDATED',
+        targetType: 'audit_trail',
+        targetId: id,
+        beforeValue: {
+          timestamp: record.timestamp, userName: record.userName, userRole: record.userRole,
+          action: record.action, targetType: record.targetType, targetId: record.targetId,
+          beforeValue: record.beforeValue, afterValue: record.afterValue, signatureMeaning: record.signatureMeaning,
+        },
+        afterValue: data,
+        reason,
+        signatureMeaning: `Audit record ${id} edited in place; hash chain broken at this position`,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+        sessionId: req.user.sessionId,
+      }, tx);
+      await tx.auditTrail.update({ where: { id }, data });
+    });
+
+    return { success: true, chainBroken: true };
+  });
+
   // DELETE /api/audit/:id — physically delete a single audit record (AUDIT_DELETE).
   app.delete('/:id', {
     preHandler: [app.requirePermission('AUDIT_DELETE')],
@@ -671,9 +794,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     const record = await prisma.auditTrail.findFirst({
       where: {
         id,
-        ...(req.user.role === 'SUPER_ADMIN'
-          ? {}
-          : { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }),
+        ...(auditVisibilityScope(req.user.role) ?? {}),
       },
     });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
@@ -736,9 +857,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     const records = await prisma.auditTrail.findMany({
       where: {
         id: { in: ids },
-        ...(req.user.role === 'SUPER_ADMIN'
-          ? {}
-          : { OR: [{ userRole: { not: 'SUPER_ADMIN' } }, { userRole: null }] }),
+        ...(auditVisibilityScope(req.user.role) ?? {}),
       },
     });
     if (records.length === 0) return reply.code(404).send({ error: 'NO_MATCHING_RECORDS', message: 'No matching audit records' });

@@ -53,13 +53,50 @@ function getCycleDuration(cycle: any) {
 
 // Alarm helpers + Alarms tab removed 2026-05-17 (alarm subsystem retired).
 
+import { getAuditStatus } from '../audit/audit-helpers';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
+
 // PM entry helpers — month names + status derivation matches /pm-schedules/:entityId detail page
 const PM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-// Audit-trail Success/Fail derivation matches /audit page behavior
-function getAuditStatus(action: string): 'Success' | 'Fail' {
-  if (!action) return 'Success';
-  return action.toUpperCase().includes('FAIL') || action.toUpperCase().includes('REJECT') || action.toUpperCase().includes('DENIED')
-    ? 'Fail' : 'Success';
+// Audit-trail Success/Fail: import the /audit page's own rule rather than
+// re-deriving it. The local copy this replaces claimed parity but used a
+// substring heuristic, so anything containing REJECT/DENIED (e.g.
+// STAGE_APPROVAL_REJECTED, PASSWORD_RESET_REQUEST_REJECTED) rendered "Fail"
+// here and "Success" on /audit for the same row.
+
+/** Minimum length of the mandatory change reason — mirrors the API's check. */
+const MIN_REASON_LEN = 5;
+const reasonOk = (r: string) => r.trim().length >= MIN_REASON_LEN;
+
+/**
+ * Mandatory justification input. Every create / edit / delete on this page is
+ * written to the audit trail with this text, so it is a required field, not a
+ * courtesy note. Declared at module scope (not inline in the page component)
+ * so React keeps the same element across re-renders and the textarea does not
+ * lose focus on every keystroke.
+ */
+function ReasonBox({ value, onChange, danger, hint }: { value: string; onChange: (v: string) => void; danger?: boolean; hint?: string }) {
+  const short = MIN_REASON_LEN - value.trim().length;
+  return (
+    <div className="mt-4">
+      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+        Reason for this change <span className="text-red-500">*</span>
+      </label>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rows={2}
+        placeholder="Why is this record being changed?"
+        className={`w-full px-3 py-2 border rounded-lg text-[13px] resize-none focus:ring-2 focus:outline-none ${
+          danger ? 'border-red-200 focus:ring-red-500/30 focus:border-red-400' : 'border-slate-200 focus:ring-cyan-500/30 focus:border-cyan-400'
+        }`}
+      />
+      <p className="text-[11px] text-slate-400 mt-1">
+        {short > 0 ? `${short} more character${short === 1 ? '' : 's'} required` : (hint ?? 'Recorded on the audit trail alongside the before/after values.')}
+      </p>
+    </div>
+  );
 }
 
 // Notification type → color (matches /notifications typeColors)
@@ -214,6 +251,66 @@ export function FilterDataManagementPage() {
   const [unretireDialog, setUnretireDialog] = useState<{ id: string; name: string; preRetireParentId: string | null; preRetireParentName: string | null } | null>(null);
   const [unretireParentId, setUnretireParentId] = useState('');
 
+  // ── Mandatory change reason (2026-08-27 audit retrofit) ──────────────────
+  // `changeReason` backs the ReasonBox embedded in the dialogs that already
+  // exist (row edit / create / delete / unretire). `reasonPrompt` is a
+  // standalone modal for the INLINE row edits (Retirements, Replacements,
+  // generic tabs) and for row actions with no dialog of their own — putting a
+  // textarea inside a table row is not workable, and stacking a second modal on
+  // top of an existing one is worse than either.
+  // ── Re-authentication ────────────────────────────────────────────────────
+  // Every mutation below is reauth-gated server-side: the super-admin data and
+  // filter-data routes on SUPER_ADMIN_DATA_EDIT, the audit-row actions on their
+  // own keys. `apiClient` does NOT prompt — it just rethrows REAUTH_REQUIRED —
+  // so a page that calls it directly shows an unexplained error toast the moment
+  // an operator switches that action on in Config → Action Reauth. This page did
+  // exactly that until 2026-08-27; every call now goes through `gated()`, which
+  // is a no-op when the action isn't configured and opens the password dialog
+  // when it is.
+  const reauth = useReauth();
+  const gated = <T,>(action: string, fn: (password?: string) => Promise<T>): Promise<T> =>
+    reauth.executeWithResult(action, fn);
+  /** A cancelled/superseded password prompt is a choice, not a failure — no toast. */
+  const isReauthAbort = (e: any) => e?.error === 'REAUTH_CANCELLED' || e?.error === 'REAUTH_SUPERSEDED';
+
+  const [changeReason, setChangeReason] = useState('');
+  // Audit-row edit dialog (Audit Trail tab). Only the fields that are safe to
+  // correct — checksum / previousChecksum / chainPosition are deliberately
+  // absent, since editing them would let an operator forge a chain link and
+  // hide the break this very edit creates.
+  const [auditEditDialog, setAuditEditDialog] = useState<{ id: string; action: string } | null>(null);
+  const [auditEditFields, setAuditEditFields] = useState<Record<string, string>>({});
+  const [auditEditSaving, setAuditEditSaving] = useState(false);
+  // Manual retirement / replacement creation. Both pick EXISTING filters rather
+  // than inventing one: a retirement record is a live filter moved to Retired,
+  // and a replacement record names the two filters involved. Creating a filter
+  // from scratch belongs on the Filters page, not here.
+  const [manualRecordDialog, setManualRecordDialog] = useState<{ kind: 'retirement' | 'replacement' } | null>(null);
+  const [manualRecordFields, setManualRecordFields] = useState<Record<string, string>>({});
+  const [manualRecordSaving, setManualRecordSaving] = useState(false);
+  const [reasonPrompt, setReasonPrompt] = useState<{
+    title: string; body: React.ReactNode; confirmLabel: string; danger?: boolean;
+    run: (reason: string) => Promise<void>;
+  } | null>(null);
+  const [promptReason, setPromptReason] = useState('');
+  const [promptBusy, setPromptBusy] = useState(false);
+  const askReason = (opts: { title: string; body: React.ReactNode; confirmLabel: string; danger?: boolean; run: (reason: string) => Promise<void> }) => {
+    setPromptReason('');
+    setReasonPrompt(opts);
+  };
+  const runReasonPrompt = async () => {
+    if (!reasonPrompt || promptBusy || !reasonOk(promptReason)) return;
+    setPromptBusy(true);
+    try {
+      await reasonPrompt.run(promptReason.trim());
+      setReasonPrompt(null);
+      setPromptReason('');
+    } catch (e: any) {
+      if (!isReauthAbort(e)) toast.error('Failed', e?.message ?? 'Could not apply the change');
+    }
+    setPromptBusy(false);
+  };
+
   const { data: retirements, isLoading: retLoading } = useSWR<RetiredFilter[]>('/api/filters/retirements');
   const { data: replacements, isLoading: repLoading } = useSWR<ReplacementRecord[]>('/api/filters/replacements');
 
@@ -357,45 +454,109 @@ export function FilterDataManagementPage() {
     r.newFilterName.toLowerCase().includes(search.toLowerCase()) ||
     r.performedBy.toLowerCase().includes(search.toLowerCase()));
 
-  const handleEditRetirement = async (id: string) => {
-    setProcessing(true);
-    try {
-      const body: any = {};
-      if (editFields.name !== undefined) body.name = editFields.name;
-      if (editFields.filterSet !== undefined) body.filterSet = editFields.filterSet;
-      if (editFields.updatedAt !== undefined) body.updatedAt = toIsoIfNaiveDatetime(editFields.updatedAt, tz);
-      await apiClient.put(`/api/super-admin/filter-data/retirements/${id}`, body);
-      toast.success('Updated', 'Retirement record updated silently');
-      setEditingId(null); setEditFields({}); refreshAll();
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
-    setProcessing(false);
+  const handleEditRetirement = (id: string, name: string) => {
+    const body: any = {};
+    if (editFields.name !== undefined) body.name = editFields.name;
+    if (editFields.filterSet !== undefined) body.filterSet = editFields.filterSet;
+    if (editFields.updatedAt !== undefined) body.updatedAt = toIsoIfNaiveDatetime(editFields.updatedAt, tz);
+    askReason({
+      title: 'Edit retirement record',
+      body: <>Changes to <strong>{name}</strong> are recorded in the audit trail with the before and after values.</>,
+      confirmLabel: 'Save changes',
+      run: async (reason) => {
+        await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
+          ? apiClient.putWithReauth(`/api/super-admin/filter-data/retirements/${id}`, { ...body, _changeReason: reason }, pw)
+          : apiClient.put(`/api/super-admin/filter-data/retirements/${id}`, { ...body, _changeReason: reason }));
+        toast.success('Updated', 'Retirement record updated and audited');
+        setEditingId(null); setEditFields({}); refreshAll();
+      },
+    });
+  };
+
+  // Deleting a retirement record deletes the retired filter asset itself. The
+  // API refuses (409 HAS_HISTORY) when the filter still has cleaning cycles,
+  // filter events, tags or children, and names them — surfaced verbatim here so
+  // the operator learns what is attached instead of a generic failure.
+  const handleDeleteRetirement = (id: string, name: string) => {
+    askReason({
+      title: 'Delete retirement record',
+      danger: true,
+      body: <><strong>{name}</strong> will be permanently removed. Its FILTER_RETIRED audit record is kept. Refused if the filter still has cleaning cycles, events or tags.</>,
+      confirmLabel: 'Delete permanently',
+      run: async (reason) => {
+        await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
+          ? apiClient.deleteWithReauth(`/api/super-admin/filter-data/retirements/${id}`, pw, { _changeReason: reason })
+          : apiClient.delete(`/api/super-admin/filter-data/retirements/${id}`, { _changeReason: reason }));
+        toast.success('Deleted', 'Retirement record removed and audited');
+        refreshAll();
+      },
+    });
   };
 
   const handleUnretire = async (id: string) => {
+    if (!reasonOk(changeReason)) return;
     setProcessing(true);
     try {
-      await apiClient.post(`/api/super-admin/filter-data/retirements/${id}/unretire`, { parentId: unretireParentId || undefined });
+      await apiClient.post(`/api/super-admin/filter-data/retirements/${id}/unretire`, {
+        parentId: unretireParentId || undefined,
+        _changeReason: changeReason.trim(),
+      });
       toast.success('Unretired', 'Filter restored to Active status');
-      setUnretireDialog(null); setUnretireParentId(''); refreshAll();
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
+      setUnretireDialog(null); setUnretireParentId(''); setChangeReason(''); refreshAll();
+    } catch (e: any) { if (!isReauthAbort(e)) toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
 
-  const handleEditReplacement = async (id: string) => {
-    setProcessing(true);
-    try {
-      const body: any = {};
-      for (const f of ['remarks', 'performedBy', 'replacedAt', 'oldFilterId', 'oldFilterName', 'newFilterId', 'newFilterName']) {
-        if (editFields[f] !== undefined) body[f] = toIsoIfNaiveDatetime(editFields[f], tz);
-      }
-      await apiClient.put(`/api/super-admin/filter-data/replacements/${id}`, body);
-      toast.success('Updated', 'Replacement record updated silently');
-      setEditingId(null); setEditFields({}); refreshAll();
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
-    setProcessing(false);
+  // A replacement record IS an audit_trail row, so editing or deleting one
+  // breaks the tamper-evident hash chain from that row onward — permanently and
+  // by design. The warning below is not boilerplate; the operator is choosing
+  // to invalidate verify-chain.
+  const CHAIN_WARNING = (
+    <span className="block mt-2 text-[12px] text-red-700">
+      A replacement record is stored as an audit-trail row. This change breaks the
+      audit hash chain from this record onward — <strong>permanently</strong>. The
+      original values are preserved in a new audit record.
+    </span>
+  );
+
+  const handleEditReplacement = (id: string, label: string) => {
+    const body: any = {};
+    for (const f of ['remarks', 'performedBy', 'replacedAt', 'oldFilterId', 'oldFilterName', 'newFilterId', 'newFilterName']) {
+      if (editFields[f] !== undefined) body[f] = toIsoIfNaiveDatetime(editFields[f], tz);
+    }
+    askReason({
+      title: 'Edit replacement record',
+      danger: true,
+      body: <>Editing the replacement record for <strong>{label}</strong>.{CHAIN_WARNING}</>,
+      confirmLabel: 'Save changes',
+      run: async (reason) => {
+        await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
+          ? apiClient.putWithReauth(`/api/super-admin/filter-data/replacements/${id}`, { ...body, _changeReason: reason }, pw)
+          : apiClient.put(`/api/super-admin/filter-data/replacements/${id}`, { ...body, _changeReason: reason }));
+        toast.success('Updated', 'Replacement record updated and audited');
+        setEditingId(null); setEditFields({}); refreshAll();
+      },
+    });
+  };
+
+  const handleDeleteReplacement = (id: string, label: string) => {
+    askReason({
+      title: 'Delete replacement record',
+      danger: true,
+      body: <>The replacement record for <strong>{label}</strong> will be permanently destroyed and will disappear from the audit trail too.{CHAIN_WARNING}</>,
+      confirmLabel: 'Delete permanently',
+      run: async (reason) => {
+        await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
+          ? apiClient.deleteWithReauth(`/api/super-admin/filter-data/replacements/${id}`, pw, { _changeReason: reason })
+          : apiClient.delete(`/api/super-admin/filter-data/replacements/${id}`, { _changeReason: reason }));
+        toast.success('Deleted', 'Replacement record removed and audited');
+        refreshAll();
+      },
+    });
   };
 
   const openRowEdit = (row: any, entity: 'cycle' | 'event' | 'pm-entry' | 'notification' | 'admin-request' | 'block-change', rowName: string) => {
+    setChangeReason('');
     setRowEditDialog({ id: row.id, entity, rowName });
     if (entity === 'cycle') {
       setRowEditFields({
@@ -491,14 +652,18 @@ export function FilterDataManagementPage() {
           body[k] = toIsoIfNaiveDatetime(v, tz);
         }
       }
-      await apiClient.put(`${endpoint}/${rowEditDialog.id}`, body);
+      body._changeReason = changeReason.trim();
+      await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
+        ? apiClient.putWithReauth(`${endpoint}/${rowEditDialog.id}`, body, pw)
+        : apiClient.put(`${endpoint}/${rowEditDialog.id}`, body));
       const labelMap: Record<string, string> = {
         'cycle': 'Cycle', 'event': 'Event', 'pm-entry': 'PM entry',
         'notification': 'Notification', 'admin-request': 'Admin request', 'block-change': 'Block change',
       };
-      toast.success('Updated', `${labelMap[rowEditDialog.entity]} updated silently`);
+      toast.success('Updated', `${labelMap[rowEditDialog.entity]} updated and audited`);
       setRowEditDialog(null);
       setRowEditFields({});
+      setChangeReason('');
       // Refresh both the enriched feed (used by the table) and the super-admin
       // feed (used by other tabs that hit the same endpoint).
       if (rowEditDialog.entity === 'cycle') {
@@ -519,7 +684,7 @@ export function FilterDataManagementPage() {
         globalMutate('/api/block-change-requests?page=1&limit=50&status=ALL');
       }
     } catch (e: any) {
-      toast.error('Update failed', e?.message ?? 'Could not update record');
+      if (!isReauthAbort(e)) toast.error('Update failed', e?.message ?? 'Could not update record');
     }
     setRowEditSaving(false);
   };
@@ -544,6 +709,7 @@ export function FilterDataManagementPage() {
   };
 
   const openCreate = (entity: RowEntity) => {
+    setChangeReason('');
     // Seed status/type defaults so required selects aren't blank on open.
     const seed: Record<string, any> = {};
     if (entity === 'cycle') seed.status = 'COMPLETED';
@@ -576,7 +742,10 @@ export function FilterDataManagementPage() {
         // configured zone, so it converts exactly like an edit does.
         else body[k] = toIsoIfNaiveDatetime(v, tz);
       }
-      await apiClient.post(endpointMap[createDialog.entity], body);
+      body._changeReason = changeReason.trim();
+      await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
+        ? apiClient.postWithReauth(endpointMap[createDialog.entity], body, pw)
+        : apiClient.post(endpointMap[createDialog.entity], body));
       const labelMap: Record<RowEntity, string> = {
         'cycle': 'Cleaning cycle', 'event': 'Filter event', 'pm-entry': 'PM entry',
         'notification': 'Notification', 'admin-request': 'Admin request', 'block-change': 'Block change',
@@ -585,10 +754,130 @@ export function FilterDataManagementPage() {
       revalidateEntity(createDialog.entity);
       setCreateDialog(null);
       setCreateFields({});
+      setChangeReason('');
     } catch (e: any) {
-      toast.error('Create failed', e?.message ?? 'Could not create record');
+      if (!isReauthAbort(e)) toast.error('Create failed', e?.message ?? 'Could not create record');
     }
     setCreateSaving(false);
+  };
+
+  // ── Audit-trail row actions ────────────────────────────────────────────
+  // These go to /api/audit/:id, not the super-admin data endpoints: those
+  // carry the trigger-disable dance, the meta-audit write and the chain-break
+  // semantics. Redact is offered alongside delete because it is the one option
+  // that answers "this row is wrong" WITHOUT invalidating the chain.
+  const AUDIT_CHAIN_WARNING = (
+    <span className="block mt-2 text-[12px] text-red-700">
+      This breaks the audit hash chain from this record onward — <strong>permanently</strong>.
+      Verify Chain will report every later record as unverifiable. Redact instead if the
+      record only needs to be masked.
+    </span>
+  );
+
+  const openAuditEdit = (a: any) => {
+    setChangeReason('');
+    setAuditEditDialog({ id: a.id, action: a.action });
+    setAuditEditFields({
+      timestamp: toInput(a.timestamp),
+      userName: a.userName ?? '',
+      userRole: a.userRole ?? '',
+      action: a.action ?? '',
+      targetType: a.targetType ?? '',
+      targetId: a.targetId ?? '',
+      signatureMeaning: a.signatureMeaning ?? '',
+    });
+  };
+
+  const submitAuditEdit = async () => {
+    if (!auditEditDialog || auditEditSaving || !reasonOk(changeReason)) return;
+    setAuditEditSaving(true);
+    try {
+      const body: Record<string, any> = { reason: changeReason.trim() };
+      for (const [k, v] of Object.entries(auditEditFields)) {
+        if (k === 'timestamp') { if (v) body.timestamp = toIsoIfNaiveDatetime(v, tz); continue; }
+        body[k] = v;
+      }
+      await gated('UPDATE_AUDIT_RECORD', (pw) => pw
+        ? apiClient.putWithReauth(`/api/audit/${auditEditDialog.id}`, body, pw)
+        : apiClient.put(`/api/audit/${auditEditDialog.id}`, body));
+      toast.success('Audit record edited', 'The change is recorded; the hash chain is now broken at this record');
+      setAuditEditDialog(null); setAuditEditFields({}); setChangeReason('');
+      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/audit'));
+    } catch (e: any) {
+      if (!isReauthAbort(e)) toast.error('Edit failed', e?.message ?? 'Could not edit the audit record');
+    }
+    setAuditEditSaving(false);
+  };
+
+  const handleDeleteAuditRow = (a: any) => {
+    askReason({
+      title: 'Delete audit record',
+      danger: true,
+      body: <>Audit record <strong>{a.action}</strong> will be permanently destroyed.{AUDIT_CHAIN_WARNING}</>,
+      confirmLabel: 'Delete permanently',
+      run: async (reason) => {
+        await gated('DELETE_AUDIT_RECORD', (pw) => pw
+          ? apiClient.deleteWithReauth(`/api/audit/${a.id}`, pw, { reason })
+          : apiClient.delete(`/api/audit/${a.id}`, { reason }));
+        toast.success('Deleted', 'Audit record destroyed; the deletion itself is recorded');
+        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/audit'));
+      },
+    });
+  };
+
+  const handleRedactAuditRow = (a: any) => {
+    askReason({
+      title: 'Redact audit record',
+      body: <>The payload of <strong>{a.action}</strong> will be masked. The record, its checksum and its chain link survive, so the audit chain stays intact — this is the recommended alternative to deleting.</>,
+      confirmLabel: 'Redact record',
+      run: async (reason) => {
+        await gated('REDACT_AUDIT_RECORD', (pw) => pw
+          ? apiClient.postWithReauth(`/api/audit/${a.id}/redact`, { reason }, pw)
+          : apiClient.post(`/api/audit/${a.id}/redact`, { reason }));
+        toast.success('Redacted', 'Payload masked; hash chain preserved');
+        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/audit'));
+      },
+    });
+  };
+
+  // Filter pickers for the manual retirement / replacement dialogs. Retirement
+  // needs filters that are NOT already retired; replacement needs any filter on
+  // either side (a replaced filter is retired, so both lists are unfiltered).
+  const manualFiltersData = useSWR<any>(manualRecordDialog ? '/api/hierarchy/filters' : null);
+  const manualFilters: any[] = manualFiltersData.data?.data ?? [];
+
+  const submitManualRecord = async () => {
+    if (!manualRecordDialog || manualRecordSaving || !reasonOk(changeReason)) return;
+    setManualRecordSaving(true);
+    try {
+      const f = manualRecordFields;
+      if (manualRecordDialog.kind === 'retirement') {
+        if (!f.filterId) { toast.error('Missing field', 'Select the filter being retired'); setManualRecordSaving(false); return; }
+        await apiClient.post('/api/super-admin/filter-data/retirements', {
+          filterId: f.filterId,
+          remarks: f.remarks || undefined,
+          retiredAt: f.retiredAt ? toIsoIfNaiveDatetime(f.retiredAt, tz) : undefined,
+          performedBy: f.performedBy || undefined,
+          _changeReason: changeReason.trim(),
+        });
+        toast.success('Created', 'Retirement record added and audited');
+      } else {
+        if (!f.oldFilterId || !f.newFilterId) { toast.error('Missing field', 'Select both the replaced and the replacement filter'); setManualRecordSaving(false); return; }
+        await apiClient.post('/api/super-admin/filter-data/replacements', {
+          oldFilterId: f.oldFilterId,
+          newFilterId: f.newFilterId,
+          remarks: f.remarks || undefined,
+          replacedAt: f.replacedAt ? toIsoIfNaiveDatetime(f.replacedAt, tz) : undefined,
+          performedBy: f.performedBy || undefined,
+          _changeReason: changeReason.trim(),
+        });
+        toast.success('Created', 'Replacement record added and audited');
+      }
+      setManualRecordDialog(null); setManualRecordFields({}); setChangeReason(''); refreshAll();
+    } catch (e: any) {
+      if (!isReauthAbort(e)) toast.error('Create failed', e?.message ?? 'Could not create the record');
+    }
+    setManualRecordSaving(false);
   };
 
   const handleDeleteGeneric = async (id: string) => {
@@ -599,17 +888,24 @@ export function FilterDataManagementPage() {
     if (!endpoint && tab === 'cleaning-cycles') endpoint = '/api/super-admin/data/cleaning-cycles';
     if (!endpoint && tab === 'filter-events') endpoint = '/api/super-admin/data/filter-events';
     if (!endpoint && tab === 'pm-entries') endpoint = '/api/super-admin/data/pm-entries';
-    // audit-trail intentionally NOT mapped — 21 CFR §11 immutability (delta-audit §C2). Edit/Delete row buttons hidden in UI.
+    // audit-trail is deliberately absent: audit rows are edited and deleted
+    // through /api/audit/:id (see handleEditAuditRow / handleDeleteAuditRow),
+    // which carries the chain-break handling and the meta-audit write. Routing
+    // them through the generic super-admin data endpoints would bypass both.
     if (!endpoint && tab === 'notifications') endpoint = '/api/super-admin/data/notifications';
     if (!endpoint && tab === 'admin-requests') endpoint = '/api/super-admin/data/admin-requests';
     if (!endpoint && tab === 'block-changes') endpoint = '/api/super-admin/data/block-change-requests';
     if (!endpoint) return;
 
+    if (!reasonOk(changeReason)) return;
     setProcessing(true);
     try {
-      await apiClient.delete(`${endpoint}/${id}`);
-      toast.success('Deleted', 'Record permanently removed');
+      await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
+        ? apiClient.deleteWithReauth(`${endpoint}/${id}`, pw, { _changeReason: changeReason.trim() })
+        : apiClient.delete(`${endpoint}/${id}`, { _changeReason: changeReason.trim() }));
+      toast.success('Deleted', 'Record removed and audited');
       setConfirmDelete(null);
+      setChangeReason('');
       // Invalidate both the super-admin data feed AND the enriched feed used
       // by the dedicated cycles/events tabs so the row disappears immediately.
       globalMutate(`${endpoint}?limit=50`);
@@ -622,7 +918,7 @@ export function FilterDataManagementPage() {
       if (tab === 'notifications') globalMutate('/api/super-admin/data/notifications?limit=100');
       if (tab === 'admin-requests') globalMutate('/api/admin-requests');
       if (tab === 'block-changes') globalMutate('/api/block-change-requests?page=1&limit=50&status=ALL');
-    } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
+    } catch (e: any) { if (!isReauthAbort(e)) toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
 
@@ -656,7 +952,7 @@ export function FilterDataManagementPage() {
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01" /></svg>
                   SUPER ADMIN
                 </span>
-                <span className="text-[12px] text-slate-400">Changes are not recorded in the audit trail</span>
+                <span className="text-[12px] text-slate-500">Every change here is recorded in the audit trail with a reason</span>
               </div>
             </div>
           </div>
@@ -695,6 +991,14 @@ export function FilterDataManagementPage() {
           ))}
         </div>
         <div className="flex items-center gap-2">
+          {(tab === 'retirements' || tab === 'replacements') && (
+            <button
+              onClick={() => { setChangeReason(''); setManualRecordDialog({ kind: tab === 'retirements' ? 'retirement' : 'replacement' }); setManualRecordFields({}); }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold shadow-sm hover:from-cyan-500 hover:to-blue-500">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              Create
+            </button>
+          )}
           {TAB_CREATE_ENTITY[tab] && (
             <button
               onClick={() => openCreate(TAB_CREATE_ENTITY[tab])}
@@ -797,7 +1101,7 @@ export function FilterDataManagementPage() {
                         <div className="flex items-center gap-1.5 justify-end">
                           {isEditing ? (
                             <>
-                              <button onClick={() => handleEditRetirement(r.id)} disabled={processing}
+                              <button onClick={() => handleEditRetirement(r.id, r.name)} disabled={processing}
                                 className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-600 text-white text-[11px] font-semibold rounded-lg hover:bg-cyan-700 disabled:opacity-50 transition-colors">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                 Save
@@ -812,10 +1116,15 @@ export function FilterDataManagementPage() {
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
                               </button>
-                              <button onClick={() => setUnretireDialog({ id: r.id, name: r.name, preRetireParentId: r.preRetireParentId, preRetireParentName: r.preRetireParentName })}
+                              <button onClick={() => { setChangeReason(''); setUnretireDialog({ id: r.id, name: r.name, preRetireParentId: r.preRetireParentId, preRetireParentName: r.preRetireParentName }); }}
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 text-emerald-600 text-[11px] font-medium rounded-lg hover:bg-emerald-50 transition-colors opacity-0 group-hover:opacity-100">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                 Restore
+                              </button>
+                              <button onClick={() => handleDeleteRetirement(r.id, r.name)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                Delete
                               </button>
                             </>
                           )}
@@ -918,7 +1227,7 @@ export function FilterDataManagementPage() {
                         <div className="flex items-center gap-1.5 justify-end">
                           {isEditing ? (
                             <>
-                              <button onClick={() => handleEditReplacement(r.id)} disabled={processing}
+                              <button onClick={() => handleEditReplacement(r.id, `${r.oldFilterName} to ${r.newFilterName}`)} disabled={processing}
                                 className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-600 text-white text-[11px] font-semibold rounded-lg hover:bg-cyan-700 disabled:opacity-50 transition-colors">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                 Save
@@ -932,6 +1241,11 @@ export function FilterDataManagementPage() {
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
+                              </button>
+                              <button onClick={() => handleDeleteReplacement(r.id, `${r.oldFilterName} to ${r.newFilterName}`)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                Delete
                               </button>
                             </>
                           )}
@@ -996,7 +1310,7 @@ export function FilterDataManagementPage() {
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                             Edit
                           </button>
-                          <button onClick={() => setConfirmDelete({ id: c.id, name: c.cycleCode ?? c.filterName ?? 'Cycle' })}
+                          <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: c.id, name: c.cycleCode ?? c.filterName ?? 'Cycle' }); }}
                             className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             Delete
@@ -1029,7 +1343,7 @@ export function FilterDataManagementPage() {
                         className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">
                         Edit
                       </button>
-                      <button onClick={() => setConfirmDelete({ id: e.id, name: e.eventType ?? 'Event' })}
+                      <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: e.id, name: e.eventType ?? 'Event' }); }}
                         className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
                         Delete
                       </button>
@@ -1103,7 +1417,7 @@ export function FilterDataManagementPage() {
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                         Edit
                       </button>
-                      <button onClick={() => setConfirmDelete({ id: entry.id, name: `${PM_MONTHS[(entry.month ?? 1) - 1]} entry` })}
+                      <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: entry.id, name: `${PM_MONTHS[(entry.month ?? 1) - 1]} entry` }); }}
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         Delete
@@ -1153,8 +1467,13 @@ export function FilterDataManagementPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end" title="Audit rows are immutable per 21 CFR §11.10(e). Edit/Delete endpoints removed 2026-05-20 (delta-audit §C2).">
-                          <span className="px-2 py-1 text-slate-400 text-[10px] font-medium">Immutable</span>
+                        <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100">
+                          <button onClick={() => openAuditEdit(a)} title="Correct this record. Breaks the hash chain from here onward."
+                            className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
+                          <button onClick={() => handleRedactAuditRow(a)} title="Mask the payload but keep the record and its chain link (recommended)."
+                            className="px-2 py-1 text-amber-600 text-[10px] font-medium rounded-lg hover:bg-amber-50">Redact</button>
+                          <button onClick={() => handleDeleteAuditRow(a)} title="Destroy this record. Permanently breaks the hash chain."
+                            className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50">Delete</button>
                         </div>
                       </td>
                     </tr>
@@ -1196,7 +1515,7 @@ export function FilterDataManagementPage() {
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
                         <button onClick={() => openRowEdit(n, 'notification', n.title ?? 'Notification')}
                           className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
-                        <button onClick={() => setConfirmDelete({ id: n.id, name: n.title ?? 'Notification' })}
+                        <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: n.id, name: n.title ?? 'Notification' }); }}
                           className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50">Delete</button>
                       </div>
                     </div>
@@ -1244,7 +1563,7 @@ export function FilterDataManagementPage() {
                         <div className="flex items-center gap-1 justify-end">
                           <button onClick={() => openRowEdit(req, 'admin-request', `${typeLabel} - ${req.requesterName}`)}
                             className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">Edit</button>
-                          <button onClick={() => setConfirmDelete({ id: req.id, name: `${typeLabel} - ${req.requesterName}` })}
+                          <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: req.id, name: `${typeLabel} - ${req.requesterName}` }); }}
                             className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">Delete</button>
                         </div>
                       </td>
@@ -1296,7 +1615,7 @@ export function FilterDataManagementPage() {
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
                           <button onClick={() => openRowEdit(r, 'block-change', r.filterName ?? 'Block change')}
                             className="px-2.5 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
-                          <button onClick={() => setConfirmDelete({ id: r.id, name: `Block change for ${r.filterName ?? 'filter'}` })}
+                          <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: r.id, name: `Block change for ${r.filterName ?? 'filter'}` }); }}
                             className="px-2.5 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">Delete</button>
                         </div>
                       </div>
@@ -1390,7 +1709,7 @@ export function FilterDataManagementPage() {
                                   toast.success('Updated', 'Record updated silently');
                                   setEditingId(null); setEditFields({});
                                   globalMutate(activeGenericTab.endpoint + '?limit=50');
-                                } catch (e: any) { toast.error('Error', e?.message ?? 'Failed'); }
+                                } catch (e: any) { if (!isReauthAbort(e)) toast.error('Error', e?.message ?? 'Failed'); }
                                 setProcessing(false);
                               }} disabled={processing}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-600 text-white text-[10px] font-semibold rounded-lg disabled:opacity-50">
@@ -1417,7 +1736,7 @@ export function FilterDataManagementPage() {
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
                               </button>
-                              <button onClick={() => setConfirmDelete({ id: rowId, name: row.cycleCode || row.filterName || row.action || row.message || row.title || row.requestType || 'Record' })}
+                              <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: rowId, name: row.cycleCode || row.filterName || row.action || row.message || row.title || row.requestType || 'Record' }); }}
                                 className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 Delete
@@ -1453,15 +1772,17 @@ export function FilterDataManagementPage() {
                   <p className="text-[12px] text-slate-400">This action cannot be undone</p>
                 </div>
               </div>
-              <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4">
+              <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-1">
                 <p className="text-[13px] text-red-800">
-                  <strong>{confirmDelete.name}</strong> will be permanently removed with no trace in the system.
+                  <strong>{confirmDelete.name}</strong> will be permanently removed. A record of the deletion, including the row's contents, is kept in the audit trail.
                 </p>
               </div>
-              <div className="flex gap-3">
-                <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+              <ReasonBox value={changeReason} onChange={setChangeReason} danger />
+              <div className="flex gap-3 mt-4">
+                <button onClick={() => { setConfirmDelete(null); setChangeReason(''); }} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
                 <button onClick={() => handleDeleteGeneric(confirmDelete.id)}
-                  disabled={processing}
+                  disabled={processing || !reasonOk(changeReason)}
+                  title={reasonOk(changeReason) ? undefined : 'Enter a reason for this deletion'}
                   className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-red-700 transition-colors">
                   {processing ? 'Deleting...' : 'Delete Forever'}
                 </button>
@@ -1574,12 +1895,16 @@ export function FilterDataManagementPage() {
                 </>
               )}
             </div>
+            <div className="px-6 pb-2">
+              <ReasonBox value={changeReason} onChange={setChangeReason} />
+            </div>
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={() => { setRowEditDialog(null); setRowEditFields({}); }}
+              <button onClick={() => { setRowEditDialog(null); setRowEditFields({}); setChangeReason(''); }}
                 className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">
                 Cancel
               </button>
-              <button onClick={submitRowEdit} disabled={rowEditSaving}
+              <button onClick={submitRowEdit} disabled={rowEditSaving || !reasonOk(changeReason)}
+                title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
                 className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
                 {rowEditSaving ? 'Saving...' : 'Save Changes'}
               </button>
@@ -1698,14 +2023,162 @@ export function FilterDataManagementPage() {
                 </>
               )}
             </div>
+            <div className="px-6 pb-2">
+              <ReasonBox value={changeReason} onChange={setChangeReason} />
+            </div>
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
-              <button onClick={() => { setCreateDialog(null); setCreateFields({}); }}
+              <button onClick={() => { setCreateDialog(null); setCreateFields({}); setChangeReason(''); }}
                 className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">
                 Cancel
               </button>
-              <button onClick={submitCreate} disabled={createSaving}
+              <button onClick={submitCreate} disabled={createSaving || !reasonOk(changeReason)}
+                title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
                 className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
                 {createSaving ? 'Creating…' : 'Create Record'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* ── Reason prompt ──────────────────────────────────────────────────
+          Used by the surfaces that have no dialog of their own: the inline row
+          edits on Retirements / Replacements, and the row actions on the Audit
+          Trail tab. Every mutation on this page needs a reason, and a textarea
+          cannot live inside a table row. */}
+      {reasonPrompt && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className={`h-1.5 bg-gradient-to-r ${reasonPrompt.danger ? 'from-red-500 to-rose-500' : 'from-cyan-500 to-blue-500'}`} />
+            <div className="p-6">
+              <h3 className="text-[15px] font-bold text-slate-800 mb-2">{reasonPrompt.title}</h3>
+              <div className={`text-[13px] rounded-xl p-3 border ${reasonPrompt.danger ? 'bg-red-50 border-red-100 text-red-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                {reasonPrompt.body}
+              </div>
+              <ReasonBox value={promptReason} onChange={setPromptReason} danger={reasonPrompt.danger} />
+              <div className="flex gap-3 mt-4">
+                <button onClick={() => { setReasonPrompt(null); setPromptReason(''); }}
+                  className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+                <button onClick={runReasonPrompt} disabled={promptBusy || !reasonOk(promptReason)}
+                  title={reasonOk(promptReason) ? undefined : 'Enter a reason for this change'}
+                  className={`flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition-colors ${reasonPrompt.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'}`}>
+                  {promptBusy ? 'Working…' : reasonPrompt.confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Audit record edit ──────────────────────────────────────────────
+          Corrects a factually wrong audit row. Checksum, previous checksum and
+          chain position are absent on purpose: editable, they would let the
+          operator forge a chain link and conceal the break this edit creates. */}
+      {auditEditDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="h-1.5 bg-gradient-to-r from-red-500 to-rose-500" />
+            <div className="px-6 pt-5 pb-3">
+              <h3 className="text-[15px] font-bold text-slate-800">Edit audit record</h3>
+              <p className="text-[12px] text-slate-400 mt-0.5">{auditEditDialog.action}</p>
+            </div>
+            <div className="px-6 pb-4 overflow-y-auto space-y-3">
+              <div className="text-[12px] bg-red-50 border border-red-100 rounded-xl p-3 text-red-800">
+                Editing an audit record breaks the tamper-evident hash chain from this
+                record onward — <strong>permanently</strong>. Verify Chain will report every
+                later record as unverifiable. Use <strong>Redact</strong> instead if the record
+                only needs to be masked; the original values are preserved either way.
+              </div>
+              <Field label="Timestamp" type="datetime-local" value={auditEditFields.timestamp} onChange={v => setAuditEditFields(p => ({ ...p, timestamp: v }))} />
+              <Field label="User Name" value={auditEditFields.userName} onChange={v => setAuditEditFields(p => ({ ...p, userName: v }))} />
+              <Field label="User Role" value={auditEditFields.userRole} onChange={v => setAuditEditFields(p => ({ ...p, userRole: v }))} />
+              <Field label="Action" value={auditEditFields.action} onChange={v => setAuditEditFields(p => ({ ...p, action: v }))} />
+              <Field label="Target Type" value={auditEditFields.targetType} onChange={v => setAuditEditFields(p => ({ ...p, targetType: v }))} />
+              <Field label="Target ID" value={auditEditFields.targetId} onChange={v => setAuditEditFields(p => ({ ...p, targetId: v }))} />
+              <Field label="Signature Meaning" textarea value={auditEditFields.signatureMeaning} onChange={v => setAuditEditFields(p => ({ ...p, signatureMeaning: v }))} />
+              <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                The checksum, previous checksum and chain position are not editable — changing
+                them would let a broken chain be made to look intact.
+              </p>
+              <ReasonBox value={changeReason} onChange={setChangeReason} danger />
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => { setAuditEditDialog(null); setAuditEditFields({}); setChangeReason(''); }}
+                className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
+              <button onClick={submitAuditEdit} disabled={auditEditSaving || !reasonOk(changeReason)}
+                title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-red-700">
+                {auditEditSaving ? 'Saving…' : 'Save & break chain'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Manual retirement / replacement record ─────────────────────────
+          Both pick existing filters. "Create a retirement record" means retiring
+          a live filter with a back-dated date and remarks; "create a
+          replacement record" records a swap between two filters that already
+          exist. Neither invents a filter — that belongs on the Filters page. */}
+      {manualRecordDialog && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="h-1.5 bg-gradient-to-r from-cyan-500 to-blue-500" />
+            <div className="px-6 pt-5 pb-3">
+              <h3 className="text-[15px] font-bold text-slate-800">
+                {manualRecordDialog.kind === 'retirement' ? 'Create retirement record' : 'Create replacement record'}
+              </h3>
+              <p className="text-[12px] text-slate-400 mt-0.5">
+                {manualRecordDialog.kind === 'retirement'
+                  ? 'Retires an existing filter and records when, by whom and why.'
+                  : 'Records a filter swap that happened outside the app.'}
+              </p>
+            </div>
+            <div className="px-6 pb-4 overflow-y-auto space-y-3">
+              {manualRecordDialog.kind === 'retirement' ? (
+                <>
+                  <Field label="Filter being retired" required value={manualRecordFields.filterId}
+                    onChange={v => setManualRecordFields(p => ({ ...p, filterId: v }))}
+                    optionObjs={manualFilters.filter((f: any) => f.status !== 'Retired').map((f: any) => ({ value: f.id, label: f.name }))}
+                    placeholder="Select a filter…" />
+                  <Field label="Retired On" type="datetime-local" value={manualRecordFields.retiredAt} onChange={v => setManualRecordFields(p => ({ ...p, retiredAt: v }))} />
+                  <Field label="Performed By" value={manualRecordFields.performedBy} onChange={v => setManualRecordFields(p => ({ ...p, performedBy: v }))} />
+                  <Field label="Remarks" textarea value={manualRecordFields.remarks} onChange={v => setManualRecordFields(p => ({ ...p, remarks: v }))} />
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    The filter is moved to Retired and leaves the Block/AHU tree, exactly as the
+                    Retire action does. Any cleaning cycle still in progress is terminated. Use
+                    Restore to undo.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Field label="Filter that was replaced" required value={manualRecordFields.oldFilterId}
+                    onChange={v => setManualRecordFields(p => ({ ...p, oldFilterId: v }))}
+                    optionObjs={manualFilters.map((f: any) => ({ value: f.id, label: f.name }))}
+                    placeholder="Select a filter…" />
+                  <Field label="Filter that replaced it" required value={manualRecordFields.newFilterId}
+                    onChange={v => setManualRecordFields(p => ({ ...p, newFilterId: v }))}
+                    optionObjs={manualFilters.map((f: any) => ({ value: f.id, label: f.name }))}
+                    placeholder="Select a filter…" />
+                  <Field label="Replaced On" type="datetime-local" value={manualRecordFields.replacedAt} onChange={v => setManualRecordFields(p => ({ ...p, replacedAt: v }))} />
+                  <Field label="Performed By" value={manualRecordFields.performedBy} onChange={v => setManualRecordFields(p => ({ ...p, performedBy: v }))} />
+                  <Field label="Remarks" textarea value={manualRecordFields.remarks} onChange={v => setManualRecordFields(p => ({ ...p, remarks: v }))} />
+                  <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                    This writes a new, correctly chain-linked audit record — it adds to the audit
+                    chain rather than breaking it. Neither filter's status is changed.
+                  </p>
+                </>
+              )}
+              <ReasonBox value={changeReason} onChange={setChangeReason} />
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">
+              <button onClick={() => { setManualRecordDialog(null); setManualRecordFields({}); setChangeReason(''); }}
+                className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
+              <button onClick={submitManualRecord} disabled={manualRecordSaving || !reasonOk(changeReason)}
+                title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
+                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
+                {manualRecordSaving ? 'Creating…' : 'Create Record'}
               </button>
             </div>
           </div>
@@ -1739,10 +2212,12 @@ export function FilterDataManagementPage() {
                   </p>
                 )}
               </div>
-              <div className="flex gap-3">
-                <button onClick={() => { setUnretireDialog(null); setUnretireParentId(''); }}
+              <ReasonBox value={changeReason} onChange={setChangeReason} />
+              <div className="flex gap-3 mt-4">
+                <button onClick={() => { setUnretireDialog(null); setUnretireParentId(''); setChangeReason(''); }}
                   className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
-                <button onClick={() => handleUnretire(unretireDialog.id)} disabled={processing}
+                <button onClick={() => handleUnretire(unretireDialog.id)} disabled={processing || !reasonOk(changeReason)}
+                  title={reasonOk(changeReason) ? undefined : 'Enter a reason for restoring this filter'}
                   className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-500 transition-all">
                   {processing ? 'Restoring...' : 'Restore Filter'}
                 </button>
@@ -1751,6 +2226,19 @@ export function FilterDataManagementPage() {
           </div>
         </div>
       )}
+
+      {/* Rendered last so it wins any z-index tie: the password step is always
+          the innermost confirmation, on top of whatever dialog opened it. */}
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={() => { reauth.cancel(); setProcessing(false); setPromptBusy(false); setRowEditSaving(false); setCreateSaving(false); setAuditEditSaving(false); setManualRecordSaving(false); }}
+      />
+
     </div>
   );
 }

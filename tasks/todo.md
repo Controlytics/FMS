@@ -2043,3 +2043,23 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       via pg_isready that the port is free before registering (abort loudly otherwise).
       Root-caused by the operator on the customer machine — this class of bug is invisible
       to any amount of local building; only a real fresh install surfaces it.
+
+- [x] **2026-08-27 — Filter Data Management: audit-trail retrofit + missing CRUD.**
+      All 21 mutation handlers in `super-admin/routes.ts` wrote NO audit row; the
+      module's own header had flagged the retrofit as outstanding since 2026-05-26.
+      Every create/edit/delete now demands a reason and writes
+      `MANUAL_RECORD_CREATED`/`_UPDATED`/`_DELETED`. Added: create+delete on
+      Retirements and Replacements, edit+redact+delete on the Audit Trail tab
+      (new `PUT /api/audit/:id`), and an optional `timestamp` on `auditLog()` so
+      back-dated manual records carry the real date.
+      Three traps worth remembering: (1) the reason key must be `_changeReason` —
+      `reason` is a live column on `BlockChangeRequest`; (2) a replacement record
+      IS an `audit_trail` row, so editing one edits the audit trail; (3)
+      `audit_trail` has only a no-DELETE trigger, never a no-UPDATE one, so
+      `PUT /filter-data/replacements/:id` had been breaking the hash chain
+      SILENTLY since it was written — it now writes a meta-audit row first and
+      reports `chainBroken: true`. Checksums are deliberately not recomputed.
+      Verified live: 9 audited writes left the chain baseline at 3408 anomalies;
+      one deliberate edit adds exactly one. Outstanding: browser click-through
+      (no Playwright MCP and no connected Chrome extension in that session).
+      Plan + verification table: `tasks/FILTER-DATA-MGMT-AUDIT-RETROFIT.md`.

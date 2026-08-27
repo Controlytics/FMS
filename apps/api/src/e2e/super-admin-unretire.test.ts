@@ -270,7 +270,10 @@ describe('POST /api/super-admin/filter-data/retirements/:id/unretire', () => {
       // the action isn't configured — so this is correct either way. A WRONG
       // password would trip the login lockout policy and brick the test user.
       headers: { authorization: `Bearer ${token}`, 'x-reauth-password': SA_PASSWORD },
-      payload: {},
+      // `_changeReason` became mandatory in the 2026-08-27 audit retrofit —
+      // unretiring is now recorded as a MANUAL_RECORD_UPDATED row that also
+      // names the replacement filter destroyed along the way.
+      payload: { _changeReason: 'e2e unretire contract check' },
     });
 
   beforeAll(async () => {
