@@ -450,6 +450,34 @@ windowEnd`). Without the gate, the April cleaning silently marks March done too
 - Files: `pm-schedules/pm-pending-tasks.ts` (detection + write-off),
   `components/pm-pending-tasks-dialog.tsx` (ONE dialog for web + tablet).
 
+## Filter Data Management: cache invalidation (2026-08-27)
+
+**An edit that saves but does not appear is a cache bug, not a save bug.** A
+cleaning-cycle edit refreshed `/api/filters/cycles` but NOT
+`/api/filters/cleaning-record` — which is what the user-facing Cleaning Record
+page actually reads (`history.tsx:129`). The write was always correct; the
+operator saw a stale page and reasonably concluded it had not saved.
+
+Root cause was **three divergent copies** of the invalidation list (edit, create,
+delete). There is now ONE map, `REVALIDATE_KEYS`, listing every SWR key each
+entity can affect, with a comment per key saying why. **Over-invalidate on
+purpose**: a needless refetch costs one request; a missed one shows wrong data.
+When adding a screen that reads cycle/event/PM data, add its key there.
+
+Cycle data is served by more keys than are obvious: `cleaning-record`, `cycles`,
+`manual-status-changes`, `dashboard-stats`, `batch-states`,
+`ahu-completion-status`.
+
+**Per-cycle lifecycle.** The Cleaning Cycles tab has a Lifecycle expander showing
+that cycle's own ordered stage events, each editable/deletable in place. It needs
+no extra request — the cycles feed is already fetched with `includeEvents=true` —
+and it reuses the SAME event dialog and audited endpoint as the Filter Events
+tab. A second edit path would be a second set of rules to keep in step.
+
+**Row actions are no longer hover-only.** 17 action clusters used
+`opacity-0 group-hover:opacity-100`; there is no hover on a tablet, and an
+operator cannot discover an action they cannot see.
+
 ## Documentation Sync Rule
 
 **Hard rule:** every numerical claim in any doc must be backed by a `grep`/`ls` against live code at the moment the doc is touched. Don't trust prior docs — verify.

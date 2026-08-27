@@ -2136,3 +2136,16 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       replace guards are gone with the wipe. Verified live on AHU-91: upload
       succeeded, 2 new dates added, all 6 existing entries and both approvals
       intact, and the 15-Aug obligation still tracked. 10 rewritten import tests.
+
+- [x] **2026-08-27 — FDM edits not appearing on the real pages (operator-reported).**
+      Root cause: THREE divergent copies of the SWR invalidation list, none of
+      which included `/api/filters/cleaning-record` — the key the user-facing
+      Cleaning Record page reads. The write always succeeded; the page was stale.
+      Verified against the live API that a console edit does reach
+      `/api/filters/cleaning-record`. Replaced all three copies with one
+      `REVALIDATE_KEYS` map (per-key comments, deliberately over-inclusive).
+      Also: row actions no longer hover-only (17 sites — no hover on a tablet),
+      and the Cleaning Cycles tab gained a per-cycle **Lifecycle** expander
+      showing that cycle's stage events with edit/delete, reusing the existing
+      event dialog + audited endpoint and no extra request (`includeEvents=true`
+      already ships them).

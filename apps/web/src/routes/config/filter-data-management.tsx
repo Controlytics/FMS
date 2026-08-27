@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
@@ -279,6 +279,87 @@ const FILTERS_BY_TAB: Record<string, { label: string; options: { value: string; 
 const CLIENT_PAGED_TABS = new Set(['retirements', 'replacements', 'admin-requests']);
 
 
+/**
+ * One cleaning cycle's lifecycle — the ordered stage history that cycle actually
+ * went through, with each step editable in place.
+ *
+ * The Filter Events tab lists EVERY event in the system; when an operator is
+ * looking at one cycle and wants to correct a stage time or a remark, hunting
+ * for it there is the wrong shape of work. This panel scopes the same rows to
+ * the cycle in front of them.
+ *
+ * No extra request: the cycles feed is already fetched with `includeEvents=true`,
+ * so the events are data the page is holding either way. Editing goes through
+ * the SAME event dialog and the SAME audited endpoint as the Filter Events tab —
+ * a second edit path would be a second set of rules to keep in step.
+ */
+function LifecyclePanel({
+  cycle,
+  formatDateTime,
+  onEditEvent,
+  onDeleteEvent,
+}: {
+  cycle: any;
+  formatDateTime: (d: string) => string;
+  onEditEvent: (ev: any) => void;
+  onDeleteEvent: (ev: any) => void;
+}) {
+  const events: any[] = [...(cycle.events ?? [])].sort(
+    (a, b) => new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime(),
+  );
+
+  if (events.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-[12px] text-slate-400">
+        This cycle has no recorded stage events yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-2">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          Lifecycle · {cycle.cycleCode ?? cycle.filterName}
+        </span>
+        <span className="text-[11px] text-slate-400">{events.length} step{events.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {events.map((ev, i) => (
+          <div key={ev.id} className="group flex items-start gap-3 px-4 py-2.5 hover:bg-slate-50/60">
+            {/* Step number + the transition, which is what an operator scans for. */}
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[12px] font-semibold text-slate-800">{ev.eventType}</span>
+                {(ev.fromState || ev.toState) && (
+                  <span className="text-[11px] text-slate-500">
+                    {ev.fromState ?? '—'} <span className="text-slate-300">→</span> {ev.toState ?? '—'}
+                  </span>
+                )}
+                <ManualEntryBadge manual={ev.manualEntry} />
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
+                <span>{formatDateTime(ev.performedAt)}</span>
+                {ev.performedByName && <span>by {ev.performedByName}</span>}
+                {ev.remarks && <span className="text-slate-500">“{ev.remarks}”</span>}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100">
+              <button onClick={() => onEditEvent(ev)}
+                className="rounded-lg px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-100">Edit</button>
+              <button onClick={() => onDeleteEvent(ev)}
+                className="rounded-lg px-2 py-1 text-[10px] font-medium text-red-500 hover:bg-red-50">Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function FilterDataManagementPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -404,6 +485,11 @@ export function FilterDataManagementPage() {
     reauth.executeWithResult(action, fn);
   /** A cancelled/superseded password prompt is a choice, not a failure — no toast. */
   const isReauthAbort = (e: any) => e?.error === 'REAUTH_CANCELLED' || e?.error === 'REAUTH_SUPERSEDED';
+
+  // Which cleaning cycle has its lifecycle expanded. The cycles feed already
+  // ships each cycle's events (`includeEvents=true`), so this needs no extra
+  // request — the stage history is data we are already holding.
+  const [openLifecycle, setOpenLifecycle] = useState<string | null>(null);
 
   const [changeReason, setChangeReason] = useState('');
   // Audit-row edit dialog (Audit Trail tab). Only the fields that are safe to
@@ -833,23 +919,9 @@ export function FilterDataManagementPage() {
       setChangeReason('');
       // Refresh both the enriched feed (used by the table) and the super-admin
       // feed (used by other tabs that hit the same endpoint).
-      if (rowEditDialog.entity === 'cycle') {
-        // Invalidate EVERY cleaning-cycles cache key, not just this tab's exact
-        // one — the user-facing /cleaning-cycles page uses a different key
-        // (its own limit + status/date filters), so an exact-string mutate
-        // never reached it and the edit looked like it "didn't update there".
-        globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/cycles') || key.startsWith('/api/super-admin/data/cleaning-cycles')));
-      } else if (rowEditDialog.entity === 'event') {
-        globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/events') || key.startsWith('/api/super-admin/data/filter-events')));
-      } else if (rowEditDialog.entity === 'pm-entry') {
-        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/pm-entries'));
-      } else if (rowEditDialog.entity === 'notification') {
-        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/notifications'));
-      } else if (rowEditDialog.entity === 'admin-request') {
-        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/admin-requests'));
-      } else if (rowEditDialog.entity === 'block-change') {
-        globalMutate((key) => typeof key === 'string' && key.startsWith('/api/block-change-requests'));
-      }
+      // Same map as create and delete — see REVALIDATE_KEYS. The three paths
+      // used to keep their own lists and they drifted apart.
+      revalidateEntity(rowEditDialog.entity);
     } catch (e: any) {
       if (!isReauthAbort(e)) toast.error('Update failed', e?.message ?? 'Could not update record');
     }
@@ -859,20 +931,52 @@ export function FilterDataManagementPage() {
   // Revalidate every cache key touched by a given entity — shared by edit +
   // create so a new/edited row shows up on the data-mgmt tab AND the matching
   // user-facing page immediately.
+  /**
+   * Every SWR key an edit to each entity can invalidate — the ONE list.
+   *
+   * This was previously duplicated three times (edit, create, delete) and the
+   * copies had drifted, which is exactly how the bug arose: a cleaning-cycle
+   * edit refreshed `/api/filters/cycles` but NOT `/api/filters/cleaning-record`,
+   * which is what the user-facing Cleaning Record page actually reads
+   * (history.tsx:129). The edit saved correctly and the operator saw a stale
+   * page, which reads as "it didn't save".
+   *
+   * Err on the side of over-invalidating. A needless refetch costs one request;
+   * a missed one shows the operator wrong data and destroys their trust in the
+   * console. Each key below is listed with WHY it is affected, so the next
+   * person can tell a deliberate entry from a copy-paste.
+   */
+  const REVALIDATE_KEYS: Record<RowEntity, string[]> = {
+    cycle: [
+      '/api/filters/cleaning-record',      // Cleaning Record page (history.tsx) — the one that was missing
+      '/api/filters/cycles',               // cycle list + detail, filter-lifecycle, traceability
+      '/api/filters/manual-status-changes',// manual updates render alongside cycles in the unified record
+      '/api/filters/dashboard-stats',      // cycle counts on the dashboard
+      '/api/filters/batch-states',         // tablet/desktop per-filter state
+      '/api/filters/ahu-completion-status',// AHU readiness is derived from cycles
+      '/api/super-admin/data/cleaning-cycles',
+    ],
+    event: [
+      '/api/filters/events',               // events list + filter traceability timeline
+      '/api/filters/cycles',               // cycle detail embeds its events (includeEvents=true)
+      '/api/filters/cleaning-record',      // the record view shows event-derived stages
+      '/api/super-admin/data/filter-events',
+    ],
+    'pm-entry': [
+      '/api/pm-schedules',                 // PM Schedules page, My Tasks (/due), pending-tasks-map
+      '/api/super-admin/data/pm-entries',
+    ],
+    notification: [
+      '/api/notifications',                // the bell + the notifications page
+      '/api/super-admin/data/notifications',
+    ],
+    'admin-request': ['/api/admin-requests'],
+    'block-change': ['/api/block-change-requests'],
+  };
+
   const revalidateEntity = (entity: RowEntity) => {
-    if (entity === 'cycle') {
-      globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/cycles') || key.startsWith('/api/super-admin/data/cleaning-cycles')));
-    } else if (entity === 'event') {
-      globalMutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/events') || key.startsWith('/api/super-admin/data/filter-events')));
-    } else if (entity === 'pm-entry') {
-      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/pm-entries'));
-    } else if (entity === 'notification') {
-      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/notifications'));
-    } else if (entity === 'admin-request') {
-      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/admin-requests'));
-    } else if (entity === 'block-change') {
-      globalMutate((key) => typeof key === 'string' && key.startsWith('/api/block-change-requests'));
-    }
+    const prefixes = REVALIDATE_KEYS[entity] ?? [];
+    globalMutate((key) => typeof key === 'string' && prefixes.some((pre) => key.startsWith(pre)));
   };
 
   const openCreate = (entity: RowEntity) => {
@@ -1073,18 +1177,14 @@ export function FilterDataManagementPage() {
       toast.success('Deleted', 'Record removed and audited');
       setConfirmDelete(null);
       setChangeReason('');
-      // Invalidate both the super-admin data feed AND the enriched feed used
-      // by the dedicated cycles/events tabs so the row disappears immediately.
+      // This tab's own feed, plus every user-facing key the entity touches.
+      // Same REVALIDATE_KEYS map as edit and create — the three paths kept
+      // separate lists before and drifted, which is how a cleaning-cycle edit
+      // stopped refreshing the Cleaning Record page.
       globalMutate((key) => typeof key === 'string' && key.startsWith(endpoint));
-      // Prefix-invalidate so the user-facing pages (which use different SWR keys)
-      // also refresh — see submitRowEdit for the same fix.
-      if (tab === 'cleaning-cycles') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/filters/cycles'));
-      if (tab === 'filter-events') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/filters/events'));
-      if (tab === 'pm-entries') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/pm-entries'));
+      const deletedEntity = TAB_CREATE_ENTITY[tab];
+      if (deletedEntity) revalidateEntity(deletedEntity);
       if (tab === 'audit-trail') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/audit'));
-      if (tab === 'notifications') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/super-admin/data/notifications'));
-      if (tab === 'admin-requests') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/admin-requests'));
-      if (tab === 'block-changes') globalMutate((key) => typeof key === 'string' && key.startsWith('/api/block-change-requests'));
     } catch (e: any) { if (!isReauthAbort(e)) toast.error('Error', e?.message ?? 'Failed'); }
     setProcessing(false);
   };
@@ -1346,17 +1446,17 @@ export function FilterDataManagementPage() {
                           ) : (
                             <>
                               <button onClick={() => { setEditingId(r.id); setEditFields({ name: r.name, filterSet: r.filterSet ?? '', updatedAt: toInput(r.updatedAt) }); }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100">
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
                               </button>
                               <button onClick={() => { setChangeReason(''); setUnretireDialog({ id: r.id, name: r.name, preRetireParentId: r.preRetireParentId, preRetireParentName: r.preRetireParentName }); }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-emerald-600 text-[11px] font-medium rounded-lg hover:bg-emerald-50 transition-colors opacity-0 group-hover:opacity-100">
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-emerald-600 text-[11px] font-medium rounded-lg hover:bg-emerald-50 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                 Restore
                               </button>
                               <button onClick={() => handleDeleteRetirement(r.id, r.name)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 Delete
                               </button>
@@ -1472,12 +1572,12 @@ export function FilterDataManagementPage() {
                           ) : (
                             <>
                               <button onClick={() => { setEditingId(r.id); setEditFields({ oldFilterName: r.oldFilterName, oldFilterId: r.oldFilterId, newFilterName: r.newFilterName, newFilterId: r.newFilterId, performedBy: r.performedBy, remarks: r.remarks ?? '', replacedAt: toInput(r.replacedAt) }); }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100">
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
                               </button>
                               <button onClick={() => handleDeleteReplacement(r.id, `${r.oldFilterName} to ${r.newFilterName}`)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 Delete
                               </button>
@@ -1520,7 +1620,8 @@ export function FilterDataManagementPage() {
                   const dryerTemp = getReadingValue(dryReadings, 'dryer') !== '-' ? getReadingValue(dryReadings, 'dryer') : getReadingValue(dryReadings, 'temperature');
                   const sc = CYCLE_STATUS_CONFIG[c.status] ?? { label: c.status, bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-200' };
                   return (
-                    <tr key={c.id} className="hover:bg-slate-50/50 group">
+                    <Fragment key={c.id}>
+                    <tr className="hover:bg-slate-50/50 group">
                       <td className="px-3 py-2.5 text-[12px] text-slate-400 tabular-nums">{idx + 1}</td>
                       <td className="px-3 py-2.5 text-[12px] font-semibold text-slate-800"><span className="inline-flex items-center gap-1.5">{c.filterName ?? '-'}<ManualEntryBadge manual={c.manualEntry} /></span></td>
                       <td className="px-3 py-2.5 text-[12px] text-slate-600">{attrs.micronSize ?? '-'}</td>
@@ -1539,19 +1640,45 @@ export function FilterDataManagementPage() {
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1 justify-end">
+                          <button
+                            onClick={() => setOpenLifecycle(openLifecycle === c.id ? null : c.id)}
+                            title="Show this cycle's stage history — each step can be edited here"
+                            className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg transition-colors ${
+                              openLifecycle === c.id ? 'bg-cyan-50 text-cyan-700' : 'text-slate-500 hover:bg-slate-100'
+                            }`}>
+                            <svg className={`w-3 h-3 transition-transform ${openLifecycle === c.id ? 'rotate-180' : ''}`}
+                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                            Lifecycle
+                            <span className="ml-0.5 text-slate-400">({(c.events ?? []).length})</span>
+                          </button>
                           <button onClick={() => openRowEdit(c, 'cycle', c.cycleCode ?? c.filterName ?? 'Cycle')}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">
+                            className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                             Edit
                           </button>
                           <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: c.id, name: c.cycleCode ?? c.filterName ?? 'Cycle' }); }}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
+                            className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             Delete
                           </button>
                         </div>
                       </td>
                     </tr>
+                    {openLifecycle === c.id && (
+                      <tr key={`${c.id}-lifecycle`} className="bg-slate-50/70">
+                        <td colSpan={99} className="px-4 py-3">
+                          <LifecyclePanel
+                            cycle={c}
+                            formatDateTime={formatDateTime}
+                            onEditEvent={(ev) => openRowEdit(ev, 'event', `${ev.eventType} · ${c.cycleCode ?? ''}`)}
+                            onDeleteEvent={(ev) => { setChangeReason(''); setConfirmDelete({ id: ev.id, name: `${ev.eventType} (${c.cycleCode ?? 'cycle'})` }); }}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -1574,11 +1701,11 @@ export function FilterDataManagementPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-400">{formatDateTime(e.performedAt)}</span>
                       <button onClick={() => openRowEdit(e, 'event', e.eventType ?? 'Event')}
-                        className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">
+                        className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
                         Edit
                       </button>
                       <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: e.id, name: e.eventType ?? 'Event' }); }}
-                        className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">
+                        className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">
                         Delete
                       </button>
                     </div>
@@ -1645,7 +1772,7 @@ export function FilterDataManagementPage() {
                         {entry.notes && <div className="italic">"{entry.notes}"</div>}
                       </div>
                     )}
-                    <div className="mt-3 pt-2 border-t border-slate-100 flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="mt-3 pt-2 border-t border-slate-100 flex items-center gap-2 justify-end opacity-60 group-hover:opacity-100 transition-opacity transition-opacity">
                       <button onClick={() => openRowEdit(entry, 'pm-entry', `${PM_MONTHS[(entry.month ?? 1) - 1]} ${entry.plannedDate ? new Date(entry.plannedDate).getFullYear() : ''}`)}
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
@@ -1701,7 +1828,7 @@ export function FilterDataManagementPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100">
+                        <div className="flex items-center gap-1 justify-end opacity-60 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => openAuditEdit(a)} title="Correct this record. Breaks the hash chain from here onward."
                             className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
                           <button onClick={() => handleRedactAuditRow(a)} title="Mask the payload but keep the record and its chain link (recommended)."
@@ -1746,7 +1873,7 @@ export function FilterDataManagementPage() {
                           {n.readAt && <span>Read: {formatDateTime(n.readAt)}</span>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                      <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => openRowEdit(n, 'notification', n.title ?? 'Notification')}
                           className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
                         <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: n.id, name: n.title ?? 'Notification' }); }}
@@ -1796,9 +1923,9 @@ export function FilterDataManagementPage() {
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-1 justify-end">
                           <button onClick={() => openRowEdit(req, 'admin-request', `${typeLabel} - ${req.requesterName}`)}
-                            className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100">Edit</button>
+                            className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">Edit</button>
                           <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: req.id, name: `${typeLabel} - ${req.requesterName}` }); }}
-                            className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100">Delete</button>
+                            className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">Delete</button>
                         </div>
                       </td>
                     </tr>
@@ -1846,7 +1973,7 @@ export function FilterDataManagementPage() {
                             {r.processedComment && <span>Comment: {r.processedComment}</span>}
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                        <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => openRowEdit(r, 'block-change', r.filterName ?? 'Block change')}
                             className="px-2.5 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
                           <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: r.id, name: `Block change for ${r.filterName ?? 'filter'}` }); }}
@@ -1966,12 +2093,12 @@ export function FilterDataManagementPage() {
                                 });
                                 setEditFields(fields);
                               }}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100">
+                                className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
                               </button>
                               <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: rowId, name: row.cycleCode || row.filterName || row.action || row.message || row.title || row.requestType || 'Record' }); }}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
+                                className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 Delete
                               </button>
