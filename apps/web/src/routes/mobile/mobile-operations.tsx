@@ -51,6 +51,8 @@ import { AhuSetChooserDialog, type FilterSetChoice } from '../filter-management/
 import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 // Task 3 — batch the ONLINE mid-cycle advances into one /bulk-operate POST.
 import { bulkOperate, type BulkClientItem, type BulkClientResult } from '@/lib/filter-ops/bulk-operate';
+import { PmPendingTasksDialog, type PendingPmTask } from '@/components/pm-pending-tasks-dialog';
+import { refreshPmPendingCache, getCachedPendingPmTasksForFilter, forgetCachedPmTasks } from '@/lib/pm-pending-cache';
 
 type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'cycles';
 
@@ -72,7 +74,7 @@ function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: stri
 
 export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialStageKey?: string; hideHeader?: boolean } = {}) {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
-  const { formatTime } = useDatetimeFormat();
+  const { formatTime, formatDate } = useDatetimeFormat();
   const { online, pendingCount, syncing, lastSyncMessage, executeOrQueue, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const reauth = useReauth();
   // ─── D1/D2/D4 Day 3b — useFilterOperationsCore is now authoritative ──────
@@ -110,7 +112,24 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const [activeStage, setActiveStage] = useState<typeof STAGES[0] | null>(initialStage ?? null);
   const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [scanValue, setScanValue] = useState('');
-  const [scanQueue, setScanQueue] = useState<Array<{ filterId: string; filterName: string; ahuName?: string; tagId: string }>>([]);
+
+
+  // ── "Previous scheduled PM not carried out" gate (tablet) ────────────────
+  //
+  // Same dialog and same contract as the web page — the operator is more likely
+  // to hit this on the tablet than anywhere else, standing in front of the AHU.
+  // The reasons are attached to the cycle payload, so an OFFLINE start carries
+  // them in its queued op and the server accepts them on replay without
+  // re-asking (start-cycle exempts offline replay from the gate).
+  const [pmGate, setPmGate] = useState<{
+    tasks: PendingPmTask[];
+    minReasonLength: number;
+    resolve: (skips: Array<{ entryId: string; reason: string }> | null) => void;
+  } | null>(null);
+  const askPmSkipReasons = (tasks: PendingPmTask[], minReasonLength: number) =>
+    new Promise<Array<{ entryId: string; reason: string }> | null>((resolve) => {
+      setPmGate({ tasks, minReasonLength, resolve });
+    });  const [scanQueue, setScanQueue] = useState<Array<{ filterId: string; filterName: string; ahuName?: string; tagId: string }>>([]);
   // 2026-05-20: per-filter dryer duration (DRY_IN stage). Keyed by filterId
   // so reordering the queue doesn't lose values. Cleared on queue drain.
   const [dryerDurations, setDryerDurations] = useState<Record<string, number>>({});
@@ -643,6 +662,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   };
   useEffect(() => {
     if (!online) refreshOfflineData();
+  }, [online]);
+
+  // Keep the offline missed-PM map fresh while there IS a network, so the
+  // dialog can still fire once there isn't. Cheap (one small GET) and only when
+  // online, so it costs nothing on a disconnected shift.
+  useEffect(() => {
+    if (online) void refreshPmPendingCache();
   }, [online]);
   // Issue #5 fix (2026-05-18): home/status tile counters were rendering
   // stale state-counts (e.g. Wash In: 1 even after the filter advanced to
@@ -2119,15 +2145,48 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // No equipment groups, SINGLE filter — fire the compound op. START_CLEANING_CYCLE
     // is reauth-gated for ADMIN role; wrap so the password dialog appears.
     await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
-      const { executed: cycleExecuted, deferred: cycleDeferred } = await core.startAndAdvance({
-        filterId: reasonDialog.filterId,
-        filterName: reasonDialog.filterName,
-        cyclePayload,
-        advancePayload,
-        targetState: reasonDialog.stage,
-        cleaningAreaId: selectedBlock?.id,
-        password,
-      });
+      const runStart = (extraCycleFields: Record<string, any> = {}) =>
+        core.startAndAdvance({
+          filterId: reasonDialog.filterId,
+          filterName: reasonDialog.filterName,
+          cyclePayload: { ...cyclePayload, ...extraCycleFields },
+          advancePayload,
+          targetState: reasonDialog.stage,
+          cleaningAreaId: selectedBlock?.id,
+          password,
+        });
+
+      // OFFLINE pre-check. There is no 409 to react to when disconnected, so the
+      // same question is answered from the cached map and the reasons ride in
+      // the queued payload. The server exempts offline replay from the gate, so
+      // it accepts them without re-asking.
+      let offlineSkips: Array<{ entryId: string; reason: string }> | null = null;
+      if (!online) {
+        const cachedPending = await getCachedPendingPmTasksForFilter(reasonDialog.filterId);
+        if (cachedPending.length > 0) {
+          const answers = await askPmSkipReasons(cachedPending, 5);
+          if (!answers) return; // cancelled — no cycle, nothing queued
+          offlineSkips = answers;
+          // Don't ask again for these in the same offline session.
+          await forgetCachedPmTasks(answers.map((a) => a.entryId));
+        }
+      }
+
+      let startResult;
+      try {
+        startResult = await runStart(offlineSkips ? { pmSkips: offlineSkips } : {});
+      } catch (startErr: any) {
+        const code = startErr?.error ?? startErr?.code;
+        const pending = startErr?.connectionInfo?.pendingPmTasks;
+        if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pending) || pending.length === 0) throw startErr;
+        const answers = await askPmSkipReasons(pending, startErr?.connectionInfo?.minReasonLength ?? 5);
+        if (!answers) throw startErr; // cancelled — the cleaning does not start
+        startResult = await runStart({ pmSkips: answers });
+        // Keep the offline map in step with what the server just cleared,
+        // otherwise going offline right after would re-ask for the same visits.
+        await forgetCachedPmTasks(answers.map((a) => a.entryId));
+      }
+      const { executed: cycleExecuted, deferred: cycleDeferred } = startResult;
 
       // Dialog-first (2026-07-16): the first stage has a mandatory checklist, so
       // NOTHING was written — not even the cycle start. The dialog is open and
@@ -4258,6 +4317,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         onCancel={reauth.cancel}
         actionLabel="Filter Operation"
       />
+
+      {/* Rendered here, in the MAIN component, alongside the reauth dialog —
+          both are last-step confirmations over whatever screen is showing. */}
+      {pmGate && (
+        <PmPendingTasksDialog
+          tasks={pmGate.tasks}
+          minReasonLength={pmGate.minReasonLength}
+          formatDate={formatDate}
+          onCancel={() => { pmGate.resolve(null); setPmGate(null); }}
+          onConfirm={(skips) => { pmGate.resolve(skips); setPmGate(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -4547,5 +4618,6 @@ function DryingFilterCard({
         <div className="text-[10px] text-red-500">No temperature instrument configured for this equipment group</div>
       )}
     </div>
+
   );
 }

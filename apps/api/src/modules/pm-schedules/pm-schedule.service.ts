@@ -29,6 +29,7 @@ import * as importer from './pm-import.js';
 import * as ahuConfig from './pm-ahu-config.js';
 import * as approval from './pm-approval.js';
 import * as exporter from './pm-export.js';
+import * as pendingTasks from './pm-pending-tasks.js';
 
 export class PmScheduleService {
   // ─── PM Schedule CRUD ─────────────────────────────────────
@@ -58,6 +59,11 @@ export class PmScheduleService {
   }
 
   // ─── My Tasks (due now / overdue) ─────────────────────────
+  /** AHUs that still owe an earlier PM — cached by the tablet for offline use. */
+  getPendingPmTasksMap(_ctx: RequestContext) {
+    return pendingTasks.getPendingPmTasksMap();
+  }
+
   getDueTasks(ctx: RequestContext, opts?: { from?: string; to?: string }) {
     return dueTasks.getDueTasks(ctx, opts);
   }

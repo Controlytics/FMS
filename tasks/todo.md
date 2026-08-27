@@ -2107,3 +2107,18 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       no longer collapses same-month rows ("last wins" was discarding real
       schedule rows silently). Existing overlaps grandfathered + badged.
       Plan + verification: `tasks/PM-IRREGULAR-SCHEDULE-PLAN.md`.
+
+- [x] **2026-08-27 — Missed-PM gate (popup + reason, web & tablet).** Starting a
+      PM cleaning on an AHU owing an earlier PM 409s `PM_PREVIOUS_TASK_PENDING`
+      with the outstanding visits; one shared dialog collects a reason PER visit;
+      the retry carries `pmSkips`. The visit is written off as **Not Performed**
+      (never "completed" — the maintenance did not happen), the deviation closes
+      as `SKIPPED`, and a `PM_TASK_SKIPPED` audit row records who/when/why.
+      `skippedAt` outranks the cleaned computation, else the very cleaning that
+      prompted the write-off would re-credit the task. Write-off shares the
+      cycle's transaction. Offline replay exempt; `/pending-tasks-map` added for
+      the tablet's offline cache (`lib/pm-pending-cache.ts`, mirrors the endpoint,
+      refreshed while online; answers ride in the queued payload, replay exempt;
+      written-off entries dropped from the cache on both paths). Verified
+      end-to-end on live data (AHU-03, two outstanding visits). Reused the
+      columns kept from the reverted 08-26 work — no migration needed.

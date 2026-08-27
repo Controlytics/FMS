@@ -390,6 +390,51 @@ not compared. Only bites large tolerances near year end (live data has 21 Dec
 
 Plan + decision log: [`tasks/PM-IRREGULAR-SCHEDULE-PLAN.md`](tasks/PM-IRREGULAR-SCHEDULE-PLAN.md).
 
+## Missed-PM gate: "previous scheduled task is pending" (2026-08-27)
+
+Starting a **PM-reason** cleaning on an AHU that still owes an earlier PM is
+refused with **409 `PM_PREVIOUS_TASK_PENDING`**, whose `details.pendingPmTasks`
+carries the outstanding visits so the client renders the dialog with no second
+round trip. The operator gives a reason **per visit**; the same call is retried
+with `pmSkips: [{ entryId, reason }]`.
+
+**Why the gate has to exist:** PM tasks stack, and `pm-due-tasks.ts` gives an
+overdue entry NO upper bound on credit (`windowClosed || completedAt <=
+windowEnd`). Without the gate, the April cleaning silently marks March done too
+— a PM recorded as performed on a day nobody performed it.
+
+- **A written-off visit is NOT a completed visit.** `skippedAt` is a separate
+  terminal state; no `PmExecution` is written; My Tasks shows amber
+  **"Not Performed"** with the reason, never a green Completed, and the
+  Completed stat tile excludes it. Recording it as done would be a false record.
+- **`skippedAt` OUTRANKS the cleaned computation** in `pm-due-tasks.ts` —
+  otherwise the very cleaning that prompted the write-off would satisfy the
+  no-upper-bound credit rule and flip the task from "not performed" to
+  "completed".
+- The write-off runs **inside the cleaning's transaction**: a reason recorded
+  against a cycle that never started is a phantom justification.
+- Scope: only PM-reason cleanings (a breakdown clean neither satisfies nor is
+  blocked by a PM task); **offline replay is EXEMPT** — the tablet asked at scan
+  time and the answers ride in the queued payload, so re-asking on replay would
+  strand the op; asked **once per AHU**, not once per tag (the first item of a
+  50-tag batch writes the write-offs).
+- Deviations close as `closureKind = SKIPPED` with the reason; each write-off
+  emits a `PM_TASK_SKIPPED` audit row.
+- **Offline (tablet).** There is no 409 to react to when disconnected, so the
+  tablet answers the same question from `lib/pm-pending-cache.ts`, a mirror of
+  `GET /api/pm-schedules/pending-tasks-map` refreshed whenever it is online. The
+  endpoint reuses `getPendingEarlierPmTasks` per AHU, so the cached answer and
+  the server gate cannot disagree by construction. Answers ride in the queued
+  payload and replay is exempt from re-asking. Staleness is bounded in the safe
+  direction: a task resolved since the last refresh is asked about but writes
+  nothing (`applyPmSkips` ignores entries that are no longer pending); a task
+  newly overdue is caught by the next ONLINE start. Blocking cleaning because we
+  cannot check would stop real work over a bookkeeping gap. Written-off entries
+  are dropped from the cache on both paths, so a second scan in the same offline
+  session does not re-ask.
+- Files: `pm-schedules/pm-pending-tasks.ts` (detection + write-off),
+  `components/pm-pending-tasks-dialog.tsx` (ONE dialog for web + tablet).
+
 ## Documentation Sync Rule
 
 **Hard rule:** every numerical claim in any doc must be backed by a `grep`/`ls` against live code at the moment the doc is touched. Don't trust prior docs — verify.

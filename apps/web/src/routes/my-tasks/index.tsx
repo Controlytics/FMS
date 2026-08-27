@@ -10,7 +10,7 @@ import { DateRangeFilter } from '@/components/ui/date-range-filter';
 interface FilterRow {
   filterId: string;
   filterName: string;
-  status: 'pending' | 'cleaned_in_window' | 'in_progress';
+  status: 'pending' | 'cleaned_in_window' | 'in_progress' | 'skipped';
   lastCycleCompletedAt: string | null;
 }
 
@@ -37,7 +37,12 @@ interface TaskRow {
   windowEnd: string;
   totalFilters: number;
   cleanedCount: number;
-  overallStatus: 'pending' | 'in_progress' | 'complete' | 'overdue';
+  overallStatus: 'pending' | 'in_progress' | 'complete' | 'overdue' | 'not_performed';
+  // Present only when overallStatus is 'not_performed' — the visit was written
+  // off with a reason at the start of a later cleaning.
+  skippedAt?: string | null;
+  skippedByName?: string | null;
+  skipReason?: string | null;
   filters: FilterRow[];
   deviation?: DeviationContext | null;
 }
@@ -59,11 +64,16 @@ const STATUS_META: Record<TaskRow['overallStatus'], { label: string; bg: string;
   in_progress: { label: 'In Progress', bg: 'bg-cyan-50',     text: 'text-cyan-700',     dot: 'bg-cyan-500',     border: 'border-cyan-200' },
   complete:    { label: 'Completed',   bg: 'bg-emerald-50',  text: 'text-emerald-700',  dot: 'bg-emerald-500',  border: 'border-emerald-200' },
   overdue:     { label: 'Overdue',     bg: 'bg-rose-50',     text: 'text-rose-700',     dot: 'bg-rose-500',     border: 'border-rose-200' },
+  // Written off with a reason at the start of a later cleaning. Amber, not
+  // emerald: the visit is finished business but it did NOT happen, and a green
+  // "Completed" badge on a PM nobody performed is a false record.
+  not_performed: { label: 'Not Performed', bg: 'bg-amber-50', text: 'text-amber-800', dot: 'bg-amber-600', border: 'border-amber-300' },
 };
 
 const FILTER_STATUS_META: Record<FilterRow['status'], { label: string; cls: string; dot: string }> = {
   pending:           { label: 'Pending',  cls: 'bg-amber-50 text-amber-700 border-amber-100',   dot: 'bg-amber-500' },
   in_progress:       { label: 'Cleaning', cls: 'bg-cyan-50 text-cyan-700 border-cyan-100',       dot: 'bg-cyan-500' },
+  skipped:           { label: 'Not Done', cls: 'bg-amber-50 text-amber-800 border-amber-200',     dot: 'bg-amber-600' },
   cleaned_in_window: { label: 'Done',     cls: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500' },
 };
 
@@ -155,14 +165,17 @@ export function MyTasksPage() {
     const now = Date.now();
     const startOfToday = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
     const startOfWeek = startOfToday - 6 * 24 * 60 * 60 * 1000;
-    let dueToday = 0, dueThisWeek = 0, completed = 0;
+    let dueToday = 0, dueThisWeek = 0, completed = 0, notPerformed = 0;
     for (const t of tasks) {
       const planned = new Date(t.plannedDate).getTime();
       if (planned >= startOfToday && planned < startOfToday + 24 * 60 * 60 * 1000) dueToday++;
       if (planned >= startOfWeek && planned <= now + 3 * 24 * 60 * 60 * 1000) dueThisWeek++;
       if (t.overallStatus === 'complete') completed++;
+      // 'not_performed' is deliberately NOT counted here — the Completed tile
+      // would otherwise include PMs that never happened.
+      else if (t.overallStatus === 'not_performed') notPerformed++;
     }
-    return { dueToday, dueThisWeek, completed, overdue: overdueTasks.length };
+    return { dueToday, dueThisWeek, completed, notPerformed, overdue: overdueTasks.length };
   }, [tasks, overdueTasks]);
 
   const toggleExpand = (entryId: string) => {
@@ -290,6 +303,7 @@ export function MyTasksPage() {
               <option value="pending">Pending</option>
               <option value="overdue">Overdue</option>
               <option value="complete">Completed</option>
+              <option value="not_performed">Not Performed</option>
               <option value="in_progress">In Progress</option>
             </select>
           </div>
@@ -528,6 +542,20 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate, formatDateT
                 <span>·</span>
                 <span>{task.cleanedCount}/{task.totalFilters} cleaned</span>
               </div>
+              {/* The reason is the whole value of a written-off task: an auditor
+                  asking "why was the April PM not done?" reads it here. */}
+              {task.overallStatus === 'not_performed' && task.skipReason && (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                  <span className="font-semibold">Not performed — </span>
+                  {task.skipReason}
+                  {task.skippedByName && (
+                    <span className="text-amber-700">
+                      {' '}· recorded by {task.skippedByName}
+                      {task.skippedAt ? ` on ${formatDate(task.skippedAt)}` : ''}
+                    </span>
+                  )}
+                </div>
+              )}
               {task.totalFilters > 0 && (
                 <div className="mt-2.5 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-md">
                   <div

@@ -23,6 +23,16 @@ import {
   getCleaningReasons,
 } from '../filter-resolver.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
+import { getPendingEarlierPmTasks, applyPmSkips, MIN_SKIP_REASON } from '../../pm-schedules/pm-pending-tasks.js';
+import { resolvePmReasonKeys } from '../../pm-schedules/pm-shared.js';
+
+/** True when this cleaning reason is one of the configured PM reasons. */
+async function isPmReasonKey(key: string): Promise<boolean> {
+  const keys = await resolvePmReasonKeys();
+  // No PM reasons configured => every reason counts as PM (legacy fallback,
+  // matching resolvePmReasonKeys' contract used by the deviation sweep).
+  return !keys || keys.has(key);
+}
 // Dynamically imported below (not statically) — replacement-schedule/service.ts
 // statically imports FilterOperationsService and instantiates it at module top
 // level, so a static import here creates an init-time circular-import cycle
@@ -123,6 +133,56 @@ export async function startCycleImpl(
     throw new AppError(400, 'REASON_REQUIRED', 'Cleaning reason is required');
   }
   const reason = reasons.find((r: any) => r.key === cleaningReasonKey);
+
+  // ── Previous scheduled PM still outstanding? ───────────────────────────────
+  //
+  // PM tasks stack: an unmet March visit does not stop April's appearing. Left
+  // alone, the April cleaning would ALSO silently credit March, because
+  // pm-due-tasks.ts gives a closed window no upper bound — a PM recorded as
+  // performed on a day nobody performed it. So a PM-reason cleaning on an AHU
+  // that still owes an earlier PM is refused until the operator says, per task,
+  // why that one was not done.
+  //
+  // Scope, deliberately narrow:
+  //   * only PM-reason cleanings are gated — a breakdown clean neither satisfies
+  //     nor is blocked by a PM task;
+  //   * offline replay is EXEMPT (like the replacement gate above): the tablet
+  //     asked at scan time from its cached pending-task map and the answers ride
+  //     in the queued payload, so re-asking on replay would strand the op;
+  //   * asked once per AHU, not once per tag — the first item of a 50-tag batch
+  //     writes the write-offs, after which nothing is outstanding.
+  const pmSkipsRaw = Array.isArray(data.pmSkips) ? data.pmSkips : [];
+  let pmSkipsToApply: Array<{ entryId: string; reason: string }> = [];
+  let pmPendingForSkips: Awaited<ReturnType<typeof getPendingEarlierPmTasks>> = [];
+
+  if (!ctx.isOfflineReplay && (await isPmReasonKey(cleaningReasonKey))) {
+    const pending = await getPendingEarlierPmTasks(filterId);
+    if (pending.length > 0) {
+      const given = new Map<string, string>();
+      for (const s of pmSkipsRaw) {
+        if (s && typeof s.entryId === 'string' && typeof s.reason === 'string') {
+          given.set(s.entryId, s.reason.trim());
+        }
+      }
+      const unanswered = pending.filter(
+        (t) => !given.has(t.entryId) || (given.get(t.entryId) ?? '').length < MIN_SKIP_REASON,
+      );
+      if (unanswered.length > 0) {
+        // 409 carries the full list so the client can render the dialog without
+        // a second round trip.
+        throw new AppError(
+          409,
+          'PM_PREVIOUS_TASK_PENDING',
+          `An earlier scheduled PM for "${pending[0].ahuName}" was not carried out. ` +
+            `Give a reason for each outstanding visit before starting this cleaning.`,
+          { pendingPmTasks: pending, minReasonLength: MIN_SKIP_REASON },
+        );
+      }
+      pmPendingForSkips = pending;
+      pmSkipsToApply = pending.map((t) => ({ entryId: t.entryId, reason: given.get(t.entryId)! }));
+    }
+  }
+
   if (!reason) throw new AppError(400, 'INVALID_REASON', `Invalid cleaning reason: ${cleaningReasonKey}`);
   if (reason.requiresJustification && (!cleaningJustification || cleaningJustification.length < 10)) {
     throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Justification required (min 10 characters) for this cleaning reason');
@@ -243,6 +303,21 @@ export async function startCycleImpl(
       : [];
     const { equipmentGroupId: boundEquipmentGroupId, equipmentGroupVersionPin } =
       resolveStartEquipmentGroupPin(explicitGroup, blockGroups);
+
+    // Write off the outstanding earlier PMs inside the SAME transaction as the
+    // cycle they are being written off for. If the cycle fails to start, the
+    // write-offs roll back with it — a reason recorded against a cleaning that
+    // never happened would be a phantom justification, and the tasks would have
+    // silently vanished from the operator's list.
+    if (pmSkipsToApply.length > 0) {
+      await applyPmSkips(pmSkipsToApply, pmPendingForSkips, {
+        userSub: ctx.userSub,
+        userId: ctx.userId,
+        userRole: ctx.userRole,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      }, tx);
+    }
 
     const newCycle = await tx.cleaningCycle.create({
       data: {

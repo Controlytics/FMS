@@ -133,6 +133,8 @@ const RECORD_TYPE_OVERRIDES: Record<string, string> = {
  * `reason` field in afterValue).
  */
 const JUSTIFICATION_ACTIONS = new Set([
+  // A written-off PM: the operator's reason is the whole point of the row.
+  'PM_TASK_SKIPPED',
   'MANUAL_RECORD_CREATED', 'MANUAL_RECORD_UPDATED', 'MANUAL_RECORD_DELETED',
   'AUDIT_RECORD_UPDATED', 'AUDIT_RECORD_DELETED', 'AUDIT_RECORD_REDACTED',
   'AUDIT_RECORDS_BULK_DELETED', 'AUDIT_RECORDS_BULK_REDACTED',

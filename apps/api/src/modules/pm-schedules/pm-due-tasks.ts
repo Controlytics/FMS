@@ -230,8 +230,14 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
         && (windowClosed || c.completedAt <= entry.windowEnd),
       );
 
+      // A written-off entry is terminal and OUTRANKS the cleaned computation.
+      // Without this the later cleaning that prompted the write-off would also
+      // satisfy the `cleaned` predicate above (a closed window has no upper
+      // bound), and the task would flip from "not performed" to "completed" —
+      // asserting maintenance that explicitly did not happen.
       let status: DueFilterStatus = 'pending';
-      if (cleaned) status = 'cleaned_in_window';
+      if (entry.skippedAt) status = 'skipped';
+      else if (cleaned) status = 'cleaned_in_window';
       else if (inProgress) status = 'in_progress';
 
       return {
@@ -247,10 +253,16 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
 
     const cleanedCount = filterStatuses.filter(s => s.status === 'cleaned_in_window').length;
     const inProgressCount = filterStatuses.filter(s => s.status === 'in_progress').length;
+    const skippedCount = filterStatuses.filter(s => s.status === 'skipped').length;
     const totalFilters = filterStatuses.length;
 
     let overallStatus: DueOverallStatus;
-    if (inWindow) {
+    // Written off wins outright. `skippedAt` lives on the ENTRY, so when it is
+    // set every filter row under it is 'skipped' — the task is finished
+    // business, but as a documented non-performance, never a completion.
+    if (skippedCount > 0 && skippedCount === totalFilters) {
+      overallStatus = 'not_performed';
+    } else if (inWindow) {
       if (totalFilters > 0 && cleanedCount === totalFilters) overallStatus = 'complete';
       else if (cleanedCount + inProgressCount > 0) overallStatus = 'in_progress';
       else overallStatus = 'pending';
@@ -283,9 +295,16 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       totalFilters,
       cleanedCount,
       overallStatus,
+      // Surfaced so the completed view can show WHY, not just that it was
+      // cleared — the reason is the entire value of the record.
+      skippedAt: entry.skippedAt ?? null,
+      skippedByName: entry.skippedByName ?? null,
+      skipReason: entry.skipReason ?? null,
       filters: filterStatuses,
     };
 
+    // 'not_performed' routes with the finished work, not the outstanding work —
+    // it must clear out of Due/Overdue the moment the reason is given.
     if (overallStatus === 'overdue') overdue.push(row);
     else active.push(row);
   }

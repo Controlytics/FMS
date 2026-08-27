@@ -48,6 +48,7 @@ import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
 import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist, isCompletingAdvance, isTerminalTargetWithChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from './components/remaining-filters-dialog';
 import { AhuSetChooserDialog, type FilterSetChoice } from './components/ahu-set-chooser-dialog';
+import { PmPendingTasksDialog, type PendingPmTask } from '@/components/pm-pending-tasks-dialog';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
 
@@ -129,7 +130,32 @@ export function FilterOperationsPage() {
   const [step, setStep] = useState<'block' | 'scan'>('block');
   const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [scanValue, setScanValue] = useState('');
-  const [remarks, setRemarks] = useState('');
+
+
+  // ── "Previous scheduled PM not carried out" gate ─────────────────────────
+  //
+  // The server 409s PM_PREVIOUS_TASK_PENDING when a PM cleaning is started on an
+  // AHU that still owes an earlier PM, and returns the outstanding visits. The
+  // dialog collects a reason per visit and the SAME call is retried with them
+  // attached.
+  //
+  // Promise-based rather than a state machine: the gate happens INSIDE the
+  // per-filter batch loop, so the loop has to await the operator's answer and
+  // then continue with the remaining tags. On a 50-tag batch this fires once —
+  // the first tag's write-off clears the pending state for the rest.
+  const [pmGate, setPmGate] = useState<{
+    tasks: PendingPmTask[];
+    minReasonLength: number;
+    resolve: (skips: Array<{ entryId: string; reason: string }> | null) => void;
+  } | null>(null);
+  const [pmGateBusy, setPmGateBusy] = useState(false);
+  /** Answers given for the current batch — reused for its remaining tags. */
+  const pmSkipsForBatch = useRef<Array<{ entryId: string; reason: string }>>([]);
+
+  const askPmSkipReasons = (tasks: PendingPmTask[], minReasonLength: number) =>
+    new Promise<Array<{ entryId: string; reason: string }> | null>((resolve) => {
+      setPmGate({ tasks, minReasonLength, resolve });
+    });  const [remarks, setRemarks] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [popupError, setPopupError] = useState('');
@@ -875,10 +901,31 @@ export function FilterOperationsPage() {
         //    operator's typed password and surfaced as "Password is required"
         //    on every batch start by an ADMIN-role user.
         let started = 0; const startFailed: string[] = [];
+        // Fresh batch: forget any answers carried from a previous run, or a
+        // reason given for one AHU would silently ride along to another.
+        pmSkipsForBatch.current = [];
         for (const item of batch) {
           try {
-            await executeOrQueue('start-cycle', item.filterId, item.filterName,
-              { ...startBody, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(item.filterId) }, undefined, password);
+            const startPayload = {
+              ...startBody,
+              acknowledgeBlockChange: ackedBlockFiltersRef.current.has(item.filterId),
+              // Carried forward once the operator has answered for this AHU, so
+              // the remaining tags in the batch do not re-prompt.
+              ...(pmSkipsForBatch.current.length > 0 ? { pmSkips: pmSkipsForBatch.current } : {}),
+            };
+            try {
+              await executeOrQueue('start-cycle', item.filterId, item.filterName, startPayload, undefined, password);
+            } catch (startErr: any) {
+              const code = startErr?.error ?? startErr?.code;
+              const pending = startErr?.connectionInfo?.pendingPmTasks;
+              if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pending) || pending.length === 0) throw startErr;
+              // Ask once, then retry this same tag with the answers attached.
+              const answers = await askPmSkipReasons(pending, startErr?.connectionInfo?.minReasonLength ?? 5);
+              if (!answers) throw startErr; // operator cancelled — leave the tag unstarted
+              pmSkipsForBatch.current = answers;
+              await executeOrQueue('start-cycle', item.filterId, item.filterName,
+                { ...startPayload, pmSkips: answers }, undefined, password);
+            }
             started++;
           } catch (e: any) {
             // REAUTH errors must NOT be swallowed into the per-filter
@@ -2047,6 +2094,17 @@ export function FilterOperationsPage() {
 
       {/* Error Popup */}
       <ErrorPopup error={popupError} onClose={() => setPopupError('')} />
+      {pmGate && (
+        <PmPendingTasksDialog
+          tasks={pmGate.tasks}
+          minReasonLength={pmGate.minReasonLength}
+          busy={pmGateBusy}
+          formatDate={formatDate}
+          onCancel={() => { pmGate.resolve(null); setPmGate(null); }}
+          onConfirm={(skips) => { setPmGateBusy(false); pmGate.resolve(skips); setPmGate(null); }}
+        />
+      )}
+
     </div>
   );
 }

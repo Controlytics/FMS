@@ -571,6 +571,15 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'PM filter-set mode updated for AHU "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  // A scheduled PM that was NOT performed, written off with a reason at the
+  // start of a later cleaning (2026-08-27). Deliberately worded as "not
+  // performed" — this is the opposite of a completion record.
+  PM_TASK_SKIPPED: {
+    label: 'PM Task Not Performed',
+    category: 'PM Schedules',
+    template: 'Scheduled PM was NOT performed — written off by {actor} with reason: "{reason}"',
+    placeholders: ['actor', 'reason'],
+  },
   PM_SCHEDULE_APPROVED: {
     label: 'PM Schedule Approved',
     category: 'PM Schedules',

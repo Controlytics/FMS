@@ -596,6 +596,28 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   // ─── My Tasks: list due entries ───
   // Registered BEFORE the parametric /:entityId route so /due is matched as a
   // literal path rather than interpreted as an entityId.
+  // Pending earlier-PM map, keyed by AHU id (2026-08-27).
+  //
+  // The tablet caches this alongside its other offline data so the
+  // "previous scheduled PM was not carried out" dialog can fire with no network.
+  // Without it the gate would be online-only, and the tablet is exactly where
+  // the situation arises most.
+  //
+  // Registered BEFORE the parametric /:entityId route, same reason as /due.
+  app.get('/pending-tasks-map', {
+    preHandler: [app.requirePermission('PM_READ')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'AHUs that still owe an earlier PM, keyed by AHU id (offline cache)',
+      description:
+        'For each AHU with an overdue, unresolved, approved PM entry, the outstanding visits. Cached by the tablet so the missed-PM dialog works offline.',
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const ctx = buildContext(req);
+    return service.getPendingPmTasksMap(ctx);
+  });
+
   app.get('/due', {
     preHandler: [app.requirePermission('PM_READ')],
     schema: {
