@@ -474,6 +474,27 @@ no extra request — the cycles feed is already fetched with `includeEvents=true
 and it reuses the SAME event dialog and audited endpoint as the Filter Events
 tab. A second edit path would be a second set of rules to keep in step.
 
+**The columns on the Cleaning Cycles row come from EVENTS, not the cycle.** RO
+water pressure, compressed air pressure, dryer temperature, the per-stage times
+and the per-stage performer all live on `filter_events` — readings inside
+`attributes.instrumentReadings`. The cycle's own edit dialog only ever held
+cycle columns, which is why none of them appeared there. They are edited from
+the **Lifecycle** expander, on the event they belong to.
+
+- Editing a reading changes **only its `value`**. `instrumentId`, `description`,
+  `uom` and `leastCount` describe the instrument, not the operator's reading, and
+  are written back untouched — rebuilding the array from the form would quietly
+  drop the identity that makes a reading traceable.
+- **From/To State are dropdowns, not text.** The live data shows what free text
+  cost: `WASH_IN`, `WASHIN`, `washin` and `WASH-IN` all exist as separate values,
+  as do `washout`/`WASHOUT`/`WASH_OUT`. Every variant is invisible to
+  `getStageInfoFromEvents` (which matches `toState === 'WASH_IN'`), so one typo
+  silently blanks that stage's column for the whole cycle. `statesWith()` adds
+  the row's current value to the list so opening the dialog on a legacy row never
+  discards it.
+- **Performed By is a user picker** — `performed_by` is a UUID FK, and a
+  hand-typed uuid is either wrong or unverifiable.
+
 **Row actions are no longer hover-only.** 17 action clusters used
 `opacity-0 group-hover:opacity-100`; there is no hover on a tablet, and an
 operator cannot discover an action they cannot see.

@@ -2149,3 +2149,15 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       showing that cycle's stage events with edit/delete, reusing the existing
       event dialog + audited endpoint and no extra request (`includeEvents=true`
       already ships them).
+
+- [x] **2026-08-27 — cycle edit was missing readings / states / times / users.**
+      All four complaints share one cause: the Cleaning Cycles row shows columns
+      derived from `filter_events` (readings in `attributes.instrumentReadings`,
+      per-stage times, per-stage performer) while Edit opened the CYCLE dialog,
+      which only holds cycle columns. Fixed in the event editor reached from the
+      Lifecycle expander: RO water / compressed air / dryer temperature editable
+      (value only — instrumentId/uom/leastCount preserved), From/To State are now
+      dropdowns, Performed By is a user picker, Performed At already existed.
+      The free-text states had already produced FIVE spellings of wash in/out in
+      live data, each invisible to `getStageInfoFromEvents`. Verified a reading
+      edit end-to-end through the real endpoint; test value restored.

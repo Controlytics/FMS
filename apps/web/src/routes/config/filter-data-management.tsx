@@ -60,6 +60,30 @@ import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
+/**
+ * Lifecycle states offered by the From/To dropdowns.
+ *
+ * These were free-text inputs, and the live data shows exactly what that costs:
+ * WASH_IN, WASHIN, washin and WASH-IN all exist as separate values, as do
+ * washout / WASHOUT / WASH_OUT. Every one of those is invisible to the stage
+ * lookups (`getStageInfoFromEvents` matches `toState === 'WASH_IN'`), so a typo
+ * silently blanks the Wash In column for that cycle.
+ *
+ * The six cleaning stages plus the cycle-level markers that legitimately appear
+ * in from/to. A value already on the row is added to the list at render time, so
+ * opening the dialog on a legacy row never silently discards its current value.
+ */
+const LIFECYCLE_STATES = [
+  'WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT',
+  'CYCLE_STARTED', 'CLEANING_CYCLE_COMPLETED', 'IN_USE',
+];
+
+/** The canonical list plus `current`, so an existing odd value is never lost. */
+function statesWith(current?: string): string[] {
+  const v = (current ?? '').trim();
+  return v && !LIFECYCLE_STATES.includes(v) ? [v, ...LIFECYCLE_STATES] : LIFECYCLE_STATES;
+}
+
 // PM entry helpers — month names + status derivation matches /pm-schedules/:entityId detail page
 const PM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // Audit-trail Success/Fail: import the /audit page's own rule rather than
@@ -490,6 +514,16 @@ export function FilterDataManagementPage() {
   // ships each cycle's events (`includeEvents=true`), so this needs no extra
   // request — the stage history is data we are already holding.
   const [openLifecycle, setOpenLifecycle] = useState<string | null>(null);
+  /** The event's readings as stored, so identity fields survive an edit. */
+  const [rowEditReadings, setRowEditReadings] = useState<any[]>([]);
+
+  // Users for the "Performed By" picker. Fetched only while an event edit is
+  // open — the console has nine tabs and most never need this list.
+  const usersData = useSWR<any>(rowEditDialog?.entity === 'event' ? '/api/users?page=1&limit=500' : null);
+  const userOptions = ((usersData.data as any)?.data ?? []).map((u: any) => ({
+    value: u.id,
+    label: `${u.fullName ?? u.username} (${u.username})`,
+  }));
 
   const [changeReason, setChangeReason] = useState('');
   // Audit-row edit dialog (Audit Trail tab). Only the fields that are safe to
@@ -825,12 +859,22 @@ export function FilterDataManagementPage() {
         dryerStartedAt: toInput(row.dryerStartedAt),
       });
     } else if (entity === 'event') {
+      // Keep the ORIGINAL readings array: the dialog edits only each reading's
+      // value, and instrumentId / description / uom / leastCount are written
+      // back untouched. Rebuilding the array from the form would quietly drop
+      // the instrument identity that makes a reading traceable.
+      const readings: any[] = (row.attributes as any)?.instrumentReadings ?? [];
+      setRowEditReadings(readings);
+      const readingFields: Record<string, any> = {};
+      readings.forEach((r, i) => { readingFields[`reading_${i}`] = r?.value ?? ''; });
       setRowEditFields({
         eventType: row.eventType ?? '',
         fromState: row.fromState ?? '',
         toState: row.toState ?? '',
         performedAt: toInput(row.performedAt),
+        performedBy: row.performedBy ?? '',
         remarks: row.remarks ?? '',
+        ...readingFields,
       });
     } else if (entity === 'pm-entry') {
       // pm-entry row — editable fields on the underlying pm_schedule_entries row
@@ -905,6 +949,21 @@ export function FilterDataManagementPage() {
           body[k] = toIsoIfNaiveDatetime(v, tz);
         }
       }
+      // Reassemble the instrument readings: take the ORIGINAL array and
+      // overwrite only each `value`. instrumentId / description / uom /
+      // leastCount are what make a reading traceable to an instrument and are
+      // not the operator's to retype, so they carry through untouched.
+      if (rowEditDialog.entity === 'event' && rowEditReadings.length > 0) {
+        const readings = rowEditReadings.map((r, idx) => {
+          const raw = rowEditFields[`reading_${idx}`];
+          if (raw === '' || raw === null || raw === undefined) return r;
+          const n = Number(raw);
+          return Number.isFinite(n) ? { ...r, value: n } : r;
+        });
+        body.attributes = { instrumentReadings: readings };
+      }
+      // The per-reading keys are UI-only — never send them to the API.
+      for (const k of Object.keys(body)) if (k.startsWith('reading_')) delete body[k];
       body._changeReason = changeReason.trim();
       await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
         ? apiClient.putWithReauth(`${endpoint}/${rowEditDialog.id}`, body, pw)
@@ -2214,9 +2273,36 @@ export function FilterDataManagementPage() {
               ) : rowEditDialog.entity === 'event' ? (
                 <>
                   <Field label="Event Type" value={rowEditFields.eventType} onChange={v => setRowEditFields(p => ({ ...p, eventType: v }))} />
-                  <Field label="From State" value={rowEditFields.fromState} onChange={v => setRowEditFields(p => ({ ...p, fromState: v }))} />
-                  <Field label="To State" value={rowEditFields.toState} onChange={v => setRowEditFields(p => ({ ...p, toState: v }))} />
+                  {/* Dropdowns, not text. A mistyped state is invisible to the
+                      stage lookups and silently blanks that column. */}
+                  <Field label="From State" value={rowEditFields.fromState}
+                    onChange={v => setRowEditFields(p => ({ ...p, fromState: v }))}
+                    optionObjs={statesWith(rowEditFields.fromState).map(x => ({ value: x, label: x }))}
+                    placeholder="— none —" />
+                  <Field label="To State" value={rowEditFields.toState}
+                    onChange={v => setRowEditFields(p => ({ ...p, toState: v }))}
+                    optionObjs={statesWith(rowEditFields.toState).map(x => ({ value: x, label: x }))}
+                    placeholder="— none —" />
                   <Field label="Performed At" value={rowEditFields.performedAt} onChange={v => setRowEditFields(p => ({ ...p, performedAt: v }))} type="datetime-local" />
+                  {/* performed_by is a user UUID (FK), so this is a picker —
+                      a hand-typed uuid is either wrong or unverifiable. */}
+                  <Field label="Performed By" value={rowEditFields.performedBy}
+                    onChange={v => setRowEditFields(p => ({ ...p, performedBy: v }))}
+                    optionObjs={userOptions} placeholder="— unchanged —" />
+                  {/* RO water / compressed air / dryer temperature live in
+                      attributes.instrumentReadings on the EVENT, which is why
+                      they were never editable from the cycle dialog. Only the
+                      VALUE is editable: instrument identity, uom and least count
+                      describe the instrument, not the operator's reading. */}
+                  {(rowEditReadings ?? []).map((r: any, i: number) => (
+                    <Field
+                      key={`${r.instrumentId ?? r.description}-${i}`}
+                      label={`${r.description ?? 'Reading'}${r.uom ? ` (${r.uom})` : ''}`}
+                      type="number"
+                      value={rowEditFields[`reading_${i}`]}
+                      onChange={v => setRowEditFields(p => ({ ...p, [`reading_${i}`]: v }))}
+                    />
+                  ))}
                   <Field label="Remarks" value={rowEditFields.remarks} onChange={v => setRowEditFields(p => ({ ...p, remarks: v }))} textarea />
                   <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     Note: SHA-256 checksum is not editable. Changing it would break the audit hash chain.
