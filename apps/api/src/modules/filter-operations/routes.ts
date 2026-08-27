@@ -289,38 +289,6 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
           acknowledgeBlockChange: { type: 'boolean', description: 'Operator confirmed cleaning in a different block (Continue with cleaning)' },
-          // Missed-PM reason gate. Required only when this AHU still has an
-          // unresolved PM task from an earlier period; omitting it then returns
-          // 409 PM_PREVIOUS_TASK_PENDING carrying the outstanding entries so the
-          // client can ask and retry. Every outstanding task must be accounted
-          // for — one performed late, the rest written off with a reason each.
-          pmTask: {
-            type: 'object',
-            properties: {
-              completeLate: {
-                type: 'object',
-                required: ['pmScheduleEntryId', 'reason'],
-                properties: {
-                  pmScheduleEntryId: { type: 'string', format: 'uuid' },
-                  reason: { type: 'string', minLength: 10, maxLength: MAX_TEXT_LEN },
-                },
-              },
-              skips: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  required: ['pmScheduleEntryId', 'reason'],
-                  properties: {
-                    pmScheduleEntryId: { type: 'string', format: 'uuid' },
-                    reason: { type: 'string', minLength: 10, maxLength: MAX_TEXT_LEN },
-                  },
-                },
-              },
-              // Offline replay only: the binding the tablet already resolved at
-              // scan time, replayed verbatim rather than re-derived server-side.
-              bindEntryId: { type: 'string', format: 'uuid' },
-            },
-          },
         },
       },
       response: {
@@ -339,34 +307,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    // Writing off a missed PM is a separate, higher-trust act than cleaning:
-    // it is a signed statement that a scheduled maintenance did NOT happen and
-    // will not. So it carries its own permission and its own re-auth action on
-    // top of the ordinary start-cycle challenge. Holding FILTER_OPERATE lets an
-    // operator clean; it must not by itself let them write off a missed PM
-    // (21 CFR Part 11 segregation of duties).
-    const startBody = req.body as any;
-    const isSkippingPmTask = Array.isArray(startBody?.pmTask?.skips) && startBody.pmTask.skips.length > 0;
-
-    if (isSkippingPmTask) {
-      const role = req.user?.role;
-      if (role !== 'SUPER_ADMIN') {
-        const { hasEffectivePermission } = await import('@digilog/shared');
-        const { getRolePerms } = await import('../../plugins/rbac.js');
-        const perms = await getRolePerms(role!);
-        if (!hasEffectivePermission(perms, 'PM_TASK_SKIP')) {
-          return reply.code(403).send({
-            error: 'FORBIDDEN',
-            message: 'You do not have permission to skip a scheduled PM task. Ask a supervisor to record the reason, or perform the overdue PM instead.',
-          });
-        }
-      }
-    }
-
-    const { ok } = await enforceReauth(
-      isSkippingPmTask ? ['START_CLEANING_CYCLE', 'SKIP_PM_TASK'] : 'START_CLEANING_CYCLE',
-      req, reply,
-    );
+    const { ok } = await enforceReauth('START_CLEANING_CYCLE', req, reply);
     if (!ok) return;
 
     const ctx = buildContext(req);
@@ -718,27 +659,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const { items } = req.body as { items: BulkOpItem[] };
-    // Same segregation as the single start-cycle path: writing off a missed PM
-    // needs its own permission and its own re-auth action, whichever surface it
-    // arrives on. The tablet batches 50-100 tags into ONE request, so this is
-    // checked once for the whole batch rather than per tag.
-    const batchSkipsPm = items.some(
-      (it: any) => Array.isArray(it?.cyclePayload?.pmTask?.skips) && it.cyclePayload.pmTask.skips.length > 0,
-    );
-    if (batchSkipsPm && req.user?.role !== 'SUPER_ADMIN') {
-      const { hasEffectivePermission } = await import('@digilog/shared');
-      const { getRolePerms } = await import('../../plugins/rbac.js');
-      const perms = await getRolePerms(req.user!.role);
-      if (!hasEffectivePermission(perms, 'PM_TASK_SKIP')) {
-        return reply.code(403).send({
-          error: 'FORBIDDEN',
-          message: 'You do not have permission to skip a scheduled PM task. Ask a supervisor to record the reason, or perform the overdue PM instead.',
-        });
-      }
-    }
-    const reauthActions = reauthActionsForItems(items);
-    if (batchSkipsPm) reauthActions.push('SKIP_PM_TASK');
-    const { ok } = await enforceReauth(reauthActions, req, reply);
+    const { ok } = await enforceReauth(reauthActionsForItems(items), req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
     return service.bulkOperate(ctx, items);

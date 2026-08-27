@@ -121,7 +121,7 @@ flowchart TB
 | Languages | TypeScript (API + web), Kotlin (RFID app), Java (Capacitor plugin) |
 | Backend framework | **Fastify 5** (`apps/api/package.json:29`) |
 | Frontend framework | **React 19 + Vite 6**, React Router 7, SWR, Tailwind CSS 4 |
-| Database | **PostgreSQL 18** via **Prisma 6** (61 models, 24 enums) — single DB `digilog_db` |
+| Database | **PostgreSQL 18** via **Prisma 6** (61 models, 23 enums) — single DB `digilog_db` |
 | Auth (authN) | Local JWT (`jose`), bcrypt password hashing; optional LDAP (`ldapts`) |
 | Auth (authZ) | Permission-based RBAC — `PERMISSION_TREE` (102 perms / 83 privileges / 92 reauth actions) |
 | File storage | **Local filesystem** — `UPLOAD_DIR=./uploads` (`apps/api/.env:48`) |

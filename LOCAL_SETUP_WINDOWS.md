@@ -242,7 +242,7 @@ curl http://localhost:3000/api/health
 ├── apps/
 │   ├── api/                    # Fastify backend (TypeScript)
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma   # Database schema (61 models, 24 enums)
+│   │   │   ├── schema.prisma   # Database schema (61 models, 23 enums)
 │   │   │   ├── seed.ts         # Database seeder
 │   │   │   └── migrations/     # SQL migrations
 │   │   └── src/

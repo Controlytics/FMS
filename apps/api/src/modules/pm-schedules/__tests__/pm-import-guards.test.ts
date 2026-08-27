@@ -5,7 +5,7 @@ vi.mock('../../../lib/prisma.js', () => ({
   prisma: {
     systemConfig: { findUnique: vi.fn() },
     assetInstance: { findMany: vi.fn() },
-    pmSchedule: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    pmSchedule: { findFirst: vi.fn(), create: vi.fn() },
     pmScheduleEntry: { count: vi.fn(), findMany: vi.fn(), createMany: vi.fn(), deleteMany: vi.fn() },
     pmExecution: { count: vi.fn(), deleteMany: vi.fn() },
     // Interactive form — hand the callback the same mocked client.
@@ -38,9 +38,6 @@ beforeEach(() => {
   P.systemConfig.findUnique.mockResolvedValue({ configValue: {} });
   P.assetInstance.findMany.mockResolvedValue([{ id: 'ahu-1', name: 'AHU-01' }]);
   P.pmSchedule.findFirst.mockResolvedValue({ id: 'sched-1', version: 1 });
-  // Re-uploading over an existing schedule refreshes its series metadata
-  // (frequency / anchor / seriesId) before the wipe — see pm-import.ts.
-  P.pmSchedule.update.mockResolvedValue({ id: 'sched-1' });
   P.pmExecution.count.mockResolvedValue(0);
   P.pmScheduleEntry.count.mockResolvedValue(0);
   P.pmScheduleEntry.findMany.mockResolvedValue([{ id: 'entry-1', month: 4 }]);

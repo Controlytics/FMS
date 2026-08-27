@@ -31,7 +31,7 @@ declare module 'fastify' {
 const ROLE_PERMS_CACHE = new Map<string, { perms: string[]; cachedAt: number }>();
 const ROLE_PERMS_CACHE_TTL_MS = 5_000;
 
-export async function getRolePerms(roleName: string): Promise<string[]> {
+async function getRolePerms(roleName: string): Promise<string[]> {
   const cached = ROLE_PERMS_CACHE.get(roleName);
   const now = Date.now();
   if (cached && (now - cached.cachedAt) < ROLE_PERMS_CACHE_TTL_MS) {

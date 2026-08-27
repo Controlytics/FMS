@@ -29,11 +29,6 @@ interface DeviationRow {
   completedByName: string | null;
   completedAt: string | null;
   delayDays: number | null;
-  // How the deviation was resolved. SKIPPED = the PM did NOT happen and was
-  // written off with a justification; COMPLETED_LATE = it was performed late.
-  // Null on rows closed before this was recorded, and on open rows.
-  closureKind?: 'COMPLETED_LATE' | 'SKIPPED' | null;
-  closureReason?: string | null;
   closedAt: string | null;
   createdAt: string;
 }
@@ -293,21 +288,6 @@ export function DeviationsPage() {
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full border ${sm.cls}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${sm.dot}`} />{sm.label}
                         </span>
-                        {/* HOW it closed. A deviation closed because the PM was
-                            skipped must never read the same as one closed
-                            because the PM was actually performed. */}
-                        {d.status === 'CLOSED' && d.closureKind === 'SKIPPED' && (
-                          <span className="ml-1.5 inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full border bg-slate-100 text-slate-600 border-slate-300"
-                                title={d.closureReason ? `Not performed — ${d.closureReason}` : 'PM was not performed'}>
-                            SKIPPED
-                          </span>
-                        )}
-                        {d.status === 'CLOSED' && d.closureKind === 'COMPLETED_LATE' && (
-                          <span className="ml-1.5 inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-full border bg-amber-50 text-amber-700 border-amber-200"
-                                title={d.closureReason ?? 'Performed late'}>
-                            LATE
-                          </span>
-                        )}
                       </td>
                       <td className="px-4 py-3 text-[13px] text-slate-700 whitespace-nowrap">
                         {d.acknowledgedByName ?? '—'}

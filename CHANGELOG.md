@@ -252,76 +252,29 @@ wrote downstream - editing a cycle's `status`, for instance, does not reconcile
 `FilterDetails.currentLifecycleState`.
 
 
-## [Unreleased] - Recurring PM schedules (`frequency_days`) + missed-PM reason gate (2026-08-26)
+## [Unreleased] - Reverted: recurring PM schedules + missed-PM gate (2026-08-27)
 
-### Added - a PM schedule can now repeat on the same date
+The 2026-08-26 recurring-PM work (`frequency_days` recurrence, the 03:30 series
+rollover, supersede-on-re-upload, the missed-PM 409 gate and its skip flow) was
+reverted at the operator's request — they want the previous PM scheduling and
+task-generation behaviour back. `git revert` of cad2ab4, covering the backend,
+My Tasks, the PM Schedules page, Deviations and the tablet.
 
-`frequency_days` on the CSV/XLSX template, the single-create dialog, the bulk
-upload and the PM Schedules table. Multiples of **30 only** - 30 days means one
-calendar month, which is what lets the PM keep the **same day-of-month** every
-time. 31 Jan clamps to 28/29 Feb and recovers to 31 Mar; every occurrence is
-computed from the anchor, never by stepping off the previous one. The create
-dialog previews the first six generated dates before anything is saved.
+Removed with it: the `PM_TASK_SKIP` permission, the `SKIP_PM_TASK` reauth action
+and the `pm.skip_task` role toggle — they existed only to gate the skip flow
+(103 -> 102 permissions, 84 -> 83 privileges, 94 -> 93 reauth actions; the 93 is
+92 plus `UPDATE_AUDIT_RECORD` from the same-day audit work).
 
-Occurrences are materialised as real rows through 31 Dec of next year (My Tasks
-filters on `approvalStatus`, `Deviation.pmScheduleEntryId` is UNIQUE and
-`PmExecution.scheduleEntryId` is an FK, so they cannot be virtual). A series
-spanning years is stored as one `PmSchedule` row per year under a shared
-`seriesId`. A **03:30 rollover job** extends every live series; a re-upload
-supersedes the previous one but retains anything past, executed,
-deviation-linked or justified.
-
-Refused at input, with the numbers named: non-multiples of 30, anything under
-30, and a tolerance wide enough to overlap. That last check measures against the
-**shortest real calendar gap** (28 days, not the nominal 30), so the maximum
-usable tolerance at frequency 30 is **13** days - a subtlety a unit test caught
-before it shipped.
-
-### Changed - an overdue PM is no longer cleared by an unrelated later cleaning
-
-PM tasks now **stack**: an unmet August entry does not stop September's from
-generating, and both appear as separate tasks. That exposed a defect in the old
-credit rule, which counted any PM cleaning completed after an entry's
-`windowStart` - so one September cleaning satisfied BOTH tasks and closed BOTH
-deviations, recording a preventive maintenance that never happened.
-
-`cycleCreditsEntry()` is now the single credit predicate, used by My Tasks in JS
-and by the deviation sweep as SQL. A cycle **bound** to an entry counts from
-`windowStart` with no upper bound; an **unbound** cycle counts only inside its
-window; a cycle bound elsewhere never counts.
-
-### Added - the missed-PM reason gate
-
-Starting a PM cleaning on an AHU that still owes an earlier PM returns **409
-`PM_PREVIOUS_TASK_PENDING`** with the outstanding entries unless the request
-accounts for every one of them:
-
-- **Perform it late** - the cycle binds to the old entry and the lateness reason
-  is recorded.
-- **Skip it** - the entry is written off with a justification and its deviation
-  closes as `SKIPPED`. Never marked complete: the PM did not happen, and
-  recording it as done would put a false statement in the audit trail.
-
-Asked **once per AHU**, not once per tag. Enforced server-side on both the
-single start-cycle and `bulk-operate`. Skipping needs its own permission
-(`PM_TASK_SKIP`) and its own re-auth action (`SKIP_PM_TASK`) - holding
-`FILTER_OPERATE` lets an operator clean, but must not by itself let them write
-off a missed PM. The tablet caches the outstanding-task map beside its
-blocked-filter set so the dialog still fires offline.
-
-My Tasks renders a skipped task in slate (never emerald) with its reason
-visible; the Deviations page distinguishes SKIPPED from LATE closures.
-
-### Schema
-
-Migration `20260826075635_pm_frequency_days_and_missed_pm_resolution` - purely
-additive: 1 enum (`DeviationClosureKind`), 13 nullable columns, 2 indexes.
-Nothing dropped, narrowed or re-typed. Drift guard PASS on both databases.
-
-Counts: permissions 102 -> 103, reauth actions 92 -> 93, feature privileges
-83 -> 84, enums 23 -> 24.
-
-Plan + full decision log: `tasks/PM-FREQUENCY-DAYS-PLAN.md`.
+**The database was deliberately NOT reverted.** Migration
+`20260826075635_pm_frequency_days_and_missed_pm_resolution` stays applied and its
+13 nullable columns + the `DeviationClosureKind` enum remain declared in
+`schema.prisma`. Every one of them is empty — no schedule carries a
+`frequencyDays`, no entry a skip or late reason, no cycle a `pmScheduleEntryId`,
+no deviation a `closureKind` — so the columns are inert once the code is gone.
+Dropping them would mean a destructive migration against a populated database for
+no functional gain, and deleting an already-applied migration folder would break
+`prisma migrate` (its row stays in `_prisma_migrations`). The schema therefore
+still matches the live DB and the drift guard still passes.
 
 
 ## [Unreleased] — Block → AHU scope filter on Replacement + Retirement lists (2026-08-20)

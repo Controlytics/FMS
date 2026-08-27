@@ -15,7 +15,7 @@
 
 ### Identity, access, and audit
 - JWT auth via `jose` 6 with refresh tokens, beacon logout, reauth verification for sensitive actions (`apps/api/src/modules/auth/routes.ts`)
-- **103 permission constants**, **84 feature privileges**, **93 reauth actions** across 16 categories, **26 sidebar items** (see `packages/shared/src/types/*`)
+- **102 permission constants**, **83 feature privileges**, **92 reauth actions** across 16 categories, **26 sidebar items** (see `packages/shared/src/types/*`)
 - Feature-privilege → permission mapping drives both frontend visibility AND backend route protection (`FEATURE_TO_PERMISSION_MAP`)
 - `requireAnyPermission(...perms)` decorator (`plugins/rbac.ts`) for granular toggle fallbacks (e.g. equipment-groups accepts `ASSET_*` OR `EG_*`)
 - `enforceReauth(action, req, reply)` extended to accept `string | string[]`

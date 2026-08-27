@@ -188,8 +188,6 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     schema: {
       tags: ['PM Schedules'],
       summary: 'Download the PM schedule bulk-upload template (CSV)',
-      description:
-        'Columns: ahu_name, scheduled_date, tolerance_days, frequency_days. The last two are optional; a blank frequency_days means a one-off PM (the behaviour before recurring schedules existed).',
       response: { 200: { type: 'string' }, ...errorResponses },
     },
   }, async (_req, reply) => {
@@ -206,10 +204,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       tags: ['PM Schedules'],
       summary: 'Bulk upload PM schedule entries from a CSV or XLSX file',
       description:
-        'Accepts multipart/form-data with a single `.csv` or `.xlsx` file. Expected columns: ahu_name, scheduled_date, tolerance_days (optional), frequency_days (optional). '
-        + 'A blank frequency_days creates a single one-off PM on scheduled_date. A value makes the row RECURRING: it must be a multiple of 30 (30 days = one calendar month, so the PM keeps the same day-of-month), '
-        + 'and it is rejected if the tolerance is wide enough to make consecutive windows overlap. A recurring row expands to one entry per period through 31 Dec of next year, spanning several PmSchedule rows when it crosses a year boundary. '
-        + 'Returns per-row skipped counts and one imported record per CREATED ENTRY.',
+        'Accepts multipart/form-data with a single `.csv` or `.xlsx` file. Expected columns: ahu_name, scheduled_date, tolerance_days (optional). Returns per-row imported/skipped counts.',
       consumes: ['multipart/form-data'],
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
@@ -325,58 +320,6 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     const { ahuId } = req.params as { ahuId: string };
     const { mode } = req.body as { mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED' };
     return service.updateAhuFilterSetMode(ctx, ahuId, mode);
-  });
-
-  // ─── Missed-PM context for the operations surfaces ───
-  // Read-only. Answers "does this AHU still owe an earlier PM?" so the tablet
-  // can raise the right dialog BEFORE cleaning starts. The authoritative check
-  // is server-side in start-cycle.ts; this exists so the operator is asked up
-  // front instead of being refused mid-flow, and so the offline client can
-  // cache the answer alongside its blocked-filter set.
-  app.get('/pending-context', {
-    preHandler: [app.requireAnyPermission('PM_READ', 'FILTER_OPERATE')],
-    schema: {
-      tags: ['PM Schedules'],
-      summary: 'Outstanding + currently-due PM tasks for an AHU (accepts ahuId or filterId)',
-      querystring: {
-        type: 'object',
-        properties: {
-          ahuId: { type: 'string', format: 'uuid' },
-          filterId: { type: 'string', format: 'uuid' },
-        },
-      },
-      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
-    },
-  }, async (req, reply) => {
-    const { ahuId, filterId } = req.query as { ahuId?: string; filterId?: string };
-    if (!ahuId && !filterId) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'Provide ahuId or filterId' });
-    }
-    const { getAhuPendingContext, getPendingContextForFilter } = await import('./pm-pending-context.js');
-    if (filterId) {
-      const ctxOut = await getPendingContextForFilter(filterId);
-      if (!ctxOut) {
-        return reply.code(404).send({ error: 'NOT_FOUND', message: 'Filter has no parent AHU' });
-      }
-      return ctxOut;
-    }
-    const row = await prisma.assetInstance.findUnique({ where: { id: ahuId! }, select: { id: true, name: true } });
-    if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: 'AHU not found' });
-    return getAhuPendingContext(row.id, row.name);
-  });
-
-  // Site-wide map of AHUs owing an earlier PM. Cached by the tablet next to its
-  // blocked-filter set so the reason dialog still fires offline.
-  app.get('/pending-tasks-map', {
-    preHandler: [app.requireAnyPermission('PM_READ', 'FILTER_OPERATE')],
-    schema: {
-      tags: ['PM Schedules'],
-      summary: 'AHUs with outstanding PM tasks, keyed by AHU id (offline cache source)',
-      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
-    },
-  }, async () => {
-    const { getPendingTasksMap } = await import('./pm-pending-context.js');
-    return { ahus: await getPendingTasksMap() };
   });
 
   // ─── Entry-level approval workflow ───
@@ -693,21 +636,12 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     schema: {
       tags: ['PM Schedules'],
       summary: 'Create PM schedule',
-      description:
-        'Omit `frequencyDays` (or send null/0) for a single one-off PM on the given date — the original behaviour. '
-        + 'Send a multiple of 30 to create a RECURRING series instead: `entries` must then hold exactly ONE entry (the anchor date), '
-        + 'and the PM repeats on the same day-of-month through 31 Dec of next year, writing one PmSchedule row per calendar year under a shared seriesId. '
-        + 'Returns the anchor year\'s schedule, plus a `series` summary when recurring.',
       body: {
         type: 'object',
         required: ['entityId', 'year', 'entries'],
         properties: {
           entityId: { type: 'string', format: 'uuid' },
           year: { type: 'integer' },
-          // Multiple of 30 only; 30 days = one calendar month so the PM keeps
-          // its day-of-month. Rejected if the tolerance would make consecutive
-          // windows overlap (see pm-recurrence.validateFrequency).
-          frequencyDays: { type: ['integer', 'null'], minimum: 0 },
           entries: {
             type: 'array',
             items: {

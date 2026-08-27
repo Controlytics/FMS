@@ -12,24 +12,15 @@
  *            + fire the completion notification once, guarded by
  *            `completion_notified_at`.
  *
- * "Cleaned" predicate = a COMPLETED CleaningCycle performed with the configured
- * PM reason that CREDITS THIS ENTRY — see `cycleCreditsEntry` in pm-shared.ts:
- * a cycle bound to this entry counts from windowStart with no upper bound (a
- * deliberate late completion), an unbound cycle counts only inside the window,
- * and a cycle bound to another entry never counts.
- *
- * Two things this protects, both §11:
- *   - the PM-reason half: a deviation records that a SCHEDULED PM was missed, so
- *     only the scheduled PM can resolve it. An unrelated clean (breakdown, test)
- *     must not suppress or close it.
- *   - the binding half: PM tasks STACK, so an unmet August entry and a due
- *     September entry can both be open. Crediting by window alone let ONE
- *     September cleaning close BOTH — asserting two preventive maintenances
- *     where one happened.
- *
- * This MUST match My Tasks (`pm-due-tasks.ts`), which applies the same
- * predicate from the same shared helper. Notifications are driven off deviation
- * transitions; the cleaning cycle-write paths are never touched.
+ * "Cleaned" predicate = a COMPLETED CleaningCycle, performed with the configured
+ * PM reason, with completedAt >= windowStart (covers in-window AND late cleaning
+ * — a late cleaning is exactly what resolves an overdue task). The PM-reason half
+ * matters: a deviation records that a SCHEDULED PM was missed, so only the
+ * scheduled PM can resolve it. An unrelated clean (breakdown, test) must not
+ * suppress or close it — that would assert the PM happened when it did not. This
+ * MUST match My Tasks (`pm-due-tasks.ts`), which applies the same predicate; both
+ * read it from `resolvePmReasonKeys()` in pm-shared.ts. Notifications are driven
+ * off deviation transitions; the cleaning cycle-write paths are never touched.
  *
  * Trigger: daily cron (`pm_overdue_check`) + manual admin endpoint. NOT from the
  * read path `GET /due` (no side effects in a GET).
@@ -111,28 +102,13 @@ async function loadCountedFilters(ahuIds: string[]): Promise<Map<string, Counted
  * for cleanings performed with a PM reason. `pmReasonKeys` null = no PM reason
  * configured → any reason counts (legacy fallback, see resolvePmReasonKeys).
  */
-async function latestCleanMap(
-  filterIds: string[],
-  entry: { id: string; windowStart: Date; windowEnd: Date },
-  pmReasonKeys: Set<string> | null,
-): Promise<Map<string, Date>> {
+async function latestCleanMap(filterIds: string[], since: Date, pmReasonKeys: Set<string> | null): Promise<Map<string, Date>> {
   if (!filterIds.length) return new Map();
   const rows = await prisma.cleaningCycle.groupBy({
     by: ['filterId'],
     where: {
-      filterId: { in: filterIds }, status: 'COMPLETED',
+      filterId: { in: filterIds }, status: 'COMPLETED', completedAt: { gte: since },
       ...(pmReasonKeys ? { cleaningReasonKey: { in: [...pmReasonKeys] } } : {}),
-      // The SQL form of `cycleCreditsEntry` (pm-shared.ts). Keep the two in
-      // step: this decides whether a missed PM is recorded as a deviation, and
-      // My Tasks decides whether the operator still sees the task. If they
-      // disagree, the deviation record and the task list tell an inspector
-      // different stories about the same PM.
-      OR: [
-        // Bound to THIS entry — a deliberate late completion, no upper bound.
-        { pmScheduleEntryId: entry.id, completedAt: { gte: entry.windowStart } },
-        // Unbound — only counts inside the window it was actually due in.
-        { pmScheduleEntryId: null, completedAt: { gte: entry.windowStart, lte: entry.windowEnd } },
-      ],
     },
     _max: { completedAt: true },
   });
@@ -292,7 +268,7 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
     const ahu = counted.get(entry.schedule.entityId);
     if (!ahu || ahu.mode === 'DISABLED' || ahu.filters.length === 0) continue;
     const filterIds = ahu.filters.map((f) => f.id);
-    const cleaned = await latestCleanMap(filterIds, entry, pmReasonKeys);
+    const cleaned = await latestCleanMap(filterIds, entry.windowStart, pmReasonKeys);
     if (filterIds.every((id) => cleaned.has(id))) continue; // PM-cleaned → not an open deviation
     try {
       const dev = await prisma.deviation.create({
@@ -332,17 +308,7 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
     const filterIds = Array.isArray(dev.filterIds) ? (dev.filterIds as string[]) : [];
     if (!filterIds.length) continue;
     const since = dev.windowStart ?? dev.scheduledDate;
-    // A deviation's window has closed by definition, so only a cleaning BOUND
-    // to its entry can close it — i.e. an operator explicitly performed this
-    // missed PM. An unrelated later cleaning must not silently resolve a
-    // recorded deviation; that would assert the PM happened when it did not.
-    // The other route out is a justified SKIP, which closes the deviation
-    // directly (closureKind = SKIPPED) rather than through this predicate.
-    const cleaned = await latestCleanMap(
-      filterIds,
-      { id: dev.pmScheduleEntryId, windowStart: since, windowEnd: dev.windowEnd },
-      pmReasonKeys,
-    );
+    const cleaned = await latestCleanMap(filterIds, since, pmReasonKeys);
     if (!filterIds.every((id) => cleaned.has(id))) continue; // not all PM-cleaned yet
     const latestAt = [...cleaned.values()].reduce((a, b) => (b > a ? b : a));
     let completedBy = dev.acknowledgedBy ?? null;
@@ -355,13 +321,7 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
     const delayDays = dayDiff(latestAt, dev.scheduledDate);
     await prisma.deviation.update({
       where: { id: dev.id },
-      // COMPLETED_LATE, not SKIPPED: this half of the sweep only fires when a
-      // cleaning BOUND to the entry actually completed, so the PM did happen.
-      // A skip closes the deviation directly in pm-task-gate.ts instead.
-      data: {
-        status: 'CLOSED', completedBy, completedByName, completedAt: latestAt, delayDays, closedAt: now,
-        closureKind: 'COMPLETED_LATE',
-      },
+      data: { status: 'CLOSED', completedBy, completedByName, completedAt: latestAt, delayDays, closedAt: now },
     });
     closed++;
     if (!dev.completionNotifiedAt) {

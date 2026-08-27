@@ -59,7 +59,6 @@ import notificationRulesRoutes from './modules/notification-rules/routes.js';
 // app is the Windows Scheduled Task the installer registers for DB backups.
 import cron, { type ScheduledTask } from 'node-cron';
 import { sweepOverdueDeviations } from './modules/pm-schedules/pm-deviations.js';
-import { rolloverSeries } from './modules/pm-schedules/pm-rollover.js';
 import { sweepExpiredSessions } from './modules/auth/session-sweep.js';
 import { sweepPasswordExpiryNotifications } from './modules/auth/password-expiry-sweep.js';
 import { AppError } from './lib/errors.js';
@@ -612,14 +611,9 @@ try {
     cronTasks.push(cron.schedule('0 0 * * *', () => runSweep('password_expiry_check', sweepPasswordExpiryNotifications)));
     // PM overdue deviation sweep — daily 03:00
     cronTasks.push(cron.schedule('0 3 * * *', () => runSweep('pm_overdue_check', sweepOverdueDeviations)));
-    // Recurring PM rollover — daily 03:30. Runs AFTER the overdue sweep so the
-    // sweep never sees half-extended series mid-write. Idempotent: it only
-    // materialises occurrences that have come inside the horizon since the last
-    // run, so a missed day (or several) is caught up by the next tick.
-    cronTasks.push(cron.schedule('30 3 * * *', () => runSweep('pm_series_rollover', rolloverSeries)));
 
     jobRunnerStatus = 'running';
-    app.log.info('in-process node-cron scheduler started (session_sweep 5m, password_expiry_check 00:00, pm_overdue_check 03:00, pm_series_rollover 03:30)');
+    app.log.info('in-process node-cron scheduler started (session_sweep 5m, password_expiry_check 00:00, pm_overdue_check 03:00)');
   } catch (runnerErr) {
     // Not fatal — the HTTP surface is still usable. But every scheduled job (the
     // PM-overdue sweep, password-expiry warnings, the LOGOUT-writing session

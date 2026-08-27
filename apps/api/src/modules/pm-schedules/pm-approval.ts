@@ -88,10 +88,6 @@ export async function listEntries(
     toleranceDays: e.toleranceDays,
     windowStart: e.windowStart,
     windowEnd: e.windowEnd,
-    // Recurrence, read off the parent schedule. null = a one-off entry.
-    frequencyDays: e.schedule?.frequencyDays ?? null,
-    anchorDate: e.schedule?.anchorDate ?? null,
-    seriesId: e.schedule?.seriesId ?? null,
     approvalStatus: e.approvalStatus,
     approvalRemarks: e.approvalRemarks,
     submittedByName: e.submittedByName,

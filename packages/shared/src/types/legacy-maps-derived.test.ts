@@ -50,15 +50,15 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // checklists.submit/toggle + cleaning_profiles.toggle; 92 = 96 minus RFID/relationship nodes;
     // 96 = 99 minus assets.create/edit/delete.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(84);
+    expect(count).toBe(83);
   });
 
   it('FEATURE_PRIVILEGES has exactly 83 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(84);
+    expect(FEATURE_PRIVILEGES).toHaveLength(83);
   });
 
   it('FEATURE_TO_PERMISSION_MAP has exactly 83 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(84);
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(83);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 24 sections', () => {

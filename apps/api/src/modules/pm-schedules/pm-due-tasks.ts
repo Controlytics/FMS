@@ -12,7 +12,7 @@
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
-import { checkPmEnabled, resolvePmReasonKeys, cycleCreditsEntry } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
 
@@ -201,29 +201,33 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     }
 
     const inWindow = now >= entry.windowStart && now <= entry.windowEnd;
+    // An overdue entry's window has already closed, so a clean performed NOW
+    // lands AFTER windowEnd. The strict in-window predicate below would miss it
+    // and the task could never clear ("Perform (overdue)" stuck at 0/N). For
+    // overdue entries we therefore also credit a LATE clean — matching the
+    // deviation predicate in pm-deviations.ts (completedAt >= windowStart, which
+    // covers in-window AND late cleaning). In-window behaviour is unchanged.
+    const windowClosed = now > entry.windowEnd;
 
     const filterStatuses: DueFilterRow[] = childFilters.map(f => {
       const cycles = cyclesByFilter.get(f.id) ?? [];
-      // Which cycles count toward THIS entry is decided by `cycleCreditsEntry`
-      // (pm-shared.ts) — the single predicate the overdue sweep uses too.
-      //
-      // The change from the original rule: a LATE clean now only counts when
-      // the cycle was explicitly BOUND to this entry at start-cycle. Tasks
-      // stack, so "any clean after windowStart" let one September cleaning also
-      // satisfy an unmet August task — two PM tasks closed by one job. An
-      // overdue task is now cleared only by an explicit operator action
-      // (perform-it-late, or skip-with-reason), never as a side effect.
+      // IN_PROGRESS cycle: started during the window (in-window), or — for an
+      // overdue task — a catch-up clean started after the window closed.
       const inProgress = cycles.find(c =>
         c.status === 'IN_PROGRESS'
         && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
-        && cycleCreditsEntry(c, entry, c.startedAt),
+        && (windowClosed ? c.startedAt >= entry.windowStart : c.startedAt <= entry.windowEnd),
       );
+      // COMPLETED cycle that counts toward this entry: completed on/after the
+      // window opened, and — unless the task is already overdue — on/before it
+      // closed (a late clean is exactly what resolves an overdue task).
       // Only cleanings done with the PM reason satisfy the PM task; a clean with
       // any other reason leaves the filter PENDING here.
       const cleaned = cycles.find(c =>
         c.completedAt != null
         && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
-        && cycleCreditsEntry(c, entry, c.completedAt),
+        && c.completedAt >= entry.windowStart
+        && (windowClosed || c.completedAt <= entry.windowEnd),
       );
 
       let status: DueFilterStatus = 'pending';
@@ -246,26 +250,18 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     const totalFilters = filterStatuses.length;
 
     let overallStatus: DueOverallStatus;
-    // A written-off task short-circuits everything else: the operator has
-    // stated it will not be performed, so no amount of cleaning-cycle evidence
-    // should relabel it. It stays visible (not hidden) so the miss and its
-    // justification remain on the Tasks page for an inspector.
-    if (entry.skippedAt) {
-      overallStatus = 'skipped';
-    } else if (inWindow) {
+    if (inWindow) {
       if (totalFilters > 0 && cleanedCount === totalFilters) overallStatus = 'complete';
       else if (cleanedCount + inProgressCount > 0) overallStatus = 'in_progress';
       else overallStatus = 'pending';
     } else {
-      // Window already closed (overdue). A late clean still counts — but ONLY
-      // one BOUND to this entry (see cycleCreditsEntry), i.e. the operator
-      // explicitly chose to perform this missed PM. When every counted filter is
-      // covered that way, surface it as a completed task: the operator gets the
-      // same "Completed" confirmation a normal task gets, and it drops out of
-      // the Overdue section (a 'complete' row routes into `active` below).
-      // A partially cleaned task stays overdue, with cleanedCount reflecting the
-      // real progress. An unrelated later cleaning no longer moves this counter
-      // at all, which is the whole point of the binding.
+      // Window already closed (overdue). Late cleans now count (see windowClosed
+      // above), so an overdue task CAN reach fully-cleaned. When it does, surface
+      // it as a completed task — the operator gets the same "Completed"
+      // confirmation a normal task gets, and it drops out of the Overdue section
+      // (a 'complete' row routes into `active` below, not `overdue`). A partially
+      // (late-)cleaned task stays overdue, but its cleanedCount now reflects the
+      // late progress instead of being stuck at 0/N.
       if (totalFilters > 0 && cleanedCount === totalFilters) overallStatus = 'complete';
       else overallStatus = 'overdue';
     }
@@ -287,10 +283,6 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       totalFilters,
       cleanedCount,
       overallStatus,
-      skipReason: entry.skipReason ?? null,
-      skippedByName: entry.skippedByName ?? null,
-      skippedAt: entry.skippedAt ?? null,
-      lateReason: entry.lateReason ?? null,
       filters: filterStatuses,
     };
 
