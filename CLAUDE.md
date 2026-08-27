@@ -367,10 +367,25 @@ looked fine, the TOLERANCES overlapped. A gap-only check passes all three.
   `pendingPlannedDate`, and it goes live later at QA approval, by which time
   another entry may have moved. Validating only at request time lets two
   individually-fine approvals combine into an overlap.
-- Bulk import validates the whole file per AHU **before any write** and rejects
-  that AHU's rows outright — a partial import leaves a half-valid year. **Every**
-  rejected row is reported, not only the offending one, or the operator reads
-  "1 skipped" while three rows went nowhere.
+- **The upload APPENDS; it never replaces (2026-08-27).** It used to hard-delete
+  every entry for the (AHU, year) and recreate them, with two guards refusing the
+  wipe when it would destroy execution evidence or APPROVED entries. Those guards
+  made a whole-year re-upload impossible in practice — **13 of 15 live AHUs held
+  an approved entry** and were refused outright, and the suggested remedy (edit
+  each month by hand) does not scale to a year of visits per AHU. Nothing is
+  deleted now, so the guards went with the wipe.
+  - An uploaded date that already exists is the SAME visit: **skipped and left
+    unchanged**, so re-uploading a corrected file is idempotent rather than
+    failing on every unchanged row.
+  - Separation is checked against **existing entries as well as new ones** — the
+    operator cannot see the current schedule from inside their spreadsheet.
+  - Removing a visit is a deliberate per-entry act, never a side effect of
+    uploading a file. That preserves a past APPROVED visit that WAS performed
+    (evidence it was scheduled), a past APPROVED visit that was NOT performed
+    (an obligation the missed-PM gate still tracks), and any QA approval given.
+  - Rows are validated per AHU **before any write**, and **every** rejected row
+    is reported, not only the offending one, or the operator reads "1 skipped"
+    while three rows went nowhere.
 - **`@@unique([scheduleId, plannedDate])`** replaced `[scheduleId, month]`
   (migration `20260827120000_pm_entries_unique_by_date`; drift guard PASS). The
   old key capped an AHU at 12 visits a year and made the importer silently

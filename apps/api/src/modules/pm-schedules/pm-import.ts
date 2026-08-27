@@ -222,14 +222,19 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
         orderBy: { version: 'desc' },
       });
 
-      // Guards run BEFORE any write: a blocked schedule must be left untouched.
-      if (schedule) {
-        const block = await evaluateGuards(schedule.id, ahu.name, year, wf.workflowEnabled);
-        if (block) {
-          for (const p of bucket) skipped.push({ row: p.rowNum, reason: block, data: p.raw });
-          continue;
-        }
-      }
+      // No replace guards any more — there is nothing to guard against, because
+      // the upload no longer deletes anything (see below). The two old refusals
+      // ("has recorded executions" / "has APPROVED entries") existed solely
+      // because the import used to WIPE the schedule and repopulate it. That
+      // made a whole-year re-upload impossible in practice: 13 of 15 AHUs had an
+      // approved entry and were refused outright, and the suggested remedy —
+      // edit each month by hand — does not scale to a year of visits per AHU.
+      const existingEntries = schedule
+        ? await prisma.pmScheduleEntry.findMany({
+            where: { scheduleId: schedule.id },
+            select: { id: true, plannedDate: true, toleranceDays: true },
+          })
+        : [];
 
       // Every uploaded row is kept (2026-08-27).
       //
@@ -243,9 +248,34 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
       // visits must not be satisfiable by one cleaning. A partial import would
       // leave a half-valid year, so a violation rejects the AHU's rows outright
       // and names the dates involved.
-      const violations = checkSeparation(
-        bucket.map((p) => ({ ref: p.rowNum, plannedDate: p.plannedDate, toleranceDays: p.toleranceDays })),
-      );
+      // A row whose date already exists on the schedule is the SAME visit, not a
+      // new one. Skipped rather than treated as an error, so re-uploading a
+      // corrected file (or the same file twice) is safe and idempotent instead
+      // of failing on every row that has not changed.
+      const existingByDate = new Map(existingEntries.map((e) => [e.plannedDate.getTime(), e]));
+      const alreadyScheduled = bucket.filter((p) => existingByDate.has(p.plannedDate.getTime()));
+      const toAdd = bucket.filter((p) => !existingByDate.has(p.plannedDate.getTime()));
+      for (const p of alreadyScheduled) {
+        skipped.push({
+          row: p.rowNum,
+          reason: `AHU "${ahu.name}": ${p.plannedDate.toISOString().slice(0, 10)} is already on the ${year} schedule — left unchanged.`,
+          data: p.raw,
+        });
+      }
+      if (toAdd.length === 0) continue;
+
+      // Separation is checked against the EXISTING entries as well as the new
+      // ones. A new visit must not be satisfiable by the same cleaning as one
+      // already on the schedule, and the operator cannot see the existing dates
+      // from inside their spreadsheet.
+      const violations = checkSeparation([
+        ...existingEntries.map((e) => ({
+          ref: `existing:${e.plannedDate.toISOString().slice(0, 10)}`,
+          plannedDate: e.plannedDate,
+          toleranceDays: e.toleranceDays,
+        })),
+        ...toAdd.map((p) => ({ ref: p.rowNum, plannedDate: p.plannedDate, toleranceDays: p.toleranceDays })),
+      ]);
       if (violations.length > 0) {
         // EVERY row of this AHU is reported, not just the offending ones.
         //
@@ -257,22 +287,35 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
         // collapse this replaced.
         const offenders = new Map<number, string>();
         for (const v of violations) {
-          // Report against the LATER row — that is the one the operator moves.
-          offenders.set(Number(v.later.ref), `AHU "${ahu.name}": ${v.message}`);
+          // Blame whichever side is a NEW row — an existing entry is not the
+          // operator's to move from a spreadsheet. When both sides are new,
+          // the later one is the one to shift.
+          const laterIsNew = typeof v.later.ref === 'number';
+          const target = laterIsNew ? v.later.ref : v.earlier.ref;
+          if (typeof target === 'number') {
+            offenders.set(target, `AHU "${ahu.name}": ${v.message}`);
+          }
         }
-        for (const p of bucket) {
+        for (const p of toAdd) {
           skipped.push({
             row: p.rowNum,
             reason: offenders.get(p.rowNum)
-              ?? `AHU "${ahu.name}": not imported — another visit for this AHU overlaps, and the whole year is imported together. Fix the flagged row(s) and re-upload.`,
+              ?? `AHU "${ahu.name}": not added — another new visit for this AHU overlaps, and an AHU's rows are added together. Fix the flagged row(s) and re-upload.`,
             data: p.raw,
           });
         }
         continue;
       }
 
-      // Hard-replace + repopulate atomically: the new file fully REPLACES the
-      // schedule, so old months absent from it stop generating /due tasks.
+      // APPEND — the upload ADDS visits and never removes or edits one.
+      //
+      // Existing entries keep their dates, their tolerances and above all their
+      // approval state. That preserves three things the old wipe destroyed:
+      // a past APPROVED visit that was actually performed (the evidence it was
+      // scheduled), a past APPROVED visit that was NOT performed (an obligation
+      // the missed-PM gate is still tracking), and any QA approval already
+      // given. Removing a visit is a deliberate act done per entry, not a
+      // side effect of uploading a file.
       const scheduleId = await prisma.$transaction(async (tx) => {
         const sid = schedule
           ? schedule.id
@@ -280,10 +323,8 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
               data: { entityId: ahu.id, year, status: 'ACTIVE', createdBy: ctx.userSub },
             })).id;
 
-        if (schedule) await tx.pmScheduleEntry.deleteMany({ where: { scheduleId: sid } });
-
         await tx.pmScheduleEntry.createMany({
-          data: bucket.map((p) => ({
+          data: toAdd.map((p) => ({
             scheduleId: sid,
             month: p.month,
             plannedDate: p.plannedDate,
@@ -297,19 +338,26 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
       });
 
       // createMany returns no rows — read the ids back for the per-row report.
+      //
+      // Keyed by DATE, not by month: an AHU can be visited more than once in a
+      // month, so a month key would hand several rows the same entry id (and
+      // the wrong one for all but the first).
       const created = await prisma.pmScheduleEntry.findMany({
         where: { scheduleId },
-        select: { id: true, month: true },
+        select: { id: true, plannedDate: true },
       });
-      const entryIdByMonth = new Map(created.map((e) => [e.month, e.id]));
+      const entryIdByDate = new Map(created.map((e) => [e.plannedDate.getTime(), e.id]));
 
-      for (const p of bucket) {
+      // Only the rows actually added are reported as imported — the
+      // already-scheduled ones were reported as skipped above, and counting
+      // them here as well would report more imports than happened.
+      for (const p of toAdd) {
         imported.push({
           row: p.rowNum,
           ahuName: p.ahu.name,
           plannedDate: p.plannedDate.toISOString().slice(0, 10),
           scheduleId,
-          entryId: entryIdByMonth.get(p.month) ?? '',
+          entryId: entryIdByDate.get(p.plannedDate.getTime()) ?? '',
         });
       }
     } catch (e: any) {

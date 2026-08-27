@@ -2122,3 +2122,17 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       written-off entries dropped from the cache on both paths). Verified
       end-to-end on live data (AHU-03, two outstanding visits). Reused the
       columns kept from the reverted 08-26 work — no migration needed.
+
+- [x] **2026-08-27 — PM upload is ADDITIVE, not a replace (operator-reported).**
+      "Refusing to replace the 2026 schedule for AHU-91: it has 2 APPROVED
+      entries…" blocked a real upload — and would have blocked **13 of 15 AHUs**.
+      Diagnosed: both approved entries were in the PAST, but one recorded a PM
+      that WAS performed (10 PM cleanings since its window opened) and the other
+      was an unmet obligation the missed-PM gate still tracks — so the hard
+      replace would have erased both silently. Per the operator's call, the
+      upload now ADDS non-overlapping visits and leaves every existing entry
+      alone; a date already on the schedule is skipped as unchanged (idempotent
+      re-upload); separation is checked against existing entries too. The two
+      replace guards are gone with the wipe. Verified live on AHU-91: upload
+      succeeded, 2 new dates added, all 6 existing entries and both approvals
+      intact, and the 15-Aug obligation still tracked. 10 rewritten import tests.
