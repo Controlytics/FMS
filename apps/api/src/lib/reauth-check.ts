@@ -3,6 +3,9 @@ import { prisma } from './prisma.js';
 import { verifyPassword } from './password.js';
 import { applyFailedPasswordAttempt } from '../modules/auth/auth.service.js';
 import type { ActionReauthConfig } from '@digilog/shared';
+import { getLogger } from './logger.js';
+
+const reauthLog = getLogger('reauth', 'security');
 
 /**
  * Reauth password verification shared by enforceReauth / enforceReauthAlways.
@@ -122,8 +125,11 @@ function normalizeActionReauthConfig(raw: unknown): ActionReauthConfig {
     // go unnoticed — the previous silent `{}` was itself a finding.
     if (!legacyShapeWarned) {
       legacyShapeWarned = true;
-      console.warn(
-        '[reauth] action-reauth config is in the legacy nested shape — ALL re-authentication gates are currently DISABLED. Re-save the policy via the Action Re-auth config page to restore enforcement.',
+      // ERROR, not warn: every §11 re-authentication gate is off. That belongs
+      // in the error log an operator is told to read first, not buried in the
+      // application log at warn.
+      reauthLog.error(
+        'action-reauth config is in the legacy nested shape — ALL re-authentication gates are currently DISABLED. Re-save the policy via the Action Re-auth config page to restore enforcement.',
       );
     }
     return {};

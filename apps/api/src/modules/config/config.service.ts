@@ -10,6 +10,9 @@ import { invalidateRolePermsCache } from '../../plugins/rbac.js';
 import { invalidatePasswordPolicyCache } from '../../plugins/auth.js';
 import { sanitizeAuditValue } from '../../lib/audit-diff.js';
 import { configRegistry } from '../../lib/config-registry.js';
+import { getLogger } from '../../lib/logger.js';
+
+const configLog = getLogger('config', 'application');
 
 /** Drop top-level keys named in `secretKeys` from a config value (for audit snapshots). */
 export function redactConfigSecrets(value: any, secretKeys: Set<string>): any {
@@ -60,7 +63,7 @@ export const configService = {
     const config = await configRepository.getSystemConfig(key);
     const parsed = schema.safeParse(config?.configValue ?? {});
     if (!parsed.success) {
-      console.warn(`[Config] Validation failed for ${key}, using defaults`);
+      configLog.warn({ configKey: key }, `Validation failed for config '${key}' - falling back to schema defaults`);
       // #low-batch: a corrupt stored value (bad manual edit / older restore /
       // schema tightening) must fall back to the SCHEMA's own defaults, not `{}`.
       // `def` is never actually passed by any caller, so the old `?? {}` meant a

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import Fastify from 'fastify';
+import Fastify, { LogController, type FastifyBaseLogger } from 'fastify';
 import fs from 'node:fs';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -10,6 +10,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerSwagger, isApiDocsEnabled } from './lib/swagger.js';
 import { rateLimitKeyGenerator } from './lib/rate-limit-key.js';
+import { rootLogger, getLogger, initFileLogging, flushLogs, LOG_PATHS } from './lib/logger.js';
+import { pruneAllLogs, retentionDays, logDirSizeBytes, formatBytes } from './lib/log-retention.js';
 import { JWT_MAX_EXPIRY_HOURS } from './lib/jwt.js';
 import authPlugin from './plugins/auth.js';
 import rbacPlugin from './plugins/rbac.js';
@@ -79,6 +81,14 @@ import hierarchyRoutes from './modules/hierarchy/routes.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Open the rolling per-channel log files FIRST — before the TLS readFileSync
+// below, which is a live failure mode on a customer box (a missing or unreadable
+// cert). Initialised any later, that exact failure would produce nothing in
+// logs/app/error/. This depends only on LOG_DIR + dotenv, both already loaded.
+// Never throws: if the directory is unwritable the app still starts and logs to
+// stdout, which the Windows service captures. See lib/logger.ts.
+const fileLogging = await initFileLogging();
+
 // TLS cert location is env-overridable so the customer install can point it at
 // C:\ProgramData\DigiLog\certs (data dir → survives upgrades; regenerating the CA
 // on upgrade would re-break the tablet's trust). Defaults to the dev repo's
@@ -117,9 +127,25 @@ const trustProxy = trustProxyEnv
   : false;
 
 const app = Fastify({
-  logger: {
-    level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-  },
+  // Fastify 5 takes a ready-made logger under `loggerInstance` (`logger` only
+  // accepts an options object). The root pino lives in lib/logger.ts so that
+  // modules under lib/ — which have no Fastify instance to reach for — write to
+  // the same files as everything else.
+  // Annotated as FastifyBaseLogger so Fastify keeps its DEFAULT logger generic.
+  // Handing it a concrete pino `Logger` narrows the instance type to
+  // `Logger<never, boolean>`, and every plugin typed against the default
+  // FastifyInstance (registerSwagger, the route modules) then fails to compile.
+  loggerInstance: rootLogger.child({ module: 'api', channel: 'application' }) as FastifyBaseLogger,
+  // We emit exactly ONE line per request from the onResponse hook below, into
+  // the dedicated http channel. Fastify's built-in pair ("incoming request" +
+  // "request completed") would double every request in the application log and
+  // carries neither the user nor the duration.
+  //
+  // Via a LogController INSTANCE, not the top-level `disableRequestLogging` —
+  // that spelling is deprecated in Fastify 5 (FSTDEP023) and removed in 6. A
+  // plain object is rejected at runtime (FST_ERR_LOG_INVALID_LOG_CONTROLLER):
+  // createLogController() accepts only `instanceof LogController`.
+  logController: new LogController({ disableRequestLogging: true }),
   trustProxy,
   bodyLimit: 10 * 1024 * 1024, // 10 MB for base64 image uploads in checklists
   ajv: {
@@ -379,7 +405,24 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
   }
 
   // Genuine internal errors
-  app.log.error(err);
+  //
+  // This is the single most important line in the error log, so it carries the
+  // context needed to act on it without a developer: which request, which user,
+  // and the full stack. Previously `app.log.error(err)` alone — a stack with no
+  // idea who hit it or what they were doing.
+  app.log.error(
+    {
+      err,
+      reqId: _req.id,
+      method: _req.method,
+      url: _req.url,
+      user: _req.user?.username,
+      userId: _req.user?.sub,
+      role: _req.user?.role,
+      ip: _req.ip,
+    },
+    `Unhandled error on ${_req.method} ${_req.url}`,
+  );
   // Dispatch SYSTEM_ERROR notification (fire-and-forget, rate-limited to 1 per minute)
   const now = Date.now();
   if (now - lastErrorNotification > 60000) {
@@ -412,6 +455,79 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
 // Request tracking hook for system health metrics
 app.addHook('onRequest', (_req, _reply, done) => {
   trackRequest();
+  done();
+});
+
+// ─── Log types 3 + 7: one HTTP line per request, security lines for denials ───
+//
+// ONE onResponse hook rather than a log call at each of the ~14 places that
+// return 401/403: a hook covers every route registered anywhere, including
+// routes added later, and cannot drift out of step with the handlers. The rbac
+// plugin alone has 10 separate 403 returns.
+const httpLog = getLogger('http', 'http');
+const securityLog = getLogger('access', 'security');
+
+// Requests that are pure noise at info level. The tablet polls /api/health every
+// 15s (connectivity.ts) — left in, that single endpoint would dominate the http
+// log and push real traffic out of the 7-day window. Failures still log: the
+// skip only applies while the response is 2xx.
+const QUIET_PATHS = new Set(['/api/health']);
+
+app.addHook('onResponse', (req, reply, done) => {
+  const status = reply.statusCode;
+  const durationMs = Math.round(reply.elapsedTime);
+  // NOTE: `req.user` is DECLARED non-optional (plugins/auth.ts) but is genuinely
+  // undefined on every unauthenticated request — the declaration describes the
+  // post-auth state, not this hook's. The guards below are load-bearing at
+  // runtime even though TypeScript thinks they are redundant. Do not remove.
+  const user = req.user as typeof req.user | undefined;
+  // `url` carries the query string, which is where an operator finds the actual
+  // filter that produced an empty list.
+  const base = {
+    reqId: req.id,
+    method: req.method,
+    url: req.url,
+    status,
+    durationMs,
+    ...(user ? { user: user.username, userId: user.sub, role: user.role } : {}),
+    ip: req.ip,
+  };
+
+  if (status >= 500) {
+    httpLog.error(base, `${req.method} ${req.url} → ${status}`);
+  } else if (status >= 400) {
+    httpLog.warn(base, `${req.method} ${req.url} → ${status}`);
+  } else if (!QUIET_PATHS.has(req.routeOptions?.url ?? req.url)) {
+    httpLog.info(base, `${req.method} ${req.url} → ${status}`);
+  }
+
+  // Security channel: who was refused, and why. 401 = not authenticated,
+  // 403 = authenticated but not permitted, 429 = rate limited (which is what a
+  // credential-stuffing attempt looks like from the outside).
+  //
+  // /api/auth/login is EXCLUDED: it logs its own success/failure lines in
+  // modules/auth/routes.ts, which are strictly better — a failed login has no
+  // `req.user`, so this hook could only ever call it "anonymous", and the
+  // attempted username is the one field that makes the record worth keeping.
+  //
+  // A 401 with NO Authorization header is also excluded. The auth hook runs
+  // before routing, so every scanner probe and every mistyped URL answers 401 —
+  // logging those would fill 7 days of the security channel with noise and push
+  // the real denials out of the window. A 401 that DID present a token (expired,
+  // tampered, terminated session) is a genuine security event and is kept. The
+  // http channel records both either way.
+  const isLoginRoute = req.url.startsWith('/api/auth/login');
+  const presentedToken = Boolean(req.headers.authorization);
+  const worthLogging =
+    status === 403 || status === 429 || (status === 401 && presentedToken);
+
+  if (!isLoginRoute && worthLogging) {
+    const label = status === 401 ? 'Rejected token' : status === 403 ? 'Permission denied' : 'Rate limited';
+    securityLog.warn(
+      base,
+      `${label}: ${user?.username ?? 'anonymous'} → ${req.method} ${req.url}`,
+    );
+  }
   done();
 });
 
@@ -577,6 +693,48 @@ try {
   await app.listen({ port, host: '0.0.0.0' });
   const proto = httpsOptions ? 'https' : 'http';
   app.log.info(`DigiLog API running on ${proto}://localhost:${port}`);
+
+  // ─── Log type 2: what this process actually resolved at boot ──────────────
+  //
+  // The point of these lines is that "it isn't working" is usually a config
+  // question — wrong port, TLS off, the tablet's origin not in ALLOWED_ORIGINS,
+  // uploads pointing somewhere the installer didn't create. Printing the
+  // RESOLVED values (not the env vars) means the log answers that without
+  // anyone opening digilog.env.
+  app.log.info(
+    {
+      port,
+      protocol: proto,
+      nodeEnv: process.env.NODE_ENV ?? 'development',
+      nodeVersion: process.version,
+      pid: process.pid,
+      trustProxy,
+      tlsCert: httpsOptions ? tlsCertPath : 'disabled',
+      allowedOrigins: corsOrigins ?? '(defaults)',
+      uploadsDir: UPLOADS_ROOT,
+      serveWeb: process.env.SERVE_WEB === 'true',
+      apiDocs: isApiDocsEnabled(),
+    },
+    'Startup configuration',
+  );
+
+  // Probe + record the DB connection at boot (log type 4). Non-fatal: DigiLogDB
+  // and DigiLogAPI start together and the API must be able to come up and retry.
+  const { logDatabaseConnection } = await import('./lib/prisma.js');
+  await logDatabaseConnection();
+
+  if (fileLogging.enabled) {
+    const size = await logDirSizeBytes();
+    app.log.info(
+      { logDir: LOG_PATHS.app, retentionDays: retentionDays(), currentSize: formatBytes(size) },
+      `Logging to ${LOG_PATHS.app} — keeping ${retentionDays()} days per channel`,
+    );
+  } else {
+    app.log.warn(
+      { logDir: LOG_PATHS.app, reason: fileLogging.error },
+      'File logging is DISABLED — console output only',
+    );
+  }
   // API-15: state the real token ceiling at boot. The Session Settings page
   // can show a larger 'Session Duration'; this is what actually applies.
   app.log.info(`JWT lifetime ceiling: ${JWT_MAX_EXPIRY_HOURS}h (JWT_EXPIRY_HOURS)`);
@@ -591,19 +749,57 @@ try {
   // (set process.env.TZ to change). Missed runs while the process is down are
   // NOT backfilled — same as the old `fill=0s`.
   try {
+    // Log type 6 — background work goes to its own file, so "did the nightly
+    // job run?" is one short file rather than a search through request traffic.
+    const servicesLog = getLogger('cron', 'services');
     const inFlight = new Set<string>();
     const runSweep = async (name: string, fn: () => Promise<unknown>) => {
-      if (inFlight.has(name)) { app.log.warn(`[cron] ${name} still running — skipping this tick`); return; }
+      if (inFlight.has(name)) { servicesLog.warn({ job: name }, `${name} still running — skipping this tick`); return; }
       inFlight.add(name);
+      const startedAt = Date.now();
+      servicesLog.info({ job: name }, `${name} started`);
       try {
         const r = await fn();
-        app.log.info({ job: name, result: r }, `[cron] ${name} completed`);
+        servicesLog.info(
+          { job: name, durationMs: Date.now() - startedAt, result: r },
+          `${name} completed`,
+        );
       } catch (e) {
-        app.log.warn({ job: name, err: e }, `[cron] ${name} failed`);
+        servicesLog.error(
+          { job: name, durationMs: Date.now() - startedAt, err: e },
+          `${name} FAILED`,
+        );
       } finally {
         inFlight.delete(name);
       }
     };
+
+    // ─── Retention: keep the newest N days per channel ────────────────────────
+    //
+    // Runs at BOOT and daily at 00:05. Both are needed:
+    //   - boot covers the machine that is powered off overnight, where the
+    //     00:05 tick never fires while the process is alive. Without it, logs
+    //     would accumulate forever on exactly the deployment we ship to.
+    //   - the daily tick covers the server that stays up for months.
+    // pino-roll's own `limit` does neither reliably — see lib/log-retention.ts.
+    const pruneLogs = async () => {
+      const r = await pruneAllLogs();
+      if (r.errors.length > 0) {
+        servicesLog.warn(
+          { deleted: r.deleted, failed: r.errors.length, firstError: r.errors[0]?.message },
+          `Log retention: deleted ${r.deleted} file(s), ${r.errors.length} could not be removed`,
+        );
+      }
+      return {
+        deletedFiles: r.deleted,
+        removedDates: r.removedDates,
+        keptDays: retentionDays(),
+      };
+    };
+    if (fileLogging.enabled) {
+      await runSweep('log_retention', pruneLogs);
+      cronTasks.push(cron.schedule('5 0 * * *', () => runSweep('log_retention', pruneLogs)));
+    }
 
     // Session reaper — every 5 min (terminates idle/expired sessions + LOGOUT audit)
     cronTasks.push(cron.schedule('*/5 * * * *', () => runSweep('session_sweep', sweepExpiredSessions)));
@@ -613,7 +809,10 @@ try {
     cronTasks.push(cron.schedule('0 3 * * *', () => runSweep('pm_overdue_check', sweepOverdueDeviations)));
 
     jobRunnerStatus = 'running';
-    app.log.info('in-process node-cron scheduler started (session_sweep 5m, password_expiry_check 00:00, pm_overdue_check 03:00)');
+    servicesLog.info(
+      { jobs: ['session_sweep (*/5m)', 'password_expiry_check (00:00)', 'pm_overdue_check (03:00)', 'log_retention (00:05)'] },
+      'in-process node-cron scheduler started',
+    );
   } catch (runnerErr) {
     // Not fatal — the HTTP surface is still usable. But every scheduled job (the
     // PM-overdue sweep, password-expiry warnings, the LOGOUT-writing session
@@ -625,15 +824,50 @@ try {
     );
   }
 } catch (err) {
-  app.log.error(err);
+  // The server could not bind. This is the "application not starting" case the
+  // logs exist for — flush before exiting or the reason never reaches disk.
+  app.log.fatal({ err, port }, `FAILED TO START — could not listen on port ${port}`);
+  flushLogs();
   process.exit(1);
 }
+
+// ─── Crash capture (log type 2) ──────────────────────────────────────────────
+//
+// Without these, a crash leaves NOTHING in the app log — the process is gone
+// before any handler runs, and the operator sees only that the service
+// restarted. flushSync is essential here: the default buffered write would lose
+// the very line that explains the crash.
+process.on('uncaughtException', (err) => {
+  app.log.fatal({ err }, 'UNCAUGHT EXCEPTION — process is exiting');
+  flushLogs();
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  app.log.fatal(
+    { err: reason instanceof Error ? reason : new Error(String(reason)) },
+    'UNHANDLED PROMISE REJECTION — process is exiting',
+  );
+  flushLogs();
+  // EXIT, do not swallow. Node's default since v15 is
+  // `--unhandled-rejections=throw`, so before this handler existed an unhandled
+  // rejection already killed the process and WinSW restarted it clean
+  // (onfailure restart, 10s). Merely REGISTERING a handler suppresses that
+  // default — the process would limp on in whatever broken state produced the
+  // rejection. Changing crash semantics is not a logging task's business, so we
+  // add the evidence and keep the old outcome.
+  process.exit(1);
+});
 
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down gracefully...`);
   const shutdownTimeout = setTimeout(() => {
-    console.error('[SHUTDOWN] Timed out after 15s, forcing exit');
+    // A hung shutdown is a real fault (an open handle, a stuck DB call) and the
+    // service manager will just restart us — so this must land on disk, not
+    // only on a console nobody is watching. flushLogs() before exit is what
+    // makes that true.
+    app.log.fatal({ signal }, 'Shutdown timed out after 15s — forcing exit');
+    flushLogs();
     process.exit(1);
   }, 15000);
   shutdownTimeout.unref();
@@ -645,9 +879,18 @@ const shutdown = async (signal: string) => {
     }
 
     await app.close();
+    // Close the DB pool explicitly and record it. Without this line the database
+    // log shows a connect with no matching disconnect, so a clean stop and a
+    // process that was killed look identical in the file.
+    const { disconnectDatabase } = await import('./lib/prisma.js');
+    await disconnectDatabase();
+    app.log.info(`Shutdown complete (${signal})`);
   } catch (err) {
     app.log.error(err as Error, 'Error during shutdown');
   }
+  // Last act: push every buffered line to disk. Without this the shutdown lines
+  // themselves — the record of WHY the service stopped — are lost.
+  flushLogs();
   process.exit(0);
 };
 

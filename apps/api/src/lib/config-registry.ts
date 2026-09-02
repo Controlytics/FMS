@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { prisma } from './prisma.js';
 import type { RequestContext } from '../types/context.js';
+import { getLogger } from './logger.js';
+
+const registryLog = getLogger('config-registry', 'application');
 
 // ─── Setting Field Types ─────────────────────────────────
 export type SettingType =
@@ -111,7 +114,7 @@ class ConfigRegistry {
 
   register(def: ModuleConfigDefinition): void {
     if (this.definitions.has(def.moduleKey)) {
-      console.warn(`Config registry: overwriting ${def.moduleKey}`);
+      registryLog.warn({ moduleKey: def.moduleKey }, `Overwriting config definition ${def.moduleKey}`);
     }
     this.definitions.set(def.moduleKey, def);
   }
@@ -171,7 +174,7 @@ class ConfigRegistry {
             requiresReauth: def.requiresReauth,
           },
         });
-        console.info(`Config registry: seeded defaults for ${def.moduleKey}`);
+        registryLog.info({ moduleKey: def.moduleKey }, `Seeded defaults for ${def.moduleKey}`);
       }
     }
   }

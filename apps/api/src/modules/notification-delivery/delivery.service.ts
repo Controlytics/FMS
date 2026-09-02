@@ -9,6 +9,11 @@ import { smsChannel } from './channels/sms-channel.js';
 import { resolveTemplate } from './template-engine.js';
 import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
 import type { NotificationPayload, DeliveryResult, NotificationChannel } from './types.js';
+import { getLogger } from '../../lib/logger.js';
+
+/** Log type 6. NOTE: `log` is already a local variable in this file (a
+ *  NotificationLog row), hence the distinct name. */
+const deliveryLog = getLogger('notification-delivery', 'services');
 
 const channels: Record<string, NotificationChannel> = {
   EMAIL: emailChannel,
@@ -80,10 +85,7 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
     // Fire-and-forget retry (don't block the caller) — but log failures so
     // a broken retry path doesn't silently drop notifications.
     scheduleRetry(log.id, resolvedPayload, 1).catch((schedErr) => {
-      console.error(
-        `[notification-delivery] scheduleRetry failed for log ${log.id} (attempt 1):`,
-        schedErr,
-      );
+      deliveryLog.error({ err: schedErr, logId: log.id, attempt: 1 }, 'scheduleRetry failed');
     });
   }
 
@@ -147,10 +149,7 @@ async function scheduleRetry(logId: string, payload: NotificationPayload, attemp
         },
       });
       scheduleRetry(logId, payload, nextAttempt).catch((schedErr) => {
-        console.error(
-          `[notification-delivery] scheduleRetry failed for log ${logId} (attempt ${nextAttempt}):`,
-          schedErr,
-        );
+        deliveryLog.error({ err: schedErr, logId, attempt: nextAttempt }, 'scheduleRetry failed');
       });
     }
   }

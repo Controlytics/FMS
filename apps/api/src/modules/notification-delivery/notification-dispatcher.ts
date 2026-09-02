@@ -6,6 +6,10 @@ import { prisma } from '../../lib/prisma.js';
 import { sendNotification } from './delivery.service.js';
 import { resolveTemplate } from './template-engine.js';
 import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
+import { getLogger } from '../../lib/logger.js';
+
+/** Log type 6 — notification delivery is background work with external deps. */
+const notifyLog = getLogger('notifications', 'services');
 
 interface DispatchEvent {
   eventType: string;
@@ -153,7 +157,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
           message: body,
           triggeredBy: 'notification-rule',
           metadata: { ruleName: rule.name, eventType, userId: user.id, ruleId: rule.id },
-        }).catch(err => console.error(`[Dispatcher] Email to ${user.email} failed:`, err.message));
+        }).catch(err => notifyLog.error({ err, to: user.email, rule: rule.name, eventType }, 'Email delivery failed'));
       }
 
       // SMS
@@ -169,7 +173,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
             message: body,
             triggeredBy: 'notification-rule',
             metadata: { ruleName: rule.name, eventType, userId: user.id, ruleId: rule.id },
-          }).catch(err => console.error(`[Dispatcher] SMS to ${phone} failed:`, err.message));
+          }).catch(err => notifyLog.error({ err, to: phone, rule: rule.name, eventType }, 'SMS delivery failed'));
         }
       }
 
@@ -193,7 +197,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
             },
           });
         } catch (err: any) {
-          console.error(`[Dispatcher] In-app notification for ${user.username} failed:`, err.message);
+          notifyLog.error({ err, user: user.username, rule: rule.name, eventType }, 'In-app notification failed');
         }
       }
     }

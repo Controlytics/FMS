@@ -3,6 +3,9 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import type { RequestContext } from '../../types/context.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { getLogger } from '../../lib/logger.js';
+
+const blockChangeLog = getLogger('block-change-requests', 'application');
 
 export const blockChangeService = {
   /**
@@ -94,7 +97,7 @@ export const blockChangeService = {
         await createNotification({ ...baseMsg, forRole: 'SUPER_ADMIN' });
       }
     } catch (e) {
-      console.error('[block-change] Failed to dispatch approval notification:', (e as Error).message);
+      blockChangeLog.error({ err: e }, 'Failed to dispatch block-change approval notification');
     }
 
     return request;
@@ -174,7 +177,7 @@ export const blockChangeService = {
         createdBy: ctx.userId,
       });
     } catch (e) {
-      console.error('[block-change] Failed to dispatch process notification:', (e as Error).message);
+      blockChangeLog.error({ err: e }, 'Failed to dispatch block-change process notification');
     }
 
     return updated;

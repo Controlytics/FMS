@@ -87,7 +87,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
 - **Config:** **37 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **34** corresponding pages (`uns.def` + `retention.def` removed 2026-06-17; `ahu-completion-process.def.ts` added 2026-07-01; `export-limit.def.ts` added 2026-07-14 — configurable max export records + message, renders via the dynamic config page so no new `routes/config/*.tsx`; `backup-format.def.ts` added 2026-08-08 — default backup file format, same dynamic-page pattern)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
 - **Frontend:** **77 Routes** in `main.tsx`, **29** custom hooks, **39** lib modules (hook/lib counts re-verified by `ls` 2026-08-08 — the prior 26/30 were stale)
-- **Scheduler:** **in-process `node-cron`** in `apps/api/src/app.ts` — **3 jobs**: `session_sweep` (5 min), `password_expiry_check` (00:00), `pm_overdue_check` (03:00). (`pm_series_rollover` at 03:30 went with the 2026-08-27 recurring-PM revert.) **No job queue.** `packages/queue` + the `graphile-worker` dependency were DELETED 2026-08-26: `startJobRunner` had no caller after the 2026-07-25 move to node-cron, and the queue's job types all belonged to the Phase-7 ingestion tear-out. These jobs only run while the API process is up — `/api/health` reports `jobRunner`. The ONLY scheduler outside the app is the Windows Scheduled Task the installer registers for DB backups (daily 01:30).
+- **Scheduler:** **in-process `node-cron`** in `apps/api/src/app.ts` — **4 jobs**: `session_sweep` (5 min), `password_expiry_check` (00:00), `log_retention` (00:05, added 2026-08-31 — also runs once at boot), `pm_overdue_check` (03:00). (`pm_series_rollover` at 03:30 went with the 2026-08-27 recurring-PM revert.) **No job queue.** `packages/queue` + the `graphile-worker` dependency were DELETED 2026-08-26: `startJobRunner` had no caller after the 2026-07-25 move to node-cron, and the queue's job types all belonged to the Phase-7 ingestion tear-out. These jobs only run while the API process is up — `/api/health` reports `jobRunner`. The ONLY scheduler outside the app is the Windows Scheduled Task the installer registers for DB backups (daily 01:30).
 - **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
 ## Important Notes
@@ -507,6 +507,86 @@ the **Lifecycle** expander, on the event they belong to.
 **Row actions are no longer hover-only.** 17 action clusters used
 `opacity-0 group-hover:opacity-100`; there is no hover on a tablet, and an
 operator cannot discover an action they cannot see.
+
+## Operational logging (2026-08-31)
+
+**When something is broken, read `logs/app/error/` first.** Every warning and
+error from every module is duplicated there, so one file answers "what broke?".
+
+`LOG_DIR` (installer: `C:\ProgramData\DigiLog\logs`; dev default:
+`apps/api/logs`) resolves through `lib/log-dir.ts`, mirroring `uploads-dir.ts`.
+Our files live under `<LOG_DIR>/app/`; WinSW's service logs stay in `<LOG_DIR>/`.
+
+**These are NOT the §11 audit trail.** `audit_trail` is hash-chained, immutable
+and retained permanently. These files ROTATE — they are deleted after 7 days.
+Nothing that is a §11 record may ever live only here.
+
+### The 8 log types
+
+| # | Channel | Directory | What it answers |
+|---|---|---|---|
+| 1 | *(fan-in of every warn+)* | `error/` | "something broke — what?" |
+| 2 | `application` | `application/` | boot, resolved config, shutdown, crash |
+| 3 | `http` | `http/` | one line/request: method, url, status, ms, user, IP, reqId |
+| 4 | `database` | `database/` | connect/disconnect, Prisma errors, slow queries (>`SLOW_QUERY_MS`, default 500) |
+| 5 | *(Postgres itself)* | `<DataRoot>/db/log/` | the DB refusing connections — see `provision-db.ps1` |
+| 6 | `services` | `services/` | cron ticks, notifications, LDAP, SMTP, backup |
+| 7 | `security` | `security/` | login/logout, rejected tokens, 403s, rate limits |
+| 8 | `mod:<name>` | `modules/<name>/` | filter-operations, sync, pm-schedules, backup |
+
+**See what every channel looks like:** `cd apps/api && npm run logs:sample`
+writes a fully-populated set of all 10 files to `apps/api/logs-sample/app/`
+(gitignored, excluded from the production build — it writes FABRICATED events and
+must never run against a customer machine). Useful as a format reference and as a
+smoke test after touching the formatter.
+
+Write to one with `getLogger('<module>', '<channel>')`, or `getModuleLogger()`
+for a type-8 channel. **A module channel must be in `MODULE_CHANNELS`
+(`lib/logger.ts`)** — streams are opened up front because the write path is
+synchronous; an unlisted `mod:` channel falls back to `application` with a
+one-time warning rather than being dropped.
+
+### Rules that are load-bearing
+
+- **stdout is never removed.** WinSW captures it and is the only thing that sees
+  a crash before the logger exists (e.g. the TLS `readFileSync` at module load).
+  Files are an addition, not a replacement.
+- **Retention is ours, not pino-roll's.** pino-roll only prunes inside `roll()`,
+  which fires on the midnight timer — on a PC powered off overnight that never
+  happens and files accumulate forever. And its two cleanup branches disagree by
+  one, so "7" could mean 8. `lib/log-retention.ts` keeps the newest 7 **dates**
+  per channel (a size-split day counts once), runs at boot AND at 00:05, and
+  deletes only files matching `<base>.<yyyy-MM-dd>.<n>.log`. Locked by
+  `lib/__tests__/log-retention.test.ts`.
+- **One directory per channel.** pino-roll's `detectLastNumber()` scans the whole
+  directory and takes the highest trailing number from *any* file in it, so
+  co-locating channels makes one inherit another's file number.
+- **Streams are `sync: false`.** Crash-safety comes from `flushLogs()`, wired
+  into all four death paths (uncaughtException, SIGTERM/SIGINT, shutdown
+  timeout, failed listen). `sync: true` would put a blocking disk write on the
+  request path.
+- **Redaction is explicit paths in `lib/logger.ts`**, NOT `mask-secrets.ts` —
+  that is an allowlist for audit config payloads and would redact a whole body.
+- 🔴 **Routing is bound as `__chan` / `__mod`, never `channel` / `module`.** pino
+  merges a call's context object OVER the child's bindings, so a call site
+  passing a field with one of those names silently re-routed its own line to a
+  different FILE. Live case: a notification carries `channel: 'EMAIL'`, and
+  `notify.info({ channel: 'EMAIL' }, …)` landed in `application/` instead of
+  `services/`. Found by generating realistic samples, not by a unit test — now
+  locked by one in `__tests__/logger-redaction.test.ts`.
+- **`formatValue` escapes embedded quotes (`\"`), never substitutes them.** An
+  earlier version replaced `"` with `'`, which rewrote logged SQL: Postgres
+  identifiers are double-quoted, so the recorded query was not the query that ran.
+- **Login is logged in `modules/auth/routes.ts`, not the global hook**: a failed
+  login has no `req.user`, so the hook could only say "anonymous", and the
+  attempted username is the point. A 401 with **no** Authorization header is
+  deliberately NOT a security event — the auth hook runs before routing, so
+  every scanner probe and typo answers 401 and would flood the channel.
+- No config def for log level — `LOG_LEVEL` / `LOG_RETENTION_DAYS` are env vars.
+- `scripts/collect-logs.ps1` zips all four sources (app, WinSW, Postgres, Windows
+  Event Log) plus a live snapshot. Read-only; safe to run while services are up.
+
+Plan + decision log: [`tasks/LOGGING-INTEGRATION-PLAN.md`](tasks/LOGGING-INTEGRATION-PLAN.md).
 
 ## Documentation Sync Rule
 

@@ -1,4 +1,7 @@
 import { configRegistry } from './config-registry.js';
+import { getLogger } from './logger.js';
+
+const discoveryLog = getLogger('config-discovery', 'application');
 
 /**
  * Discover and register all module config definitions.
@@ -71,7 +74,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
   // (offline-sync + rfid-scanner settings were never read; role-privileges + sidebar-config pages never existed)
   await cleanupDeadConfigKeys();
 
-  console.info(`[config-registry] ${configRegistry.size} modules registered`);
+  discoveryLog.info({ modules: configRegistry.size }, `${configRegistry.size} config modules registered`);
 }
 
 async function cleanupDeadConfigKeys(): Promise<void> {
@@ -79,7 +82,7 @@ async function cleanupDeadConfigKeys(): Promise<void> {
   const deadKeys = ['offline-sync', 'rfid-scanner', 'role-privileges', 'sidebar-config', 'uns', 'retention'];
   const res = await prisma.systemConfig.deleteMany({ where: { configKey: { in: deadKeys } } });
   if (res.count > 0) {
-    console.info(`[config-migration] removed ${res.count} dead config row(s): ${deadKeys.join(', ')}`);
+    discoveryLog.info({ removed: res.count, keys: deadKeys }, `Removed ${res.count} dead config row(s)`);
   }
 }
 
@@ -100,5 +103,5 @@ async function migrateFilterPmScheduleIntoPmSettings(): Promise<void> {
     });
   }
   await prisma.systemConfig.delete({ where: { configKey: 'filter-pm-schedule' } });
-  console.info('[config-migration] merged filter-pm-schedule into pm-schedule-settings');
+  discoveryLog.info('Merged filter-pm-schedule into pm-schedule-settings');
 }

@@ -20,6 +20,9 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import type { BatchReadCache } from './batch-cache.js';
+import { getModuleLogger } from '../../lib/logger.js';
+
+const interlockLog = getModuleLogger('filter-operations');
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
@@ -237,7 +240,7 @@ export async function notifyStageApprovalRequested(
       createdBy: ctx.userId,
     });
   } catch (e) {
-    console.error('[stage-interlock] notify approver failed:', (e as Error).message);
+    interlockLog.error({ err: e }, 'Stage-interlock: notifying the approver failed');
   }
 }
 

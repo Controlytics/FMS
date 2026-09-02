@@ -1,6 +1,9 @@
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import type { BackupData } from './backup.helpers.js';
+import { getModuleLogger } from '../../lib/logger.js';
+
+const restoreLog = getModuleLogger('backup');
 
 // ---------------------------------------------------------------------------
 // Safe-identifier guard (audit S-14)
@@ -650,7 +653,7 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     // Warn on backup tables not present in the DB (e.g., migrated-out tables)
     for (const key of Object.keys(data)) {
       if (!dbTableSet.has(key) && !EXCLUDED_TABLES.has(key)) {
-        console.warn(`[backup/restore] Skipping unknown table in backup: ${key}`);
+        restoreLog.warn({ table: key }, `Skipping unknown table in backup: ${key}`);
       }
     }
 

@@ -1,5 +1,8 @@
 import * as jose from 'jose';
 import { randomBytes } from 'node:crypto';
+import { getLogger } from './logger.js';
+
+const jwtLog = getLogger('jwt', 'security');
 
 function getSecret(envVar: string, name: string): Uint8Array {
   const value = process.env[envVar];
@@ -9,7 +12,7 @@ function getSecret(envVar: string, name: string): Uint8Array {
       throw new Error(`FATAL: ${envVar} must be set to a string of at least 32 characters in production/staging.`);
     }
     const generated = randomBytes(32).toString('hex');
-    console.warn(`WARNING: ${envVar} not set or too short. Using random secret for this session. Set ${envVar} in .env for persistent sessions.`);
+    jwtLog.warn({ envVar }, `${envVar} not set or too short - using a RANDOM secret for this session. Every existing token is invalid and all sessions drop on restart. Set ${envVar} in the env file.`);
     return new TextEncoder().encode(generated);
   }
   return new TextEncoder().encode(value);

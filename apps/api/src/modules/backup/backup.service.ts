@@ -39,6 +39,9 @@ import {
   generateCsv,
   type BackupData,
 } from './backup.helpers.js';
+import { getModuleLogger } from '../../lib/logger.js';
+
+const backupLog = getModuleLogger('backup');
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -360,7 +363,7 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
       // Corrupted _metadata.json. Restore can still proceed with default
       // metadata, but a malformed metadata file is a real signal that the
       // backup may be partially corrupt — log so QA can investigate.
-      console.warn('[backup] _metadata.json could not be parsed; using defaults:', err);
+      backupLog.warn({ err }, '_metadata.json could not be parsed; using defaults');
     }
   }
 

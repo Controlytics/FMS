@@ -2,6 +2,10 @@ import { Client } from 'ldapts';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
+import { getLogger } from '../../lib/logger.js';
+
+/** Log type 6 — an external system we depend on; its failures are ops events. */
+const ldapLog = getLogger('ldap', 'services');
 
 /**
  * Escape a string for safe use as an LDAP search-filter assertion value.
@@ -240,7 +244,7 @@ export const ldapService = {
         groups,
       };
     } catch (err: any) {
-      console.error('[LDAP] Authentication error:', err.message);
+      ldapLog.error({ err }, 'LDAP authentication error');
       // Best-effort unbind. If the socket is already torn down by the
       // server (common on auth failures), unbind() rejects with "client
       // is not connected" — that's not an actionable error for the caller,
@@ -249,7 +253,7 @@ export const ldapService = {
       try {
         await client.unbind();
       } catch (unbindErr: any) {
-        console.warn('[LDAP] unbind after auth error failed:', unbindErr?.message ?? unbindErr);
+        ldapLog.warn({ err: unbindErr }, 'LDAP unbind after auth error failed');
       }
       return null;
     }
@@ -314,7 +318,7 @@ export const ldapService = {
         signatureMeaning: `User "${username}" auto-provisioned from LDAP with role "${role}"`,
       });
     } catch (auditErr: any) {
-      console.error('[LDAP] Audit write failed for auto-provisioned user:', auditErr?.message ?? auditErr);
+      ldapLog.error({ err: auditErr, username }, 'Audit write FAILED for auto-provisioned LDAP user');
     }
 
     return user;
@@ -367,7 +371,7 @@ export const ldapService = {
               : `User "${before?.username ?? userId}" attributes synced from LDAP`,
           });
         } catch (auditErr: any) {
-          console.error('[LDAP] Audit write failed for attribute sync:', auditErr?.message ?? auditErr);
+          ldapLog.error({ err: auditErr, userId }, 'Audit write FAILED for LDAP attribute sync');
         }
       }
     }

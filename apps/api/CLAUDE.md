@@ -66,6 +66,18 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
 - `config-registry.ts` — Self-registering config module pattern
 - `jwt.ts` — JWT token management
 - `reauth-check.ts` — Re-authentication enforcement with 10s in-memory cache
+- `logger.ts` — the app's ONE logger (2026-08-31). Root pino built here and handed
+  to Fastify via `loggerInstance`, not the other way round, so `lib/` files with no
+  Fastify instance write to the same files. `getLogger(module, channel)` /
+  `getModuleLogger(name)`. Channels: `application`, `http`, `database`, `services`,
+  `security`, plus `mod:<name>` for the four modules in `MODULE_CHANNELS`. Every
+  warn+ is duplicated into the `error` channel. stdout is always written too —
+  it is the only thing WinSW can capture before this module loads.
+- `log-format.ts` — pino JSON → one readable plain-text block. Pure, unit-tested.
+- `log-dir.ts` — `LOG_DIR` resolution (mirrors `uploads-dir.ts`) + per-channel dirs.
+- `log-retention.ts` — keeps the newest **7 dates** per channel. Runs at boot and
+  at 00:05. Deliberately replaces pino-roll's `limit`, which only prunes during a
+  midnight roll (never fires on a PC powered off overnight) and is off by one.
 
 ## Testing
 

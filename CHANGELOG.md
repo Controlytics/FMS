@@ -410,6 +410,144 @@ at the gate.
   ("Sync failed: Permission denied" in the header). Operator's call — either
   untick Filter Cleaning for the role or grant the permission.
 
+## [Unreleased] - Operational logging: 8 channels, plain text, 7-day retention (2026-08-31)
+
+Before this, the application wrote pino JSON to stdout and **nothing to disk**.
+In the packaged Windows service that stdout landed in WinSW's log as a wall of
+JSON; on a dev box it scrolled past in a terminal. Diagnosing "the app isn't
+working" after the fact was not possible for any of the four things it could
+mean — app, database, API, or a background service.
+
+### Added - eight log types, one readable line per event
+
+`<LOG_DIR>/app/` now carries one directory per channel:
+
+| Channel | Answers |
+|---|---|
+| `error/` | every warn+ from every module, duplicated here — **read this first** |
+| `application/` | boot, the config actually resolved, shutdown, crashes |
+| `http/` | one line per request: method, url, status, ms, user, IP, reqId |
+| `database/` | connect/disconnect, Prisma errors, slow queries (>500 ms) |
+| `services/` | cron ticks, notification dispatch, LDAP, SMTP, backup |
+| `security/` | login/logout, rejected tokens, 403s, rate limits |
+| `modules/<name>/` | filter-operations, sync, pm-schedules, backup |
+
+Plus the PostgreSQL server's own log (type 5), configured in
+`scripts/provision-db.ps1` — the only evidence when the database refuses
+connections and the API never gets far enough to log anything.
+
+Format is plain text, local wall-clock time, greppable — never JSON:
+
+```
+2026-08-31 14:22:01.184  ERROR  [filter-operations]  Failed to advance cycle
+    reqId=a3f9 user=101012 role=OPERATOR cycleId=8821
+    PrismaClientKnownRequestError (P2002): Unique constraint failed
+        at advanceStage (service.ts:412)
+```
+
+New: `lib/logger.ts`, `lib/log-format.ts`, `lib/log-dir.ts`,
+`lib/log-retention.ts`, `types/pino-roll.d.ts`, `scripts/collect-logs.ps1`.
+Deps `pino` + `pino-roll` (pino was previously only a transitive dep of Fastify).
+26 new unit tests.
+
+### Added - crash and lifecycle capture
+
+`uncaughtException`, `unhandledRejection`, a failed `listen()`, and a hung
+shutdown now each write a FATAL line and `flushSync()` before exiting.
+Previously a crash left nothing behind and the operator saw only that the
+service had restarted.
+
+**`unhandledRejection` still exits(1).** Node's default since v15 is
+`--unhandled-rejections=throw`, so before this handler existed an unhandled
+rejection already killed the process and WinSW restarted it clean. Merely
+*registering* a handler suppresses that default — the process would limp on in
+whatever state produced the rejection. A logging change must not alter crash
+semantics, so the handler adds the evidence and keeps the old outcome.
+
+Graceful-shutdown lines (`Database disconnected cleanly`, `Shutdown complete`)
+are **unverified on Windows**: a detached process cannot be sent a graceful close
+here, so every test stop was a hard `TerminateProcess`. The handler is
+pre-existing; confirm on an installed box with `sc.exe stop DigiLogAPI`. See the
+plan doc. Boot logs the **resolved** port, TLS state, allowed
+origins, uploads dir and DB identity — "it isn't working" is usually a config
+question, and the log now answers it without opening `digilog.env`.
+
+### Retention - exactly 7 days per channel, ours not the library's
+
+`limit` in pino-roll is deliberately unused. Read from its source: `removeOldFiles()`
+runs **only inside `roll()`**, which fires on the midnight timer — on a plant PC
+powered off overnight that never fires while the process is alive and files
+accumulate forever. Its two cleanup branches also disagree by one, so `7` could
+mean 8.
+
+`lib/log-retention.ts` keeps the newest 7 **dates** per channel, runs at boot
+**and** at 00:05 (so restart pattern is irrelevant), groups a size-split day as
+one day (a busy afternoon can never evict the rest of the week), and deletes only
+files matching `<base>.<yyyy-MM-dd>.<n>.log` — an operator's saved copy or a zip
+in the same folder is left alone. Postgres gets the same 7 days from its own
+`log_filename='postgresql-%a.log'` + `log_truncate_on_rotation=on`.
+
+### Changed - 38 `console.*` calls became channel-routed log lines
+
+Across 14 files. In the packaged service those had been going nowhere useful.
+`lib/prisma.ts` switched to event-based Prisma logging so the slow-query
+threshold can apply; `getLogger()` lives in `lib/` precisely so the five
+`console.*` sites there (jwt, reauth-check, offline-replay-token,
+config-discovery, config-registry) could join the same tree — they have no
+Fastify instance to reach for.
+
+`get-current-state.test.ts` spied on `console.warn`; it now spies on the module
+logger and asserts the structured context, which is the real contract.
+
+### Changed - installer
+
+`install.ps1` writes `LOG_DIR` into `digilog.env`, and **appends it on upgrade**
+if absent — without that, an upgraded install would log into the program dir,
+which the next upgrade deletes. `provision-db.ps1` configures Postgres logging.
+
+### Not changed - the audit trail
+
+These logs are operational and are **deleted after 7 days**. `audit_trail`
+remains the 21 CFR Part 11 record: hash-chained, immutable, permanent,
+SUPER_ADMIN-scoped. Nothing that is a §11 record may live only in these files.
+
+### Fixed - two defects found by generating realistic sample data
+
+Both were invisible to the unit tests and would have shipped:
+
+- **A context field named `channel` silently re-routed its own log line to a
+  different file.** pino merges a call's context object over the child logger's
+  bindings, and routing was bound as plain `channel`. A notification genuinely
+  carries `channel: 'EMAIL' | 'SMS' | 'IN_APP'`, so
+  `notify.info({ channel: 'EMAIL' }, …)` wrote into `application/` instead of
+  `services/`. Routing now binds `__chan` / `__mod`; `channel` and `module` are
+  ordinary context again and render normally.
+- **Logged SQL was being rewritten.** `formatValue` replaced embedded `"` with
+  `'` to avoid breaking its own quoting — which turned
+  `SELECT "public"."audit_trail"` into `SELECT 'public'.'audit_trail'`: not the
+  query that ran, and not runnable if pasted into psql. Quotes are escaped now.
+
+### Added - `npm run logs:sample`
+
+Fills all 10 channel files with representative entries at every level
+(`apps/api/logs-sample/`, gitignored, excluded from the production build — it
+writes fabricated events and must never run on a customer machine). It is a
+format reference for operators and a smoke test for the formatter; it is what
+surfaced both defects above.
+
+### Security notes
+
+- Passwords and tokens are redacted at source via pino `redact` paths — not
+  `mask-secrets.ts`, which is an allowlist for audit config payloads and applied
+  to a request body would redact everything.
+- A failed login is logged **with the attempted username**, in
+  `modules/auth/routes.ts` rather than the global hook — a failed login has no
+  `req.user`, so the hook could only ever record "anonymous".
+- A 401 with **no** Authorization header is not treated as a security event. The
+  auth hook runs before routing, so every scanner probe and mistyped URL answers
+  401; logging those would push real denials out of the 7-day window. The `http`
+  channel still records them.
+
 ## [Unreleased] - PM schedules: many irregular visits per AHU, with overlap refused (2026-08-27)
 
 A year's PM schedule is uploaded in one file in which the same AHU appears many

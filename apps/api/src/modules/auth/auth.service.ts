@@ -11,6 +11,10 @@ import { authRepository } from './auth.repository.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 import { invalidateSessionAuthCache } from '../../plugins/auth.js';
+import { getLogger } from '../../lib/logger.js';
+
+/** Log type 7 — who logged in, who was refused, who was locked out. */
+const authLog = getLogger('auth', 'security');
 
 const DUMMY_HASH = '$2b$12$7fXFzVUc/0SLHtxesM41PODN09mcQBJ0QB/uy7BQHDWzsklxK9yh6';
 
@@ -79,7 +83,7 @@ export async function applyFailedPasswordAttempt(
       reason: 'Multiple failed login attempts', failedAttempts: String(newAttempts),
       ipAddress: ip ?? 'N/A', timestamp: new Date().toISOString(),
     },
-  }).catch(err => console.error('[UserLocked] Notification dispatch failed:', err.message));
+  }).catch(err => authLog.warn({ err }, 'Account-locked notification dispatch failed'));
 
   return { locked: true };
 }
@@ -100,7 +104,7 @@ export const authService = {
           }
         }
       } catch (ldapErr: any) {
-        console.error('[LDAP] Auto-provision error:', ldapErr.message);
+        authLog.error({ err: ldapErr }, 'LDAP auto-provision failed');
       }
 
       if (!user) {
@@ -156,7 +160,7 @@ export const authService = {
         }
       } catch (err: any) {
         if (err instanceof AppError) throw err;
-        console.error('[LDAP] Auth error: LDAP authentication failed');
+        authLog.error({ err }, 'LDAP authentication failed');
         throw new AppError(401, 'LDAP_ERROR', 'LDAP authentication failed. Contact administrator.');
       }
     }
@@ -282,7 +286,7 @@ export const authService = {
         role: user.role, ipAddress: ip ?? 'N/A',
         timestamp: new Date().toISOString(),
       },
-    }).catch(err => console.error('[UserLogin] Notification dispatch failed:', err.message));
+    }).catch(err => authLog.warn({ err }, 'Login notification dispatch failed'));
 
     return {
       success: true, token,

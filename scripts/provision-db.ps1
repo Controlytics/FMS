@@ -80,9 +80,48 @@ try {
   Remove-Item $pwFile -Force -ErrorAction SilentlyContinue
 }
 
-# 2. Pin port + localhost-only in postgresql.conf
+# 2. Pin port + localhost-only + server logging in postgresql.conf
+#
+# Log type 5 (the Postgres server log). The API's own database channel
+# (lib/prisma.ts) can only report faults the API is alive to see; when the
+# postmaster refuses connections, crashes, or runs out of disk, the evidence
+# exists ONLY here.
+#
+# Retention is Postgres's own, and it is exactly 7 days with no code and no
+# sweep: '%a' names the file by weekday abbreviation (postgresql-Mon.log ...
+# postgresql-Sun.log), log_rotation_age rolls daily, and log_truncate_on_rotation
+# empties next Monday's file when it comes round again. Seven files, recycled
+# forever, matching the app-log retention rule in lib/log-retention.ts.
+#
+# log_rotation_size = 0 is REQUIRED: left at its default a busy day would roll
+# on size mid-day and, with a weekday-only filename, immediately truncate the
+# same file it was writing - losing that morning's log.
 $conf = Join-Path $DataDir 'postgresql.conf'
-Add-Content -Path $conf -Value "`n# --- DigiLog installer overrides ---`nport = $Port`nlisten_addresses = 'localhost'`n"
+$pgLogSettings = @"
+
+# --- DigiLog installer overrides ---
+port = $Port
+listen_addresses = 'localhost'
+
+# --- DigiLog logging (7-day rolling, by weekday) ---
+logging_collector = on
+log_destination = 'stderr'
+log_directory = 'log'
+log_filename = 'postgresql-%a.log'
+log_rotation_age = 1d
+log_rotation_size = 0
+log_truncate_on_rotation = on
+log_line_prefix = '%m [%p] %q%u@%d '
+log_connections = on
+log_disconnections = on
+log_checkpoints = on
+log_lock_waits = on
+log_min_duration_statement = 1000
+log_min_messages = warning
+log_timezone = 'localtime'
+
+"@
+Add-Content -Path $conf -Value $pgLogSettings
 
 # 3. Start the cluster
 Run $pgctl @('-D', $DataDir, '-l', $pgLog, '-w', 'start') "start cluster on :$Port"

@@ -34,6 +34,9 @@
  */
 import * as jose from 'jose';
 import { randomBytes } from 'node:crypto';
+import { getLogger } from './logger.js';
+
+const replayLog = getLogger('offline-replay', 'security');
 
 function getOfflineSecret(): Uint8Array {
   const explicit = process.env.OFFLINE_REPLAY_SECRET;
@@ -53,15 +56,11 @@ function getOfflineSecret(): Uint8Array {
     // Mix in a constant separator + random tail so the offline secret differs
     // from the JWT secret even when JWT_SECRET is reused.
     const mixed = jwtSecret + '|offline-replay|' + randomBytes(16).toString('hex');
-    console.warn(
-      'WARNING: OFFLINE_REPLAY_SECRET not set. Deriving per-session secret from JWT_SECRET. Set OFFLINE_REPLAY_SECRET in .env for persistence across restarts.',
-    );
+    replayLog.warn('OFFLINE_REPLAY_SECRET not set - deriving it from JWT_SECRET. Offline grants will not survive a restart. Set OFFLINE_REPLAY_SECRET in the env file.');
     return new TextEncoder().encode(mixed);
   }
   const generated = randomBytes(32).toString('hex');
-  console.warn(
-    'WARNING: OFFLINE_REPLAY_SECRET not set and no JWT_SECRET available. Using random per-session secret. Set OFFLINE_REPLAY_SECRET in .env for persistence.',
-  );
+  replayLog.warn('OFFLINE_REPLAY_SECRET and JWT_SECRET both unset - using a RANDOM per-session secret. Offline replay grants break on every restart.');
   return new TextEncoder().encode(generated);
 }
 

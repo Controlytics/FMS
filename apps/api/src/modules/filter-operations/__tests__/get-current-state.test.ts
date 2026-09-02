@@ -15,6 +15,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 
 // ── prisma mock + dependency mocks ────────────────────────────────────────
+const { mockLogger } = vi.hoisted(() => ({
+  // The defensive snapshot-missing path used to be a bare `console.warn`. It now
+  // writes to the filter-operations log channel (lib/logger.ts), so the spy has
+  // to follow it — asserting on `console` would silently stop testing anything.
+  mockLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+
+vi.mock('../../../lib/logger.js', () => ({
+  getLogger: () => mockLogger,
+  getModuleLogger: () => mockLogger,
+}));
+
 const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
   mockPrisma: {
     assetInstance: { findFirst: vi.fn(), findUnique: vi.fn() },
@@ -208,17 +220,13 @@ describe('FilterOperationsService.getCurrentState() — L1 + L2 invariants', () 
       };
       mockPrisma.equipmentGroup.findUnique.mockResolvedValue(liveGroup);
 
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      try {
-        const { service } = makeService();
-        const state = await service.getCurrentState(ctx, FILTER_ID);
+      mockLogger.warn.mockClear();
+      const { service } = makeService();
+      const state = await service.getCurrentState(ctx, FILTER_ID);
 
-        expect(state.equipmentGroup).toBe(liveGroup);
-        // Lazy-first-version is the EXPECTED state — NOT a warning case.
-        expect(warnSpy).not.toHaveBeenCalled();
-      } finally {
-        warnSpy.mockRestore();
-      }
+      expect(state.equipmentGroup).toBe(liveGroup);
+      // Lazy-first-version is the EXPECTED state — NOT a warning case.
+      expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
     it('case 3: pin set + no snapshot row + live.version !== pin → returns live row spread with snapshotMissing flag AND warns', async () => {
@@ -234,30 +242,28 @@ describe('FilterOperationsService.getCurrentState() — L1 + L2 invariants', () 
       };
       mockPrisma.equipmentGroup.findUnique.mockResolvedValue(liveGroup);
 
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      try {
-        const { service } = makeService();
-        const state = await service.getCurrentState(ctx, FILTER_ID);
+      mockLogger.warn.mockClear();
+      const { service } = makeService();
+      const state = await service.getCurrentState(ctx, FILTER_ID);
 
-        // Audit 2026-05-05 fix #6: pre-fix returned the live row AS-IS with
-        // a console.warn — operators saw stale dropdowns until advance()
-        // finally threw 409 GROUP_VERSION_MISSING. Now the response carries
-        // snapshotMissing/pinnedVersion/liveVersion so the FE can disable
-        // submission upfront.
-        expect(state.equipmentGroup).toMatchObject({
-          ...liveGroup,
-          snapshotMissing: true,
-          pinnedVersion: 3,
-          liveVersion: 5,
-        });
-        expect(warnSpy).toHaveBeenCalledTimes(1);
-        const msg = warnSpy.mock.calls[0][0] as string;
-        expect(msg).toContain('equipmentGroupVersionPin=3');
-        expect(msg).toContain(GROUP_ID);
-        expect(msg).toContain(CYCLE_ID);
-      } finally {
-        warnSpy.mockRestore();
-      }
+      // Audit 2026-05-05 fix #6: pre-fix returned the live row AS-IS with
+      // a console.warn — operators saw stale dropdowns until advance()
+      // finally threw 409 GROUP_VERSION_MISSING. Now the response carries
+      // snapshotMissing/pinnedVersion/liveVersion so the FE can disable
+      // submission upfront.
+      expect(state.equipmentGroup).toMatchObject({
+        ...liveGroup,
+        snapshotMissing: true,
+        pinnedVersion: 3,
+        liveVersion: 5,
+      });
+      expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+      // The identifiers moved from the message string into structured context
+      // (first arg) — which is what makes them greppable as `groupId=…` in the
+      // log file rather than buried mid-sentence.
+      const [context, message] = mockLogger.warn.mock.calls[0] as [Record<string, unknown>, string];
+      expect(context).toMatchObject({ pin: 3, groupId: GROUP_ID, cycleId: CYCLE_ID, liveVersion: 5 });
+      expect(message).toContain('equipmentGroupVersionPin=3');
     });
 
     it('case 4: pin null (legacy cycle) → returns live row, NEVER reads equipmentGroupVersion', async () => {

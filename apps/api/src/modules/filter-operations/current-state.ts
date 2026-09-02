@@ -36,6 +36,9 @@ import {
 } from './stage-interlock.js';
 import type { FilterOperationsService } from './filter-operations.service.js';
 import { createBatchReadCache, type BatchReadCache } from './batch-cache.js';
+import { getModuleLogger } from '../../lib/logger.js';
+
+const filterOpsLog = getModuleLogger('filter-operations');
 
 /**
  * Resolve the operator who performed a gated stage, for attributing a lazily
@@ -503,8 +506,9 @@ export async function getCurrentStateImpl(
           // The dropdowns can disable submission until operator resolves
           // (terminate-and-restart on the new version, or admin re-saves
           // the live group to materialize the snapshot).
-          console.warn(
-            `[getCurrentState] equipmentGroupVersionPin=${pin} but neither snapshot row exists nor does live.version match for group ${currentCycle.equipmentGroupId} (cycle ${currentCycle.id}). Returning live row + snapshotMissing flag.`,
+          filterOpsLog.warn(
+            { pin, groupId: currentCycle.equipmentGroupId, cycleId: currentCycle.id, liveVersion: liveGroup?.version },
+            `equipmentGroupVersionPin=${pin} but no snapshot row exists and live.version does not match - returning the live row with snapshotMissing`,
           );
           equipmentGroup = liveGroup
             ? { ...liveGroup, snapshotMissing: true, pinnedVersion: pin, liveVersion: liveGroup.version }

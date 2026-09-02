@@ -132,6 +132,20 @@ IP.2 = $lanIp
 $appDbPassword = $null
 if (Test-Path $envFile) {
   Write-Host "==> Reusing existing $envFile (secrets preserved)" -ForegroundColor Cyan
+  # An UPGRADE reuses the existing env file, so a key added in a later release is
+  # never present on an upgraded box unless it is appended here. Without this,
+  # an upgraded install would fall back to the compiled-in default and write its
+  # logs INSIDE the program dir - which the next upgrade deletes.
+  # Append-only and idempotent: never rewrite a key the operator may have tuned.
+  $existing = Get-Content -Path $envFile -Raw
+  if ($existing -notmatch '(?m)^\s*LOG_DIR\s*=') {
+    if ($DryRun) {
+      Write-Host "[dry-run] append LOG_DIR=$logDir to $envFile" -ForegroundColor Yellow
+    } else {
+      Add-Content -Path $envFile -Encoding ascii -Value "`r`n# Added on upgrade: operational log directory (7-day rolling, per channel).`r`nLOG_DIR=$logDir"
+      Write-Host "==> Added LOG_DIR to $envFile" -ForegroundColor Cyan
+    }
+  }
 } else {
   if (-not $AdminPassword) { Write-Host "FATAL: -AdminPassword required on fresh install." -ForegroundColor Red; exit 1 }
   $appDbPassword = NewSecret 18
@@ -170,6 +184,15 @@ TLS_CERT_PATH=$srvCrt
 SERVE_WEB=true
 WEB_DIST_DIR=$webDist
 UPLOAD_DIR=$uploadDir
+# Operational logs (error / application / http / database / services / security
+# and per-module files) land in <LOG_DIR>\app\, alongside WinSW's own service
+# logs in <LOG_DIR>\. MUST point at the data root: the program dir is read-only
+# and replaced wholesale on upgrade, so logs written there would be destroyed by
+# the next upgrade - and lost exactly when someone needs them to explain it.
+# Retention is 7 days per channel; override with LOG_RETENTION_DAYS.
+# These are NOT the 21 CFR Part 11 audit trail (that lives in the database,
+# hash-chained and retained permanently) - they are rotated and deleted.
+LOG_DIR=$logDir
 ALLOWED_ORIGINS=https://localhost:$ApiPort,https://${lanIp}:$ApiPort,https://localhost,capacitor://localhost,http://localhost
 "@
   if ($DryRun) { Write-Host "[dry-run] write $envFile (secrets generated, app-db password random)" -ForegroundColor Yellow }

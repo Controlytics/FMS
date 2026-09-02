@@ -8,6 +8,10 @@ import { signToken } from '../../lib/jwt.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { signOfflineReplayToken } from '../../lib/offline-replay-token.js';
 import { rateLimitKeyGenerator } from '../../lib/rate-limit-key.js';
+import { getLogger } from '../../lib/logger.js';
+
+/** Log type 7 — the security channel. Login, logout, and who was refused. */
+const securityLog = getLogger('auth', 'security');
 
 export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/login
@@ -64,15 +68,39 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
 
+    // Log type 7. Logged HERE, not in the global onResponse hook: on a failed
+    // login `req.user` is undefined, so the hook can only record "anonymous"
+    // — and a security log that cannot say WHICH account was attacked is close
+    // to useless. This is the one place the attempted username is known.
+    //
+    // The password is never touched. It is also covered by the logger's redact
+    // paths (lib/logger.ts) so it cannot leak through a future context object.
+    const attempted = parsed.data.username;
     try {
-      return await authService.login(parsed.data.username, parsed.data.password, req.ip, req.headers['user-agent'], parsed.data.force);
+      const result = await authService.login(parsed.data.username, parsed.data.password, req.ip, req.headers['user-agent'], parsed.data.force);
+      securityLog.info(
+        { username: attempted, role: result?.user?.role, ip: req.ip, userAgent: req.headers['user-agent'] },
+        `Login SUCCESS: ${attempted}`,
+      );
+      return result;
     } catch (err) {
+      const code = err instanceof AppError ? err.code : 'UNKNOWN';
       // Special handling for session conflicts — include activeSession details
       if (err instanceof AppError && (err.code === 'SESSION_CONFLICT' || err.code === 'DIFFERENT_USER_SESSION_CONFLICT')) {
+        // Not a failed credential check — the password was right, an existing
+        // session is in the way. Logged at info so it does not read as an attack.
+        securityLog.info(
+          { username: attempted, ip: req.ip, reason: err.code },
+          `Login blocked by an existing session: ${attempted}`,
+        );
         return reply.code(err.statusCode).send({
           error: err.code, message: err.message, activeSession: (err as any).activeSession,
         });
       }
+      securityLog.warn(
+        { username: attempted, ip: req.ip, reason: code, userAgent: req.headers['user-agent'] },
+        `Login FAILED: ${attempted} (${code})`,
+      );
       // Audit API-2: attemptsRemaining block removed — field no longer sent in response
       throw err; // global error handler handles all other AppErrors
     }
@@ -94,6 +122,10 @@ export default async function authRoutes(app: FastifyInstance) {
   }, async (req) => {
     const reason = (req.body as { reason?: string } | undefined)?.reason === 'idle_timeout' ? 'idle_timeout' : 'manual';
     await authService.logout(req.user.sessionId, req.user.username, req.user.role, req.ip, req.headers['user-agent'], reason);
+    securityLog.info(
+      { username: req.user.username, role: req.user.role, ip: req.ip, reason },
+      `Logout (${reason}): ${req.user.username}`,
+    );
     return { success: true };
   });
 

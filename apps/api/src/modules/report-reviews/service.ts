@@ -9,6 +9,9 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { getLogger } from '../../lib/logger.js';
+
+const reportReviewLog = getLogger('report-reviews', 'application');
 
 type NotifyType = 'REPORT_REVIEW_REQUESTED' | 'REPORT_REVIEW_APPROVED' | 'REPORT_REVIEW_REJECTED';
 
@@ -24,13 +27,13 @@ async function notifyAssignee(row: { id: string; reportType: string; assigneeUse
     } else if (row.assigneeRole) {
       await createNotification({ ...base, forRole: row.assigneeRole });
     }
-  } catch (e) { console.error('[report-review] notify assignee failed:', (e as Error).message); }
+  } catch (e) { reportReviewLog.error({ err: e }, 'Report review: notifying the assignee failed'); }
 }
 
 async function notifySubmitter(row: { id: string; reportType: string; generatedByName: string }, type: NotifyType, title: string, message: string, createdBy: string) {
   try {
     await createNotification({ type, title, message, forUserId: row.generatedByName, metadata: { reportReviewId: row.id, reportType: row.reportType }, createdBy });
-  } catch (e) { console.error('[report-review] notify submitter failed:', (e as Error).message); }
+  } catch (e) { reportReviewLog.error({ err: e }, 'Report review: notifying the submitter failed'); }
 }
 
 export interface SubmitInput {
