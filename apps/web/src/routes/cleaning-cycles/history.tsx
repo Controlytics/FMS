@@ -23,7 +23,8 @@ import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../typ
 // Filter Lifecycle Report (filter-lifecycle.tsx) can never drift. See that file
 // for the 2026-06-08 column redefinition (Duration = dryer duration; Dry In =
 // dryer-duration submission time; 'Dry By' + cycle-duration dropped).
-import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart, effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
+import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart, effectiveCycleStatus,
+  maxReachedStageIndex, resolveStageCell, stageCellText } from '@/lib/cleaning-cycle-report';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 const MSU_COLS = ['sNo', 'filter', 'statusChange', 'dateTime', 'updatedBy', 'remarks'];
 
@@ -194,14 +195,16 @@ export function CleaningCycleHistoryPage() {
         const dryOut = getStageInfo(c.events ?? [], 'DRY_OUT');
         const washReadings = washIn?.readings ?? [];
         const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
-        // P2: missing profile stage → "NA" (string form for the PDF rows).
-        // A cycle ended by retire/replace shows its un-reached in-profile stages
-        // as "Retired"/"Replaced" rather than "-".
+        // Stage columns resolve through the SAME shared rule the on-screen table
+        // uses (2026-09-02). This builder previously carried its own copy with no
+        // "Skipped" branch, so a stage shown Skipped on screen printed "Pending"
+        // in the PDF and Excel export of the same cycle.
         const pStages: string[] = c.profileStages ?? [];
         const eff = effectiveCycleStatus(c);
         const termLabel = eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : null;
+        const maxReachedIdx = maxReachedStageIndex(c.events ?? [], pStages);
         const naCell = (stage: string, v: string | null) =>
-          v != null ? v : pStages.length > 0 && !pStages.includes(stage) ? 'NA' : termLabel ?? 'Pending';
+          stageCellText(resolveStageCell({ stage, value: v, profileStages: pStages, terminalLabel: termLabel, maxReachedIdx }));
         const dryerTempStr = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
         const dryerStart = getDryerStart(c, c.events ?? []);
         return [
@@ -234,7 +237,11 @@ export function CleaningCycleHistoryPage() {
       subtitle: ccL.subtitle || `Filter: ${selectedFilterName}  |  Status: ${status || 'All'}  |  Period: ${period}  |  Total: ${rows.length} cycle(s)${truncated ? ` (truncated at the ${SERVER_CYCLE_CAP.toLocaleString()}-record server limit — narrow the period or filter to export the rest)` : ''}`,
       orientation: 'landscape',
       formatDateTime,
-      legend: [{ abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' }],
+      legend: [
+        { abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' },
+        { abbr: 'Skipped', meaning: 'In this cycle’s profile but not performed — a later stage was reached' },
+        { abbr: 'Pending', meaning: 'In this cycle’s profile and not reached' },
+      ],
     });
     // 2026-09-02 (operator request): 8pt, up from the 7pt default.
     //
@@ -501,35 +508,25 @@ export function CleaningCycleHistoryPage() {
                 // in-profile stages as "Retired"/"Replaced".
                 const profileStages: string[] = c.profileStages ?? [];
                 const termLabel = eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : null;
-                // Stages actually reached in this cycle (any STATE_TRANSITION toState),
-                // used to flag in-between in-profile stages that were skipped.
-                const reached = new Set<string>(
-                  ((c.events ?? []) as any[])
-                    .filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState)
-                    .map((e) => e.toState as string),
-                );
-                const maxReachedIdx = profileStages.reduce((m, s, i) => (reached.has(s) ? i : m), -1);
-                // stageCell: present value (orange when set by a manual update); else
-                // NA (not in profile) / Retired-Replaced / Skipped (in-profile but a
-                // later stage was reached) / "-" (in-profile, not yet reached).
+                const maxReachedIdx = maxReachedStageIndex(c.events ?? [], profileStages);
+                // The DECISION lives in cleaning-cycle-report.ts so the PDF/Excel
+                // builder above cannot drift from it; only the colours are local.
                 const stageCell = (stage: string, value: string | null, manual?: boolean) => {
-                  if (value != null) {
-                    return manual
-                      ? <span className="text-orange-600 font-semibold" title="Set by manual update">{value}</span>
-                      : value;
+                  const st = resolveStageCell({ stage, value, manual, profileStages, terminalLabel: termLabel, maxReachedIdx });
+                  switch (st.kind) {
+                    case 'value':
+                      return st.manual
+                        ? <span className="text-orange-600 font-semibold" title="Set by manual update">{st.value}</span>
+                        : st.value;
+                    case 'na':
+                      return <span className="text-slate-400 italic">NA</span>;
+                    case 'terminal':
+                      return <span className={`italic ${eff === 'RETIRED' ? 'text-amber-600' : 'text-purple-600'}`}>{st.label}</span>;
+                    case 'skipped':
+                      return <span className="text-rose-500 italic">Skipped</span>;
+                    case 'pending':
+                      return <span className="text-blue-500 italic">Pending</span>;
                   }
-                  if (profileStages.length > 0 && !profileStages.includes(stage)) {
-                    return <span className="text-slate-400 italic">NA</span>;
-                  }
-                  if (termLabel) {
-                    return <span className={`italic ${eff === 'RETIRED' ? 'text-amber-600' : 'text-purple-600'}`}>{termLabel}</span>;
-                  }
-                  const idx = profileStages.indexOf(stage);
-                  if (idx >= 0 && idx < maxReachedIdx) {
-                    return <span className="text-rose-500 italic">Skipped</span>;
-                  }
-                  // In-profile stage not yet reached (or unknown profile) = pending.
-                  return <span className="text-blue-500 italic">Pending</span>;
                 };
 
                 return (

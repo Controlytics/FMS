@@ -138,3 +138,80 @@ export function stageProgress(
   );
   return { reached, current: current ?? null };
 }
+
+/**
+ * How ONE stage column renders for a cycle.
+ *
+ * The DECISION is shared; the RENDERING is not — the page draws JSX with
+ * colours, the PDF and Excel exports need a plain string. Splitting it this way
+ * is the point: until 2026-09-02 each surface carried its own copy of the rule
+ * and the export's copy simply had no `skipped` branch, so a stage the page
+ * labelled "Skipped" printed as "Pending" in the export of the SAME cycle —
+ * two renderings of one 21 CFR §11 record disagreeing.
+ */
+export type StageCellState =
+  | { kind: 'value'; value: string; manual: boolean }
+  | { kind: 'na' }
+  | { kind: 'terminal'; label: string }
+  | { kind: 'skipped' }
+  | { kind: 'pending' };
+
+/**
+ * Index of the furthest IN-PROFILE stage this cycle actually transitioned into,
+ * or -1 when it reached none.
+ *
+ * Indexed against `profileStages` — this cycle's own pipeline order — NOT the
+ * fixed `STAGE_ORDER` axis that `stageProgress` uses. A profile need not hold
+ * every stage, and the gap test compares positions WITHIN the profile.
+ *
+ * A stage can be entered by more than one STATE_TRANSITION (DRY_IN emits two:
+ * SET_DURATION then SUBMIT_READINGS), so this reduces over a Set — the event
+ * count is not a stage index.
+ */
+export function maxReachedStageIndex(events: any[], profileStages: string[]): number {
+  const reached = new Set<string>(
+    (events ?? [])
+      .filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState)
+      .map((e: any) => e.toState as string),
+  );
+  return (profileStages ?? []).reduce((m, s, i) => (reached.has(s) ? i : m), -1);
+}
+
+/**
+ * Resolve one stage column. Order matters and mirrors what the page has always
+ * done: a recorded value wins over everything; then not-in-profile (NA); then a
+ * cycle ended by retire/replace; then the skipped/pending split.
+ *
+ * ⚠️ `skipped` means "in profile, and a LATER stage was reached" — a gap in the
+ * MIDDLE. It deliberately does NOT consider whether the cycle is finished, so a
+ * stage never performed at the END of the profile stays `pending` even on a
+ * COMPLETED cycle. Changing that alters what a §11 record asserts about work
+ * that was never done, so it is an operator decision, not a tidy-up.
+ */
+export function resolveStageCell(args: {
+  stage: string;
+  value: string | null;
+  manual?: boolean;
+  profileStages: string[];
+  terminalLabel: string | null;
+  maxReachedIdx: number;
+}): StageCellState {
+  const { stage, value, manual, profileStages, terminalLabel, maxReachedIdx } = args;
+  if (value != null) return { kind: 'value', value, manual: !!manual };
+  if (profileStages.length > 0 && !profileStages.includes(stage)) return { kind: 'na' };
+  if (terminalLabel) return { kind: 'terminal', label: terminalLabel };
+  const idx = profileStages.indexOf(stage);
+  if (idx >= 0 && idx < maxReachedIdx) return { kind: 'skipped' };
+  return { kind: 'pending' };
+}
+
+/** Plain-text form of a stage cell, for the PDF and Excel exports. */
+export function stageCellText(state: StageCellState): string {
+  switch (state.kind) {
+    case 'value': return state.value;
+    case 'na': return 'NA';
+    case 'terminal': return state.label;
+    case 'skipped': return 'Skipped';
+    case 'pending': return 'Pending';
+  }
+}
