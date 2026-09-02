@@ -18,6 +18,13 @@ vi.mock('../pm-workflow.js', () => ({
   getPmWorkflowConfig: vi.fn(),
   assertPmRole: vi.fn(),
   generateQnn: vi.fn(async () => 'QNN-0001'),
+  // 2026-09-02: the upload mints one QNN per entry and tags them with a shared
+  // batch reference. Mirrors the real implementations (fixed ref so assertions
+  // on the message stay deterministic) rather than stubbing them away, so these
+  // tests still cover the message the importer actually writes.
+  newQnnBatchRef: vi.fn(() => 'B-TEST01'),
+  qnnBatchTag: vi.fn((ref: string | null, i: number, total: number) =>
+    (ref && total > 1 ? ` [batch ${ref}, ${i} of ${total}]` : '')),
 }));
 
 import { importSchedules } from '../pm-import.js';

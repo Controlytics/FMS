@@ -14,7 +14,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled } from './pm-shared.js';
-import { getPmWorkflowConfig, assertPmRole, generateQnn, type QnnAction } from './pm-workflow.js';
+import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from './pm-workflow.js';
 import { assertSeparation } from './pm-separation-guard.js';
 
 const MS_DAY = 86400000;
@@ -34,12 +34,13 @@ async function ahuNameByEntry(entries: { id: string; schedule?: { entityId?: str
   return out;
 }
 
-async function mintQnn(action: QnnAction, entry: any, ahuName: string, ctx: RequestContext, note: string) {
+async function mintQnn(action: QnnAction, entry: any, ahuName: string, ctx: RequestContext, note: string, batchTag = '') {
   return generateQnn(action, {
     pmScheduleEntryId: entry.id,
     scheduleId: entry.scheduleId,
     ahuName,
-    message: `${note} — ${ahuName} (month ${entry.month})`,
+    // `batchTag` is '' for a single-entry action; see qnnBatchTag.
+    message: `${note} — ${ahuName} (month ${entry.month})${batchTag}`,
   }, ctx);
 }
 
@@ -130,11 +131,18 @@ export async function reviewEntries(
   const ahuNames = await ahuNameByEntry(entries as any);
   const qnns: string[] = [];
 
+  // Reviewable from PENDING_REVIEW, plus legacy PENDING entries that predate the
+  // workflow being enabled (so they enter review instead of being stuck as
+  // directly-approvable). Workflow must be ON for PENDING to count as reviewable.
+  // ONE predicate, used to size the batch AND to guard the loop, so the "n of N"
+  // in the batch tag can never disagree with the rows actually processed.
+  const isReviewable = (e: typeof entries[number]) =>
+    e.approvalStatus === 'PENDING_REVIEW' || (cfg.workflowEnabled && e.approvalStatus === 'PENDING');
+  const batchTotal = entries.filter(isReviewable).length;
+  const batchRef = batchTotal > 1 ? newQnnBatchRef() : null;
+
   for (const entry of entries) {
-    // Reviewable from PENDING_REVIEW, plus legacy PENDING entries that predate the
-    // workflow being enabled (so they enter review instead of being stuck as
-    // directly-approvable). Workflow must be ON for PENDING to count as reviewable.
-    if (entry.approvalStatus !== 'PENDING_REVIEW' && !(cfg.workflowEnabled && entry.approvalStatus === 'PENDING')) continue;
+    if (!isReviewable(entry)) continue;
     const ahuName = ahuNames.get(entry.id) ?? '?';
     if (action === 'approve') {
       await prisma.pmScheduleEntry.update({
@@ -145,7 +153,8 @@ export async function reviewEntries(
           reviewRemarks: remarks?.trim() || null,
         },
       });
-      qnns.push(await mintQnn('REVIEW', entry, ahuName, ctx, 'Reviewed (sent for approval)'));
+      qnns.push(await mintQnn('REVIEW', entry, ahuName, ctx, 'Reviewed (sent for approval)',
+        qnnBatchTag(batchRef, qnns.length + 1, batchTotal)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REVIEWED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { remarks, ahuName }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     } else {
       await prisma.pmScheduleEntry.update({
@@ -156,7 +165,8 @@ export async function reviewEntries(
           approvalRemarks: remarks!.trim(),
         },
       });
-      qnns.push(await mintQnn('REJECT', entry, ahuName, ctx, 'Rejected at review'));
+      qnns.push(await mintQnn('REJECT', entry, ahuName, ctx, 'Rejected at review',
+        qnnBatchTag(batchRef, qnns.length + 1, batchTotal)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { stage: 'REVIEW', remarks: remarks!.trim() }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     }
   }
@@ -176,12 +186,16 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
   // Approvable from PENDING_APPROVAL (workflow ON) or legacy PENDING (workflow OFF).
   const results: string[] = [];
   const qnns: string[] = [];
+  // Workflow ON: approve ONLY from PENDING_APPROVAL — review must happen first.
+  // Workflow OFF (legacy): PENDING is directly approvable. One predicate sizes the
+  // batch and guards the loop (see reviewEntries).
+  const isApprovable = (e: typeof entries[number]) => cfg.workflowEnabled
+    ? e.approvalStatus === 'PENDING_APPROVAL'
+    : (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING');
+  const batchTotal = entries.filter(isApprovable).length;
+  const batchRef = batchTotal > 1 ? newQnnBatchRef() : null;
   for (const entry of entries) {
-    // Workflow ON: approve ONLY from PENDING_APPROVAL — review must happen first.
-    // Workflow OFF (legacy): PENDING is directly approvable.
-    const approvable = cfg.workflowEnabled
-      ? entry.approvalStatus === 'PENDING_APPROVAL'
-      : (entry.approvalStatus === 'PENDING_APPROVAL' || entry.approvalStatus === 'PENDING');
+    const approvable = isApprovable(entry);
     if (!approvable) {
       results.push(`${entry.id}: not awaiting approval (${entry.approvalStatus})`);
       continue;
@@ -220,7 +234,8 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
         } : {}),
       },
     });
-    qnns.push(await mintQnn('APPROVE', entry, ahuNames.get(entry.id) ?? '?', ctx, 'Approved'));
+    qnns.push(await mintQnn('APPROVE', entry, ahuNames.get(entry.id) ?? '?', ctx, 'Approved',
+      qnnBatchTag(batchRef, qnns.length + 1, batchTotal)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_APPROVED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { comment, hasPendingEdit, ahuName: ahuNames.get(entry.id) ?? '?' }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     results.push(`${entry.id}: approved`);
   }
@@ -241,14 +256,18 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
   const ahuNames = await ahuNameByEntry(entries as any);
   const qnns: string[] = [];
 
+  // Approval-stage reject: workflow ON → only PENDING_APPROVAL (a PENDING entry
+  // hasn't been reviewed yet — it's rejected at the review stage instead).
+  // Workflow OFF → legacy PENDING is rejectable here. One predicate sizes the
+  // batch and guards the loop (see reviewEntries).
+  const isRejectable = (e: typeof entries[number]) => cfg.workflowEnabled
+    ? e.approvalStatus === 'PENDING_APPROVAL'
+    : (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING');
+  const batchTotal = entries.filter(isRejectable).length;
+  const batchRef = batchTotal > 1 ? newQnnBatchRef() : null;
+
   for (const entry of entries) {
-    // Approval-stage reject: workflow ON → only PENDING_APPROVAL (a PENDING entry
-    // hasn't been reviewed yet — it's rejected at the review stage instead).
-    // Workflow OFF → legacy PENDING is rejectable here.
-    const rejectable = cfg.workflowEnabled
-      ? entry.approvalStatus === 'PENDING_APPROVAL'
-      : (entry.approvalStatus === 'PENDING_APPROVAL' || entry.approvalStatus === 'PENDING');
-    if (!rejectable) continue;
+    if (!isRejectable(entry)) continue;
     await prisma.pmScheduleEntry.update({
       where: { id: entry.id },
       data: {
@@ -258,7 +277,8 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
         pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null, pendingEditAt: null,
       },
     });
-    qnns.push(await mintQnn('REJECT', entry, ahuNames.get(entry.id) ?? '?', ctx, 'Rejected at approval'));
+    qnns.push(await mintQnn('REJECT', entry, ahuNames.get(entry.id) ?? '?', ctx, 'Rejected at approval',
+      qnnBatchTag(batchRef, qnns.length + 1, batchTotal)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { stage: 'APPROVAL', remarks: remarks.trim() }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   }
   return { processed: entries.length, qnns };

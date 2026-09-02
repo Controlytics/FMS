@@ -10,6 +10,7 @@
  * QNN = Quality Notification Number (QN-YYYY-000001, from the qnn_seq sequence),
  * generated for every workflow action and recorded in quality_notifications.
  */
+import { randomUUID } from 'node:crypto';
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
@@ -83,6 +84,31 @@ const ACTION_LABEL: Record<QnnAction, string> = {
   UPLOAD: 'Uploaded', REVIEW: 'Reviewed', APPROVE: 'Approved',
   REJECT: 'Rejected', RESUBMIT: 'Resubmitted', EDIT: 'Modified',
 };
+
+/**
+ * Batch tagging for QNNs minted by ONE bulk action (2026-09-02, operator request).
+ *
+ * A bulk upload / review / approve / reject mints one notification per AHU-visit,
+ * which is what makes every record visible — but nothing tied those rows back to
+ * the single action that produced them, so an operator could not tell which AHUs
+ * one bulk approval had covered.
+ *
+ * The reference is carried in the message text rather than a new column: it needs
+ * no migration, and `quality_notifications` rows are a §11 record whose shape is
+ * better left alone for a display concern. It is greppable, so filtering the QNN
+ * list by the reference returns exactly that action's AHUs.
+ */
+export function newQnnBatchRef(): string {
+  return 'B-' + randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase();
+}
+
+/**
+ * ` [batch B-3F7A2C, 3 of 15]`, or '' when the action covered a single entry —
+ * a one-entry action is not a bulk action and tagging it would be noise.
+ */
+export function qnnBatchTag(ref: string | null, index: number, total: number): string {
+  return ref && total > 1 ? ` [batch ${ref}, ${index} of ${total}]` : '';
+}
 
 export async function generateQnn(
   action: QnnAction,

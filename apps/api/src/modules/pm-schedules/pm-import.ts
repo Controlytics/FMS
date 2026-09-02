@@ -17,7 +17,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled } from './pm-shared.js';
-import { getPmWorkflowConfig, assertPmRole, generateQnn } from './pm-workflow.js';
+import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag } from './pm-workflow.js';
 import { checkSeparation } from './pm-separation.js';
 
 interface ParsedRow {
@@ -379,19 +379,48 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
   });
 
-  // One QNN for the upload action (the bulk upload is a single user action).
+  // 2026-09-02 (operator report): ONE QNN per imported ENTRY, not one for the
+  // upload as a whole.
+  //
+  // This used to mint a single aggregate row — "Uploaded 35 PM schedule entries
+  // (pending review)" — carrying no pmScheduleEntryId, no scheduleId and no AHU
+  // name, so its AHU column rendered blank and none of the 35 visits it covered
+  // could be traced from the notification. Every other workflow step (REVIEW,
+  // APPROVE, REJECT, RESUBMIT, EDIT) already mints per entry via mintQnn in
+  // pm-approval.ts, so the upload was the odd one out and the QNN list showed
+  // an AHU's review but not the upload that created it.
+  //
+  // Sequential on purpose: generateQnn draws from the `qnn_seq` sequence and
+  // writes a row per call, and QNN numbers should follow file order. A
+  // whole-year upload therefore costs one insert per visit — the same shape the
+  // approve path already pays, and an upload is not a hot path.
+  //
+  // `qnn` still returns the FIRST number so the existing caller/response
+  // contract (a single reference to quote) is unchanged; `qnns` carries them all.
   let qnn: string | null = null;
-  if (imported.length > 0) {
-    qnn = await generateQnn('UPLOAD', {
-      message: `Uploaded ${imported.length} PM schedule entr${imported.length === 1 ? 'y' : 'ies'}${wf.workflowEnabled ? ' (pending review)' : ''}`,
-    }, ctx);
+  const qnns: string[] = [];
+  const pendingSuffix = wf.workflowEnabled ? ' (pending review)' : '';
+  // One shared reference across every entry of this upload, so the whole batch —
+  // and therefore every AHU it covered — can be recovered from any one row.
+  const batchRef = imported.length > 1 ? newQnnBatchRef() : null;
+  for (const [i, entry] of imported.entries()) {
+    qnns.push(await generateQnn('UPLOAD', {
+      pmScheduleEntryId: entry.entryId || null,
+      scheduleId: entry.scheduleId,
+      ahuName: entry.ahuName,
+      message: `Uploaded — ${entry.ahuName} (${entry.plannedDate})${pendingSuffix}`
+        + qnnBatchTag(batchRef, i + 1, imported.length),
+    }, ctx));
   }
+  qnn = qnns[0] ?? null;
 
   return {
     imported: imported.length,
     skipped: skipped.length,
     details: { imported, skipped },
     qnn,
+    /** Every QNN minted by this upload, in file order. `qnn` is the first. */
+    qnns,
   };
 }
 

@@ -12,6 +12,8 @@ import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { Pagination } from '@/components/ui/pagination';
+import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 
 const QNN_COLS = ['sNo', 'qnn', 'action', 'ahu', 'message', 'by', 'dateTime'];
 
@@ -26,7 +28,6 @@ type QnnRow = {
 };
 type Resp = { data: QnnRow[]; total: number; page: number; limit: number; totalPages: number };
 
-const PER_PAGE = 50;
 
 export function QualityNotificationsPage() {
   const { formatDateTime } = useDatetimeFormat();
@@ -38,6 +39,10 @@ export function QualityNotificationsPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
+  // 2026-09-02: page size now comes from the app-wide Pagination Settings
+  // config, like every other paged list, instead of a hard-coded 50.
+  const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
+  const [perPage, setPerPage] = useState(defaultLimit);
   const [downloading, setDownloading] = useState(false);
   const { data: vis } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
@@ -52,7 +57,7 @@ export function QualityNotificationsPage() {
     return qs.toString();
   };
 
-  const { data, isLoading } = useSWR<Resp>(`/api/pm-schedules/qnn?${buildQs(PER_PAGE, page)}`);
+  const { data, isLoading } = useSWR<Resp>(`/api/pm-schedules/qnn?${buildQs(perPage, page)}`);
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
 
@@ -74,10 +79,30 @@ export function QualityNotificationsPage() {
     const report = await createReport({ reportKey: 'quality-notifications',
       title: L.title,
       subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} notification(s)`,
-      orientation: 'landscape',
+      // 2026-09-02 (operator request): matched to the RFID Track Record report —
+      // A4 portrait at 9pt. The shared builder already gives every report the
+      // thicker grid, unsplit rows, bold Printed By and centred page number.
+      orientation: 'portrait',
       formatDateTime,
     });
-    report.addTable({ head: headLabels, body: r.body, columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 4: { cellWidth: 60 } } });
+    // Portrait gives 181mm of usable width; 7 columns spend 35mm of it on
+    // horizontal padding. The six fixed-content columns below were sized to
+    // their own longest value at 9pt, and the remainder went to Message, which
+    // is free text and the right column to absorb the wrapping.
+    report.addTable({
+      head: headLabels,
+      body: r.body,
+      fontSize: 9,
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 13 },  // S.No
+        1: { cellWidth: 34 },                    // QNN — "QN-2026-000131"
+        2: { cellWidth: 22 },                    // Action — APPROVE / REVIEW
+        3: { cellWidth: 20 },                    // AHU
+        4: { cellWidth: 40 },                    // Message — free text, wraps
+        5: { cellWidth: 20 },                    // By
+        6: { cellWidth: 32 },                    // Date & Time — "8/10/2026 17:43"
+      },
+    });
     return { report, count: r.body.length };
   };
 
@@ -116,8 +141,13 @@ export function QualityNotificationsPage() {
     );
   }
 
+  // 2026-09-02 (operator request): report FOOTER dropped — its identity line
+  // (logo + company + application name) and its record-count / "Page X of Y"
+  // row both sat directly above this page's own pagination, which states the
+  // same numbers. Matches the Audit Trail page. On-screen chrome only; exports
+  // build their own.
   return (
-    <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={data?.totalPages ?? 1}>
+    <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={data?.totalPages ?? 1} hideFooter>
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -164,7 +194,7 @@ export function QualityNotificationsPage() {
               <tbody className="divide-y divide-slate-100 bg-white">
                 {rows.map((r, idx) => (
                   <tr key={r.id} className="hover:bg-cyan-50/30 transition-colors">
-                    <td className="px-4 py-3 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * PER_PAGE + idx + 1}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * perPage + idx + 1}</td>
                     <td className="px-4 py-3 text-[13px] font-semibold text-slate-800 font-mono whitespace-nowrap">{r.qnn}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-700 whitespace-nowrap">{r.action}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600">{r.ahuName ?? <span className="text-slate-300">—</span>}</td>
@@ -178,25 +208,21 @@ export function QualityNotificationsPage() {
           )}
         </div>
 
+        {/* 2026-09-02: was a hand-rolled Previous/Next bar — no page numbers, no
+            rows-per-page, and a fixed page size of 50. Replaced with the shared
+            control, whose own docblock calls it the "canonical app-wide
+            pagination control. ONE style everywhere"; this page had drifted from
+            it. Same component and props the Audit Trail page uses. */}
         {total > 0 && (
-          <div className="px-6 py-3 border-t border-slate-200 bg-white shrink-0 flex items-center justify-between flex-wrap gap-3">
-            <span className="text-[13px] text-slate-500">
-              Showing <span className="font-semibold text-slate-700">{(page - 1) * PER_PAGE + 1}</span>
-              {' '}-{' '}
-              <span className="font-semibold text-slate-700">{Math.min(page * PER_PAGE, total)}</span>
-              {' '}of{' '}
-              <span className="font-semibold text-slate-700">{total.toLocaleString()}</span>
-            </span>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                className="px-3 py-1.5 rounded-lg text-[13px] font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
-                Previous
-              </button>
-              <button onClick={() => setPage(p => p + 1)} disabled={page >= (data?.totalPages ?? 1)}
-                className="px-3 py-1.5 rounded-lg text-[13px] font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
-                Next
-              </button>
-            </div>
+          <div className="px-6 py-3 border-t border-slate-200 bg-white shrink-0">
+            <Pagination
+              page={page}
+              pageSize={perPage}
+              totalItems={total}
+              onPageChange={setPage}
+              onPageSizeChange={setPerPage}
+              pageSizeOptions={paginationOptions}
+            />
           </div>
         )}
       </div>

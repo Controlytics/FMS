@@ -4,6 +4,11 @@ import { apiClient } from './api-client';
 import { getApiBase } from './api-base';
 
 // Brand colors
+/** Line pitch for the Printed/Reviewed/Approved By stamps. Used BOTH to reserve
+ *  the end-block height and to draw the lines — they must not drift apart, or
+ *  the block overlaps the footer. */
+const SIG_LINE_H = 5.5;
+
 const COLORS = {
   primary: [30, 58, 95] as [number, number, number],       // #1e3a5f
   secondary: [59, 130, 246] as [number, number, number],    // #3b82f6
@@ -133,6 +138,9 @@ export interface ReportDoc {
     body: string[][];
     columnStyles?: Record<number, any>;
     headColor?: [number, number, number];
+    /** Body font size in pt. Defaults to 7 — the size every report used before
+     *  this was configurable. Header size and cell padding follow it. */
+    fontSize?: number;
   }) => void;
   addSectionTitle: (text: string) => void;
   addKeyValue: (pairs: [string, string][], columns?: number) => void;
@@ -146,7 +154,7 @@ export interface ReportDoc {
 }
 
 export type SnapshotSection =
-  | { title?: string; head: string[]; body: string[][]; columnStyles?: Record<number, any> }
+  | { title?: string; head: string[]; body: string[][]; columnStyles?: Record<number, any>; fontSize?: number }
   | { title?: string; pairs: [string, string][]; columns?: number };
 
 export interface ReportSnapshot {
@@ -223,10 +231,20 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       // Footer line
       doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.3);
       doc.line(14, ph - 12, pw - 14, ph - 12);
-      // Footer text
-      doc.setFontSize(7); doc.setTextColor(...COLORS.light);
-      doc.text(`${branding.companyName}  |  ${branding.appName}`, 14, ph - 7);
-      doc.text(`Page ${i} of ${pageCount}`, pw - 30, ph - 7);
+      // 2026-09-02 (operator request): the company + application name were
+      // dropped from the footer. They are already stated in the report HEADER
+      // (lines above, doc.text(branding.companyName ...)), so every page was
+      // repeating an identity the reader has at the top of the document.
+      //
+      // The page number is now the footer's only content: centred, bold and in
+      // the primary brand colour rather than left-of-right-edge in light grey.
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.primary);
+      doc.text(`Page ${i} of ${pageCount}`, pw / 2, ph - 7, { align: 'center' });
+      // Restore the default weight — jsPDF font state is global to the document,
+      // so leaving it bold would bleed into anything drawn afterwards.
+      doc.setFont('helvetica', 'normal');
     }
   };
 
@@ -256,7 +274,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
 
     const remarksH = 4 + 22 + 3;                         // label + box + gap
     const legendH = legendLines.length ? legendLines.length * 3.6 + 3 : 0;
-    const printedH = 4 + sigLines.length * 4.5;
+    const printedH = 4 + sigLines.length * SIG_LINE_H;
     const blockH = remarksH + legendH + printedH;
 
     const footerLineY = ph - 12;
@@ -282,9 +300,22 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // Signatory block (one line each) + Printed Date & Time on the first line.
     doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.2);
     doc.line(14, by, pw - 14, by);
-    doc.setFontSize(7.5); doc.setTextColor(...COLORS.text);
-    sigLines.forEach((line, i) => doc.text(line, 14, by + 4.5 + i * 4.5));
+    // 2026-09-02 (operator request): the "Printed By" / "Printed Date & Time"
+    // stamps are bold and larger (7.5 -> 9.5pt). These two lines are the
+    // attribution on a signed report, so they should not be the smallest text on
+    // the page. Both the label and its value are bold — they are drawn as one
+    // string, so a single weight covers the whole line.
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.text);
+    // 5.5mm line pitch, matching SIG_LINE_H used to reserve the block height —
+    // 4.5mm was set for 7.5pt text and crowds at 9.5pt when a re-rendered
+    // snapshot carries a full Printed/Reviewed/Approved By chain.
+    sigLines.forEach((line, i) => doc.text(line, 14, by + 4.5 + i * SIG_LINE_H));
     doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + 4.5, { align: 'right' });
+    // jsPDF font state is document-global; leaving it bold would bleed into the
+    // page-number footer drawn afterwards.
+    doc.setFont('helvetica', 'normal');
   };
 
   const checkPageBreak = (needed: number) => {
@@ -310,8 +341,15 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     pendingTitle = text;
   };
 
-  const addTable = (opts: { head: string[]; body: string[][]; columnStyles?: Record<number, any>; headColor?: [number, number, number] }) => {
-    snapSections.push({ title: pendingTitle, head: opts.head, body: opts.body, columnStyles: opts.columnStyles });
+  /**
+   * `fontSize` defaults to 7pt — the size every report used before it was
+   * configurable — so the other call sites are unaffected. A larger value also
+   * makes rows taller, which is what reduces records per page; header size and
+   * cell padding scale with it so the table keeps its proportions.
+   */
+  const addTable = (opts: { head: string[]; body: string[][]; columnStyles?: Record<number, any>; headColor?: [number, number, number]; fontSize?: number }) => {
+    const fs = opts.fontSize ?? 7;
+    snapSections.push({ title: pendingTitle, head: opts.head, body: opts.body, columnStyles: opts.columnStyles, fontSize: opts.fontSize });
     pendingTitle = undefined;
     checkPageBreak(20);
     autoTable(doc, {
@@ -319,8 +357,28 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       head: [opts.head],
       body: opts.body,
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 2.5, lineColor: COLORS.border, lineWidth: 0.2, textColor: COLORS.text, overflow: 'linebreak' },
-      headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: 7.5 },
+      // Padding is asymmetric on purpose. VERTICAL padding grows with the font,
+      // which is what actually reduces records per page — taller rows, fewer of
+      // them. HORIZONTAL padding stays at the original 2.5mm, because every mm
+      // there costs two mm of usable width across a two-sided cell, and on a
+      // portrait page with 8 columns that is the difference between a header
+      // fitting on one line and breaking. At the 7pt default this is 2.5mm all
+      // round — byte-identical to what every other report rendered before.
+      // A row is never split across a page boundary. Default 'auto' let the last
+      // row on a page continue onto the next one, so a single record could be
+      // read as two — worst on a wrapped cell, where the tail looked like its own
+      // entry. 'avoid' pushes the whole row to the next page instead.
+      rowPageBreak: 'avoid',
+      styles: {
+        fontSize: fs,
+        cellPadding: { top: Math.max(2.5, fs * 0.45), bottom: Math.max(2.5, fs * 0.45), left: 2.5, right: 2.5 },
+        // Grid lines scale with the font: exactly the original 0.2mm at the 7pt
+        // default, twice that at 9pt. Hairlines that read fine under small dense
+        // text look faint once the type is larger.
+        lineColor: COLORS.border, lineWidth: Math.max(0.2, (fs - 5) * 0.1),
+        textColor: COLORS.text, overflow: 'linebreak',
+      },
+      headStyles: { fillColor: opts.headColor ?? COLORS.primary, textColor: COLORS.white, fontStyle: 'bold', fontSize: fs + 0.5 },
       alternateRowStyles: { fillColor: COLORS.altRow },
       columnStyles: opts.columnStyles ?? {},
     });
@@ -381,7 +439,7 @@ export async function renderSnapshotToPdf(
   for (const s of snapshot.sections) {
     if (s.title) report.addSectionTitle(s.title);
     if ('pairs' in s) report.addKeyValue(s.pairs, s.columns);
-    else report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles });
+    else report.addTable({ head: s.head, body: s.body, columnStyles: s.columnStyles, fontSize: s.fontSize });
   }
   report.save(filename);
 }

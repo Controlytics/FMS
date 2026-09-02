@@ -144,10 +144,38 @@ export function DeviationsPage() {
     const report = await createReport({ reportKey: 'deviations',
       title: 'Deviations Report',
       subtitle: `Status: ${status === 'ALL' ? 'All' : STATUS_META[status as DeviationRow['status']]?.label ?? status}  |  Period: ${r.period}  |  Total: ${r.total} deviation(s)`,
+      // 2026-09-02 (operator request): matched to the RFID Track Record report.
+      // NOTE this one stays LANDSCAPE — see the comment on addTable below.
       orientation: 'landscape',
       formatDateTime,
     });
-    report.addTable({ head: HEAD, body: r.body, headColor: [225, 29, 72] });
+    // 9pt like the other two reports, but landscape, because this table has TEN
+    // columns against RFID's eight and QN's seven. Portrait offers 181mm; ten
+    // columns spend 50mm of that on padding, leaving ~13mm of text per column —
+    // not enough for "Acknowledged By" or "Deviation #" to render on one line,
+    // so headers would break letter-by-letter. Landscape's 268mm carries the
+    // larger type without that. Everything else matches: thicker grid, unsplit
+    // rows, bold Printed By, centred page number.
+    report.addTable({
+      head: HEAD,
+      body: r.body,
+      headColor: [225, 29, 72],
+      fontSize: 9,
+      columnStyles: {
+        0: { cellWidth: 28 },  // Deviation # — "DEV-000142"
+        1: { cellWidth: 24 },  // AHU
+        2: { cellWidth: 17 },  // Filters (count)
+        3: { cellWidth: 26 },  // Scheduled
+        // Holds "62 days delay" — the common shape of this column, so it gets
+        // the slack rather than Status, whose longest value is just "Closed".
+        4: { cellWidth: 30 },  // Overdue
+        5: { cellWidth: 20 },  // Status
+        6: { cellWidth: 34 },  // Acknowledged By
+        7: { cellWidth: 30 },  // Completed By
+        8: { cellWidth: 34 },  // Completed — full timestamp
+        9: { cellWidth: 20 },  // Delay
+      },
+    });
     return { report, count: r.body.length };
   };
 

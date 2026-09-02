@@ -121,7 +121,7 @@ export const REPORT_DEFS: ReportDef[] = [
     defaultTitle: 'RFID Track Record',
     columns: [
       { key: 'sNo', default: 'S.No' },
-      { key: 'dateTime', default: 'Date / Time' },
+      { key: 'dateTime', default: 'Date & Time' },
       { key: 'event', default: 'Event' },
       { key: 'rfid', default: 'RFID Number' },
       { key: 'filter', default: 'Filter' },
@@ -167,7 +167,7 @@ export const REPORT_DEFS: ReportDef[] = [
       { key: 'ahu', default: 'AHU' },
       { key: 'message', default: 'Message' },
       { key: 'by', default: 'By' },
-      { key: 'dateTime', default: 'Date / Time' },
+      { key: 'dateTime', default: 'Date & Time' },
     ],
   },
 ];

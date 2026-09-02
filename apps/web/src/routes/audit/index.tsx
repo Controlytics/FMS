@@ -476,11 +476,19 @@ export function AuditTrailPage() {
       )}
 
       {/* Table Card */}
+      {/* 2026-09-02 (operator request): the on-screen report FOOTER is dropped
+          here — both its identity line (logo + company + application name) and
+          its record-count / "Page X of Y" row. The identity is already stated by
+          the report HEADER directly above the table, and the counts were sitting
+          immediately above this page's own Pagination control, which shows the
+          same numbers. The footer is on-screen chrome only; PDF/Excel exports
+          build their own and are unaffected. */}
       <ReportPageWrapper
         title={auditL.title}
         totalRecords={data?.total ?? 0}
         page={page}
         totalPages={data?.totalPages ?? 1}
+        hideFooter
       >
         <AuditTable
           data={data}

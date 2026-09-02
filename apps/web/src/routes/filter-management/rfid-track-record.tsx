@@ -84,10 +84,52 @@ export function RfidTrackRecordPage() {
     const report = await createReport({ reportKey: 'rfid-track-record',
       title: L.title,
       subtitle: L.subtitle || `Period: ${r.period}  |  Total: ${r.total} event(s)`,
-      orientation: 'landscape',
+      // 2026-09-02 (operator request): portrait. The page size was already A4
+      // (pdf-report.ts hard-codes format:'a4' for every report) — only the
+      // orientation changes, so this is 210x297mm instead of 297x210mm. The 8
+      // columns still fit: addTable uses overflow:'linebreak', so cells wrap
+      // rather than running off the page — expect taller rows and more pages.
+      // getSnapshot() carries orientation, so Send-for-Review re-renders portrait too.
+      orientation: 'portrait',
       formatDateTime,
     });
-    report.addTable({ head: headLabels, body: r.body });
+    // Explicit widths, because portrait leaves 181mm of usable page (measured)
+    // versus 268mm in landscape, and autoTable's automatic sizing spends that on
+    // whatever cell content happens to be longest. Left to itself it gave the
+    // 60-character RFID strings and long filter names most of the width and
+    // squeezed the rest, so headers broke one letter per line ("R/e/a/s/o/n")
+    // and a timestamp wrapped across four. These total 181mm.
+    report.addTable({
+      head: headLabels,
+      body: r.body,
+      // 2026-09-02 (operator request): larger text, and fewer records per page
+      // as a direct consequence — 9pt rows are taller than 7pt ones, so the
+      // table breaks sooner. Column widths below were sized for this font.
+      fontSize: 9,
+      columnStyles: {
+        // cellPadding is 2.5mm a side, so a column needs its header text + 5mm.
+        // 10mm was not enough for "S.No" itself and broke it to "S.N / o".
+        // Retuned for 9pt. The page gives 181mm; 8 columns spend 40mm of that on
+        // horizontal padding, leaving ~141mm of text. 9pt glyphs are ~12% wider
+        // than 8pt, so the fixed-content columns below were sized to their own
+        // longest value at 9pt first, and whatever remained went to the two
+        // free-text columns. Those two therefore wrap on long values — that is
+        // the deliberate trade for the larger type, and it is the right pair to
+        // spend it on: an RFID tag or a filter path reads fine over two lines,
+        // a column HEADER or a timestamp does not.
+        0: { cellWidth: 13 },  // S.No
+        // 24-hour timestamps dropped the " PM" suffix, so this column needs ~3mm
+        // less than it did; that slack went to RFID Number, whose header had been
+        // splitting to "RFID / Number" for want of exactly this much.
+        1: { cellWidth: 32 },  // Date & Time — holds "8/19/2026 19:45" on one line
+        2: { cellWidth: 20 },  // Event — "Assigned" / "Removed"
+        3: { cellWidth: 27 },  // RFID Number — header now fits; 60-char tags still wrap
+        4: { cellWidth: 33 },  // Filter — long hierarchy paths wrap to two lines
+        5: { cellWidth: 19 },  // AHU
+        6: { cellWidth: 19 },  // User
+        7: { cellWidth: 18 },  // Reason
+      },
+    });
     return { report, count: r.body.length };
   };
 
