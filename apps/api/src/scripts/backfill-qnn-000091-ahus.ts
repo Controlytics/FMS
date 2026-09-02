@@ -51,8 +51,21 @@ async function main() {
   const ahuNames: string[] = (source.afterValue as any)?.ahuNames ?? [];
   if (ahuNames.length === 0) throw new Error('That audit row records no ahuNames — nothing to restore');
 
+  const imported = Number((source.afterValue as any)?.imported ?? 0);
+
+  // Rebuilt from the audited facts rather than appended to whatever the row
+  // currently holds, so re-running this script is idempotent instead of
+  // stacking a second AHU list onto the message.
+  //
+  // Both counts are named. "Uploaded 58 PM schedule entries" alone is ambiguous —
+  // 58 is planned VISITS, and it reads as a count of something else entirely
+  // (filters, AHUs) unless the other number is stated beside it. 58 visits across
+  // 10 AHUs is the fact.
   const newAhu = `${ahuNames.length} AHUs`;
-  const newMessage = `${row.message} — ${ahuNames.join(', ')}`;
+  const newMessage =
+    `Uploaded ${imported} PM schedule entr${imported === 1 ? 'y' : 'ies'} `
+    + `across ${ahuNames.length} AHU${ahuNames.length === 1 ? '' : 's'} (pending review)`
+    + ` — ${ahuNames.join(', ')}`;
 
   console.log('QNN            :', row.qnn);
   console.log('source audit   :', source.id, source.timestamp.toISOString());

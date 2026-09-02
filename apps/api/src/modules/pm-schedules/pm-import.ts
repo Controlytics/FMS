@@ -403,13 +403,14 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   // One shared reference across every entry of this upload, so the whole batch —
   // and therefore every AHU it covered — can be recovered from any one row.
   const batchRef = imported.length > 1 ? newQnnBatchRef() : null;
+  const batchAhus = new Set(imported.map((e) => e.ahuName)).size;
   for (const [i, entry] of imported.entries()) {
     qnns.push(await generateQnn('UPLOAD', {
       pmScheduleEntryId: entry.entryId || null,
       scheduleId: entry.scheduleId,
       ahuName: entry.ahuName,
       message: `Uploaded — ${entry.ahuName} (${entry.plannedDate})${pendingSuffix}`
-        + qnnBatchTag(batchRef, i + 1, imported.length),
+        + qnnBatchTag(batchRef, i + 1, imported.length, batchAhus),
     }, ctx));
   }
   qnn = qnns[0] ?? null;

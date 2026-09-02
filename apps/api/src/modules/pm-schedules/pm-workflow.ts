@@ -103,11 +103,20 @@ export function newQnnBatchRef(): string {
 }
 
 /**
- * ` [batch B-3F7A2C, 3 of 15]`, or '' when the action covered a single entry —
- * a one-entry action is not a bulk action and tagging it would be noise.
+ * ` [batch B-3F7A2C, 3 of 15 across 6 AHUs]`, or '' when the action covered a
+ * single entry — a one-entry action is not a bulk action and tagging it would be
+ * noise.
+ *
+ * The AHU count is named because the entry count alone is ambiguous: "15" is
+ * planned VISITS, and without the second number it reads as a count of something
+ * else (AHUs, filters). One AHU can hold many visits in a year, so the two
+ * numbers are routinely different. Omitted when the batch touches one AHU —
+ * every row already names it.
  */
-export function qnnBatchTag(ref: string | null, index: number, total: number): string {
-  return ref && total > 1 ? ` [batch ${ref}, ${index} of ${total}]` : '';
+export function qnnBatchTag(ref: string | null, index: number, total: number, ahuCount?: number): string {
+  if (!ref || total <= 1) return '';
+  const across = ahuCount && ahuCount > 1 ? ` across ${ahuCount} AHUs` : '';
+  return ` [batch ${ref}, ${index} of ${total}${across}]`;
 }
 
 export async function generateQnn(
