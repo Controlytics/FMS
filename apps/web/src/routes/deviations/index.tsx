@@ -19,6 +19,7 @@ interface DeviationRow {
   ahuName: string;
   filterCount: number;
   scheduledDate: string;
+  windowStart: string | null;
   windowEnd: string;
   overdueDaysAtOpen: number;
   liveOverdueDays: number;
@@ -101,6 +102,49 @@ export function DeviationsPage() {
 
   const HEAD = ['Deviation #', 'AHU', 'Filters', 'Scheduled', 'Overdue', 'Status', 'Acknowledged By', 'Completed By', 'Completed', 'Delay'];
 
+  /**
+   * Scheduled date + the tolerance window it may be met in, e.g.
+   *   20/06/2026
+   *   ±3d (17/06 – 23/06)
+   *
+   * The window is what actually decides whether a visit is late, so showing
+   * the planned date alone understates the picture -- 20/06 ±3d is not overdue
+   * on the 22nd. Tolerance is DERIVED from windowEnd - scheduledDate rather
+   * than stored: deviations carry no toleranceDays column, and the windows are
+   * symmetric by construction (plannedDate ± toleranceDays, see pm-separation).
+   *
+   * The window dates drop their year -- it is already on the line above, and in
+   * portrait the column cannot afford to repeat it. windowStart is nullable on
+   * older rows, so it is mirrored from windowEnd when missing.
+   */
+  const MS_DAY = 86400000;
+  const shortDay = (iso: string) => {
+    const dt = new Date(iso);
+    return `${String(dt.getUTCDate()).padStart(2, '0')}/${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
+  };
+  const toleranceOf = (d: DeviationRow) =>
+    Math.round((new Date(d.windowEnd).getTime() - new Date(d.scheduledDate).getTime()) / MS_DAY);
+  // Two short pieces rather than one string: at 7.5pt the PDF's Scheduled column
+  // holds ~20mm, and a combined "±5d (15/06 – 25/06)" needs ~27mm, so autoTable
+  // broke it wherever it ran out ("±5d (15/06 –" / "25/06)"). Two deliberate
+  // lines beat one arbitrary wrap, and the compact "15/06-25/06" form fits.
+  const toleranceLabel = (d: DeviationRow) => {
+    const tol = toleranceOf(d);
+    return Number.isFinite(tol) && tol >= 0 ? `±${tol}d` : '';
+  };
+  const windowRange = (d: DeviationRow) => {
+    const tol = toleranceOf(d);
+    if (!Number.isFinite(tol) || tol < 0) return '';
+    const startIso = d.windowStart
+      ?? new Date(new Date(d.scheduledDate).getTime() - tol * MS_DAY).toISOString();
+    return `${shortDay(startIso)}-${shortDay(d.windowEnd)}`;
+  };
+  /** The on-screen form, which has room for one line. */
+  const windowLine = (d: DeviationRow) => {
+    const tol = toleranceLabel(d);
+    return tol ? `${tol} (${windowRange(d)})` : '';
+  };
+
   // Fetch every page for the current status tab, filter by the selected period,
   // and build the export rows. Shared by the PDF + Excel export. Returns null
   // (and surfaces a message) when there's nothing to export.
@@ -130,7 +174,10 @@ export function DeviationsPage() {
       ? `${fromDate ? formatDate(fromDate) : 'Start'} to ${toDate ? formatDate(toDate) : 'Now'}`
       : 'All Time';
     const body = filtered.map(d => [
-      d.deviationNumber, d.ahuName, String(d.filterCount), formatDate(d.scheduledDate),
+      d.deviationNumber, d.ahuName, String(d.filterCount),
+      // Three deliberate lines. One combined string needs ~27mm and the column
+      // holds ~20mm, so autoTable would break it wherever it ran out.
+      `${formatDate(d.scheduledDate)}\n${toleranceLabel(d)}\n${windowRange(d)}`,
       d.status === 'CLOSED' ? `${daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay` : daysLabel(d.liveOverdueDays),
       STATUS_META[d.status].label, d.acknowledgedByName ?? '-', d.completedByName ?? '-',
       d.completedAt ? formatDateTime(d.completedAt) : '-', d.delayDays != null ? daysLabel(d.delayDays) : '-',
@@ -316,7 +363,10 @@ export function DeviationsPage() {
                       <td className="px-4 py-3 text-[13px] font-semibold text-slate-800 whitespace-nowrap">{d.deviationNumber}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-700">{d.ahuName}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 text-center tabular-nums">{d.filterCount}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap">{formatDate(d.scheduledDate)}</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap">
+                        <div>{formatDate(d.scheduledDate)}</div>
+                        <div className="text-[11px] text-slate-400">{windowLine(d)}</div>
+                      </td>
                       <td className="px-4 py-3 text-[13px] whitespace-nowrap">
                         {d.status === 'CLOSED' ? (
                           <span className={`${severityPill} ${severityCls(d.delayDays ?? d.overdueDaysAtOpen)}`}>
