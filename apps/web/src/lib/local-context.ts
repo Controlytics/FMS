@@ -584,6 +584,31 @@ function resolveStageLookup(
  * unprivileged. The server is always the final authority on permission
  * enforcement (Phase 8.5+ permission audit).
  */
+/**
+ * Identity to stamp on a queued offline operation (§11 attribution, 2026-09-02).
+ *
+ * Returns `null` ids rather than `''` when the cached user is unreadable —
+ * api-client clears `digilog_cached_user` on a 401, and queueing happens right
+ * after a network failure, so this is reachable. An empty-string owner would
+ * match nobody and hold that operation forever; `null` puts it in the
+ * unknown-owner bucket, which still replays. See partitionOpsByOwner.
+ */
+export function readCachedUserIdentity(): { userId: string | null; userName: string | null } {
+  try {
+    const raw = typeof localStorage !== 'undefined'
+      ? localStorage.getItem('digilog_cached_user')
+      : null;
+    if (!raw) return { userId: null, userName: null };
+    const u = JSON.parse(raw);
+    return {
+      userId: u?.id || null,
+      userName: u?.fullName || u?.username || null,
+    };
+  } catch {
+    return { userId: null, userName: null };
+  }
+}
+
 function readCachedUser(): LocalContext['user'] {
   try {
     const raw = typeof localStorage !== 'undefined'

@@ -12,6 +12,9 @@ import { dispatchNotification } from '../notification-delivery/notification-disp
 // Drop the per-user auth cache on every mutation so a role/status/password
 // change takes effect immediately instead of after the 30s TTL (audit M-7).
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
+import { getLogger } from '../../lib/logger.js';
+
+const userLog = getLogger('users', 'application');
 
 /**
  * Privilege-boundary guard for user-mutating operations (audit C2 fix).
@@ -21,7 +24,14 @@ import { invalidateUserAuthCache } from '../../plugins/auth.js';
  * nobody below may reset/unlock/update/disable/enable a SUPER_ADMIN (or any role
  * above their own). Fails CLOSED if a role can't be resolved.
  */
-async function assertCanManageTarget(callerRole: string, targetRoleName: string) {
+/**
+ * Exported 2026-09-02 for admin-requests. Its callers there must run it BEFORE
+ * deciding whether an account-state request is a no-op — the check otherwise
+ * lives inside unlock/enable/disable, and a guard that returns early would skip
+ * it, letting an ADMIN learn a SUPER_ADMIN's account state from the
+ * "already enabled" message.
+ */
+export async function assertCanManageTarget(callerRole: string, targetRoleName: string) {
   if (callerRole === 'SUPER_ADMIN') return; // top of the hierarchy — can manage anyone
   const caller = await userRepository.findRole(callerRole);
   if (!caller) throw new ForbiddenError('Your role is not recognized');
@@ -159,7 +169,7 @@ export const userService = {
         createdBy: ctx.userId ?? 'system',
         timestamp: new Date().toISOString(),
       },
-    }).catch(err => console.error('[UserCreated] Notification dispatch failed:', err.message));
+    }).catch(err => userLog.warn({ err }, 'User-created notification dispatch failed'));
 
     return {
       id: user.id, username: user.username, fullName: user.fullName,

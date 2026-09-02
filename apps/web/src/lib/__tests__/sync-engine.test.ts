@@ -34,6 +34,18 @@ const { mockApiClient, mockOfflineStore, mockConnectivity } = vi.hoisted(() => {
     mockOfflineStore: {
       __ops: opsRegistry,
       getPendingOperations: vi.fn(async () => opsRegistry.filter(o => o.status === 'pending')),
+      // 2026-09-02: the engine drains through the owner partition (§11
+      // attribution). Mirrors partitionOpsByOwner — an op with no owner
+      // (which every op in this registry has) is syncable, so these tests
+      // keep exercising the replay paths unchanged. The RULE itself is
+      // locked against the real implementation in offline-store.test.ts.
+      getPendingOperationsForUser: vi.fn(async (currentUserId: string | null) => {
+        const pending = opsRegistry.filter(o => o.status === 'pending');
+        const syncable = pending.filter(
+          (o: any) => o.userId == null || (currentUserId && o.userId === currentUserId));
+        const held = pending.filter((o: any) => !syncable.includes(o));
+        return { syncable, held };
+      }),
       updateOperationStatus: vi.fn(async (id: string, status: string, error?: string) => {
         const op = opsRegistry.find(o => o.id === id);
         if (op) {

@@ -19,8 +19,9 @@
  *                                       apps/api/src/lib/offline-time-window.ts)
  */
 import { apiClient } from './api-client';
+import { readCachedUserIdentity } from './local-context';
 import {
-  getPendingOperations,
+  getPendingOperationsForUser,
   updateOperationStatus,
   updateOperationTapeVersion,
   clearSyncedOperations,
@@ -407,11 +408,28 @@ async function refreshTokenBeforeSync(): Promise<{ ok: boolean; error?: string }
 export async function syncPendingOperations(): Promise<{ synced: number; failed: number }> {
   if (syncing) return { synced: 0, failed: 0 };
 
+  // 2026-09-02 (21 CFR Part 11 attribution): drain ONLY operations this user
+  // queued. The server stamps performedBy from the JWT at REPLAY time, and
+  // this queue survives logout and an app kill -- so an unscoped drain writes
+  // the previous operator's work into the record under whoever logs in next.
+  // Held ops keep status "pending" and their full retry budget; they are
+  // simply not this user's to submit. Rows with a null owner (pre-v7, or
+  // queued with no cached user) DO drain -- see partitionOpsByOwner.
   let pending: any[];
+  let held: any[] = [];
   try {
-    pending = await getPendingOperations();
+    const split = await getPendingOperationsForUser(readCachedUserIdentity().userId);
+    pending = split.syncable;
+    held = split.held;
   } catch {
     return { synced: 0, failed: 0 };
+  }
+  if (held.length > 0) {
+    const names = [...new Set(held.map((o: any) => o.userName).filter(Boolean))];
+    notify({
+      type: 'error',
+      error: `${held.length} queued operation(s) were recorded by ${names.join(', ') || 'another user'} and can only be submitted by them. Ask them to sign in on this tablet.`,
+    });
   }
   if (pending.length === 0) return { synced: 0, failed: 0 };
 
@@ -767,8 +785,10 @@ export function startAutoSync(): void {
 
   retryInterval = setInterval(async () => {
     try {
-      const pending = await getPendingOperations();
-      if (pending.length > 0) syncPendingOperations();
+      // Same owner partition as the drain -- otherwise this tick would spin
+      // syncPendingOperations() every 30s over ops it will always skip.
+      const { syncable } = await getPendingOperationsForUser(readCachedUserIdentity().userId);
+      if (syncable.length > 0) syncPendingOperations();
     } catch (err) {
       // The 30-second retry tick polls IndexedDB for queued ops. Silent
       // catch here hid stuck offline-mode failures (the queue stops

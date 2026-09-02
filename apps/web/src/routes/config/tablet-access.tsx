@@ -8,6 +8,11 @@ const FEATURES = [
   { key: 'filter_cleaning', label: 'Filter Cleaning', description: 'Start/advance cleaning cycles, scan filters' },
   { key: 'filter_status', label: 'Filter Status', description: 'View current filter states and cleaning progress' },
   { key: 'my_tasks', label: 'My Tasks', description: 'View PM schedule tasks and due filters' },
+  // 2026-09-02. Deliberately NOT the retired `approvals` key (removed 2026-08-10):
+  // that one meant block-change approvals plus a read-only stage list, and reusing
+  // the name would resurrect a key whose meaning has changed. Grants the tablet
+  // screen only — the backend still requires STAGE_APPROVAL_VIEW / _DECIDE.
+  { key: 'stage_approvals', label: 'Stage Approvals', description: 'Approve or reject cleaning stages held at the Wash Out / Dry Out QA interlock' },
   { key: 'rfid_assign', label: 'RFID Assign', description: 'Assign or remove RFID tags on filters from the tablet' },
   { key: 'logout', label: 'Logout', description: 'Allow logout from the tablet app' },
 ];

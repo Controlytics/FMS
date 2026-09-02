@@ -3,11 +3,90 @@ import { randomInt } from 'node:crypto';
 import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
-import { userService } from '../users/user.service.js';
+import { userService, assertCanManageTarget } from '../users/user.service.js';
 import { userRepository } from '../users/user.repository.js';
 import type { RequestContext } from '../../types/context.js';
 
 const prisma = new PrismaClient();
+
+/**
+ * What the request is ABOUT — the subject — not who asked for it.
+ *
+ * 2026-09-02 (operator report): the audit name was built from the REQUESTER, so
+ * a request by 101010 (ADMIN) to create user 101021 as SUPERVISOR was recorded
+ * as `"Create User — Admin User (101010)"`. The account being created, and the
+ * role being asked for, appeared nowhere in the trail — the two facts an
+ * inspector most needs. Same for unlock/enable/disable, which named the
+ * requester instead of the account being acted on.
+ *
+ * Requester and subject are frequently different people, and for CREATE_USER the
+ * subject does not exist yet, so it can only come from the submitted payload.
+ */
+export function describeRequestSubject(requestType: string, data: Record<string, any>): string {
+  const username = String(data?.username ?? '').trim();
+  switch (requestType) {
+    case 'CREATE_USER': {
+      const fullName = String(data?.fullName ?? '').trim();
+      const role = String(data?.requestedRole ?? '').trim();
+      const who = [username || '(no user ID)', fullName ? `(${fullName})` : ''].filter(Boolean).join(' ');
+      return role ? `${who}, role ${role}` : who;
+    }
+    case 'MODIFY_USER': {
+      const field = String(data?.modifyField ?? '').trim();
+      const value = data?.newValue === undefined || data?.newValue === null ? '' : String(data.newValue).trim();
+      if (!field) return username || '(no user ID)';
+      return `${username || '(no user ID)'}, ${field} -> ${value || '(blank)'}`;
+    }
+    default:
+      // UNLOCK / ENABLE_ACCOUNT / DISABLE_ACCOUNT / FORGOT_PASSWORD all act on
+      // one existing account.
+      return username || '(no user ID)';
+  }
+}
+
+/**
+ * The subject as STRUCTURED fields alongside the readable label, so an inspector
+ * can filter on the target account without parsing a sentence.
+ */
+export function subjectFields(requestType: string, data: Record<string, any>) {
+  const out: Record<string, unknown> = {
+    targetUsername: String(data?.username ?? '').trim() || null,
+  };
+  if (requestType === 'CREATE_USER') {
+    out.targetFullName = String(data?.fullName ?? '').trim() || null;
+    out.requestedRole = String(data?.requestedRole ?? '').trim() || null;
+  }
+  if (requestType === 'MODIFY_USER') {
+    out.modifyField = String(data?.modifyField ?? '').trim() || null;
+    out.newValue = data?.newValue ?? null;
+  }
+  return out;
+}
+
+/**
+ * The requester's role, resolved SERVER-side from their employee ID.
+ *
+ * 2026-09-02: the audit rows recorded who submitted a request but never their
+ * role — `ADMIN_REQUEST_SUBMITTED` passed `userId` and omitted `userRole`
+ * entirely, so `audit_trail.user_role` was blank on every submission. An
+ * inspector could see that 101010 asked for an account change but not the
+ * authority they held when they asked.
+ *
+ * Never taken from the client: the contact-admin form is a PUBLIC endpoint, so a
+ * self-declared role would be an unauthenticated claim written into a §11
+ * record. Returns null when the ID matches no user (legacy rows, typos) — the
+ * audit clause degrades to the id alone rather than asserting something false.
+ */
+async function resolveRequesterRole(employeeId: string | null | undefined): Promise<string | null> {
+  const id = (employeeId ?? '').trim();
+  if (!id) return null;
+  try {
+    const user = await userRepository.findByUsername(id);
+    return (user as any)?.role ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const adminRequestService = {
   async create(data: {
@@ -34,20 +113,30 @@ export const adminRequestService = {
     const requesterLabel = request.requesterEmployeeId
       ? `${request.requesterName} (${request.requesterEmployeeId})`
       : request.requesterName;
-    const submittedName = `${formatRequestType(request.requestType)} — ${requesterLabel}`;
+    // The NAME describes the subject; the requester is carried separately by
+    // {requesterClause}. It used to be the requester in both places.
+    const subject = describeRequestSubject(request.requestType, data.requestData ?? {});
+    const submittedName = `${formatRequestType(request.requestType)}: ${subject}`;
+    const requesterRole = await resolveRequesterRole(request.requesterEmployeeId);
     await auditLog({
       userId: request.requesterEmployeeId ?? undefined,
+      // Was omitted entirely, leaving audit_trail.user_role blank on every
+      // submission. The requester's authority is part of the record.
+      userRole: requesterRole ?? undefined,
       action: 'ADMIN_REQUEST_SUBMITTED',
       targetType: 'admin_request',
       targetId: request.id,
       afterValue: {
         name: submittedName,
         requestType: request.requestType,
+        operation: formatRequestType(request.requestType),
         requesterName: request.requesterName,
         requesterEmployeeId: request.requesterEmployeeId,
+        requesterRole,
+        ...subjectFields(request.requestType, data.requestData ?? {}),
       },
-      reason: `${formatRequestType(request.requestType)} request submitted by ${requesterLabel}`,
-      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) submitted by ${requesterLabel}`,
+      reason: `${formatRequestType(request.requestType)} request for ${subject}, submitted by ${requesterLabel}`,
+      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) for ${subject}, submitted by ${requesterLabel}`,
     });
 
     // Create notification for admins
@@ -115,7 +204,7 @@ export const adminRequestService = {
     });
     if (claimed.count === 0) throw new ValidationError('Request has already been processed');
 
-    let actionOutcome: { username?: string; temporaryPassword?: string; message?: string } = {};
+    let actionOutcome: ActionOutcome = {};
     if (action === 'approve') {
       try {
         actionOutcome = await executeApproval(request, ctx);
@@ -137,17 +226,44 @@ export const adminRequestService = {
     const requesterLabel = request.requesterEmployeeId
       ? `${request.requesterName} (${request.requesterEmployeeId})`
       : request.requesterName;
-    const processedName = `${formatRequestType(request.requestType)} — ${requesterLabel}`;
+    const subject = describeRequestSubject(request.requestType, (request.requestData ?? {}) as Record<string, any>);
+    const processedName = `${formatRequestType(request.requestType)}: ${subject}`;
+    // Re-resolved at approval time rather than read back from anything the
+    // submit path stashed — the role is whatever it is now, and the submitted
+    // payload must not become a channel for asserting authority.
+    const requesterRole = await resolveRequesterRole(request.requesterEmployeeId);
+    const auditCommon = {
+      operation: formatRequestType(request.requestType),
+      requesterName: request.requesterName,
+      requesterEmployeeId: request.requesterEmployeeId,
+      requesterRole,
+      ...subjectFields(request.requestType, (request.requestData ?? {}) as Record<string, any>),
+    };
     await auditLog({
       userId: ctx.userId,
       userRole: ctx.userRole,
       action: action === 'approve' ? 'ADMIN_REQUEST_APPROVED' : 'ADMIN_REQUEST_REJECTED',
       targetType: 'admin_request',
       targetId: id,
-      beforeValue: { name: processedName, status: 'PENDING', requesterEmployeeId: request.requesterEmployeeId },
-      afterValue: { name: processedName, status: newStatus, adminRemarks, requesterEmployeeId: request.requesterEmployeeId },
-      reason: `${formatRequestType(request.requestType)} request ${newStatus.toLowerCase()} — ${adminRemarks}`,
-      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) ${newStatus.toLowerCase()} by admin`,
+      beforeValue: { name: processedName, status: 'PENDING', ...auditCommon },
+      afterValue: {
+        name: processedName, status: newStatus, adminRemarks, ...auditCommon,
+        // Only meaningful on an APPROVAL. A rejection never calls
+        // executeApproval, so `actionOutcome` is empty and the old
+        // `!== false` default made every rejected row claim actionTaken=true —
+        // asserting an action for a request that was explicitly refused.
+        actionTaken: action === 'approve' ? actionOutcome.actionTaken !== false : false,
+        outcome: actionOutcome.message ?? null,
+      },
+      // 2026-09-02: both of these named neither the subject nor the signer —
+      // the signature meaning read literally "... approved by admin", the word
+      // "admin", on a 21 CFR Part 11 electronic signature. The meaning of a
+      // signature has to say who signed it and what for.
+      reason: `${formatRequestType(request.requestType)} request for ${subject} ${newStatus.toLowerCase()} by ${ctx.userId} — ${adminRemarks}`
+        + (actionOutcome.message ? ` (${actionOutcome.message})` : ''),
+      signatureMeaning: `Admin request (${formatRequestType(request.requestType)}) for ${subject}, `
+        + `${newStatus.toLowerCase()} by ${ctx.userId} (${ctx.userRole})`
+        + (action === 'approve' && actionOutcome.actionTaken === false ? ' — no action was required' : ''),
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
       sessionId: ctx.sessionId,
@@ -160,7 +276,7 @@ export const adminRequestService = {
 async function executeApproval(
   request: { id: string; requestType: string; requestData: unknown; requesterName: string; requesterEmail: string | null },
   ctx: RequestContext,
-): Promise<{ username?: string; temporaryPassword?: string; message?: string }> {
+): Promise<ActionOutcome> {
   const data = (request.requestData ?? {}) as Record<string, any>;
   switch (request.requestType) {
     case 'CREATE_USER': {
@@ -203,13 +319,62 @@ async function executeApproval(
     }
 
     case 'UNLOCK': {
-      const targetUsername = String(data.username ?? '').trim();
-      if (!targetUsername) throw new ValidationError('Request is missing username');
-      const user = await userRepository.findByUsername(targetUsername);
-      if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
+      const { user, targetUsername } = await loadManageableTarget(data, ctx);
+      // 2026-09-02: this used to unlock UNCONDITIONALLY. Approving an unlock for
+      // an account that was never locked reset its password, forced a change,
+      // terminated every live session, and wrote an ACCOUNT_UNLOCKED row
+      // asserting a transition that never happened — a destructive no-reason
+      // reset plus a false §11 record. The public user-lookup deliberately does
+      // not expose status (enumeration oracle), so this check can only live here.
+      //
+      // Only LOCKED is unlockable. EXPIRED is deliberately NOT treated as
+      // unlockable: unlock() issues a temporary password, so doing it here would
+      // silently perform a password reset nobody asked for — the same surprise
+      // this fix removes. Forgot Password is the request for that.
+      if (user.status !== 'LOCKED') {
+        return {
+          username: targetUsername, actionTaken: false,
+          message: `No action taken — account "${targetUsername}" is not locked (current status: ${user.status}).`
+            + (user.status === 'EXPIRED'
+              ? ' Its password has expired; submit a Forgot Password request to issue a new one.'
+              : ''),
+        };
+      }
       const temporaryPassword = generateTempPassword();
       await userService.unlock(user.id, temporaryPassword, ctx);
-      return { username: targetUsername, temporaryPassword, message: `Account "${targetUsername}" unlocked.` };
+      return { username: targetUsername, temporaryPassword, actionTaken: true, message: `Account "${targetUsername}" unlocked.` };
+    }
+
+    case 'ENABLE_ACCOUNT': {
+      const { user, targetUsername } = await loadManageableTarget(data, ctx);
+      if (user.status === 'ENABLED') {
+        return {
+          username: targetUsername, actionTaken: false,
+          message: `No action taken — account "${targetUsername}" is already enabled.`,
+        };
+      }
+      // A LOCKED account is not enabled by flipping status: it still holds the
+      // failed-attempt count and no usable password. Say so instead of half-doing it.
+      if (user.status === 'LOCKED') {
+        return {
+          username: targetUsername, actionTaken: false,
+          message: `No action taken — account "${targetUsername}" is locked, not disabled. Submit an Unlock Account request to restore access.`,
+        };
+      }
+      await userService.enable(user.id, ctx);
+      return { username: targetUsername, actionTaken: true, message: `Account "${targetUsername}" enabled (was ${user.status}).` };
+    }
+
+    case 'DISABLE_ACCOUNT': {
+      const { user, targetUsername } = await loadManageableTarget(data, ctx);
+      if (user.status === 'DISABLED') {
+        return {
+          username: targetUsername, actionTaken: false,
+          message: `No action taken — account "${targetUsername}" is already disabled.`,
+        };
+      }
+      await userService.disable(user.id, ctx);
+      return { username: targetUsername, actionTaken: true, message: `Account "${targetUsername}" disabled (was ${user.status}).` };
     }
 
     case 'FORGOT_PASSWORD': {
@@ -239,6 +404,37 @@ async function executeApproval(
     default:
       throw new ValidationError(`Unknown request type: ${request.requestType}`);
   }
+}
+
+interface ActionOutcome {
+  username?: string;
+  temporaryPassword?: string;
+  message?: string;
+  /**
+   * False when the approval was a deliberate no-op — the account was already in
+   * the requested state. The request is still APPROVED (the admin did decide),
+   * but no user record changed and no account-action audit row was written.
+   */
+  actionTaken?: boolean;
+}
+
+/**
+ * Resolve the target user for an account-state request and prove the approver is
+ * allowed to manage them — BEFORE any state is read.
+ *
+ * Ordering matters: `assertCanManageTarget` normally runs inside
+ * userService.unlock/enable/disable, but the no-op guards return before those
+ * are called. Without this, an ADMIN approving a request against a SUPER_ADMIN
+ * would be told "already enabled" — leaking an account state they have no
+ * authority over.
+ */
+async function loadManageableTarget(data: Record<string, any>, ctx: RequestContext) {
+  const targetUsername = String(data.username ?? '').trim();
+  if (!targetUsername) throw new ValidationError('Request is missing username');
+  const user = await userRepository.findByUsername(targetUsername);
+  if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
+  await assertCanManageTarget(ctx.userRole, (user as any).role);
+  return { user: user as any as { id: string; status: string; role: string }, targetUsername };
 }
 
 async function generateUniqueUsername(email: string): Promise<string> {
@@ -277,6 +473,8 @@ function formatRequestType(type: string): string {
     case 'CREATE_USER': return 'Create User';
     case 'MODIFY_USER': return 'Modify User';
     case 'UNLOCK': return 'Unlock Account';
+    case 'ENABLE_ACCOUNT': return 'Enable Account';
+    case 'DISABLE_ACCOUNT': return 'Disable Account';
     case 'FORGOT_PASSWORD': return 'Forgot Password';
     default: return type;
   }

@@ -53,8 +53,13 @@ export function StageApprovalsPage() {
 
   const toggleOne = (id: string) =>
     setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const allSelected = queue.length > 0 && queue.every((q) => selected.has(q.id));
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(queue.map((q) => q.id)));
+  // Rows this reader performed themselves are un-actionable under segregation of
+  // duties (server flag — see StageApprovalSummary.selfRequested). They stay in
+  // the queue for a different approver, but must never enter a selection: a bulk
+  // run including one burns the signature and returns that item as failed.
+  const decidable = queue.filter((q) => !q.selfRequested);
+  const allSelected = decidable.length > 0 && decidable.every((q) => selected.has(q.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(decidable.map((q) => q.id)));
   const openBulk = (action: 'approve' | 'reject') => { setBulkDlg(action); setRemarks(''); };
 
   const submit = () => {
@@ -81,7 +86,7 @@ export function StageApprovalsPage() {
   const submitBulk = () => {
     if (!bulkDlg) return;
     const action = bulkDlg;
-    const ids = queue.filter((q) => selected.has(q.id)).map((q) => q.id);
+    const ids = decidable.filter((q) => selected.has(q.id)).map((q) => q.id);
     if (ids.length === 0) { setBulkDlg(null); return; }
     // Backend caps the batch at 200 — give a clear message instead of a raw 400.
     if (ids.length > 200) { toast.error('Too many selected', 'Approve/reject at most 200 at a time.'); return; }
@@ -134,8 +139,9 @@ export function StageApprovalsPage() {
     <div className={`grid ${inQueue ? 'grid-cols-[auto_1.6fr_1fr_1fr_auto]' : 'grid-cols-[1.6fr_1fr_1fr_auto]'} items-center gap-3 px-4 py-3 hover:bg-slate-50/50`}>
       {inQueue && (
         <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleOne(r.id)}
+          disabled={r.selfRequested}
           aria-label={`Select ${r.detailsSnapshot?.filterName ?? r.filterId}`}
-          className="w-4 h-4 accent-teal-600 cursor-pointer" />
+          className="w-4 h-4 accent-teal-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40" />
       )}
       <div>
         <div className="text-[14px] font-medium text-slate-800">{r.detailsSnapshot?.filterName ?? r.filterId}</div>
@@ -156,6 +162,14 @@ export function StageApprovalsPage() {
       </div>
       <div className="flex items-center gap-2 justify-end">
         {inQueue ? (
+          r.selfRequested ? (
+            // Segregation of duties: this reader performed the stage, so both
+            // endpoints would 403 AFTER the password was accepted. Say why
+            // instead of offering a button that can only fail.
+            <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 text-right">
+              You performed this stage — another {r.approverRole} must sign off.
+            </span>
+          ) : (
           <>
             {can('stage_approvals.approve') && (
               <button onClick={() => openDlg(r, 'approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Verify & Approve</button>
@@ -164,13 +178,14 @@ export function StageApprovalsPage() {
               <button onClick={() => openDlg(r, 'reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject</button>
             )}
           </>
+          )
         ) : null}
       </div>
     </div>
   );
 
   const list = tab === 'queue' ? queue : all;
-  const bulkCount = queue.filter((q) => selected.has(q.id)).length;
+  const bulkCount = decidable.filter((q) => selected.has(q.id)).length;
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -185,7 +200,7 @@ export function StageApprovalsPage() {
       </div>
 
       {/* Bulk selection toolbar — queue tab only (only PENDING items are actionable). */}
-      {tab === 'queue' && queue.length > 0 && (
+      {tab === 'queue' && decidable.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 mb-3">
           <label className="flex items-center gap-2 text-[13px] text-slate-600 cursor-pointer select-none">
             <input type="checkbox" checked={allSelected}
@@ -267,7 +282,7 @@ export function StageApprovalsPage() {
             <div className="p-6 space-y-4">
               {/* List of the filters being acted on so the approver can verify scope. */}
               <div className="rounded-xl border border-slate-200 bg-slate-50/60 divide-y divide-slate-100 max-h-48 overflow-auto">
-                {queue.filter((q) => selected.has(q.id)).map((q) => (
+                {decidable.filter((q) => selected.has(q.id)).map((q) => (
                   <div key={q.id} className="flex items-center justify-between px-3 py-1.5 gap-2">
                     <span className="text-[13px] font-medium text-slate-700 truncate">{q.detailsSnapshot?.filterName ?? q.filterId}</span>
                     <span className="text-[11px] text-slate-400 whitespace-nowrap">{prettyStage(q.stageKey)}</span>

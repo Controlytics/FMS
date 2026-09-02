@@ -1899,7 +1899,7 @@ export function FilterOperationsPage() {
                     <span className="w-2 h-2 bg-green-500 rounded-full" />
                     <span className="text-slate-500 w-20 shrink-0">{sub.time}</span>
                     <span className="text-slate-700 font-medium">{sub.filter}</span>
-                    <span className="text-cyan-600">\u2192 {sub.stage}</span>
+                    <span className="text-cyan-600">&#8594; {sub.stage}</span>
                     {sub.block && <span className="text-slate-400 text-xs">({sub.block})</span>}
                   </div>
                 ))}

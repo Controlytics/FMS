@@ -64,9 +64,14 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
       // 2026-08-10: 'approvals' dropped with the tablet Approvals screen —
       // the key gated a view that no longer exists. Desktop /approvals and the
       // BLOCK_CHANGE_APPROVE permission are unaffected.
+      // 2026-09-02: 'stage_approvals' added with the tablet Stage Approvals
+      // screen. Distinct key, distinct meaning — it is the QA interlock, not
+      // the block-change flow the retired 'approvals' key gated.
+      // KEEP IN STEP with FEATURES in web/src/routes/config/tablet-access.tsx —
+      // a key present there but missing here is invisible to SUPER_ADMIN.
       return { role, allowed: [
         'login', 'filter_cleaning', 'filter_status', 'my_tasks',
-        'rfid_assign', 'logout',
+        'stage_approvals', 'rfid_assign', 'logout',
       ], configured: false };
     }
 

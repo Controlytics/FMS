@@ -33,7 +33,11 @@ const DB_NAME = 'digilog-offline';
 // alongside the existing legacy mixed-kind `filters` store. Dual-cache
 // during the migration window lets consumers migrate one at a time.
 // Legacy `filters` store drops in Step 7 once all consumers migrate.
-const DB_VERSION = 6;
+// 2026-09-02: bumped 6 -> 7 to add `userId` / `userName` to OfflineOperation
+// (§11 attribution — see the field docblock). The v6 -> v7 upgrade backfills
+// existing rows with null: the owner was never recorded, so it cannot be
+// recovered, and null is the honest value.
+const DB_VERSION = 7;
 
 // Single source of truth for offline-critical TTLs. Long shifts (>= 12h)
 // require everything that participates in cleaning to outlive a full day,
@@ -68,7 +72,7 @@ export function getRuntimeOfflineTtlMs(): number {
   return _runtimeOfflineTtlMs;
 }
 
-interface OfflineOperation {
+export interface OfflineOperation {
   id: string;
   /** Stable client-generated UUID — sent as x-client-op-id so backend can dedup retries */
   clientOpId: string;
@@ -100,6 +104,31 @@ interface OfflineOperation {
    * the start-step of start-and-advance).
    */
   tapeVersion: number | null;
+  /**
+   * WHO queued this operation — 21 CFR §11 attribution. 2026-09-02.
+   *
+   * The server records `performedBy: ctx.userSub`, i.e. whoever is logged in
+   * at REPLAY time. The queue lives in IndexedDB, which survives logout and an
+   * app kill, and nothing was scoped to a user — so operator A could work
+   * offline, log out, hand the tablet to operator B, and B's login would drain
+   * A's work into the record under B's name, with A's original timestamps. A
+   * false attribution is worse than lost work.
+   *
+   * The fix is to HOLD, not to re-attribute: only the owner replays their own
+   * operations. Sending an "offlinePerformedBy" to the server was rejected
+   * deliberately — `offlinePerformedAt` is safe to trust because
+   * offline-time-window.ts bounds it against the cycle's startedAt, future skew
+   * and max staleness; a performer field has no such bound, so it would be a
+   * forgery channel straight into the §11 record.
+   *
+   * `null` = unknown owner: a row queued before v7, or queued while the cached
+   * user was unreadable. Those still replay (see partitionOpsByOwner) because
+   * holding work whose owner can never be identified is guaranteed data loss in
+   * exchange for a merely possible mis-attribution.
+   */
+  userId: string | null;
+  /** Display name for the held-operations UI. Never used for authorization. */
+  userName: string | null;
 }
 
 interface Tombstone {
@@ -250,6 +279,27 @@ function openDB(): Promise<IDBDatabase> {
             db.createObjectStore(name, { keyPath: 'id' });
           }
         }
+      }
+
+      // 2026-09-02: v6 -> v7 gives every OfflineOperation an explicit owner.
+      // Pre-v7 rows are backfilled to null rather than guessed — the owner was
+      // never recorded, and the user upgrading the app is NOT necessarily the
+      // one who queued the work (that is the whole bug). Null rows still
+      // replay; see partitionOpsByOwner for why.
+      if (oldVersion < 7 && oldVersion > 0 && upgradeTx) {
+        const opStore = upgradeTx.objectStore('operations');
+        const cursorReq = opStore.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return;
+          const row = cursor.value as OfflineOperation;
+          if (row.userId === undefined || row.userName === undefined) {
+            row.userId = row.userId ?? null;
+            row.userName = row.userName ?? null;
+            cursor.update(row);
+          }
+          cursor.continue();
+        };
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -588,6 +638,47 @@ export async function getPendingOperations(): Promise<OfflineOperation[]> {
     req.onsuccess = () => resolve(req.result ?? []);
     req.onerror = () => reject(req.error);
   });
+}
+
+export interface OwnerPartitionedOps {
+  /** Safe for the current user to replay: their own work, plus pre-v7 rows. */
+  syncable: OfflineOperation[];
+  /** Queued by a DIFFERENT user — held until that person signs in here. */
+  held: OfflineOperation[];
+}
+
+/**
+ * Split a queue by owner — the single definition of "may I replay this?".
+ *
+ * Both `syncQueue()` and the pending-count refresh consult this, so the badge
+ * can never promise a drain that the engine will skip.
+ *
+ * A `null` owner (pre-v7 row, or one queued while the cached user was
+ * unreadable) is treated as SYNCABLE, not held. We cannot identify an owner we
+ * never recorded, so holding those forever is guaranteed data loss traded
+ * against a merely possible mis-attribution — and it is not even likely, since
+ * the same operator normally returns to the same tablet. The window closes on
+ * its own as pre-v7 rows drain.
+ */
+export function partitionOpsByOwner(
+  ops: OfflineOperation[],
+  currentUserId: string | null,
+): OwnerPartitionedOps {
+  const syncable: OfflineOperation[] = [];
+  const held: OfflineOperation[] = [];
+  for (const op of ops) {
+    // Unknown owner → replay (see docblock). Known and matching → replay.
+    if (op.userId == null || (currentUserId && op.userId === currentUserId)) syncable.push(op);
+    else held.push(op);
+  }
+  return { syncable, held };
+}
+
+/** Pending operations the given user is allowed to replay. */
+export async function getPendingOperationsForUser(
+  currentUserId: string | null,
+): Promise<OwnerPartitionedOps> {
+  return partitionOpsByOwner(await getPendingOperations(), currentUserId);
 }
 
 export async function getAllOperations(): Promise<OfflineOperation[]> {

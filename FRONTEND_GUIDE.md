@@ -173,7 +173,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 |---|---|---|
 | `/m/login` | MobileLoginPage (`mobile-login.tsx`) | Tablet login with show/hide password + lockout-progress UI |
 | `/m/forgot-password` | MobileForgotPasswordPage (`mobile-forgot-password.tsx`) | Tablet password reset request |
-| `/m` | MobileWrapper (`mobile-wrapper.tsx`) | Home: Filter Cleaning, My Tasks, Approvals, Status, Logout — features gated by `/api/config/tablet-access/my-features` |
+| `/m` | MobileWrapper (`mobile-wrapper.tsx`) | Home: Filter Cleaning, Cleaning Record, RFID Assign, Replace Filter, Replacement Tasks, Logout; bottom nav: Home, Status, My Tasks, Stage Approvals — features gated by `/api/config/tablet-access/my-features` (7 keys). Block-change Approvals were removed from the tablet 2026-08-10 (desktop only); **Stage Approvals** (the Wash Out / Dry Out QA interlock) was added 2026-09-02 under the separate `stage_approvals` key |
 | `/m` (cleaning view) | MobileOperationsPage (`mobile-operations.tsx`) | Per-stage scan + batch queue + checklist + DRY_IN countdown panel; same component used as cleaning operations across desktop and tablet |
 
 ## Custom Hooks (14)

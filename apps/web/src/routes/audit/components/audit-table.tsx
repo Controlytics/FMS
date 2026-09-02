@@ -171,8 +171,23 @@ export function AuditTable({
                     <TableCell>
                       {(() => {
                         const desc = getAuditSummary(record, templates);
-                        const isTruncated = desc.length > 70;
-                        const shown = isTruncated ? desc.slice(0, 67) + '...' : desc;
+                        // 2026-09-02: budget raised 70 -> 180 and the text allowed
+                        // to wrap to two lines. At 70 characters the admin-request
+                        // summaries were cut mid-attribution — an approval reads
+                        // ~115 chars before its outcome clause, so the approver and
+                        // the "no action taken" reason were only reachable by
+                        // hovering. Attribution an auditor has to hover for is
+                        // attribution they will miss. Two lines keeps row height
+                        // bounded; anything longer still gets the hover popup.
+                        // 230 is roughly what the two clamped lines actually hold
+                        // at desktop width, so the JS cut lands where the space
+                        // runs out instead of before it. Below that the text was
+                        // being trimmed while the row still had room — a rejection
+                        // would read "reason: Supervisor role..." with the rest
+                        // only on hover. Longer than this still gets the popup;
+                        // line-clamp-2 keeps row height fixed either way.
+                        const isTruncated = desc.length > 230;
+                        const shown = isTruncated ? desc.slice(0, 227) + '...' : desc;
                         // Inline field changes (old -> new) shown directly in the
                         // description for edits, so operators see WHAT changed
                         // without opening the detail popup. Only when both before
@@ -212,7 +227,7 @@ export function AuditTable({
                               </div>
                             )}
                             <span className="relative inline-block group">
-                              <span className="text-sm text-slate-700 cursor-default">
+                              <span className="text-sm text-slate-700 cursor-default line-clamp-2">
                                 {shown}
                               </span>
                               {isTruncated && (

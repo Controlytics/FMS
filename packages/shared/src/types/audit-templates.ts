@@ -473,23 +473,34 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
   },
 
   // Admin Requests
+  // 2026-09-02: these three showed the requester only inside the quoted
+  // {targetName} and never their ROLE — the submit path did not even pass
+  // userRole, so audit_trail.user_role was blank on every submission. An
+  // inspector could see WHO asked for an account change but not the authority
+  // they held. {requesterClause} carries "requested by <id> (<ROLE>)" and
+  // degrades to the id alone on rows predating this change (no stored role).
   ADMIN_REQUEST_SUBMITTED: {
     label: 'Admin Request Submitted',
     category: 'Data & Approvals',
-    template: 'Admin request submitted — "{targetName}"',
-    placeholders: ['targetName'],
+    template: 'Admin request submitted — "{targetName}" {requesterClause}',
+    placeholders: ['targetName', 'requesterClause'],
   },
   ADMIN_REQUEST_APPROVED: {
     label: 'Admin Request Approved',
     category: 'Data & Approvals',
-    template: 'Admin request approved — "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName'],
+    template: 'Admin request approved — "{targetName}" {requesterClause}, approved by {actor} ({actorRole}){outcomeClause}',
+    placeholders: ['actor', 'actorRole', 'targetName', 'requesterClause', 'outcomeClause'],
   },
+  // The rejection REASON is on the line, not just in the detail modal. An
+  // approval's outcome says what happened; a rejection's entire content is why
+  // it was refused, and that is what the requester and an inspector need. It is
+  // deliberately not added to the approval template — there the remark is
+  // usually "ok" and the outcome clause already carries the substance.
   ADMIN_REQUEST_REJECTED: {
     label: 'Admin Request Rejected',
     category: 'Data & Approvals',
-    template: 'Admin request rejected — "{targetName}" by {actor}',
-    placeholders: ['actor', 'targetName'],
+    template: 'Admin request rejected — "{targetName}" {requesterClause}, rejected by {actor} ({actorRole}){remarksClause}',
+    placeholders: ['actor', 'actorRole', 'targetName', 'requesterClause', 'remarksClause'],
   },
 
   // ── 2026-07-08 reconciliation: templates for actions the app emits but that

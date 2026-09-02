@@ -1,5 +1,415 @@
 # Changelog
 
+## [Unreleased] - Admin requests: real attribution, honest account-state actions (2026-09-02)
+
+### Fixed — approving an unlock reset a healthy account's password
+
+`executeApproval`'s `UNLOCK` case had **no state check**. It called
+`userService.unlock()` unconditionally, which issues a temporary password,
+forces a change, terminates every live session, and writes an `ACCOUNT_UNLOCKED`
+row asserting `status: 'ENABLED'`. Approving an unlock for an account that was
+never locked was therefore a destructive, unrequested password reset **plus** a
+false §11 record claiming a transition that never happened.
+
+**The form's guard could not have caught it.** `contact-admin.tsx` tested
+`lookupUser?.status === 'ENABLED'`, but `GET /api/admin-requests/user-lookup`
+has not returned `status` since it was hardened against directory enumeration
+(2026-05-20 H1) — its response schema is `{exists, username, fullName}` and
+Fastify strips the rest. `isAlreadyEnabled` was **always false** and blocked
+nothing for four months. Verified live:
+
+```
+GET /user-lookup?username=101010 -> {"exists":true,"username":"101010","fullName":"Admin User"}
+```
+
+That dead code is **deleted, not repaired** — account state must not be exposed
+on a public endpoint, so the check belongs at approval time where the actor is
+authenticated and the state is current.
+
+### Added — Enable Account / Disable Account request types
+
+With the same honesty rule. Full matrix, verified end-to-end against a throwaway
+user (`995909`, VIEWER):
+
+| Request | Account state | Outcome |
+|---|---|---|
+| Unlock | not locked | *No action taken — not locked (current status: ENABLED).* |
+| Unlock | `EXPIRED` | no-op, and points at Forgot Password |
+| Unlock | `LOCKED` | unlocked, temporary password issued |
+| Enable | already enabled | *No action taken — already enabled.* |
+| Enable | `LOCKED` | no-op — locked is not disabled; points at Unlock |
+| Enable | `DISABLED` | enabled (was DISABLED) |
+| Disable | already disabled | *No action taken — already disabled.* |
+| Disable | enabled | disabled (was ENABLED) |
+
+The password hash was **byte-identical across all five no-op runs**, and the
+audit trail shows exactly one `USER_DISABLED` + one `USER_ENABLED` — no
+`ACCOUNT_UNLOCKED` row for anything that did not happen. The guards return
+*before* the userService call, so a no-op cannot write the action's audit row.
+
+`EXPIRED` is deliberately **not** unlockable: `unlock()` issues a temporary
+password, so treating it as unlockable would silently perform a reset nobody
+asked for — the same surprise being fixed.
+
+### Fixed — three defects found by sweeping every request type both ways
+
+Exercising all six contact-admin request types through **approve and reject**
+(12 decisions) surfaced three things unit tests could not:
+
+1. **Every rejection claimed an action was taken.** `ADMIN_REQUEST_REJECTED`
+   recorded `actionTaken: true`. A rejection never calls `executeApproval`, so
+   the outcome object stays empty and the `!== false` default resolved to true —
+   the trail asserting an action for a request that was explicitly refused. Now
+   `false` for all rejections.
+
+2. **A rejection never said WHY it was refused.** The rejected summary reported
+   only *that* a request was rejected and by whom; the admin's reason was stored
+   in `adminRemarks` but reachable only by opening the detail modal. An
+   approval's outcome says what happened — a rejection's entire content is the
+   reason, and it is what the requester needs:
+
+   ```
+   - Admin request rejected — "Create User: 998001 …" requested by 101010 (ADMIN), rejected by superadmin (SUPER_ADMIN)
+   + … rejected by superadmin (SUPER_ADMIN) — reason: Supervisor role not authorised by department head
+   ```
+
+   Deliberately NOT added to the approval template: there the remark is usually
+   "ok" and the outcome clause already carries the substance.
+
+3. **The electronic-signature meaning did not name the signer.** It read, on a
+   21 CFR Part 11 signature: `Admin request (Create User) approved by admin` —
+   the literal word "admin". Both `reason` and `signatureMeaning` now name the
+   subject, the signer and their role:
+
+   ```
+   - Admin request (Unlock Account) approved by admin
+   + Admin request (Unlock Account) for 997001, approved by superadmin (SUPER_ADMIN) — no action was required
+   ```
+
+4. **The attribution was truncated out of view.** The audit table cut
+   descriptions at **70 characters** with the full text only on hover. An
+   approval line runs ~115 characters before its outcome clause, so the approver
+   and the "no action taken" reason were unreadable without hovering —
+   attribution an auditor has to hover for is attribution they will miss.
+   Budget raised 70 -> 230 (about what two clamped lines hold at desktop width) with a two-line clamp (row height stays bounded; longer
+   text still gets the hover popup). **This affects every audit row, not only
+   admin requests.**
+
+Side effects were checked against the decisions, not just the log text: the
+approved create-user exists, the **rejected** create-user does not, and a
+rejected field change was not applied.
+
+### Fixed — the audit name described the REQUESTER, not the request
+
+Operator report: a request **by** `101010` (ADMIN) to create user **`101021`**
+with role **SUPERVISOR** was recorded as:
+
+```
+Admin request submitted — "Create User — Admin User (101010)"
+```
+
+The account being created and the role being asked for — the two facts an
+inspector most needs — appeared **nowhere**, while the requester was named
+twice. `submittedName`/`processedName` were built from
+`requesterName (requesterEmployeeId)` for every request type, so unlock, enable,
+disable and forgot-password all named the person asking instead of the account
+being acted on. Requester and subject are routinely different people, and for
+CREATE_USER the subject does not exist yet.
+
+`describeRequestSubject()` now builds the name from the request payload:
+
+```
+- Admin request submitted — "Create User — Admin User (101010)"
++ Admin request submitted — "Create User: 101021 (Siva), role SUPERVISOR" requested by 101010 (ADMIN)
+
+- Admin request submitted — "Unlock Account — Admin User (101010)"
++ Admin request submitted — "Unlock Account: 101020" requested by 101010 (ADMIN)
+
+  Modify User: 101020, role -> SUPERVISOR
+```
+
+The subject is also written as **structured** fields (`targetUsername`,
+`targetFullName`, `requestedRole`, `modifyField`, `newValue`) so the target
+account can be filtered on without parsing a sentence. 6 tests cover it,
+including that CREATE_USER never falls back to the requester when payload
+fields are missing — it says `(no user ID)` instead.
+
+⚠️ **Rows written before this change keep their old text.** The subject was
+never recorded in them, so it cannot be recovered at read time, and
+`audit_trail` is immutable and hash-chained. Only new rows carry the subject.
+
+### Fixed — the audit rows never recorded the requester's role
+
+`ADMIN_REQUEST_SUBMITTED` passed `userId` but **not** `userRole`, so
+`audit_trail.user_role` was blank on every submission; an inspector could see
+that 101010 asked for an account change but not the authority they held. Both
+rows now carry `operation`, `requesterEmployeeId`, `requesterRole` (resolved
+**server-side** from the employee ID — the submit endpoint is public, so a
+self-declared role would be an unauthenticated claim in a §11 record) and, on
+approvals, `actionTaken` + `outcome`.
+
+Rendering, before → after:
+
+```
+- Admin request submitted — "Create User — Admin User (101010)"
++ Admin request submitted — "Create User — Admin User (101010)" requested by 101010 (ADMIN)
+
+- Admin request approved — "Create User — Admin User (101010)" by 101010
++ Admin request approved — "Create User — Admin User (101010)" requested by 101010 (ADMIN), approved by 900001 (SUPER_ADMIN)
+```
+
+`{targetName}` is left intact so pre-change rows still read, and
+`{requesterClause}` degrades to the id alone when no role was stored — no
+dangling `()`. Every new placeholder is registered in `replacePlaceholders`;
+an unregistered one renders literally, which is a documented repeat failure in
+that file (2026-05-20 / 06-22 / 07-15 / 08-10). 6 tests lock the wording, the
+degradation path, and the "no unsubstituted placeholder" invariant.
+
+### Changed — rate limit removed from the public submit endpoint (operator request)
+
+`POST /api/admin-requests` had a per-route cap of **5 requests per 15 minutes**,
+keyed by IP (/64 for IPv6). This deployment is a single LAN behind one address,
+so the entire site shared ONE budget of five submissions per quarter-hour — a
+few operators using the contact-admin page in the same shift locked each other
+out, and it blocked routine testing.
+
+The per-route cap is gone. The endpoint still inherits the **global** limit from
+`app.ts` (5000/minute, also /64-keyed), so an outright flood is still capped.
+
+⚠️ **Accepted risk, stated plainly:** this endpoint is public and
+unauthenticated, and every accepted request writes an `admin_requests` row, a
+hash-chained `audit_trail` row and a SUPER_ADMIN notification. Anyone who can
+reach the app can now create those up to the global rate. If that becomes a
+problem the middle ground is a higher per-route cap (e.g. 100/15min) rather than
+restoring 5.
+
+`GET /user-lookup` **keeps** its own 20/15min limit — that one is part of the
+anti-enumeration defence, is a different endpoint, and was not in scope.
+
+### Notes
+
+- `assertCanManageTarget` is now exported and runs **before** the state check.
+  It normally lives inside `unlock/enable/disable`, so guarding first would skip
+  it — an ADMIN approving a request against a SUPER_ADMIN would have been told
+  "already enabled", leaking a state they have no authority over.
+- Request types are gated in **four** places — the route's JSON-schema enum,
+  `formatRequestType`, `executeApproval`'s switch, and `REQUEST_TYPES` on the
+  form. Miss the schema and the type 400s before reaching the code; miss
+  `formatRequestType` and it renders as raw `ENABLE_ACCOUNT`.
+- No migration: `requesterRole` lives in the audit `afterValue`, not on
+  `AdminRequest`, and deliberately not in `requestData` (that is the submitted
+  payload, and approve must not read authority back out of it).
+
+## [Unreleased] - Offline work is attributed to whoever performed it (2026-09-02)
+
+**A queued offline operation carried no owner.** The server stamps
+`performedBy: ctx.userSub` — whoever holds the JWT at *replay* time — and the
+IndexedDB queue survives both logout and an app kill. So:
+
+> Operator A cleans filters offline → logs out (still offline) → the tablet is
+> killed and reopened → operator B connects and signs in → **B's login drains
+> A's work into the permanent record under B's name**, carrying A's original
+> timestamps.
+
+The work was never lost. It was **falsely attributed**, which is worse: a §11
+electronic record asserting that B performed cleaning B never touched. Nothing
+warned either operator, because the tablet's logout has no pending-work check.
+
+### Fixed
+
+- **`OfflineOperation` now carries `userId` + `userName`,** stamped at queue
+  time from the cached user. IDB **v6 → v7**; the upgrade backfills pre-existing
+  rows to `null` rather than guessing, because the user running the upgrade is
+  not necessarily the one who queued the work — that is the bug itself.
+- **The drain is owner-scoped.** `partitionOpsByOwner()` is the single
+  definition of "may I replay this?", consulted by both `syncQueue()` and the
+  30-second retry tick, so the two can never disagree. Another user's operations
+  keep `status: 'pending'` and their full retry budget — they are held, not
+  failed, and not lost.
+- **The badge counts what will actually drain.** `pendingCount` counts only
+  syncable ops; held ones get a separate violet **"n held"** pill that names the
+  owner when tapped. Counting held ops as pending would show a number that never
+  clears however often the operator taps sync.
+- **Logging out with unsynced work now warns**, naming the count and saying the
+  work can only be submitted by that operator on that tablet. This is the
+  trigger for the whole scenario — without it, the hold path fires exactly as
+  often as the bug used to.
+
+### Rejected: sending the server an `offlinePerformedBy`
+
+Re-attributing on the server was considered and deliberately **not** built.
+`offlinePerformedAt` is safe to accept because `offline-time-window.ts` *bounds*
+it — against the cycle's `startedAt` floor, future skew and max staleness. A
+performer field has no analogous bound: the server cannot distinguish "A really
+did this" from "B claims A did this", so it would be a forgery channel straight
+into the §11 record and would let one operator book work against a colleague.
+Holding needs no server change at all, which is the tell that it is the right
+shape.
+
+### Deliberate: unknown-owner rows still replay
+
+A `null` owner (pre-v7 row, or one queued while `digilog_cached_user` was
+unreadable — `api-client` clears it on a 401) is treated as syncable. The owner
+was never recorded and cannot be recovered, so holding those forever trades a
+*possible* mis-attribution for *guaranteed* data loss. The window closes on its
+own as pre-v7 rows drain. `readCachedUserIdentity()` returns `null` rather than
+`''` for exactly this reason — an empty-string owner would match nobody and be
+held forever.
+
+### Verified
+
+6 new unit tests lock the partition rule against the real implementation
+(`offline-store.test.ts`; web suite 671 → 677). End-to-end, the queue was seeded
+directly with three operations and drained as user `101014`:
+
+| Seeded op | Owner | Attempted? |
+|---|---|---|
+| own | 101014 | ✅ `retryCount 1` |
+| pre-v7 | none | ✅ `retryCount 1` |
+| **another** operator's | 102002 | ❌ **`retryCount 0`, never touched** |
+
+Badges read "2 pending — sync" and "1 held". The two attempted ops failed at
+schema validation (seeded with an empty payload against a non-existent filter),
+so nothing reached a filter, cycle or the audit trail; all seeded rows were then
+deleted.
+
+**Known gap, unchanged:** if that operator never returns to that tablet, their
+work stays held. It is visible and countable rather than silently mis-filed, but
+there is no supervisor override to release it. Say so before adding one — any
+such path re-opens the attribution question it was built to close.
+
+## [Unreleased] - Offline sync: one forbidden step no longer destroys the whole cache (2026-09-02)
+
+`syncAllDataForOffline` pre-caches master data into IndexedDB in 9 steps on every
+tablet login and every foreground. It has a `recordSoftFailure` mechanism for
+steps that are allowed to fail — **applied to only 5 of the 9**. Steps 1, 4, 5
+and 6 were bare `await`s, so the first one that threw escaped to the outer catch
+and aborted everything after it.
+
+Live case: `SHIFTOFFICER` has no `FILTER_OPERATE`, so step 4
+(`GET /api/filters/reasons`) 403s. Measured from an empty IndexedDB, that one
+403 cost **five** steps:
+
+| Step | Before | After |
+|---|---|---|
+| 4. Cleaning reasons | 403 — **aborts the sync** | soft-fails, named |
+| 5. Equipment groups | never ran | 10 cached |
+| 6. **RFID identifier map** | never ran | 226 cached |
+| 7. PM due tasks | never ran | 3 cached |
+| 8. Checklist profiles | never ran | soft-fails, named |
+| 9. Cleaning profiles | never ran | soft-fails, named |
+
+Step 6 is the tag → filter map, so **offline RFID scanning could not resolve any
+tag** for such a role. Steps 8 and 9 were already guarded and would only ever
+have been warnings — the sync just never reached them.
+
+### Fixed
+
+- Steps 1, 4, 5, 6 wrapped in the same `try/catch` + `recordSoftFailure` the
+  other five already used. `templatesRes` moved to a `let` declared outside its
+  try, because step 3's fallback path reads it; it is consumed as
+  `templatesRes?.data ?? []`, so a null degrades instead of throwing.
+- **The tablet's sync badge has three states, not two.** Completing with
+  warnings would otherwise have shown the confident blue "Data Synced" over a
+  cache with real holes — the exact misleading green check
+  `offline-sync-service`'s own audit note (2026-05-04 fix #2) exists to prevent.
+  It now shows an amber **"Partial sync (n)"** which, when tapped, names the
+  steps that failed. Verified live: shift officer `101014` reads
+  `Partial sync (3)` → "cleaning-reasons, checklist-profiles, cleaning-profiles".
+
+### Notes
+
+- The badge in `mobile-operations.tsx` is a second copy of the same indicator,
+  but it sits inside `{!hideHeader && …}` and the wrapper always passes
+  `hideHeader`, so it never renders in the `/m` flow. Left alone rather than
+  changed blind.
+- **Known, not addressed:** the sync re-runs often (login + foreground +
+  poll), and each run now issues 3 forbidden requests for this role instead of
+  stopping at the first. 403s are cheap and this churn pre-dates the change, but
+  a per-session "skip steps that already 403'd" would remove it.
+- **Also observed, pre-existing:** logout clears tokens and the offline-replay
+  grant but **not** the IndexedDB cache, so master data cached by one user
+  survives into the next user's session on a shared tablet. This contaminated an
+  earlier verification run and had to be measured again after deleting the DB.
+
+## [Unreleased] - Stage Approvals on the tablet, for the shift officer (2026-09-02)
+
+The Cleaning Stage Interlock is live (`stage-interlock.enabled = true`) with
+**SHIFTOFFICER** as the approver for both Wash Out and Dry Out. Until now the
+only place to action that queue was the desktop `/stage-approvals` page, so a
+shift officer holding a tablet had to find a PC to release an operator standing
+at the gate.
+
+### Added
+
+- **`Stage Approvals` bottom-nav tab on `/m`** (`mobile-wrapper.tsx`). To Action
+  / All tabs, one card per approval, and a verify-and-decide dialog showing the
+  **frozen detail snapshot** taken when the filter reached the gate — the same
+  nine rows the desktop page shows, because that is what the approver signs for.
+  Re-auth password = the 21 CFR §11 signature, exactly as on desktop.
+- **New tablet-access feature key `stage_approvals`** (feature count 6 → 7),
+  registered in **both** required places: `FEATURES` in
+  `apps/web/src/routes/config/tablet-access.tsx` and the hardcoded SUPER_ADMIN
+  bypass array in `config/static-routes/tablet-access.routes.ts`. Deliberately
+  **not** the `approvals` key retired on 2026-08-10 — that one gated block-change
+  approvals, a different workflow, and reusing the name would have resurrected a
+  key whose meaning had changed. Enabled for `SHIFTOFFICER` only.
+- **`selfRequested` on every stage-approval summary row**
+  (`stage-approvals/service.ts`). See the fix below.
+
+### Fixed
+
+- **Segregation of duties was discoverable only by burning a signature.**
+  `queue()` filters on `status` + `approverRole` and deliberately still returns
+  rows the reader themselves requested — another holder of the role can decide
+  them. But `approve()`/`reject()` then throw 403 `SELF_APPROVAL_FORBIDDEN` via
+  `assertDifferentApprover`. So the flow was: tap Approve → type your password →
+  403, signature already spent. The server now returns `selfRequested` (it knows
+  both `requireDifferentApprover` and `ctx.userSub`); **the client never
+  re-derives it** — it cannot, since an approver role holds no `CONFIG_READ`.
+  Such rows render an explanation instead of a doomed button, and are excluded
+  from bulk selection. **Applied to the desktop page too** — same latent bug,
+  one shared type. `requestedBy` (the UUID) is dropped on the way out; the flag
+  is the whole answer.
+- **The tablet's single shared `ReauthDialog` had `actionLabel` hardcoded to
+  "RFID Tag"**, so every other signed action on `/m` prompted under the wrong
+  name. Now state-driven, set at each of the five call sites (assign RFID,
+  remove RFID, replace filter ×2, stage decision). Its `onCancel` and the
+  Android back handler both unwind the new busy flag, so a cancelled password
+  prompt no longer leaves Approve stuck on "Working…".
+- **Decision errors render inside the dialog, not behind it.** `/m`'s shared
+  error banner sits above the content scroller, so a `fixed inset-0 bg-black/40`
+  modal covers it completely. Routing decision failures there would have made a
+  rejected short-remarks entry — or a `CONCURRENT_DECISION` 409, realistic with
+  two shift officers on one gate — look like the button did nothing.
+- **Three JSX-child unicode escapes were rendering as raw text** (found while
+  wiring the success message). JSX does **not** interpret JS escapes in element
+  children, so `✓`, `✕` and `→` written as literal characters
+  printed themselves: every tablet success toast read `✓ Tag assigned`, the
+  clear-queue button was labelled `✕`, and each row of Filter Operations'
+  recent-submissions list showed `→ Wash Out`. Rewritten as HTML entities
+  (`&#10003;` / `&#10005;` / `&#8594;`), which JSX does interpret and which keep
+  the source ASCII so no editor or tool re-escapes them. The `{'•'}` form
+  used elsewhere is a real JS string and was correct — only bare children were
+  affected. Files: `mobile-wrapper.tsx` (×2),
+  `filter-management/filter-operations.tsx` (×1).
+
+### Notes
+
+- **Online-only, and it says so.** The `tablet-access` fetch is skipped when
+  offline, which makes `tabletConfigured` false and `hasFeature()` return true
+  for *everything* — so the tab appears offline for any role. The view renders
+  an explicit "Approvals need a connection" panel, worded as offline rather than
+  as *not permitted*: the queue is live server state and the signature is a
+  re-auth round trip, so there is deliberately no offline queue here.
+- Single-decision only. `/bulk-decide` exists and is unchanged, but a bulk
+  signature over a phone-sized queue is the wrong affordance.
+- **Known, pre-existing, untouched:** `SHIFTOFFICER` holds the `filter_cleaning`
+  tablet feature but not the `FILTER_OPERATE` permission, so the scan stations
+  render for them and `/api/filters/reasons` 403s in a retry loop
+  ("Sync failed: Permission denied" in the header). Operator's call — either
+  untick Filter Cleaning for the role or grant the permission.
+
 ## [Unreleased] - PM schedules: many irregular visits per AHU, with overlap refused (2026-08-27)
 
 A year's PM schedule is uploaded in one file in which the same AHU appears many

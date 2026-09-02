@@ -6,6 +6,8 @@ const REQUEST_TYPES = [
   { value: 'CREATE_USER', label: 'Create User Account' },
   { value: 'MODIFY_USER', label: 'Modify User Account' },
   { value: 'UNLOCK', label: 'Unlock Account' },
+  { value: 'ENABLE_ACCOUNT', label: 'Enable Account' },
+  { value: 'DISABLE_ACCOUNT', label: 'Disable Account' },
   { value: 'FORGOT_PASSWORD', label: 'Forgot Password' },
 ];
 
@@ -71,7 +73,9 @@ export function ContactAdminPage() {
     }
   };
 
-  const needsLookup = requestType === 'MODIFY_USER' || requestType === 'UNLOCK' || requestType === 'FORGOT_PASSWORD';
+  const ACCOUNT_STATE_TYPES = ['UNLOCK', 'ENABLE_ACCOUNT', 'DISABLE_ACCOUNT'];
+  const needsLookup = requestType === 'MODIFY_USER' || requestType === 'FORGOT_PASSWORD'
+    || ACCOUNT_STATE_TYPES.includes(requestType);
 
   // Reset dependent state when request type changes
   useEffect(() => {
@@ -158,6 +162,8 @@ export function ContactAdminPage() {
       case 'MODIFY_USER':
         return { username: lookupUser?.username ?? username, modifyField, newValue };
       case 'UNLOCK':
+      case 'ENABLE_ACCOUNT':
+      case 'DISABLE_ACCOUNT':
         return { username: lookupUser?.username ?? username };
       case 'FORGOT_PASSWORD':
         return { username: lookupUser?.username ?? username };
@@ -166,7 +172,14 @@ export function ContactAdminPage() {
     }
   };
 
-  const isAlreadyEnabled = requestType === 'UNLOCK' && lookupUser?.status === 'ENABLED';
+  // 2026-09-02: an `isAlreadyEnabled` check lived here, comparing
+  // `lookupUser.status` — a field `GET /admin-requests/user-lookup` has NOT
+  // returned since it was hardened against directory enumeration (its response
+  // schema is {exists, username, fullName}, and Fastify strips the rest). It was
+  // therefore always false and blocked nothing. Removed rather than repaired:
+  // account state must not be exposed on a public endpoint, so the real check
+  // is server-side at approval time, where the actor is authenticated and the
+  // state is current. See admin-request.service.ts executeApproval.
 
   const canSubmit = () => {
     if (!requestType || !requesterName.trim() || !remarks.trim()) return false;
@@ -177,7 +190,9 @@ export function ContactAdminPage() {
       case 'MODIFY_USER':
         return !!lookupUser && !!modifyField && newValue.trim() !== '' && newValue !== currentFieldValue(modifyField);
       case 'UNLOCK':
-        return !!lookupUser && !isAlreadyEnabled;
+      case 'ENABLE_ACCOUNT':
+      case 'DISABLE_ACCOUNT':
+        return !!lookupUser;
       case 'FORGOT_PASSWORD':
         return !!lookupUser;
       default:
@@ -203,9 +218,8 @@ export function ContactAdminPage() {
         missing.push('New Value (must differ from current)');
       }
     }
-    if (requestType === 'UNLOCK') {
+    if (ACCOUNT_STATE_TYPES.includes(requestType)) {
       if (!lookupUser) missing.push('Employee ID (target user)');
-      if (lookupUser && isAlreadyEnabled) missing.push('Account is already enabled — no unlock needed');
     }
     if (requestType === 'FORGOT_PASSWORD') {
       if (!lookupUser) missing.push('Employee ID (target user)');

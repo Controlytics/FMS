@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
 import {
   queueOperation,
-  getPendingOperations,
+  getPendingOperationsForUser,
   updateFilterStateLocally,
   cacheFilters,
   getCachedFilters,
@@ -22,10 +22,16 @@ import {
 } from '@/lib/offline-store';
 import { syncPendingOperations, onSyncEvent, startAutoSync } from '@/lib/sync-engine';
 import { isOnline as connIsOnline, onConnectivityChange, startConnectivityEngine } from '@/lib/connectivity';
+import { readCachedUserIdentity } from '@/lib/local-context';
+import type { OfflineOperation } from '@/lib/offline-store';
 
 export function useOffline() {
   const [online, setOnline] = useState(connIsOnline());
   const [pendingCount, setPendingCount] = useState(0);
+  // Operations queued by a DIFFERENT user on this tablet. They are NOT
+  // drained under the current user's identity (that would falsify the §11
+  // performer); they wait for their owner to sign in here.
+  const [heldOps, setHeldOps] = useState<OfflineOperation[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncMessage, setLastSyncMessage] = useState('');
 
@@ -63,10 +69,15 @@ export function useOffline() {
     return cleanup;
   }, [onSyncComplete]);
 
-  // Refresh pending count
+  // Refresh pending count.
+  // 2026-09-02: counts are partitioned by owner, using the SAME helper the sync
+  // engine drains with. Counting held ops as "pending" would show a number that
+  // never clears however often the operator taps sync.
   const refreshPendingCount = useCallback(async () => {
-    const ops = await getPendingOperations();
-    setPendingCount(ops.length);
+    const { userId } = readCachedUserIdentity();
+    const { syncable, held } = await getPendingOperationsForUser(userId);
+    setPendingCount(syncable.length);
+    setHeldOps(held);
   }, []);
 
   useEffect(() => { refreshPendingCount(); }, [refreshPendingCount]);
@@ -350,7 +361,13 @@ export function useOffline() {
     // #9 fix: reuse the SAME clientOpId the failed online attempt sent, so a lost-
     // response online commit and this replay share one idempotency key. For
     // start-and-advance the replay derives `:start`/`:advance` sub-keys from this base.
-    await queueOperation({ type, filterId, filterName, payload, tapeVersion, clientOpId });
+    // 2026-09-02 (§11 attribution): stamp WHO queued this. The server records
+    // performedBy from the JWT at REPLAY time, and this queue outlives logout
+    // and an app kill — so without an owner, the next person to log in on this
+    // tablet drains the previous operator's work into the record under their
+    // own name. Only the owner replays; see partitionOpsByOwner.
+    const { userId, userName } = readCachedUserIdentity();
+    await queueOperation({ type, filterId, filterName, payload, tapeVersion, clientOpId, userId, userName });
     if (optimisticState) {
       // When starting a cycle offline, also mark the filter as having an active cycle
       const markCycleActive = type === 'start-and-advance' || type === 'start-cycle';
@@ -415,6 +432,7 @@ export function useOffline() {
   return {
     online,
     pendingCount,
+    heldOps,
     syncing,
     lastSyncMessage,
     executeOrQueue,

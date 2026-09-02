@@ -9,14 +9,26 @@ import { rateLimitKeyGenerator } from '../../lib/rate-limit-key.js';
 export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 1. POST / — Submit a new request (PUBLIC, no auth)
+  //
+  // 2026-09-02 (operator request): the per-route cap of 5 per 15 minutes was
+  // removed. It is keyed by IP (/64 for IPv6), and this deployment is a single
+  // LAN behind one address, so the whole site shared ONE budget of 5 requests
+  // per quarter-hour — a few operators using the contact-admin page in the same
+  // shift locked each other out, and it blocked routine testing.
+  //
+  // This endpoint still inherits the GLOBAL limit registered in app.ts
+  // (5000/minute, also /64-keyed), so an outright flood is still capped; what is
+  // gone is the tight per-endpoint throttle.
+  //
+  // ⚠️ Accepted risk: this is PUBLIC and unauthenticated, and each accepted
+  // request writes an admin_requests row, a hash-chained audit row and a
+  // SUPER_ADMIN notification. Anyone who can reach the app can now create those
+  // at up to the global rate. The sibling GET /user-lookup keeps its own 20/15min
+  // limit — that one is part of the anti-enumeration defence, is a different
+  // endpoint, and was not in scope here.
   app.post('/', {
     config: {
       skipAuth: true,
-      rateLimit: {
-        max: 5,
-        timeWindow: '15 minutes',
-        keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
-      },
     },
     schema: {
       tags: ['Admin Requests'],
@@ -27,7 +39,7 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['requestType', 'requesterName', 'requesterEmployeeId', 'requestData'],
         properties: {
-          requestType: { type: 'string', enum: ['CREATE_USER', 'MODIFY_USER', 'UNLOCK', 'FORGOT_PASSWORD'] },
+          requestType: { type: 'string', enum: ['CREATE_USER', 'MODIFY_USER', 'UNLOCK', 'ENABLE_ACCOUNT', 'DISABLE_ACCOUNT', 'FORGOT_PASSWORD'] },
           requesterName: { type: 'string', minLength: 1, maxLength: 100 },
           requesterEmployeeId: { type: 'string', minLength: 1, maxLength: 50 },
           requesterEmail: { type: 'string', format: 'email', maxLength: 100 },

@@ -94,8 +94,17 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // one typed kind per endpoint, so they can't rebuild this mixed cache.
     // Unblocked when those two carve-out files migrate off templateId/templateKind.
     report(steps[currentStep]);
-    const templatesRes = await apiClient.get<any>('/api/assets/templates');
-    await cacheItem('templates', templatesRes?.data ?? []);
+    // 2026-09-02: `let` + declared OUTSIDE the try because step 3's fallback
+    // path reads it. It is already consumed as `templatesRes?.data ?? []`, so
+    // a null here degrades to the templateKind discriminator on the instance
+    // projection rather than throwing.
+    let templatesRes: any = null;
+    try {
+      templatesRes = await apiClient.get<any>('/api/assets/templates');
+      await cacheItem('templates', templatesRes?.data ?? []);
+    } catch (err) {
+      recordSoftFailure('templates', err);
+    }
     currentStep++;
 
     // 2. Filter instances
@@ -183,17 +192,33 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     currentStep++;
 
     // 4. Cleaning reasons
+    // 2026-09-02: `/api/filters/reasons` requires FILTER_OPERATE. Any role
+    // without it (SHIFTOFFICER on this deployment) got a 403 here, and because
+    // this step was UNGUARDED the exception escaped to the outer catch and
+    // aborted the whole sync — steps 5-9 never ran, so equipment groups, the
+    // RFID identifier map, PM tasks, checklists and cleaning profiles were
+    // never cached, and the tablet header read "Sync failed: Permission denied".
+    // A role that cannot clean has no use for cleaning reasons; that is a
+    // partial sync, not a failed one.
     report(steps[currentStep]);
-    const reasonsRes = await apiClient.get<any>('/api/filters/reasons');
-    const reasons = (reasonsRes as any)?.reasons ?? reasonsRes ?? [];
-    await cacheItem('cleaning-reasons', reasons);
+    try {
+      const reasonsRes = await apiClient.get<any>('/api/filters/reasons');
+      const reasons = (reasonsRes as any)?.reasons ?? reasonsRes ?? [];
+      await cacheItem('cleaning-reasons', reasons);
+    } catch (err) {
+      recordSoftFailure('cleaning-reasons', err);
+    }
     currentStep++;
 
     // 5. Equipment groups (with instruments)
     report(steps[currentStep]);
-    const equipRes = await apiClient.get<any>('/api/equipment-groups');
-    const equipGroups = Array.isArray(equipRes) ? equipRes : equipRes?.data ?? [];
-    await cacheItem('equipment-groups', equipGroups);
+    try {
+      const equipRes = await apiClient.get<any>('/api/equipment-groups');
+      const equipGroups = Array.isArray(equipRes) ? equipRes : equipRes?.data ?? [];
+      await cacheItem('equipment-groups', equipGroups);
+    } catch (err) {
+      recordSoftFailure('equipment-groups', err);
+    }
     currentStep++;
 
     // 6. Identifier map (RFID/barcode → filterId+filterName)
@@ -202,18 +227,25 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // cross-cutting concern (one identifier per asset, independent of typed-table
     // kind). No migration needed here.
     report(steps[currentStep]);
-    const identRes = await apiClient.get<any[]>('/api/assets/identifiers');
-    const identList = Array.isArray(identRes) ? identRes : [];
-    const identMap: Record<string, { filterId: string; filterName: string }> = {};
-    for (const ident of identList) {
-      if (ident.identifierValue && ident.assetId) {
-        const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
-        identMap[ident.identifierValue] = entry;
-        identMap[ident.identifierValue.toUpperCase()] = entry;
-        identMap[ident.identifierValue.toLowerCase()] = entry;
+    try {
+      const identRes = await apiClient.get<any[]>('/api/assets/identifiers');
+      const identList = Array.isArray(identRes) ? identRes : [];
+      const identMap: Record<string, { filterId: string; filterName: string }> = {};
+      for (const ident of identList) {
+        if (ident.identifierValue && ident.assetId) {
+          const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
+          identMap[ident.identifierValue] = entry;
+          identMap[ident.identifierValue.toUpperCase()] = entry;
+          identMap[ident.identifierValue.toLowerCase()] = entry;
+        }
       }
+      await cacheItem('identifier-map', identMap);
+    } catch (err) {
+      // Losing this map means offline RFID scanning cannot resolve a tag, so it
+      // is a serious degradation — but it is still a degradation of ONE step,
+      // and aborting here also cost steps 7-9. Recorded loudly instead.
+      recordSoftFailure('identifier-map', err);
     }
-    await cacheItem('identifier-map', identMap);
     currentStep++;
 
     // 7. PM schedules (due tasks)

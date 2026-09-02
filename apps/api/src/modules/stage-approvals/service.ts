@@ -27,6 +27,9 @@ import { AppError } from '../../lib/errors.js';
 import { computeChecksum } from '../filter-operations/helpers.js';
 import { getInterlockConfig, prettyStage } from '../filter-operations/stage-interlock.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { getLogger } from '../../lib/logger.js';
+
+const stageApprovalLog = getLogger('stage-approvals', 'application');
 
 const SUMMARY_SELECT = {
   id: true,
@@ -38,6 +41,7 @@ const SUMMARY_SELECT = {
   rejectToStateKey: true,
   attemptSeq: true,
   detailsSnapshot: true,
+  requestedBy: true,
   requestedByName: true,
   requestedAt: true,
   decidedByName: true,
@@ -63,6 +67,34 @@ async function assertDifferentApprover(ctx: RequestContext, requestedBy: string)
       'The operator who performed this stage cannot approve it. A different user must sign off.',
     );
   }
+}
+
+/**
+ * Segregation of duties, answered SERVER-side and attached to every summary row.
+ *
+ * `queue()` filters on status + approverRole only — it deliberately still offers
+ * a row the reader themselves requested, because another holder of the same role
+ * CAN decide it. But for THIS reader it is un-actionable: approve()/reject()
+ * throw 403 SELF_APPROVAL_FORBIDDEN via assertDifferentApprover. Without the
+ * flag a client's only way to discover that is to burn a re-auth signature on a
+ * guaranteed failure.
+ *
+ * Computed here rather than in the client because the client cannot compute it:
+ * the answer needs `requireDifferentApprover`, and an approver role (SHIFTOFFICER
+ * on this deployment) holds no CONFIG_READ. `requestedBy` is dropped on the way
+ * out — the flag is the whole answer, and the UUID adds nothing over the name
+ * the row already carries.
+ */
+async function withSelfFlag<T extends { requestedBy: string }>(
+  ctx: RequestContext,
+  rows: T[],
+): Promise<(Omit<T, 'requestedBy'> & { selfRequested: boolean })[]> {
+  if (rows.length === 0) return [];
+  const cfg = await getInterlockConfig();
+  return rows.map(({ requestedBy, ...rest }) => ({
+    ...rest,
+    selfRequested: cfg.requireDifferentApprover && requestedBy === ctx.userSub,
+  }));
 }
 
 type GateRow = { filterId: string; stageKey: string; cycleId: string | null };
@@ -194,7 +226,7 @@ export const stageApprovalService = {
       orderBy: { requestedAt: 'desc' },
       select: SUMMARY_SELECT,
     });
-    if (rows.length === 0) return rows;
+    if (rows.length === 0) return [];
 
     // One lookup for the whole page — not a findUnique per row.
     const live = await prisma.filterDetails.findMany({
@@ -215,10 +247,10 @@ export const stageApprovalService = {
       } catch (e) {
         // Don't let a failed close blank the approver's queue — but don't hide it
         // either, and don't re-offer a row that can only 409.
-        console.error('[stage-approvals] superseding orphan %s failed:', row.id, (e as Error).message);
+        stageApprovalLog.error({ err: e, rowId: row.id }, 'Superseding an orphan stage approval failed');
       }
     }
-    return actionable;
+    return withSelfFlag(ctx, actionable);
   },
 
   /** Broader list — ?status=APPROVED|REJECTED|PENDING for the archive. */
@@ -237,12 +269,12 @@ export const stageApprovalService = {
         { requestedBy: ctx.userSub },
       ];
     }
-    return prisma.cleaningStageApproval.findMany({
+    return withSelfFlag(ctx, await prisma.cleaningStageApproval.findMany({
       where,
       orderBy: { requestedAt: 'desc' },
       take: 200,
       select: SUMMARY_SELECT,
-    });
+    }));
   },
 
   async getById(id: string) {
@@ -515,6 +547,6 @@ async function notifyOperator(
       createdBy: ctx.userId,
     });
   } catch (e) {
-    console.error('[stage-approvals] notify operator failed:', (e as Error).message);
+    stageApprovalLog.error({ err: e }, 'Stage approval: notifying the operator failed');
   }
 }

@@ -271,8 +271,36 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const oldFilterName = (after.oldFilterName as string) || (before.oldFilterName as string) || targetName || '';
   const newFilterName = (after.newFilterName as string) || (before.newFilterName as string) || '';
 
+  // 2026-09-02 — admin-request attribution. A placeholder with no substitution
+  // here renders LITERALLY (same omission class as the 2026-05-20 / 06-22 /
+  // 07-15 / 08-10 fixes above), so every one of these must stay registered.
+  //
+  // Built as clauses rather than bare fields so rows written before this change
+  // — which have a requesterEmployeeId but no requesterRole — read correctly
+  // instead of trailing an empty "()".
+  const requesterId = (after.requesterEmployeeId as string) || (before.requesterEmployeeId as string) || '';
+  const requesterRole = (after.requesterRole as string) || (before.requesterRole as string) || '';
+  const requesterClause = requesterId
+    ? `requested by ${requesterId}${requesterRole ? ` (${requesterRole})` : ''}`
+    : 'requested by an unidentified user';
+  const actorRole = record.userRole || 'unknown role';
+  // Only present on an approval whose action was a deliberate no-op — the
+  // account was already in the requested state. Silence on every other row.
+  const outcomeClause = after.actionTaken === false && after.outcome
+    ? ` — ${after.outcome}`
+    : '';
+  // Why a request was refused. Rejections carry no outcome, so without this the
+  // scanned line said only THAT it was rejected, never why — the one fact the
+  // requester needs. Rows predating the field render with no trailing clause.
+  const rejectionRemarks = (after.adminRemarks as string) || '';
+  const remarksClause = rejectionRemarks ? ` — reason: ${rejectionRemarks}` : '';
+
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
+      .replace(/\{requesterClause\}/g, requesterClause)
+      .replace(/\{actorRole\}/g, actorRole)
+      .replace(/\{outcomeClause\}/g, outcomeClause)
+      .replace(/\{remarksClause\}/g, remarksClause)
       .replace(/\{actor\}/g, actor)
       .replace(/\{targetUser\}/g, targetUser || actor)
       .replace(/\{targetName\}/g, targetName)

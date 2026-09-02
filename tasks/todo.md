@@ -2189,3 +2189,62 @@ vs (b) full manage (approve/reject via enforceReauthAlways + /:id/approve|reject
       stripped before the cycle PUT). The Lifecycle panel shows readings inline
       per step so the right step is obvious. Verified the dryer-temperature path
       end-to-end (0.5 -> 62.5 -> restored) with instrument identity preserved.
+
+- [x] **2026-09-02 — Stage Approvals tab on the tablet (`/m`), for SHIFTOFFICER.**
+      The stage interlock has been live with SHIFTOFFICER as approver for both
+      Wash Out and Dry Out, but the only place to action the queue was the
+      desktop page — a shift officer holding a tablet had to find a PC to
+      release an operator standing at the gate. Added the bottom-nav tab
+      (To Action / All, one card per approval, verify-and-decide dialog over the
+      FROZEN detail snapshot, re-auth password as the §11 signature), a new
+      `stage_approvals` tablet-access key registered in BOTH required places
+      (features 6 → 7), and enabled it for SHIFTOFFICER only via the config UI.
+      Deliberately NOT the `approvals` key retired 2026-08-10 — that gated
+      block-change approvals, a different workflow.
+      **Two bugs fixed on the way.** (1) `queue()` returns rows the reader
+      performed themselves, and `approve()`/`reject()` only then throw
+      `SELF_APPROVAL_FORBIDDEN` — so the 403 arrived AFTER the password was
+      accepted and the signature spent. The server now returns `selfRequested`
+      (it holds `requireDifferentApprover` and `ctx.userSub`; the client cannot
+      re-derive it, having no `CONFIG_READ`), and such rows render an
+      explanation instead of a doomed button. Fixed on the DESKTOP page too —
+      same latent bug, one shared type. (2) The tablet's single shared
+      `ReauthDialog` had `actionLabel` hardcoded to "RFID Tag", so every other
+      signed action on `/m` prompted under the wrong name; now state-driven
+      across all 5 call sites, with cancel + Android-back both unwinding the
+      busy flag.
+      Verified: tab renders for SUPER_ADMIN and for real shift officer 101014,
+      All tab paints 200 archive rows, no stage-approval console errors, tsc
+      clean both sides, 671/671 web + 14/14 stage-approval tests.
+      **NOT verified: the approve/reject submit** — no PENDING row exists and
+      the operator chose to exercise it themselves rather than have a live
+      filter advanced to manufacture one.
+      Plan: `tasks/TABLET-STAGE-APPROVALS-PLAN.md`.
+
+- [x] **2026-09-02 — offline queue is owner-scoped (21 CFR §11 attribution).**
+      A queued offline operation carried no owner, the server stamps
+      `performedBy` from the JWT at REPLAY time, and the IndexedDB queue
+      survives both logout and an app kill. So operator A could work offline,
+      log out, hand the tablet over, and operator B's login would drain A's work
+      into the permanent record under B's name with A's original timestamps.
+      Not lost — falsely attributed, which is worse.
+      Fixed by HOLDING, not re-attributing: `OfflineOperation` gains
+      `userId`/`userName` (IDB v6→v7, pre-existing rows backfilled to null
+      rather than guessed), and `partitionOpsByOwner()` is the single definition
+      of "may I replay this?", used by the drain, the 30s retry tick and the
+      pending count so they cannot disagree. Held ops keep `pending` + full
+      retry budget. Sending the server an `offlinePerformedBy` was considered
+      and REJECTED — `offlinePerformedAt` is only safe because
+      offline-time-window.ts bounds it; a performer field has no bound and would
+      be a forgery channel into the §11 record.
+      Also: null-owner rows still replay (holding work whose owner can never be
+      identified is guaranteed loss for a merely possible mis-attribution); the
+      badge counts only syncable ops with a separate "n held" pill; and tablet
+      logout now warns on unsynced work — that omission was the trigger.
+      Verified with 6 new unit tests on the real partition (671→677) plus an
+      end-to-end seed of three ops drained as 101014: own and pre-v7 attempted
+      (retryCount 1), the other operator's never touched (retryCount 0). Seeded
+      ops used a non-existent filterId and failed schema validation, so nothing
+      reached a filter, cycle or the audit trail; all were deleted after.
+      **Open:** work held for an operator who never returns has no supervisor
+      override. Deliberate — any release path re-opens the attribution question.
