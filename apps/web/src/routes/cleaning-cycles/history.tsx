@@ -201,10 +201,9 @@ export function CleaningCycleHistoryPage() {
         // in the PDF and Excel export of the same cycle.
         const pStages: string[] = c.profileStages ?? [];
         const eff = effectiveCycleStatus(c);
-        const termLabel = eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : null;
         const maxReachedIdx = maxReachedStageIndex(c.events ?? [], pStages);
         const naCell = (stage: string, v: string | null) =>
-          stageCellText(resolveStageCell({ stage, value: v, profileStages: pStages, terminalLabel: termLabel, maxReachedIdx }));
+          stageCellText(resolveStageCell({ stage, value: v, profileStages: pStages, effStatus: eff, maxReachedIdx }));
         const dryerTempStr = getReading(dryReadings, 'dryer') !== '-' ? getReading(dryReadings, 'dryer') : getReading(dryReadings, 'temperature');
         const dryerStart = getDryerStart(c, c.events ?? []);
         return [
@@ -239,8 +238,8 @@ export function CleaningCycleHistoryPage() {
       formatDateTime,
       legend: [
         { abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' },
-        { abbr: 'Skipped', meaning: 'In this cycle’s profile but not performed — a later stage was reached' },
-        { abbr: 'Pending', meaning: 'In this cycle’s profile and not reached' },
+        { abbr: 'Skipped', meaning: 'In this cycle’s profile but not performed' },
+        { abbr: 'Pending', meaning: 'In this cycle’s profile and not reached — the cycle has not completed' },
       ],
     });
     // 2026-09-02 (operator request): 8pt, up from the 7pt default.
@@ -507,12 +506,11 @@ export function CleaningCycleHistoryPage() {
                 // 2026-06-08: a cycle ended by retire/replace shows its un-reached
                 // in-profile stages as "Retired"/"Replaced".
                 const profileStages: string[] = c.profileStages ?? [];
-                const termLabel = eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : null;
                 const maxReachedIdx = maxReachedStageIndex(c.events ?? [], profileStages);
                 // The DECISION lives in cleaning-cycle-report.ts so the PDF/Excel
                 // builder above cannot drift from it; only the colours are local.
                 const stageCell = (stage: string, value: string | null, manual?: boolean) => {
-                  const st = resolveStageCell({ stage, value, manual, profileStages, terminalLabel: termLabel, maxReachedIdx });
+                  const st = resolveStageCell({ stage, value, manual, profileStages, effStatus: eff, maxReachedIdx });
                   switch (st.kind) {
                     case 'value':
                       return st.manual

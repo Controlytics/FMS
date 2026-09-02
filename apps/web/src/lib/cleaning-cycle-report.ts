@@ -182,26 +182,38 @@ export function maxReachedStageIndex(events: any[], profileStages: string[]): nu
  * done: a recorded value wins over everything; then not-in-profile (NA); then a
  * cycle ended by retire/replace; then the skipped/pending split.
  *
- * ⚠️ `skipped` means "in profile, and a LATER stage was reached" — a gap in the
- * MIDDLE. It deliberately does NOT consider whether the cycle is finished, so a
- * stage never performed at the END of the profile stays `pending` even on a
- * COMPLETED cycle. Changing that alters what a §11 record asserts about work
- * that was never done, so it is an operator decision, not a tidy-up.
+ * Takes the cycle's EFFECTIVE status (`effectiveCycleStatus()`) rather than a
+ * pre-derived Retired/Replaced label, so a caller cannot pass a status and a
+ * label that disagree — the two are now read from one value.
+ *
+ * A stage is `skipped` when EITHER:
+ *  - a LATER stage was reached, so this one was jumped over mid-chain; or
+ *  - the cycle is COMPLETED (operator decision 2026-09-02). A closed cycle has
+ *    no outstanding work, so an in-profile stage with no transition was not
+ *    performed. It previously read "Pending", which asserted on a finished
+ *    §11 record that the stage was still to come.
+ *
+ * ⚠️ COMPLETED only. An IN_PROGRESS cycle genuinely has work pending. A
+ * TERMINATED cycle (one not closed by retire/replace) was ABANDONED rather than
+ * skipped — a different claim about why the work is missing — so it still reads
+ * "Pending"; changing its wording is a separate operator call.
  */
 export function resolveStageCell(args: {
   stage: string;
   value: string | null;
   manual?: boolean;
   profileStages: string[];
-  terminalLabel: string | null;
+  effStatus: string;
   maxReachedIdx: number;
 }): StageCellState {
-  const { stage, value, manual, profileStages, terminalLabel, maxReachedIdx } = args;
+  const { stage, value, manual, profileStages, effStatus, maxReachedIdx } = args;
   if (value != null) return { kind: 'value', value, manual: !!manual };
   if (profileStages.length > 0 && !profileStages.includes(stage)) return { kind: 'na' };
-  if (terminalLabel) return { kind: 'terminal', label: terminalLabel };
+  if (effStatus === 'RETIRED') return { kind: 'terminal', label: 'Retired' };
+  if (effStatus === 'REPLACED') return { kind: 'terminal', label: 'Replaced' };
   const idx = profileStages.indexOf(stage);
   if (idx >= 0 && idx < maxReachedIdx) return { kind: 'skipped' };
+  if (effStatus === 'COMPLETED') return { kind: 'skipped' };
   return { kind: 'pending' };
 }
 

@@ -10,16 +10,16 @@ const ALL = ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_
 const text = (
   stage: string,
   events: any[],
+  effStatus: string,
   profileStages: string[] = ALL,
   value: string | null = null,
-  terminalLabel: string | null = null,
 ) =>
   stageCellText(
     resolveStageCell({
       stage,
       value,
       profileStages,
-      terminalLabel,
+      effStatus,
       maxReachedIdx: maxReachedStageIndex(events, profileStages),
     }),
   );
@@ -41,8 +41,6 @@ describe('maxReachedStageIndex', () => {
   });
 
   it('is -1 for a cycle with no transitions at all', () => {
-    // Live data holds a COMPLETED cycle row with zero events; every stage must
-    // fall through to the pending branch rather than throw or read as skipped.
     expect(maxReachedStageIndex([], ALL)).toBe(-1);
   });
 
@@ -58,7 +56,7 @@ describe('maxReachedStageIndex', () => {
 });
 
 describe('resolveStageCell — precedence', () => {
-  const base = { profileStages: ALL, terminalLabel: null, maxReachedIdx: 3 };
+  const base = { profileStages: ALL, effStatus: 'IN_PROGRESS', maxReachedIdx: 3 };
 
   it('a recorded value wins over every other branch', () => {
     // WASH_IN sits below maxReachedIdx, so without this precedence it would be
@@ -67,13 +65,20 @@ describe('resolveStageCell — precedence', () => {
       .toEqual({ kind: 'value', value: '01/06/2026 10:00', manual: false });
   });
 
+  it('a recorded value still wins on a COMPLETED cycle', () => {
+    expect(resolveStageCell({ ...base, effStatus: 'COMPLETED', stage: 'STORAGE_OUT', value: '10:00' }).kind)
+      .toBe('value');
+  });
+
   it('carries the manual flag so only the screen colours it', () => {
     expect(resolveStageCell({ ...base, stage: 'WASH_IN', value: '10:00', manual: true }))
       .toEqual({ kind: 'value', value: '10:00', manual: true });
   });
 
-  it('a stage outside the profile is NA, even below the furthest reached', () => {
-    expect(resolveStageCell({ ...base, profileStages: ['WASH_IN', 'WASH_OUT'], stage: 'DRY_IN', value: null }))
+  it('a stage outside the profile is NA, even on a completed cycle', () => {
+    // NA outranks the completed->skipped rule: a stage the profile never had
+    // was not "skipped", it was never applicable.
+    expect(resolveStageCell({ ...base, effStatus: 'COMPLETED', profileStages: ['WASH_IN', 'WASH_OUT'], stage: 'DRY_IN', value: null }))
       .toEqual({ kind: 'na' });
   });
 
@@ -83,45 +88,63 @@ describe('resolveStageCell — precedence', () => {
     expect(resolveStageCell({ ...base, profileStages: [], stage: 'DRY_IN', value: null }).kind).toBe('pending');
   });
 
-  it('retire/replace outranks skipped and pending', () => {
-    expect(resolveStageCell({ ...base, stage: 'WASH_OUT', value: null, terminalLabel: 'Retired' }))
+  it('retire and replace outrank skipped and pending', () => {
+    expect(resolveStageCell({ ...base, effStatus: 'RETIRED', stage: 'WASH_OUT', value: null }))
       .toEqual({ kind: 'terminal', label: 'Retired' });
+    expect(resolveStageCell({ ...base, effStatus: 'REPLACED', stage: 'WASH_OUT', value: null }))
+      .toEqual({ kind: 'terminal', label: 'Replaced' });
   });
 });
 
 describe('resolveStageCell — skipped vs pending', () => {
-  it('a gap in the MIDDLE is skipped', () => {
+  it('a gap in the MIDDLE is skipped whatever the status', () => {
     // WASH_OUT never happened but DRY_OUT did, so the cycle jumped over it.
-    expect(text('WASH_OUT', tx('WASH_IN', 'DRY_IN', 'DRY_OUT'))).toBe('Skipped');
+    // True even mid-cycle: a later stage is already evidence it was passed by.
+    expect(text('WASH_OUT', tx('WASH_IN', 'DRY_IN', 'DRY_OUT'), 'IN_PROGRESS')).toBe('Skipped');
+    expect(text('WASH_OUT', tx('WASH_IN', 'DRY_IN', 'DRY_OUT'), 'COMPLETED')).toBe('Skipped');
   });
 
-  it('a stage never reached at the END of the profile is pending, not skipped', () => {
-    // 🔴 The reported symptom. The rule is positional and deliberately does NOT
-    // consult cycle status, so trailing un-performed stages stay "Pending" even
-    // once the cycle is COMPLETED. Locking it so the behaviour is a decision,
-    // not an accident — changing it is an operator call (21 CFR §11 wording).
-    expect(text('STORAGE_OUT', tx('WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN'))).toBe('Pending');
+  it('a trailing un-performed stage is SKIPPED once the cycle is COMPLETED', () => {
+    // Operator decision 2026-09-02. A closed cycle has no outstanding work, so
+    // "Pending" asserted on a finished §11 record that the stage was still to
+    // come. It reads "Skipped" now, on the page and in the PDF/Excel alike.
+    expect(text('STORAGE_OUT', tx('WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN'), 'COMPLETED'))
+      .toBe('Skipped');
   });
 
-  it('the furthest stage reached is itself never skipped', () => {
-    // idx < maxReachedIdx is strict; `idx === maxReachedIdx` means it WAS reached.
-    expect(text('DRY_OUT', tx('WASH_IN', 'DRY_OUT'), ALL, null)).toBe('Pending');
+  it('the same stage is PENDING while the cycle is still IN_PROGRESS', () => {
+    // The operator has simply not got there yet — the work really is pending.
+    expect(text('STORAGE_OUT', tx('WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN'), 'IN_PROGRESS'))
+      .toBe('Pending');
   });
 
-  it('every stage is pending on a cycle with no transitions', () => {
-    expect(ALL.map((s) => text(s, []))).toEqual(ALL.map(() => 'Pending'));
+  it('a TERMINATED cycle keeps Pending — abandoned is not skipped', () => {
+    // Deliberately NOT widened with COMPLETED: terminating a cycle makes a
+    // different claim about why the work is missing. 24 live cycles are in this
+    // state. Changing this wording is a separate operator call.
+    expect(text('STORAGE_OUT', tx('WASH_IN', 'WASH_OUT'), 'TERMINATED')).toBe('Pending');
+  });
+
+  it('every stage is skipped on a COMPLETED cycle with no transitions at all', () => {
+    // Live data holds exactly one such row (a cycle marked COMPLETED with zero
+    // events). Nothing was recorded, and the cycle is closed, so nothing is
+    // pending — the honest reading is that none of it was performed.
+    expect(ALL.map((s) => text(s, [], 'COMPLETED'))).toEqual(ALL.map(() => 'Skipped'));
+  });
+
+  it('every stage is pending on an IN_PROGRESS cycle with no transitions', () => {
+    expect(ALL.map((s) => text(s, [], 'IN_PROGRESS'))).toEqual(ALL.map(() => 'Pending'));
   });
 });
 
 describe('the export prints what the screen shows', () => {
   /**
-   * The regression this file exists for. Before 2026-09-02 the PDF/Excel row
-   * builder carried its own copy of the rule with no skipped branch, so a stage
-   * the page labelled "Skipped" printed as "Pending" in the export of the same
-   * cycle — two renderings of one 21 CFR §11 record disagreeing.
-   *
-   * Both surfaces now call resolveStageCell, so the guard is that every state
-   * it can return has a text form and the mid-gap case reaches it.
+   * Why this file exists. Before 2026-09-02 the PDF/Excel row builder carried
+   * its own copy of the rule with no skipped branch, so a stage the page
+   * labelled "Skipped" printed as "Pending" in the export of the same cycle —
+   * two renderings of one 21 CFR §11 record disagreeing. Both surfaces call
+   * resolveStageCell now, so the guard is that every state it can return has a
+   * text form and the interesting cases reach it.
    */
   it('maps every state kind to a label', () => {
     expect(stageCellText({ kind: 'value', value: '10:00', manual: false })).toBe('10:00');
@@ -131,42 +154,57 @@ describe('the export prints what the screen shows', () => {
     expect(stageCellText({ kind: 'pending' })).toBe('Pending');
   });
 
-  it('prints Skipped for a mid-chain gap on a completed cycle', () => {
-    // The exact shape that used to print "Pending" in the PDF.
-    expect(text('WASH_OUT', tx('WASH_IN', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'))).toBe('Skipped');
-  });
-
   it('prints the manual value plainly — the orange styling is screen-only', () => {
     expect(stageCellText(resolveStageCell({
       stage: 'WASH_IN', value: '10:00', manual: true,
-      profileStages: ALL, terminalLabel: null, maxReachedIdx: 3,
+      profileStages: ALL, effStatus: 'COMPLETED', maxReachedIdx: 3,
     }))).toBe('10:00');
   });
 });
 
-describe('regression: a real cycle from digilog_db', () => {
+describe('regression: real cycles from digilog_db', () => {
   /**
-   * Cycle 44582f21 on filter L2/AHU-011/SA/01, profile "L22 v1", 2026-06-03.
-   * Its pipeline is a straight line
+   * Cycle 44582f21 on filter L2/AHU-011/SA/01, profile "L22 v1", 2026-06-03,
+   * status COMPLETED. Its pipeline is a straight line
    *   WASH_IN -> WASH_OUT -> [checklist] -> DRY_IN -> [checklist] -> DRY_OUT
    *           -> STORAGE_IN -> [checklist] -> STORAGE_OUT -> END
    * but only WASH_IN, WASH_OUT, STORAGE_IN and STORAGE_OUT ever transitioned:
    * one of its later events even carries fromState DRY_OUT with no DRY_OUT
-   * transition of its own. The cycle is COMPLETED.
-   *
-   * The screen showed DRY_IN / DRY_OUT as "Skipped"; the PDF and Excel export
-   * of the same cycle printed "Pending". This asserts they now agree.
+   * transition of its own.
    */
   const L22 = ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'];
-  const events = tx('WASH_IN', 'WASH_OUT', 'STORAGE_IN', 'STORAGE_OUT');
+  const gap = tx('WASH_IN', 'WASH_OUT', 'STORAGE_IN', 'STORAGE_OUT');
 
   it('reports the two jumped-over stages as Skipped', () => {
-    expect(text('DRY_IN', events, L22)).toBe('Skipped');
-    expect(text('DRY_OUT', events, L22)).toBe('Skipped');
+    expect(text('DRY_IN', gap, 'COMPLETED', L22)).toBe('Skipped');
+    expect(text('DRY_OUT', gap, 'COMPLETED', L22)).toBe('Skipped');
   });
 
   it('leaves the performed stages to their recorded values', () => {
-    expect(text('WASH_IN', events, L22, '03/06/2026 15:36')).toBe('03/06/2026 15:36');
-    expect(text('STORAGE_OUT', events, L22, '03/06/2026 15:45')).toBe('03/06/2026 15:45');
+    expect(text('WASH_IN', gap, 'COMPLETED', L22, '03/06/2026 15:36')).toBe('03/06/2026 15:36');
+    expect(text('STORAGE_OUT', gap, 'COMPLETED', L22, '03/06/2026 15:45')).toBe('03/06/2026 15:45');
+  });
+
+  /**
+   * Cycle ee760720, same filter and profile, also COMPLETED, but it stopped
+   * after WASH_OUT — DRY_IN, DRY_OUT, STORAGE_IN and STORAGE_OUT are all
+   * TRAILING. Every one of them printed "Pending" on a completed record before
+   * this change; this is the case the operator asked about.
+   */
+  it('reports trailing un-performed stages of a completed cycle as Skipped', () => {
+    const trailing = tx('WASH_IN', 'WASH_OUT');
+    expect(['DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'].map((s) => text(s, trailing, 'COMPLETED', L22)))
+      .toEqual(['Skipped', 'Skipped', 'Skipped', 'Skipped']);
+  });
+
+  /**
+   * Profile "CWH v3" holds no DRY_OUT node at all, and 113 completed cycles run
+   * on such profiles. Those stages must stay NA — the completed->skipped rule
+   * must not turn "never applicable" into "not performed".
+   */
+  it('keeps out-of-profile stages as NA on completed cycles', () => {
+    const CWH = ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'STORAGE_IN', 'STORAGE_OUT'];
+    expect(text('DRY_OUT', tx('WASH_IN', 'WASH_OUT', 'DRY_IN', 'STORAGE_IN', 'STORAGE_OUT'), 'COMPLETED', CWH))
+      .toBe('NA');
   });
 });
