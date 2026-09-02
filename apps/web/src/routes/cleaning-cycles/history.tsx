@@ -236,7 +236,42 @@ export function CleaningCycleHistoryPage() {
       formatDateTime,
       legend: [{ abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' }],
     });
-    report.addTable({ head: ccHead, body: buildCleaningRows(rows), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
+    // 2026-09-02 (operator request): 8pt, up from the 7pt default.
+    //
+    // Measured with jsPDF's own font metrics, not estimated. Each column needs its
+    // widest UNBREAKABLE token — longest header word at bold fontSize+0.5, or
+    // longest value — plus 5mm of padding. Against landscape's 268mm these
+    // thirteen columns need, using the values that actually occur in the data:
+    //     8.0pt -> 256mm  fits      8.5pt -> 269mm  over by 1
+    // 8.5 looked viable against sample values and failed on the real ones: the
+    // live dimension "500X300X200" is wider than the "610*620*730" form because
+    // uppercase X is a wider glyph, and it broke as "500X300X20" / "0".
+    //
+    // The 12mm that 8pt leaves spare is given back to the columns whose content
+    // varies most — chiefly Filter, whose longest live value
+    // ("CWH/F1/AHU-0B/SA/05/06-01") is a single unbreakable token more than twice
+    // the width of any other column, and which autoTable would otherwise starve.
+    // Grid lines thicken with the font automatically (see pdf-report addTable).
+    report.addTable({
+      head: ccHead,
+      body: buildCleaningRows(rows),
+      fontSize: 8,
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 12 },  // S.No
+        1: { cellWidth: 52 },                    // Filter — full hierarchy path, one token
+        2: { cellWidth: 25 },                    // Filter Dimensions — "500X300X200"
+        3: { cellWidth: 19 },                    // Air Pressure — "22.8 bar"
+        4: { cellWidth: 17 },                    // RO Water — "25.0 bar"
+        5: { cellWidth: 19 },                    // Wash In — date over time
+        6: { cellWidth: 19 },                    // Wash Out
+        7: { cellWidth: 17 },                    // Wash By
+        8: { cellWidth: 18 },                    // Duration
+        9: { cellWidth: 19 },                    // Dry In
+        10: { cellWidth: 13 },                   // Dryer Temp
+        11: { cellWidth: 19 },                   // Dry Out
+        12: { cellWidth: 19 },                   // Status
+      },
+    });
     return report;
   };
 
