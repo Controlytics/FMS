@@ -23,8 +23,10 @@ vi.mock('../pm-workflow.js', () => ({
   // on the message stay deterministic) rather than stubbing them away, so these
   // tests still cover the message the importer actually writes.
   newQnnBatchRef: vi.fn(() => 'B-TEST01'),
-  qnnBatchTag: vi.fn((ref: string | null, i: number, total: number) =>
-    (ref && total > 1 ? ` [batch ${ref}, ${i} of ${total}]` : '')),
+  qnnBatchTag: vi.fn((ref: string | null, i: number, total: number, ahus?: string[]) =>
+    (ref && total > 1
+      ? ` [batch ${ref}, ${i} of ${total}${(ahus ?? []).length > 1 ? ` across ${[...new Set(ahus)].join(', ')}` : ''}]`
+      : '')),
 }));
 
 import { importSchedules } from '../pm-import.js';

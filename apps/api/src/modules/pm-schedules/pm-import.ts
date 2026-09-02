@@ -403,7 +403,8 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   // One shared reference across every entry of this upload, so the whole batch —
   // and therefore every AHU it covered — can be recovered from any one row.
   const batchRef = imported.length > 1 ? newQnnBatchRef() : null;
-  const batchAhus = new Set(imported.map((e) => e.ahuName)).size;
+  // The AHUs this upload covered, in first-seen order, for the batch tag.
+  const batchAhus = [...new Set(imported.map((e) => e.ahuName))];
   for (const [i, entry] of imported.entries()) {
     qnns.push(await generateQnn('UPLOAD', {
       pmScheduleEntryId: entry.entryId || null,

@@ -139,9 +139,9 @@ export async function reviewEntries(
   const isReviewable = (e: typeof entries[number]) =>
     e.approvalStatus === 'PENDING_REVIEW' || (cfg.workflowEnabled && e.approvalStatus === 'PENDING');
   const batchTotal = entries.filter(isReviewable).length;
-  // Distinct AHUs the batch touches — one AHU can hold many visits in a year,
-  // so the entry count alone does not say how wide the action was.
-  const batchAhus = new Set(entries.filter(isReviewable).map((e) => ahuNames.get(e.id) ?? '?')).size;
+  // The AHUs this batch touches, named in the tag so a reader can see which
+  // units one bulk action covered without opening every row.
+  const batchAhus = [...new Set(entries.filter(isReviewable).map((e) => ahuNames.get(e.id) ?? '?'))];
   const batchRef = batchTotal > 1 ? newQnnBatchRef() : null;
 
   for (const entry of entries) {
@@ -196,9 +196,9 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
     ? e.approvalStatus === 'PENDING_APPROVAL'
     : (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING');
   const batchTotal = entries.filter(isApprovable).length;
-  // Distinct AHUs the batch touches — one AHU can hold many visits in a year,
-  // so the entry count alone does not say how wide the action was.
-  const batchAhus = new Set(entries.filter(isApprovable).map((e) => ahuNames.get(e.id) ?? '?')).size;
+  // The AHUs this batch touches, named in the tag so a reader can see which
+  // units one bulk action covered without opening every row.
+  const batchAhus = [...new Set(entries.filter(isApprovable).map((e) => ahuNames.get(e.id) ?? '?'))];
   const batchRef = batchTotal > 1 ? newQnnBatchRef() : null;
   for (const entry of entries) {
     const approvable = isApprovable(entry);
@@ -270,9 +270,9 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
     ? e.approvalStatus === 'PENDING_APPROVAL'
     : (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING');
   const batchTotal = entries.filter(isRejectable).length;
-  // Distinct AHUs the batch touches — one AHU can hold many visits in a year,
-  // so the entry count alone does not say how wide the action was.
-  const batchAhus = new Set(entries.filter(isRejectable).map((e) => ahuNames.get(e.id) ?? '?')).size;
+  // The AHUs this batch touches, named in the tag so a reader can see which
+  // units one bulk action covered without opening every row.
+  const batchAhus = [...new Set(entries.filter(isRejectable).map((e) => ahuNames.get(e.id) ?? '?'))];
   const batchRef = batchTotal > 1 ? newQnnBatchRef() : null;
 
   for (const entry of entries) {

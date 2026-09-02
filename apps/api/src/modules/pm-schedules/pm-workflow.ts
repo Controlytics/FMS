@@ -102,20 +102,38 @@ export function newQnnBatchRef(): string {
   return 'B-' + randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase();
 }
 
+/** Longest AHU list a batch tag will carry before it starts summarising. The
+ *  message column is varchar(1000) and the tag is appended to text that already
+ *  names the row's own AHU and month, so the list gets a bounded slice of it. */
+const BATCH_AHU_BUDGET = 220;
+
 /**
- * ` [batch B-3F7A2C, 3 of 15 across 6 AHUs]`, or '' when the action covered a
- * single entry — a one-entry action is not a bulk action and tagging it would be
- * noise.
+ * ` [batch B-3F7A2C, 3 of 15 across AHU-88, AHU-90, AHU-024]`, or '' when the
+ * action covered a single entry — a one-entry action is not a bulk action and
+ * tagging it would be noise.
  *
- * The AHU count is named because the entry count alone is ambiguous: "15" is
- * planned VISITS, and without the second number it reads as a count of something
- * else (AHUs, filters). One AHU can hold many visits in a year, so the two
- * numbers are routinely different. Omitted when the batch touches one AHU —
- * every row already names it.
+ * The AHUs are NAMED, not counted (operator request 2026-09-02): a count tells
+ * you how wide the action was, but not which units it touched, and "which AHUs
+ * did that bulk approval cover" is the question actually being asked. The entry
+ * count stays alongside because the two differ — one AHU holds many visits in a
+ * year, so "3 of 15" is visits while the list is units.
+ *
+ * The list is dropped when the batch touches ONE AHU: every row already names it,
+ * so repeating it would be noise. A very wide batch is truncated with "+N more"
+ * rather than allowed to crowd out the message it is appended to — the batch
+ * reference remains the complete answer, since filtering on it returns every row
+ * and therefore every AHU.
  */
-export function qnnBatchTag(ref: string | null, index: number, total: number, ahuCount?: number): string {
+export function qnnBatchTag(ref: string | null, index: number, total: number, ahuNames?: string[]): string {
   if (!ref || total <= 1) return '';
-  const across = ahuCount && ahuCount > 1 ? ` across ${ahuCount} AHUs` : '';
+  const names = [...new Set((ahuNames ?? []).filter(Boolean))];
+  let across = '';
+  if (names.length > 1) {
+    let shown = names.length;
+    while (shown > 1 && names.slice(0, shown).join(', ').length > BATCH_AHU_BUDGET) shown--;
+    const hidden = names.length - shown;
+    across = ` across ${names.slice(0, shown).join(', ')}${hidden > 0 ? `, +${hidden} more` : ''}`;
+  }
   return ` [batch ${ref}, ${index} of ${total}${across}]`;
 }
 
