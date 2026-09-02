@@ -144,36 +144,52 @@ export function DeviationsPage() {
     const report = await createReport({ reportKey: 'deviations',
       title: 'Deviations Report',
       subtitle: `Status: ${status === 'ALL' ? 'All' : STATUS_META[status as DeviationRow['status']]?.label ?? status}  |  Period: ${r.period}  |  Total: ${r.total} deviation(s)`,
-      // 2026-09-02 (operator request): matched to the RFID Track Record report.
-      // NOTE this one stays LANDSCAPE — see the comment on addTable below.
-      orientation: 'landscape',
+      // 2026-09-02 (operator request, reaffirmed): A4 PORTRAIT, matching the RFID
+      // and Quality Notifications reports. Page size was always A4 — pdf-report.ts
+      // hard-codes format:'a4' for every report — so only the orientation changes.
+      orientation: 'portrait',
       formatDateTime,
     });
-    // 9pt like the other two reports, but landscape, because this table has TEN
-    // columns against RFID's eight and QN's seven. Portrait offers 181mm; ten
-    // columns spend 50mm of that on padding, leaving ~13mm of text per column —
-    // not enough for "Acknowledged By" or "Deviation #" to render on one line,
-    // so headers would break letter-by-letter. Landscape's 268mm carries the
-    // larger type without that. Everything else matches: thicker grid, unsplit
-    // rows, bold Printed By, centred page number.
+    // TEN columns in portrait's 181mm, against RFID's eight and QN's seven.
+    // Ten columns spend 50mm of that on horizontal padding, leaving ~131mm of
+    // text, while the headers alone want ~195mm at 9pt. Something must wrap, and
+    // these widths choose WHERE: the multi-word headers ("Acknowledged By" →
+    // "Acknowledged" / "By") break at their word boundary, which reads fine,
+    // while the date and identifier columns keep their values on one line.
+    // Landscape would avoid the wrapping entirely — kept portrait per operator
+    // request. Widths sum to 181.
     report.addTable({
       head: HEAD,
       body: r.body,
       headColor: [225, 29, 72],
-      fontSize: 9,
+      // 7.5pt, NOT the 9pt the other two reports use — this table has ten
+      // columns and portrait offers 181mm.
+      //
+      // The widths below are not estimates. Each was measured with jsPDF's own
+      // font metrics as the widest UNBREAKABLE token the column can hold (its
+      // longest header word at bold fontSize+0.5, or its longest value token),
+      // plus the 5mm of horizontal padding. Summed, that is the minimum the
+      // table can occupy without splitting a word or a date. Measured totals:
+      //
+      //     9.0pt -> 204mm   over by 23   (broke dates: "20/06/202" / "6")
+      //     8.0pt -> 189mm   over by 8    (broke "AHU-0"/"3", "Complete"/"d By")
+      //     7.5pt -> 179mm   FITS
+      //
+      // So 7.5 is the largest size at which nothing breaks mid-token here. Going
+      // back to landscape would allow 9pt like the other reports; portrait was
+      // the operator's explicit choice, and this is what it costs.
+      fontSize: 7.5,
       columnStyles: {
-        0: { cellWidth: 28 },  // Deviation # — "DEV-000142"
-        1: { cellWidth: 24 },  // AHU
-        2: { cellWidth: 17 },  // Filters (count)
-        3: { cellWidth: 26 },  // Scheduled
-        // Holds "62 days delay" — the common shape of this column, so it gets
-        // the slack rather than Status, whose longest value is just "Closed".
-        4: { cellWidth: 30 },  // Overdue
-        5: { cellWidth: 20 },  // Status
-        6: { cellWidth: 34 },  // Acknowledged By
-        7: { cellWidth: 30 },  // Completed By
-        8: { cellWidth: 34 },  // Completed — full timestamp
-        9: { cellWidth: 20 },  // Delay
+        0: { cellWidth: 20 },  // Deviation # — "DEV-000142"
+        1: { cellWidth: 16 },  // AHU — "AHU-024"
+        2: { cellWidth: 14 },  // Filters (a count)
+        3: { cellWidth: 20 },  // Scheduled — a whole date, unbroken
+        4: { cellWidth: 17 },  // Overdue — "62 days delay" wraps between words
+        5: { cellWidth: 14 },  // Status — "Closed"
+        6: { cellWidth: 25 },  // Acknowledged By — breaks after "Acknowledged"
+        7: { cellWidth: 20 },  // Completed By — breaks after "Completed"
+        8: { cellWidth: 20 },  // Completed — a whole date; time wraps below it
+        9: { cellWidth: 13 },  // Delay
       },
     });
     return { report, count: r.body.length };
