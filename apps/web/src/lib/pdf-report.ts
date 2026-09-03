@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { toWinAnsi, toWinAnsiRows } from './pdf-winansi';
 import { apiClient } from './api-client';
 import { getApiBase } from './api-base';
 
@@ -196,9 +197,9 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
 
   // ── Company name + app tagline ──
   doc.setFontSize(13); doc.setTextColor(...COLORS.primary);
-  doc.text(branding.companyName, logoEndX, y + 5);
+  doc.text(toWinAnsi(branding.companyName), logoEndX, y + 5);
   doc.setFontSize(7.5); doc.setTextColor(...COLORS.muted);
-  doc.text(branding.appName, logoEndX, y + 10);
+  doc.text(toWinAnsi(branding.appName), logoEndX, y + 10);
 
   y += maxLogoH + 4;
 
@@ -208,15 +209,15 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
   // Centered title; no generated-on timestamp here (the print stamp at the end
   // of the report carries Printed Date & Time).
   doc.setFontSize(10); doc.setTextColor(...COLORS.white);
-  doc.text(config.title, pw / 2, y + 5.5, { align: 'center' });
+  doc.text(toWinAnsi(config.title), pw / 2, y + 5.5, { align: 'center' });
 
   y += 12;
 
   // ── Subtitle / filters info ──
   if (config.subtitle) {
     doc.setFontSize(8); doc.setTextColor(...COLORS.muted);
-    const lines = doc.splitTextToSize(config.subtitle, pw - 28);
-    doc.text(lines, 14, y);
+    const lines = doc.splitTextToSize(toWinAnsi(config.subtitle), pw - 28);
+    doc.text(lines.map(toWinAnsi), 14, y);
     y += lines.length * 4 + 2;
   }
 
@@ -294,7 +295,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // Legend (abbreviation key) — only when the report passes one
     if (legendLines.length) {
       doc.setFontSize(7); doc.setTextColor(...COLORS.muted);
-      doc.text(legendLines, 14, by + 2.5);
+      doc.text(legendLines.map(toWinAnsi), 14, by + 2.5);
       by += legendLines.length * 3.6 + 3;
     }
     // Signatory block (one line each) + Printed Date & Time on the first line.
@@ -311,7 +312,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     // 5.5mm line pitch, matching SIG_LINE_H used to reserve the block height —
     // 4.5mm was set for 7.5pt text and crowds at 9.5pt when a re-rendered
     // snapshot carries a full Printed/Reviewed/Approved By chain.
-    sigLines.forEach((line, i) => doc.text(line, 14, by + 4.5 + i * SIG_LINE_H));
+    sigLines.forEach((line, i) => doc.text(toWinAnsi(line), 14, by + 4.5 + i * SIG_LINE_H));
     doc.text(`Printed Date & Time: ${printedAt}`, pw - 14, by + 4.5, { align: 'right' });
     // jsPDF font state is document-global; leaving it bold would bleed into the
     // page-number footer drawn afterwards.
@@ -336,7 +337,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
     doc.setFillColor(...COLORS.headerBg);
     doc.roundedRect(14, y - 1, pw - 28, 7, 1, 1, 'F');
     doc.setFontSize(9); doc.setTextColor(...COLORS.primary);
-    doc.text(text, 17, y + 4);
+    doc.text(toWinAnsi(text), 17, y + 4);
     y += 10;
     pendingTitle = text;
   };
@@ -349,13 +350,19 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
    */
   const addTable = (opts: { head: string[]; body: string[][]; columnStyles?: Record<number, any>; headColor?: [number, number, number]; fontSize?: number }) => {
     const fs = opts.fontSize ?? 7;
+    // The snapshot keeps the ORIGINAL text on purpose — it renders as HTML,
+    // where "→" is perfectly fine. Only the PDF needs the WinAnsi form.
     snapSections.push({ title: pendingTitle, head: opts.head, body: opts.body, columnStyles: opts.columnStyles, fontSize: opts.fontSize });
     pendingTitle = undefined;
     checkPageBreak(20);
     autoTable(doc, {
       startY: y,
-      head: [opts.head],
-      body: opts.body,
+      // Every cell goes through toWinAnsi: jsPDF's built-in fonts are cp1252 and
+      // emit a WRONG GLYPH for anything else rather than failing. The characters
+      // arrive from data as much as from our literals — audit_trail.reason has
+      // 143 live rows like "Checklist items: 0 → 1".
+      head: [opts.head.map(toWinAnsi)],
+      body: toWinAnsiRows(opts.body),
       theme: 'grid',
       // Padding is asymmetric on purpose. VERTICAL padding grows with the font,
       // which is what actually reduces records per page — taller rows, fewer of
@@ -397,9 +404,9 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       if (col === 0) checkPageBreak(10);
       const x = 14 + col * colW;
       doc.setFontSize(7); doc.setTextColor(...COLORS.muted);
-      doc.text(pairs[i][0], x, y);
+      doc.text(toWinAnsi(pairs[i][0]), x, y);
       doc.setFontSize(9); doc.setTextColor(...COLORS.text);
-      doc.text(pairs[i][1] || '-', x, y + 4);
+      doc.text(toWinAnsi(pairs[i][1]) || '-', x, y + 4);
     }
     y += 12;
   };

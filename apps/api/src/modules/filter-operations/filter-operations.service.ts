@@ -497,18 +497,34 @@ export class FilterOperationsService {
     const allAssets = allAssetsRaw.map(a => ({ id: a.id, name: a.name, filterSet: a.filterDetails?.filterSet ?? null }));
     const assetMap = new Map(allAssets.map(a => [a.id, a]));
 
-    // Resolve each cycle's terminal-event performer (CYCLE_COMPLETED /
-    // CYCLE_TERMINATED) so the lifecycle report can show "completed by whom"
-    // without having to include every event in the payload.
+    // Resolve two performers per cycle so the lifecycle report can name one
+    // without the payload carrying every event:
+    //
+    //   terminal  — who CLOSED the cycle (CYCLE_COMPLETED / CYCLE_TERMINATED)
+    //   lastStage — who performed its LAST STAGE (final STATE_TRANSITION)
+    //
+    // They are the same for 578 of 593 live COMPLETED cycles, because the
+    // operator who advances into the final stage triggers the completion in the
+    // same request. They diverge on the 14 MANUAL FORCE-COMPLETES, where an
+    // admin closed the cycle from Edit Filter Status and the terminal performer
+    // is that admin rather than the operator who did the work (2026-09-03
+    // operator request: the report's "By" should name the latter).
+    //
+    // One query for both — STATE_TRANSITION rows are the bulk of filter_events,
+    // but this is already bounded to the requested page's cycle ids.
     const cycleIds = data.map((c: any) => c.id);
-    const terminalEvents = cycleIds.length > 0 ? await prisma.filterEvent.findMany({
-      where: { cycleId: { in: cycleIds }, eventType: { in: ['CYCLE_COMPLETED', 'CYCLE_TERMINATED'] } },
-      select: { cycleId: true, performedBy: true, performedAt: true },
+    const performerEvents = cycleIds.length > 0 ? await prisma.filterEvent.findMany({
+      where: { cycleId: { in: cycleIds }, eventType: { in: ['CYCLE_COMPLETED', 'CYCLE_TERMINATED', 'STATE_TRANSITION'] } },
+      select: { cycleId: true, performedBy: true, performedAt: true, eventType: true },
       orderBy: { performedAt: 'asc' },
     }) : [];
     const terminalPerformerByCycle = new Map<string, string>();
-    for (const ev of terminalEvents) {
-      if (ev.cycleId && ev.performedBy) terminalPerformerByCycle.set(ev.cycleId, ev.performedBy); // last terminal wins
+    const lastStagePerformerByCycle = new Map<string, string>();
+    for (const ev of performerEvents) {
+      if (!ev.cycleId || !ev.performedBy) continue;
+      // ascending order, so the last write wins for each map
+      if (ev.eventType === 'STATE_TRANSITION') lastStagePerformerByCycle.set(ev.cycleId, ev.performedBy);
+      else terminalPerformerByCycle.set(ev.cycleId, ev.performedBy);
     }
 
     // Resolve performedBy UUIDs to user display names (event performers when
@@ -516,6 +532,7 @@ export class FilterOperationsService {
     const allPerformerIds = [...new Set([
       ...data.flatMap((c: any) => (c.events ?? []).map((e: any) => e.performedBy).filter(Boolean)),
       ...terminalPerformerByCycle.values(),
+      ...lastStagePerformerByCycle.values(),
     ])] as string[];
     const performers = allPerformerIds.length > 0 ? await prisma.user.findMany({
       where: { id: { in: allPerformerIds } },
@@ -545,6 +562,17 @@ export class FilterOperationsService {
       // for still-IN_PROGRESS cycles (no terminal event yet).
       completedByName: (() => { const p = terminalPerformerByCycle.get(c.id); return p ? (userMap.get(p)?.fullName ?? null) : null; })(),
       completedByUsername: (() => { const p = terminalPerformerByCycle.get(c.id); return p ? (userMap.get(p)?.username ?? null) : null; })(),
+      // Who performed the cycle's LAST STAGE. The lifecycle report's "By" column
+      // prefers this over completedByUsername; see cycleEndInfo.
+      lastStageByUsername: (() => { const p = lastStagePerformerByCycle.get(c.id); return p ? (userMap.get(p)?.username ?? null) : null; })(),
+      // The raw performer ids as well. 92% of live filter_events name a user
+      // deleted in the 2026-08-19 wipe, so the *Username fields above resolve to
+      // null and the report showed nothing at all. The client falls back to the
+      // first 8 characters of the id, exactly as the Cleaning Record's
+      // getStageInfo does — a stable identifier beats a blank cell. The fields
+      // stay honestly named: a username field never carries a uuid.
+      lastStageBy: lastStagePerformerByCycle.get(c.id) ?? null,
+      completedBy: terminalPerformerByCycle.get(c.id) ?? null,
       ...((c as any).events ? {
         events: (c as any).events.map((e: any) => {
           const u = e.performedBy ? userMap.get(e.performedBy) : null;

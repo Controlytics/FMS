@@ -39,6 +39,7 @@ import { DeleteFilterDialog } from './filter-list/dialogs/DeleteFilterDialog';
 import { BulkUploadDialog } from './filter-list/dialogs/BulkUploadDialog';
 import { findMissingRequiredAttributes } from './filter-list/lib/validate-template-attributes';
 import { apiUrl } from '@/lib/url-utils';
+import { downloadName } from '@/lib/download-name';
 
 // A-01 T2.2: flatten the typed /api/hierarchy/tree (blocks → areas → ahus →
 // filters, + direct-under-block ahus) into the legacy flat "instance" shape the
@@ -1332,7 +1333,7 @@ export function FilterListPage() {
     const built = await buildFiltersReport();
     if (!built) return;
     await logReportExportOrWarn({ reportType: 'Filters', format: 'PDF', recordCount: built.count }, toast.warning);
-    built.report.save(`${built.safeName}-filters.pdf`);
+    built.report.save(`${downloadName(built.safeName, 'filters')}.pdf`);
   };
 
   const buildFiltersSnapshot = async () => { const built = await buildFiltersReport(); return built ? built.report.getSnapshot() : null; };

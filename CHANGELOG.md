@@ -1,5 +1,224 @@
 # Changelog
 
+## [Unreleased] - Downloaded PDFs are timestamped; lifecycle date range aligned (2026-09-03)
+
+### Every PDF filename now carries date AND time
+
+Operator request. All **12** `report.save()` call sites go through one
+`lib/download-name.ts` helper instead of hand-rolling the name:
+
+    audit-trail_2026-09-03_16-04-33.pdf
+    cleaning-cycles-CWH-F1-AHU-0B-SA-05-06-01_2026-09-03_16-04-33.pdf
+    replacement-list_2026-09-03_16-04-33.pdf
+
+Six of the twelve had a date; **six had no timestamp at all** and simply
+overwrote each other (`replacement-list.pdf`, `retirement-list.pdf`,
+`replacement-schedule.pdf`, plus the lifecycle, filters and PM-schedule reports).
+
+**The stamp is LOCAL time, not UTC.** Every existing site used
+`toISOString().slice(0, 10)`, which is UTC — and this deployment runs at UTC+5:30,
+so anything exported between 00:00 and 05:30 was stamped with the PREVIOUS day.
+Adding a UTC time would have compounded that: a 09:00 export reading `03-30-00`.
+Local matches both the wall clock and the configured `Asia/Kolkata` display
+timezone (verified: the machine resolves to Asia/Calcutta, +5:30).
+
+### Fixed on the way - filenames containing raw slashes
+
+Three sites put unsanitised values straight into a filename:
+
+- `timeline.tsx` used `cycle.filterName` — a hierarchy path like
+  `CWH/F1/AHU-0B/SA/05/06-01` — **and** `formatDate(...)`, which returns
+  `03/09/2026` under the configured DD/MM/YYYY.
+- `history.tsx` did `selectedFilterName.replace(/\s+/g, '-')`, which replaces
+  whitespace but not slashes.
+
+Browsers sanitise a download name rather than reject it, so this never failed
+loudly — it just produced a mangled name that differed by browser.
+`safeFilePart` now strips everything Windows forbids (`\ / : * ? " < > |`),
+collapses runs and trims the edges, so an empty part cannot leave a dangling
+separator.
+
+Locked by `lib/__tests__/download-name.test.ts` (13 cases), including the two
+real values above and the UTC-vs-local divergence.
+
+**Not changed: Excel/CSV downloads.** The request was PDFs. The 11
+`exportToExcel` sites still use date-only or no stamp, and three carry the same
+unsanitised-slash issue — a one-line change each if wanted.
+
+### Swept the whole PDF surface for the same two defect classes
+
+The operator asked whether the garbled arrow and the broken column existed
+elsewhere. Both did.
+
+#### Unrenderable characters — now fixed at the boundary, not per call site
+
+jsPDF's built-in fonts are **WinAnsi (cp1252)**. A character outside that set is
+not dropped and does not throw — it emits a DIFFERENT glyph. Scanning every
+PDF-building file for characters cp1252 cannot encode found the arrow in three
+more places, one of which is live:
+
+- 🔴 **`filter-lifecycle` PDF SUBTITLE** — `periodLine` is
+  `Period: 01/06/2026 → 03/06/2026`, so **every lifecycle report with a date
+  range set had a garbled subtitle**, not just the table cell the operator saw.
+- The screen JSX and the Excel export also use it; both are correct as they are
+  (HTML and xlsx are UTF-8) and were left alone.
+
+🔴 **And it is not only our literals — it is DATA.** `audit_trail.reason` holds
+**143 live rows** like `Checklist items: 0 → 1`, every one of which renders in
+the Audit Trail PDF. Sanitising call sites would have fixed today's literals and
+none of tomorrow's operator input.
+
+So `lib/pdf-winansi.ts` now sanitises at the PDF boundary: `toWinAnsi`
+transliterates the symbols that carry meaning (`→` -> `->`, `≤` -> `<=`, `✓` ->
+`Y`, …), drops emoji rather than printing a row of `?`, leaves every cp1252
+character untouched (em/en dash, curly quotes, bullet, ellipsis, `·`, accented
+Latin all render fine), and falls back to `?` for anything unmapped. It is wired
+into every text entry point in `pdf-report.ts`: table head and body, section
+titles, the title, the subtitle, key-value pairs, the legend and the signatory
+lines. The on-screen snapshot deliberately keeps the ORIGINAL text — it renders
+as HTML, where the real characters are correct.
+
+**The source guard found three more gaps on its first run**, all
+operator-configurable text that would have shipped broken: the branding company
+name, the branding app name, and the report signatory lines.
+
+#### Column widths — two more tables overflowed the page
+
+The lifecycle fix established that a portrait page gives **180mm, not 181**
+(`addTable` passes no `margin`, so autoTable's default applies; a 181mm table
+reports "0.78 units width could not fit page"). Auditing every table's declared
+widths against its own orientation found two more sitting at exactly 181:
+
+| Report | Was | Now |
+|---|---|---|
+| Quality Notifications | 181mm | 180mm — the mm off the free-text Message column |
+| RFID Track Record | 181mm | 180mm — off the Filter column |
+
+`rfid-track-record`'s own comment asserted "The page gives 181mm", which is the
+figure that produced the overflow; corrected. Every remaining table now totals
+within its page: lifecycle 180/180, Cleaning Record 267/267 landscape,
+deviations 179/180, QNN 180/180, RFID 180/180.
+
+### Fixed - three defects in the merged lifecycle table, from the operator's own PDF
+
+**1. The arrow rendered as garbage.** `Wash Out → Dry In` printed as
+`Wash Out !` + a junk glyph. jsPDF's built-in helvetica is WinAnsi and has no
+U+2192. Verified by rendering and extracting: `→` comes out as `!` plus a
+replacement char, `->` comes out clean. The PDF cell uses `->` now; the SCREEN
+keeps the real arrow (HTML) and so does the Excel export (xlsx is UTF-8).
+
+**2. Stage changes were sitting in the Cycle column.** A manual update has no
+cycle id, so the column meant two different things depending on the row. There is
+a **Details** column now: Cycle reads "Manual Update", Details carries the stage
+change and the operator's remark, and cycles show "-" there. Seven columns.
+
+**3. Cycle codes were breaking mid-token** — visible in the operator's own report
+as `CC-L2/AHU-011/SA/01-001-2026` / `0602`. A cycle code is ONE unbreakable
+token and the longest live one,
+`CC-CWH/F1/AHU-0B/SA/05/06-01-011-20260714-M`, measures **57.2mm at 7pt** against
+a 42mm column. Cycle is 63mm now. Measured need across all seven columns is
+164mm of the 180mm portrait usable width (180, not 181 — `addTable` passes no
+`margin`, so autoTable's default applies); the 16mm spare goes to Details.
+
+Verified by rendering the seven-column table with the longest live cycle code and
+the operator's actual rows, then reading the PDF back: every cycle code, the id
+fragments, the remarks and the arrow come out whole.
+
+### Fixed - Filter Lifecycle Record: "By" named who CLOSED the cycle, not who did the work
+
+Operator request: the column should name whoever performed the cycle's LAST
+STAGE. It was showing `completedByUsername` — the performer of the
+`CYCLE_COMPLETED` / `CYCLE_TERMINATED` event, i.e. whoever closed the cycle.
+
+**Measured: those are the same operator on 578 of 593 live COMPLETED cycles.**
+Advancing into the final stage completes the cycle in the same request, so
+normally there is nothing to choose between them. They diverge on the **14 manual
+force-completes**, where an admin closed the cycle from Edit Filter Status — and
+those are exactly the cycles where the column was naming the wrong person, since
+the admin performed no stage at all. (The same 14 cycles carry the un-performed
+trailing stages that now read "Skipped".)
+
+- **API** — `listCycles` already resolved each cycle's terminal performer from
+  `filter_events`; it now resolves the last `STATE_TRANSITION` performer in the
+  SAME query and exposes `lastStageByUsername`. No extra round trip, and the
+  query stays bounded to the requested page's cycle ids. The `/api/filters/cycles`
+  response declares `data: { type: 'array' }` with no item schema, so the new
+  field reaches the client without a schema change.
+- **Frontend** — `cycleEndInfo` prefers `lastStageByUsername`, falling back to
+  the closer for a cycle with no stage transitions at all (one live cycle is
+  COMPLETED with zero events).
+- **Deleted operators.** The column was blank on every cycle of the filter the
+  operator checked, because its performers were deleted in the 2026-08-19 wipe
+  and the username resolved to null — 92% of live filter_events are in that
+  state. The API now also returns the raw `lastStageBy` / `completedBy` ids and
+  the client falls back to their first 8 characters, exactly as the Cleaning
+  Record's Wash By / Dry By do. The `*Username` fields stay honestly named: a
+  username field never carries a uuid.
+
+⚠️ **TERMINATED / RETIRED / REPLACED keep the TERMINATOR.** That label reads
+"Terminated by", and naming the last operator under it would be a false statement
+about who ended the cycle. The retire/replace audit fallback is unchanged.
+
+Locked by 5 cases in `lifecycle-timeline.test.ts` (`cycleEndInfo` is exported for
+them), covering the force-complete divergence, the no-transitions fallback, the
+terminated case and the retire/replace fallbacks.
+
+### Fixed - Filter Lifecycle Record: manual updates were a separate section
+
+Operator request. Manual status updates were collected into a trailing "Manual
+Status Updates" block — and in the full-detail PDF that block got **its own
+page**, after every cycle — so a filter's history read as "everything that was
+cleaned, then separately everything that was overridden", and the reader had to
+merge the two lists by eye.
+
+They interleave by date now, on all three surfaces, from ONE rule
+(`mergeTimeline` / `timelineBlocks`):
+
+- **Screen** — manual rows sit in their chronological position among the cycle
+  accordions.
+- **Full-detail PDF** — each cycle keeps its own page; a manual update takes its
+  slot between the cycle pages. A CONTIGUOUS run shares one page rather than
+  taking a page per row.
+- **Compact PDF** — one table instead of two. A manual row shows
+  `From → To · remarks` in the Cycle column and "Manual Update" as its status;
+  folding the remarks in matters because the merged table has no column for them
+  and dropping them would lose the operator's stated reason.
+
+The cycle NUMBER still counts cycles only, so "Cycle 3" means the third cycle
+however many manual updates sit between them.
+
+**Found while merging:** the two lists were sorted in OPPOSITE directions —
+cycles ascending, manual updates descending — so on one screen they ran against
+each other. Both are ascending now, and the dead `ordered` / `orderedManual`
+memos went with the change (they were being sorted only to be counted).
+
+Lifecycle events (retire/replace) deliberately stay last: that is also where they
+fall in time.
+
+Locked by `routes/cleaning-cycles/__tests__/lifecycle-timeline.test.ts` (7
+cases), including the opposite-direction ordering, a contiguous run collapsing to
+one block, and a row with an unparseable date sorting first rather than making
+the comparator return NaN and leaving the array arbitrarily ordered.
+
+### Fixed - Filter Lifecycle Record: From/To fields misaligned
+
+`DateRangeFilter` was a single cell in a `md:grid-cols-6` row, so two date
+inputs, the "to" separator and the clear button had to share **one sixth** of the
+width and wrapped onto their own lines. Every other screen puts this control in a
+flex row; this was the only grid placement. It spans two columns now — four
+selects + this = the full six.
+
+Two smaller mismatches in the same row: the selects were `py-2` (~38px) against
+the control's fixed `h-9` (36px), so the row ended on two baselines; they are
+`h-9` now. And the component's built-in `label` renders `text-slate-400` against
+the `text-slate-500` the page uses for its other four labels, so the caption is
+now the page's own `<label>`, identical to its siblings — which is what the
+component's `label` prop documents ("omit when the screen already labels the
+row").
+
+Web: **786 passed**. API single-fork: **1456 passed, 0 test failures**.
+
+
 ## [Unreleased] - "Pending" now means IN_PROGRESS and nothing else (2026-09-03)
 
 Operator request, and the call that was raised but left open on 09-02. A finished

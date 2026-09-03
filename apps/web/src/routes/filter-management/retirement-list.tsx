@@ -10,6 +10,7 @@ import { exportToExcel } from '@/lib/excel-export';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useReportLabels } from '@/hooks/use-report-labels';
+import { downloadName } from '@/lib/download-name';
 
 export function RetirementListPage() {
   const { formatDate } = useDatetimeFormat();
@@ -108,7 +109,7 @@ export function RetirementListPage() {
       });
       report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
       await logReportExportOrWarn({ reportType: 'Retirement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
-      report.save('retirement-list.pdf');
+      report.save(`${downloadName('retirement-list')}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
     } finally {

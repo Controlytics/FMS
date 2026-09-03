@@ -26,6 +26,7 @@ import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useReportLabels } from '../../hooks/use-report-labels';
+import { downloadName } from '@/lib/download-name';
 
 const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
 
@@ -349,7 +350,7 @@ export function AuditTrailPage() {
         toast.error('Export blocked', `Could not record this download in the audit trail: ${e?.message ?? 'unknown error'}. Download cancelled.`);
         return;
       }
-      report.save(`audit-trail-${new Date().toISOString().slice(0, 10)}.pdf`);
+      report.save(`${downloadName('audit-trail')}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not export the audit trail. Please try again.');
     } finally { setDownloading(false); }

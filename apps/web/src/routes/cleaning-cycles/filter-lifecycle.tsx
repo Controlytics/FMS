@@ -15,6 +15,7 @@ import { startOfDayIso, endOfDayIso } from '@/lib/datetime-input';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { downloadName } from '@/lib/download-name';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
 // endpoints carry the parent id on each child: area.blockId, ahu.areaId,
@@ -121,6 +122,50 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T,
 
 const asc = (a: any, b: any) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
 
+/**
+ * One item on a filter's timeline: a cleaning cycle or a manual status update.
+ *
+ * 2026-09-03 (operator request): manual updates used to be collected into a
+ * trailing "Manual Status Updates" section — its own PAGE in the full-detail
+ * PDF — so a filter's history read as "everything that was cleaned, then
+ * separately everything that was overridden", and the reader had to merge the
+ * two by eye. They belong in date order among the cycles, which is how the
+ * Cleaning Record has always shown them.
+ *
+ * This also fixes an ordering contradiction: cycles were sorted ASCENDING and
+ * manual updates DESCENDING, so the two lists ran in opposite directions on the
+ * same screen.
+ */
+export type TimelineItem =
+  | { kind: 'cycle'; at: number; cycle: any }
+  | { kind: 'manual'; at: number; manual: any };
+
+/** Cycles + manual updates as one ascending timeline. */
+export function mergeTimeline(cycles: any[], manual: any[]): TimelineItem[] {
+  const ts = (v: any) => { const t = new Date(v).getTime(); return Number.isNaN(t) ? 0 : t; };
+  return [
+    ...(cycles ?? []).map((c): TimelineItem => ({ kind: 'cycle', at: ts(c.startedAt), cycle: c })),
+    ...(manual ?? []).map((m): TimelineItem => ({ kind: 'manual', at: ts(m.performedAt), manual: m })),
+  ].sort((a, b) => a.at - b.at);
+}
+
+/**
+ * Split a timeline into BLOCKS for the full-detail PDF, which gives each cycle
+ * its own page. One block = one cycle, or a contiguous run of manual updates —
+ * so a run between two cycles is one page in its chronological slot rather than
+ * a page per row.
+ */
+export function timelineBlocks(items: TimelineItem[]): ({ kind: 'cycle'; cycle: any } | { kind: 'manual'; manual: any[] })[] {
+  const out: ({ kind: 'cycle'; cycle: any } | { kind: 'manual'; manual: any[] })[] = [];
+  for (const it of items) {
+    if (it.kind === 'cycle') { out.push({ kind: 'cycle', cycle: it.cycle }); continue; }
+    const last = out[out.length - 1];
+    if (last && last.kind === 'manual') last.manual.push(it.manual);
+    else out.push({ kind: 'manual', manual: [it.manual] });
+  }
+  return out;
+}
+
 const LIFECYCLE_STYLE: Record<string, string> = {
   created: 'border-indigo-400 bg-indigo-50 text-indigo-700',
   replaced: 'border-purple-400 bg-purple-50 text-purple-700',
@@ -202,8 +247,19 @@ function CycleAccordionItem({ summary, index, formatDateTime, fallback }: {
  * The performer is the operator login id (username) per operator request — null
  * when the cycle was terminated outside the normal flow (DB-direct / legacy)
  * and no terminator was ever recorded.
+ *
+ * 2026-09-03 (operator request): for a COMPLETED cycle "By" names whoever
+ * performed the cycle's LAST STAGE, not whoever closed it. Those are the same
+ * operator on 578 of 593 live completed cycles — advancing into the final stage
+ * completes the cycle in the same request — but they differ on the 14 MANUAL
+ * FORCE-COMPLETES, where an admin closed the cycle from Edit Filter Status and
+ * the column named that admin instead of the operator who did the work.
+ *
+ * TERMINATED / RETIRED / REPLACED keep the TERMINATOR: the label there reads
+ * "Terminated by", and naming the last operator under it would be a false
+ * statement about who ended the cycle.
  */
-function cycleEndInfo(
+export function cycleEndInfo(
   summary: any,
   formatDateTime: (s: string) => string,
   fallback?: { replacedBy?: string | null; retiredBy?: string | null },
@@ -214,7 +270,20 @@ function cycleEndInfo(
   // A cycle ended by retire/replace has no CYCLE_TERMINATED event — the operator
   // is recorded on the FILTER_REPLACED / FILTER_RETIRED audit instead. Fall back
   // to that (login id) so "Terminated by" isn't blank for those cycles.
-  let by = (summary.completedByUsername as string | null) ?? null;
+  // Completed: the last stage's operator, falling back to whoever closed the
+  // cycle when it has no stage transitions at all (one live cycle is COMPLETED
+  // with zero events). Ended: the terminator, as the label says.
+  //
+  // Each falls back to the first 8 characters of the performer's uuid when the
+  // username cannot be resolved — 92% of live filter_events name a user deleted
+  // in the 2026-08-19 wipe, and this column was simply blank for all of them.
+  // Same treatment as the Cleaning Record's Wash By / Dry By (getStageInfo).
+  const who = (username: unknown, id: unknown): string | null =>
+    (typeof username === 'string' && username) ||
+    (typeof id === 'string' && id ? id.substring(0, 8) : null);
+  let by = ended
+    ? who(summary.completedByUsername, summary.completedBy)
+    : (who(summary.lastStageByUsername, summary.lastStageBy) ?? who(summary.completedByUsername, summary.completedBy));
   if (!by && ended && fallback) {
     if (eff === 'REPLACED') by = fallback.replacedBy ?? null;
     else if (eff === 'RETIRED') by = fallback.retiredBy ?? null;
@@ -316,11 +385,11 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
     return () => { cancelled = true; };
   }, [open, filter.id, fromIso, toIso]);
 
-  const ordered = useMemo(() => [...cycles].sort(asc), [cycles]);
-  const orderedManual = useMemo(
-    () => [...manual].sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime()),
-    [manual],
-  );
+  // Cycles and manual updates in ONE ascending sequence (2026-09-03). The
+  // separate `ordered` / `orderedManual` lists went with the merge — they sorted
+  // in OPPOSITE directions (cycles ascending, manual descending) and are now
+  // only counted, not rendered.
+  const timeline = useMemo(() => mergeTimeline(cycles, manual), [cycles, manual]);
 
   return (
     <div className="border border-slate-200 rounded-xl bg-white">
@@ -334,7 +403,7 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
           </div>
           {filter.filterSet && <span className="text-[10px] font-semibold text-indigo-500">Set {filter.filterSet.replace('SET_', '')}</span>}
         </div>
-        {loaded && <span className="text-[11px] text-slate-400">{ordered.length} cycle(s){orderedManual.length ? ` · ${orderedManual.length} manual` : ''}{lifecycle.length ? ` · ${lifecycle.length} event(s)` : ''}</span>}
+        {loaded && <span className="text-[11px] text-slate-400">{cycles.length} cycle(s){manual.length ? ` · ${manual.length} manual` : ''}{lifecycle.length ? ` · ${lifecycle.length} event(s)` : ''}</span>}
         <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />
         </svg>
@@ -347,21 +416,20 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
             </div>
           ) : error ? (
             <div className="text-[13px] text-red-500 py-4 text-center">{error}</div>
-          ) : (ordered.length === 0 && orderedManual.length === 0 && lifecycle.length === 0) ? (
+          ) : (timeline.length === 0 && lifecycle.length === 0) ? (
             <div className="text-[13px] text-slate-400 py-4 text-center">No cleaning cycles, manual updates or lifecycle events in this period.</div>
           ) : (
             <>
-              {ordered.map((c, idx) => (
-                compact
-                  ? <CompactCycleRow key={c.id} summary={c} index={idx} formatDateTime={formatDateTime} fallback={fallback} />
-                  : <CycleAccordionItem key={c.id} summary={c} index={idx} formatDateTime={formatDateTime} fallback={fallback} />
-              ))}
-              {orderedManual.length > 0 && (
-                <div className="pt-1 space-y-2">
-                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">Manual Status Updates</div>
-                  {orderedManual.map((m, i) => <ManualUpdateRow key={m.id ?? i} m={m} formatDateTime={formatDateTime} />)}
-                </div>
-              )}
+              {/* Cycles and manual updates interleaved by date. The cycle index
+                  counts CYCLES only, so "Cycle 3" still means the third cycle
+                  even with manual updates sitting between them. */}
+              {(() => { let n = 0; return timeline.map((it, i) => (
+                it.kind === 'manual'
+                  ? <ManualUpdateRow key={it.manual.id ?? `m-${i}`} m={it.manual} formatDateTime={formatDateTime} />
+                  : (compact
+                      ? <CompactCycleRow key={it.cycle.id} summary={it.cycle} index={n++} formatDateTime={formatDateTime} fallback={fallback} />
+                      : <CycleAccordionItem key={it.cycle.id} summary={it.cycle} index={n++} formatDateTime={formatDateTime} fallback={fallback} />)
+              )); })()}
               {lifecycle.length > 0 && (
                 <div className="pt-1 space-y-2">
                   <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">Lifecycle Events</div>
@@ -510,13 +578,15 @@ export function FilterLifecycleReportPage() {
       const totalManual = groups.reduce((n, g) => n + g.manual.length, 0);
       if (totalCycles === 0 && totalEvents === 0 && totalManual === 0) { setDownloadMsg('No cleaning cycles, manual updates or lifecycle events found for this selection and period.'); return null; }
 
-      // Shared manual-updates table renderer (both PDF branches).
-      const addManualTable = (g: { manual: any[] }) => {
-        if (!g.manual.length) return;
+      // Shared manual-updates table renderer. Takes a LIST rather than the
+      // group so the full-detail branch can render one contiguous run of manual
+      // updates in its chronological slot between two cycles.
+      const addManualTable = (rows: any[]) => {
+        if (!rows.length) return;
         report.addSectionTitle('Manual Status Updates');
         report.addTable({
           head: ['From', 'To', 'Date & Time', 'By', 'Remarks'],
-          body: g.manual.map((m: any) => [
+          body: rows.map((m: any) => [
             humanizeState(m.fromState), humanizeState(m.toState),
             m.performedAt ? formatDateTime(m.performedAt) : '-',
             m.performedByName ?? m.performedByUsername ?? '-',
@@ -561,20 +631,40 @@ export function FilterLifecycleReportPage() {
         const byId = new Map<string, any>();
         flat.forEach((id, idx) => byId.set(id, details[idx]));
 
-        // 3. Build the grouped report. Each cycle on its own page; the filter's
-        //    lifecycle events (retire/replace) get their own page after its cycles.
+        // 3. Build the grouped report. Each cycle on its own page, with manual
+        //    updates in their CHRONOLOGICAL slot between them (2026-09-03) —
+        //    they used to be collected onto a single trailing page, so the
+        //    reader had to merge two lists by eye. A contiguous run of manual
+        //    updates shares one page rather than taking a page per row. The
+        //    filter's lifecycle events (retire/replace) still come last, which
+        //    is also where they fall in time.
         let firstBlock = true;
         for (const g of groups) {
           let needFilterHeader = true;
-          for (let i = 0; i < g.summaries.length; i++) {
-            const s = g.summaries[i];
-            const detail = byId.get(s.id);
-            if (!detail) continue;
-            if (!firstBlock) report.newPage();
-            firstBlock = false;
-            if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
-            report.addSectionTitle(`Cycle ${i + 1} — ${formatDateTime(s.startedAt)}`);
-            appendCycleDetailToReport(report, detail, { formatDateTime });
+          const header = () => {
+            if (!needFilterHeader) return;
+            report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`);
+            needFilterHeader = false;
+          };
+          // The cycle number counts CYCLES only, so "Cycle 3" still means the
+          // third cycle however many manual updates sit between them.
+          let cycleNo = 0;
+          for (const block of timelineBlocks(mergeTimeline(g.summaries, g.manual))) {
+            if (block.kind === 'cycle') {
+              const detail = byId.get(block.cycle.id);
+              if (!detail) continue;
+              cycleNo++;
+              if (!firstBlock) report.newPage();
+              firstBlock = false;
+              header();
+              report.addSectionTitle(`Cycle ${cycleNo} — ${formatDateTime(block.cycle.startedAt)}`);
+              appendCycleDetailToReport(report, detail, { formatDateTime });
+            } else {
+              if (!firstBlock) report.newPage();
+              firstBlock = false;
+              header();
+              addManualTable(block.manual);
+            }
           }
           if (g.events.length) {
             if (!firstBlock) report.newPage();
@@ -587,12 +677,7 @@ export function FilterLifecycleReportPage() {
               columnStyles: { 3: { cellWidth: 60 } },
             });
           }
-          if (g.manual.length) {
-            if (!firstBlock) report.newPage();
-            firstBlock = false;
-            if (needFilterHeader) { report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`); needFilterHeader = false; }
-            addManualTable(g);
-          }
+          // (manual updates are emitted inline above, in date order)
         }
       } else {
         // Broad scope: one compact start→end table per filter (+ lifecycle events).
@@ -601,24 +686,70 @@ export function FilterLifecycleReportPage() {
           if (!firstBlock) report.newPage();
           firstBlock = false;
           report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`);
-          if (g.summaries.length) {
+          // ONE table, cycles and manual updates interleaved by date
+          // (2026-09-03). They were two tables, so a filter's history read as
+          // "everything cleaned, then separately everything overridden".
+          const merged = mergeTimeline(g.summaries, g.manual);
+          if (merged.length) {
             const fb = { replacedBy: replByOld.get(g.filter.id)?.performedBy ?? null, retiredBy: retireMap.get(g.filter.id)?.retiredBy ?? null };
+            let n = 0;
             report.addTable({
               // Neutral "End Time" / "By" because a filter's table mixes
-              // completed + terminated cycles; the Status column disambiguates.
-              head: ['S.No', 'Cycle', 'Start Time', 'End Time', 'By', 'Status'],
-              body: g.summaries.map((s, i) => {
+              // completed + terminated cycles; the Status column disambiguates,
+              // and now also marks the manual rows.
+              // "Details" exists so the CYCLE column only ever holds a cycle id
+              // (2026-09-03): a manual update has no cycle id, and putting its
+              // stage change there made the column mean two different things.
+              head: ['S.No', 'Cycle', 'Start Time', 'End Time', 'By', 'Status', 'Details'],
+              body: merged.map((it) => {
+                if (it.kind === 'manual') {
+                  const m = it.manual;
+                  // "->" not "→": jsPDF's built-in helvetica is WinAnsi, which has
+                  // no U+2192, so the arrow rendered as "!" plus a garbage glyph.
+                  // Verified by rendering and reading the PDF back. (The Excel
+                  // export below keeps the real arrow — xlsx is UTF-8.)
+                  const move = `${humanizeState(m.fromState)} -> ${humanizeState(m.toState)}`;
+                  return [
+                    '-',
+                    'Manual Update',
+                    m.performedAt ? formatDateTime(m.performedAt) : '-',
+                    '-',
+                    m.performedByName ?? m.performedByUsername ?? '-',
+                    'Manual Update',
+                    m.remarks ? `${move} · ${m.remarks}` : move,
+                  ];
+                }
+                const s = it.cycle;
                 const eff = effectiveCycleStatus(s);
                 const info = cycleEndInfo(s, formatDateTime, fb);
                 return [
-                  String(i + 1),
+                  String(++n),
                   s.cycleCode ?? s.cleaningReasonLabel ?? s.cleaningReasonKey ?? '-',
                   s.startedAt ? formatDateTime(s.startedAt) : '-',
                   info.endTimeText === '—' ? '-' : info.endTimeText,
                   info.by ?? '-',
                   STATUS_CONFIG[eff]?.label ?? eff,
+                  '-',
                 ];
               }),
+              // Measured with jsPDF metrics against the live values, then
+              // VERIFIED by rendering this table and reading the PDF back.
+              //
+              // Cycle gets 63mm because a cycle code is one unbreakable token and
+              // the longest live one, "CC-CWH/F1/AHU-0B/SA/05/06-01-011-20260714-M",
+              // measures 57.2mm at 7pt. It was 42mm, so codes broke mid-token —
+              // visible in the operator's own report as "…-001-2026" / "0602".
+              // Minimum need is 164mm of the 180mm portrait usable width; the
+              // 16mm spare goes to Details, which holds free-text remarks.
+              columnStyles: {
+                0: { cellWidth: 12 },  // S.No
+                1: { cellWidth: 63 },  // Cycle — one unbreakable token, see above
+                2: { cellWidth: 18 },  // Start Time — date over time
+                3: { cellWidth: 18 },  // End Time
+                4: { cellWidth: 18 },  // By — username, or an 8-char id fragment for a deleted user
+                5: { cellWidth: 18 },  // Status
+                6: { cellWidth: 33 },  // Details — stage change + the operator's remark
+              },
             });
           }
           if (g.events.length) {
@@ -629,14 +760,14 @@ export function FilterLifecycleReportPage() {
               columnStyles: { 3: { cellWidth: 60 } },
             });
           }
-          addManualTable(g);
+          // (manual updates are rows in the table above, in date order)
         }
       }
 
       if (asSnapshot) return report.getSnapshot();
       await logReportExportOrWarn({ reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: totalCycles + totalEvents + totalManual }, toast.warning);
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
-      report.save(`lifecycle-${safeScope}.pdf`);
+      report.save(`${downloadName('lifecycle', safeScope)}.pdf`);
       return null;
     } catch (e: any) {
       setDownloadMsg(e?.message ?? 'Report generation failed.');
@@ -700,7 +831,9 @@ export function FilterLifecycleReportPage() {
     }
   };
 
-  const selectCls = 'w-full px-3 py-2 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 disabled:bg-slate-50 disabled:text-slate-400';
+  // h-9, not py-2: DateRangeFilter's `md` size is h-9, and a padding-derived
+  // ~38px next to a fixed 36px left the row's controls on different baselines.
+  const selectCls = 'w-full px-3 h-9 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 disabled:bg-slate-50 disabled:text-slate-400';
   const singleFilter = filtersInScope.length === 1;
 
   return (
@@ -760,15 +893,24 @@ export function FilterLifecycleReportPage() {
               {filterOptions.map((f) => (<option key={f.id} value={f.id}>{f.name}{f.retired ? ' (Retired)' : ''}</option>))}
             </select>
           </div>
-          <DateRangeFilter
-            label="Date range"
-            from={fromDate}
-            to={toDate}
-            onFromChange={setFromDate}
-            onToChange={setToDate}
-            fromAriaLabel="Lifecycle from date"
-            toAriaLabel="Lifecycle to date"
-          />
+          {/* Spans TWO of the six columns: it holds two date inputs plus the
+              "to" separator and the clear button, and in a single 1/6 cell those
+              wrapped onto their own lines and broke the row's alignment. Four
+              selects + this = the full six.
+              The caption is the page's own <label>, identical to its siblings —
+              the component's built-in `label` renders text-slate-400 against the
+              text-slate-500 used here, which read as a second misalignment. */}
+          <div className="col-span-2">
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Date Range</label>
+            <DateRangeFilter
+              from={fromDate}
+              to={toDate}
+              onFromChange={setFromDate}
+              onToChange={setToDate}
+              fromAriaLabel="Lifecycle from date"
+              toAriaLabel="Lifecycle to date"
+            />
+          </div>
         </div>
         {downloadMsg && (
           <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-[13px] text-amber-700">{downloadMsg}</div>

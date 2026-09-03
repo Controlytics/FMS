@@ -12,6 +12,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { downloadName } from '@/lib/download-name';
 
 interface DeviationRow {
   id: string;
@@ -248,7 +249,7 @@ export function DeviationsPage() {
       const built = await buildDeviationsReport();
       if (!built) return;
       await logReportExportOrWarn({ reportType: 'Deviations', format: 'PDF', recordCount: built.count }, toast.warning);
-      built.report.save(`deviations-${new Date().toISOString().slice(0, 10)}.pdf`);
+      built.report.save(`${downloadName('deviations')}.pdf`);
     } catch (e: any) {
       setDownloadMsg(e?.message ?? 'Failed to generate the report.');
     } finally { setDownloading(false); }

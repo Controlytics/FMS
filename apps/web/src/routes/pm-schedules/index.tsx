@@ -19,6 +19,7 @@ import { useExportLimit } from '@/hooks/use-export-limit';
 import { isoToDateInput } from '@/lib/datetime-input';
 import { apiUrl } from '@/lib/url-utils';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { downloadName } from '@/lib/download-name';
 
 interface UploadResult {
   imported: number;
@@ -310,7 +311,7 @@ export function PmScheduleListPage() {
       const built = await buildPmReport();
       if (!built) return;
       await logReportExportOrWarn({ reportType: 'PM Schedule', format: 'PDF', recordCount: built.count }, toast.warning);
-      built.report.save(`pm-schedule-${yearLabel}.pdf`);
+      built.report.save(`${downloadName('pm-schedule', String(yearLabel))}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate PDF');
     } finally { setExporting(false); }

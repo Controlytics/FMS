@@ -12,6 +12,7 @@ import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useToast } from '@/hooks/use-toast';
+import { downloadName } from '@/lib/download-name';
 
 export function CleaningCycleTimelinePage() {
   const { id } = useParams<{ id: string }>();
@@ -58,7 +59,7 @@ export function CleaningCycleTimelinePage() {
     try {
       const report = await buildCycleReport();
       await logReportExportOrWarn({ reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: cycle.events?.length ?? 0 }, toast.warning);
-      report.save(`cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}.pdf`);
+      report.save(`${downloadName('cycle', cycle.filterName ?? 'filter', formatDate(cycle.startedAt))}.pdf`);
     } finally { setDownloading(false); }
   };
 

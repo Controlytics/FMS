@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
+import { downloadName } from '@/lib/download-name';
 
 const QNN_COLS = ['sNo', 'qnn', 'action', 'ahu', 'message', 'by', 'dateTime'];
 
@@ -98,7 +99,12 @@ export function QualityNotificationsPage() {
         1: { cellWidth: 34 },                    // QNN — "QN-2026-000131"
         2: { cellWidth: 22 },                    // Action — APPROVE / REVIEW
         3: { cellWidth: 20 },                    // AHU
-        4: { cellWidth: 40 },                    // Message — free text, wraps
+        // 39, not 40: these seven columns totalled 181mm against the 180mm a
+        // portrait page actually gives (addTable passes no `margin`, so
+        // autoTable's default applies and 181 reports "0.78 units width could
+        // not fit page"). The millimetre comes off the free-text column, which
+        // wraps anyway. 2026-09-03.
+        4: { cellWidth: 39 },                    // Message — free text, wraps
         5: { cellWidth: 20 },                    // By
         6: { cellWidth: 32 },                    // Date & Time — "8/10/2026 17:43"
       },
@@ -112,7 +118,7 @@ export function QualityNotificationsPage() {
       const built = await buildQnnReport();
       if (!built) return;
       await logReportExportOrWarn({ reportType: 'Quality Notifications', format: 'PDF', recordCount: built.count }, toast.warning);
-      built.report.save(`quality-notifications-${new Date().toISOString().slice(0, 10)}.pdf`);
+      built.report.save(`${downloadName('quality-notifications')}.pdf`);
     } finally { setDownloading(false); }
   };
 

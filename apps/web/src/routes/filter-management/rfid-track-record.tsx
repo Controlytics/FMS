@@ -13,6 +13,7 @@ import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { downloadName } from '@/lib/download-name';
 
 const RFID_COLS = ['sNo', 'dateTime', 'event', 'rfid', 'filter', 'ahu', 'user', 'reason'];
 
@@ -109,7 +110,10 @@ export function RfidTrackRecordPage() {
       columnStyles: {
         // cellPadding is 2.5mm a side, so a column needs its header text + 5mm.
         // 10mm was not enough for "S.No" itself and broke it to "S.N / o".
-        // Retuned for 9pt. The page gives 181mm; 8 columns spend 40mm of that on
+        // Retuned for 9pt. The page gives 180mm (NOT the 181 previously written
+        // here — addTable passes no `margin`, so autoTable's default applies and
+        // a 181mm table reports "0.78 units width could not fit page");
+        // 8 columns spend 40mm of that on
         // horizontal padding, leaving ~141mm of text. 9pt glyphs are ~12% wider
         // than 8pt, so the fixed-content columns below were sized to their own
         // longest value at 9pt first, and whatever remained went to the two
@@ -124,7 +128,7 @@ export function RfidTrackRecordPage() {
         1: { cellWidth: 32 },  // Date & Time — holds "8/19/2026 19:45" on one line
         2: { cellWidth: 20 },  // Event — "Assigned" / "Removed"
         3: { cellWidth: 27 },  // RFID Number — header now fits; 60-char tags still wrap
-        4: { cellWidth: 33 },  // Filter — long hierarchy paths wrap to two lines
+        4: { cellWidth: 32 },  // Filter — long hierarchy paths wrap to two lines (32, not 33: see the 180mm note above)
         5: { cellWidth: 19 },  // AHU
         6: { cellWidth: 19 },  // User
         7: { cellWidth: 18 },  // Reason
@@ -139,7 +143,7 @@ export function RfidTrackRecordPage() {
       const built = await buildRfidReport();
       if (!built) return;
       await logReportExportOrWarn({ reportType: 'RFID Track Record', format: 'PDF', recordCount: built.count }, toast.warning);
-      built.report.save(`rfid-track-record-${new Date().toISOString().slice(0, 10)}.pdf`);
+      built.report.save(`${downloadName('rfid-track-record')}.pdf`);
     } finally { setDownloading(false); }
   };
 

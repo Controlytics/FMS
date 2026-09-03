@@ -26,6 +26,7 @@ import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../typ
 import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart, effectiveCycleStatus,
   maxReachedStageIndex, resolveStageCell, stageCellText } from '@/lib/cleaning-cycle-report';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { downloadName } from '@/lib/download-name';
 const MSU_COLS = ['sNo', 'filter', 'statusChange', 'dateTime', 'updatedBy', 'remarks'];
 
 // Mirrors the `CAP` in filter-operations.service.ts#getCleaningRecord: the
@@ -307,7 +308,7 @@ export function CleaningCycleHistoryPage() {
       const report = await buildHistoryReport(rows);
       if (!report) return;
       await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'PDF', recordCount: rows.length }, toast.warning);
-      report.save(`cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      report.save(`${downloadName('cleaning-cycles', selectedFilterName)}.pdf`);
     } finally { setDownloading(false); }
   };
 

@@ -16,6 +16,7 @@ import { UploadValidationResult } from '@/components/upload-validation-result';
 import { Pagination } from '@/components/ui/pagination';
 import { themeButton } from '@/lib/theme-styles';
 import { apiUrl } from '@/lib/url-utils';
+import { downloadName } from '@/lib/download-name';
 
 // Show "NA" when a value wasn't entered (null/empty/whitespace) or was a stray
 // "[object Object]" from a non-text spreadsheet cell.
@@ -203,7 +204,7 @@ export function ReplacementSchedulePage() {
       const report = await buildReplacementReport();
       if (!report) return;
       await logReportExportOrWarn({ reportType: 'Replacement Schedule', format: 'PDF', recordCount: schedules.flatMap((s: any) => (s.entries ?? [])).length }, toast.warning);
-      report.save('replacement-schedule.pdf');
+      report.save(`${downloadName('replacement-schedule')}.pdf`);
     } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not generate PDF'); } finally { setExporting(false); }
   };
 

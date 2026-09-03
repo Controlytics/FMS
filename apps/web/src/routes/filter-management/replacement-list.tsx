@@ -12,6 +12,7 @@ import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useReportLabels } from '@/hooks/use-report-labels';
 import { ReplacementSchedulePage } from './replacement-schedule';
+import { downloadName } from '@/lib/download-name';
 
 export function ReplacementListPage() {
   const { formatDate } = useDatetimeFormat();
@@ -115,7 +116,7 @@ export function ReplacementListPage() {
       });
       report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
       await logReportExportOrWarn({ reportType: 'Replacement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
-      report.save('replacement-list.pdf');
+      report.save(`${downloadName('replacement-list')}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
     } finally {
