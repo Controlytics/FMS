@@ -448,6 +448,17 @@ export const authService = {
     });
   },
 
+  /**
+   * POST /api/auth/verify — the standalone re-auth endpoint, which mints a
+   * 5-minute verification token rather than signing one named action. The web
+   * app does not use it (it sends the password with the action itself, via
+   * lib/reauth-check.ts), but it is a live authenticated endpoint and a password
+   * comparison here is as much an electronic-signature event as any other.
+   *
+   * Audited 2026-09-03 — it wrote nothing before. `reauthAction` says
+   * VERIFICATION_TOKEN rather than naming an action because the token is not
+   * bound to one; that is a property of this endpoint, not missing data.
+   */
   async verify(userId: string, password: string, ip: string, userAgent: string | undefined) {
     const user = await authRepository.findUserById(userId);
     if (!user) throw new NotFoundError('User not found');
@@ -455,6 +466,13 @@ export const authService = {
     if (!valid) {
       // Reauth password guesses count toward the SAME lockout as login.
       const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
+      await auditLog({
+        userId: user.username, userRole: user.role, action: 'REAUTH_FAILED',
+        targetType: 'user', targetId: user.id,
+        afterValue: { username: user.username, reauthAction: 'VERIFICATION_TOKEN', accountLocked: locked },
+        signatureMeaning: 'Electronic signature attempt FAILED for VERIFICATION_TOKEN',
+        ipAddress: ip, userAgent,
+      });
       if (locked) throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed attempts. Contact administrator.');
       throw new AppError(401, 'INVALID_PASSWORD', 'Password is incorrect');
     }
@@ -463,6 +481,13 @@ export const authService = {
     if (user.failedLoginAttempts > 0) {
       await authRepository.updateUser(user.id, { failedLoginAttempts: 0 });
     }
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'REAUTH_SUCCESS',
+      targetType: 'user', targetId: user.id,
+      afterValue: { username: user.username, reauthAction: 'VERIFICATION_TOKEN' },
+      signatureMeaning: 'Electronic signature applied for VERIFICATION_TOKEN',
+      ipAddress: ip, userAgent,
+    });
     return await signVerificationToken(user.id);
   },
 

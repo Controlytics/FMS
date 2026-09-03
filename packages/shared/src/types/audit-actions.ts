@@ -36,6 +36,12 @@ export const AUDIT_ACTIONS = {
   ROLE_ASSIGNED: 'ROLE_ASSIGNED',
   LOGIN_SUCCESS: 'LOGIN_SUCCESS',
   LOGIN_FAILED: 'LOGIN_FAILED',
+  // Re-authentication = the 21 CFR §11 electronic signature. Distinct from
+  // LOGIN_*: the operator is already authenticated and is SIGNING one specific
+  // action. Added 2026-09-03 — before that a re-auth wrote NOTHING at all, so a
+  // failed signature attempt left no record whatsoever.
+  REAUTH_SUCCESS: 'REAUTH_SUCCESS',
+  REAUTH_FAILED: 'REAUTH_FAILED',
   LOGOUT: 'LOGOUT',
   SESSION_TIMEOUT: 'SESSION_TIMEOUT',
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',

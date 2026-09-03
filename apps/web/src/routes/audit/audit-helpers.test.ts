@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getAuditSummary, formatActionLabel, friendlyTargetType, diffAuditValues, maskAuditValue, prettyFieldName, isRedacted, redactionDetail, redactionNote } from './audit-helpers';
+import { getAuditSummary, formatActionLabel, friendlyTargetType, diffAuditValues, maskAuditValue, prettyFieldName, isRedacted, redactionDetail, redactionNote, getAuditStatus } from './audit-helpers';
 import { getDefaultTemplates } from '@digilog/shared';
 
 const T = getDefaultTemplates();
@@ -319,5 +319,53 @@ describe('audit-helpers — redaction visibility', () => {
   // it reads exactly like a live record — this is what made the rows invisible.
   it('leaves the summary indistinguishable, which is why the note is required', () => {
     expect(getAuditSummary(redacted, T)).toBe(getAuditSummary({ action: 'LOGIN_SUCCESS', userId: 'EMP-004' }, T));
+  });
+});
+
+
+/**
+ * Re-authentication rows (2026-09-03). A re-auth is the §11 electronic
+ * signature; before this it wrote no audit row at all, so an operator watching
+ * the trail saw only the LOGIN rows around it and reasonably read those as the
+ * re-auth result.
+ */
+describe('audit-helpers — re-authentication rows', () => {
+  const row = (action: string, reauthAction?: string) => ({
+    action, userId: 'oper7',
+    afterValue: reauthAction ? { username: 'oper7', reauthAction } : { username: 'oper7' },
+  });
+
+  it('reads as a re-authentication, not a login', () => {
+    expect(getAuditSummary(row('REAUTH_SUCCESS', 'UPDATE_DATETIME_CONFIG'), T))
+      .toBe('User "oper7" re-authenticated to sign Update Date/Time Config');
+    expect(getAuditSummary(row('REAUTH_FAILED', 'UPDATE_DATETIME_CONFIG'), T))
+      .toBe('User "oper7" failed re-authentication for Update Date/Time Config');
+  });
+
+  it('names the signed action with its operator-facing label, not the raw constant', () => {
+    // REAUTH_ACTIONS already carries the label the Action Re-auth config page
+    // shows; reusing it keeps one name for the action across both screens.
+    expect(getAuditSummary(row('REAUTH_SUCCESS', 'APPROVE_ADMIN_REQUEST'), T))
+      .toContain('Approve / Reject Admin Request');
+  });
+
+  it('falls back to a title-cased key for an action with no label', () => {
+    expect(getAuditSummary(row('REAUTH_SUCCESS', 'SOME_FUTURE_ACTION'), T))
+      .toContain('Some Future Action');
+  });
+
+  it('stays a sentence when the row carries no action (the /auth/verify endpoint)', () => {
+    expect(getAuditSummary(row('REAUTH_SUCCESS'), T))
+      .toBe('User "oper7" re-authenticated to sign a sensitive action');
+  });
+
+  it('a rejected signature reports Fail, not Success', () => {
+    expect(getAuditStatus('REAUTH_FAILED')).toBe('Fail');
+    expect(getAuditStatus('REAUTH_SUCCESS')).toBe('Success');
+  });
+
+  it('has readable badge labels', () => {
+    expect(formatActionLabel('REAUTH_SUCCESS')).toBe('Reauth Success');
+    expect(formatActionLabel('REAUTH_FAILED')).toBe('Reauth Failed');
   });
 });

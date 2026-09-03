@@ -131,6 +131,21 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'User "{actor}" logged in successfully',
     placeholders: ['actor'],
   },
+  // {signedAction} names WHAT was signed — "Re-authentication successful" with
+  // no object is unreadable to an inspector. Resolved from
+  // afterValue.reauthAction in audit-helpers.ts.
+  REAUTH_SUCCESS: {
+    label: 'Re-authentication Successful',
+    category: 'Authentication',
+    template: 'User "{actor}" re-authenticated to sign {signedAction}',
+    placeholders: ['actor', 'signedAction'],
+  },
+  REAUTH_FAILED: {
+    label: 'Re-authentication Failed',
+    category: 'Authentication',
+    template: 'User "{actor}" failed re-authentication for {signedAction}',
+    placeholders: ['actor', 'signedAction'],
+  },
   LOGIN_FAILED: {
     label: 'Login Failed',
     category: 'Authentication',

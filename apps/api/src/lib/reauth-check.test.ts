@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockConfigFindUnique, mockUserFindUnique, mockUserUpdate, mockVerifyPassword, mockApplyFailed } = vi.hoisted(() => ({
+const { mockConfigFindUnique, mockUserFindUnique, mockUserUpdate, mockVerifyPassword, mockApplyFailed, mockAuditLog } = vi.hoisted(() => ({
   mockConfigFindUnique: vi.fn(),
   mockUserFindUnique: vi.fn(),
   mockUserUpdate: vi.fn(),
   mockVerifyPassword: vi.fn(),
   mockApplyFailed: vi.fn(),
+  mockAuditLog: vi.fn(),
 }));
 
 vi.mock('./prisma.js', () => ({
@@ -24,6 +25,11 @@ vi.mock('./password.js', () => ({
 vi.mock('../modules/auth/auth.service.js', () => ({
   applyFailedPasswordAttempt: mockApplyFailed,
 }));
+
+// 2026-09-03: a verified password now writes REAUTH_SUCCESS / REAUTH_FAILED.
+// Mocked here so this file stays a unit test of the GATE; the audit CONTENT is
+// asserted in __tests__/reauth-audit.test.ts.
+vi.mock('./audit.js', () => ({ auditLog: mockAuditLog }));
 
 import {
   getActionReauthConfig,
@@ -159,7 +165,7 @@ describe('reauth-check', () => {
       mockConfigFindUnique.mockResolvedValue({
         configValue: { CREATE_USER: ['ADMIN'] },
       });
-      mockUserFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: 'hash' });
+      mockUserFindUnique.mockResolvedValue({ id: 'user-1', username: 'admin', role: 'ADMIN', passwordHash: 'hash' });
       mockVerifyPassword.mockResolvedValue(true);
 
       const req = mockRequest({
@@ -176,7 +182,7 @@ describe('reauth-check', () => {
       mockConfigFindUnique.mockResolvedValue({
         configValue: { CREATE_USER: ['ADMIN'] },
       });
-      mockUserFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: 'hash' });
+      mockUserFindUnique.mockResolvedValue({ id: 'user-1', username: 'admin', role: 'ADMIN', passwordHash: 'hash' });
       mockVerifyPassword.mockResolvedValue(true);
 
       const body: Record<string, unknown> = { _currentPassword: 'Admin@123', name: 'test' };
@@ -193,7 +199,7 @@ describe('reauth-check', () => {
       mockConfigFindUnique.mockResolvedValue({
         configValue: { CREATE_USER: ['ADMIN'] },
       });
-      mockUserFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: 'hash', failedLoginAttempts: 0 });
+      mockUserFindUnique.mockResolvedValue({ id: 'user-1', username: 'admin', role: 'ADMIN', passwordHash: 'hash', failedLoginAttempts: 0 });
       mockVerifyPassword.mockResolvedValue(false);
 
       const req = mockRequest({ headers: { 'x-reauth-password': 'wrong' } });
@@ -209,7 +215,7 @@ describe('reauth-check', () => {
 
     it('sends 403 ACCOUNT_LOCKED when the reauth attempt trips the lockout threshold', async () => {
       mockConfigFindUnique.mockResolvedValue({ configValue: { CREATE_USER: ['ADMIN'] } });
-      mockUserFindUnique.mockResolvedValue({ id: 'user-1', passwordHash: 'hash', failedLoginAttempts: 4 });
+      mockUserFindUnique.mockResolvedValue({ id: 'user-1', username: 'admin', role: 'ADMIN', passwordHash: 'hash', failedLoginAttempts: 4 });
       mockVerifyPassword.mockResolvedValue(false);
       mockApplyFailed.mockResolvedValue({ locked: true });
 

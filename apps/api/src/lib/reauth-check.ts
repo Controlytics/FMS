@@ -4,6 +4,7 @@ import { verifyPassword } from './password.js';
 import { applyFailedPasswordAttempt } from '../modules/auth/auth.service.js';
 import type { ActionReauthConfig } from '@digilog/shared';
 import { getLogger } from './logger.js';
+import { auditLog } from './audit.js';
 
 const reauthLog = getLogger('reauth', 'security');
 
@@ -13,16 +14,49 @@ const reauthLog = getLogger('reauth', 'security');
  * a valid-session attacker can't grind the password via reauth without locking.
  * Returns null on success (streak reset if any), or a REAUTH_FAILED reply payload
  * on failure (with a LOCKED code once the threshold trips).
+ *
+ * ## It audits (2026-09-03)
+ *
+ * A re-authentication IS the 21 CFR §11 electronic signature, and until this
+ * change it wrote **nothing** to the audit trail — success or failure. A failed
+ * signature attempt left no record at all; only the fifth one surfaced, as
+ * ACCOUNT_LOCKED. `applyFailedPasswordAttempt`'s own docstring has always said
+ * "the caller owns its own action-specific audit (LOGIN_FAILED / reauth)" —
+ * login implemented its half, reauth never did.
+ *
+ * 🔴 **Only an actual password comparison is audited.** The "no password
+ * supplied" 401 (REAUTH_REQUIRED) below is NOT a failed signature — it is the
+ * first leg of the handshake. `useReauth.execute` deliberately fires a
+ * passwordless request first and pops the dialog on that 401, so auditing it
+ * would write a REAUTH_FAILED for every single re-auth taken on that path.
+ *
+ * `action` names WHAT was signed; a bare "Re-authentication successful" tells an
+ * inspector nothing.
  */
 async function verifyReauthPassword(
   req: FastifyRequest,
   password: string,
+  action: string,
 ): Promise<{ error: string; message: string } | null> {
   const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
   if (!user) return { error: 'REAUTH_FAILED', message: 'User not found.' };
+  const userAgent = req.headers['user-agent'];
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
-    const { locked } = await applyFailedPasswordAttempt(user, req.ip, req.headers['user-agent']);
+    const { locked } = await applyFailedPasswordAttempt(user, req.ip, userAgent);
+    // Written whether or not the attempt locked the account: the lock row says
+    // the threshold tripped, not which signature was being attempted.
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'REAUTH_FAILED',
+      targetType: 'user', targetId: user.id,
+      afterValue: { username: user.username, reauthAction: action, accountLocked: locked },
+      signatureMeaning: `Electronic signature attempt FAILED for ${action}`,
+      ipAddress: req.ip, userAgent, sessionId: req.user.sessionId,
+    });
+    reauthLog.warn(
+      { username: user.username, role: user.role, reauthAction: action, locked, ip: req.ip },
+      'Re-authentication FAILED',
+    );
     return locked
       ? { error: 'ACCOUNT_LOCKED', message: 'Account locked due to multiple failed attempts. Contact administrator.' }
       : { error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' };
@@ -33,6 +67,13 @@ async function verifyReauthPassword(
   if (user.failedLoginAttempts > 0) {
     await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0 } });
   }
+  await auditLog({
+    userId: user.username, userRole: user.role, action: 'REAUTH_SUCCESS',
+    targetType: 'user', targetId: user.id,
+    afterValue: { username: user.username, reauthAction: action },
+    signatureMeaning: `Electronic signature applied for ${action}`,
+    ipAddress: req.ip, userAgent, sessionId: req.user.sessionId,
+  });
   return null;
 }
 
@@ -200,7 +241,7 @@ export async function enforceReauth(
     return { ok: false };
   }
 
-  const failure = await verifyReauthPassword(req, password);
+  const failure = await verifyReauthPassword(req, password, primaryAction);
   if (failure) {
     reply.code(failure.error === 'ACCOUNT_LOCKED' ? 403 : 401).send(failure);
     return { ok: false };
@@ -236,7 +277,7 @@ export async function enforceReauthAlways(
     reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'This action requires password re-authentication.', action });
     return { ok: false };
   }
-  const failure = await verifyReauthPassword(req, password);
+  const failure = await verifyReauthPassword(req, password, action);
   if (failure) {
     reply.code(failure.error === 'ACCOUNT_LOCKED' ? 403 : 401).send(failure);
     return { ok: false };

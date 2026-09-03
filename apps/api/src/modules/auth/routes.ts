@@ -4,6 +4,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { AppError } from '../../lib/errors.js';
 import { authService } from './auth.service.js';
 import { prisma } from '../../lib/prisma.js';
+import { auditLog } from '../../lib/audit.js';
 import { signToken } from '../../lib/jwt.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { signOfflineReplayToken } from '../../lib/offline-replay-token.js';
@@ -455,6 +456,19 @@ export default async function authRoutes(app: FastifyInstance) {
       // stolen-session holder can't use this endpoint as a non-locking brute-force oracle.
       const { applyFailedPasswordAttempt } = await import('./auth.service.js');
       const { locked } = await applyFailedPasswordAttempt(user, req.ip, req.headers['user-agent']);
+      // 2026-09-03: the FAILURE is audited; the successful grant deliberately is
+      // NOT (operator decision 2026-08-27 — GRANT_OFFLINE_REPLAY was the
+      // highest-volume action in the trail at 1,585 rows and buried what an
+      // inspector reads). A rejected password on the way offline is rare and
+      // security-relevant, which is the opposite trade.
+      await auditLog({
+        userId: user.username, userRole: user.role, action: 'REAUTH_FAILED',
+        targetType: 'user', targetId: user.id,
+        afterValue: { username: user.username, reauthAction: 'GRANT_OFFLINE_REPLAY', accountLocked: locked },
+        signatureMeaning: 'Electronic signature attempt FAILED for GRANT_OFFLINE_REPLAY',
+        ipAddress: req.ip, userAgent: req.headers['user-agent'],
+        sessionId: req.user.sessionId,
+      });
       if (locked) {
         return reply.code(403).send({
           error: 'ACCOUNT_LOCKED',

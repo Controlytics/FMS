@@ -1,11 +1,9 @@
 import { type FastifyInstance } from 'fastify';
 import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema, backupFormatConfigSchema } from '@digilog/shared';
-import { verifyPassword } from '../../lib/password.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import { configService } from './config.service.js';
-import { configRepository } from './config.repository.js';
 import { prisma } from '../../lib/prisma.js';
 
 // Extracted route groups — one file per config surface under static-routes/.
@@ -114,30 +112,30 @@ export default async function configRoutes(app: FastifyInstance) {
         if (!ok) return;
       }
 
-      // Hardcoded re-auth: always required for sensitive config changes.
-      // Skip if dynamic enforceReauth already verified the password.
+      // Hardcoded re-auth: always required for sensitive config changes
+      // (password-policy, login-security, session, datetime), whatever the
+      // admin-managed action-reauth policy says. Skip when the dynamic
+      // enforceReauth above already verified the password — it wrote the
+      // REAUTH_SUCCESS row, and re-checking would demand the password twice.
+      //
+      // 2026-09-03: this used to hand-roll the check — a bare verifyPassword on
+      // a user row. That had TWO holes the shared path does not:
+      //   1. no lockout counting, so a stolen-session holder could grind the
+      //      password here indefinitely (the exact oracle the 2026-07-09 review
+      //      closed for enforceReauth and for /auth/offline-grant); and
+      //   2. no audit row, so the electronic signature on the four most
+      //      sensitive configs in the system was never recorded.
+      // enforceReauthAlways does both. It reads the password from the body or
+      // the x-reauth-password header exactly as before, so the e2e helpers and
+      // the UI are unaffected; only the failure MESSAGE wording changes, and
+      // every caller branches on `error`, not the text.
       if (requiresReauth && !(req as any)._reauthVerified) {
-        // Accept the password from either the body (UI submits via
-        // _currentPassword) or the x-reauth-password header (matches
-        // enforceReauth and the e2e test helpers). Without this fallback,
-        // configs that aren't in the dynamic action-reauth registry (eg
-        // datetime) would always 401 even when the caller did supply the
-        // header.
-        const currentPassword =
-          (body._currentPassword as string | undefined)
-          ?? (req.headers['x-reauth-password'] as string | undefined);
-        if (!currentPassword) {
-          return reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'Current password is required to modify this configuration.' });
-        }
-        const user = await configRepository.findUserById(req.user.sub);
-        if (!user) {
-          return reply.code(401).send({ error: 'REAUTH_FAILED', message: 'User not found.' });
-        }
-        const passwordValid = await verifyPassword(currentPassword, (user as any).passwordHash);
-        if (!passwordValid) {
-          return reply.code(401).send({ error: 'REAUTH_FAILED', message: 'Incorrect password. Please try again.' });
-        }
-        delete body._currentPassword;
+        const { ok } = await enforceReauthAlways(
+          actionKey ?? `UPDATE_${key.toUpperCase().replace(/-/g, '_')}`,
+          req,
+          reply,
+        );
+        if (!ok) return;
       }
 
       const ctx = buildContext(req);

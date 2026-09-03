@@ -1,5 +1,89 @@
 # Changelog
 
+## [Unreleased] - Re-authentication is audited (2026-09-03)
+
+Operator report: a re-auth's success/failure appeared in the audit trail as
+Login Success / Login Failed.
+
+**What was actually happening is worse.** A re-authentication wrote **nothing at
+all** — success or failure, on every path. The LOGIN rows around it were real
+logins; on the tablet a `SESSION_CONFLICT` auto-retry fires a second
+`/api/auth/login` with `force: true`, which is what produces those
+`FORCED_LOGOUT` + `LOGIN_SUCCESS` pairs a few seconds apart.
+
+So a REJECTED electronic signature left no record whatsoever. Only the fifth
+consecutive one surfaced, as `ACCOUNT_LOCKED` — which says the threshold tripped,
+not which signature was being attempted.
+
+`applyFailedPasswordAttempt`'s own docstring has always stated the contract:
+*"the caller owns its own action-specific audit (LOGIN_FAILED / reauth)"*. Login
+implemented its half; reauth never did.
+
+### `REAUTH_SUCCESS` / `REAUTH_FAILED`
+
+Two new audit actions (95 -> 97) with templates that name WHAT was signed:
+
+    User "oper7" re-authenticated to sign Update Date/Time Config
+    User "oper7" failed re-authentication for Update Date/Time Config
+
+The label comes from `REAUTH_ACTIONS`, so the action is called the same thing
+here as on the Action Re-auth config page. `REAUTH_FAILED` is in `FAIL_ACTIONS`,
+so the Status column reads **Fail**. Badge colour is teal, not the login green —
+a signature is not a session.
+
+### Where it is emitted, and where it deliberately is NOT
+
+Emitted from `verifyReauthPassword` (the shared path behind `enforceReauth` and
+`enforceReauthAlways`) and from `authService.verify` (`POST /api/auth/verify`).
+
+🔴 **Only an actual password comparison is audited.** The "no password supplied"
+401 (`REAUTH_REQUIRED`) is NOT a failed signature — it is the first leg of the
+handshake. `useReauth.execute` deliberately fires a passwordless request and pops
+its dialog on that 401, so auditing it would file a REAUTH_FAILED for every
+re-auth taken on that path, including every SUPER_ADMIN one. Also silent when the
+action is not gated for the role (no signature was requested) and on a verified
+offline replay (the signature was taken on the tablet at scan time).
+
+`REAUTH_FAILED` is written **even when the attempt locks the account**, next to
+the `ACCOUNT_LOCKED` row.
+
+### Fixed - the four most sensitive configs bypassed the shared path entirely
+
+`configEndpoint`'s hardcoded `requiresReauth` branch — password-policy,
+login-security, session and datetime — hand-rolled its own check: a bare
+`verifyPassword` against a user row. That had TWO holes:
+
+1. **No lockout counting.** A stolen-session holder could grind the password
+   there indefinitely — the exact non-locking oracle the 2026-07-09 review closed
+   for `enforceReauth` and `/auth/offline-grant`.
+2. **No audit row**, so the electronic signature on the four most sensitive
+   configs in the system was never recorded.
+
+It now calls `enforceReauthAlways`, which does both. The password is still read
+from the body or the `x-reauth-password` header exactly as before; only the
+failure MESSAGE wording changes, and every caller branches on `error`, not text.
+42 config e2e tests pass unchanged.
+
+`POST /api/auth/offline-grant` also gained a `REAUTH_FAILED` row on a rejected
+password. The successful grant deliberately stays UNAUDITED — the 2026-08-27
+operator decision that removed `GRANT_OFFLINE_REPLAY` (1,585 rows, the
+highest-volume action in the trail). A failure is the opposite trade: rare and
+security-relevant.
+
+### Volume trade-off, stated so it can be reversed
+
+Every SUCCESSFUL re-auth is already paired with the signed action's own audit row
+carrying its `signatureMeaning`, so `REAUTH_SUCCESS` is largely redundant while
+`REAUTH_FAILED` is the one that was genuinely invisible. Both were asked for and
+both are built; if the success rows turn noisy, dropping them is a one-line
+change and the failure rows keep the compliance value.
+
+Tests: 6 new in `lib/__tests__/reauth-audit.test.ts` (including the two
+must-NOT-audit paths), 6 new in `audit-helpers.test.ts`. `lib/reauth-check.test.ts`
+gained an `auditLog` mock and its user fixtures gained `username`/`role` — the
+real `auditLog` rejects a row without a userId under §11.10(e), which is how the
+gap surfaced. **API single-fork: 1213 passed / 106 files / 0 failed. Web: 741.**
+
 ## [Unreleased] - Notifications: search + a custom From/To range (2026-09-03)
 
 Operator request. Both filter SERVER-side: the list is server-paginated, so

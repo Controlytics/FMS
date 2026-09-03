@@ -207,6 +207,9 @@ create / edit / delete across all 9 tabs writes an audit row.
   `targetType` (`audit-helpers.ts`), so one template still renders
   "Cleaning Cycle record manually edited by ...". `+ AUDIT_RECORD_UPDATED`
   (audit actions 91 -> 95, reauth 93 -> 94 via `UPDATE_AUDIT_RECORD`).
+  **2026-09-03: audit actions 95 -> 97** — `REAUTH_SUCCESS` / `REAUTH_FAILED`.
+  A re-authentication is the §11 electronic signature and used to write NO audit
+  row at all; see the CHANGELOG entry of that date.
   **No new permission constants** - the whole console is
   `requireRole('SUPER_ADMIN')`.
 - **Deletes audit BEFORE the row dies**, in the same transaction: `beforeValue`

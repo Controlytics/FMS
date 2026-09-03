@@ -1,9 +1,15 @@
+import { REAUTH_ACTIONS } from '@digilog/shared';
+
 export const ACTION_COLORS: Record<string, string> = {
   // Authentication
   LOGIN_SUCCESS: 'bg-green-100 text-green-700 border-green-200',
   LOGIN: 'bg-green-100 text-green-700 border-green-200',
   LOGOUT: 'bg-slate-100 text-slate-700 border-slate-200',
   LOGIN_FAILED: 'bg-red-100 text-red-700 border-red-200',
+  // Re-authentication = the §11 electronic signature. Teal, not the login
+  // green, so an inspector can tell a signature from a session at a glance.
+  REAUTH_SUCCESS: 'bg-teal-100 text-teal-700 border-teal-200',
+  REAUTH_FAILED: 'bg-red-100 text-red-700 border-red-200',
   SESSION_TIMEOUT: 'bg-slate-100 text-slate-700 border-slate-200',
   FORCED_LOGOUT: 'bg-orange-100 text-orange-700 border-orange-200',
 
@@ -84,6 +90,9 @@ export const FAIL_ACTIONS = new Set([
   'LOGIN_FAILED',
   'UNAUTHORIZED_ACTION_ATTEMPT',
   'ACCOUNT_LOCKED',
+  // Drives the Status column: a rejected signature must read "Fail", not
+  // "Success", wherever the row appears.
+  'REAUTH_FAILED',
 ]);
 
 export function getAuditStatus(action: string): 'Success' | 'Fail' {
@@ -218,6 +227,13 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const recordType = targetType ? (RECORD_TYPE_OVERRIDES[targetType] || titleCase(targetType)) : 'record';
   const beforeStatus = before.status || '';
   const afterStatus = after.status || '';
+  // {signedAction} — what a re-authentication actually signed. The raw constant
+  // (UPDATE_DATETIME_CONFIG) is not inspector-readable, so prefer the operator-
+  // facing label the Action Re-auth config page already shows for it.
+  const rawSigned = (after.reauthAction as string) || '';
+  const signedAction = rawSigned
+    ? ((REAUTH_ACTIONS as Record<string, { label: string }>)[rawSigned]?.label || titleCase(rawSigned))
+    : 'a sensitive action';
   const identifierType = after.identifierType || before.identifierType || '';
   const identifierValue = after.identifierValue || before.identifierValue || '';
   // 2026-05-20 fix: {reason} was in the CYCLE_STARTED template (per
@@ -315,6 +331,7 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
       .replace(/\{sourceName\}/g, sourceName)
       .replace(/\{beforeStatus\}/g, beforeStatus)
       .replace(/\{afterStatus\}/g, afterStatus)
+      .replace(/\{signedAction\}/g, signedAction)
       .replace(/\{identifierType\}/g, identifierType)
       .replace(/\{identifierValue\}/g, identifierValue)
       .replace(/\{reason\}/g, reason)
