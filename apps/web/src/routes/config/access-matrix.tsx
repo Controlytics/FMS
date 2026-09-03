@@ -26,6 +26,15 @@ interface Module {
 const HIDDEN_MODULE_KEYS = new Set([
   'pm-schedule-approval', 'replacement-schedule-approval', 'qnn-notifications',
   'guest-cleaning-requests', 'block-change-approval', 'stage-interlock', 'pm-schedule-settings',
+  // 2026-09-03: `datetime` became SUPER_ADMIN-only (requireSuperAdmin() on both
+  // /api/config/datetime endpoints + a roles={['SUPER_ADMIN']} route guard), so
+  // granting it to a role can no longer do anything. Same call as the 2026-08-27
+  // `filter-data-management` removal below: offering a grant that cannot work is
+  // worse than not offering it.
+  // NOTE the live matrix still holds `datetime -> ['ADMIN']`. Hiding the row does
+  // NOT drop it — `save()` sends the whole `draft`, seeded from `matrixData` — so
+  // the record of the old grant survives for anyone reading the config.
+  'datetime',
 ]);
 
 // Modules that have a hardcoded page (no config def → not in the manifest) but

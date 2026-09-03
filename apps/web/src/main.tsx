@@ -5,6 +5,7 @@ import { SWRConfig } from 'swr';
 import { swrConfig } from './lib/swr-config';
 import { ErrorBoundary } from './components/error-boundary';
 import { PwaReloadPrompt } from './components/pwa-reload-prompt';
+import { DocumentBranding } from './components/document-branding';
 import { RouteErrorBoundary } from './components/route-error-boundary';
 import { RequireRole } from './components/require-role';
 import { AppLayout } from './components/layout/app-layout';
@@ -160,6 +161,10 @@ createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
     <ToastProvider>
     <SWRConfig value={swrConfig}>
+      {/* Browser tab title + favicon from Config -> Branding. Mounted ABOVE the
+          router so it covers every surface (desktop, /m tablet, login) and
+          exactly once — see components/document-branding.tsx. */}
+      <DocumentBranding />
       <BrowserRouter>
         <Routes>
           {/* Mobile routes — standalone, no sidebar */}
@@ -192,7 +197,10 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/role-assignments" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><RoleAssignmentsPage /></Suspense></RequireRole>} />
             <Route path="/config/password-policy" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><PasswordPolicyPage /></RequireRole>} />
             <Route path="/config/ldap" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
-            <Route path="/config/datetime" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DatetimeConfigPage /></RequireRole>} />
+            {/* SUPER_ADMIN only (2026-09-03). Matches the requireSuperAdmin()
+                gate on GET/PUT /api/config/datetime — a CONFIG_READ holder
+                reaching this page would only meet a 403 on every call. */}
+            <Route path="/config/datetime" element={<RequireRole roles={['SUPER_ADMIN']}><DatetimeConfigPage /></RequireRole>} />
             <Route path="/config/backup" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><BackupRestorePage /></RequireRole>} />
 
             {/* Super Admin Settings — SUPER_ADMIN role only */}

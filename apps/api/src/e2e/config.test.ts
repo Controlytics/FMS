@@ -4,13 +4,45 @@ import {
   buildApp, loginAs, authGet, authPost, authPut, authDelete,
   ADMIN_PASSWORD,
 } from './test-helper.js';
+import { prisma } from '../lib/prisma.js';
+
+// The seeded `admin` user is SUPER_ADMIN in digilog_test_db, so `adminToken`
+// below proves nothing about a NON-super-admin. This second account is a real
+// ADMIN — it holds CONFIG_READ + CONFIG_UPDATE (72 perms in the seeded ADMIN
+// role), so any 403 it gets is the ROLE gate, not a missing permission.
+const CFG_ADMIN_USERNAME = 'config_admin_test';
+const CFG_ADMIN_PASSWORD = 'ConfigAdmin@Test1';
+
+async function ensureConfigAdmin() {
+  const { hashPassword } = await import('../lib/password.js');
+  const passwordHash = await hashPassword(CFG_ADMIN_PASSWORD);
+  await prisma.user.upsert({
+    where: { username: CFG_ADMIN_USERNAME },
+    update: {
+      passwordHash, role: 'ADMIN', status: 'ENABLED',
+      forcePasswordChange: false, isTemporaryPassword: false,
+      failedLoginAttempts: 0, lockedAt: null, lockoutUntil: null,
+    },
+    create: {
+      username: CFG_ADMIN_USERNAME, passwordHash,
+      fullName: 'Config Admin Test', email: 'config-admin@test.example',
+      role: 'ADMIN', status: 'ENABLED',
+      forcePasswordChange: false, isTemporaryPassword: false,
+    },
+  });
+}
 
 describe('Config endpoints', () => {
   let app: FastifyInstance;
-  let adminToken: string;
+  let adminToken: string;   // seeded `admin` — SUPER_ADMIN in the test DB
+  let realAdminToken: string; // genuine ADMIN role
 
   beforeAll(async () => {
     app = await buildApp();
+    await ensureConfigAdmin();
+    // loginAs terminates sessions for THAT username only, so these two tokens
+    // coexist; log the SUPER_ADMIN in last so nothing later in the file races it.
+    realAdminToken = await loginAs(app, CFG_ADMIN_USERNAME, CFG_ADMIN_PASSWORD);
     adminToken = await loginAs(app);
   });
 
@@ -81,9 +113,24 @@ describe('Config endpoints', () => {
   // Datetime Config (authenticated)
   // =============================================
   describe('GET /api/config/datetime', () => {
-    it('returns datetime config when authenticated', async () => {
+    it('returns datetime config for SUPER_ADMIN', async () => {
       const res = await authGet(app, '/api/config/datetime', adminToken);
       expect(res.statusCode).toBe(200);
+    });
+
+    // 2026-09-03: Date/Time moved to SUPER_ADMIN. Before that change this
+    // returned 200 for any CONFIG_READ holder — which this account is.
+    it('403s for a real ADMIN despite CONFIG_READ', async () => {
+      const res = await authGet(app, '/api/config/datetime', realAdminToken);
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('still serves /current to everyone — the format every page renders with', async () => {
+      // The gate is on EDITING, not reading. Locking this would break date
+      // rendering app-wide (it is in PUBLIC_GET_PATHS and feeds the login page).
+      const res = await authGet(app, '/api/config/datetime/current', realAdminToken);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).dateFormat).toBeTruthy();
     });
   });
 
@@ -286,6 +333,18 @@ describe('Config endpoints', () => {
         timeFormat: originalTimeFormat,
         timezone: 'Asia/Kolkata',
       }, ADMIN_PASSWORD);
+    });
+
+    it('403s for a real ADMIN despite CONFIG_UPDATE', async () => {
+      const res = await authPut(app, '/api/config/datetime', realAdminToken, {
+        dateFormat: 'MM/DD/YYYY',
+        timeFormat: '12-hour',
+        timezone: 'Asia/Kolkata',
+      }, CFG_ADMIN_PASSWORD);
+      expect(res.statusCode).toBe(403);
+      // The role gate must run BEFORE the write, not after it.
+      const after = await authGet(app, '/api/config/datetime', adminToken);
+      expect(JSON.parse(after.body).dateFormat).toBe('DD/MM/YYYY');
     });
   });
 

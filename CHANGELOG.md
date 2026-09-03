@@ -1,5 +1,222 @@
 # Changelog
 
+## [Unreleased] - Audit detail shows the CHANGE, and only real changes (2026-09-03)
+
+Operator request: opening an audit record should show what value changed - the old
+value and the new value - not a wall of record metadata.
+
+### The dialog is now the change, for everyone below SUPER_ADMIN
+
+`audit-detail-modal.tsx` used to open on three grids - Record ID, Timestamp,
+Performed By, Action, Status, User Role, IP Address, Target Type and the SHA-256
+checksum - and the change list was below all of it.
+
+| | Everyone | SUPER_ADMIN only |
+|---|---|---|
+| Summary line (what happened + when + outcome) | shown | shown |
+| Redaction banner, Reason, Replacement panel | shown | shown |
+| **Changes** (old -> new) | shown | shown |
+| **Full record (previous / new)** | hidden | shown |
+| **Record details** (id, performer, action, status, role, IP, target type, checksum) | hidden | shown |
+
+The metadata is not deleted, it is **SUPER_ADMIN-only**: this modal is the only
+surface in the app that renders a row's integrity checksum (verified - the table
+and the exports do not), and verifying the hash chain is a SUPER_ADMIN job. The
+timestamp also stays in the summary line for every role: a change with no "when"
+is not an audit record.
+
+⚠️ **This is decluttering, not a security boundary.** `GET /api/audit/:id` still
+returns the whole row to any AUDIT_READ caller; `lib/audit-visibility.ts` is what
+actually governs which records a non-SUPER_ADMIN may fetch. A genuine access rule
+must not be moved into this component.
+
+⚠️ **What a non-SUPER_ADMIN loses:** for a record with a one-sided payload - a
+delete, a create - there is now no change list AND no full record, so the dialog
+says only what happened, not what the record contained. Operator's explicit call.
+
+### The bigger finding - the change list was asserting changes that never happened
+
+The record that prompted this (`cbd093e8`, USER_UPDATED by 101010) rendered
+**four** changes. Three were false:
+
+| field | rendered as | what the record actually says |
+|---|---|---|
+| Email | `…aaii` -> `…aai` | a real edit |
+| Status | `ENABLED` -> `-` | present in `beforeValue`, absent from `afterValue` |
+| Username | `-` -> `101020` | absent from `beforeValue`, present in `afterValue` |
+| Department | `null` -> `""` | the same absence of a value, written two ways |
+
+**Root cause: the two halves are built from different field sets.** `beforeValue`
+is a fixed 5-key snapshot; `afterValue` is whatever the caller submitted, plus
+`username`. That asymmetry is not a USER_UPDATED quirk - **~1,200 live rows
+across 12 actions** carry a key on one side only, and for a delete
+(`ASSET_IDENTIFIER_DELETED`, `USER_DELETED`) it is the correct shape. So the fix
+belongs in the renderer, not in the writers.
+
+`diffAuditValues` now compares **only keys present on BOTH sides**, and treats
+`null` / `undefined` / `''` as the same absence of a value. Deliberately not a
+falsy check - `true -> false` and `5 -> 0` are real changes a truthiness test
+would swallow.
+
+**`afterValue.username` is deliberately left alone.** `getAuditSummary` resolves
+its `{targetUser}` placeholder from it, and without it a USER_UPDATED row would
+name the wrong person. Audit payload shape is not something to change as a side
+effect of a UI request.
+
+### Measured against all 6,103 live two-sided payloads
+
+- **4,318 false / noise change rows removed.**
+- 4,841 records still show at least one real change (was 5,519).
+- 678 records now show an empty Changes panel. Dominated by deletes, whose
+  payload is one-sided by nature (`ASSET_IDENTIFIER_DELETED` 281, `ROLE_DELETED`
+  45, `USER_DELETED` 24), and by **no-op saves** - spot-checked USER_UPDATED and
+  PROFILE_UPDATED rows in that set have identical values on every shared key, so
+  the only "change" the old code found was `username` appearing on one side. The
+  old UI fabricated a change for a save that changed nothing.
+- For those 678 the **"Full record (previous / new)" panel now auto-opens** for a
+  SUPER_ADMIN, so the values are still on screen - a collapsed panel would have
+  read as an empty record. Other roles see the summary and nothing further.
+
+Both surfaces are fixed by the one helper: the detail dialog and the inline
+old -> new list under each row's description in the audit table.
+
+Locked by 6 new cases in `audit-helpers.test.ts` (including the live `cbd093e8`
+payload asserting exactly one change out of four) plus 8 render tests in
+`components/__tests__/audit-detail-modal.test.tsx` that mount the dialog as ADMIN
+and as SUPER_ADMIN and assert what each one can and cannot see.
+
+
+## [Unreleased] - Date/Time Format moved to SUPER_ADMIN (2026-09-03)
+
+Operator request. It sets the date/time format every 21 CFR Part 11 record is
+READ in, so it is not an ADMIN-level display preference.
+
+**ADMIN loses this.** The live access matrix holds `datetime -> ['ADMIN']` and
+the ADMIN role holds `CONFIG_UPDATE`, so ADMIN could see and edit the page until
+now. That grant row is left in `system_config['access-matrix']` rather than
+rewritten from code - clearing it is a `CONFIG_CHANGED` write and the operator's
+call. It is inert: the card no longer consults that matrix.
+
+### The gate, in four places
+
+- **`GET` and `PUT /api/config/datetime`** now run `app.requireSuperAdmin()`.
+  `configEndpoint` took a fourth parameter (`superAdminOnly`, default `false`)
+  so the other six configs it generates are untouched. **This is the boundary** -
+  the rest is visibility.
+- **`main.tsx`** guards the route on `roles={['SUPER_ADMIN']}` instead of
+  `CONFIG_READ`; a CONFIG_READ holder reaching the page would only meet 403s.
+- **The card moved from `configCards` to `superAdminCards`.** The two lists gate
+  differently - `configCards` by the access matrix (a grant an ADMIN can hold),
+  `superAdminCards` by `EXPLICIT_GRANT_KEYS` (empty). Left in the first list, the
+  card stayed reachable for anyone granted `datetime`.
+- **`datetime` added to `HIDDEN_MODULE_KEYS`** in the Configuration Access page,
+  the same call as the 2026-08-27 `filter-data-management` removal: offering a
+  grant that cannot work is worse than not offering it. Hiding the row does not
+  drop it - `save()` sends the whole `draft`, seeded from `matrixData`.
+
+`requiredRole: 'SUPER_ADMIN'` on the def is **manifest visibility only**. For a
+`hasCustomPage` def it enforces nothing (`dynamic-routes.ts` skips it), and the
+live data shows why that must not be mistaken for a gate: `ahu-filter-set-config`,
+`audit-templates`, `block-change-approval` and `filter-cleaning-reasons` all carry
+it while being deliberately routed to non-SA roles.
+
+### `/api/config/datetime/current` is untouched, on purpose
+
+The gate is on EDITING. `/current` is in `PUBLIC_GET_PATHS` - unauthenticated -
+and feeds `useDatetimeFormat()` on every page plus the tablet and the login
+screen. Locking it would break date rendering app-wide instead of restricting who
+can change the setting. Covered by a test that asserts a real ADMIN still gets 200.
+
+### Tests
+
+`apps/api/src/e2e/config.test.ts` gained a genuine **ADMIN-role** account
+(`config_admin_test`). The seeded `admin` user is SUPER_ADMIN in digilog_test_db,
+so the existing datetime tests proved nothing about a non-super-admin and would
+have stayed green through this change. The new account holds CONFIG_READ +
+CONFIG_UPDATE, so its 403 is the ROLE gate, not a missing permission - and the
+PUT test asserts the stored value is unchanged, proving the gate runs before the
+write. Plus 3 source-text assertions in
+`apps/web/src/routes/config/__tests__/datetime-super-admin.test.ts`.
+
+### Also
+
+The Super Admin Settings cards now render the amber **Re-auth** badge when a card
+declares `reauth` - previously only the cards above did. Date/Time carries it and
+it is accurate: `configEndpoint('datetime', …, true)` demands a password on every
+save regardless of the admin-managed action-reauth policy, which does not list
+SUPER_ADMIN for `UPDATE_DATETIME_CONFIG`. No existing Super Admin card declares
+the field, so none of them changed.
+
+
+## [Unreleased] - Configurable browser tab: name + icon (2026-09-03)
+
+### Added - `browserTitle` and `faviconUrl` on the Branding config
+
+The browser tab read **"DigiLog - Digital Filter Management System"**, hard-coded
+in `apps/web/index.html`, while the operator had already renamed the app to
+"Filter Management System" in Config -> Branding. `appName` drives the sidebar
+and report headers; **nothing drove the tab**, so no amount of configuration
+could change it.
+
+Two fields join `brandingConfigSchema` (`packages/shared/src/schemas/config.ts`):
+
+- `browserTitle` - `min(1).max(60)`, defaults to **`Filter Management System`**.
+- `faviconUrl` - a data URI (or path); `''` means the bundled `/pwa-192x192.png`.
+
+Both are edited from a new **Browser Tab** card on Config -> Branding & Dashboard
+-> Branding, with a mock-tab preview so the operator sees the result rather than
+a form field. No new permission, endpoint, migration or config def - `branding`
+already owns `appName` / `logoText` / `logoUrl`, its route is schema-driven, and
+`getConfig` re-parses the stored row, so the live config picked both defaults up
+with no write.
+
+**`browserTitle` is deliberately separate from `appName`, and blank is rejected
+rather than falling back to it.** One field, one source: the tab must never
+change for a reason the operator did not choose.
+
+**The favicon cap is 200KB / 300,000 chars, ~10x below `logoUrl`'s 2MB.**
+`updateConfig` writes both `beforeValue` and `afterValue` of every branding save
+into the immutable, hash-chained `audit_trail`; a fat icon is permanent weight
+in a table that cannot be pruned.
+
+Applied at runtime by `<DocumentBranding />`, mounted once at the app root -
+above the router, so it covers desktop, the `/m` tablet and the login pages -
+rather than inside `useBranding()`, whose ~10 callers would otherwise race on
+the same two `<head>` nodes on every render. The rules live in
+`apps/web/src/lib/document-branding.ts`, locked by 10 tests:
+
+- The favicon element is **replaced, not mutated** - several browsers ignore an
+  in-place `href` change on an icon link and keep painting the old icon.
+- Matched as `link[rel~="icon"]`, not `rel="icon"`, so a legacy `shortcut icon`
+  cannot survive and win over the new one. `apple-touch-icon` is left alone.
+- **No `type` attribute** is set: browsers sniff the bytes, and a declared type
+  that disagrees with the file is worse than none.
+- Both functions are idempotent (StrictMode double-invokes; SWR revalidates).
+- A blank title is ignored, never written - an empty `document.title` renders as
+  a nameless tab.
+
+### Fixed - branding upload rejections were silent
+
+`error` is only ever rendered inside the error popup, but `handleLogoUpload`
+called `setError()` without opening it. Picking a non-image or an over-2MB logo
+did nothing at all, with no message. Both rejection paths now open the popup;
+the new favicon handler follows the same rule.
+
+### Known scope boundaries
+
+- **The PWA manifest is build-time.** `vite.config.ts` now reads
+  `name: 'Filter Management System'` / `short_name: 'Filter Mgmt'` to match the
+  default, but an installed PWA's name cannot follow the config without
+  regenerating the manifest server-side.
+- **`index.html`'s static `<title>` is only the pre-fetch fallback** and is
+  workbox-precached - editing it needs `npx vite build` (done).
+- **The APK will show the default, not the configured value.** `useBranding`'s
+  fetcher is a bare `fetch('/api/config/branding')` on a **relative** URL, unlike
+  `lib/pdf-report.ts` which uses `${getApiBase()}`. Under Capacitor the WebView
+  origin is not the API host, so that fetch fails and `defaultBranding` wins.
+  Pre-existing, not introduced here.
+
+
 ## [Unreleased] - Admin requests: real attribution, honest account-state actions (2026-09-02)
 
 ### Fixed — approving an unlock reset a healthy account's password

@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>DigiLog — Digital Filter Management System</title>
+    <!-- Static fallback only. The live tab title comes from Config -> Branding
+         (`browserTitle`) and is applied by <DocumentBranding /> once
+         /api/config/branding resolves. This literal is what shows before that
+         fetch returns, and offline. Editing it needs `npx vite build` — the
+         file is workbox-precached. -->
+    <title>Filter Management System</title>
 
     <!-- PWA Meta -->
     <meta name="theme-color" content="#0891b2" />
@@ -13,8 +18,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="DigiLog" />
 
-    <!-- Icons -->
-    <link rel="icon" type="image/png" href="/pwa-192x192.png" />
+    <!-- Icons. The favicon is operator-configurable (Config -> Branding ->
+         Browser Tab); <DocumentBranding /> REPLACES this element at runtime
+         when `faviconUrl` is set. Keep the id — the swap targets it. -->
+    <link id="app-favicon" rel="icon" type="image/png" href="/pwa-192x192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <!-- 2026-05-21 UI refresh: distinctive font stack. Bricolage Grotesque for

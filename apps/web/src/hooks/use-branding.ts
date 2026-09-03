@@ -9,6 +9,12 @@ export const defaultBranding: BrandingConfig = {
   appTagline: '21 CFR Part 11 Compliant Digital Logbook',
   logoText: 'DL',
   logoUrl: '/logo.jpg', // Controlytics logo
+  // MUST stay in step with brandingConfigSchema's defaults: this object is the
+  // whole answer when the branding fetch fails (offline tablet, or the APK,
+  // whose relative-URL fetch never reaches the API host). Miss a key here and
+  // the tab reads "undefined".
+  browserTitle: 'Filter Management System',
+  faviconUrl: '',
   companyName: 'Controlytics AI Pvt Ltd',
   version: '1.0',
   primaryColor: '#1e3a5f',

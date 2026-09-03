@@ -22,19 +22,6 @@ const configCards = [
     shadowColor: 'shadow-blue-500/25',
   },
   {
-    title: 'Date/Time Format',
-    description: 'Set application date and time display format',
-    href: '/config/datetime',
-    reauth: false,
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
-    gradient: 'from-purple-500 to-pink-600',
-    shadowColor: 'shadow-purple-500/25',
-  },
-  {
     title: 'Backup & Restore',
     description: 'Export or restore the entire database',
     href: '/config/backup',
@@ -64,6 +51,24 @@ const configCards = [
 
 const superAdminCards = [
   {
+    // Moved out of configCards 2026-09-03 (operator request). It sets the
+    // date/time format every §11 record is READ in, so it is not an ADMIN-level
+    // display preference. `reauth: true` is the truth: configEndpoint('datetime',
+    // …, true) demands a password on every save regardless of the admin-managed
+    // action-reauth policy, which does not list SUPER_ADMIN for this action.
+    title: 'Date/Time Format',
+    description: 'Set application date and time display format',
+    href: '/config/datetime',
+    reauth: true,
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    ),
+    gradient: 'from-purple-500 to-pink-600',
+    shadowColor: 'shadow-purple-500/25',
+  },
+  {
     title: 'Configuration Access',
     description: 'Assign config modules to roles — choose what each role can open',
     href: '/config/access-matrix',
@@ -90,7 +95,7 @@ const superAdminCards = [
   },
   {
     title: 'Branding & Dashboard',
-    description: 'Logo, colors, themes, company & app name — plus which dashboard cards each role sees',
+    description: 'Browser tab name & icon, logo, colors, themes, company & app name — plus which dashboard cards each role sees',
     href: '/config/appearance',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -466,7 +471,17 @@ export function ConfigIndexPage() {
                       <div className={`p-3 rounded-xl bg-gradient-to-br ${card.gradient} text-white shadow-lg ${card.shadowColor} group-hover:scale-110 group-hover:shadow-xl transition-all duration-300 inline-flex`}>
                         {card.icon}
                       </div>
-                      <h3 className="font-semibold text-slate-800 mt-4 group-hover:text-slate-900">{card.title}</h3>
+                      <div className="flex items-center gap-2 mt-4">
+                        <h3 className="font-semibold text-slate-800 group-hover:text-slate-900">{card.title}</h3>
+                        {/* Mirrors the badge on the cards above. No existing Super
+                            Admin card declares `reauth`, so this renders only for
+                            the ones that actually demand a password (Date/Time). */}
+                        {'reauth' in card && card.reauth && (
+                          <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-700 border-0">
+                            Re-auth
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500 mt-1">{card.description}</p>
                       <div className="flex items-center text-sm text-red-600 mt-3 font-medium group-hover:text-red-700">
                         <span>Configure</span>

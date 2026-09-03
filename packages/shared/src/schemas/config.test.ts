@@ -17,6 +17,9 @@ describe('brandingConfigSchema', () => {
       expect(result.data.appName).toBe('DigiLog');
       expect(result.data.logoText).toBe('DL');
       expect(result.data.primaryColor).toBe('#1e3a5f');
+      // The browser tab is its own name, not appName (2026-09-03).
+      expect(result.data.browserTitle).toBe('Filter Management System');
+      expect(result.data.faviconUrl).toBe('');
     }
   });
 
@@ -41,6 +44,25 @@ describe('brandingConfigSchema', () => {
 
   it('rejects logoText over 5 chars', () => {
     expect(brandingConfigSchema.safeParse({ logoText: 'ABCDEF' }).success).toBe(false);
+  });
+
+  it('rejects empty browserTitle', () => {
+    // An empty tab title would render as a blank tab, not as appName — the
+    // fallback is the DEFAULT, applied only when the key is absent.
+    expect(brandingConfigSchema.safeParse({ browserTitle: '' }).success).toBe(false);
+  });
+
+  it('accepts a custom browser title and favicon data URI', () => {
+    const result = brandingConfigSchema.safeParse({
+      browserTitle: 'Filter Management System',
+      faviconUrl: 'data:image/png;base64,iVBORw0KGgo=',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a favicon larger than the 300k-char cap', () => {
+    // Guards audit_trail bloat: every branding save stores before + after.
+    expect(brandingConfigSchema.safeParse({ faviconUrl: 'x'.repeat(300001) }).success).toBe(false);
   });
 });
 

@@ -15,6 +15,7 @@ import { LogoUploadSection } from './branding-components/logo-upload-section';
 import { ColorSettingsSection } from './branding-components/color-settings-section';
 import { BrandingPreview } from './branding-components/branding-preview';
 import { LoginBgSection } from './branding-components/login-bg-section';
+import { BrowserTabSection } from './branding-components/browser-tab-section';
 import { THEMES, getThemeById } from '@/lib/themes';
 
 export function BrandingConfigPage() {
@@ -24,6 +25,7 @@ export function BrandingConfigPage() {
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const faviconInputRef = useRef<HTMLInputElement>(null);
   const { data, mutate } = useSWR('/api/config/branding', { revalidateOnMount: true, dedupingInterval: 5000 });
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting, isDirty } } = useForm<BrandingConfig>({
@@ -46,13 +48,18 @@ export function BrandingConfigPage() {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
+      // 2026-09-03: `error` is only ever RENDERED inside the error popup, so
+      // setError alone left both rejections silent — the operator picked a
+      // bad file and nothing at all happened. Open the popup too.
       setError('Please select an image file');
+      setShowErrorPopup(true);
       return;
     }
 
     // Validate file size (max 2MB; stored as base64 in branding config)
     if (file.size > 2 * 1024 * 1024) {
       setError('Logo image must be less than 2MB');
+      setShowErrorPopup(true);
       return;
     }
 
@@ -70,6 +77,48 @@ export function BrandingConfigPage() {
     setValue('logoUrl', '', { shouldDirty: true });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  const handleFaviconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // .ico is reported as image/x-icon, image/vnd.microsoft.icon, or an EMPTY
+    // string depending on the browser — a MIME-only check rejects a perfectly
+    // good favicon, so fall back to the extension.
+    const looksLikeImage =
+      file.type.startsWith('image/') || /\.(png|jpe?g|svg|ico|gif|webp)$/i.test(file.name);
+    if (!looksLikeImage) {
+      setError('Please select an image file (PNG, SVG or ICO)');
+      setShowErrorPopup(true);
+      return;
+    }
+
+    // 200KB, an order of magnitude under the logo's 2MB. Every branding save
+    // writes BOTH the before and after value into the immutable, hash-chained
+    // audit_trail, so a fat icon is permanent weight in a table that cannot be
+    // pruned. A favicon is 32-256px; 200KB is already generous.
+    if (file.size > 200 * 1024) {
+      setError('Tab icon must be less than 200KB');
+      setShowErrorPopup(true);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      // shouldDirty so the Save button (disabled unless dirty) enables.
+      setValue('faviconUrl', reader.result as string, { shouldDirty: true });
+      setError('');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveFavicon = () => {
+    // '' means "use the bundled /pwa-192x192.png" — see applyFavicon.
+    setValue('faviconUrl', '', { shouldDirty: true });
+    if (faviconInputRef.current) {
+      faviconInputRef.current.value = '';
     }
   };
 
@@ -145,6 +194,16 @@ export function BrandingConfigPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <BrowserTabSection
+              browserTitle={watchedValues.browserTitle}
+              faviconUrl={watchedValues.faviconUrl}
+              fileInputRef={faviconInputRef}
+              onFaviconUpload={handleFaviconUpload}
+              onRemoveFavicon={handleRemoveFavicon}
+              register={register}
+              errors={errors}
+            />
 
             {/* Company Info Section */}
             <Card className="border-0 shadow-xl overflow-hidden">

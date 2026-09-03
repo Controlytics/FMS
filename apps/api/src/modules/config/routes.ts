@@ -63,11 +63,17 @@ export default async function configRoutes(app: FastifyInstance) {
 
   // Generic CRUD factory for configs whose only work is get/update a typed blob.
   // Used for: password-policy, login-security, session, datetime, pagination.
-  const configEndpoint = (key: string, schema: any, requiresReauth: boolean) => {
+  //
+  // `superAdminOnly` restricts BOTH the admin GET and the PUT to SUPER_ADMIN.
+  // It does NOT touch the matching `/<key>/current` public read below — those
+  // feed every authenticated page (and, for datetime, the unauthenticated login
+  // screen via PUBLIC_GET_PATHS), so locking them would break date rendering
+  // app-wide rather than restrict who can EDIT the setting.
+  const configEndpoint = (key: string, schema: any, requiresReauth: boolean, superAdminOnly = false) => {
     const titleKey = key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
     app.get(`/${key}`, {
-      preHandler: [app.requirePermission('CONFIG_READ')],
+      preHandler: [superAdminOnly ? app.requireSuperAdmin() : app.requirePermission('CONFIG_READ')],
       schema: {
         tags: ['Config'],
         summary: `Get ${titleKey} configuration`,
@@ -81,7 +87,7 @@ export default async function configRoutes(app: FastifyInstance) {
     });
 
     app.put(`/${key}`, {
-      preHandler: [app.requirePermission('CONFIG_UPDATE')],
+      preHandler: [superAdminOnly ? app.requireSuperAdmin() : app.requirePermission('CONFIG_UPDATE')],
       schema: {
         tags: ['Config'],
         summary: `Update ${titleKey} configuration`,
@@ -143,7 +149,12 @@ export default async function configRoutes(app: FastifyInstance) {
   configEndpoint('password-policy', passwordPolicySchema, true);
   configEndpoint('login-security', loginSecuritySchema, true);
   configEndpoint('session', sessionConfigSchema, true);
-  configEndpoint('datetime', datetimeConfigSchema, true);
+  // 2026-09-03 (operator request): Date/Time moved to SUPER_ADMIN. It sets the
+  // date/time format every §11 record is READ in, so it is not an ADMIN-level
+  // display preference. ADMIN held it until now (access-matrix `datetime ->
+  // ['ADMIN']` + CONFIG_UPDATE) and loses the ability to edit it; the stale
+  // matrix grant is left in place, inert, rather than rewritten from code.
+  configEndpoint('datetime', datetimeConfigSchema, true, true);
   configEndpoint('pagination', paginationConfigSchema, false);
   configEndpoint('export-limit', exportLimitConfigSchema, false);
   configEndpoint('backup-format', backupFormatConfigSchema, false);

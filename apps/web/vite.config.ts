@@ -12,9 +12,13 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
+      // NOTE: the manifest is BUILD-TIME. Unlike the browser tab title, an
+      // installed PWA's name cannot follow Config -> Branding without
+      // regenerating this file server-side. Kept in step with the
+      // `browserTitle` default by hand.
       manifest: {
-        name: 'DigiLog - Filter Management',
-        short_name: 'DigiLog',
+        name: 'Filter Management System',
+        short_name: 'Filter Mgmt',
         description: 'Digital Filter Management System - 21 CFR Part 11 Compliant',
         theme_color: '#0891b2',
         background_color: '#f8fafc',

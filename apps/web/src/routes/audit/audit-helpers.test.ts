@@ -168,6 +168,64 @@ describe('audit-helpers — before/after diff', () => {
                            { attributes: { micronSize: '5', filterSize: '10' } }))
       .toEqual([{ field: 'Micron Size', from: '3', to: '5' }]);
   });
+
+  // ── One-sided keys ─────────────────────────────────────────────────────────
+  // A key present on only one side is NOT a change. It used to render as
+  // `ENABLED → -` / `- → 101020`, claiming the field had been cleared or set —
+  // claims the record does not make. ~1,200 live rows across 12 actions are
+  // one-sided (2026-09-03). The full pair is still shown in the detail dialog's
+  // "Full record (previous / new)" panel.
+
+  it('excludes a key present only in the previous record', () => {
+    expect(diffAuditValues({ status: 'ENABLED' }, {})).toEqual([]);
+  });
+
+  it('excludes a key present only in the new record', () => {
+    expect(diffAuditValues({}, { username: '101020' })).toEqual([]);
+  });
+
+  it('still reports a field present on both sides', () => {
+    expect(diffAuditValues({ status: 'ENABLED', email: 'a@x.io' }, { email: 'b@x.io' }))
+      .toEqual([{ field: 'Email', from: 'a@x.io', to: 'b@x.io' }]);
+  });
+
+  // ── Blank equivalence ──────────────────────────────────────────────────────
+
+  it('treats null / undefined / empty string as the same absence of a value', () => {
+    // USER_UPDATED stores department as null before and '' after on EVERY save.
+    expect(diffAuditValues({ department: null }, { department: '' })).toEqual([]);
+    expect(diffAuditValues({ note: '' }, { note: null })).toEqual([]);
+    expect(diffAuditValues({ note: undefined }, { note: '' })).toEqual([]);
+  });
+
+  it('does NOT swallow false or 0 — those are real values', () => {
+    expect(diffAuditValues({ isActive: true }, { isActive: false }))
+      .toEqual([{ field: 'Is Active', from: 'true', to: 'false' }]);
+    expect(diffAuditValues({ count: 5 }, { count: 0 }))
+      .toEqual([{ field: 'Count', from: '5', to: '0' }]);
+    // …and a genuine clear-to-empty is still reported. maskAuditValue renders ''
+    // as '' (its '-' is reserved for null/undefined).
+    expect(diffAuditValues({ note: 'text' }, { note: '' }))
+      .toEqual([{ field: 'Note', from: 'text', to: '' }]);
+  });
+
+  // ── The real record that prompted this (digilog_db cbd093e8, USER_UPDATED) ──
+
+  it('reports ONE change on the live USER_UPDATED payload, not four', () => {
+    // Pre-fix this rendered 4 rows, 3 of them false: status "cleared",
+    // username "set", and department null → '' as an edit.
+    const before = {
+      role: 'ADMIN', email: 'siva@ccoontroollyyttiiccss.aaii',
+      status: 'ENABLED', fullName: 'Siva', department: null,
+    };
+    const after = {
+      role: 'ADMIN', email: 'siva@ccoontroollyyttiiccss.aai',
+      fullName: 'Siva', username: '101020', department: '',
+    };
+    expect(diffAuditValues(before, after)).toEqual([
+      { field: 'Email', from: 'siva@ccoontroollyyttiiccss.aaii', to: 'siva@ccoontroollyyttiiccss.aai' },
+    ]);
+  });
 });
 
 // 2026-07-15: STAGE_APPROVAL_SUPERSEDED — a §11 approval request closed WITHOUT a

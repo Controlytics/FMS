@@ -7,6 +7,20 @@ export const brandingConfigSchema = z.object({
   logoText: z.string().min(1).max(5).default('DL'),
   logoUrl: z.string().max(3000000).default(''), // URL or data URI for logo image; ~3M chars ≈ a 2MB base64 image (raised from 500k 2026-06-29)
 
+  // Browser tab (2026-09-03). Deliberately SEPARATE from appName: appName
+  // ("DigiLog") names the product in the sidebar and on report headers, while
+  // the tab names the system the plant staff actually recognise. One field,
+  // one source — a blank browserTitle is rejected rather than silently
+  // falling back to appName, so the tab never changes for a reason the
+  // operator did not choose.
+  browserTitle: z.string().min(1).max(60).default('Filter Management System'),
+  // Data URI (or path) for the tab icon. '' = fall back to the bundled
+  // /pwa-192x192.png. Capped ~10x below logoUrl on purpose: updateConfig writes
+  // BOTH beforeValue and afterValue of every branding save into the immutable,
+  // hash-chained audit_trail, so a fat icon is permanent weight in a table that
+  // cannot be pruned. 300k chars ≈ a 200KB image — generous for a 32-256px icon.
+  faviconUrl: z.string().max(300000).default(''),
+
   // Company Info
   companyName: z.string().min(1).max(100).default('Controlytics AI Pvt Ltd'),
   version: z.string().min(1).max(20).default('1.0'),

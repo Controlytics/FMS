@@ -405,30 +405,66 @@ export function maskAuditValue(key: string, value: unknown): string {
   return String(value);
 }
 
+/**
+ * null / undefined / '' all mean "no value" in these payloads, so a write that
+ * normalises one into another is not a change worth reporting (USER_UPDATED
+ * stores `department: null` before and `''` after on EVERY save).
+ *
+ * Deliberately NOT a falsy check: `false` and `0` are real values, and
+ * `true → false` or `5 → 0` are real changes that a truthiness test would swallow.
+ */
+function isBlankAuditValue(value: unknown): boolean {
+  return value === null || value === undefined || value === '';
+}
+
 export interface AuditFieldChange { field: string; from: string; to: string; }
 
-/** Changed fields only, old → new. Skips id/uuid keys; masks sensitive values. */
+/**
+ * Fields whose VALUE CHANGED, old → new. Nothing else.
+ *
+ * A key must be present on BOTH sides to be compared. Audit payloads are
+ * routinely one-sided — a delete has a before and little after, and several
+ * writers build the two halves from different field sets (USER_UPDATED's
+ * `beforeValue` is a fixed 5-key snapshot while its `afterValue` is whatever the
+ * caller submitted plus `username`, which the summary's {targetUser} placeholder
+ * depends on). Live count 2026-09-03: ~1,200 rows across 12 actions carry a key
+ * on one side only.
+ *
+ * Those used to be emitted as `ENABLED → -` and `- → 101020`, which read as
+ * "the field was cleared" and "the field was set" — claims the record does not
+ * make. They are now excluded: the payload has nothing to say about what that
+ * field was on the other side. The complete pair is still shown verbatim in the
+ * detail dialog's "Full record (previous / new)" panel.
+ *
+ * Also skips id/uuid keys and masks sensitive values.
+ */
 export function diffAuditValues(before: any, after: any): AuditFieldChange[] {
   const b = before && typeof before === 'object' ? before : {};
   const a = after && typeof after === 'object' ? after : {};
+  const has = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k);
   const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)]));
   const changes: AuditFieldChange[] = [];
   for (const key of keys) {
     if (/^id$|[_-]id$|Id$/.test(key)) continue;
+    if (!has(b, key) || !has(a, key)) continue; // one-sided — not a change
     const bv = b[key];
     const av = a[key];
     if (typeof bv === 'string' && DIFF_UUID_RE.test(bv)) continue;
     if (typeof av === 'string' && DIFF_UUID_RE.test(av)) continue;
     if (JSON.stringify(bv) === JSON.stringify(av)) continue;
+    // null → '' and friends: a normalisation, not an edit.
+    if (isBlankAuditValue(bv) && isBlankAuditValue(av)) continue;
     if (bv && av && typeof bv === 'object' && typeof av === 'object' && !Array.isArray(bv) && !Array.isArray(av)) {
       const subKeys = Array.from(new Set([...Object.keys(bv), ...Object.keys(av)]));
       for (const sk of subKeys) {
         if (/^id$|[_-]id$|Id$/.test(sk)) continue;
+        if (!has(bv, sk) || !has(av, sk)) continue;
         const sbv = (bv as any)[sk];
         const sav = (av as any)[sk];
         if (typeof sbv === 'string' && DIFF_UUID_RE.test(sbv)) continue;
         if (typeof sav === 'string' && DIFF_UUID_RE.test(sav)) continue;
         if (JSON.stringify(sbv) === JSON.stringify(sav)) continue;
+        if (isBlankAuditValue(sbv) && isBlankAuditValue(sav)) continue;
         changes.push({ field: prettyFieldName(sk), from: maskAuditValue(sk, sbv), to: maskAuditValue(sk, sav) });
       }
       continue;
