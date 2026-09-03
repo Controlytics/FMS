@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
@@ -106,6 +108,14 @@ export function NotificationsPage() {
   const [perPage, setPerPage] = useState(paginationOptions[0]);
   const [period, setPeriod] = useState('all');
   const [readFilter, setReadFilter] = useState('');
+  // 'custom' is a UI-only period. The API's `period` enum does not include it —
+  // applyDateFilter uses `period` if set and not 'all', ELSE startDate/endDate,
+  // so sending both would silently ignore one. See the params block below.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [search, setSearch] = useState('');
+  // Debounced so a five-letter word is one request, not five SWR keys.
+  const [searchQuery, setSearchQuery] = useState('');
   const { mutate: globalMutate } = useSWRConfig();
   const { toast } = useToast();
   // 2026-05-26 audit fix (PA-REAUTH-4): wrap bulk + single delete
@@ -117,16 +127,70 @@ export function NotificationsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  useEffect(() => {
+    const t = setTimeout(() => { setSearchQuery(search.trim()); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const params = new URLSearchParams({ page: String(page), limit: String(perPage) });
-  if (period && period !== 'all') params.set('period', period);
+  // One or the other, never both — the API prefers `period` and would ignore
+  // the dates, leaving the operator looking at a range they did not ask for.
+  if (period === 'custom') {
+    if (dateFrom) params.set('startDate', dateFrom);
+    if (dateTo) params.set('endDate', dateTo);
+  } else if (period && period !== 'all') {
+    params.set('period', period);
+  }
   if (readFilter) params.set('isRead', readFilter);
+  if (searchQuery) params.set('search', searchQuery);
 
   const { data, mutate } = useSWR(`/api/notifications?${params}`);
 
-  // Clear selection on page/filter change
+  // Clear selection on page/filter change. Every filter belongs here: a
+  // selection made before a search would otherwise survive into a list the
+  // operator can no longer see, and Delete Selected acts on the ids, not the
+  // rows on screen.
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, period, readFilter]);
+  }, [page, period, readFilter, searchQuery, dateFrom, dateTo]);
+
+  const PERIOD_LABELS: Record<string, string> = {
+    today: 'Today', week: 'Last 7 Days', month: 'This Month',
+    quarter: 'Last 90 Days', year: 'This Year',
+  };
+
+  const clearAllFilters = () => {
+    setPeriod('all'); setReadFilter(''); setDateFrom(''); setDateTo('');
+    setSearch(''); setSearchQuery(''); setPage(1);
+  };
+
+  // ONE list drives the "N active" badge AND the chip row. They used to
+  // enumerate the filters separately in four places, so adding a filter to one
+  // and not the others made the count lie — the same divergent-copy shape as
+  // the REVALIDATE_KEYS bug (2026-08-27).
+  const activeFilters: { key: string; label: string; tone: string; onClear: () => void }[] = [
+    ...(period !== 'all' && period !== 'custom'
+      ? [{ key: 'period', label: PERIOD_LABELS[period] ?? period, tone: 'indigo',
+           onClear: () => { setPeriod('all'); setPage(1); } }]
+      : []),
+    ...(period === 'custom' && (dateFrom || dateTo)
+      ? [{ key: 'range', label: `${dateFrom || 'any'} to ${dateTo || 'any'}`, tone: 'indigo',
+           onClear: () => { setDateFrom(''); setDateTo(''); setPeriod('all'); setPage(1); } }]
+      : []),
+    ...(readFilter
+      ? [{ key: 'read', label: readFilter === 'false' ? 'Unread' : 'Read', tone: 'amber',
+           onClear: () => { setReadFilter(''); setPage(1); } }]
+      : []),
+    ...(searchQuery
+      ? [{ key: 'search', label: `"${searchQuery}"`, tone: 'cyan',
+           onClear: () => { setSearch(''); setSearchQuery(''); setPage(1); } }]
+      : []),
+  ];
+  const CHIP_TONES: Record<string, string> = {
+    indigo: 'bg-indigo-50 text-indigo-700',
+    amber: 'bg-amber-50 text-amber-700',
+    cyan: 'bg-cyan-50 text-cyan-700',
+  };
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -357,13 +421,44 @@ export function NotificationsPage() {
             </svg>
           </div>
           <span className="font-semibold text-slate-700">Filter Notifications</span>
-          {(period !== 'all' || readFilter) && (
+          {activeFilters.length > 0 && (
             <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
-              {[period !== 'all' ? 1 : 0, readFilter ? 1 : 0].reduce((a, b) => a + b, 0)} active
+              {activeFilters.length} active
             </span>
           )}
         </div>
         <div className="flex flex-wrap gap-4">
+          <div className="min-w-[260px] flex-1">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Search</label>
+            <div className="relative group">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-cyan-100 to-sky-100 z-10 pointer-events-none">
+                <svg className="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+                </svg>
+              </div>
+              <Input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search title or message…"
+                aria-label="Search notifications"
+                maxLength={200}
+                className="pl-12 h-11 bg-slate-50 border-transparent focus:bg-white"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => { setSearch(''); setSearchQuery(''); setPage(1); }}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
           <div className="min-w-[200px]">
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Time Period</label>
             <div className="relative group">
@@ -374,7 +469,15 @@ export function NotificationsPage() {
               </div>
               <Select
                 value={period}
-                onChange={(e) => { setPeriod(e.target.value); setPage(1); }}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setPeriod(next);
+                  // Clear the dates in STATE, not just visually: leaving them
+                  // set would silently re-apply a range the operator can no
+                  // longer see the next time they pick Custom.
+                  if (next !== 'custom') { setDateFrom(''); setDateTo(''); }
+                  setPage(1);
+                }}
                 variant="filled"
                 className="pl-12 h-11"
               >
@@ -384,9 +487,25 @@ export function NotificationsPage() {
                 <option value="month">This Month</option>
                 <option value="quarter">Last 90 Days</option>
                 <option value="year">This Year</option>
+                <option value="custom">Custom Range…</option>
               </Select>
             </div>
           </div>
+          {period === 'custom' && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">From / To</label>
+              {/* The one From/To control in the app — it is what stops a To
+                  earlier than the From, which the API answers with an empty
+                  list indistinguishable from "no matching records". */}
+              <DateRangeFilter
+                from={dateFrom}
+                to={dateTo}
+                onFromChange={(v) => { setDateFrom(v); setPage(1); }}
+                onToChange={(v) => { setDateTo(v); setPage(1); }}
+                size="lg"
+              />
+            </div>
+          )}
           <div className="min-w-[180px]">
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Status</label>
             <div className="relative group">
@@ -408,15 +527,11 @@ export function NotificationsPage() {
               </Select>
             </div>
           </div>
-          {(period !== 'all' || readFilter) && (
+          {activeFilters.length > 0 && (
             <div className="flex items-end">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setPeriod('all');
-                  setReadFilter('');
-                  setPage(1);
-                }}
+                onClick={clearAllFilters}
                 className="h-11 gap-2 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -427,36 +542,24 @@ export function NotificationsPage() {
             </div>
           )}
         </div>
-        {/* Active filters display */}
-        {(period !== 'all' || readFilter) && (
+        {/* Active filters — rendered from the same `activeFilters` list that
+            feeds the "N active" badge, so the two can never disagree. */}
+        {activeFilters.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-slate-100">
             <span className="text-xs font-medium text-slate-500">Active filters:</span>
-            {period !== 'all' && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-medium">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                {period === 'today' ? 'Today' : period === 'week' ? 'Last 7 Days' : period === 'month' ? 'This Month' : period === 'quarter' ? 'Last 90 Days' : 'This Year'}
-                <button onClick={() => { setPeriod('all'); setPage(1); }} className="hover:text-indigo-900">
+            {activeFilters.map((f) => (
+              <span
+                key={f.key}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${CHIP_TONES[f.tone]}`}
+              >
+                {f.label}
+                <button onClick={f.onClear} aria-label={`Clear ${f.label} filter`} className="hover:opacity-70">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </span>
-            )}
-            {readFilter && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-xs font-medium">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                {readFilter === 'false' ? 'Unread' : 'Read'}
-                <button onClick={() => { setReadFilter(''); setPage(1); }} className="hover:text-amber-900">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </span>
-            )}
+            ))}
           </div>
         )}
       </div>
@@ -593,7 +696,12 @@ export function NotificationsPage() {
               <div>
                 <p className="text-slate-600 font-semibold">No notifications found</p>
                 <p className="text-sm text-slate-400 mt-1">
-                  {readFilter === 'false' ? 'You\'re all caught up!' : 'Try adjusting your filters'}
+                  {/* Name the search term: "you're all caught up" would be a lie
+                      when the list is empty because of a filter, not because
+                      everything is read. */}
+                  {searchQuery
+                    ? `Nothing matches "${searchQuery}"`
+                    : readFilter === 'false' ? 'You\'re all caught up!' : 'Try adjusting your filters'}
                 </p>
               </div>
             </div>

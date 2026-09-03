@@ -1,5 +1,73 @@
 # Changelog
 
+## [Unreleased] - Notifications: search + a custom From/To range (2026-09-03)
+
+Operator request. Both filter SERVER-side: the list is server-paginated, so
+filtering in the browser would only filter the 20 rows that happened to come
+back.
+
+### Search
+
+`?search=` matches `title` and `message`, case-insensitively. Not `type` --
+matching a string the row does not display reads as a broken filter.
+
+🔴 **The trap this had to avoid.** `gatedAwareWhere` returns `{ OR: [...] }` and
+that OR **is** the visibility rule. A search written the obvious way --
+`where.OR = [{ title }, { message }]` -- would have REPLACED it, and an OPERATOR
+searching "password" would have got every user's password notifications. The
+clause goes under `AND`, appended to whatever is already there. Locked by a test
+that asserts an OPERATOR's search still scopes to `forUserId`.
+
+`unreadCount` is computed BEFORE the search clause is added. The header renders
+it as "N unread notifications" for the whole list and uses it to gate "Mark all
+as read" -- whose own query ignores the search entirely, so a search-scoped count
+would hide the button while the action it triggers still applied to everything.
+
+The input is debounced 300 ms (one request per word, not per keystroke) and
+capped at 200 chars on both sides.
+
+### Custom From/To range
+
+The API already accepted `startDate`/`endDate`; only the UI was missing. The
+period dropdown gains **Custom Range…**, which reveals the shared
+`DateRangeFilter` -- the one From/To control in the app, and the thing that stops
+a To earlier than a From.
+
+**Period and range are mutually exclusive by construction.** `applyDateFilter`
+uses `period` when set and not `all`, ELSE the dates -- so a UI offering both at
+once would silently ignore one. Selecting any non-custom period **clears the
+dates in state**, not just visually: left set, they would re-apply a range the
+operator could no longer see.
+
+### Fixed - a bare end date excluded the whole final day
+
+`applyDateFilter` did `lte: new Date(endDate)`. For `yyyy-mm-dd` that is
+**midnight**, so `to = today` returned nothing from today and a same-day range
+was empty. Verified live: `period=today` and `startDate=today&endDate=today` now
+both return 2 (the second returned 0 before).
+
+CLAUDE.md tracked three copies of the end-of-day rule and this was a fourth, so
+rather than adding one, `parseRangeEnd` is now **exported from
+`lib/date-range-guard.ts`** and called. One rule, N callers.
+
+### Also
+
+The "N active" badge and the "Active filters:" chip row are now derived from ONE
+`activeFilters` list. They previously enumerated `period`/`readFilter` by hand in
+four places, so adding a filter to one and not the others made the count lie --
+the same divergent-copy shape as the REVALIDATE_KEYS bug (2026-08-27).
+
+The selection-clearing effect now depends on the search and the dates too. It
+only watched `page`/`period`/`readFilter`, so a selection made before a search
+survived into a filtered list -- and **Delete Selected acts on the ids, not the
+rows on screen**. That was a data-loss path, not a cosmetic one.
+
+Verified live (1,280 notifications): search "password" -> 77, `PASSWORD` -> 77,
+"locked" -> 94 matching title AND message bodies; `unreadCount` stayed 54 across
+all of them; an inverted range still 400s `INVALID_DATE_RANGE` from the global
+guard. 8 new service tests, 3 new guard tests.
+
+
 ## [Unreleased] - Audit detail shows the CHANGE, and only real changes (2026-09-03)
 
 Operator request: opening an audit record should show what value changed - the old

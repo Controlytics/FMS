@@ -39,12 +39,31 @@ export const DATE_RANGE_PARAM_PAIRS: ReadonlyArray<readonly [string, string]> = 
 const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
+ * Parse the END of a range, expanding a bare `yyyy-mm-dd` to the last
+ * millisecond of that day.
+ *
+ * EXPORTED because the rule has to hold wherever an end date reaches a query,
+ * not only inside this guard. An endpoint doing `lte: new Date(endDate)` on a
+ * bare date silently drops the whole final day, so `to = today` returns nothing
+ * from today — the exact silent-wrong-answer this guard exists to stop.
+ * CLAUDE.md tracks the copies of this rule; call this instead of writing a new
+ * one. (2026-09-03: notifications was the fourth copy.)
+ *
+ * Returns null when the value does not parse as a date — the caller decides
+ * what that means.
+ */
+export function parseRangeEnd(value: string): Date | null {
+  const d = new Date(BARE_DATE.test(value) ? `${value}T23:59:59.999` : value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
  * Parse one end of a range. `isEnd` expands a bare date to the last millisecond
  * of that day.
  */
 function parseEdge(value: string, isEnd: boolean): Date | null {
-  const raw = isEnd && BARE_DATE.test(value) ? `${value}T23:59:59.999` : value;
-  const d = new Date(raw);
+  if (isEnd) return parseRangeEnd(value);
+  const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 

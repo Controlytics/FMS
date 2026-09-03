@@ -20,7 +20,8 @@ export default async function notificationRoutes(app: FastifyInstance) {
           isRead: { type: 'string', enum: ['true', 'false'], description: 'Filter by read status' },
           startDate: { type: 'string', description: 'Start date for custom range (ISO 8601)' },
           endDate: { type: 'string', description: 'End date for custom range (ISO 8601)' },
-          period: { type: 'string', enum: ['today', 'week', 'month', 'quarter', 'year', 'all'], description: 'Predefined date period filter' },
+          period: { type: 'string', enum: ['today', 'week', 'month', 'quarter', 'year', 'all'], description: 'Predefined date period filter. Takes precedence over startDate/endDate — send one or the other, not both.' },
+          search: { type: 'string', maxLength: 200, description: 'Case-insensitive free text matched against title and message' },
         },
       },
       response: {

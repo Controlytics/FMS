@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findInvertedRange, DATE_RANGE_PARAM_PAIRS } from '../date-range-guard.js';
+import { findInvertedRange, DATE_RANGE_PARAM_PAIRS, parseRangeEnd } from '../date-range-guard.js';
 
 /**
  * The API used to answer an inverted range with an empty list, which reads as
@@ -67,5 +67,28 @@ describe('findInvertedRange', () => {
   it('reports the first offending pair when several are present', () => {
     const bad = findInvertedRange({ from: '2026-03-02', to: '2026-03-01', startDate: '2026-04-02', endDate: '2026-04-01' });
     expect(bad!.startKey).toBe('from');
+  });
+});
+
+/**
+ * Exported 2026-09-03 so endpoints stop re-implementing the rule. Notifications
+ * was doing `lte: new Date(endDate)`, which for a bare date is MIDNIGHT — so
+ * "to = today" returned nothing from today and a same-day range was empty.
+ */
+describe('parseRangeEnd', () => {
+  it('expands a bare yyyy-mm-dd to the last millisecond of that day', () => {
+    expect(parseRangeEnd('2026-09-03')).toEqual(new Date('2026-09-03T23:59:59.999'));
+  });
+
+  it('leaves a full instant untouched', () => {
+    expect(parseRangeEnd('2026-09-03T08:30:00.000Z')).toEqual(new Date('2026-09-03T08:30:00.000Z'));
+    expect(parseRangeEnd('2026-09-03T08:30')).toEqual(new Date('2026-09-03T08:30'));
+  });
+
+  it('returns null for a value that is not a date, so the caller decides', () => {
+    // Matching on parameter NAME means a non-date can reach here; turning it
+    // into an Invalid Date would silently match nothing.
+    expect(parseRangeEnd('alpha')).toBeNull();
+    expect(parseRangeEnd('')).toBeNull();
   });
 });

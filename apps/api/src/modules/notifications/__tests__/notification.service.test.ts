@@ -84,6 +84,118 @@ describe('notificationService', () => {
       expect(normal.NOT).toBeUndefined();
       expect(normal.AND).toEqual([{ OR: [{ forRole: null }, { forRole: { not: 'SUPER_ADMIN' } }] }]);
     });
+
+    // ── search (2026-09-03) ──────────────────────────────────────────────────
+
+    /**
+     * 🔴 The one that matters. `gatedAwareWhere` returns `{ OR: [...] }` and
+     * that OR *is* the visibility rule. A search written as
+     * `where.OR = [{title}, {message}]` would REPLACE it, and an OPERATOR
+     * searching "password" would get every user's password notifications.
+     */
+    it('ANDs the search onto the where — never replacing the visibility OR', async () => {
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+
+      await notificationService.list({ page: 1, limit: 20, search: 'locked' }, 'OPERATOR', 'op-7');
+      const where = mockNotifRepo.findMany.mock.calls[0][0] as any;
+
+      // The visibility OR is untouched, and still scopes to this user alone.
+      expect(where.OR[0].AND[1]).toEqual({ forUserId: 'op-7' });
+      // The search lives under AND.
+      expect(where.AND).toEqual([
+        {
+          OR: [
+            { title: { contains: 'locked', mode: 'insensitive' } },
+            { message: { contains: 'locked', mode: 'insensitive' } },
+          ],
+        },
+      ]);
+    });
+
+    it('searches title and message case-insensitively, and nothing else', async () => {
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+
+      await notificationService.list({ page: 1, limit: 20, search: 'Reset' }, 'SUPER_ADMIN', 'sa');
+      const clause = (mockNotifRepo.findMany.mock.calls[0][0] as any).AND[0];
+
+      // `type` is deliberately NOT searched — it is not rendered on the row, so
+      // matching it would look like a broken filter.
+      expect(clause.OR.map((c: any) => Object.keys(c)[0])).toEqual(['title', 'message']);
+    });
+
+    it('ignores a blank or whitespace-only search', async () => {
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+
+      await notificationService.list({ page: 1, limit: 20, search: '   ' }, 'SUPER_ADMIN', 'sa');
+      expect((mockNotifRepo.findMany.mock.calls[0][0] as any).AND).toBeUndefined();
+    });
+
+    /**
+     * The header renders unreadCount as "N unread notifications" for the whole
+     * list and uses it to gate "Mark all as read" — whose own query ignores the
+     * search entirely. Scoped to the search, the button would disappear while
+     * the action it triggers still applied to everything.
+     */
+    it('computes unreadCount WITHOUT the search clause', async () => {
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+
+      await notificationService.list({ page: 1, limit: 20, search: 'locked' }, 'SUPER_ADMIN', 'sa');
+      const [listCountWhere, unreadWhere] = mockNotifRepo.count.mock.calls.map((c) => c[0] as any);
+
+      expect(listCountWhere.AND).toBeDefined();      // the list count IS filtered
+      expect(unreadWhere.AND).toBeUndefined();       // the unread badge is NOT
+      expect(unreadWhere.isRead).toBe(false);
+    });
+
+    // ── custom date range (2026-09-03) ───────────────────────────────────────
+
+    /**
+     * `lte: new Date('2026-09-03')` is MIDNIGHT, so "to = today" excluded
+     * everything that happened today and a same-day range returned nothing.
+     * parseRangeEnd (lib/date-range-guard.ts) is the one shared rule.
+     */
+    it('expands a bare end date to the end of that day', async () => {
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+
+      await notificationService.list(
+        { page: 1, limit: 20, startDate: '2026-09-01', endDate: '2026-09-03' },
+        'SUPER_ADMIN', 'sa',
+      );
+      const { createdAt } = mockNotifRepo.findMany.mock.calls[0][0] as any;
+
+      expect(createdAt.gte).toEqual(new Date('2026-09-01'));
+      expect(createdAt.lte).toEqual(new Date('2026-09-03T23:59:59.999'));
+    });
+
+    it('leaves a full ISO end instant exactly as given', async () => {
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+
+      await notificationService.list(
+        { page: 1, limit: 20, endDate: '2026-09-03T08:30:00.000Z' }, 'SUPER_ADMIN', 'sa',
+      );
+      const { createdAt } = mockNotifRepo.findMany.mock.calls[0][0] as any;
+      expect(createdAt.lte).toEqual(new Date('2026-09-03T08:30:00.000Z'));
+    });
+
+    it('period wins over an explicit range — they are not combined', async () => {
+      // The UI must therefore send one or the other, never both.
+      mockNotifRepo.findMany.mockResolvedValue([]);
+      mockNotifRepo.count.mockResolvedValue(0);
+
+      await notificationService.list(
+        { page: 1, limit: 20, period: 'today', startDate: '2020-01-01', endDate: '2020-12-31' },
+        'SUPER_ADMIN', 'sa',
+      );
+      const { createdAt } = mockNotifRepo.findMany.mock.calls[0][0] as any;
+      expect(createdAt.lte).toBeUndefined();
+      expect(createdAt.gte.getTime()).toBeGreaterThan(new Date('2021-01-01').getTime());
+    });
   });
 
   describe('getUnreadCount', () => {

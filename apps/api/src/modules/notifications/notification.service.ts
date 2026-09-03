@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestContext } from '../../types/context.js';
 import { z } from 'zod';
+import { parseRangeEnd } from '../../lib/date-range-guard.js';
 
 // Notification types whose visibility is config-driven (a role list), NOT the
 // normal per-user/per-role addressing. Each maps to its config key + field.
@@ -48,7 +49,32 @@ const notificationQuerySchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   period: z.enum(['today', 'week', 'month', 'quarter', 'year', 'all']).optional(),
+  // Free-text over the two fields the row actually DISPLAYS. Deliberately not
+  // `type`: searching "PASSWORD" would then hit rows whose visible text does not
+  // contain it, which reads as a broken filter.
+  search: z.string().trim().max(200).optional(),
 });
+
+/**
+ * AND a free-text clause onto an existing where WITHOUT touching its top-level OR.
+ *
+ * 🔴 `gatedAwareWhere` returns `{ OR: [...] }` — that OR *is* the visibility
+ * rule. Writing `where.OR = [{ title: ... }, { message: ... }]` for the search
+ * would REPLACE it, and every user would search across everybody's
+ * notifications. The search must live under AND, never beside the visibility OR.
+ */
+function applySearchFilter(where: Record<string, unknown>, search?: string) {
+  const term = search?.trim();
+  if (!term) return;
+  const clause = {
+    OR: [
+      { title: { contains: term, mode: 'insensitive' } },
+      { message: { contains: term, mode: 'insensitive' } },
+    ],
+  };
+  const existing = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+  where.AND = [...existing, clause];
+}
 
 function buildVisibilityFilter(userRole: string, username: string): Record<string, unknown> {
   const where: Record<string, unknown> = {};
@@ -105,7 +131,16 @@ function applyDateFilter(where: Record<string, unknown>, period?: string, startD
   } else if (startDate || endDate) {
     where.createdAt = {};
     if (startDate) (where.createdAt as Record<string, unknown>).gte = new Date(startDate);
-    if (endDate) (where.createdAt as Record<string, unknown>).lte = new Date(endDate);
+    // 2026-09-03: was `new Date(endDate)`, which for a bare `yyyy-mm-dd` is
+    // MIDNIGHT — so "to = today" excluded everything that happened today and a
+    // same-day range returned nothing at all. parseRangeEnd is the shared rule
+    // (lib/date-range-guard.ts); a null means the caller sent a non-date, which
+    // the global guard deliberately lets through, so leave the bound off rather
+    // than turning it into an Invalid Date that matches nothing.
+    if (endDate) {
+      const end = parseRangeEnd(endDate);
+      if (end) (where.createdAt as Record<string, unknown>).lte = end;
+    }
   }
 }
 
@@ -122,10 +157,19 @@ export const notificationService = {
       where.isRead = parsed.isRead === 'true';
     }
 
+    // unreadCount is computed BEFORE the search clause is added, and the header
+    // renders it as "N unread notifications" for the whole (period-scoped) list.
+    // Scoped to the search it would mean "unread among search hits" and would
+    // jump on every keystroke — and it gates the "Mark all as read" button,
+    // whose own query ignores the search entirely, so the button would vanish
+    // while the action it triggers still applied to everything.
+    const unreadWhere = { ...where, isRead: false };
+    applySearchFilter(where, parsed.search);
+
     const [data, total, unreadCount] = await Promise.all([
       notificationRepository.findMany(where, parsed.limit ? (parsed.page - 1) * parsed.limit : 0, parsed.limit),
       notificationRepository.count(where),
-      notificationRepository.count({ ...where, isRead: false }),
+      notificationRepository.count(unreadWhere),
     ]);
 
     return {
