@@ -1,5 +1,66 @@
 # Changelog
 
+## [Unreleased] - The config access matrix now requires a signature (2026-09-03)
+
+`PUT /api/config/access-matrix` decides which config module each role may open,
+and it was gated on `CONFIG_UPDATE` alone.
+
+**The frontend has asked for a password since 2026-05-04 and the backend never
+checked.** That review (web-routes H1) states the risk in its own comment on
+`access-matrix.tsx`: *"the access matrix is the role↔config-module source of
+truth. Saving it without reauth meant any user with CONFIG_UPDATE could rebind
+every config tab to every role."* The fix landed on the UI only, so the
+electronic signature was a convention any direct API call skipped.
+
+### Why `enforceReauthAlways`, not `enforceReauth`
+
+The admin-managed policy cannot gate this route. Live config:
+
+    UPDATE_ROLE_CONFIG -> ['SUPERVISOR', 'PROJECT_LEADER']
+    roles holding CONFIG_UPDATE -> ADMIN, SUPER_ADMIN
+
+The config-driven check would enforce nothing for exactly the callers that can
+reach the endpoint. Which module each role may open is not an opt-in policy, so
+the gate is unconditional — the same treatment password-policy, login-security,
+session and datetime already get.
+
+**No UI change was needed.** `useReauth.execute` runs its callback passwordless
+first and re-throws this 401 to pop its own dialog (`api-client.ts:66`), then
+retries with the password. One extra round trip; no stuck spinner, because
+`save()`'s `onError` clears `saving` and a cancel falls back to it.
+
+A signed save now writes TWO rows — `REAUTH_SUCCESS` for the signature and
+`CONFIG_CHANGED` for the change. Before today's earlier reauth work it would have
+written only the second, so a signed config change was indistinguishable from an
+unsigned one.
+
+Locked by `e2e/access-matrix-reauth.test.ts` (5 cases), which asserts the gate
+runs BEFORE the write: an unsigned or wrongly-signed call leaves the stored
+matrix byte-identical. GET is deliberately left open — reading who may open what
+is not a signed act.
+
+### Known, NOT fixed: 9 more config write endpoints have no reauth
+
+Surveyed while here. Of 17 config write routes, 10 had none; this change fixes
+one. The rest, grouped by what they can actually do:
+
+**Privilege- or §11-affecting — worth gating:**
+
+| Route | Why it matters |
+|---|---|
+| `tablet-access` | which roles may log in on the tablet at all |
+| `audit-templates` | how every §11 audit row is rendered to an inspector |
+| `report-signatories` | who is named as signing each report |
+| `field-ids` | identifier formats used across records |
+
+**Cosmetic / display — arguably fine unsigned:** `report-labels`,
+`report-page-titles`, `export-options`, `pm-schedule-filters`,
+`replacement-schedule-filters`.
+
+Left alone deliberately: adding a password prompt to nine more pages changes
+operator workflow and is the operator's call, not a side effect of this request.
+
+
 ## [Unreleased] - Re-authentication is audited (2026-09-03)
 
 Operator report: a re-auth's success/failure appeared in the audit trail as
