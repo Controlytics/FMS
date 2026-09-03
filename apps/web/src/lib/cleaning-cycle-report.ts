@@ -1,8 +1,11 @@
 // Shared, pure helpers for rendering cleaning-cycle records cycle-wise.
-// Single source of truth used by BOTH the Filter Cleaning Record list
-// (routes/cleaning-cycles/history.tsx) and the Filter Lifecycle Report
-// (routes/cleaning-cycles/filter-lifecycle.tsx) so the column meanings can
-// never drift between the two pages.
+//
+// CC_COL_KEYS drives ONE surface: the Filter Cleaning Record
+// (routes/cleaning-cycles/history.tsx) — its screen table, its PDF and its
+// Excel export all read this list, so those three can never drift apart. The
+// Filter Lifecycle Report imports only `effectiveCycleStatus` from here and has
+// its own columns. (This header previously claimed both pages shared the
+// columns; corrected 2026-09-03.)
 import type { FilterEvent } from '../types/filter';
 import { formatByLeastCount } from './format-by-least-count';
 
@@ -12,11 +15,18 @@ import { formatByLeastCount } from './format-by-least-count';
  *    (cycle.dryerDurationMinutes), NOT the full cycle duration.
  *  - `dryIn` time = when the operator submitted the dryer-duration record
  *    (cycle.dryerStartedAt), not the temperature-submission time.
- * 'Dry By' and the old cycle-duration column were dropped per operator request.
+ * The old cycle-duration column was dropped per operator request.
+ *
+ * 'dryBy' was dropped once and RE-ADDED 2026-09-03 on operator request: the
+ * record has to show who completed DRY_OUT, the way 'washBy' shows the wash.
+ * Note the two are NOT symmetric, deliberately — 'washBy' reads WASH_IN first
+ * and falls back to WASH_OUT, while 'dryBy' reads DRY_OUT first (the stage the
+ * operator actually asked about) and falls back to DRY_IN. In practice one
+ * person does both halves, which is why 'washBy' reads as "who washed".
  */
 export const CC_COL_KEYS = [
   'sNo', 'filter', 'size', 'airPressure', 'roWater',
-  'washIn', 'washOut', 'washBy', 'duration', 'dryIn', 'dryerTemp', 'dryOut', 'status',
+  'washIn', 'washOut', 'washBy', 'duration', 'dryIn', 'dryerTemp', 'dryOut', 'dryBy', 'status',
 ] as const;
 
 /**
@@ -193,10 +203,19 @@ export function maxReachedStageIndex(events: any[], profileStages: string[]): nu
  *    performed. It previously read "Pending", which asserted on a finished
  *    §11 record that the stage was still to come.
  *
- * ⚠️ COMPLETED only. An IN_PROGRESS cycle genuinely has work pending. A
- * TERMINATED cycle (one not closed by retire/replace) was ABANDONED rather than
- * skipped — a different claim about why the work is missing — so it still reads
- * "Pending"; changing its wording is a separate operator call.
+ * ⚠️ "Pending" now means ONLY an IN_PROGRESS cycle (2026-09-03, operator
+ * request). A finished cycle cannot have pending work, so every terminal status
+ * gets its own word for why the stage has no value:
+ *
+ *   COMPLETED   -> "Skipped"     the cycle finished without performing it
+ *   TERMINATED  -> "Terminated"  the cycle was abandoned before reaching it
+ *   RETIRED     -> "Retired"     } closed by retire/replace; these are
+ *   REPLACED    -> "Replaced"    } TERMINATED cycles too, matched first
+ *   IN_PROGRESS -> "Pending"     the work really is still outstanding
+ *
+ * TERMINATED is deliberately NOT "Skipped": an abandoned cycle makes a different
+ * claim about why the work is missing, and on a §11 record the two must not read
+ * alike. It reuses the `terminal` kind that Retired/Replaced already use.
  */
 export function resolveStageCell(args: {
   stage: string;
@@ -212,8 +231,12 @@ export function resolveStageCell(args: {
   if (effStatus === 'RETIRED') return { kind: 'terminal', label: 'Retired' };
   if (effStatus === 'REPLACED') return { kind: 'terminal', label: 'Replaced' };
   const idx = profileStages.indexOf(stage);
+  // A gap BEHIND the furthest stage reached is a genuine skip whatever the cycle
+  // status: the operator moved past it. Checked before the status branches so a
+  // terminated cycle's mid-chain gap still reads "Skipped", not "Terminated".
   if (idx >= 0 && idx < maxReachedIdx) return { kind: 'skipped' };
   if (effStatus === 'COMPLETED') return { kind: 'skipped' };
+  if (effStatus === 'TERMINATED') return { kind: 'terminal', label: 'Terminated' };
   return { kind: 'pending' };
 }
 

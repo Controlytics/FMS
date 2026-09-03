@@ -118,11 +118,33 @@ describe('resolveStageCell — skipped vs pending', () => {
       .toBe('Pending');
   });
 
-  it('a TERMINATED cycle keeps Pending — abandoned is not skipped', () => {
-    // Deliberately NOT widened with COMPLETED: terminating a cycle makes a
-    // different claim about why the work is missing. 24 live cycles are in this
-    // state. Changing this wording is a separate operator call.
-    expect(text('STORAGE_OUT', tx('WASH_IN', 'WASH_OUT'), 'TERMINATED')).toBe('Pending');
+  it('a TERMINATED cycle reads Terminated — not Pending, and not Skipped', () => {
+    // Operator decision 2026-09-03 (the call left open on 09-02). A finished
+    // cycle cannot have pending work, but an ABANDONED cycle makes a different
+    // claim from a skipped stage, so it gets its own word rather than reusing
+    // "Skipped". 24 live cycles are in this state.
+    expect(text('STORAGE_OUT', tx('WASH_IN', 'WASH_OUT'), 'TERMINATED')).toBe('Terminated');
+  });
+
+  it('a MID-CHAIN gap in a terminated cycle is still Skipped, not Terminated', () => {
+    // The operator moved PAST this stage before abandoning the cycle, so it was
+    // genuinely skipped. Termination only explains the stages never reached.
+    expect(text('WASH_OUT', tx('WASH_IN', 'DRY_IN'), 'TERMINATED')).toBe('Skipped');
+  });
+
+  it('Pending now means IN_PROGRESS and nothing else', () => {
+    const trailing = (st: string) => text('STORAGE_OUT', tx('WASH_IN'), st);
+    expect(trailing('IN_PROGRESS')).toBe('Pending');
+    for (const finished of ['COMPLETED', 'TERMINATED', 'RETIRED', 'REPLACED']) {
+      expect(trailing(finished), `${finished} must not read Pending`).not.toBe('Pending');
+    }
+  });
+
+  it('retire/replace still win over the plain TERMINATED wording', () => {
+    // Both are TERMINATED cycles underneath; effectiveCycleStatus maps them
+    // first, and those labels say more than "Terminated" does.
+    expect(text('STORAGE_OUT', tx('WASH_IN'), 'RETIRED')).toBe('Retired');
+    expect(text('STORAGE_OUT', tx('WASH_IN'), 'REPLACED')).toBe('Replaced');
   });
 
   it('every stage is skipped on a COMPLETED cycle with no transitions at all', () => {

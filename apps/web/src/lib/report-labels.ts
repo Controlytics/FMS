@@ -86,6 +86,7 @@ export const REPORT_DEFS: ReportDef[] = [
       { key: 'dryIn', default: 'Dry In' },
       { key: 'dryerTemp', default: 'Dryer Temp' },
       { key: 'dryOut', default: 'Dry Out' },
+      { key: 'dryBy', default: 'Dry By' },
       { key: 'status', default: 'Status' },
     ],
   },

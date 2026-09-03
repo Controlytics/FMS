@@ -215,6 +215,12 @@ export function CleaningCycleHistoryPage() {
           naCell('DRY_IN', dryerStart.time ? formatDateTime(dryerStart.time) : null),
           naCell('DRY_IN', dryerTempStr !== '-' ? dryerTempStr : null),
           naCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null),
+          // DRY_OUT first — the stage the operator asked about — falling back to
+          // DRY_IN. Deliberately the mirror image of washBy above, which reads
+          // WASH_IN first. `performedBy` here is the USERNAME
+          // (filter-operations.service.ts maps performedByName: u?.username),
+          // not the full name, so this column is the user id it looks like.
+          dryOut?.performedBy ?? dryIn?.performedBy ?? '-',
           STATUS_CONFIG[eff]?.label ?? eff,
         ];
       });
@@ -238,44 +244,55 @@ export function CleaningCycleHistoryPage() {
       formatDateTime,
       legend: [
         { abbr: 'NA', meaning: 'Not Applicable (stage not in this cycle’s profile)' },
-        { abbr: 'Skipped', meaning: 'In this cycle’s profile but not performed' },
-        { abbr: 'Pending', meaning: 'In this cycle’s profile and not reached — the cycle has not completed' },
+        { abbr: 'Skipped', meaning: 'In this cycle’s profile but not performed — the cycle completed without it' },
+        { abbr: 'Terminated', meaning: 'In this cycle’s profile and never reached — the cycle was terminated first' },
+        { abbr: 'Pending', meaning: 'In this cycle’s profile and not reached — the cycle is still in progress' },
       ],
     });
-    // 2026-09-02 (operator request): 8pt, up from the 7pt default.
+    // 2026-09-03: 7pt, DOWN from the 8pt set on 2026-09-02, to make room for the
+    // 14th column ("Dry By"). Operator chose this over dropping a column.
     //
-    // Measured with jsPDF's own font metrics, not estimated. Each column needs its
-    // widest UNBREAKABLE token — longest header word at bold fontSize+0.5, or
-    // longest value — plus 5mm of padding. Against landscape's 268mm these
-    // thirteen columns need, using the values that actually occur in the data:
-    //     8.0pt -> 256mm  fits      8.5pt -> 269mm  over by 1
-    // 8.5 looked viable against sample values and failed on the real ones: the
-    // live dimension "500X300X200" is wider than the "610*620*730" form because
-    // uppercase X is a wider glyph, and it broke as "500X300X20" / "0".
-    //
-    // The 12mm that 8pt leaves spare is given back to the columns whose content
-    // varies most — chiefly Filter, whose longest live value
+    // Measured with jsPDF's own font metrics, never estimated — 8.5pt looked
+    // viable against sample values on 09-02 and failed on the real ones. Each
+    // column needs its widest UNBREAKABLE token (longest header word at bold
+    // fontSize+0.5, or longest value) plus the 5mm autoTable actually reserves
+    // (pdf-report.ts sets cellPadding left/right 2.5). Against landscape's usable
+    // width, with the values that occur in the live data, FOURTEEN columns need:
+    //     8.0pt -> 284mm  over by 16     7.5pt -> 273mm  over by 5
+    //     7.0pt -> 261mm  FITS
+    // The usable width is 267mm, not the 268 quoted before: addTable passes no
+    // `margin`, so autoTable's default applies and a 268mm table warns "0.78
+    // units width could not fit page". Verified by rendering this exact table
+    // and reading the PDF back — the 12 longest live filter names, both
+    // dimensions and "superadmin" all come out whole, 24 username cells across
+    // the two By columns.
+    // The spare goes to Filter, whose longest live value
     // ("CWH/F1/AHU-0B/SA/05/06-01") is a single unbreakable token more than twice
-    // the width of any other column, and which autoTable would otherwise starve.
-    // Grid lines thicken with the font automatically (see pdf-report addTable).
+    // the width of any other column and which autoTable would otherwise starve.
+    //
+    // Wash By moves 17 -> 18mm: at 8pt the live username "superadmin" measured
+    // 14.6mm against 12mm of usable cell, so that column has been overflowing
+    // since it shipped. 18mm at 7pt leaves 13mm usable for a 12.8mm token.
+    // Grid lines thin with the font automatically (see pdf-report addTable).
     report.addTable({
       head: ccHead,
       body: buildCleaningRows(rows),
-      fontSize: 8,
+      fontSize: 7,
       columnStyles: {
         0: { halign: 'center', cellWidth: 12 },  // S.No
-        1: { cellWidth: 52 },                    // Filter — full hierarchy path, one token
-        2: { cellWidth: 25 },                    // Filter Dimensions — "500X300X200"
-        3: { cellWidth: 19 },                    // Air Pressure — "22.8 bar"
-        4: { cellWidth: 17 },                    // RO Water — "25.0 bar"
-        5: { cellWidth: 19 },                    // Wash In — date over time
-        6: { cellWidth: 19 },                    // Wash Out
-        7: { cellWidth: 17 },                    // Wash By
-        8: { cellWidth: 18 },                    // Duration
-        9: { cellWidth: 19 },                    // Dry In
-        10: { cellWidth: 13 },                   // Dryer Temp
-        11: { cellWidth: 19 },                   // Dry Out
-        12: { cellWidth: 19 },                   // Status
+        1: { cellWidth: 45 },                    // Filter — one token; needs 39, holds the spare
+        2: { cellWidth: 24 },                    // Filter Dimensions — "500X300X200"
+        3: { cellWidth: 17 },                    // Air Pressure — header is the widest part
+        4: { cellWidth: 13 },                    // RO Water — "25.0 bar"
+        5: { cellWidth: 18 },                    // Wash In — date over time
+        6: { cellWidth: 18 },                    // Wash Out
+        7: { cellWidth: 18 },                    // Wash By — username, e.g. "superadmin"
+        8: { cellWidth: 16 },                    // Duration
+        9: { cellWidth: 18 },                    // Dry In
+        10: { cellWidth: 14 },                   // Dryer Temp
+        11: { cellWidth: 18 },                   // Dry Out
+        12: { cellWidth: 18 },                   // Dry By — username
+        13: { cellWidth: 18 },                   // Status
       },
     });
     return report;
@@ -518,8 +535,16 @@ export function CleaningCycleHistoryPage() {
                         : st.value;
                     case 'na':
                       return <span className="text-slate-400 italic">NA</span>;
-                    case 'terminal':
-                      return <span className={`italic ${eff === 'RETIRED' ? 'text-amber-600' : 'text-purple-600'}`}>{st.label}</span>;
+                    case 'terminal': {
+                      // Three labels share this kind now (Retired / Replaced /
+                      // Terminated, 2026-09-03). Branch on the LABEL rather than
+                      // on `eff` — keyed on eff, Terminated silently inherited
+                      // Replaced's purple and the two read as the same outcome.
+                      const tone = st.label === 'Retired' ? 'text-amber-600'
+                        : st.label === 'Replaced' ? 'text-purple-600'
+                        : 'text-slate-500';
+                      return <span className={`italic ${tone}`}>{st.label}</span>;
+                    }
                     case 'skipped':
                       return <span className="text-rose-500 italic">Skipped</span>;
                     case 'pending':
@@ -548,6 +573,8 @@ export function CleaningCycleHistoryPage() {
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', dryerStart.time ? formatDateTime(dryerStart.time) : null, dryIn?.manual)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{stageCell('DRY_IN', dryerTemp !== '-' ? dryerTemp : null, dryIn?.manual)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null, dryOut?.manual)}</td>
+                    {/* Who completed the dry — DRY_OUT first, falling back to DRY_IN. */}
+                    <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{dryOut?.performedBy ?? dryIn?.performedBy ?? '-'}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap ${sc?.bg ?? 'bg-slate-50'} ${sc?.text ?? 'text-slate-600'} border ${sc?.border ?? 'border-slate-200'}`}>
                         {eff === 'IN_PROGRESS' && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}

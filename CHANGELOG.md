@@ -1,5 +1,119 @@
 # Changelog
 
+## [Unreleased] - "Pending" now means IN_PROGRESS and nothing else (2026-09-03)
+
+Operator request, and the call that was raised but left open on 09-02. A finished
+cycle cannot have pending work, so each terminal status gets its own word for why
+a stage has no value:
+
+| Cycle status | Stage with no transition |
+|---|---|
+| `IN_PROGRESS` | **Pending** — the work really is outstanding |
+| `COMPLETED` | **Skipped** (shipped 09-02) |
+| `TERMINATED` | **Terminated** (new) |
+| `RETIRED` / `REPLACED` | Retired / Replaced (unchanged) |
+
+**Terminated is deliberately NOT "Skipped".** An abandoned cycle makes a
+different claim about why the work is missing, and on a 21 CFR §11 record the two
+must not read alike. It reuses the `terminal` kind Retired/Replaced already use,
+so the PDF, the Excel export and the screen all pick it up from the one rule in
+`resolveStageCell`.
+
+**A mid-chain gap in a terminated cycle still reads "Skipped".** That check runs
+before the status branches: a stage BEHIND the furthest one reached was genuinely
+jumped over by the operator, whatever happened to the cycle afterwards.
+Termination only explains the stages that were never reached.
+
+### Measured on digilog_db
+
+43 TERMINATED cycles — 19 carry `terminationReason` RETIRED/REPLACED and already
+read that way, leaving **24 plain TERMINATED**. Across the four stage columns the
+Cleaning Record renders, **55 cells over 23 cycles** change from "Pending" to
+"Terminated".
+
+### Two things this deliberately does not touch
+
+- **Manual status-update rows** keep their own `manualCell` rule. They are not
+  cycles and carry no cycle status; a manual move to an intermediate stage leaves
+  real work ahead, so "Pending" is correct there. A manual move to
+  `CLEANING_CYCLE_COMPLETED` already showed no Pending at all (`toIdx` becomes
+  `pStages.length`), which is the same answer this change makes for cycles.
+- **Stored data.** "Skipped" / "Terminated" / "Pending" have never been columns —
+  they are inferred at render time from whether a `STATE_TRANSITION` exists. No
+  migration, no backfill, and no §11 record is rewritten.
+
+### Also
+
+The `terminal` kind now carries three labels rather than two, so the screen
+branches on the LABEL instead of on `eff`. Keyed on `eff` as before, Terminated
+silently inherited Replaced's purple and the two outcomes read identically; it is
+slate now. The PDF legend gains a Terminated row, and Pending's wording narrows
+from "the cycle has not completed" to "the cycle is still in progress".
+
+Tests: `cleaning-cycle-stage-cell.test.ts` 23 -> 26. The case that asserted
+TERMINATED keeps Pending is inverted, plus one that a mid-chain gap stays
+Skipped, one that no finished status can read Pending, and one that retire/replace
+still win over the plain wording. Web: **749 passed**.
+
+
+## [Unreleased] - Filter Cleaning Record: a "Dry By" column (2026-09-03)
+
+Operator request: show who completed DRY_OUT, the way "Wash By" shows the wash.
+Added to all three surfaces — the on-screen table, the PDF and the Excel export —
+from the one `CC_COL_KEYS` list, so they cannot drift.
+
+No backend change. `getStageInfo` already carries `performedBy` for every stage,
+and the cleaning-record feed is already fetched with the events attached.
+
+### Two things about the existing column that are not what they look like
+
+- **"Wash By" is WASH_IN-first**, falling back to WASH_OUT — not "who completed
+  wash out". One person normally does both halves, which is why it reads that
+  way. The new **"Dry By" is DRY_OUT-first**, falling back to DRY_IN, because
+  DRY_OUT is the stage that was actually asked about. The asymmetry is
+  deliberate and documented at `CC_COL_KEYS`; say the word to make them match.
+- **The value is the USERNAME**, not the full name — `filter-operations.service.ts`
+  maps `performedByName: u?.username`. So the column already shows the user id.
+
+'dryBy' existed once and was dropped per an earlier operator request; the comment
+saying so has been corrected rather than left contradicting the code.
+
+### The PDF could not fit a 14th column, and the numbers decided it
+
+Measured with jsPDF's own metrics against live values, never estimated. Fourteen
+columns need **284mm at 8pt**, 273 at 7.5pt, **261 at 7pt**, against a usable
+width of 267mm. Operator chose 7pt over dropping an existing column, so the font
+goes back to the 7pt default it had before the 2026-09-02 bump to 8pt.
+
+**Verified by rendering, not by arithmetic.** The exact 14-column table was built
+in Node with the shipped widths and the 12 longest live filter names, then read
+back out of the PDF: every filter name, both dimension forms and "superadmin"
+come out whole — 24 username cells across the two By columns, one page, nothing
+broken mid-token. That check exists because 8.5pt passed a paper estimate on
+09-02 and then broke "500X300X200" into "500X300X20" / "0" on real data.
+
+Two corrections fell out of the measurement:
+
+- **Usable width is 267mm, not 268.** `addTable` passes no `margin`, so
+  autoTable's default applies; a 268mm table warns "0.78 units width could not
+  fit page". Filter went 46 -> 45mm.
+- **"Wash By" has been overflowing since it shipped.** At 8pt the live username
+  "superadmin" measures 14.6mm against 12mm of usable cell in a 17mm column. It
+  is 18mm at 7pt now, which holds a 12.8mm token in 13mm.
+
+### Locked
+
+`lib/__tests__/cleaning-cycle-columns.test.ts` — 5 cases guarding the failure
+modes that are silent rather than loud: a column key with no `report-labels`
+entry (renders a BLANK header), a `columnStyles` list shorter than the column
+list (every style after the gap lands on the wrong column), widths that overflow
+or badly underfill the page, and a font size raised without re-measuring. The
+test found its own bad assumption on first run — the report def key is
+`cleaning-cycles`, not the `cleaning-cycle-history` passed to `createReport`.
+
+Web: **746 passed** (57 files).
+
+
 ## [Unreleased] - Four more config writes now require a signature (2026-09-03)
 
 Follow-up to the access-matrix gate earlier today. Each of these was gated on a
