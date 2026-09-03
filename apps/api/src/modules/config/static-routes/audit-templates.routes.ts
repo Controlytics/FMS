@@ -1,4 +1,5 @@
 import { type FastifyInstance } from 'fastify';
+import { enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { auditTemplatesSchema } from '@digilog/shared';
 import { errorResponses } from '../../../lib/error-schemas.js';
 import { buildContext } from '../../../lib/build-context.js';
@@ -35,7 +36,15 @@ export async function auditTemplatesRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // 2026-09-03: gated. This write was CONFIG_UPDATE-only and took no
+    // signature at all. enforceReauthAlways, not enforceReauth: the action is
+    // newly registered, so it is absent from system_config['action-reauth'] and
+    // the config-driven check would gate nobody — the "toggle that does
+    // nothing" shape. This decides how every 21 CFR §11 audit row is rendered to an inspector.
+    const { ok } = await enforceReauthAlways('UPDATE_AUDIT_TEMPLATES', req, reply);
+    if (!ok) return;
+
     const ctx = buildContext(req);
     const data = await configService.updateAuditTemplates(req.body, auditTemplatesSchema, ctx);
     return { success: true, data };

@@ -1,5 +1,81 @@
 # Changelog
 
+## [Unreleased] - Four more config writes now require a signature (2026-09-03)
+
+Follow-up to the access-matrix gate earlier today. Each of these was gated on a
+permission alone and took no electronic signature:
+
+| Endpoint | What it decides | Action |
+|---|---|---|
+| `tablet-access` | which roles may log in on the tablet **at all** | `UPDATE_TABLET_ACCESS` |
+| `audit-templates` | how every 21 CFR §11 audit row renders to an inspector | `UPDATE_AUDIT_TEMPLATES` |
+| `report-signatories` | who is **named** as signing each report | `UPDATE_REPORT_SIGNATORIES` |
+| `field-ids/:fieldId` | the field labels operators read on every record | `UPDATE_FIELD_ID` |
+
+`REAUTH_ACTIONS` 93 -> 97. (`CLAUDE.md` line 16 also said 92, already stale
+before today; corrected to the verified 97, and sidebar items 26 -> 27.)
+
+### All four use `enforceReauthAlways`, and the reason is not stylistic
+
+A newly-registered action is absent from `system_config['action-reauth']`, so
+`isReauthRequired` returns false for every role and the config-driven
+`enforceReauth` would gate **nobody**. Registering four actions that gate nobody
+is exactly the "toggle that does nothing" shape this codebase keeps deleting.
+
+Consequence, stated plainly: their row on the Action Re-auth page is
+informational — the password cannot be switched off there. That matches the five
+existing always-on actions (`ACKNOWLEDGE_PM_OVERDUE`, the report reviews, the
+stage approvals), which are also listed but not switchable. **Making the page
+show that distinction is a real gap — pre-existing for 5 actions, now 9 — and
+deliberately NOT fixed here**; it is a UI change nobody asked for on a page
+nobody mentioned.
+
+### The frontend was the actual work
+
+Unlike access-matrix, none of these four pages went through `useReauth` at all —
+they called `apiClient.put` directly. The retroactive-dialog path only fires
+inside `reauth.execute`, so without wiring, the new 401 would have surfaced as a
+generic error toast **with no way to save**. All four now have `useReauth` +
+`ReauthDialog`, each with its own `actionLabel` (the 09-02 tablet bug was one
+hardcoded label shared by five call sites).
+
+`field-ids` needed care: it writes from **two** places — Save and
+Reset-to-default — against the same gated endpoint, so gating one would have left
+the other dead. Both now go through one `signedPut` helper; each callback closes
+over the row it acts on, so no row identity has to survive the dialog. And
+because `saving` is set BEFORE `execute()`, every page clears it on the cancel
+path too — a cancel arrives through `onError` as `REAUTH_CANCELLED`, which is not
+worth an error toast.
+
+### Tests
+
+`e2e/config-reauth-gates.test.ts` — 16 cases, the same three load-bearing
+assertions per endpoint as the access-matrix suite: **401 without a password,
+401 on a wrong password, and the stored config byte-identical afterwards** (the
+gate must run before the write). GET stays open on all four; reading a config is
+not a signed act. The file restores every config it touched in `afterAll`.
+
+`field-ids` also asserts a field exists before its other cases run — the earlier
+draft used a silent `return` on an empty table, which would have let every
+assertion pass without executing.
+
+**Three pre-existing tests in `config.test.ts` legitimately broke** and were
+updated to sign their requests. One of them is worth keeping as-is: the
+"returns 404 for non-existent field id" case now passes a password, so the real
+404 still surfaces — proof the gate does not mask genuine handler errors. A new
+case asserts the unsigned call 401s *before* that 404.
+
+API single-fork: **1456 passed, 0 test failures** (1 suite file errors in
+`beforeAll` — `filter-partial-update.test.ts`, the known stale AHU fixture
+documented in `apps/api/CLAUDE.md`). Web: **741**.
+
+### Still ungated: 5 config writes
+
+Down from 10. The rest are display-only and arguably fine unsigned:
+`report-labels`, `report-page-titles`, `export-options`, `pm-schedule-filters`,
+`replacement-schedule-filters`.
+
+
 ## [Unreleased] - The config access matrix now requires a signature (2026-09-03)
 
 `PUT /api/config/access-matrix` decides which config module each role may open,

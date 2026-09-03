@@ -614,10 +614,12 @@ describe('Config endpoints', () => {
         const target = fields[0];
         const originalName = target.displayName;
 
-        // Update
+        // Update. 2026-09-03: this endpoint takes a signature
+        // (UPDATE_FIELD_ID, enforceReauthAlways) — without the password it 401s
+        // before the handler runs.
         const putRes = await authPut(app, `/api/config/field-ids/${target.fieldId}`, adminToken, {
           displayName: 'E2E Test Label',
-        });
+        }, ADMIN_PASSWORD);
         expect(putRes.statusCode).toBe(200);
         const putBody = JSON.parse(putRes.body);
         expect(putBody.success).toBe(true);
@@ -625,15 +627,26 @@ describe('Config endpoints', () => {
         // Restore
         await authPut(app, `/api/config/field-ids/${target.fieldId}`, adminToken, {
           displayName: originalName,
-        });
+        }, ADMIN_PASSWORD);
       }
     });
 
     it('returns 404 for non-existent field id', async () => {
+      // Signed, so the reauth gate passes and the real 404 surfaces — this also
+      // proves the gate does not mask genuine handler errors.
+      const res = await authPut(app, '/api/config/field-ids/NONEXISTENT_FIELD_XYZ', adminToken, {
+        displayName: 'Ghost',
+      }, ADMIN_PASSWORD);
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('401s without a password — the endpoint is signed', async () => {
       const res = await authPut(app, '/api/config/field-ids/NONEXISTENT_FIELD_XYZ', adminToken, {
         displayName: 'Ghost',
       });
-      expect(res.statusCode).toBe(404);
+      // 401 BEFORE the 404: the signature is checked before the lookup.
+      expect(res.statusCode).toBe(401);
+      expect(JSON.parse(res.body).error).toBe('REAUTH_REQUIRED');
     });
   });
 
@@ -702,10 +715,12 @@ describe('Config endpoints', () => {
       const getRes = await authGet(app, '/api/config/audit-templates', adminToken);
       const original = JSON.parse(getRes.body);
 
-      // Update: set a custom template
+      // Update: set a custom template. 2026-09-03: signed
+      // (UPDATE_AUDIT_TEMPLATES) — these strings decide how every §11 audit row
+      // renders to an inspector.
       const putRes = await authPut(app, '/api/config/audit-templates', adminToken, {
         USER_CREATED: 'E2E test template for user {username}',
-      });
+      }, ADMIN_PASSWORD);
       expect(putRes.statusCode).toBe(200);
       const putBody = JSON.parse(putRes.body);
       expect(putBody.success).toBe(true);
@@ -713,7 +728,7 @@ describe('Config endpoints', () => {
 
       // Restore: put back an empty object to clear custom overrides
       // (the GET merges with defaults, so we restore by saving only what was truly custom)
-      await authPut(app, '/api/config/audit-templates', adminToken, {});
+      await authPut(app, '/api/config/audit-templates', adminToken, {}, ADMIN_PASSWORD);
     });
   });
 

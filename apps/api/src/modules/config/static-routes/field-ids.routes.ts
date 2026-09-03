@@ -1,4 +1,5 @@
 import { type FastifyInstance } from 'fastify';
+import { enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
 
@@ -58,7 +59,15 @@ export async function fieldIdsRoutes(app: FastifyInstance) {
         404: { type: 'object', properties: { error: { type: 'string' } } },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // 2026-09-03: gated. This write was CONFIG_UPDATE-only and took no
+    // signature at all. enforceReauthAlways, not enforceReauth: the action is
+    // newly registered, so it is absent from system_config['action-reauth'] and
+    // the config-driven check would gate nobody — the "toggle that does
+    // nothing" shape. This renames the field labels operators read on every record.
+    const { ok } = await enforceReauthAlways('UPDATE_FIELD_ID', req, reply);
+    if (!ok) return;
+
     const { fieldId } = req.params as { fieldId: string };
     const { displayName } = req.body as { displayName: string };
     const ctx = buildContext(req);

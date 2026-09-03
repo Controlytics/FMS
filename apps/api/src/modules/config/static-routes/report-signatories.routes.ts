@@ -1,4 +1,5 @@
 import { type FastifyInstance } from 'fastify';
+import { enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
@@ -25,7 +26,15 @@ export async function reportSignatoriesRoutes(app: FastifyInstance) {
       summary: 'Update the per-report signatory role matrix',
       body: { type: 'object', additionalProperties: true },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // 2026-09-03: gated. This write was CONFIG_UPDATE-only and took no
+    // signature at all. enforceReauthAlways, not enforceReauth: the action is
+    // newly registered, so it is absent from system_config['action-reauth'] and
+    // the config-driven check would gate nobody — the "toggle that does
+    // nothing" shape. This decides who is named as signing each report.
+    const { ok } = await enforceReauthAlways('UPDATE_REPORT_SIGNATORIES', req, reply);
+    if (!ok) return;
+
     const body = req.body as Record<string, any>;
     const ctx = buildContext(req);
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'report-signatories' } });

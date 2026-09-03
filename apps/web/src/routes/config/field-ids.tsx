@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 
 interface FieldConfig {
@@ -42,6 +44,7 @@ export function FieldIdsPage() {
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const reauth = useReauth();
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeModule, setActiveModule] = useState<string | null>(null);
@@ -83,19 +86,43 @@ export function FieldIdsPage() {
     setEditValue(field.displayName);
   };
 
+  /**
+   * Save and Reset below both PUT the same endpoint, which is gated on
+   * UPDATE_FIELD_ID (enforceReauthAlways) — so wiring only one of them would
+   * leave the other dead with an unexplained error.
+   *
+   * One `useReauth` covers both: each callback closes over the row it acts on,
+   * so no row identity has to survive the dialog. `saving` is set BEFORE
+   * execute(), which means it must be cleared on the cancel path too — a cancel
+   * arrives through onError as REAUTH_CANCELLED and is not worth an error
+   * message.
+   */
+  const signedPut = (fieldId: string, displayName: string, failMsg: string) =>
+    reauth.execute(
+      'UPDATE_FIELD_ID',
+      async (password?: string) => {
+        const url = `/api/config/field-ids/${fieldId}`;
+        if (password) await api.putWithReauth(url, { displayName }, password);
+        else await api.put(url, { displayName });
+      },
+      {
+        onSuccess: () => {
+          mutate('/api/config/field-ids');
+          setEditingField(null);
+          setSaving(false);
+        },
+        onError: (err: any) => {
+          if (err?.error !== 'REAUTH_CANCELLED') setError(err?.message || failMsg);
+          setSaving(false);
+        },
+      },
+    );
+
   const handleSave = async (fieldId: string) => {
     if (!editValue.trim()) return;
     setSaving(true);
     setError('');
-    try {
-      await api.put(`/api/config/field-ids/${fieldId}`, { displayName: editValue.trim() });
-      mutate('/api/config/field-ids');
-      setEditingField(null);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to save field name');
-    } finally {
-      setSaving(false);
-    }
+    await signedPut(fieldId, editValue.trim(), 'Failed to save field name');
   };
 
   const handleCancel = () => {
@@ -106,14 +133,7 @@ export function FieldIdsPage() {
   const handleReset = async (field: FieldConfig) => {
     setSaving(true);
     setError('');
-    try {
-      await api.put(`/api/config/field-ids/${field.fieldId}`, { displayName: field.defaultName });
-      mutate('/api/config/field-ids');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to reset field name');
-    } finally {
-      setSaving(false);
-    }
+    await signedPut(field.fieldId, field.defaultName, 'Failed to reset field name');
   };
 
   return (
@@ -373,6 +393,17 @@ export function FieldIdsPage() {
           </div>
         </div>
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Field Label"
+      />
     </div>
   );
 }

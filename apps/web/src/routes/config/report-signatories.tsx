@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { REPORT_TYPES } from '@/lib/report-types';
 
 type Matrix = Record<string, Record<string, string>>; // role -> reportKey -> label
@@ -20,6 +22,7 @@ const LABEL_CLS: Record<string, string> = {
 
 export function ReportSignatoriesPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
   const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/report-signatories');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
@@ -55,12 +58,32 @@ export function ReportSignatoriesPage() {
   const save = async () => {
     setSaving(true);
     try {
-      await apiClient.put('/api/config/report-signatories', draft);
-      await mutate(draft, false);
-      toast.success('Saved', 'Report signatories updated for all roles.');
+      // Signed: the backend gates this on UPDATE_REPORT_SIGNATORIES
+      // (enforceReauthAlways) — it decides who is NAMED as signing each report.
+      // `saving` clears on both exits; a cancel arrives through onError as
+      // REAUTH_CANCELLED, which is not an error worth a toast.
+      await reauth.execute(
+        'UPDATE_REPORT_SIGNATORIES',
+        async (password?: string) => {
+          if (password) await apiClient.putWithReauth('/api/config/report-signatories', draft, password);
+          else await apiClient.put('/api/config/report-signatories', draft);
+        },
+        {
+          onSuccess: async () => {
+            await mutate(draft, false);
+            toast.success('Saved', 'Report signatories updated for all roles.');
+            setSaving(false);
+          },
+          onError: (err: any) => {
+            if (err?.error !== 'REAUTH_CANCELLED') {
+              toast.error('Save failed', err?.message ?? 'Could not save report signatories.');
+            }
+            setSaving(false);
+          },
+        },
+      );
     } catch (err: any) {
       toast.error('Save failed', err?.message ?? 'Could not save report signatories.');
-    } finally {
       setSaving(false);
     }
   };
@@ -120,6 +143,17 @@ export function ReportSignatoriesPage() {
           </table>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Report Signatories"
+      />
     </div>
   );
 }

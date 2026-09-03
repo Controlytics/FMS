@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 import { AUDIT_TEMPLATE_DEFAULTS, AUDIT_TEMPLATE_CATEGORIES } from '@digilog/shared';
 import type { AuditTemplateDefinition } from '@digilog/shared';
 
@@ -12,6 +14,7 @@ export function AuditTemplatesConfigPage() {
   const { data: saved, mutate } = useSWR<Record<string, string>>('/api/config/audit-templates');
   const [templates, setTemplates] = useState<Record<string, string> | null>(null);
   const [saving, setSaving] = useState(false);
+  const reauth = useReauth();
   const [successMsg, setSuccessMsg] = useState('');
 
   // Initialize local state from fetched data
@@ -61,13 +64,27 @@ export function AuditTemplatesConfigPage() {
     setSaving(true);
     setSuccessMsg('');
     try {
-      await apiClient.put('/api/config/audit-templates', currentTemplates);
-      await mutate();
-      setTemplates(null);
-      setSuccessMsg('Audit text templates saved successfully.');
+      // Signed: the backend gates this on UPDATE_AUDIT_TEMPLATES
+      // (enforceReauthAlways) — these strings decide how every 21 CFR §11 audit
+      // row is rendered to an inspector. `saving` clears on both exits; a
+      // cancel arrives through onError as REAUTH_CANCELLED.
+      await reauth.execute(
+        'UPDATE_AUDIT_TEMPLATES',
+        async (password?: string) => {
+          if (password) await apiClient.putWithReauth('/api/config/audit-templates', currentTemplates, password);
+          else await apiClient.put('/api/config/audit-templates', currentTemplates);
+        },
+        {
+          onSuccess: async () => {
+            await mutate();
+            setTemplates(null);
+            setSuccessMsg('Audit text templates saved successfully.');
+            setSaving(false);
+          },
+          onError: () => setSaving(false),
+        },
+      );
     } catch {
-      // handled by api-client
-    } finally {
       setSaving(false);
     }
   };
@@ -261,6 +278,17 @@ export function AuditTemplatesConfigPage() {
           </div>
         </div>
       )}
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Audit Templates"
+      />
     </div>
   );
 }

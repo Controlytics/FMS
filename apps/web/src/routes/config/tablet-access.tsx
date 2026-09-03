@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthDialog } from '@/components/reauth-dialog';
 
 const FEATURES = [
   { key: 'login', label: 'Login', description: 'Allow this role to log into the tablet app' },
@@ -21,6 +23,7 @@ type TabletConfig = Record<string, string[]>;
 
 export function TabletAccessConfigPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
   const { data: config, isLoading } = useSWR('/api/config/tablet-access');
   const { data: rolesData } = useSWR('/api/roles', { revalidateOnMount: true, dedupingInterval: 0 });
   const [localConfig, setLocalConfig] = useState<TabletConfig>({});
@@ -80,14 +83,34 @@ export function TabletAccessConfigPage() {
       const cleaned: TabletConfig = Object.fromEntries(
         Object.entries(localConfig).map(([role, feats]) => [role, (feats ?? []).filter(f => known.has(f))]),
       );
-      await apiClient.put('/api/config/tablet-access', cleaned);
-      mutate('/api/config/tablet-access');
-      toast.success('Saved', 'Tablet access configuration updated');
-      setDirty(false);
+      // Signed: the backend gates this on UPDATE_TABLET_ACCESS
+      // (enforceReauthAlways), because it decides which roles may log in on the
+      // tablet at all. `saving` is cleared on BOTH exits — a cancel arrives
+      // through onError as REAUTH_CANCELLED, and without that the button would
+      // stick on "Saving…".
+      await reauth.execute(
+        'UPDATE_TABLET_ACCESS',
+        async (password?: string) => {
+          if (password) await apiClient.putWithReauth('/api/config/tablet-access', cleaned, password);
+          else await apiClient.put('/api/config/tablet-access', cleaned);
+        },
+        {
+          onSuccess: () => {
+            mutate('/api/config/tablet-access');
+            toast.success('Saved', 'Tablet access configuration updated');
+            setDirty(false);
+            setSaving(false);
+          },
+          onError: (e: any) => {
+            if (e?.error !== 'REAUTH_CANCELLED') toast.error('Error', e?.message ?? 'Failed to save');
+            setSaving(false);
+          },
+        },
+      );
     } catch (e: any) {
       toast.error('Error', e?.message ?? 'Failed to save');
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   if (isLoading) {
@@ -203,6 +226,17 @@ export function TabletAccessConfigPage() {
           <span>Changes take effect immediately — users must refresh or re-login on the tablet to see updates.</span>
         </div>
       </div>
+
+      <ReauthDialog
+        open={reauth.isOpen}
+        password={reauth.password}
+        error={reauth.error}
+        isVerifying={reauth.isVerifying}
+        onPasswordChange={reauth.setPassword}
+        onConfirm={reauth.confirm}
+        onCancel={reauth.cancel}
+        actionLabel="Update Tablet Access"
+      />
     </div>
   );
 }

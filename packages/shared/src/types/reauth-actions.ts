@@ -25,6 +25,17 @@ export const REAUTH_ACTIONS = {
   UPDATE_USERID_CONFIG: { label: 'Update User ID Config', category: 'Configuration' },
   UPDATE_BRANDING: { label: 'Update Branding', category: 'Configuration' },
   UPDATE_ROLE_CONFIG: { label: 'Update Role Config', category: 'Configuration' },
+  // 2026-09-03: four config writes that were gated on CONFIG_UPDATE alone and
+  // took no signature at all. All four use enforceReauthAlways, so — like
+  // ACKNOWLEDGE_PM_OVERDUE and the report/stage approvals — their row on the
+  // Action Re-auth page is informational: the password is intrinsic to the
+  // action, not an opt-in policy, and a newly-registered action is absent from
+  // system_config['action-reauth'] anyway, so a configurable gate would gate
+  // nobody.
+  UPDATE_TABLET_ACCESS: { label: 'Update Tablet Access', category: 'Configuration' },
+  UPDATE_AUDIT_TEMPLATES: { label: 'Update Audit Templates', category: 'Configuration' },
+  UPDATE_REPORT_SIGNATORIES: { label: 'Update Report Signatories', category: 'Configuration' },
+  UPDATE_FIELD_ID: { label: 'Update Field Label', category: 'Configuration' },
   // Audit 2026-06-08: PUT /api/config/users/:userId can grant per-user PERMISSION
   // overrides (privilege escalation) — dedicated reauth key + unambiguous audit.
   UPDATE_USER_CONFIG: { label: 'Update User Config', category: 'Configuration' },

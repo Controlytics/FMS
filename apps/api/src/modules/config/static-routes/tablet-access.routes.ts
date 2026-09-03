@@ -1,4 +1,5 @@
 import { type FastifyInstance } from 'fastify';
+import { enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
@@ -19,7 +20,15 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
       summary: 'Update tablet app access configuration',
       body: { type: 'object', additionalProperties: true },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    // 2026-09-03: gated. This write was CONFIG_UPDATE-only and took no
+    // signature at all. enforceReauthAlways, not enforceReauth: the action is
+    // newly registered, so it is absent from system_config['action-reauth'] and
+    // the config-driven check would gate nobody — the "toggle that does
+    // nothing" shape. This decides which roles may log in on the tablet at all.
+    const { ok } = await enforceReauthAlways('UPDATE_TABLET_ACCESS', req, reply);
+    if (!ok) return;
+
     const body = req.body as any;
     const ctx = buildContext(req);
     await prisma.systemConfig.upsert({
