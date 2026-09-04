@@ -1,5 +1,16 @@
-import { fmtMinutes } from '../../lib/cleaning-cycle-report';
+import {
+  fmtMinutes, cycleEndInfo, effectiveCycleStatus, performerLabel,
+  STAGE_ORDER, maxReachedStageIndex, resolveStageCell, stageCellText,
+  transitionEndpoints, phaseSuffix,
+} from '../../lib/cleaning-cycle-report';
 import { STAGE_LABELS } from './cycle-detail-view';
+
+// Cycle status as an inspector reads it. RETIRED / REPLACED are effective
+// statuses — a TERMINATED cycle whose filter was retired / replaced mid-clean.
+const STATUS_LABELS: Record<string, string> = {
+  COMPLETED: 'Completed', IN_PROGRESS: 'In Progress',
+  TERMINATED: 'Terminated', RETIRED: 'Retired', REPLACED: 'Replaced',
+};
 
 /**
  * Append one cleaning cycle's full detail (summary key-values + stage progress
@@ -11,7 +22,14 @@ import { STAGE_LABELS } from './cycle-detail-view';
 export function appendCycleDetailToReport(
   report: any,
   cycle: any,
-  fmt: { formatDateTime: (s: string) => string },
+  fmt: {
+    formatDateTime: (s: string) => string;
+    /** FILTER_RETIRED / FILTER_REPLACED audit performer, for a cycle ended by
+     *  retire/replace — that path writes no CYCLE_TERMINATED event, so the cycle
+     *  records no terminator of its own. See CycleDetailView's prop of the same
+     *  name for why the caller resolves it. */
+    fallback?: { replacedBy?: string | null; retiredBy?: string | null };
+  },
 ) {
   const { formatDateTime } = fmt;
   const events = cycle.events ?? [];
@@ -28,22 +46,73 @@ export function appendCycleDetailToReport(
     .filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState)
     .map((e: any) => e.toState);
 
-  // Summary key-values
-  report.addKeyValue([
+  // Summary key-values.
+  //
+  // This block used to read `['Completed', cycle.completedAt ? … : 'In Progress']`
+  // unconditionally, so a TERMINATED cycle asserted it was COMPLETED at the
+  // instant it was terminated — 20 of 24 live terminated cycles have
+  // completedAt set — and the report never named who ended it. Both are the
+  // same one-line fix: cycleEndInfo returns the matching label pair, and it is
+  // the SAME helper the lifecycle table and the on-screen detail use.
+  const eff = effectiveCycleStatus(cycle);
+  const endInfo = cycleEndInfo(cycle, formatDateTime, fmt.fallback);
+  const inProgress = eff === 'IN_PROGRESS';
+  const summaryRows: [string, string][] = [
     ['Cleaning Reason', cycle.cleaningReasonLabel || cycle.cleaningReasonKey || '-'],
     ['Block', cycle.cleaningAreaName ?? '-'],
+    ['Status', STATUS_LABELS[eff] ?? eff],
     ['Duration', durationStr],
     ['Started', formatDateTime(cycle.startedAt)],
-    ['Completed', cycle.completedAt ? formatDateTime(cycle.completedAt) : 'In Progress'],
+    // "-" is honest: 12 live cycles were terminated DB-direct and no terminator
+    // was ever recorded. Naming the last stage's operator under "Terminated by"
+    // would be a false statement about who ended the cycle.
+    [endInfo.endLabel.replace('Cycle ', ''), inProgress ? 'In Progress' : (endInfo.endTimeText === '—' ? '-' : endInfo.endTimeText)],
+    [endInfo.byLabel, inProgress ? '-' : (endInfo.by ?? '-')],
     ['Events', `${events.length} event(s)`],
-  ]);
+  ];
+  report.addKeyValue(summaryRows);
 
-  // Stage progress
+  // The operator's stated reason for ending the cycle — stored since terminate()
+  // was written and printed on no report until 2026-09-04. RETIRED / REPLACED
+  // are the status, not a reason, and are already on the Status row.
+  //
+  // A TABLE, not another key-value pair: addKeyValue lays out 3 fixed ~61mm
+  // columns and jsPDF's doc.text does not wrap, so a long reason would run off
+  // the page edge and be lost. The live reasons are 92 and 171 characters —
+  // ~273mm of 9pt helvetica for the longer one, on a 210mm page. autoTable
+  // wraps.
+  const terminationReason: string | null =
+    cycle.terminationReason && cycle.terminationReason !== 'RETIRED' && cycle.terminationReason !== 'REPLACED'
+      ? cycle.terminationReason : null;
+  if (terminationReason) {
+    report.addTable({
+      head: ['Termination Reason'],
+      body: [[terminationReason]],
+      headColor: [185, 28, 28],
+    });
+  }
+
+  // Stage progress.
+  //
+  // Every unreached stage used to read "Pending" — on a TERMINATED cycle that
+  // asserts the work is still outstanding on a record that was abandoned, and on
+  // a stage the cycle's profile does not even contain it invents work that was
+  // never planned. Same rule as the Cleaning Record's stage columns
+  // (resolveStageCell): NA / Skipped / Terminated / Retired / Replaced /
+  // Pending, with "Pending" meaning ONLY an in-progress cycle. STAGE_ORDER is
+  // the shared axis — this file used to keep its own copy of the six stages.
   report.addSectionTitle('Stage Progress');
-  const allStages = ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'];
+  const profileStages: string[] = cycle.profileStages ?? [];
+  const maxReachedIdx = maxReachedStageIndex(events, profileStages);
   report.addTable({
-    head: allStages.map((s) => STAGE_LABELS[s] ?? s),
-    body: [allStages.map((s) => completedStages.includes(s) ? 'Done' : 'Pending')],
+    head: STAGE_ORDER.map((st) => STAGE_LABELS[st] ?? st),
+    body: [STAGE_ORDER.map((st) => stageCellText(resolveStageCell({
+      stage: st,
+      value: completedStages.includes(st) ? 'Done' : null,
+      profileStages,
+      effStatus: eff,
+      maxReachedIdx,
+    })))],
     headColor: [59, 130, 246],
   });
 
@@ -53,14 +122,17 @@ export function appendCycleDetailToReport(
   const checklistRows: { eventIdx: number; qa: { question: string; answer: any }[] }[] = [];
 
   events.forEach((ev: any, idx: number) => {
+    // The two DRY_IN steps read as "Wash Out -> Dry In (Started)" and
+    // "Dry In -> Dry In (Ended)"; everything else passes straight through.
+    const { from, to, phase } = transitionEndpoints(ev);
     eventRows.push([
       String(idx + 1),
       ev.eventType.replace(/_/g, ' '),
-      ev.fromState
-        ? (STAGE_LABELS[ev.fromState] ?? ev.fromState)
-        : (ev.eventType === 'STATE_TRANSITION' && ev.toState ? 'To Be Cleaned' : '-'),
-      ev.toState ? (STAGE_LABELS[ev.toState] ?? ev.toState) : '-',
-      ev.performedByName ?? '-',
+      from
+        ? (STAGE_LABELS[from] ?? from)
+        : (ev.eventType === 'STATE_TRANSITION' && to ? 'To Be Cleaned' : '-'),
+      to ? `${STAGE_LABELS[to] ?? to}${phaseSuffix(phase)}` : '-',
+      performerLabel(ev),
       formatDateTime(ev.performedAt),
       ev.remarks || '-',
     ]);

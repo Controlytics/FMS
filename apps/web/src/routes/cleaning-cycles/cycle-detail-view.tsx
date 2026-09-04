@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
-import { fmtMinutes, effectiveCycleStatus, stageProgress, STAGE_ORDER } from '../../lib/cleaning-cycle-report';
+import { fmtMinutes, cycleEndInfo, effectiveCycleStatus, stageProgress, STAGE_ORDER, performerLabel, transitionEndpoints, phaseSuffix } from '../../lib/cleaning-cycle-report';
 
 // Presentational constants for a single cleaning-cycle's detail view. Shared by
 // the View detail page (timeline.tsx) and the Filter Lifecycle Report
@@ -16,6 +16,9 @@ const EVENT_ICONS: Record<string, { icon: string; color: string; border: string;
   REMARK_ADDED: { icon: '💬', color: 'text-slate-500', border: 'border-slate-400', bg: 'bg-slate-50' },
   APPROVAL_GRANTED: { icon: '✅', color: 'text-emerald-600', border: 'border-emerald-500', bg: 'bg-emerald-50' },
   CYCLE_COMPLETED: { icon: '●', color: 'text-green-600', border: 'border-green-500', bg: 'bg-green-50' },
+  // Without its own entry this fell through to REMARK_ADDED's grey speech
+  // bubble — the event that ENDED the cycle rendered like a passing note.
+  CYCLE_TERMINATED: { icon: '✕', color: 'text-red-600', border: 'border-red-500', bg: 'bg-red-50' },
 };
 
 export const STAGE_LABELS: Record<string, string> = {
@@ -27,7 +30,9 @@ const STAGE_BADGE: Record<string, string> = {
   WASH_IN: 'bg-sky-50 text-sky-700 border-sky-200',
   WASH_OUT: 'bg-sky-50 text-sky-700 border-sky-200',
   DRY_IN: 'bg-amber-50 text-amber-700 border-amber-200',
-  DRY_OUT: 'bg-amber-50 text-amber-200 border-amber-200/40',
+  // amber-200 text on an amber-50 background was unreadable (audit M62, open
+  // since 2026-07-13; fixed 2026-09-04) — now the same weight as DRY_IN.
+  DRY_OUT: 'bg-amber-50 text-amber-700 border-amber-200',
   STORAGE_IN: 'bg-slate-100 text-slate-600 border-slate-200',
   STORAGE_OUT: 'bg-slate-100/40 text-slate-700 border-slate-200',
 };
@@ -58,7 +63,16 @@ const REASON_COLORS: Record<string, string> = {
  * accordion. Requires a cycle fetched from GET /api/filters/cycles/:id (the
  * list endpoint does NOT resolve checklist question text / AHU name / pins).
  */
-export function CycleDetailView({ cycle }: { cycle: any }) {
+export function CycleDetailView({ cycle, fallback }: {
+  cycle: any;
+  /** FILTER_RETIRED / FILTER_REPLACED audit performer, for a cycle ended by
+   *  retire/replace — those write no CYCLE_TERMINATED event, so the cycle
+   *  itself records no terminator. Resolved by the CALLER (from
+   *  /api/filters/{retirements,replacements}) rather than server-side on the
+   *  cycle, because /api/filters/replacements hides SUPER_ADMIN-performed
+   *  rows from lower roles and that rule must not be bypassed. */
+  fallback?: { replacedBy?: string | null; retiredBy?: string | null };
+}) {
   const navigate = useNavigate();
   const { formatDateTime } = useDatetimeFormat();
 
@@ -74,6 +88,11 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
   const durationStr = fmtMinutes(dryerMinutes) ?? '—';
 
   const eff = effectiveCycleStatus(cycle);
+  // A TERMINATED cycle used to print its end time under the label "Completed"
+  // (20 of 24 live terminated cycles have completedAt set) and never named who
+  // ended it. Same helper as the Filter Lifecycle Report's table, so the summary
+  // row and this detail can never disagree.
+  const endInfo = cycleEndInfo(cycle, formatDateTime, fallback);
   // A manual status update isn't a cycle — render it through this same view
   // (info card + stage bar + event timeline) but badge it "Manual Update"
   // instead of a cycle status.
@@ -116,7 +135,7 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
           </div>
 
           {/* Info Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
               <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Cleaning Reason</div>
               <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${REASON_COLORS[cycle.cleaningReasonKey] ?? 'bg-slate-100 text-slate-600'}`}>
@@ -136,8 +155,15 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
               <div className="text-sm text-slate-700">{formatDateTime(cycle.startedAt)}</div>
             </div>
             <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{cycle.completedAt ? 'Completed' : 'Events'}</div>
-              <div className="text-sm text-slate-700">{cycle.completedAt ? formatDateTime(cycle.completedAt) : `${events.length} events`}</div>
+              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{endInfo.endLabel.replace('Cycle ', '')}</div>
+              <div className="text-sm text-slate-700">{eff === 'IN_PROGRESS' ? `${events.length} events` : endInfo.endTimeText}</div>
+            </div>
+            <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
+              {/* "—" is honest: 12 live cycles were terminated DB-direct and no
+                  terminator was ever recorded anywhere. Naming the last stage's
+                  operator here would be a false statement about who ended it. */}
+              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{endInfo.byLabel}</div>
+              <div className="text-sm text-slate-700">{eff === 'IN_PROGRESS' ? '—' : (endInfo.by ?? '—')}</div>
             </div>
           </div>
 
@@ -147,10 +173,20 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
             </div>
           )}
 
+          {/* The operator's stated reason for ending the cycle. Stored since
+              terminate() was written and rendered on no detail surface until
+              2026-09-04. 'RETIRED' / 'REPLACED' are not reasons — they are the
+              status, already on the badge and the stage bar's terminal chip. */}
+          {cycle.terminationReason && cycle.terminationReason !== 'RETIRED' && cycle.terminationReason !== 'REPLACED' && (
+            <div className="mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              <span className="font-semibold">Termination reason: </span>{cycle.terminationReason}
+            </div>
+          )}
+
           {/* Pinned versions (audit replay) — deep-link each to Version History. */}
           {(cycle.profileVersion !== undefined || cycle.equipmentGroupVersionPin || (cycle.checklistVersionPins && Object.keys(cycle.checklistVersionPins ?? {}).length > 0)) && (
             <div className="mt-3 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg">
-              <div className="text-[10px] text-indigo-700 uppercase tracking-wider mb-1.5 font-semibold">Pinned Versions (audit replay)</div>
+              <div className="text-[10px] text-indigo-700 uppercase tracking-wider mb-1.5 font-semibold">Pinned Versions</div>
               <div className="flex flex-wrap gap-2 items-center">
                 {cycle.profileVersion !== undefined && (
                   <button
@@ -211,12 +247,20 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
                 </div>
               );
             })}
-            {/* Cycle ended by retire/replace → terminal chip after the last stage. */}
-            {(eff === 'REPLACED' || eff === 'RETIRED') && (
+            {/* Cycle ended before its last stage → terminal chip after the bar.
+                Plain TERMINATED was missing here, so an abandoned cycle showed a
+                bar of grey "not yet reached" stages and nothing saying it had
+                ended at all — the same claim the stage COLUMNS stopped making on
+                2026-09-03. */}
+            {(eff === 'REPLACED' || eff === 'RETIRED' || eff === 'TERMINATED') && (
               <div className="flex items-center gap-2 shrink-0">
                 <div className="w-3 h-0.5 shrink-0 bg-slate-200" />
-                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold justify-center border ${eff === 'RETIRED' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-purple-50 text-purple-700 border-purple-200'}`}>
-                  {eff === 'RETIRED' ? 'Retired' : 'Replaced'}
+                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold justify-center border ${
+                  eff === 'RETIRED' ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : eff === 'REPLACED' ? 'bg-purple-50 text-purple-700 border-purple-200'
+                  : 'bg-red-50 text-red-700 border-red-200'
+                }`}>
+                  {eff === 'RETIRED' ? 'Retired' : eff === 'REPLACED' ? 'Replaced' : 'Terminated'}
                 </div>
               </div>
             )}
@@ -267,9 +311,12 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
                     <span className="text-sm font-semibold text-slate-800">
                       {event.eventType.replace(/_/g, ' ')}
                     </span>
-                    {event.performedByName && (
+                    {/* performerLabel, not performedByName: the name is null for
+                        a deleted user and this badge simply vanished — 92% of
+                        live filter_events are in that state. */}
+                    {performerLabel(event, '') && (
                       <span className="text-[11px] text-slate-400 bg-white px-2 py-0.5 rounded-full">
-                        by {event.performedByName}
+                        by {performerLabel(event)}
                       </span>
                     )}
                   </div>
@@ -279,31 +326,33 @@ export function CycleDetailView({ cycle }: { cycle: any }) {
                 {/* State Transition. A transition with no fromState is the
                     "genesis" move — the filter entering its first cleaning
                     stage from the pre-cycle lifecycle state, shown as
-                    "To Be Cleaned". */}
-                {(event.fromState || event.toState) && (
+                    "To Be Cleaned". The two DRY_IN steps are the exception and
+                    are resolved by transitionEndpoints — see its docstring. */}
+                {(() => { const { from: evFrom, to: evTo, phase: evPhase } = transitionEndpoints(event); return (
+                (evFrom || evTo) && (
                   <div className="flex items-center gap-2 mb-2">
-                    {event.toState && (
+                    {evTo && (
                       <span className="px-2 py-0.5 text-xs rounded-md bg-white text-slate-500">
-                        {event.fromState ? (STAGE_LABELS[event.fromState] ?? event.fromState.replace(/_/g, ' ')) : 'To Be Cleaned'}
+                        {evFrom ? (STAGE_LABELS[evFrom] ?? evFrom.replace(/_/g, ' ')) : 'To Be Cleaned'}
                       </span>
                     )}
-                    {event.fromState && !event.toState && (
+                    {evFrom && !evTo && (
                       <span className="px-2 py-0.5 text-xs rounded-md bg-white text-slate-500">
-                        {STAGE_LABELS[event.fromState] ?? event.fromState.replace(/_/g, ' ')}
+                        {STAGE_LABELS[evFrom] ?? evFrom.replace(/_/g, ' ')}
                       </span>
                     )}
-                    {event.toState && (
+                    {evTo && (
                       <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                       </svg>
                     )}
-                    {event.toState && (
-                      <span className={`px-2.5 py-0.5 text-xs font-medium rounded-md border ${STAGE_BADGE[event.toState] ?? 'bg-slate-100 text-slate-600 border-slate-300'}`}>
-                        {STAGE_LABELS[event.toState] ?? event.toState.replace(/_/g, ' ')}
+                    {evTo && (
+                      <span className={`px-2.5 py-0.5 text-xs font-medium rounded-md border ${STAGE_BADGE[evTo] ?? 'bg-slate-100 text-slate-600 border-slate-300'}`}>
+                        {STAGE_LABELS[evTo] ?? evTo.replace(/_/g, ' ')}{phaseSuffix(evPhase)}
                       </span>
                     )}
                   </div>
-                )}
+                )); })()}
 
                 {/* Dryer info (DRY_IN SET_DURATION event): selected dryer duration
                     + the time the operator submitted it. */}

@@ -8,7 +8,7 @@ import { useOffline } from '../../hooks/use-offline';
 import { useReauth } from '@/hooks/use-reauth';
 import { useAndroidBackButton } from '@/hooks/use-android-back-button';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
-import { effectiveCycleStatus } from '@/lib/cleaning-cycle-report';
+import { cycleEndInfo, effectiveCycleStatus, performerLabel, transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
 import { useRfidScanField } from '@/hooks/use-rfid-scan-field';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { scopeFiltersToCascade, countByStage } from '@/lib/filter-status-scope';
@@ -2192,6 +2192,18 @@ export function MobileWrapperPage() {
             ? `${Math.floor(durSec / 3600)}h ${Math.floor((durSec % 3600) / 60)}m`
             : `${Math.floor(durSec / 60)}m ${durSec % 60}s`;
           const detailStatusUi = cycleStatusUi(cycleDetail);
+          // The tablet card said "Completed <time>" for a TERMINATED cycle too —
+          // 20 of 24 live terminated cycles have completedAt set — and named
+          // nobody. Same helper as the desktop detail and the lifecycle report,
+          // so the three cannot drift.
+          //
+          // No retire/replace fallback here on purpose: resolving those 19 of 672
+          // cycles costs two whole-table fetches (/api/filters/{retirements,
+          // replacements}) on a tablet that is often on a poor link or offline.
+          // They show "—", which is the honest answer for a device that cannot
+          // see the audit rows.
+          const detailEnd = cycleEndInfo(cycleDetail, (iso: string) => `${formatDate(iso)} ${formatTime(new Date(iso))}`);
+          const detailEnded = effectiveCycleStatus(cycleDetail) !== 'IN_PROGRESS';
           const statusBadge = detailStatusUi.badge;
           return (
             <div className="p-4 space-y-3 max-w-2xl mx-auto">
@@ -2217,11 +2229,11 @@ export function MobileWrapperPage() {
                     <div className="text-[11px] text-slate-500 font-mono-tab leading-tight">{formatTime(new Date(cycleDetail.startedAt))}</div>
                   </div>
                   <div className="bg-slate-50 rounded-lg px-3 py-2">
-                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">{cycleDetail.completedAt ? 'Completed' : 'Duration so far'}</div>
-                    {cycleDetail.completedAt ? (
+                    <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">{detailEnded ? detailEnd.endLabel.replace('Cycle ', '') : 'Duration so far'}</div>
+                    {detailEnded && cycleDetail.completedAt ? (
                       <>
-                        <div className="text-[12px] text-slate-800 font-mono-tab mt-0.5 leading-tight">{formatDate(cycleDetail.completedAt)}</div>
-                        <div className="text-[11px] text-slate-500 font-mono-tab leading-tight">{formatTime(new Date(cycleDetail.completedAt))}</div>
+                        <div className="text-[12px] text-slate-800 font-mono-tab mt-0.5 leading-tight">{formatDate(cycleDetail.terminatedAt ?? cycleDetail.completedAt)}</div>
+                        <div className="text-[11px] text-slate-500 font-mono-tab leading-tight">{formatTime(new Date(cycleDetail.terminatedAt ?? cycleDetail.completedAt))}</div>
                       </>
                     ) : (
                       <div className="text-[14px] text-slate-800 font-mono-tab mt-0.5 leading-tight font-semibold">{durLabel}</div>
@@ -2235,10 +2247,22 @@ export function MobileWrapperPage() {
                     <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">Reason</div>
                     <div className="text-[12px] text-slate-700 font-medium mt-0.5 leading-tight">{cycleDetail.cleaningReasonLabel ?? cycleDetail.cleaningReasonKey ?? '—'}</div>
                   </div>
+                  {detailEnded && (
+                    <div className="bg-slate-50 rounded-lg px-3 py-2">
+                      <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">{detailEnd.byLabel}</div>
+                      <div className="text-[12px] text-slate-700 font-medium mt-0.5 leading-tight">{detailEnd.by ?? '—'}</div>
+                    </div>
+                  )}
                 </div>
                 {cycleDetail.cleaningJustification && (
                   <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-[12px] text-amber-700 italic leading-snug">
                     {cycleDetail.cleaningJustification}
+                  </div>
+                )}
+                {/* RETIRED / REPLACED are the status, already on the badge. */}
+                {cycleDetail.terminationReason && cycleDetail.terminationReason !== 'RETIRED' && cycleDetail.terminationReason !== 'REPLACED' && (
+                  <div className="mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[12px] text-red-700 leading-snug">
+                    <span className="font-semibold">Termination reason: </span>{cycleDetail.terminationReason}
                   </div>
                 )}
               </div>
@@ -2261,7 +2285,12 @@ export function MobileWrapperPage() {
                         <div className={`pl-4 pr-3.5 py-3 ${style.bg}`}>
                           <div className="flex items-start justify-between gap-2 mb-1.5">
                             <div className="font-display text-[13px] font-semibold text-slate-900 leading-tight">
-                              {style.label}
+                              {/* "Stage Moved" is a claim, and on the two dryer
+                                  rows it is false — the filter never leaves
+                                  DRY_IN between setting the duration and
+                                  submitting the temperature. */}
+                              {(() => { const ph = transitionEndpoints(ev).phase;
+                                return ph === 'started' ? 'Dryer Started' : ph === 'ended' ? 'Dryer Ended' : style.label; })()}
                               {ev.eventType === 'STATE_TRANSITION' && ev.toState && (
                                 <span className="ml-1.5 text-[11px] font-mono-tab text-slate-500">&rarr; {STAGE_LABELS[ev.toState] ?? ev.toState.replace(/_/g, ' ')}</span>
                               )}
@@ -2271,16 +2300,16 @@ export function MobileWrapperPage() {
                               <div className="text-[10px] text-slate-500 font-mono-tab leading-tight">{formatTime(new Date(ev.performedAt))}</div>
                             </div>
                           </div>
-                          {(ev.performedByUsername || ev.performedByName) && (
-                            <div className="text-[10.5px] text-slate-500">by <span className="text-slate-700 font-medium font-mono-tab">{ev.performedByUsername ?? ev.performedByName}</span></div>
+                          {performerLabel(ev, '') && (
+                            <div className="text-[10.5px] text-slate-500">by <span className="text-slate-700 font-medium font-mono-tab">{performerLabel(ev)}</span></div>
                           )}
-                          {ev.toState && (
+                          {(() => { const { from: tFrom, to: tTo, phase: tPhase } = transitionEndpoints(ev); return tTo && (
                             <div className="flex items-center gap-1.5 mt-1.5">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-200 text-slate-500 font-mono-tab">{ev.fromState ? (STAGE_LABELS[ev.fromState] ?? ev.fromState) : 'To Be Cleaned'}</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-200 text-slate-500 font-mono-tab">{tFrom ? (STAGE_LABELS[tFrom] ?? tFrom) : 'To Be Cleaned'}</span>
                               <svg className="w-3 h-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-300 text-slate-700 font-mono-tab font-semibold">{STAGE_LABELS[ev.toState] ?? ev.toState}</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-300 text-slate-700 font-mono-tab font-semibold">{STAGE_LABELS[tTo] ?? tTo}{phaseSuffix(tPhase)}</span>
                             </div>
-                          )}
+                          ); })()}
                         </div>
                         {/* Instrument readings */}
                         {readings.length > 0 && (

@@ -53,6 +53,7 @@ import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 import { bulkOperate, type BulkClientItem, type BulkClientResult } from '@/lib/filter-ops/bulk-operate';
 import { PmPendingTasksDialog, type PendingPmTask } from '@/components/pm-pending-tasks-dialog';
 import { refreshPmPendingCache, getCachedPendingPmTasksForFilter, forgetCachedPmTasks } from '@/lib/pm-pending-cache';
+import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
 
 type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'cycles';
 
@@ -3730,7 +3731,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                             <span className="text-slate-400 shrink-0">{formatTime(new Date(e.performedAt))}</span>
                             <span className="font-medium text-slate-700 truncate">
                               {e.eventType === 'STATE_TRANSITION'
-                                ? (e.fromState ? `${e.fromState.replace(/_/g, ' ')} → ${e.toState?.replace(/_/g, ' ')}` : (e.toState ? `To Be Cleaned → ${e.toState.replace(/_/g, ' ')}` : 'transition'))
+                                ? (() => {
+                                    const { from: tf, to: tt, phase: tp } = transitionEndpoints(e);
+                                    const toLbl = tt ? `${tt.replace(/_/g, ' ')}${phaseSuffix(tp)}` : null;
+                                    return tf ? `${tf.replace(/_/g, ' ')} → ${toLbl}` : (toLbl ? `To Be Cleaned → ${toLbl}` : 'transition');
+                                  })()
                                 : e.eventType.replace(/_/g, ' ').toLowerCase()}
                             </span>
                           </div>

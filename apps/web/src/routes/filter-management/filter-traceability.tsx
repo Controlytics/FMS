@@ -7,6 +7,7 @@ import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import type { CleaningCycle, FilterEvent, PaginatedResponse } from '../../types/filter';
+import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
 
 const TRACE_COLS = ['code', 'reason', 'status', 'started', 'completed', 'seq'];
 
@@ -67,11 +68,11 @@ export function FilterTraceabilityPage() {
                 <span className="text-sm font-semibold text-slate-800">{e.eventType.replace(/_/g, ' ')}</span>
                 <span className="text-xs text-slate-400">{formatDateTime(e.performedAt)}</span>
               </div>
-              {(e.fromState || e.toState) && (
+              {(() => { const { from: ef, to: et, phase: ep } = transitionEndpoints(e); return (ef || et) && (
                 <div className="text-sm text-slate-600">
-                  {e.fromState ? e.fromState.replace(/_/g, ' ') : (e.toState ? 'To Be Cleaned' : '')} {e.toState && '→'} <span className="text-cyan-600">{e.toState?.replace(/_/g, ' ')}</span>
+                  {ef ? ef.replace(/_/g, ' ') : (et ? 'To Be Cleaned' : '')} {et && '→'} <span className="text-cyan-600">{et ? `${et.replace(/_/g, ' ')}${phaseSuffix(ep)}` : ''}</span>
                 </div>
-              )}
+              ); })()}
               {e.remarks && <div className="text-sm text-slate-400 mt-1 italic">{e.remarks}</div>}
               <div className="text-xs text-slate-300 mt-1 font-mono">Checksum: {e.checksum?.slice(0, 16)}...</div>
             </div>

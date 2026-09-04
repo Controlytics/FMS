@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { cycleEndInfo, mergeTimeline, timelineBlocks } from '../filter-lifecycle';
+import { mergeTimeline, replacementChain, timelineBlocks } from '../filter-lifecycle';
+import { cycleEndInfo } from '../../../lib/cleaning-cycle-report';
 
 /**
  * Manual status updates used to be collected into a trailing "Manual Status
@@ -140,5 +141,69 @@ describe('cycleEndInfo — who is "By"', () => {
       { status: 'TERMINATED', terminatedAt: 'T', completedByUsername: null, lastStageByUsername: null }, fmt,
     );
     expect(info.by).toBeNull();
+  });
+});
+
+/**
+ * A replaced filter's history does not end — it continues in its successor, and
+ * the report's own Lifecycle Events say so. Reporting only the picked filter
+ * left those references pointing at records nowhere in the document: the
+ * operator's L2/AHU-011/SA/01-01 showed ZERO cycles beside "Created as
+ * replacement of 01" and "Replaced by 01-02", while 01 held all 5 cycles.
+ */
+describe('replacementChain', () => {
+  //  01 -> 01-01 -> 01-02 -> 01-03, the operator's real chain
+  const byOld = new Map<string, any>([
+    ['01',    { oldFilterId: '01',    newFilterId: '01-01' }],
+    ['01-01', { oldFilterId: '01-01', newFilterId: '01-02' }],
+    ['01-02', { oldFilterId: '01-02', newFilterId: '01-03' }],
+  ]);
+  const byNew = new Map<string, any>([
+    ['01-01', { oldFilterId: '01',    newFilterId: '01-01' }],
+    ['01-02', { oldFilterId: '01-01', newFilterId: '01-02' }],
+    ['01-03', { oldFilterId: '01-02', newFilterId: '01-03' }],
+  ]);
+
+  it('returns the whole chain oldest-first from any link', () => {
+    for (const pick of ['01', '01-01', '01-02', '01-03']) {
+      expect(replacementChain(pick, byOld, byNew)).toEqual(['01', '01-01', '01-02', '01-03']);
+    }
+  });
+
+  it('returns just the filter when it was never replaced', () => {
+    expect(replacementChain('solo', new Map(), new Map())).toEqual(['solo']);
+  });
+
+  it('walks only backwards from the newest link and only forwards from the oldest', () => {
+    const twoByOld = new Map<string, any>([['a', { oldFilterId: 'a', newFilterId: 'b' }]]);
+    const twoByNew = new Map<string, any>([['b', { oldFilterId: 'a', newFilterId: 'b' }]]);
+    expect(replacementChain('a', twoByOld, twoByNew)).toEqual(['a', 'b']);
+    expect(replacementChain('b', twoByOld, twoByNew)).toEqual(['a', 'b']);
+  });
+
+  it('terminates on a malformed self-referencing pair instead of hanging', () => {
+    // These maps are built from audit rows, so a bad pair is data, not a bug —
+    // and an infinite walk would freeze the report rather than fail visibly.
+    const loopOld = new Map<string, any>([['x', { oldFilterId: 'x', newFilterId: 'x' }]]);
+    const loopNew = new Map<string, any>([['x', { oldFilterId: 'x', newFilterId: 'x' }]]);
+    expect(replacementChain('x', loopOld, loopNew)).toEqual(['x']);
+  });
+
+  it('terminates on a longer cycle too', () => {
+    const cycOld = new Map<string, any>([
+      ['a', { oldFilterId: 'a', newFilterId: 'b' }],
+      ['b', { oldFilterId: 'b', newFilterId: 'a' }],
+    ]);
+    const cycNew = new Map<string, any>([
+      ['b', { oldFilterId: 'a', newFilterId: 'b' }],
+      ['a', { oldFilterId: 'b', newFilterId: 'a' }],
+    ]);
+    const out = replacementChain('a', cycOld, cycNew);
+    expect(new Set(out).size).toBe(out.length);
+    expect(out).toContain('a');
+  });
+
+  it('is empty for a missing id', () => {
+    expect(replacementChain('', byOld, byNew)).toEqual([]);
   });
 });

@@ -38,6 +38,29 @@ export const CC_COL_KEYS = [
  * (cycle mid-dryer, no temperature yet). Every other stage emits a single
  * readings-bearing transition, so the fallback to stageEvents[0] is correct.
  */
+/**
+ * Who performed a filter event, for display.
+ *
+ * `performedByName` / `performedByUsername` are resolved server-side from the
+ * users table and come back NULL when that user no longer exists — which is the
+ * common case, not the edge one: 92% of live `filter_events` name a user deleted
+ * in the 2026-08-19 wipe. Every surface that printed just the name showed an
+ * empty cell for them, including the lifecycle report's "By" column on manual
+ * updates.
+ *
+ * The raw `performedBy` uuid survives on the row, so fall back to its first 8
+ * characters — a stable identifier beats a blank. `getStageInfo` below has done
+ * this since it was written; this makes the rule reusable rather than copied.
+ */
+export function performerLabel(row: any, fallback = '-'): string {
+  return row?.performedByName
+    ?? row?.performedByUsername
+    ?? (typeof row?.performedBy === 'string' && row.performedBy
+          ? row.performedBy.substring(0, 8)
+          : null)
+    ?? fallback;
+}
+
 export function getStageInfo(events: FilterEvent[], stage: string) {
   const stageEvents = (events ?? []).filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
   const requireReadings = stage === 'DRY_IN';
@@ -249,4 +272,138 @@ export function stageCellText(state: StageCellState): string {
     case 'skipped': return 'Skipped';
     case 'pending': return 'Pending';
   }
+}
+
+/**
+ * Lives here, not in filter-lifecycle.tsx, because the per-cycle DETAIL
+ * surfaces need it too (cycle-detail-view.tsx / cycle-detail-pdf.ts) and
+ * filter-lifecycle.tsx imports both of those — importing back would be a
+ * cycle. There must be exactly ONE definition: history.tsx records what a
+ * second copy of an ended/not-ended branch cost last time.
+ */
+
+/**
+ * Status-aware end-of-cycle labels for the report. A COMPLETED cycle shows
+ * "Cycle Completed time" / "Completed by"; a TERMINATED / RETIRED / REPLACED
+ * cycle shows "Cycle Terminated time" / "Terminated by" (using terminatedAt,
+ * falling back to completedAt for legacy rows that only stamped completedAt).
+ * The performer is the operator login id (username) per operator request — null
+ * when the cycle was terminated outside the normal flow (DB-direct / legacy)
+ * and no terminator was ever recorded.
+ *
+ * 2026-09-03 (operator request): for a COMPLETED cycle "By" names whoever
+ * performed the cycle's LAST STAGE, not whoever closed it. Those are the same
+ * operator on 578 of 593 live completed cycles — advancing into the final stage
+ * completes the cycle in the same request — but they differ on the 14 MANUAL
+ * FORCE-COMPLETES, where an admin closed the cycle from Edit Filter Status and
+ * the column named that admin instead of the operator who did the work.
+ *
+ * TERMINATED / RETIRED / REPLACED keep the TERMINATOR: the label there reads
+ * "Terminated by", and naming the last operator under it would be a false
+ * statement about who ended the cycle.
+ */
+export function cycleEndInfo(
+  summary: any,
+  formatDateTime: (s: string) => string,
+  fallback?: { replacedBy?: string | null; retiredBy?: string | null },
+) {
+  const eff = effectiveCycleStatus(summary);
+  const ended = eff !== 'COMPLETED' && eff !== 'IN_PROGRESS';
+  const endTime = ended ? (summary.terminatedAt ?? summary.completedAt) : summary.completedAt;
+  // A cycle ended by retire/replace has no CYCLE_TERMINATED event — the operator
+  // is recorded on the FILTER_REPLACED / FILTER_RETIRED audit instead. Fall back
+  // to that (login id) so "Terminated by" isn't blank for those cycles.
+  // Completed: the last stage's operator, falling back to whoever closed the
+  // cycle when it has no stage transitions at all (one live cycle is COMPLETED
+  // with zero events). Ended: the terminator, as the label says.
+  //
+  // Each falls back to the first 8 characters of the performer's uuid when the
+  // username cannot be resolved — 92% of live filter_events name a user deleted
+  // in the 2026-08-19 wipe, and this column was simply blank for all of them.
+  // Same treatment as the Cleaning Record's Wash By / Dry By (getStageInfo).
+  const who = (username: unknown, id: unknown): string | null =>
+    (typeof username === 'string' && username) ||
+    (typeof id === 'string' && id ? id.substring(0, 8) : null);
+  let by = ended
+    ? who(summary.completedByUsername, summary.completedBy)
+    : (who(summary.lastStageByUsername, summary.lastStageBy) ?? who(summary.completedByUsername, summary.completedBy));
+  if (!by && ended && fallback) {
+    if (eff === 'REPLACED') by = fallback.replacedBy ?? null;
+    else if (eff === 'RETIRED') by = fallback.retiredBy ?? null;
+  }
+  return {
+    endLabel: ended ? 'Cycle Terminated time' : 'Cycle Completed time',
+    byLabel: ended ? 'Terminated by' : 'Completed by',
+    endTimeText: endTime ? formatDateTime(endTime) : '—',
+    by,
+  };
+}
+
+/**
+ * The two DRY_IN steps, as From/To endpoints an operator can read.
+ *
+ * DRY_IN is entered ONCE but emits TWO `STATE_TRANSITION` rows: the operator
+ * sets the dryer duration (`DRYER_STARTED`), waits, then submits the
+ * temperature (`DRYER_READINGS_SUBMITTED`). The filter never leaves DRY_IN
+ * between them, so `advance.ts` deliberately persists `fromState = null` on the
+ * second row — "no transition actually occurred" — and left the labelling to
+ * the `action` attribute.
+ *
+ * 🔴 **No renderer ever read `action`.** Every event timeline fell through to
+ * its genesis fallback and printed the readings row as
+ * **"To Be Cleaned -> Dry In"** — a claim that the filter was awaiting its first
+ * clean, in the middle of its own drying step. Strictly worse than the
+ * "DRY_IN -> DRY_IN" that null was chosen to avoid. Operator report 2026-09-04.
+ *
+ * The rule is applied at RENDER, not fixed at write: 289 live rows already
+ * carry the null, `filter_events` is an immutable §11 record, and stage labels
+ * in this codebase are display-only and inferred (see resolveStageCell).
+ *
+ * Returns STATE KEYS, not labels — each surface keeps its own label map — plus
+ * the phase, which the caller appends to the "To" half:
+ *
+ *   duration submitted -> `Wash Out -> Dry In (Started)`
+ *   temperature submitted -> `Dry In -> Dry In (Ended)`
+ *
+ * `(Started)` / `(Ended)` is what makes DRY_IN -> DRY_IN honest rather than
+ * ambiguous: it says a dryer step was recorded, not that a stage move happened.
+ *
+ * Only ever fires on `toState === 'DRY_IN'`, so the 668 genuine genesis rows
+ * (`null -> WASH_IN`) and the manual updates with no prior state keep reading
+ * "To Be Cleaned".
+ */
+export type DryerPhase = 'started' | 'ended' | null;
+
+export function transitionEndpoints(ev: any): { from: string | null; to: string | null; phase: DryerPhase } {
+  const from: string | null = ev?.fromState ?? null;
+  const to: string | null = ev?.toState ?? null;
+  if (ev?.eventType !== 'STATE_TRANSITION' || to !== 'DRY_IN') return { from, to, phase: null };
+
+  const attrs = ev?.attributes ?? {};
+  // Checked FIRST: a start row never carries readings, so order is safe, and
+  // `dryerDurationMinutes` catches rows written before `action` existed.
+  // `from ?? 'DRY_IN'` covers re-setting the duration while already in DRY_IN —
+  // isDryerInPlace persists null for that too.
+  if (attrs.action === 'DRYER_STARTED' || attrs.dryerDurationMinutes != null) {
+    return { from: from ?? 'DRY_IN', to, phase: 'started' };
+  }
+
+  // The `from === null || from === 'DRY_IN'` narrowing is load-bearing: plain
+  // DRY_IN ENTRY exists (19 live rows arrive from WASH_OUT with no dryer
+  // action), so a profile with instruments on DRY_IN entry would produce
+  // readings on a REAL transition. That is a stage move, not a dryer step.
+  // 13 legacy rows stored DRY_IN -> DRY_IN with readings and no action; they are
+  // the same event and must read the same way.
+  const readings = attrs.instrumentReadings;
+  const hasReadings = Array.isArray(readings) && readings.length > 0;
+  if (attrs.action === 'DRYER_READINGS_SUBMITTED' || (hasReadings && (from === null || from === 'DRY_IN'))) {
+    return { from: 'DRY_IN', to: 'DRY_IN', phase: 'ended' };
+  }
+
+  return { from, to, phase: null };
+}
+
+/** " (Started)" / " (Ended)" — appended to the rendered "To" label. */
+export function phaseSuffix(phase: DryerPhase): string {
+  return phase === 'started' ? ' (Started)' : phase === 'ended' ? ' (Ended)' : '';
 }

@@ -411,8 +411,21 @@ export async function prepareAdvance(
   // the filter never actually leaves DRY_IN (isDryerInPlace). Storing
   // fromState=toState=DRY_IN reads as "DRY_IN → DRY_IN" in the audit UI,
   // which misleads inspectors into thinking a transition happened. Set
-  // fromState=null when no transition actually occurs; the `action`
-  // attribute already labels the event correctly.
+  // fromState=null when no transition actually occurs.
+  //
+  // 🔴 The original of this comment ended "...the `action` attribute already
+  // labels the event correctly." **No renderer ever read `action`** — every event
+  // timeline hit its genesis fallback and printed the readings row as
+  // "To Be Cleaned → Dry In", claiming the filter was awaiting its first clean
+  // in the middle of its own drying step. Strictly worse than the DRY_IN →
+  // DRY_IN this null was chosen to avoid. Operator report 2026-09-04.
+  //
+  // The stored null STAYS — it is the truthful value, no transition occurred,
+  // and 289 rows already carry it in an immutable §11 table. The labelling now
+  // happens where it belongs, at render, in `transitionEndpoints()`
+  // (apps/web/src/lib/cleaning-cycle-report.ts): "Wash Out → Dry In (Started)"
+  // then "Dry In → Dry In (Ended)". If you change the shape written here,
+  // change that helper and its tests with it.
   const persistedFromState = isDryerInPlace ? null : fromState;
   const eventData = {
     filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,

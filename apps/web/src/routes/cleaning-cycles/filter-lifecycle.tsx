@@ -9,7 +9,7 @@ import { appendCycleDetailToReport } from './cycle-detail-pdf';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
-import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
+import { cycleEndInfo, effectiveCycleStatus, performerLabel } from '../../lib/cleaning-cycle-report';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { startOfDayIso, endOfDayIso } from '@/lib/datetime-input';
 import { useExportLimit } from '@/hooks/use-export-limit';
@@ -140,6 +140,44 @@ export type TimelineItem =
   | { kind: 'cycle'; at: number; cycle: any }
   | { kind: 'manual'; at: number; manual: any };
 
+/**
+ * Every filter in one replacement chain, oldest first.
+ *
+ * A replaced filter's history does not end — it continues in its successor, and
+ * the report's own Lifecycle Events say so ("Created as replacement of X",
+ * "Replaced by Y"). Reporting only the filter that was picked left those lines
+ * pointing at records that were nowhere in the document: a reader of
+ * `L2/AHU-011/SA/01-01` saw ZERO cleaning cycles and two references, with no way
+ * to tell whether data was missing. Its predecessor holds all 5 cycles.
+ * (2026-09-03 operator request.)
+ *
+ * `byOld` maps oldFilterId -> replacement, `byNew` maps newFilterId ->
+ * replacement, so the chain walks backwards and forwards from any link.
+ *
+ * The `seen` set is not defensive padding: these maps come from audit rows, and
+ * a malformed pair would otherwise spin forever.
+ */
+export function replacementChain(
+  filterId: string,
+  byOld: Map<string, any>,
+  byNew: Map<string, any>,
+): string[] {
+  if (!filterId) return [];
+  const seen = new Set<string>([filterId]);
+
+  const older: string[] = [];
+  for (let cur = byNew.get(filterId)?.oldFilterId; cur && !seen.has(cur); cur = byNew.get(cur)?.oldFilterId) {
+    seen.add(cur);
+    older.unshift(cur);
+  }
+  const newer: string[] = [];
+  for (let cur = byOld.get(filterId)?.newFilterId; cur && !seen.has(cur); cur = byOld.get(cur)?.newFilterId) {
+    seen.add(cur);
+    newer.push(cur);
+  }
+  return [...older, filterId, ...newer];
+}
+
 /** Cycles + manual updates as one ascending timeline. */
 export function mergeTimeline(cycles: any[], manual: any[]): TimelineItem[] {
   const ts = (v: any) => { const t = new Date(v).getTime(); return Number.isNaN(t) ? 0 : t; };
@@ -231,69 +269,12 @@ function CycleAccordionItem({ summary, index, formatDateTime, fallback }: {
               <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" /> Loading detail…
             </div>
           ) : (
-            <CycleDetailView cycle={detail} />
+            <CycleDetailView cycle={detail} fallback={fallback} />
           )}
         </div>
       )}
     </div>
   );
-}
-
-/**
- * Status-aware end-of-cycle labels for the report. A COMPLETED cycle shows
- * "Cycle Completed time" / "Completed by"; a TERMINATED / RETIRED / REPLACED
- * cycle shows "Cycle Terminated time" / "Terminated by" (using terminatedAt,
- * falling back to completedAt for legacy rows that only stamped completedAt).
- * The performer is the operator login id (username) per operator request — null
- * when the cycle was terminated outside the normal flow (DB-direct / legacy)
- * and no terminator was ever recorded.
- *
- * 2026-09-03 (operator request): for a COMPLETED cycle "By" names whoever
- * performed the cycle's LAST STAGE, not whoever closed it. Those are the same
- * operator on 578 of 593 live completed cycles — advancing into the final stage
- * completes the cycle in the same request — but they differ on the 14 MANUAL
- * FORCE-COMPLETES, where an admin closed the cycle from Edit Filter Status and
- * the column named that admin instead of the operator who did the work.
- *
- * TERMINATED / RETIRED / REPLACED keep the TERMINATOR: the label there reads
- * "Terminated by", and naming the last operator under it would be a false
- * statement about who ended the cycle.
- */
-export function cycleEndInfo(
-  summary: any,
-  formatDateTime: (s: string) => string,
-  fallback?: { replacedBy?: string | null; retiredBy?: string | null },
-) {
-  const eff = effectiveCycleStatus(summary);
-  const ended = eff !== 'COMPLETED' && eff !== 'IN_PROGRESS';
-  const endTime = ended ? (summary.terminatedAt ?? summary.completedAt) : summary.completedAt;
-  // A cycle ended by retire/replace has no CYCLE_TERMINATED event — the operator
-  // is recorded on the FILTER_REPLACED / FILTER_RETIRED audit instead. Fall back
-  // to that (login id) so "Terminated by" isn't blank for those cycles.
-  // Completed: the last stage's operator, falling back to whoever closed the
-  // cycle when it has no stage transitions at all (one live cycle is COMPLETED
-  // with zero events). Ended: the terminator, as the label says.
-  //
-  // Each falls back to the first 8 characters of the performer's uuid when the
-  // username cannot be resolved — 92% of live filter_events name a user deleted
-  // in the 2026-08-19 wipe, and this column was simply blank for all of them.
-  // Same treatment as the Cleaning Record's Wash By / Dry By (getStageInfo).
-  const who = (username: unknown, id: unknown): string | null =>
-    (typeof username === 'string' && username) ||
-    (typeof id === 'string' && id ? id.substring(0, 8) : null);
-  let by = ended
-    ? who(summary.completedByUsername, summary.completedBy)
-    : (who(summary.lastStageByUsername, summary.lastStageBy) ?? who(summary.completedByUsername, summary.completedBy));
-  if (!by && ended && fallback) {
-    if (eff === 'REPLACED') by = fallback.replacedBy ?? null;
-    else if (eff === 'RETIRED') by = fallback.retiredBy ?? null;
-  }
-  return {
-    endLabel: ended ? 'Cycle Terminated time' : 'Cycle Completed time',
-    byLabel: ended ? 'Terminated by' : 'Completed by',
-    endTimeText: endTime ? formatDateTime(endTime) : '—',
-    by,
-  };
 }
 
 /**
@@ -339,7 +320,7 @@ function ManualUpdateRow({ m, formatDateTime }: { m: any; formatDateTime: (s: st
         <span className="text-[11px] tabular-nums text-orange-600/80">{formatDateTime(m.performedAt)}</span>
       </div>
       <div className="text-[11px] text-orange-700/80 mt-0.5">
-        Manual update{m.performedByName ? ` by ${m.performedByName}` : ''}{m.remarks ? ` · ${m.remarks}` : ''}
+        Manual update by {performerLabel(m, 'unknown user')}{m.remarks ? ` · ${m.remarks}` : ''}
       </div>
     </div>
   );
@@ -528,10 +509,26 @@ export function FilterLifecycleReportPage() {
 
   // Scope = deepest selection. The set of filters the report covers.
   const filtersInScope = useMemo<FNode[]>(() => {
-    if (filterId) { const f = allFilters.find((x) => x.id === filterId); return f ? [f] : []; }
+    if (filterId) {
+      // The whole replacement chain, oldest first — not just the filter picked.
+      // See replacementChain: its predecessor usually holds the cycles, and the
+      // Lifecycle Events reference filters the reader would otherwise not find.
+      const chain = replacementChain(filterId, replByOld, replByNew)
+        .map((id) => allFilters.find((x) => x.id === id))
+        .filter(Boolean) as FNode[];
+      if (chain.length) return chain;
+      const f = allFilters.find((x) => x.id === filterId);
+      return f ? [f] : [];
+    }
     if (ahuId || areaId || blockId) return filterOptions;
     return [];
-  }, [filterId, ahuId, areaId, blockId, filterOptions, allFilters]);
+  }, [filterId, ahuId, areaId, blockId, filterOptions, allFilters, replByOld, replByNew]);
+
+  /** Names of the chain, for the report subtitle. Empty unless it has >1 link. */
+  const chainNames = useMemo(() => {
+    if (!filterId || filtersInScope.length < 2) return [];
+    return filtersInScope.map((f) => f.name);
+  }, [filterId, filtersInScope]);
 
   // Broad scope = block / area / AHU (no explicit Filter picked) → start/end-only
   // per cycle. An explicit Filter selection keeps the full per-cycle detail.
@@ -589,7 +586,7 @@ export function FilterLifecycleReportPage() {
           body: rows.map((m: any) => [
             humanizeState(m.fromState), humanizeState(m.toState),
             m.performedAt ? formatDateTime(m.performedAt) : '-',
-            m.performedByName ?? m.performedByUsername ?? '-',
+            performerLabel(m),
             m.remarks ?? '-',
           ]),
           columnStyles: { 4: { cellWidth: 55 } },
@@ -611,7 +608,11 @@ export function FilterLifecycleReportPage() {
 
       const report = await createReport({ reportKey: 'cleaning-lifecycle',
         title: `${scopeLabel} — Cleaning Lifecycle Report`,
-        subtitle: periodLine,
+        // Say the chain out loud. Without it a reader who picked ONE filter
+        // finds several "Filter:" sections and cannot tell which was requested.
+        subtitle: chainNames.length > 1
+          ? `${periodLine}\nReplacement chain (${chainNames.length} filters, oldest first): ${chainNames.join(' -> ')}`
+          : periodLine,
         orientation: 'portrait',
         formatDateTime,
         legend: [{ abbr: 'S.No', meaning: 'Serial Number' }],
@@ -643,9 +644,17 @@ export function FilterLifecycleReportPage() {
           let needFilterHeader = true;
           const header = () => {
             if (!needFilterHeader) return;
-            report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`);
+            report.addSectionTitle(
+              `Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`
+              + (g.filter.id === filterId && chainNames.length > 1 ? '  [the filter selected]' : ''),
+            );
             needFilterHeader = false;
           };
+          // Retire/replace performer for THIS filter — a cycle ended that way
+          // writes no CYCLE_TERMINATED event, so without this the per-cycle
+          // section has no terminator to name. Same value the compact branch
+          // and the on-screen accordion pass.
+          const fb = { replacedBy: replByOld.get(g.filter.id)?.performedBy ?? null, retiredBy: retireMap.get(g.filter.id)?.retiredBy ?? null };
           // The cycle number counts CYCLES only, so "Cycle 3" still means the
           // third cycle however many manual updates sit between them.
           let cycleNo = 0;
@@ -658,7 +667,7 @@ export function FilterLifecycleReportPage() {
               firstBlock = false;
               header();
               report.addSectionTitle(`Cycle ${cycleNo} — ${formatDateTime(block.cycle.startedAt)}`);
-              appendCycleDetailToReport(report, detail, { formatDateTime });
+              appendCycleDetailToReport(report, detail, { formatDateTime, fallback: fb });
             } else {
               if (!firstBlock) report.newPage();
               firstBlock = false;
@@ -685,7 +694,10 @@ export function FilterLifecycleReportPage() {
         for (const g of groups) {
           if (!firstBlock) report.newPage();
           firstBlock = false;
-          report.addSectionTitle(`Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`);
+          report.addSectionTitle(
+            `Filter: ${g.filter.name}${g.filter.retired ? ' (Retired)' : ''}`
+            + (g.filter.id === filterId && chainNames.length > 1 ? '  [the filter selected]' : ''),
+          );
           // ONE table, cycles and manual updates interleaved by date
           // (2026-09-03). They were two tables, so a filter's history read as
           // "everything cleaned, then separately everything overridden".
@@ -714,7 +726,7 @@ export function FilterLifecycleReportPage() {
                     'Manual Update',
                     m.performedAt ? formatDateTime(m.performedAt) : '-',
                     '-',
-                    m.performedByName ?? m.performedByUsername ?? '-',
+                    performerLabel(m),
                     'Manual Update',
                     m.remarks ? `${move} · ${m.remarks}` : move,
                   ];
@@ -813,7 +825,7 @@ export function FilterLifecycleReportPage() {
           rows.push([
             f.name, '', `Manual: ${humanizeState(m.fromState)} → ${humanizeState(m.toState)}`,
             m.performedAt ? formatDateTime(m.performedAt) : '-', '',
-            m.performedByName ?? m.performedByUsername ?? '-',
+            performerLabel(m),
             'Manual Update',
             m.remarks ?? '-',
           ]);
@@ -932,6 +944,11 @@ export function FilterLifecycleReportPage() {
             <div className="mb-3 text-[13px] text-slate-500">
               <span className="font-semibold text-slate-700">{scopeLabel}</span>
               <span className="ml-2">— {filtersInScope.length} filter(s) in scope · {periodLine.replace('Period: ', '')}</span>
+              {chainNames.length > 1 && (
+                <span className="ml-2 text-amber-600">
+                  · replacement chain of {chainNames.length}, oldest first — the selected filter's history continues across all of them
+                </span>
+              )}
             </div>
             <div className="space-y-2">
               {filtersInScope.map((f) => (

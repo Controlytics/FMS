@@ -24,7 +24,7 @@ import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../typ
 // for the 2026-06-08 column redefinition (Duration = dryer duration; Dry In =
 // dryer-duration submission time; 'Dry By' + cycle-duration dropped).
 import { CC_COL_KEYS as CC_COLS, getStageInfo, getReading, fmtMinutes, getDryerStart, effectiveCycleStatus,
-  maxReachedStageIndex, resolveStageCell, stageCellText } from '@/lib/cleaning-cycle-report';
+  maxReachedStageIndex, resolveStageCell, stageCellText, performerLabel } from '@/lib/cleaning-cycle-report';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
 const MSU_COLS = ['sNo', 'filter', 'statusChange', 'dateTime', 'updatedBy', 'remarks'];
@@ -490,7 +490,7 @@ export function CleaningCycleHistoryPage() {
                       <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums">-</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('WASH_IN')}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('WASH_OUT')}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{c.performedByName ?? c.performedByUsername ?? '-'}</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{performerLabel(c)}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-400 whitespace-nowrap tabular-nums">-</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('DRY_IN')}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums">-</td>
@@ -634,7 +634,7 @@ export function CleaningCycleHistoryPage() {
             fromState: m.fromState ?? null,
             toState: m.toState ?? null,
             performedAt: m.performedAt,
-            performedByName: m.performedByName ?? m.performedByUsername ?? null,
+            performedByName: performerLabel(m, ''),  // '' so a missing performer stays falsy downstream
             remarks: m.remarks ?? null,
             attributes: { ...(m.attributes ?? {}), manual: true },
           }],

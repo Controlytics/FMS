@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { CC_COL_KEYS } from '../cleaning-cycle-report';
+import { CC_COL_KEYS, performerLabel } from '../cleaning-cycle-report';
 import { REPORT_DEFS } from '../report-labels';
 
 /**
@@ -74,5 +74,40 @@ describe('Filter Cleaning Record columns', () => {
     // 8pt needs 284mm of the 268mm available; 7.5pt needs 273. Raising this
     // without re-measuring breaks values mid-token.
     expect(historyTsx).toMatch(/body: buildCleaningRows\(rows\),\s*\n\s*fontSize: 7,/);
+  });
+});
+
+/**
+ * `performedByName` / `performedByUsername` are resolved server-side from the
+ * users table and come back NULL when the user is gone — the COMMON case here,
+ * not an edge one: 92% of live filter_events name a user deleted in the
+ * 2026-08-19 wipe. Every surface that printed only the name showed an empty
+ * cell, which is what the operator reported for the lifecycle report's "By"
+ * column on manual updates.
+ */
+describe('performerLabel', () => {
+  it('prefers the resolved username', () => {
+    expect(performerLabel({ performedByName: 'superadmin', performedBy: 'e77bb23b-1111' })).toBe('superadmin');
+  });
+
+  it('falls back to performedByUsername', () => {
+    expect(performerLabel({ performedByName: null, performedByUsername: '101014' })).toBe('101014');
+  });
+
+  it('falls back to 8 characters of the uuid for a DELETED user', () => {
+    // The whole point: a stable identifier beats a blank cell.
+    expect(performerLabel({ performedByName: null, performedBy: 'e77bb23b-b97e-4d69-aa35-12247fee5049' }))
+      .toBe('e77bb23b');
+  });
+
+  it('returns the caller\'s fallback when nothing at all is recorded', () => {
+    expect(performerLabel({})).toBe('-');
+    expect(performerLabel(null)).toBe('-');
+    expect(performerLabel({}, '')).toBe('');
+    expect(performerLabel({}, 'unknown user')).toBe('unknown user');
+  });
+
+  it('ignores a non-string performedBy rather than throwing', () => {
+    expect(performerLabel({ performedBy: 123 as unknown as string })).toBe('-');
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { useAuth } from '../../hooks/use-auth';
@@ -9,7 +9,7 @@ import { appendCycleDetailToReport } from './cycle-detail-pdf';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
-import { effectiveCycleStatus } from '../../lib/cleaning-cycle-report';
+import { effectiveCycleStatus, performerLabel, transitionEndpoints, phaseSuffix } from '../../lib/cleaning-cycle-report';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useToast } from '@/hooks/use-toast';
 import { downloadName } from '@/lib/download-name';
@@ -27,6 +27,26 @@ export function CleaningCycleTimelinePage() {
   const canExportPdf = isSuperAdmin || perms.includes('REPORT_EXPORT') || perms.includes('REPORT_GENERATE');
   const [downloading, setDownloading] = useState(false);
   const { data: cycle, isLoading } = useSWR(id ? `/api/filters/cycles/${id}` : null);
+
+  // A cycle ended by retire/replace writes NO CYCLE_TERMINATED event — the
+  // operator is on the FILTER_RETIRED / FILTER_REPLACED audit instead — so
+  // without these the detail can only say "Terminated by —" for exactly the
+  // cycles whose ending was most deliberate.
+  //
+  // Fetched only for those cycles (both lists are whole-table reads, and 19 of
+  // 672 live cycles need them), and fetched HERE rather than resolved on
+  // /api/filters/cycles/:id because /api/filters/replacements hides
+  // SUPER_ADMIN-performed rows from lower roles — resolving it server-side on
+  // the cycle would quietly bypass that rule. SWR shares the keys with the
+  // Filter Lifecycle Report, so a user coming from that page pays nothing.
+  const eff = cycle ? effectiveCycleStatus(cycle) : null;
+  const needsAuditPerformer = eff === 'RETIRED' || eff === 'REPLACED';
+  const { data: retirementsData } = useSWR<any[]>(needsAuditPerformer ? '/api/filters/retirements' : null);
+  const { data: replacementsData } = useSWR<any[]>(needsAuditPerformer ? '/api/filters/replacements' : null);
+  const fallback = useMemo(() => ({
+    replacedBy: (replacementsData ?? []).find((r) => r.oldFilterId === cycle?.filterId)?.performedBy ?? null,
+    retiredBy: (retirementsData ?? []).find((r) => r.id === cycle?.filterId)?.retiredBy ?? null,
+  }), [replacementsData, retirementsData, cycle?.filterId]);
 
   if (isLoading) return (
     <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -50,7 +70,7 @@ export function CleaningCycleTimelinePage() {
       formatDateTime,
       legend: [{ abbr: 'S.No', meaning: 'Serial Number' }],
     });
-    appendCycleDetailToReport(report, cycle, { formatDateTime });
+    appendCycleDetailToReport(report, cycle, { formatDateTime, fallback });
     return report;
   };
 
@@ -72,15 +92,19 @@ export function CleaningCycleTimelinePage() {
     try {
       const events = cycle.events ?? [];
       const head = ['S.No', 'Event', 'From', 'To', 'Performed By', 'Time', 'Remarks'];
-      const rows = events.map((e: any, i: number) => [
+      const rows = events.map((e: any, i: number) => {
+        // Same DRY_IN rule as the PDF and the screen — one helper, three surfaces.
+        const { from, to, phase } = transitionEndpoints(e);
+        return [
         String(i + 1),
         e.eventType?.replace(/_/g, ' ') ?? '-',
-        e.fromState ? e.fromState.replace(/_/g, ' ') : (e.eventType === 'STATE_TRANSITION' && e.toState ? 'To Be Cleaned' : '-'),
-        e.toState ? e.toState.replace(/_/g, ' ') : '-',
-        e.performedByName ?? '-',
+        from ? from.replace(/_/g, ' ') : (e.eventType === 'STATE_TRANSITION' && to ? 'To Be Cleaned' : '-'),
+        to ? `${to.replace(/_/g, ' ')}${phaseSuffix(phase)}` : '-',
+        performerLabel(e),
         formatDateTime(e.performedAt),
         e.remarks ?? '-',
-      ]);
+        ];
+      });
       await logReportExportOrWarn({ reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: rows.length }, toast.warning);
       exportToExcel({ filename: `cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}`, sheetName: 'Cycle Detail', head, rows });
     } finally { setDownloading(false); }
@@ -109,7 +133,7 @@ export function CleaningCycleTimelinePage() {
 
       {/* Detail body */}
       <div className="flex-1 overflow-y-auto px-6 pb-6">
-        <CycleDetailView cycle={cycle} />
+        <CycleDetailView cycle={cycle} fallback={fallback} />
       </div>
     </div>
   );

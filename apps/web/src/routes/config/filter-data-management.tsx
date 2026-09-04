@@ -59,6 +59,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
 
 /**
  * Lifecycle states offered by the From/To dropdowns.
@@ -1856,11 +1857,15 @@ export function FilterDataManagementPage() {
                       </button>
                     </div>
                   </div>
-                  {(e.fromState || e.toState) && (
+                  {/* Same DRY_IN rule as every other event timeline. NOTE: this
+                      is a DISPLAY inference — the Edit dialog below still shows
+                      the row's STORED From/To (null on a dryer-readings row),
+                      because that is the column an admin edits. */}
+                  {(() => { const { from: ef, to: et, phase: ep } = transitionEndpoints(e); return (ef || et) && (
                     <div className="text-sm text-slate-600">
-                      {e.fromState ? e.fromState.replace(/_/g, ' ') : (e.toState ? 'To Be Cleaned' : '')} {e.toState && '→'} <span className="text-cyan-600">{e.toState?.replace(/_/g, ' ') ?? ''}</span>
+                      {ef ? ef.replace(/_/g, ' ') : (et ? 'To Be Cleaned' : '')} {et && '→'} <span className="text-cyan-600">{et ? `${et.replace(/_/g, ' ')}${phaseSuffix(ep)}` : ''}</span>
                     </div>
-                  )}
+                  ); })()}
                   {e.remarks && <div className="text-sm text-slate-400 mt-1 italic">{e.remarks}</div>}
                   {e.checksum && <div className="text-xs text-slate-300 mt-1 font-mono">Checksum: {String(e.checksum).slice(0, 16)}...</div>}
                 </div>
