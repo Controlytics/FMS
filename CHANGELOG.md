@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] - Tablet stage approve / reject verified end to end (2026-09-04, no code change)
+
+The 2026-09-02 tablet Stage Approvals tab's approve and reject writes had never
+been exercised. Done on a DB clone with a throwaway Operator + Shift Officer:
+request raised on entering the interlock stage, operator gated, self-approval
+and unsigned / unremarked decisions refused, approve releases the operator and
+writes APPROVAL_GRANTED + the STAGE_APPROVAL_APPROVED e-signature, reject sends
+the filter back and writes the transition + STAGE_APPROVAL_REJECTED, queue and
+history update, a re-clean raises a fresh request. 21/21. Report:
+`tasks/STAGE-APPROVAL-TABLET-VERIFICATION-2026-09-04.md`.
+
 ## [Unreleased] - The four Low findings of the audit, fixed (2026-09-04)
 
 - **`POST /api/audit/report-export-log` took any `reportType` string**, so any
