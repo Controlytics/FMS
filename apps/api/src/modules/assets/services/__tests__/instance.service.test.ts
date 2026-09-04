@@ -61,7 +61,8 @@ const {
       // zipLastCleaned (called by list()) needs filterEvent + cleaningCycle groupBy.
       // zipFilterAttributes (called by list()) needs filter.findMany.
       filterEvent: { groupBy: vi.fn().mockResolvedValue([]) },
-      cleaningCycle: { groupBy: vi.fn().mockResolvedValue([]) },
+      // findMany: M27 - delete() refuses while any filter in the cascade is mid-cycle.
+      cleaningCycle: { groupBy: vi.fn().mockResolvedValue([]), findMany: vi.fn().mockResolvedValue([]) },
       filter: { findMany: vi.fn().mockResolvedValue([]) },
     };
     type Tx = typeof tx;
@@ -188,6 +189,16 @@ describe('instanceService', () => {
   });
 
   describe('delete', () => {
+    it('refuses 409 FILTER_CYCLE_IN_PROGRESS when a filter in the cascade has a cycle IN_PROGRESS (M27)', async () => {
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'ahu-1', name: 'AHU-01', status: 'ACTIVE', isActive: true });
+      mockCollectDescendants.mockResolvedValue(['f-1']);
+      mockPrisma.cleaningCycle.findMany.mockResolvedValueOnce([{ cycleCode: 'CC-001', filterId: 'f-1' }]);
+      await expect(instanceService.delete('ahu-1', ctx)).rejects.toMatchObject({ statusCode: 409, code: 'FILTER_CYCLE_IN_PROGRESS' });
+      expect(mockPrisma.cleaningCycle.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { filterId: { in: ['ahu-1', 'f-1'] }, status: 'IN_PROGRESS' } }));
+      // nothing was soft-deleted
+      expect(mockPrisma.assetInstance.updateMany).not.toHaveBeenCalled();
+    });
+
     it('cascade soft-deletes with descendants in a single transaction', async () => {
       mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'i1', name: 'P1', status: 'ACTIVE', isActive: true });
       mockCollectDescendants.mockResolvedValue(['child-1', 'child-2']);

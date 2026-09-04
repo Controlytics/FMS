@@ -1,6 +1,6 @@
 import type { RequestContext } from '../../../types/context.js';
 import { auditLog } from '../../../lib/audit.js';
-import { NotFoundError, ValidationError } from '../../../lib/errors.js';
+import { NotFoundError, ValidationError, ConflictError } from '../../../lib/errors.js';
 import { instanceRepository } from '../repositories/instance.repository.js';
 import { relationshipRepository } from '../repositories/relationship.repository.js';
 import { identifierRepository } from '../repositories/identifier.repository.js';
@@ -606,6 +606,26 @@ export const instanceService = {
       select: { id: true, name: true },
     });
     const cascadeNames = new Map(cascadeAssets.map((a) => [a.id, a.name]));
+
+    // M27 (2026-09-04, operator decision: refuse). A soft-deleted filter is hidden
+    // from every operating surface, so nothing can advance or terminate its
+    // cycle - this path stranded five cycles IN_PROGRESS forever (deleted
+    // 2026-06-03 / 06-17). The typed filter path already refuses; this legacy
+    // path covers the whole cascade, so deleting an AHU with a filter mid-cycle
+    // is refused too. Gate on cycle STATUS, not the pointer, so a stale pointer
+    // at a finished cycle never blocks a delete.
+    const inProgress = await prisma.cleaningCycle.findMany({
+      where: { filterId: { in: allIds }, status: 'IN_PROGRESS' },
+      select: { cycleCode: true, filterId: true },
+    });
+    if (inProgress.length > 0) {
+      const list = inProgress.map((c) => `${cascadeNames.get(c.filterId) ?? c.filterId} (${c.cycleCode})`).join(', ');
+      throw new ConflictError(
+        `Cannot delete: ${inProgress.length} cleaning cycle${inProgress.length === 1 ? ' is' : 's are'} still in progress - ${list}. Complete or terminate the cycle first, or retire the filter.`,
+        'FILTER_CYCLE_IN_PROGRESS',
+        { cycles: inProgress.map((c) => ({ filterName: cascadeNames.get(c.filterId) ?? null, cycleCode: c.cycleCode })) },
+      );
+    }
 
     // All deletes in one atomic transaction
     await prisma.$transaction(async (tx) => {

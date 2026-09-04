@@ -974,8 +974,27 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     for (const f of numFields) { if (body[f] !== undefined) data[f] = body[f] !== null ? Number(body[f]) : null; }
     for (const f of uuidFields) { if (body[f] !== undefined) data[f] = body[f] || null; }
     const badC = invalidEnum('cleaningCycle', data); if (badC) return reply.code(400).send(badC);
-    const updated = await prisma.cleaningCycle.update({ where: { id }, data });
-    await auditManualChange(req, { verb: 'UPDATED', targetType: 'cleaning_cycle', targetId: id, label: 'Cleaning cycle', reason, before: existing, after: updated });
+    // M27 (2026-09-04): when an edit moves a cycle OUT of IN_PROGRESS and the
+    // filter still points at it as its current cycle, clear that pointer the
+    // way terminate() does - otherwise the filter stays 'mid-cycle' forever
+    // (five deleted filters + one retired one were stranded exactly so). Only
+    // this transition; other field edits keep the retrofit's 'no downstream
+    // writes' contract. Recorded in the audit row's sideEffects.
+    const leavesInProgress = existing.status === 'IN_PROGRESS' && data.status !== undefined && data.status !== 'IN_PROGRESS';
+    let clearedPointer: { assetInstanceId: string; currentLifecycleState: string | null } | null = null;
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.cleaningCycle.update({ where: { id }, data });
+      if (leavesInProgress) {
+        const fd = await tx.filterDetails.findFirst({ where: { currentCycleId: id }, select: { assetInstanceId: true, currentLifecycleState: true } });
+        if (fd) {
+          await tx.filterDetails.update({ where: { assetInstanceId: fd.assetInstanceId }, data: { currentCycleId: null, currentLifecycleState: null } });
+          clearedPointer = fd;
+        }
+      }
+      return u;
+    });
+    await auditManualChange(req, { verb: 'UPDATED', targetType: 'cleaning_cycle', targetId: id, label: 'Cleaning cycle', reason, before: existing, after: updated,
+      ...(clearedPointer ? { sideEffects: { clearedFilterCurrentCycle: clearedPointer } } : {}) });
     return updated;
   });
 

@@ -51,8 +51,9 @@ badge text-amber-200 → 700), **M70** (audit search debounced 300 ms), **M88**
 
 Already closed on re-check: M11, M29 (400s), M32, M74, M87.
 
-Open, reported: **M27** (5 soft-deleted filters still hold IN_PROGRESS cycles —
-operator's data decision), **M30** (visibility rule duplicated in service +
+**M27 CLOSED 2026-09-04** (was 6 by then: legacy delete path now refuses a
+mid-cycle filter with 409; the six stranded cycles were ended through the
+audited console edit). Open, reported: **M30** (visibility rule duplicated in service +
 repository + single-read), **M47** (`delete()` lacks isSystem guard; gate
 ROLE_MANAGE, SA-only in practice), **M63/M79/M82** (history / pm-schedules /
 admin-requests never render a fetch error), **M80** (orphan

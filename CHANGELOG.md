@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] - M27 closed: deleting a filter mid-cycle is refused; six stranded cycles ended (2026-09-04)
+
+Six inactive filters still owned a cleaning cycle in IN_PROGRESS: five were
+soft-deleted on 2026-06-03 / 06-17 through the legacy asset delete path
+(`DELETE /api/assets/instances/:id`), which only flipped `isActive` and left the
+running cycle and the filter's current-cycle pointer untouched; the sixth was
+retired today while a console-created manual cycle (never the filter's
+"current" cycle) stayed open. The phantoms showed as 6 extra "In Progress" rows
+on the Cleaning Record page and +6 on the dashboard's active-cycles tile.
+
+**Refuse (operator decision).** The legacy delete path now carries the same
+guard the typed filter path has had: if any filter in the cascade (the
+instance itself or a descendant, so deleting an AHU counts) has a cycle in
+IN_PROGRESS, the delete answers `409 FILTER_CYCLE_IN_PROGRESS` naming each
+filter and cycle code, and nothing is soft-deleted. Gate is on cycle STATUS,
+not the pointer, so a stale pointer at a finished cycle never blocks a delete.
+A filter mid-cycle is being cleaned; ending that record silently is not a
+decision a delete button should make - retire (remarked, audited) is the path.
+
+**Clean-up.** The six cycles were closed through the audited Filter Data
+Management edit (reason recorded on each): five as TERMINATED /
+`FILTER_DELETED`, the retired one as TERMINATED / `RETIRED`. To make that a
+clean close, the console's cycle edit now reconciles the filter's current-cycle
+pointer when an edit moves a cycle OUT of IN_PROGRESS (mirrors what
+`terminate()` writes; recorded in the audit row's `sideEffects`). Only that
+transition - every other console edit keeps the 2026-08-27 "no downstream
+writes" contract. After: 32 in-progress cycles, 0 on inactive filters, 0
+inactive filters pointing at a current cycle; Cleaning Record and dashboard
+both read 32.
+
 ## [Unreleased] - Filter Data Management console verified end to end; enum values validated (2026-09-04)
 
 Operator ask: check every option on every tab of Config -> Filter Data
