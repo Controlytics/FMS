@@ -8,10 +8,12 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 
 export class CleaningProfileService {
-  async list(_ctx: RequestContext, query: { page?: number; limit?: number; status?: string }) {
+  async list(_ctx: RequestContext, query: { page?: number; limit?: number; status?: string; search?: string }) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = {};
+    // M88: server-side name search (the list is paginated; see routes.ts).
+    if (query.search?.trim()) where.name = { contains: query.search.trim(), mode: 'insensitive' };
 
     if (query.status === 'ACTIVE') {
       // Show only profiles with ACTIVE status (latest version per lineage)

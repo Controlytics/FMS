@@ -204,6 +204,18 @@ export default async function backupRoutes(app: FastifyInstance) {
           chainReport: err.chainReport ?? null,
         });
       }
+      // A request-shaped error must keep its own status (2026-09-04 audit). This
+      // catch-all stamped EVERY unmatched error as `500 RESTORE_FAILED` —
+      // including Fastify's own FST_INVALID_MULTIPART_CONTENT_TYPE, which carries
+      // statusCode 406 — so a client that simply forgot the multipart body was
+      // told "Database restore failed", and the 500 landed in error monitoring
+      // beside genuine restore failures. Same class as the INVALID_ZIP note above.
+      if (typeof err?.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 500) {
+        return reply.code(err.statusCode).send({
+          error: err.code ?? 'BAD_REQUEST',
+          message: err.message || 'Invalid restore request.',
+        });
+      }
       app.log.error(err);
       return reply.code(500).send({
         error: 'RESTORE_FAILED',

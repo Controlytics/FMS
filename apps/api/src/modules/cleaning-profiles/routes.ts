@@ -32,6 +32,9 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
           page: { type: 'integer', default: 1 },
           limit: { type: 'integer', default: 20 },
           status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
+          // Audit M88 (2026-09-04): name search is server-side — the list is
+          // paginated, so filtering in the browser only searched the current page.
+          search: { type: 'string', maxLength: 255 },
         },
       },
       response: {
@@ -167,8 +170,37 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
           alarmOnBackwardJump: { type: 'boolean' },
           alarmOnOutOfSequence: { type: 'boolean' },
           cleaningReasons: { type: 'array', nullable: true },
-          stages: { type: 'array' },
-          connections: { type: 'array' },
+          // Audit M15 (2026-09-04): PUT used to accept bare arrays, so a malformed
+          // stage reached the service untyped. Same item shape as POST.
+          stages: {
+            type: 'array',
+            minItems: 2,
+            items: {
+              type: 'object',
+              required: ['nodeType'],
+              properties: {
+                stateKey: { type: 'string', nullable: true },
+                nodeType: { type: 'string' },
+                configuration: { type: 'object' },
+                positionX: { type: 'number' },
+                positionY: { type: 'number' },
+                sortOrder: { type: 'integer' },
+              },
+            },
+          },
+          connections: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                fromIndex: { type: 'integer' },
+                toIndex: { type: 'integer' },
+                fromStageId: { type: 'string' },
+                toStageId: { type: 'string' },
+                label: { type: 'string' },
+              },
+            },
+          },
         },
       },
       response: {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import useSWR, { mutate } from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient, api } from '../../lib/api-client';
@@ -38,9 +38,18 @@ export function CleaningProfileListPage() {
   // shows a valid selection (20 is not guaranteed to be in the options list).
   const [perPage, setPerPage] = useState(paginationOptions[0] ?? 10);
   const [search, setSearch] = useState('');
+  // Audit M88 (2026-09-04): the search used to filter only the rows of the
+  // current page in memory — a profile on page 2 was unfindable from page 1.
+  // It is now a server-side parameter, debounced like users/list.tsx.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    searchDebounceRef.current = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
+    return () => clearTimeout(searchDebounceRef.current);
+  }, [search]);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const swrKey = `/api/filter-cleaning-profiles?page=${page}&limit=${perPage}&status=${status}`;
+  const swrKey = `/api/filter-cleaning-profiles?page=${page}&limit=${perPage}&status=${status}${debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ''}`;
   const { data, isLoading } = useSWR<PaginatedResponse<CleaningProfile>>(swrKey);
 
   // Audit 2026-05-09 fix: DELETE endpoint exists with reauth gate
@@ -94,9 +103,7 @@ export function CleaningProfileListPage() {
     });
   };
 
-  const profiles = (data?.data ?? []).filter(p =>
-    !search || p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const profiles = data?.data ?? [];
 
   return (
     <div className="p-6 space-y-6">

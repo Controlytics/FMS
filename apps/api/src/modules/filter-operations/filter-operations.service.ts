@@ -126,6 +126,13 @@ export class FilterOperationsService {
     const limit = Math.min(query.limit ?? 20, 100);
     const where: any = {};
     if (query.filterId) where.filterId = query.filterId;
+    // M89: an AHU has no events of its own; list the events of the filters under it.
+    // An AHU with no filters must return nothing, not everything — hence the
+    // explicit empty `in` rather than skipping the clause.
+    if (query.ahuId && !query.filterId) {
+      const kids = await prisma.assetInstance.findMany({ where: { parentId: query.ahuId, isActive: true }, select: { id: true } });
+      where.filterId = { in: kids.map(k => k.id) };
+    }
     if (query.cycleId) where.cycleId = query.cycleId;
     if (query.eventType) where.eventType = query.eventType;
     if (query.from || query.to) {
@@ -671,6 +678,30 @@ export class FilterOperationsService {
       for (const q of liveQs) questionMap.set(q.id, q.question);
     }
 
+    // Who ENDED the cycle, and who performed its LAST STAGE — resolved exactly
+    // as getCycles() does (see the block above it), so the list row and this
+    // detail can never disagree about the same cycle. Free here: the events are
+    // already loaded, so this costs no extra query.
+    //
+    // Without these the detail surfaces (the Cycle Detail page, the Filter
+    // Lifecycle Report's per-cycle section) had NOTHING to name a terminator
+    // with, and printed a TERMINATED cycle's end time under the label
+    // "Completed" — a false statement about the record in a Part 11 report.
+    //
+    // Null for a cycle terminated outside the normal flow (DB-direct / legacy)
+    // and for one ended by retire/replace, which writes no CYCLE_TERMINATED
+    // event at all — the client falls back to the FILTER_RETIRED /
+    // FILTER_REPLACED audit performer for those (and that lookup stays on the
+    // client on purpose: /api/filters/replacements hides SUPER_ADMIN-performed
+    // rows from lower roles, and resolving it here would bypass that rule).
+    let terminalPerformer: string | null = null;
+    let lastStagePerformer: string | null = null;
+    for (const e of cycle.events) { // already ordered performedAt asc → last write wins
+      if (!e.performedBy) continue;
+      if (e.eventType === 'STATE_TRANSITION') lastStagePerformer = e.performedBy;
+      else if (e.eventType === 'CYCLE_COMPLETED' || e.eventType === 'CYCLE_TERMINATED') terminalPerformer = e.performedBy;
+    }
+
     const enrichedEvents = cycle.events.map(e => {
       const u = e.performedBy ? userMap[e.performedBy] : null;
       const enriched: any = {
@@ -710,6 +741,16 @@ export class FilterOperationsService {
       ahuName: ahu?.name ?? null,
       cleaningAreaName: area?.name ?? null,
       profileStages,
+      // Same field names + semantics as the /cycles list rows, so one client
+      // helper (cycleEndInfo) reads both. The raw uuids ride along because 92%
+      // of live filter_events name a user deleted in the 2026-08-19 wipe, so the
+      // *Username fields resolve to null and the client shortens the id instead
+      // of printing nothing. A username field never carries a uuid.
+      completedByName: terminalPerformer ? (userMap[terminalPerformer]?.fullName ?? null) : null,
+      completedByUsername: terminalPerformer ? (userMap[terminalPerformer]?.username ?? null) : null,
+      completedBy: terminalPerformer,
+      lastStageByUsername: lastStagePerformer ? (userMap[lastStagePerformer]?.username ?? null) : null,
+      lastStageBy: lastStagePerformer,
     };
   }
 

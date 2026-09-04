@@ -55,12 +55,18 @@ export function AppLayout() {
   // auth, post-login redirect — keeps the login screen pristine), then wires
   // up visibilitychange + online + 60s poll triggers. Errors are swallowed
   // inside the trigger; the next event will retry. Teardown on unmount.
+  // Audit B2 (2026-09-04): /api/sync/since gates on ASSET_VIEW | FILTER_OPERATE.
+  // Roles without either (ADMIN today) got a 403 at app start and again on
+  // every 60 s poll. The versioned caches only serve filter operations, so a
+  // role that cannot read filters has nothing to sync.
+  const canSync = !!user && (user.role === 'SUPER_ADMIN'
+    || (user.permissions ?? []).some(p => p === 'ASSET_VIEW' || p === 'FILTER_OPERATE'));
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !canSync) return;
     triggerSync('app-start');
     const teardown = startSyncPolling();
     return () => teardown();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, canSync]);
 
   if (isLoading) {
     return (

@@ -52,7 +52,7 @@ export function AhuDashboardPage() {
   // still feels live for cleanroom workflows that take minutes per stage.
   const { data: childrenData } = useSWR(id ? `/api/hierarchy/filters?ahuId=${id}&limit=1000` : null, { refreshInterval: 30000 });
   const truncated = (childrenData?.total ?? 0) > ((childrenData?.data ?? []).length ?? 0);
-  const { data: events } = useSWR(id ? `/api/filters/events?filterId=${id}&limit=10` : null);
+  const { data: events } = useSWR(id ? `/api/filters/events?ahuId=${id}&limit=10` : null) // M89: events are per FILTER; ahuId resolves server-side;
 
 
   const allChildren = ((childrenData?.data ?? []) as any[]).filter((f: any) => f.isActive !== false && f.status !== 'Retired');

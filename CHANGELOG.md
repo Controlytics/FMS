@@ -1,5 +1,609 @@
 # Changelog
 
+## [Unreleased] - Upload step of the approval workflows takes MANY roles (2026-09-04)
+
+The operator's `Role privileges.docx` grants PM-schedule and Replacement upload
+to **Supervisor and Shift Officer**. The workflow config could hold ONE upload
+role, so Shift Officer held `PM_UPLOAD` / `REPLACEMENT_SCHEDULE_UPLOAD` and still
+got 403 `FORBIDDEN_ROLE` on every upload (T2 of the alignment work, deferred that
+morning, resolved on request the same day).
+
+- `assertPmRole` accepts a single role or a list (`normalizeRoles`); the legacy
+  single-role string every install stored keeps working unchanged. An empty
+  list still means "anyone with the route permission".
+- `uploadRole` on `pm-schedule-approval`, `replacement-schedule-approval` and
+  `filter-approval` is a `multiselect`; the Role Assignments Upload step shows
+  role chips (a stored single string renders as one selected chip).
+  `GET /api/pm-schedules/workflow-config` returns `uploadRole` as an array.
+- Review and Approve stay single-role, as the document has them.
+- Live config set through the audited config PUT: PM + Replacement upload =
+  Supervisor + Shift Officer. Filter create/upload stays "anyone with permission".
+
+Verified with a throwaway Shift Officer against the dev API: both uploads pass
+the role gate and fail only on the junk file's content; Operator is still refused
+by permission. 4 new unit cases in `pm-schedules/__tests__/upload-role.test.ts`.
+
+## [Unreleased] - Strict audit of the non-SUPER_ADMIN surface (2026-09-04)
+
+Operator ask: a complete, strict audit for bugs, broken pages and dead
+connections, skipping SUPER_ADMIN. Rule applied throughout: **nothing was
+reported unverified** - every static finding was reproduced live against the
+dev API or in a headless browser, or it was dropped.
+
+**What was swept.** 381 backend routes (gate inventory, brace-matched), 301
+frontend API calls cross-checked against them (0 dead connections), 22 strict
+response schemas (no field-strip bug), 128 reachable GETs x 6 throwaway users
+(one per role; 0 server errors), and every sidebar page for every role in
+headless Chromium - 63 page loads, 0 page errors, 0 error boundaries. Tracker
+with the full verdict table: `tasks/todo.md`.
+
+### Fixed
+
+- **`POST /api/backup/restore` turned Fastify's own 4xx into 500 RESTORE_FAILED.**
+  A non-multipart body (406) was reported as "Database restore failed". The
+  catch-all now passes 4xx through with its code.
+- **Negative pagination 500'd four filter routes.** `page=-1` / `limit=0` on
+  `/api/filters/{events,cycles,cleaning-record,manual-status-changes}` reached
+  Prisma as a negative skip / zero take. Schema `minimum`/`maximum` added, as
+  every other paginated module already had.
+- **AHU dashboard "Recent Activity" was always empty.** It queried
+  `/api/filters/events?filterId=<AHU id>`, and events are keyed by FILTER. The
+  route now accepts `ahuId` and resolves the AHU's filters server-side (an AHU
+  with no filters returns nothing, not everything).
+- **Every report page logged a 403 for every non-ADMIN role.**
+  `GET /api/config/report-labels/current` was gated on `CONFIG_READ`, yet the
+  shared report chrome reads it for any viewer. 22 of 63 page loads in the
+  sweep hit it. Now readable by all authenticated users, the same contract as
+  `/report-page-titles/current` - the values are display strings.
+- **ADMIN hit `/api/sync/since` with a 403 at app start and every 60 s.** The
+  versioned-cache sync gates on `ASSET_VIEW | FILTER_OPERATE`; the app-layout
+  trigger now checks the user's permissions first.
+- **PUT schemas had lost the constraints their POST twins enforce.**
+  Cleaning-profile `stages`/`connections` were bare arrays; filter-profile
+  `cleaningProfileId` had no uuid format and `blockRestriction` no enum. Both
+  now mirror POST (verified 400 live on a bad enum / a stage without nodeType).
+- **Cleaning-profile search only searched the current page.** The list is
+  server-paginated and the term never left the browser. `search` is now a
+  server parameter (debounced 300 ms), and the audit-trail search got the same
+  debounce - it used to query the audit table on every keystroke.
+- **Contact-admin showed blank Email / Department / Role / Status rows.** The
+  public lookup deliberately returns only username + full name (no
+  enumeration), so those rows and the blank "Current Value" box for three of
+  the four modifiable fields were removed.
+- `filterTemplateIds` on the Filters page is memoised (it defeated a downstream
+  `useMemo` on every render); DRY_OUT badge text colour fixed (was
+  `text-amber-200` on `bg-amber-50`).
+
+### Reported, not changed
+
+- `POST /api/audit/report-export-log` lets any authenticated user write a
+  self-attributed REPORT_GENERATED row with caller-supplied counts (Low).
+- `GET /api/admin-requests/user-lookup` is a pre-login existence check that
+  returns the full name - by design for the contact-admin flow (Low).
+- `/api/replacement-schedules/{due,tasks,blocked-filters}` are ungated by
+  design, so ADMIN/QA can read replacement tasks via API (Info).
+- `GET /api/notification-rules/:id` answers 400 DATA_CONSTRAINT, not 404, for an
+  unknown id; nothing in the web calls that GET (Info).
+- Still-open Mediums from the earlier review, re-verified live: M27 (5 soft-
+  deleted filters hold IN_PROGRESS cycles - data decision), M30, M47, M63/M79/M82
+  (three pages never render a fetch error), M80. See `tasks/todo.md`.
+
+## [Unreleased] - 🔴 The dynamic config PUT stored the reauth password in plaintext (2026-09-04)
+
+Found while building the filter workflow below, and it predates that work.
+
+`api-client.withReauth()` injects `_currentPassword` into the body so
+`enforceReauth()` can verify it, and `enforceReauth` deletes the field once used
+— **but it only runs for defs with `requiresReauth: true`.** Config values are
+free-form JSON written verbatim, so for every def with `requiresReauth: false`
+the password was persisted into `system_config.config_value`: readable by any
+`CONFIG_READ` holder, returned by the route's own GET, and captured in every
+backup.
+
+Found live in **`report-settings`** (pre-existing) and reproduced on
+`filter-approval`. Both rows were cleaned; a scan found no others.
+
+`configService.updateConfig` has stripped underscore-prefixed transport fields
+since 2026-05-25 — the DYNAMIC route never went through it. The same rule now
+applies on both write paths, locked by 5 cases. Reauth itself is unaffected:
+`enforceReauth` runs before the strip and reads `req.body` directly.
+
+## [Unreleased] - Filter create / bulk upload → review → approve (2026-09-04)
+
+Operator request: filter creation and bulk upload should follow the same
+upload → review → approve concept as PM Schedules, with a per-step role
+configuration. This is the feature behind rows 13 ("Filters Review" → Manager)
+and 14 ("Filter Approve" → QA) of `Role privileges.docx`, which the alignment
+work earlier the same day recorded as **not implementable**.
+
+**It ships switched OFF.** `workflowEnabled` defaults false, so filter creation
+behaves exactly as before until someone enables it on Config → Role Assignments
+→ Filter Creation Workflow.
+
+### Decisions taken with the operator
+
+1. A pending filter **exists but is not operable** — listed with a status badge,
+   but no cleaning cycle until APPROVED. Mirrors a PM entry generating no tasks.
+2. Scope: **bulk upload + single create**. Not edit, not delete/retire.
+3. Reject marks **REJECTED and the uploader resubmits** — nothing is destroyed,
+   and the reason plus attribution survive.
+4. Review actions live **on the Filters page**, not a new screen, and take an
+   **array of ids** so a 200-row upload clears in one action.
+
+### Three findings that changed the design
+
+- 🔴 **Both creation paths converge on `filterService.create`** — the Filters
+  page dialog via `POST /api/hierarchy/filters` AND every bulk-upload row. The
+  generic `instanceService.create` is the Block/Area/AHU path. Stamping the
+  status in the wrong one would have left bulk uploads auto-approved.
+- 🔴 **A DB trigger mirrors `filters` → `asset_instances`.** The approval
+  columns live on the mirror, and `fn_mirror_typed_to_asset_instance` knows
+  nothing about them, so it took the column default. The status is stamped
+  explicitly inside the same transaction, after the trigger has run.
+- 🔴 **The gate does NOT belong in `getFilter()`.** It looks like the shared
+  loader, but 6 of its 9 callers are READS that must keep working on a pending
+  filter. The real write seam is `loadLocalContext()` — advance / bypass /
+  advance-with-checklist / submit-checklist all pass through it — plus
+  `start-cycle.ts`, which loads separately. `ahu-completion-gate.ts` also uses
+  that loader, so it EXCLUDES pending filters from readiness rather than
+  throwing and failing the whole AHU.
+
+### Schema
+
++16 columns on `AssetInstance`, purely additive. `approvalStatus` **reuses
+`PmEntryApprovalStatus`** rather than adding a near-identical enum —
+`ReplacementEntry` already reuses it, and nothing switches on the type — and
+**defaults to APPROVED**, so all 511 existing rows and every non-filter asset
+stay operable. Migration `20260904064500_filter_approval_workflow`; drift guard
+PASS on both DBs.
+
+### Counts
+
+Permissions 102 → 104 (`FILTER_REVIEW`, `FILTER_APPROVE`), feature privileges
+83 → 85, reauth actions 97 → 100, config defs 37 → 38, audit templates +4
+(one row per FILTER per decision — a batch-level row cannot answer "who approved
+THIS filter"). MANAGER holds review, QA holds approve, per the document.
+
+### Verified end-to-end against the live API
+
+create → PENDING_REVIEW → review → PENDING_APPROVAL → approve → APPROVED →
+cycle starts. Reject gives its own refusal wording; resubmit clears every
+review/approve/reject field. A pending filter is refused by both `start-cycle`
+and `advance` with 409 `FILTER_NOT_APPROVED` carrying the status. The badge
+renders on the Filters page for the pending row only. All test data removed and
+the workflow switched back off.
+
+### The UI, and it is now switched ON
+
+The Filters page bulk bar gained **Review / Approve / Reject**, each shown only
+when the selection actually contains filters in that state — so the bar is
+unchanged on a normal install where everything is already APPROVED. The buttons
+send an array of ids, mixed selections are narrowed to the eligible rows rather
+than 409-ing the batch, and rejection prompts for the mandatory reason before
+the round trip.
+
+Verified through the real UI: create -> `Pending Review` badge -> `Review (1)` ->
+badge refreshes to `Pending Approval` without a reload -> `Approve (1)` -> badge
+gone, filter operable, two audit rows. Zero console errors.
+
+With the buttons in place the workflow was **enabled** at the operator's
+request: reviewRole MANAGER, approvalRole QA, uploadRole blank (anyone holding
+the create permission).
+
+### Per-row AHU in the bulk upload (same day, operator request)
+
+The upload used to take ONE AHU from the dialog and put every row in it. The
+template now carries an **`ahu` column with an Excel dropdown of the AHUs in
+the selected block**, so a single sheet can span the whole block, and each row
+lands in the AHU it names — then enters the review/approve workflow like any
+other new filter.
+
+- **`blockId` is REQUIRED on the template download** (400 without it). A sheet
+  with an `ahu` column but no dropdown would look like the feature while
+  silently accepting free text into a name-resolution path.
+- **The dropdown is built fresh on every download.** An AHU created after one
+  download appears in the next — verified live: MUPS offered 4 AHUs, a fifth was
+  created, the re-download offered 5. Same contract the field-option dropdowns
+  already have; there is no cached template.
+- **Blank cell → the dialog's AHU**, mirroring how `filterSet` falls back to the
+  dialog default. The dry-run preview shows the RESOLVED AHU per row, so the
+  operator confirms where 200 filters will land rather than confirming blind.
+- **Resolution is by name, case-insensitive, SCOPED TO THE BLOCK.** Names are
+  globally unique in the live data today, but relying on that would let a typo
+  drop filters into another block. A row naming an AHU outside the block is a
+  **per-row error listing the valid names** — never a silent fall-back to the
+  dialog AHU, which would put filters somewhere the operator did not ask for.
+  The preview shows what was typed on such a row, not the fallback.
+
+Verified end-to-end: four rows across PBKS / a just-created AHU / blank / a
+different block's AHU → 3 created in the right AHUs (all `PENDING_REVIEW`),
+1 refused with the valid list. Test data and the test AHU removed.
+
+### Not finished
+
+- **Offline replay** is not specifically covered: a filter pending at replay
+  fails through the generic per-item error rather than a purpose-built
+  reportable rejection.
+- The bulk upload asserts the upload role **per row** (one config read each).
+  Correct but wasteful at 200 rows.
+
+## [Unreleased] - Role permissions aligned to `Role privileges.docx` (2026-09-04)
+
+The operator supplied a 41-row Activity × Role matrix (Admin / Supervisor /
+Manager / QA / Shift Officer / Operator, plus a "Tab Operations" section for the
+tablet) and asked for the six roles to match it. Applied as an **exhaustive**
+spec: anything the document does not list was revoked, not left alone.
+
+| role | permissions | sidebar |
+|---|---|---|
+| ADMIN | 23 → 15 | 7 → 6 |
+| SUPERVISOR | 50 → 24 | 16 → 12 |
+| MANAGER | 26 → 16 | 15 → 12 |
+| QA | 15 → 12 | 11 → 9 |
+| SHIFTOFFICER | 16 → 26 | 11 → 13 |
+| OPERATOR | 22 → 13 | 15 → 6 |
+
+SHIFTOFFICER *gained* the most: it had been provisioned well below what the
+document grants it (no PM schedules, no replacement list, no equipment groups,
+no My Tasks). SUPERVISOR lost the most — it held filter create / edit /
+hierarchy / status-update / asset-template privileges the document never grants.
+
+### Two over-grants, both surfaced by applying the document
+
+1. **`replacement_schedule.view` granted `REPLACEMENT_SCHEDULE_UPLOAD`** — which
+   is the gate of `replacement_schedule.upload` *and* of the upload route.
+   Granting a role "View Replacement Schedule" handed it upload. This was
+   masked, never prevented, by `assertPmRole`'s separate uploadRole check;
+   `pm-schedules/__tests__/upload-role.test.ts` already recorded MANAGER, QA and
+   OPERATOR all holding the permission live.
+2. **`filters.retire` granted `FILTER_OPERATE`** — `POST /api/filters/:id/retire`
+   gates on `FILTER_RETIRE` alone, while `FILTER_OPERATE` is the gate for
+   start-cycle / advance / bypass. The document gives MANAGER Filter Retirement
+   Activity and **not** Cleaning Operations, yet MANAGER ended up able to run
+   cleaning cycles through the API. `FILTER_OPERATE` is now held by exactly the
+   three roles the document's Tab Operations grants it to.
+
+Both are the class CLAUDE.md records at 2026-07-01: a toggle whose grant set
+contains another node's **gate**. Grant set ≠ gate.
+
+### What the tablet needed, and what the document could not express
+
+- **The tablet already matched exactly.** `system_config['tablet-access']`
+  grants login / filter_cleaning / filter_status / my_tasks / rfid_assign /
+  logout to SUPERVISOR, SHIFTOFFICER (+ stage_approvals) and OPERATOR, with QA
+  explicitly empty and ADMIN / MANAGER absent (the resolver reads a missing
+  entry as deny-all). **No change was needed.**
+- **OPERATOR keeps `CYCLE_READ` although document row 28 denies it the Cleaning
+  Record.** The desktop page *is* hidden (no `cleaning-cycles` sidebar item),
+  but the tablet's own Filter Cleaning Record tile is not tablet-access gated
+  and always renders; revoking the read would 403 a screen inside the Cleaning
+  Operations the document grants that role. `filters.operate` does **not** carry
+  `CYCLE_READ`, so this had to be explicit.
+- **QA keeps the Replacement List** although row 19 denies it: row 22 gives QA
+  **Approve**, and approving is impossible without reaching the list.
+- **Rows 13 + 14 (Filters Review / Filter Approve) are not applied** — filter
+  bulk upload creates records directly. Unlike PM Schedule and Replacement List,
+  it has no review/approve chain; building one is a feature, not a permission.
+- 🔴 **SHIFTOFFICER upload is granted but still blocked.** Rows 16 and 20 give
+  PM + Replacement upload to Supervisor **and** Shift Officer, but `uploadRole`
+  is a single-role `select` holding `SUPERVISOR`, and `assertPmRole` 403s anyone
+  else regardless of permission. Shift Officer now holds `PM_UPLOAD` /
+  `REPLACEMENT_SCHEDULE_UPLOAD` and will still be refused until that setting is
+  widened — deferred by the operator as its own change.
+
+### Applying it
+
+`role_configs.permissions` is a **full replace**, and only the **83** ids in
+`FEATURE_TO_PERMISSION_MAP` grant anything — the other 45 tree nodes are
+enforced-only, so listing them would have stored toggles that do nothing.
+`PM_EXECUTE` comes only from `pm.execute` (`my_tasks.perform` is enforced-only),
+which is why "My Task" needed that node rather than the obvious one.
+
+A second pass was required: `updateRoleConfig` rebuilds from the toggle map but
+keeps `currentPerms.filter(p => !allMappedPerms.has(p))`, so every permission no
+toggle maps survives each save — `ASSET_CREATE/UPDATE/DELETE`, `ENTITY_ASSIGN`,
+`ASSET_TEMPLATE_*` and the dead `REPORT_*` constants left over from the
+2026-07-04 reports tear-out. Those were cleared explicitly via
+`PUT /api/roles/:name`.
+
+`dashboard` and `home` were dropped from every role (the document lists neither).
+Login does not dead-end: `/` has no route guard, so it still renders whatever
+tiles a role's permissions allow.
+
+**Then, on operator request, the Dashboard was restored to ALL SIX roles** (and
+Admin Requests to ADMIN) — deliberate additions on top of the document, which
+lists neither. Dashboard is the first menu item everywhere. `dashboard.view`
+only, not create / manage / assign. `admin_requests.approve` / `.reject` had to
+be toggled explicitly: the `admin-requests` sidebar item opts OUT of sidebar
+auto-grant, because its only privileges are ACTION perms and auto-granting an
+action perm on menu-enable makes it un-revokable.
+
+**MANAGER, SUPERVISOR, SHIFTOFFICER and OPERATOR were then trimmed to the Filter
+Cleaning Analytics only** — Quick Actions and the whole Quick Overview strip
+removed from each. "Quick Overview" is not a card key but the strip holding
+`total_users` / `audit_trail` / `notifications`, so all three came off alongside
+`quick_actions` (each role 11–12 cards → 8). ADMIN, QA, SUPER_ADMIN and VIEWER
+are byte-identical — the config is read whole, edited in place and written back.
+
+That needed a code change too: the Quick Overview `<h2>` and its wrapper rendered
+**unconditionally**, so emptying its cards left a bare heading over an empty
+grid. The section now renders only when at least one of its three cards is
+visible, repeating each card's own condition so the section can never disagree
+with its contents.
+
+That exposed a small pre-existing defect. The dashboard guarded its **users**
+tile with `isAdmin` but fetched the **audit** and **filter-cycle** stats
+unconditionally, so every role lacking `AUDIT_READ` / `CYCLE_READ` logged a 403
+per dashboard load and got a `-` tile that reads as "no records" rather than
+"not your data". Harmless while only privileged roles had the menu; routine once
+all six did — SUPERVISOR / SHIFTOFFICER / OPERATOR hold no `AUDIT_READ`, ADMIN no
+`CYCLE_READ`. Both fetches are now gated like `isAdmin` already was, and the
+audit tile hides rather than showing a blank. Verified: OPERATOR's dashboard
+renders the full filter analytics with **zero** console errors.
+
+### Verified three ways
+
+1. Every role's live `roles.permissions` matches the target exactly — 0 extra,
+   0 missing.
+2. Every document row resolved back through the tree gates — 0 mismatches.
+3. Real sessions: one throwaway user per role (`9900xx`), 8 endpoint checks,
+   0 mismatches, accounts deleted afterwards and the 9 real accounts untouched.
+   Each check logs in fresh, because a permission change needs a new login.
+
+Before / after / per-role delta: `tasks/role-privileges-baseline/`.
+Plan + decisions: [`tasks/ROLE-PRIVILEGES-DOC-ALIGNMENT.md`](tasks/ROLE-PRIVILEGES-DOC-ALIGNMENT.md).
+
+## [Unreleased] - The two DRY_IN steps read as Started / Ended (2026-09-04)
+
+Operator: moving a filter Wash Out -> Dry In, the duration and the temperature
+both record correctly, but the From/To columns read `Wash Out -> Dry In` and
+**`To Be Cleaned -> Dry In`**. They should read `Wash Out -> Dry In (Started)`
+and `Dry In -> Dry In (Ended)`.
+
+DRY_IN is entered ONCE but emits TWO `STATE_TRANSITION` rows — set the dryer
+duration, wait, submit the temperature. The filter never leaves DRY_IN between
+them, so `advance.ts` deliberately persists `fromState = null` on the second:
+
+```ts
+// ...Set fromState=null when no transition actually occurs; the `action`
+// attribute already labels the event correctly.
+const persistedFromState = isDryerInPlace ? null : fromState;
+```
+
+🔴 **No renderer ever read `action`.** Every event timeline hit its *genesis*
+fallback — the one that turns a null from-state into "To Be Cleaned" for the 668
+rows where a filter really does enter its first stage — and printed **289 live
+dryer rows as "To Be Cleaned -> Dry In"**: the filter awaiting its first clean,
+in the middle of its own drying step. Strictly worse than the `DRY_IN -> DRY_IN`
+that null was chosen to avoid.
+
+`(Started)` / `(Ended)` is what makes `Dry In -> Dry In` honest rather than
+ambiguous — it says a dryer step was recorded, not that a stage moved. That was
+the objection the original comment raised, and the qualifier answers it.
+
+### Render-time, not a write fix
+
+`transitionEndpoints()` in `lib/cleaning-cycle-report.ts` returns state KEYS plus
+a phase, so each surface keeps its own label map. **The stored null stays** — it
+is the truthful value, 289 rows already carry it, and `filter_events` is an
+immutable §11 table, so a write change would fix nothing historic and leave a
+third shape to handle. Stage labels in this codebase are display-only and
+inferred at render; this is the same rule as `resolveStageCell`.
+
+Applied to all six event timelines: the Cycle Detail page and its PDF, the
+Filter Lifecycle Report's full-detail PDF, the Cycle Detail Excel export, Filter
+Traceability, Filter Data Management, and the tablet (both `/m` cycle detail and
+the operations event list). The write-path comment in `advance.ts` now names
+where the labelling actually happens.
+
+### What it must not touch, and why the discriminator is shaped as it is
+
+- **`toState === 'DRY_IN'` only.** The 668 genuine genesis rows (`null ->
+  WASH_IN`) and the 4 manual updates with no prior state keep reading
+  "To Be Cleaned".
+- **started** = `action === 'DRYER_STARTED'` OR `dryerDurationMinutes != null`
+  (the second catches rows written before `action` existed). Checked FIRST; a
+  start row never carries readings. `from = fromState ?? 'DRY_IN'` covers
+  re-setting the duration while already in DRY_IN — `isDryerInPlace` persists
+  null for that too.
+- **ended** = `action === 'DRYER_READINGS_SUBMITTED'` OR readings present with
+  `fromState` null **or** `'DRY_IN'`. That second clause is not belt-and-braces:
+  **13 legacy rows stored `DRY_IN -> DRY_IN` with readings and no action**, and
+  keying only on a null from-state would have left exactly those — the rows that
+  already had the right endpoints — as the only dryer-end rows missing
+  "(Ended)".
+- The `fromState` narrowing on the ended branch is load-bearing the other way:
+  **19 live rows are plain DRY_IN ENTRY from WASH_OUT** with no dryer action, so
+  a profile with instruments on DRY_IN entry would produce readings on a REAL
+  transition. Without the narrowing that stage move would be rewritten to
+  "Dry In -> Dry In (Ended)" and erased.
+
+12 cases lock all of it, each labelled with its live row count.
+
+### Also fixed
+
+The tablet's event header read **"Stage Moved -> Dry In"** on both dryer rows —
+a claim that is false for the readings row. It now reads "Dryer Started" /
+"Dryer Ended". The desktop and PDF say the neutral "STATE TRANSITION" and were
+left alone.
+
+**The Audit Trail was already correct and is unchanged**: `advance.ts` passes the
+real from-state to `auditLog()` even though it persists null on the filter_event,
+so those 304 rows store `before.state = after.state = DRY_IN` and render
+"Dry In -> Dry In". They carry no `action`, so historic audit rows cannot be
+qualified with Started/Ended — and rewriting them is not an option.
+
+**Filter Data Management is a display inference only.** Its Edit dialog still
+shows the row's STORED From/To (null on a dryer-readings row), because that is
+the column an admin edits.
+
+Verified live on `CC-MFA2/L3/AHU-024/SA/01-00-002-20260810` across the screen,
+the tablet, Traceability, Filter Data Management, and a PDF exported and read
+back with PyMuPDF.
+
+## [Unreleased] - Who TERMINATED a cycle now appears in the report (2026-09-04)
+
+Operator: "in filter life cycle report who's terminated was not coming in
+report."
+
+The Filter Lifecycle Report's compact table had a `By` column that handled this
+correctly. Its **full-detail** sections did not — and neither did the Cycle
+Detail page, its PDF, or the tablet — because `appendCycleDetailToReport` /
+`CycleDetailView` never called `cycleEndInfo`. They printed one line:
+
+```
+['Completed', cycle.completedAt ? formatDateTime(cycle.completedAt) : 'In Progress']
+```
+
+**That is worse than a gap.** `retire()`, `replace()` and `terminate()` all stamp
+`completedAt`, so **20 of the 24 live plain-TERMINATED cycles** — and all 19
+retired/replaced ones — had the report positively ASSERT they were *Completed*,
+at the instant they were terminated. The other 4 read "In Progress" on a cycle
+that had ended. Both are false statements about a §11 record.
+
+Every per-cycle surface now reads the same helper the table already used:
+
+| | before | after |
+|---|---|---|
+| end row | `Completed  18/05/2026 18:58` | `Terminated time  18/05/2026 18:58` |
+| performer | *(absent)* | `Terminated by  410eb939` |
+| status | *(absent)* | `Status  Terminated` |
+| reason | *(never shown anywhere)* | `Termination Reason  Stuck-cycle cleanup…` |
+| stage progress | `Done Done Done Pending Pending Pending` | `Done Done Done Terminated Terminated Terminated` |
+
+### Where the terminator comes from
+
+`GET /api/filters/cycles/:id` returned **no** performer fields at all, so the
+detail path had nothing to name. It now resolves `completedBy` /
+`completedByUsername` / `lastStageBy` / `lastStageByUsername` exactly as the
+`/cycles` list does — from the events it has **already loaded**, so no extra
+query — and the list row and the detail can no longer disagree about one cycle.
+
+**Retire/replace is the exception and stays on the CLIENT.** That path writes no
+`CYCLE_TERMINATED` event; the operator is on the `FILTER_RETIRED` /
+`FILTER_REPLACED` audit row. Resolving that server-side on the cycle would have
+been tidier and was rejected: `/api/filters/replacements` hides
+SUPER_ADMIN-performed rows from lower roles, and a server-side join would quietly
+bypass that rule. The lifecycle page already had the two lists; `timeline.tsx`
+now fetches them **only** when the cycle is RETIRED/REPLACED (19 of 672).
+
+**12 cycles still show `—`, on purpose.** They were terminated DB-direct in
+2026-05: no `CYCLE_TERMINATED` event, and the 11 `CYCLE_TERMINATED` audit rows
+target the *filter* with a null `user_name`. Nothing records who ended them.
+Falling back to the last-stage operator under a label reading "Terminated by"
+would invent a fact — the rule `lifecycle-timeline.test.ts` already locked.
+
+### Also fixed, same defect class
+
+- **`cycleEndInfo` moved to `lib/cleaning-cycle-report.ts`.** The detail files
+  need it and `filter-lifecycle.tsx` imports them, so importing back would be a
+  cycle. One definition, four surfaces.
+- **Stage Progress in the detail PDF** kept its own copy of the six stages and
+  its own Done/Pending rule, ignoring `profileStages`. It now uses
+  `resolveStageCell` — the same rule as the Cleaning Record since 2026-09-03 —
+  so a stage outside the cycle's profile reads `NA` instead of inventing work
+  that was never planned.
+- **The stage bar's terminal chip** covered RETIRED/REPLACED but not plain
+  TERMINATED, so an abandoned cycle showed a row of grey "not yet reached"
+  stages and nothing saying it had ended.
+- **`CYCLE_TERMINATED` had no timeline icon** — it fell through to
+  `REMARK_ADDED`'s grey speech bubble. The event that ended the cycle rendered
+  like a passing note.
+- **The tablet** (`/m` cycle detail) carried the identical `completedAt ?
+  'Completed' : …` line. Fixed with the same helper. It deliberately takes NO
+  retire/replace fallback: two whole-table fetches on a poor link, for 19 of 672
+  cycles, is the wrong trade — those read `—`.
+
+### The termination reason is a table, not a key-value pair
+
+`addKeyValue` lays out three fixed ~61mm columns and jsPDF's `doc.text` does not
+wrap. Measured with real jsPDF metrics: the live 173-character reason is
+**242.2mm** of 9pt helvetica on a **210mm** page — it would have run off the
+edge. It renders as a one-cell autoTable, verified by exporting the PDF and
+reading it back with PyMuPDF.
+
+Verified end-to-end in the browser against live data: a plain terminated cycle
+(`410eb939`), a retired one resolving through the audit fallback (`EMP-004`),
+and a DB-direct one honestly showing `—`.
+
+## [Unreleased] - Lifecycle report follows the replacement chain (2026-09-03)
+
+Operator, on a report for `L2/AHU-011/SA/01-01`: the Lifecycle Events read
+"Created as replacement of …/01" and "Replaced by …/01-02", the cycle table was
+EMPTY, and neither referenced filter appeared in the document — "they will doubt
+why it's wrong".
+
+They were right to. That filter has **0 cleaning cycles**; its predecessor holds
+all **5**. A replaced filter's history does not end, it continues in its
+successor, and the report covered only the one physical filter that was picked.
+
+Picking any filter now reports its whole chain, oldest first
+(`01 -> 01-01 -> 01-02 -> 01-03`), so the document is self-contained. The chain
+is named in the PDF subtitle and the picked filter's section is marked
+`[the filter selected]` — several "Filter:" sections would otherwise be a second
+surprise. The screen says the same thing above the list.
+
+`replacementChain` walks `replByOld` / `replByNew`, which the report already
+loaded. It carries a `seen` set: those maps are built from audit rows, so a
+malformed pair is DATA rather than a bug, and an unguarded walk would hang the
+report instead of failing visibly. Locked by 6 cases including a self-referencing
+pair and a two-filter cycle.
+
+### Correction to an earlier claim in this session
+
+While investigating I reported that the chain had lost its AHU link and that
+"AHU-011 resolves to zero filters". **That was wrong** — I queried
+`asset_instances.attributes` when the column is `custom_attributes`. All four
+filters carry `_preRetireParentId = AHU-011`, `/api/filters/retirements` returns
+them (`status: 'Retired', isActive: false`), and `allFilters` maps that to their
+`ahuId`, so the AHU scope resolves them correctly. Estate-wide it is **148 of 212**
+replacement-involved filters that keep the link, not none. No scoping change was
+made, because nothing there is broken.
+
+Web: **797 passed**.
+
+## [Unreleased] - A deleted operator left the "By" column blank everywhere (2026-09-03)
+
+Operator: "for manual update By column is empty".
+
+Same root cause as the lifecycle "By" fix earlier today, one layer wider.
+`performedByName` / `performedByUsername` are resolved server-side from the users
+table and come back **null when that user no longer exists** — which here is the
+COMMON case, not an edge one: **92% of live `filter_events` name a user deleted
+in the 2026-08-19 wipe**. Every surface that printed only the name rendered an
+empty cell for them.
+
+The raw `performedBy` uuid was on the row the whole time; only two of eleven
+render sites used it. `performerLabel(row, fallback)` in
+`lib/cleaning-cycle-report.ts` now holds the rule — name, then username, then the
+first 8 characters of the uuid — and the sites all call it:
+
+| Surface | Was |
+|---|---|
+| Lifecycle: manual row, screen | badge vanished entirely |
+| Lifecycle: manual table, full-detail PDF | `-` |
+| Lifecycle: compact PDF table | `-`  ← the one reported |
+| Lifecycle: Excel export | `-` |
+| Cleaning Record: manual row "By" | `-` |
+| Cycle detail: event badge, screen | badge vanished entirely |
+| Cycle detail PDF | `-` |
+| Cycle timeline export | `-` |
+| Tablet: cycle event list | line vanished entirely |
+
+Three of those did not print a dash at all — the whole element was conditional on
+the name, so it disappeared and the reader had no clue anything was missing.
+
+`getStageInfo` has applied this rule since it was written and
+`filter-data-management` copied it; making it a named export is what stopped the
+next surface from getting it wrong again.
+
+Locked by 5 cases in `cleaning-cycle-columns.test.ts`, including a non-string
+`performedBy` and the caller-supplied fallback the two screen sites rely on to
+decide whether to render at all.
+
+Web: **791 passed** (61 files).
+
+
 ## [Unreleased] - Downloaded PDFs are timestamped; lifecycle date range aligned (2026-09-03)
 
 ### Every PDF filename now carries date AND time

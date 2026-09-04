@@ -120,11 +120,14 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         properties: {
-          name: { type: 'string' },
+          // Audit M23 (2026-09-04): PUT now carries the same constraints as POST —
+          // a non-uuid cleaningProfileId or an unknown blockRestriction used to
+          // pass validation and fail (or silently persist) deeper down.
+          name: { type: 'string', minLength: 1, maxLength: 255 },
           description: { type: 'string' },
-          cleaningProfileId: { type: 'string' },
-          applicableTemplates: { type: 'array' },
-          blockRestriction: { type: 'string' },
+          cleaningProfileId: { type: 'string', format: 'uuid' },
+          applicableTemplates: { type: 'array', items: { type: 'string' } },
+          blockRestriction: { type: 'string', enum: ['OWN_BLOCK_ONLY', 'ANY_BLOCK', 'SPECIFIC_BLOCKS'] },
           allowedBlocks: { type: 'array', nullable: true },
           maxCleaningCycles: { type: 'integer', nullable: true },
           isActive: { type: 'boolean' },

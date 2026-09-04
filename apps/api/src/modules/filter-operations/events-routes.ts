@@ -19,12 +19,19 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           filterId: { type: 'string', format: 'uuid' },
+          // Audit M89 (2026-09-04): the AHU dashboard's Recent Activity queried this
+          // route with the AHU id in `filterId`, so it was always empty. Events are
+          // keyed by FILTER; `ahuId` resolves to that AHU's filters server-side.
+          ahuId: { type: 'string', format: 'uuid' },
           cycleId: { type: 'string', format: 'uuid' },
           eventType: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 20 },
+          // minimum/maximum added 2026-09-04 (audit): without them page=-1 or
+          // limit=0 reached Prisma as a negative `skip` / zero `take` and the
+          // route 500'd — every other paginated module already 400s here.
+          page: { type: 'integer', minimum: 1, default: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
         },
       },
       response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' } } }, ...errorResponses },
@@ -49,8 +56,11 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           cleaningReasonKey: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 20 },
+          // minimum/maximum added 2026-09-04 (audit): without them page=-1 or
+          // limit=0 reached Prisma as a negative `skip` / zero `take` and the
+          // route 500'd — every other paginated module already 400s here.
+          page: { type: 'integer', minimum: 1, default: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
           includeEvents: { type: 'string' },
         },
       },
@@ -86,8 +96,11 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           cleaningReasonKey: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 20 },
+          // minimum/maximum added 2026-09-04 (audit): without them page=-1 or
+          // limit=0 reached Prisma as a negative `skip` / zero `take` and the
+          // route 500'd — every other paginated module already 400s here.
+          page: { type: 'integer', minimum: 1, default: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
         },
       },
       response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' } } }, ...errorResponses },
@@ -109,8 +122,11 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           filterId: { type: 'string', format: 'uuid' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          page: { type: 'integer', default: 1 },
-          limit: { type: 'integer', default: 20 },
+          // minimum/maximum added 2026-09-04 (audit): without them page=-1 or
+          // limit=0 reached Prisma as a negative `skip` / zero `take` and the
+          // route 500'd — every other paginated module already 400s here.
+          page: { type: 'integer', minimum: 1, default: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
         },
       },
       response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' } } }, ...errorResponses },

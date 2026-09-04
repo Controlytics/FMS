@@ -343,7 +343,7 @@ export function ContactAdminPage() {
                     </svg>
                     <div>
                       <div className="font-semibold text-emerald-800">{requesterUser.fullName}</div>
-                      <div className="text-[12px] text-emerald-700">{requesterUser.roleDisplayName} · {requesterUser.email}</div>
+                      <div className="text-[12px] text-emerald-700">@{requesterUser.username}</div>
                     </div>
                   </div>
                 </div>
@@ -460,22 +460,9 @@ export function ContactAdminPage() {
                       <div className="text-[11px] text-slate-400">Full Name</div>
                       <div className="font-medium text-slate-800">{lookupUser.fullName}</div>
                     </div>
-                    <div>
-                      <div className="text-[11px] text-slate-400">Email</div>
-                      <div className="font-medium text-slate-800 break-all">{lookupUser.email}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-slate-400">Department</div>
-                      <div className="font-medium text-slate-800">{lookupUser.department || '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-slate-400">Role</div>
-                      <div className="font-medium text-slate-800">{lookupUser.roleDisplayName}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-slate-400">Status</div>
-                      <div className="font-medium text-slate-800">{lookupUser.status}</div>
-                    </div>
+                    {/* Audit M58 (2026-09-04): the public lookup returns only username +
+                        full name (no enumeration of email / department / role / status),
+                        so those rows were always blank and were removed. */}
                   </div>
                 </div>
               )}
@@ -503,11 +490,15 @@ export function ContactAdminPage() {
                   </div>
                   {modifyField && (
                     <div className="grid grid-cols-1 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-600 mb-1">Current Value</label>
-                        <input type="text" value={currentFieldValue(modifyField)} disabled
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-100 text-slate-500" />
-                      </div>
+                      {/* M58: only the full name is known client-side; the other fields'
+                          current values are not returned by the public lookup. */}
+                      {modifyField === 'fullName' && (
+                        <div>
+                          <label className="block text-sm font-medium text-slate-600 mb-1">Current Value</label>
+                          <input type="text" value={currentFieldValue(modifyField)} disabled
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-100 text-slate-500" />
+                        </div>
+                      )}
                       <div>
                         <label className="block text-sm font-medium text-slate-600 mb-1">New Value <span className="text-red-500">*</span></label>
                         {modifyField === 'role' ? (
@@ -527,7 +518,7 @@ export function ContactAdminPage() {
                             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                           />
                         )}
-                        {newValue && newValue === currentFieldValue(modifyField) && (
+                        {modifyField === 'fullName' && newValue && newValue === currentFieldValue(modifyField) && (
                           <p className="mt-1 text-xs text-amber-600">New value is the same as current value.</p>
                         )}
                       </div>

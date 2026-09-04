@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
@@ -65,6 +65,15 @@ export function AuditTrailPage() {
   // Fetch roles for dynamic colors
   const { roleColors: ROLE_COLORS } = useRoleColors();
   const [search, setSearch] = useState('');
+  // Audit M70 (2026-09-04): the raw input used to be in the SWR key, so every
+  // keystroke fired a full-text query against the (large) audit table. Same
+  // 300 ms debounce as users/list.tsx.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    searchDebounceRef.current = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(searchDebounceRef.current);
+  }, [search]);
   const [fromDateTime, setFromDateTime] = useState('');
   const [toDateTime, setToDateTime] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
@@ -87,7 +96,7 @@ export function AuditTrailPage() {
   };
 
   const params = new URLSearchParams({ page: String(page), limit: String(perPage), sortBy, sortOrder });
-  if (search) params.set('search', search);
+  if (debouncedSearch) params.set('search', debouncedSearch);
 
   // Use combined datetime values for API — convert local time to UTC ISO string
   if (fromDateTime) {
@@ -107,7 +116,7 @@ export function AuditTrailPage() {
   // bulk delete.
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, fromDateTime, toDateTime, sortBy, sortOrder, perPage]);
+  }, [page, debouncedSearch, fromDateTime, toDateTime, sortBy, sortOrder, perPage]);
 
   // Second, independent guard: resolve every bulk action against the rows
   // actually rendered. Clearing on change fixes the known paths; intersecting
@@ -302,7 +311,7 @@ export function AuditTrailPage() {
     let pageN = 1;
     for (;;) {
       const qs = new URLSearchParams({ page: String(pageN), limit: String(LIMIT), sortBy, sortOrder });
-      if (search) qs.set('search', search);
+      if (debouncedSearch) qs.set('search', debouncedSearch);
       if (fromDateTime) qs.set('startDate', new Date(fromDateTime).toISOString());
       if (toDateTime) qs.set('endDate', new Date(toDateTime).toISOString());
       const res = await apiClient.get<{ data?: any[]; total?: number }>(`/api/audit?${qs}`);
@@ -321,7 +330,7 @@ export function AuditTrailPage() {
     await logReportExport({
       reportType: 'Audit Trail', format, recordCount,
       period: currentPeriod(),
-      search: search || undefined,
+      search: debouncedSearch || undefined,
       startDate: fromDateTime ? new Date(fromDateTime).toISOString() : undefined,
       endDate: toDateTime ? new Date(toDateTime).toISOString() : undefined,
     });

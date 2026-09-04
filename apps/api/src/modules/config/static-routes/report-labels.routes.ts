@@ -12,8 +12,12 @@ import { prisma } from '../../../lib/prisma.js';
  * empty/missing config means "use the built-in labels".
  */
 export async function reportLabelsRoutes(app: FastifyInstance) {
+  // Readable by ALL authenticated users (audit B2, 2026-09-04): every report
+  // page reads this through use-report-labels.ts, and only ADMIN holds
+  // CONFIG_READ - so each report page for every other role logged a 403 and
+  // an SWR error on load. Same contract as /report-page-titles/current;
+  // the values are display strings, not configuration secrets.
   app.get('/report-labels/current', {
-    preHandler: [app.requirePermission('CONFIG_READ')],
     schema: {
       tags: ['Config'],
       summary: 'Get report label overrides (titles / subtitles / column headers)',
