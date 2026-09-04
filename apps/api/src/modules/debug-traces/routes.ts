@@ -79,7 +79,7 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
   }, async (req) => {
     const q = req.query as Record<string, string | undefined>;
     const page = Math.max(1, parseInt(q.page ?? '1', 10) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(q.pageSize ?? '20', 10) || 20));
+    const limit = Math.max(1, parseInt(q.pageSize ?? '20', 10) || 20); // no page-size cap (operator decision 2026-09-04): callers get the size they ask for
 
     // audit_trail has only SUCCESS / API / no-error rows. Any filter that
     // selects failures, a non-API transport, or an error code yields nothing.

@@ -10,7 +10,7 @@ import { AppError } from '../../lib/errors.js';
 export class CleaningProfileService {
   async list(_ctx: RequestContext, query: { page?: number; limit?: number; status?: string; search?: string }) {
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 20, 100);
+    const limit = (query.limit ?? 20) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
     const where: any = {};
     // M88: server-side name search (the list is paginated; see routes.ts).
     if (query.search?.trim()) where.name = { contains: query.search.trim(), mode: 'insensitive' };

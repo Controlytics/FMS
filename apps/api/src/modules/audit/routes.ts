@@ -21,7 +21,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           page: { type: 'integer', minimum: 1, default: 1, description: 'Page number' },
-          limit: { type: 'integer', minimum: 1, maximum: 200, default: 20, description: 'Records per page (capped at 200 to prevent unbounded table dump)' },
+          limit: { type: 'integer', minimum: 1, default: 20, description: 'Records per page (no cap - operator decision 2026-09-04)' },
           period: { type: 'string', enum: ['today', 'week', 'month', 'quarter', 'year', 'all'], description: 'Predefined date period filter' },
           startDate: { type: 'string', description: 'Start date for custom range (ISO 8601)' },
           endDate: { type: 'string', description: 'End date for custom range (ISO 8601)' },
@@ -146,7 +146,7 @@ export default async function auditRoutes(app: FastifyInstance) {
     // Defensive cap: even if Zod schema is bypassed, never pull more than 200 rows.
     // Audit-trail is hash-chained + monotonic — without a cap, any AUDIT_READ caller
     // can pull the entire table in one response (DoS surface).
-    const effectiveLimit = Math.min(Math.max(query.limit ?? 20, 1), 200);
+    const effectiveLimit = Math.max(query.limit ?? 20, 1); // no page-size cap (operator decision 2026-09-04)
 
     const [records, total] = await Promise.all([
       prisma.auditTrail.findMany({

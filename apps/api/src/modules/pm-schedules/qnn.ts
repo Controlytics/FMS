@@ -20,7 +20,7 @@ export async function canSeeQnn(role?: string | null): Promise<boolean> {
 
 export async function listQnn(query: { page?: number; limit?: number; from?: string; to?: string }) {
   const page = query.page ?? 1;
-  const limit = Math.min(query.limit ?? 50, 500);
+  const limit = (query.limit ?? 50) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
   const where: { createdAt?: { gte?: Date; lte?: Date } } = {};
   if (query.from || query.to) {
     where.createdAt = {};

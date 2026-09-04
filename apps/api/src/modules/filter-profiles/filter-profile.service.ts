@@ -81,7 +81,7 @@ function flattenApplicableTemplates<T extends { applicableTemplates?: { template
 export class FilterProfileService {
   async list(_ctx: RequestContext, query: { page?: number; limit?: number }) {
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 20, 100);
+    const limit = (query.limit ?? 20) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
     const where: any = {};
 
     const [data, total] = await Promise.all([

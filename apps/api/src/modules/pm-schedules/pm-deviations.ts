@@ -369,7 +369,7 @@ export async function acknowledgeDeviation(ctx: RequestContext, id: string) {
 /** Paginated deviation list for the Deviations page (rows are self-describing). */
 export async function listDeviations(query: any) {
   const page = Math.max(1, Number(query.page ?? 1));
-  const limit = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
+  const limit = Math.max(1, Number(query.limit ?? 50)); // no page-size cap (operator decision 2026-09-04)
   const where: any = {};
   if (query.status && query.status !== 'ALL') where.status = query.status;
   if (query.ahuId) where.ahuId = query.ahuId;

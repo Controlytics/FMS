@@ -82,7 +82,7 @@ export class ChecklistProfileService {
     query: { page?: number; limit?: number; isActive?: string; expand?: string },
   ) {
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 50, 100);
+    const limit = (query.limit ?? 50) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
     const where: any = {};
     if (query.isActive === 'true') where.isActive = true;
     else if (query.isActive === 'false') where.isActive = false;

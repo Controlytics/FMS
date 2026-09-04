@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] - No page-size caps on any list (2026-09-04, operator decision)
+
+Operator: "dont put any limits in any page". Every list endpoint now returns
+the page size the caller asks for. Removed: the schema `maximum` on `limit`
+(audit 200, PM schedules 500 / 2000 / 200, super-admin data lists 100) and the
+service-side clamps (`Math.min(limit, 100|200|500|2000)`) on cleaning cycles,
+filter events, cleaning record, manual status changes, cleaning / checklist /
+filter profiles, block-change requests, PM entries, QNNs, PM deviations, debug
+traces and the audit trail. The `minimum: 1` guards stay - they prevent 500s,
+not sizes. The 1,000,000 "return everything" sanity gates on the hierarchy and
+identifier lists are untouched (not a practical limit). The export-record limit
+(Config -> Export Limit) is a separate setting and is unchanged.
+
+Consequence worth knowing: the tablet cycles view, which has always asked for
+200, now actually receives 200 (it silently got 100 before), so "Last cleaned"
+on the tablet is derived from twice as many cycles.
+
 ## [Unreleased] - Upload step of the approval workflows takes MANY roles (2026-09-04)
 
 The operator's `Role privileges.docx` grants PM-schedule and Replacement upload

@@ -123,7 +123,7 @@ export class FilterOperationsService {
     }
 
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 20, 100);
+    const limit = (query.limit ?? 20) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
     const where: any = {};
     if (query.filterId) where.filterId = query.filterId;
     // M89: an AHU has no events of its own; list the events of the filters under it.
@@ -166,7 +166,7 @@ export class FilterOperationsService {
     }
     const mIds: string[] | undefined = Array.isArray(query.ids) ? query.ids : undefined;
     const page = mIds ? 1 : (query.page ?? 1);
-    const limit = mIds ? Math.max(mIds.length, 1) : Math.min(query.limit ?? 20, 100);
+    const limit = mIds ? Math.max(mIds.length, 1) : (query.limit ?? 20) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
     const where: any = {
       eventType: 'STATE_TRANSITION',
       cycleId: null,
@@ -274,7 +274,7 @@ export class FilterOperationsService {
   async getCleaningRecord(ctx: RequestContext, query: any) {
     if (query.filterId) await getFilter(query.filterId, ctx);
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 20, 100);
+    const limit = (query.limit ?? 20) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
     const fromD = query.from ? new Date(query.from) : null;
     const toD = query.to ? new Date(query.to) : null;
 
@@ -457,7 +457,7 @@ export class FilterOperationsService {
     // rows, enriched, without pagination — caller has already paged the merged set.
     const ids: string[] | undefined = Array.isArray(query.ids) ? query.ids : undefined;
     const page = ids ? 1 : (query.page ?? 1);
-    const limit = ids ? Math.max(ids.length, 1) : Math.min(query.limit ?? 20, 100);
+    const limit = ids ? Math.max(ids.length, 1) : (query.limit ?? 20) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
     const where: any = {};
     if (ids) where.id = { in: ids };
     if (query.filterId) where.filterId = query.filterId;

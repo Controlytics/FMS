@@ -855,7 +855,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     type: 'object' as const,
     properties: {
       page: { type: 'integer', minimum: 1, default: 1 },
-      limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+      limit: { type: 'integer', minimum: 1, default: 25 }, // no page-size cap (operator decision 2026-09-04): callers get the size they ask for
       from: { type: 'string', description: 'Inclusive start of the date range.' },
       to: { type: 'string', description: 'Inclusive end of the date range (a bare date covers the whole day).' },
       ...extra,
@@ -865,7 +865,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   // Helper: paginated list for any Prisma model
   const paginatedList = async (model: any, query: any, orderBy: any = { createdAt: 'desc' }, include?: any, where?: any) => {
     const page = Number(query.page ?? 1);
-    const limit = Math.min(Number(query.limit ?? 25), 100);
+    const limit = Number(query.limit ?? 25); // no page-size cap (operator decision 2026-09-04): callers get the size they ask for
     const findArgs: any = { orderBy, skip: (page - 1) * limit, take: limit };
     if (include) findArgs.include = include;
     if (where) findArgs.where = where;

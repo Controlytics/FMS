@@ -55,7 +55,7 @@ export async function listEntries(
   // table with no pagination UI, so the default cap must comfortably cover a full
   // year. Raised from 200 → 2000 (2026-06-12): the old cap silently hid entries
   // beyond the first 50/200 in the ALL view.
-  const limit = Math.min(query.limit ?? 50, 2000);
+  const limit = (query.limit ?? 50) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
   const year = query.year ?? new Date().getFullYear();
 
   const where: any = { schedule: { status: 'ACTIVE', year } };

@@ -105,7 +105,7 @@ export const blockChangeService = {
 
   async list(ctx: RequestContext, query: { status?: string; page?: number; limit?: number; mine?: boolean }) {
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 20, 100);
+    const limit = (query.limit ?? 20) /* no page-size cap (operator decision 2026-09-04): callers get the size they ask for */;
     const where: any = {};
 
     if (query.status && query.status !== 'ALL') where.status = query.status;

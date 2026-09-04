@@ -104,7 +104,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           page: { type: 'integer', minimum: 1 },
-          limit: { type: 'integer', minimum: 1, maximum: 500 },
+          limit: { type: 'integer', minimum: 1 }, // no page-size cap (operator decision 2026-09-04): callers get the size they ask for
           from: { type: 'string' },
           to: { type: 'string' },
         },
@@ -341,10 +341,9 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
           approvalStatus: { type: 'string', enum: ['ALL', 'PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED'] },
           year: { type: 'integer' },
           page: { type: 'integer', minimum: 1 },
-          // Cap matches the service (pm-approval.listEntries: Math.min(limit, 2000)).
           // The list page sends limit=2000 to load a whole year with no pagination;
           // a stale 200 cap here rejected that request with 400 (page error).
-          limit: { type: 'integer', minimum: 1, maximum: 2000 },
+          limit: { type: 'integer', minimum: 1 }, // no page-size cap (operator decision 2026-09-04): callers get the size they ask for
         },
       },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
@@ -563,7 +562,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
           status: { type: 'string', enum: ['ALL', 'OPEN', 'ACKNOWLEDGED', 'CLOSED'] },
           ahuId: { type: 'string', format: 'uuid' },
           page: { type: 'integer', minimum: 1 },
-          limit: { type: 'integer', minimum: 1, maximum: 200 },
+          limit: { type: 'integer', minimum: 1 }, // no page-size cap (operator decision 2026-09-04): callers get the size they ask for
         },
       },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
