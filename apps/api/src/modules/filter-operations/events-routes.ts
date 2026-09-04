@@ -27,11 +27,13 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           eventType: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          // minimum/maximum added 2026-09-04 (audit): without them page=-1 or
-          // limit=0 reached Prisma as a negative `skip` / zero `take` and the
-          // route 500'd — every other paginated module already 400s here.
+          // minimum added 2026-09-04 (audit): page=-1 / limit=0 reached Prisma as a
+          // negative skip / zero take and the route 500'd. NO maximum on purpose:
+          // the service clamps limit to 100 itself, and a schema maximum turned the
+          // tablet's long-standing limit=200 into a 400 'load error' (operator
+          // report, same day). Clamping silently is the contract callers rely on.
           page: { type: 'integer', minimum: 1, default: 1 },
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          limit: { type: 'integer', minimum: 1, default: 20 },
         },
       },
       response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' } } }, ...errorResponses },
@@ -56,11 +58,13 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           cleaningReasonKey: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          // minimum/maximum added 2026-09-04 (audit): without them page=-1 or
-          // limit=0 reached Prisma as a negative `skip` / zero `take` and the
-          // route 500'd — every other paginated module already 400s here.
+          // minimum added 2026-09-04 (audit): page=-1 / limit=0 reached Prisma as a
+          // negative skip / zero take and the route 500'd. NO maximum on purpose:
+          // the service clamps limit to 100 itself, and a schema maximum turned the
+          // tablet's long-standing limit=200 into a 400 'load error' (operator
+          // report, same day). Clamping silently is the contract callers rely on.
           page: { type: 'integer', minimum: 1, default: 1 },
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          limit: { type: 'integer', minimum: 1, default: 20 },
           includeEvents: { type: 'string' },
         },
       },
@@ -96,11 +100,13 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           cleaningReasonKey: { type: 'string' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          // minimum/maximum added 2026-09-04 (audit): without them page=-1 or
-          // limit=0 reached Prisma as a negative `skip` / zero `take` and the
-          // route 500'd — every other paginated module already 400s here.
+          // minimum added 2026-09-04 (audit): page=-1 / limit=0 reached Prisma as a
+          // negative skip / zero take and the route 500'd. NO maximum on purpose:
+          // the service clamps limit to 100 itself, and a schema maximum turned the
+          // tablet's long-standing limit=200 into a 400 'load error' (operator
+          // report, same day). Clamping silently is the contract callers rely on.
           page: { type: 'integer', minimum: 1, default: 1 },
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          limit: { type: 'integer', minimum: 1, default: 20 },
         },
       },
       response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' } } }, ...errorResponses },
@@ -122,11 +128,13 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           filterId: { type: 'string', format: 'uuid' },
           from: { type: 'string', format: 'date-time' },
           to: { type: 'string', format: 'date-time' },
-          // minimum/maximum added 2026-09-04 (audit): without them page=-1 or
-          // limit=0 reached Prisma as a negative `skip` / zero `take` and the
-          // route 500'd — every other paginated module already 400s here.
+          // minimum added 2026-09-04 (audit): page=-1 / limit=0 reached Prisma as a
+          // negative skip / zero take and the route 500'd. NO maximum on purpose:
+          // the service clamps limit to 100 itself, and a schema maximum turned the
+          // tablet's long-standing limit=200 into a 400 'load error' (operator
+          // report, same day). Clamping silently is the contract callers rely on.
           page: { type: 'integer', minimum: 1, default: 1 },
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          limit: { type: 'integer', minimum: 1, default: 20 },
         },
       },
       response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' }, page: { type: 'integer' }, limit: { type: 'integer' }, totalPages: { type: 'integer' } } }, ...errorResponses },

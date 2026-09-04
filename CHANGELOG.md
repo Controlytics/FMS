@@ -44,8 +44,10 @@ with the full verdict table: `tasks/todo.md`.
   catch-all now passes 4xx through with its code.
 - **Negative pagination 500'd four filter routes.** `page=-1` / `limit=0` on
   `/api/filters/{events,cycles,cleaning-record,manual-status-changes}` reached
-  Prisma as a negative skip / zero take. Schema `minimum`/`maximum` added, as
-  every other paginated module already had.
+  Prisma as a negative skip / zero take. Schema `minimum` added. (A `maximum`
+  of 100 went in with it and broke the tablet, whose cycles view has always
+  asked for 200 and been clamped to 100 by the service - operator report the
+  same day; the maximum was removed, the clamp is the contract.)
 - **AHU dashboard "Recent Activity" was always empty.** It queried
   `/api/filters/events?filterId=<AHU id>`, and events are keyed by FILTER. The
   route now accepts `ahuId` and resolves the AHU's filters server-side (an AHU

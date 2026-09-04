@@ -34,7 +34,7 @@ finding must be reproduced live (API or browser) or it is dropped/downgraded.
 | 2 | Low | `POST /api/audit/report-export-log` | any authenticated user can write a REPORT_GENERATED audit row with caller-supplied reportType/recordCount (self-attributed) | report |
 | 3 | Low | `GET /api/admin-requests/user-lookup` (public, rate-limited) | pre-login exact employee-ID existence check returns fullName; by design for contact-admin | report |
 | 4 | Info | `GET /api/replacement-schedules/{due,tasks,blocked-filters}` | ungated by design; ADMIN/QA can read replacement tasks via API though the doc gives them no Replacement List | report |
-| 5 | Med | `/api/filters/{events,cycles,cleaning-record,manual-status-changes}` | `page=-1` / `limit=0` reached Prisma → 500 | **fixed** (schema min/max; verified 400 live) |
+| 5 | Med | `/api/filters/{events,cycles,cleaning-record,manual-status-changes}` | `page=-1` / `limit=0` reached Prisma → 500 | **fixed** (schema `minimum`; verified 400 live). Regression: the `maximum: 100` added with it 400'd the tablet cycles view (`limit=200`, clamped to 100 by the service for months) - removed same day |
 | 6 | Med | AHU dashboard "Recent Activity" (M89) | queried `/api/filters/events?filterId=<AHU id>` — events are per filter, so always empty | **fixed** (`ahuId` param resolves child filters; 43 rows live, random uuid → 0) |
 | 7 | Info | `GET /api/notification-rules/:id` unknown id | 400 DATA_CONSTRAINT instead of 404 (findUniqueOrThrow). No FE caller of the GET | report |
 | 8 | Med | `GET /api/config/report-labels/current` | gated CONFIG_READ but read by every report page for every role → 403 + SWR error on 22 of 63 page loads | **fixed** (all-authenticated, same contract as page-titles) |
@@ -73,3 +73,6 @@ scope (SUPER_ADMIN): M06 M07 M50 M51 M76.
 - 15 "dead" FE calls — `fetch(apiUrl())` POSTs logged as GET, runtime-generated
   `/api/config/dynamic/*` + un-suffixed config paths, bare `/` root routes.
 - B1 status-0 cells — my own API restarts, not server faults (re-probed clean).
+- The per-role page sweep covered SIDEBAR pages only; the tablet `/m` views were
+  not in it, which is how the `limit=200` regression got past. Next sweep must
+  include the tablet views with the exact params they send.
