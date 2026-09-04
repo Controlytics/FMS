@@ -77,7 +77,26 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
         if (!ok) return;
       }
 
-      const body = req.body as Record<string, unknown>;
+      // 🔴 SECURITY (2026-09-04): strip underscore-prefixed TRANSPORT fields
+      // before anything validates or persists this body.
+      //
+      // api-client.withReauth() injects `_currentPassword` so enforceReauth()
+      // above can verify it. Config defs are stored as free-form JSON, so
+      // whatever arrives is written verbatim — and this route persisted that
+      // password in PLAINTEXT into system_config, where it is readable by any
+      // CONFIG_READ holder, returned by this route's own GET, and captured in
+      // every backup. Found live in `report-settings` and reproduced on
+      // `filter-approval`; both rows were cleaned.
+      //
+      // configService.updateConfig has stripped these since 2026-05-25 (see the
+      // comment there) but the DYNAMIC route never went through it. Same rule,
+      // now applied on both write paths.
+      const rawBody = (req.body ?? {}) as Record<string, unknown>;
+      const body: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rawBody)) {
+        if (k.startsWith('_')) continue; // transport-only field, never persisted
+        body[k] = v;
+      }
 
       // Validate with Zod if schema provided
       if (def.zodSchema) {
