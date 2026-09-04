@@ -70,12 +70,21 @@ export function DashboardPage() {
   const { formatDate } = useDatetimeFormat();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isAdmin = isSuperAdmin || (user?.permissions?.includes('USER_READ') ?? false);
+  // Every stat this page fetches is permission-gated on the server, so ask only
+  // for the ones this role can actually read — the way `isAdmin` has always
+  // guarded the users tile. Unguarded, each one logs a 403 on every dashboard
+  // load for every role that lacks it, and renders a "-" tile that looks like
+  // "no records" rather than "not your data". This became routine on 2026-09-04
+  // when the Dashboard was put in front of all six roles: SUPERVISOR,
+  // SHIFTOFFICER and OPERATOR hold no AUDIT_READ, and ADMIN no CYCLE_READ.
+  const canReadAudit = isSuperAdmin || (user?.permissions?.includes('AUDIT_READ') ?? false);
+  const canReadCycles = isSuperAdmin || (user?.permissions?.includes('CYCLE_READ') ?? false);
 
   const swrOpts = { revalidateOnMount: true, revalidateOnFocus: true, dedupingInterval: 2000, refreshInterval: 30000 };
   const { data: userStats } = useSWR(isAdmin ? '/api/users/stats' : null, swrOpts);
-  const { data: auditStats } = useSWR('/api/audit?limit=1', swrOpts);
+  const { data: auditStats } = useSWR(canReadAudit ? '/api/audit?limit=1' : null, swrOpts);
   const { data: notifStats } = useSWR('/api/notifications?limit=1', swrOpts);
-  const { data: dashStats } = useSWR<any>('/api/filters/dashboard-stats', { ...swrOpts, refreshInterval: 20000 });
+  const { data: dashStats } = useSWR<any>(canReadCycles ? '/api/filters/dashboard-stats' : null, { ...swrOpts, refreshInterval: 20000 });
   const { data: cardConfig } = useSWR<any>('/api/config/dashboard-cards/current', { revalidateOnFocus: false, dedupingInterval: 10000 });
 
   // Resolve visible cards for current user's role
@@ -126,7 +135,12 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid. The heading and its wrapper used to render unconditionally,
+          so a role with none of the three cards enabled got a bare "Quick
+          Overview" title over an empty grid. Each condition below is repeated
+          here rather than inferred, so the section can never disagree with the
+          cards it contains. */}
+      {(isAdmin && showCard('total_users')) || (canReadAudit && showCard('audit_trail')) || showCard('notifications') ? (
       <div>
         <h2 className="text-lg font-semibold text-slate-800 mb-4">Quick Overview</h2>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -140,7 +154,7 @@ export function DashboardPage() {
             />
           )}
 
-          {showCard('audit_trail') && (
+          {canReadAudit && showCard('audit_trail') && (
             <StatCard
               title="Audit Trail"
               value={auditStats?.total ?? '-'}
@@ -161,6 +175,7 @@ export function DashboardPage() {
           )}
         </div>
       </div>
+      ) : null}
 
       {/* Filter Cleaning Analytics */}
       {dashStats && showCard('filter_analytics') && <FilterAnalytics stats={dashStats} showCard={showCard} />}

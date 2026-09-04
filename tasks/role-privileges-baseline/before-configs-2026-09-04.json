@@ -1,0 +1,54 @@
+{
+    "tablet-access": {
+        "QA": [
+        ],
+        "OPERATOR": [
+            "login",
+            "filter_cleaning",
+            "filter_status",
+            "my_tasks",
+            "rfid_assign",
+            "logout"
+        ],
+        "SUPERVISOR": [
+            "login",
+            "filter_cleaning",
+            "filter_status",
+            "my_tasks",
+            "rfid_assign",
+            "logout"
+        ],
+        "MAINTENANCE": [
+        ],
+        "SHIFTOFFICER": [
+            "login",
+            "filter_cleaning",
+            "filter_status",
+            "my_tasks",
+            "rfid_assign",
+            "logout",
+            "stage_approvals"
+        ]
+    },
+    "qnn-notifications": {
+        "visibleRoles": [
+            "SUPERVISOR",
+            "QA",
+            "MAINTENANCE",
+            "MANAGER",
+            "ADMIN"
+        ]
+    },
+    "pm-schedule-approval": {
+        "reviewRole": "MANAGER",
+        "uploadRole": "SUPERVISOR",
+        "approvalRole": "QA",
+        "workflowEnabled": true
+    },
+    "replacement-schedule-approval": {
+        "reviewRole": "MANAGER",
+        "uploadRole": "SUPERVISOR",
+        "approvalRole": "QA",
+        "workflowEnabled": true
+    }
+}
