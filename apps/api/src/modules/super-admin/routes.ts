@@ -4,6 +4,30 @@ import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { readSuperAdminApiEnabledUncached, setSuperAdminApiEnabled } from '../../lib/super-admin-lock.js';
 import { auditLog, type AuditTx } from '../../lib/audit.js';
 import { computeChecksum } from '../filter-operations/helpers.js';
+import { NotificationType, PmEntryApprovalStatus, CleaningCycleStatus, FilterEventType, BlockChangeStatus } from '@prisma/client';
+
+// Console verification 2026-09-04: an invalid enum value (e.g. a notification
+// `type` that is not a NotificationType) used to reach Prisma and come back as
+// a 400 whose message was the raw `prisma.notification.create()` invocation
+// dump. The dialogs only offer enum values, so this is an API-only surface -
+// but the message must still be a clean validation error, not a stack.
+const CONSOLE_ENUM_FIELDS: Record<string, Record<string, Record<string, string>>> = {
+  cleaningCycle: { status: CleaningCycleStatus },
+  filterEvent: { eventType: FilterEventType },
+  notification: { type: NotificationType },
+  pmScheduleEntry: { approvalStatus: PmEntryApprovalStatus },
+  blockChangeRequest: { status: BlockChangeStatus },
+};
+function invalidEnum(model: keyof typeof CONSOLE_ENUM_FIELDS, data: Record<string, unknown>): { error: string; message: string } | null {
+  for (const [field, values] of Object.entries(CONSOLE_ENUM_FIELDS[model])) {
+    const v = data[field];
+    if (v === undefined || v === null) continue;
+    if (!(typeof v === 'string' && v in values)) {
+      return { error: 'INVALID_VALUE', message: `${field} must be one of: ${Object.keys(values).join(', ')}` };
+    }
+  }
+  return null;
+}
 
 /**
  * Super Admin routes — SUPER_ADMIN only, platform management
@@ -949,6 +973,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     for (const f of dateFields) { if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null; }
     for (const f of numFields) { if (body[f] !== undefined) data[f] = body[f] !== null ? Number(body[f]) : null; }
     for (const f of uuidFields) { if (body[f] !== undefined) data[f] = body[f] || null; }
+    const badC = invalidEnum('cleaningCycle', data); if (badC) return reply.code(400).send(badC);
     const updated = await prisma.cleaningCycle.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'cleaning_cycle', targetId: id, label: 'Cleaning cycle', reason, before: existing, after: updated });
     return updated;
@@ -985,6 +1010,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (!data.cycleCode) data.cycleCode = `MANUAL-${data.sequenceNumber}-${Date.now().toString(36).toUpperCase()}`;
     if (!data.startedAt) data.startedAt = new Date();
     data.manualEntry = true;
+    const badC = invalidEnum('cleaningCycle', data); if (badC) return reply.code(400).send(badC);
     try {
       const created = await prisma.cleaningCycle.create({ data });
       await auditManualChange(req, { verb: 'CREATED', targetType: 'cleaning_cycle', targetId: created.id, label: 'Cleaning cycle', reason, after: created });
@@ -1066,6 +1092,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     }
     if (body.performedAt !== undefined) data.performedAt = new Date(body.performedAt);
     if (body.attributes !== undefined) data.attributes = body.attributes;
+    const badE = invalidEnum('filterEvent', data); if (badE) return reply.code(400).send(badE);
     const updated = await prisma.filterEvent.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'filter_event', targetId: id, label: 'Filter event', reason, before: existing, after: updated });
     return updated;
@@ -1089,6 +1116,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     data.ipAddress = req.ip || '0.0.0.0';
     data.checksum = body.checksum || computeChecksum({ filterId: data.filterId, cycleId: data.cycleId ?? null, eventType: data.eventType, performedBy: data.performedBy, performedAt: data.performedAt.toISOString() });
     data.manualEntry = true;
+    const badE = invalidEnum('filterEvent', data); if (badE) return reply.code(400).send(badE);
     try {
       const created = await prisma.filterEvent.create({ data });
       await auditManualChange(req, { verb: 'CREATED', targetType: 'filter_event', targetId: created.id, label: 'Filter event', reason, after: created });
@@ -1147,6 +1175,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     for (const f of ['type', 'title', 'message', 'forUserId', 'forRole', 'targetUserId', 'createdBy']) { if (body[f] !== undefined) data[f] = body[f]; }
     if (body.isRead !== undefined) data.isRead = body.isRead === true || body.isRead === 'true';
     if (body.readAt !== undefined) data.readAt = body.readAt ? new Date(body.readAt) : null;
+    const badN = invalidEnum('notification', data); if (badN) return reply.code(400).send(badN);
     const updated = await prisma.notification.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'notification', targetId: id, label: 'Notification', reason, before: existing, after: updated });
     return updated;
@@ -1167,6 +1196,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (!data.message) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Message is required.' });
     if (!data.createdBy) data.createdBy = (req.user as any)?.sub;
     data.manualEntry = true;
+    const badN = invalidEnum('notification', data); if (badN) return reply.code(400).send(badN);
     try {
       const created = await prisma.notification.create({ data });
       await auditManualChange(req, { verb: 'CREATED', targetType: 'notification', targetId: created.id, label: 'Notification', reason, after: created });
@@ -1262,6 +1292,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     for (const f of ['processedAt', 'createdAt']) {
       if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null;
     }
+    const badB = invalidEnum('blockChangeRequest', data); if (badB) return reply.code(400).send(badB);
     const updated = await prisma.blockChangeRequest.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'block_change_request', targetId: id, label: 'Block change request', reason, before: existing, after: updated });
     return updated;
@@ -1284,6 +1315,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (!data.requestedBy) data.requestedBy = (req.user as any)?.sub;
     if (!data.requestedByName) data.requestedByName = (req.user as any)?.username ?? 'Manual Entry';
     data.manualEntry = true;
+    const badB = invalidEnum('blockChangeRequest', data); if (badB) return reply.code(400).send(badB);
     try {
       const created = await prisma.blockChangeRequest.create({ data });
       await auditManualChange(req, { verb: 'CREATED', targetType: 'block_change_request', targetId: created.id, label: 'Block change request', reason, after: created });
@@ -1337,6 +1369,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     for (const f of ['month', 'toleranceDays']) { if (body[f] !== undefined) data[f] = Number(body[f]); }
     for (const f of ['approvalStatus', 'approvalRemarks', 'submittedByName', 'approvedByName', 'notes']) { if (body[f] !== undefined) data[f] = body[f]; }
     for (const f of ['plannedDate', 'windowStart', 'windowEnd', 'approvedAt']) { if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null; }
+    const badP = invalidEnum('pmScheduleEntry', data); if (badP) return reply.code(400).send(badP);
     const updated = await prisma.pmScheduleEntry.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'pm_schedule_entry', targetId: id, label: 'PM entry', reason, before: existing, after: updated });
     return updated;
@@ -1360,6 +1393,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (!data.windowStart) data.windowStart = data.plannedDate;
     if (!data.windowEnd) data.windowEnd = data.plannedDate;
     data.manualEntry = true;
+    const badP = invalidEnum('pmScheduleEntry', data); if (badP) return reply.code(400).send(badP);
     try {
       const created = await prisma.pmScheduleEntry.create({ data });
       await auditManualChange(req, { verb: 'CREATED', targetType: 'pm_schedule_entry', targetId: created.id, label: 'PM entry', reason, after: created });

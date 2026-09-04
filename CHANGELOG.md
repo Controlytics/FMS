@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] - Filter Data Management console verified end to end; enum values validated (2026-09-04)
+
+Operator ask: check every option on every tab of Config -> Filter Data
+Management, and confirm a change made there shows on the main pages and in the
+DB. Done against a pg_dump clone of the live DB on a second API instance, so
+nothing touched the live audit chain. **110 checks pass, 0 fail** - every
+create / edit / delete / unretire / redact / permanent-delete on all 9 tabs
+writes the DB, appears on the page that reads it (Cleaning Record, cycle
+detail, Lifecycle, Traceability, PM Schedules, Notifications, Admin Requests,
+Block Changes, Retirement List, Replacement List, Filters, Audit Trail) and
+leaves its audit row. Full table: `tasks/FDM-CONSOLE-VERIFICATION-2026-09-04.md`.
+
+**Fixed:** a console write carrying an invalid enum value (notification `type`,
+cycle `status`, event `eventType`, PM `approvalStatus`, block-change `status`)
+reached Prisma and answered 400 with the raw `prisma.<model>.create()`
+invocation dump as the message. The dialogs only offer valid values, so this was
+API-only, but the message must not leak a stack. Each of the five entities now
+validates those fields against the Prisma enum on create and edit and answers
+`400 INVALID_VALUE` naming the allowed values.
+
+Re-confirmed, not changed: a cycle status edit does not reconcile
+`FilterDetails.currentLifecycleState` (documented 2026-08-27 gap).
+
 ## [Unreleased] - Every record cap removed, backend and web (2026-09-04, operator decision)
 
 Operator: "remove all the limits, check all pages, is there any backend limits,
