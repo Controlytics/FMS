@@ -2,15 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
 /**
- * DRY_IN instrument auto-fetch (2026-08-10).
+ * DRY_IN instrument auto-fetch (2026-08-10, reshaped 2026-09-04).
  *
- * The bug this covers: auto-fetch worked at WASH_IN but never at DRY_IN,
- * because the dryer temperature is collected in the "Currently Drying" panel —
- * NOT the equipment dialog that owned the only `/fetch-readings` caller. These
- * tests pin the enable rule and the fetch/apply contract of the shared hook
- * both panels now use.
+ * The original bug: auto-fetch worked at WASH_IN but never at DRY_IN, because
+ * the dryer temperature is collected in the "Currently Drying" panel — NOT the
+ * equipment dialog that owned the only `/fetch-readings` caller.
+ *
+ * 2026-09-04 (operator request): the fetch fires ON ITS OWN when the dryer
+ * reaches half time (no Get Values button), and a fetched value is editable —
+ * editing flips the provenance to AUTO_OVERRIDDEN so the record shows both that
+ * it was fetched and that it was changed.
  */
-
 vi.mock('@/lib/api-client', () => ({
   apiClient: { post: vi.fn(), get: vi.fn() },
 }));
@@ -23,10 +25,9 @@ const GROUP = { id: 'g1', instruments: [TEMP] };
 
 function setup(over: Partial<Parameters<typeof useDryerAutoFetch>[0]> = {}) {
   const onValue = vi.fn();
-  const hook = renderHook(() =>
-    useDryerAutoFetch({ filterId: 'f1', group: GROUP, dryerInstrument: TEMP, online: true, onValue, ...over }),
-  );
-  return { hook, onValue };
+  let props = { filterId: 'f1', group: GROUP, dryerInstrument: TEMP, online: true, onValue, ...over };
+  const hook = renderHook((p: typeof props) => useDryerAutoFetch(p), { initialProps: props });
+  return { hook, onValue, rerender: (o: Partial<typeof props>) => { props = { ...props, ...o }; hook.rerender(props); } };
 }
 
 beforeEach(() => {
@@ -44,9 +45,6 @@ describe('useDryerAutoFetch — isAuto enable rule', () => {
   });
 
   it('treats a MISSING autoFetchEnabled as OFF, not as opted-in', () => {
-    // Old EquipmentGroupVersion snapshots (pre-2026-06-13) have no such key. A
-    // truthy check would show a Get Values button that can never resolve a
-    // responseKey; `=== true` degrades to the manual dropdown instead.
     const legacy = { id: 'i', stageKey: 'DRY_IN', description: 'Dryer Temperature' };
     expect(setup({ dryerInstrument: legacy }).hook.result.current.isAuto).toBe(false);
   });
@@ -56,26 +54,41 @@ describe('useDryerAutoFetch — isAuto enable rule', () => {
   });
 });
 
-describe('useDryerAutoFetch — getValues', () => {
-  it('posts DRY_IN to /fetch-readings and applies the temperature', async () => {
-    (apiClient.post as any).mockResolvedValue({
-      stageKey: 'DRY_IN',
-      results: [{ instrumentId: 'i-temp', ok: true, value: 69.62 }],
-    });
-    const { hook, onValue } = setup();
-    await act(async () => { await hook.result.current.getValues(); });
+describe('useDryerAutoFetch — automatic fetch at half time (2026-09-04)', () => {
+  it('does NOT fetch before half time', async () => {
+    (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: true, value: 70 }] });
+    setup({ halfReached: false });
+    await act(async () => { await Promise.resolve(); });
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
 
-    expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/equipment-groups/fetch-readings',
-      { filterId: 'f1', groupId: 'g1', stageKey: 'DRY_IN' },
-    );
-    expect(onValue).toHaveBeenCalledWith(69.62);
+  it('fetches on its own the moment halfReached flips true, and applies the value as AUTO', async () => {
+    (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: true, value: 69.62 }] });
+    const { hook, onValue, rerender } = setup({ halfReached: false });
+    await act(async () => { rerender({ halfReached: true }); });
+    await waitFor(() => expect(onValue).toHaveBeenCalledWith(69.62));
+    expect(apiClient.post).toHaveBeenCalledWith('/api/equipment-groups/fetch-readings', { filterId: 'f1', groupId: 'g1', stageKey: 'DRY_IN' });
     await waitFor(() => expect(hook.result.current.source).toBe('AUTO'));
   });
 
+  it('fires once per half-time crossing, not on every render', async () => {
+    (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: true, value: 70 }] });
+    const { hook, rerender } = setup({ halfReached: true });
+    await waitFor(() => expect(hook.result.current.source).toBe('AUTO'));
+    await act(async () => { rerender({ halfReached: true }); rerender({ halfReached: true }); });
+    expect((apiClient.post as any).mock.calls.length).toBe(1);
+  });
+
+  it('stays passive when auto-fetch is off, even at half time', async () => {
+    const { onValue } = setup({ online: false, halfReached: true });
+    await act(async () => { await Promise.resolve(); });
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(onValue).not.toHaveBeenCalled();
+  });
+});
+
+describe('useDryerAutoFetch — getValues (explicit re-read) + provenance', () => {
   it('keeps EVERY auto instrument value, not just the temperature one', async () => {
-    // Submit writes a reading per DRY_IN instrument; siblings whose value is
-    // dropped here get recorded as `operatingMin` — a fabricated measurement.
     (apiClient.post as any).mockResolvedValue({
       results: [
         { instrumentId: 'i-temp', ok: true, value: 70 },
@@ -87,36 +100,35 @@ describe('useDryerAutoFetch — getValues', () => {
     await waitFor(() => expect(hook.result.current.fetched['i-other']).toBe(12.5));
   });
 
-  it('LOCKS the value once fetched — an instrument reading is not hand-editable', async () => {
-    // 2026-08-10 operator rule, superseding the 2026-06-13 AUTO_OVERRIDDEN
-    // design: markEdited is now inert and the panels render the input readOnly.
+  it('a fetched value is EDITABLE; editing it flips the provenance to AUTO_OVERRIDDEN', async () => {
+    // Reverses the 2026-08-10 read-only rule on the operator's explicit request
+    // (2026-09-04): the record must show "fetched, then changed", not hide it.
     (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: true, value: 70 }] });
     const { hook } = setup();
-    expect(hook.result.current.locked).toBe(false); // typeable before the fetch
     await act(async () => { await hook.result.current.getValues(); });
-    await waitFor(() => expect(hook.result.current.locked).toBe(true));
+    await waitFor(() => expect(hook.result.current.source).toBe('AUTO'));
+    expect(hook.result.current.locked).toBe(false);
     act(() => { hook.result.current.markEdited(); });
-    expect(hook.result.current.source).toBe('AUTO');
-    expect(hook.result.current.locked).toBe(true);
+    expect(hook.result.current.source).toBe('AUTO_OVERRIDDEN');
   });
 
-  it('stays UNLOCKED when the fetch never returns a value (manual fallback)', async () => {
-    // Load-bearing: locking on `isAuto` instead of `source === AUTO` would leave
-    // the operator with an empty, uneditable field whenever the endpoint is down.
+  it('editing BEFORE any fetch stays MANUAL', () => {
+    const { hook } = setup();
+    act(() => { hook.result.current.markEdited(); });
+    expect(hook.result.current.source).toBe('MANUAL');
+  });
+
+  it('a failed fetch leaves the field manual (never dead-ends the operator)', async () => {
     (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: false, error: 'boom' }] });
     const { hook } = setup();
-    // One poll pass, then abort the loop by unmounting rather than waiting 2 min.
     const p = act(async () => { await hook.result.current.getValues(); });
     hook.unmount();
     await p;
+    expect(hook.result.current.source).toBe('MANUAL');
     expect(hook.result.current.locked).toBe(false);
   });
 
-  it('sets timedOut once the 1-minute budget is exhausted → panel shows the dropdown', async () => {
-    // Deterministic without waiting a real minute or fighting fake timers:
-    // stub Date.now so the budget is already blown at the loop's first check.
-    // That exercises the give-up branch (`got === false` → timedOut) directly.
-    // The "one poll then give up" path is covered by the failed-fetch test above.
+  it('sets timedOut once the 1-minute budget is exhausted → panel shows the manual input', async () => {
     (apiClient.post as any).mockResolvedValue({ results: [] });
     const seq = [0, 61_000, 61_000];
     let i = 0;
@@ -124,9 +136,8 @@ describe('useDryerAutoFetch — getValues', () => {
     const { hook } = setup();
     await act(async () => { await hook.result.current.getValues(); });
     nowSpy.mockRestore();
-
     expect(hook.result.current.timedOut).toBe(true);
-    expect(hook.result.current.locked).toBe(false); // reverts to manual, not locked
+    expect(hook.result.current.source).toBe('MANUAL');
   });
 
   it('does not call the endpoint at all when auto-fetch is off', async () => {

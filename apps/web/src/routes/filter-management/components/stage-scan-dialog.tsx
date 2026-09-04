@@ -34,6 +34,13 @@ interface StageScanDialogProps {
   onAddToQueue: (tagOrName: string) => void;
   onRemoveFromQueue: (filterId: string) => void;
   onSubmitBatch: () => void;
+  // Dry In multi-select (2026-09-04): which queued filters the Submit acts on,
+  // and the ONE dryer duration applied to every selected filter on DRY_IN.
+  selectedIds?: Set<string>;
+  onToggleSelect?: (filterId: string) => void;
+  onSelectAll?: (all: boolean) => void;
+  dryerDuration?: number;
+  onDryerDurationChange?: (minutes: number) => void;
   onClose: () => void;
   fullPage?: boolean;
   instances?: any[]; // cached instances for offline parent name lookup
@@ -58,6 +65,11 @@ export function StageScanDialog({
   onAddToQueue,
   onRemoveFromQueue,
   onSubmitBatch,
+  selectedIds,
+  onToggleSelect,
+  onSelectAll,
+  dryerDuration = 30,
+  onDryerDurationChange,
   onClose,
   fullPage = false,
   instances = [],
@@ -323,12 +335,32 @@ export function StageScanDialog({
               {/* Queue display */}
               {queue.length > 0 && (
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Queue ({queue.length})</span>
+                  <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      {selectedIds && onSelectAll && (
+                        <input type="checkbox" className="w-4 h-4 accent-green-600"
+                          checked={queue.length > 0 && queue.every(q => selectedIds.has(q.filterId))}
+                          onChange={(e) => onSelectAll(e.target.checked)} title="Select all" />
+                      )}
+                      Queue ({queue.length}){selectedIds ? ` · ${queue.filter(q => selectedIds.has(q.filterId)).length} selected` : ''}
+                    </label>
+                    {/* Dry In multi-select (2026-09-04): ONE duration for every selected filter. */}
+                    {activeStage?.key === 'DRY_IN' && onDryerDurationChange && (
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        Dryer duration for selected
+                        <select value={dryerDuration} onChange={(e) => onDryerDurationChange(Number(e.target.value))}
+                          className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700">
+                          {[5, 10, 15, 30, 45, 60, 90, 120, 180, 240].map(m => <option key={m} value={m}>{m < 60 ? `${m} min` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`}</option>)}
+                        </select>
+                      </label>
+                    )}
                   </div>
                   <div className="max-h-40 overflow-y-auto divide-y divide-slate-100">
                     {queue.map((item, idx) => (
                       <div key={item.filterId} className="px-4 py-2 flex items-center gap-2 text-sm">
+                        {selectedIds && onToggleSelect && (
+                          <input type="checkbox" className="w-4 h-4 accent-green-600" checked={selectedIds.has(item.filterId)} onChange={() => onToggleSelect(item.filterId)} />
+                        )}
                         <span className="text-slate-400 text-xs w-5">{idx + 1}.</span>
                         <span className="flex-1 font-medium text-slate-700 truncate">{item.filterName}</span>
                         <button onClick={() => onRemoveFromQueue(item.filterId)}
@@ -344,10 +376,10 @@ export function StageScanDialog({
               {/* Action buttons */}
               <div className="flex gap-3">
                 <button onClick={onClose} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl">Close</button>
-                <button onClick={onSubmitBatch} disabled={loading || queue.length === 0}
+                <button onClick={onSubmitBatch} disabled={loading || queue.length === 0 || (selectedIds ? queue.every(q => !selectedIds.has(q.filterId)) : false)}
                   className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-green-500 transition-colors">
                   {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
-                    <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>Submit All ({queue.length})</>}
+                    <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>Submit {selectedIds ? `Selected (${queue.filter(q => selectedIds.has(q.filterId)).length})` : `All (${queue.length})`}</>}
                 </button>
               </div>
             </>

@@ -107,6 +107,9 @@ export async function prepareAdvance(
   opts: PrepareAdvanceOpts = {},
 ): Promise<AdvancePrep> {
   const { targetState, parameters, equipmentId, cleaningAreaId, instrumentReadings, equipmentGroupId, dryerAction, dryerDurationMinutes } = data;
+  // Dry In multi-select (2026-09-04): optional per-instrument provenance, validated to the three known values.
+  const readingSources: Record<string, string> = data.readingSources && typeof data.readingSources === 'object' ? data.readingSources : {};
+  const READING_SOURCES = new Set(['MANUAL', 'AUTO', 'AUTO_OVERRIDDEN']);
   // Use the canonical `stripHtml` (sanitize-html under the hood) instead of
   // hand-rolled `<` / `>` escapes. The hand-rolled version missed entity-
   // encoded payloads, `javascript:` URIs, and event handlers. Other modules
@@ -371,6 +374,7 @@ export async function prepareAdvance(
         uom: inst.uom,
         leastCount: inst.leastCount,
         ...(rangeCheck.ok ? {} : { outOfRange: true, operatingMin: inst.operatingMin, operatingMax: inst.operatingMax }),
+        ...(READING_SOURCES.has(readingSources[inst.id]) ? { source: readingSources[inst.id] } : {}),
       });
     }
   }

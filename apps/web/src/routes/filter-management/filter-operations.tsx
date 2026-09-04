@@ -184,6 +184,12 @@ export function FilterOperationsPage() {
 
   // Scan queue (batch mode)
   const [scanQueue, setScanQueue] = useState<Array<{ filterId: string; filterName: string; tagId: string }>>([]);
+  // Dry In multi-select (2026-09-04): Submit acts on the ticked queue rows only
+  // (new rows start ticked), and on DRY_IN one duration covers the whole selection.
+  const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(new Set());
+  const [dryerBatchDuration, setDryerBatchDuration] = useState<number>(30);
+  const toggleQueueSelect = (filterId: string) => setSelectedQueueIds(prev => { const n = new Set(prev); if (n.has(filterId)) n.delete(filterId); else n.add(filterId); return n; });
+  const selectAllQueue = (all: boolean) => setSelectedQueueIds(all ? new Set(scanQueue.map(q => q.filterId)) : new Set());
   const [addingToQueue, setAddingToQueue] = useState(false);
   // Snapshot of queue while a shared dialog (reason/duration/equipment/checklist) is open
   const [pendingBatch, setPendingBatch] = useState<Array<{ filterId: string; filterName: string }> | null>(null);
@@ -374,7 +380,14 @@ export function FilterOperationsPage() {
 
   // Clear scan state without navigating (used when handing off to sub-dialogs)
   const clearScanState = () => {
-    setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
+    setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setSelectedQueueIds(new Set()); setEquipmentGroupSyncWarning(null);
+  };
+  // Drop only the rows that were just submitted; unticked rows stay queued.
+  const dropFromQueue = (ids: string[]) => {
+    const gone = new Set(ids);
+    setScanQueue(prev => prev.filter(q => !gone.has(q.filterId)));
+    setSelectedQueueIds(prev => new Set([...prev].filter(id => !gone.has(id))));
+    setScanValue(''); setError('');
   };
   // Close stage screen and go back to landing
   const closeDialog = () => {
@@ -460,6 +473,7 @@ export function FilterOperationsPage() {
         return;
       }
       setScanQueue(prev => [...prev, { ...resolved, tagId: tagOrName }]);
+      setSelectedQueueIds(prev => new Set([...prev, resolved.filterId]));
     } catch (e: any) {
       setError(e.message ?? 'Failed to add to queue');
     }
@@ -468,6 +482,7 @@ export function FilterOperationsPage() {
 
   const handleRemoveFromQueue = (filterId: string) => {
     setScanQueue(prev => prev.filter(q => q.filterId !== filterId));
+    setSelectedQueueIds(prev => { const n = new Set(prev); n.delete(filterId); return n; });
   };
 
   // Loop the batch advancing each filter with shared params
@@ -581,12 +596,14 @@ export function FilterOperationsPage() {
 
 
   const handleSubmitBatch = async () => {
-    if (scanQueue.length === 0 || !activeStage || submitting) return;
+    // Dry In multi-select (2026-09-04): only the ticked rows are submitted.
+    const batchQueue = scanQueue.filter(q => selectedQueueIds.has(q.filterId));
+    if (batchQueue.length === 0 || !activeStage || submitting) return;
     setLoading(true); setSubmitting(true); setError('');
     try {
       // Try to inspect first filter's state to decide which dialog to show.
       // When offline, skip state inspection and queue the advance directly.
-      const first = scanQueue[0];
+      const first = batchQueue[0];
       // Try to get filter state from API; if offline, build from cached data
       let state: any = null;
       const csQuery = selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : '';
@@ -769,11 +786,11 @@ export function FilterOperationsPage() {
         const dialogChecklists = await resolvePendingChecklistDialog(first.filterId, resolvedActions);
         if (dialogChecklists) {
           // AHU pre-flight BEFORE the (terminal) checklist opens (whole batch).
-          if ((await gateAhuBeforeChecklist(scanQueue.map(q => q.filterId))) === 'blocked') {
+          if ((await gateAhuBeforeChecklist(batchQueue.map(q => q.filterId))) === 'blocked') {
             setLoading(false); setSubmitting(false);
             return;
           }
-          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
           core.dispatch({ type: 'open_checklist', filterId: first.filterId, filterName: `${batch.length} filter(s)`, checklists: dialogChecklists });
@@ -788,7 +805,7 @@ export function FilterOperationsPage() {
       // operator confirms PM (completes the My Tasks PM task) or picks another
       // reason (which leaves the PM task pending). No more silent PM auto-start.
       if (!state.currentCycle) {
-        const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+        const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
         setPendingBatch(batch);
         setPmReasonCtx(state.isPmDue && state.pmReasonKey ? { pmDue: true, defaultReasonKey: state.pmReasonKey } : { pmDue: false });
         clearScanState();
@@ -810,12 +827,11 @@ export function FilterOperationsPage() {
         const durationMin: number | null = cyc.dryerDurationMinutes ?? null;
 
         if (!startedAt || !durationMin) {
-          // Step 1: ask for duration (shared)
-          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
-          setPendingBatch(batch);
-          clearScanState();
-          core.dispatch({ type: 'open_dryer', filterId: first.filterId, filterName: `${batch.length} filter(s)` });
-          setDryerError('');
+          // Step 1 (2026-09-04): the ONE duration chosen in the queue header is
+          // applied to every selected filter — no per-batch dialog any more.
+          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          await startDryerForBatch(batch, dryerBatchDuration);
+          dropFromQueue(batch.map(b => b.filterId));
           setLoading(false); setSubmitting(false);
           return;
         }
@@ -831,7 +847,7 @@ export function FilterOperationsPage() {
 
         if (state.equipmentGroup) {
           // Step 2: shared temperature/readings dialog
-          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
           core.dispatch({ type: 'open_equipment', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup });
@@ -846,7 +862,7 @@ export function FilterOperationsPage() {
         const instruments = state.equipmentGroup.instruments ?? [];
         const stageInstruments = instruments.filter((i: any) => i.stageKey === activeStage.key);
         if (stageInstruments.length > 0) {
-          const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
           core.dispatch({ type: 'open_equipment', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup });
@@ -857,7 +873,7 @@ export function FilterOperationsPage() {
       }
 
       // No dialog needed → advance the whole batch
-      const batch = scanQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+      const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
       await advanceBatch(batch, {});
       // Stay on the stage screen; clear queue so user can scan more
       clearScanState();
@@ -1182,15 +1198,11 @@ export function FilterOperationsPage() {
     setLoading(false); setSubmitting(false);
   };
 
-  const handleDryerDurationSubmit = async (minutes: number) => {
-    if (!dryerDialog || dryerLoading) return;
-    setDryerLoading(true); setDryerError('');
-    const blockId = dryerDialog.block?.id;
-    const blockName = dryerDialog.block?.name;
-
-    // BATCH MODE
-    if (pendingBatch && pendingBatch.length > 0) {
-      const batch = pendingBatch;
+  // Dry In multi-select (2026-09-04): start the dryer for a batch with ONE duration.
+  // Shared by the queue-header path (no dialog) and the legacy dialog path.
+  const startDryerForBatch = async (batch: Array<{ filterId: string; filterName: string }>, minutes: number) => {
+    const blockId = selectedBlock?.id;
+    const blockName = selectedBlock?.name;
       let success = 0; const failed: string[] = [];
       const newSubs: typeof recentSubmissions = [];
       for (const item of batch) {
@@ -1243,10 +1255,22 @@ export function FilterOperationsPage() {
       for (const item of batch) {
         await recomputeAndCacheFilterState(item.filterId, 'DRY_IN', false, selectedBlock?.id ?? null);
       }
-        core.dispatch({ type: 'close' }); // close dryer dialog
-      setPendingBatch(null);
       if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
       else setToast({ type: 'success', message: `${success} filter(s) → Dryer running (${minutes} min)` });
+  };
+
+  const handleDryerDurationSubmit = async (minutes: number) => {
+    if (!dryerDialog || dryerLoading) return;
+    setDryerLoading(true); setDryerError('');
+    const blockId = dryerDialog.block?.id;
+    const blockName = dryerDialog.block?.name;
+
+    // BATCH MODE
+    if (pendingBatch && pendingBatch.length > 0) {
+      const batch = pendingBatch;
+      await startDryerForBatch(batch, minutes);
+      core.dispatch({ type: 'close' }); // close dryer dialog
+      setPendingBatch(null);
       setDryerLoading(false);
       return;
     }
@@ -1807,6 +1831,11 @@ export function FilterOperationsPage() {
           }}
           onAddToQueue={handleAddToQueue}
           onRemoveFromQueue={handleRemoveFromQueue}
+          selectedIds={selectedQueueIds}
+          onToggleSelect={toggleQueueSelect}
+          onSelectAll={selectAllQueue}
+          dryerDuration={dryerBatchDuration}
+          onDryerDurationChange={setDryerBatchDuration}
           onSubmitBatch={handleSubmitBatch}
           onClose={closeDialog}
           instances={instances}
@@ -1818,9 +1847,14 @@ export function FilterOperationsPage() {
               selectedBlock?.id,
               ahuBlockMap,
             )}
-            refreshFilters={refreshFilters}
-            setToast={setToast}
-            setPopupError={setPopupError}
+            online={online}
+            executeOrQueue={executeOrQueue as any}
+            getCache={getCache}
+            cacheData={cache}
+            onSuccess={(m) => setToast({ type: 'success', message: m })}
+            onError={setPopupError}
+            onAfterSubmit={refreshFilters}
+            variant="desktop"
           />
         )}
         <CleaningReasonDialog dialog={reasonDialog} onClose={() => { core.dispatch({ type: 'close' }); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} defaultReasonKey={pmReasonCtx.defaultReasonKey} pmDue={pmReasonCtx.pmDue} />
@@ -1988,6 +2022,11 @@ export function FilterOperationsPage() {
         }}
         onAddToQueue={handleAddToQueue}
         onRemoveFromQueue={handleRemoveFromQueue}
+        selectedIds={selectedQueueIds}
+        onToggleSelect={toggleQueueSelect}
+        onSelectAll={selectAllQueue}
+        dryerDuration={dryerBatchDuration}
+        onDryerDurationChange={setDryerBatchDuration}
         onSubmitBatch={handleSubmitBatch}
         onClose={closeDialog}
         instances={instances}

@@ -7,42 +7,39 @@
  * WASH_IN air/water pressure. The DRY_IN dryer temperature is NOT collected
  * there — it is collected in the "Currently Drying" countdown panel, a separate
  * component on each surface (`drying-filters-panel.tsx` on desktop, an inline
- * `DryingRow` in `mobile-operations.tsx` on the tablet). Neither panel ever
- * called `/api/equipment-groups/fetch-readings`, so with auto-fetch enabled on
- * the equipment group the operator still got only the manual stepped dropdown —
- * "auto fetch works in Wash In but not in Dry In".
- *
- * Nothing was wrong on the server: `fetchStageReadings` accepts `DRY_IN`
- * explicitly and `resolveStageContext` filters instruments by `stageKey`. This
- * is purely the missing client call.
+ * `DryingFilterCard` in `mobile-operations.tsx` on the tablet). Neither panel
+ * ever called `/api/equipment-groups/fetch-readings`, so with auto-fetch enabled
+ * on the equipment group the operator still got only the manual stepped
+ * dropdown — "auto fetch works in Wash In but not in Dry In".
  *
  * The logic is a hook rather than copy-pasted into both panels because the last
  * pass through this feature learned the hard way that the tablet keeps its own
  * inline copy of every dialog — two hand-mirrored poll loops is how one surface
  * silently drifts from the other.
  *
- * Behaviour mirrors `handleGetValuesMobile` in the equipment dialog exactly:
+ * 2026-09-04 (operator request, Dry In multi-select):
+ *  - NO "Get Values" button any more. The fetch starts ON ITS OWN the moment the
+ *    dryer reaches half time (`halfReached` flips true) — that is the earliest
+ *    the server accepts a reading anyway. Pass `halfReached` from the countdown
+ *    projection; the hook fires once per half-time crossing.
+ *  - A fetched value is NO LONGER locked. The operator may change it; doing so
+ *    flips the provenance from AUTO to AUTO_OVERRIDDEN, which the panels send to
+ *    the server as `readingSources[instrumentId]` so the record shows both that
+ *    the value was fetched and that it was changed. This deliberately reverses
+ *    the 2026-08-10 read-only decision — the operator asked for it, with that
+ *    consequence spelled out and accepted.
+ *  - `getValues` is kept for an explicit re-read (a panel may offer "fetch
+ *    again"); it is no longer required to get a value.
+ *
+ * Unchanged:
  *  - ONLINE ONLY. Offline the caller keeps the manual stepped dropdown (P5
  *    decision: offline = manual). `enabled` folds `online` in.
- *  - Polls for up to 1 MINUTE, 5s apart, until the value arrives (2026-08-10,
- *    was 2 minutes). On timeout `timedOut` goes true and the panels swap back to
- *    the ORIGINAL stepped dropdown — the normal equipment-group flow — instead
- *    of leaving the operator staring at an empty numeric box.
+ *  - Polls for up to 1 MINUTE, 5s apart, until the value arrives. On timeout
+ *    `timedOut` goes true and the panels fall back to the manual dropdown — a
+ *    dead endpoint must never dead-end the operator.
  *  - Aborts cleanly on unmount so a closed panel can't keep polling.
- *  - Provenance: AUTO on a fetched value. The value is then LOCKED — see
- *    `locked` below.
- *
- * 2026-08-10 (operator request): a successfully fetched value is READ-ONLY.
- * This supersedes the 2026-06-13 decision that an edit flips provenance to
- * AUTO_OVERRIDDEN — an instrument reading is not the operator's to correct.
- * `AUTO_OVERRIDDEN` is unreachable by construction; `markEdited` is retained as
- * an inert no-op so call sites keep compiling, and the field is locked in the
- * UI so it can never fire. Do NOT re-introduce the flip.
- *
- * An out-of-range fetched value stays locked too: the submit-time confirm
- * records it as a deviation, which is the correct handling — hand-correcting a
- * sensor reading is exactly what this change prevents. Re-pressing "Get Values"
- * is the only way to replace it.
+ *  - An out-of-range fetched value is still submitted through the normal
+ *    deviation confirmation.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
@@ -50,32 +47,31 @@ import { apiClient } from '@/lib/api-client';
 export type ReadingSource = 'MANUAL' | 'AUTO' | 'AUTO_OVERRIDDEN';
 
 export interface DryerAutoFetchResult {
-  /** Show the "Get Values" button + free numeric input instead of the dropdown. */
+  /** Auto-fetch is configured for this instrument and the device is online. */
   isAuto: boolean;
   /**
-   * A real value has been fetched → the input must be read-only. Keyed on
-   * `source === 'AUTO'`, NOT on `isAuto`: an auto instrument whose fetch hasn't
-   * landed (or gave up after 2 minutes) must stay typeable as the manual
-   * fallback, otherwise a dead endpoint dead-ends the operator.
+   * Always false since 2026-09-04: a fetched value is editable. Kept on the
+   * result so call sites that read it keep compiling; nothing should render
+   * read-only off it any more.
    */
   locked: boolean;
-  /**
-   * The 1-minute budget expired without a value → render the manual stepped
-   * dropdown. Cleared when the operator presses "Get Values" again, so a
-   * transient outage doesn't strand the field on the dropdown.
-   */
+  /** The 1-minute budget ran out with no value — panels fall back to manual. */
   timedOut: boolean;
   fetching: boolean;
+  /** Human status line for the panel ("Fetching…", "Temperature fetched.", …). */
   status: string;
+  /** Provenance of the CURRENT value for the temperature instrument. */
   source: ReadingSource;
-  /** Values keyed by instrumentId for EVERY auto DRY_IN instrument fetched. */
+  /** Every fetched DRY_IN instrument value, keyed by instrument id. */
   fetched: Record<string, number>;
+  /** Explicit re-read of the instrument (optional affordance). */
   getValues: () => Promise<void>;
   /**
-   * Inert since 2026-08-10 — a fetched value is locked, so there is nothing to
-   * override. Retained so both panels keep compiling; calling it does nothing.
+   * Call when the operator changes the value by hand. After a successful fetch
+   * this flips the provenance to AUTO_OVERRIDDEN; before any fetch it is MANUAL.
    */
   markEdited: () => void;
+  /** Clear fetch state (new cycle / new instrument). */
   reset: () => void;
 }
 
@@ -86,20 +82,32 @@ export function useDryerAutoFetch(params: {
   /** The DRY_IN temperature instrument resolved by findDryerTempInstrument. */
   dryerInstrument: any | null;
   online: boolean;
+  /**
+   * True once the dryer has reached half of its duration. The hook fetches on
+   * its own when this flips true (once per crossing). Omit or pass false to
+   * keep the hook passive (explicit `getValues` only).
+   */
+  halfReached?: boolean;
   /** Applies the fetched temperature to the panel's own `temp` state. */
   onValue: (value: number) => void;
 }): DryerAutoFetchResult {
-  const { filterId, group, dryerInstrument, online, onValue } = params;
+  const { filterId, group, dryerInstrument, online, halfReached = false, onValue } = params;
   const [fetching, setFetching] = useState(false);
   const [status, setStatus] = useState('');
   const [source, setSource] = useState<ReadingSource>('MANUAL');
   const [fetched, setFetched] = useState<Record<string, number>>({});
   const [timedOut, setTimedOut] = useState(false);
   const cancelRef = useRef(false);
+  const fetchingRef = useRef(false);
+  // Fired automatically for this half-time crossing already? Reset when the
+  // countdown goes back below half (a re-set duration / a new cycle).
+  const autoFiredRef = useRef(false);
+  const onValueRef = useRef(onValue);
+  onValueRef.current = onValue;
 
   // A panel row unmounts as soon as the reading is submitted (the parent hides
   // it on dryerReadingsSubmitted). Without this the poll loop would keep firing
-  // requests and calling setState on a dead component for up to two minutes.
+  // requests and calling setState on a dead component for up to a minute.
   useEffect(() => {
     cancelRef.current = false;
     return () => { cancelRef.current = true; };
@@ -108,7 +116,7 @@ export function useDryerAutoFetch(params: {
   // Old EquipmentGroupVersion snapshots (pre-2026-06-13) carry no
   // `autoFetchEnabled` key at all. `=== true` treats that missing field as OFF,
   // which is the correct fallback: such a cycle gets the manual dropdown rather
-  // than a button that could never resolve a responseKey.
+  // than a fetch that could never resolve a responseKey.
   const isAuto = dryerInstrument?.autoFetchEnabled === true && online;
 
   const reset = useCallback(() => {
@@ -116,15 +124,17 @@ export function useDryerAutoFetch(params: {
     setFetched({});
     setStatus('');
     setTimedOut(false);
+    autoFiredRef.current = false;
   }, []);
 
   const markEdited = useCallback(() => {
-    /* no-op — fetched values are locked; see the AUTO_OVERRIDDEN note above. */
+    setSource((prev) => (prev === 'AUTO' ? 'AUTO_OVERRIDDEN' : prev));
   }, []);
 
   const getValues = useCallback(async () => {
-    if (!isAuto || !group || !dryerInstrument || fetching) return;
+    if (!isAuto || !group || !dryerInstrument || fetchingRef.current) return;
     cancelRef.current = false;
+    fetchingRef.current = true;
     setTimedOut(false);
     setFetching(true);
     setStatus('Fetching dryer temperature…');
@@ -151,7 +161,7 @@ export function useDryerAutoFetch(params: {
         if (Object.keys(next).length > 0) setFetched((prev) => ({ ...prev, ...next }));
         const temp = next[dryerInstrument.id];
         if (typeof temp === 'number') {
-          onValue(temp);
+          onValueRef.current(temp);
           setSource('AUTO');
           got = true;
           break;
@@ -160,13 +170,22 @@ export function useDryerAutoFetch(params: {
         await new Promise((r) => setTimeout(r, 5_000));
       }
     } finally {
+      fetchingRef.current = false;
       if (!cancelRef.current) {
         setFetching(false);
         if (!got) setTimedOut(true);
-        setStatus(got ? 'Temperature fetched.' : "Couldn't fetch in 1 minute — select the value manually.");
+        setStatus(got ? 'Temperature fetched from the instrument.' : "Couldn't fetch in 1 minute — enter the value manually.");
       }
     }
-  }, [isAuto, group, dryerInstrument, fetching, filterId, onValue]);
+  }, [isAuto, group, dryerInstrument, filterId]);
 
-  return { isAuto, locked: source === 'AUTO', timedOut, fetching, status, source, fetched, getValues, markEdited, reset };
+  // Automatic trigger: once per half-time crossing.
+  useEffect(() => {
+    if (!halfReached) { autoFiredRef.current = false; return; }
+    if (!isAuto || autoFiredRef.current) return;
+    autoFiredRef.current = true;
+    void getValues();
+  }, [halfReached, isAuto, getValues]);
+
+  return { isAuto, locked: false, timedOut, fetching, status, source, fetched, getValues, markEdited, reset };
 }

@@ -403,6 +403,9 @@ export function CycleDetailView({ cycle, fallback }: {
                           <div className="flex items-baseline gap-1.5">
                             <span className="text-lg font-bold text-slate-800 tabular-nums">{reading.leastCount !== undefined && reading.leastCount !== null ? formatByLeastCount(reading.value, reading.leastCount) : reading.value}</span>
                             <span className="text-xs text-slate-500">{reading.uom || reading.unit || ''}</span>
+                            {/* Provenance (2026-09-04): AUTO = fetched from the instrument, AUTO_OVERRIDDEN = fetched then changed by the operator. Absent on MANUAL / older rows. */}
+                            {reading.source === 'AUTO' && <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
+                            {reading.source === 'AUTO_OVERRIDDEN' && <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700" title="Fetched from the instrument, then changed by the operator">Auto · changed</span>}
                           </div>
                           {reading.instrumentCode && reading.description && (
                             <div className="text-[10px] text-slate-300 mt-0.5 font-mono">{reading.instrumentCode}</div>

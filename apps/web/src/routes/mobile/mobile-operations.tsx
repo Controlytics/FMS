@@ -11,6 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
+// Dry In multi-select (2026-09-04): the Currently Drying panel is SHARED with the desktop page.
+import { DryingFiltersPanel } from '../filter-management/components/drying-filters-panel';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
 import { buildAhuBlockMap, filtersInBlock } from '@/lib/ahu-block-map';
 import { subscribeRfidTags } from '@/lib/rfid-bridge';
@@ -30,10 +32,6 @@ import {
   resolvePendingChecklistDialog,
   resolveChecklistForTargetStage,
   findNextPendingChecklist,
-  useNowTick,
-  buildTempOptionsLinear,
-  findDryerTempInstrument,
-  projectDryerCountdown,
 } from '@/lib/filter-ops';
 import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
 // D1/D2/D4 refactor Day 3b (2026-05-18) — useFilterOperationsCore is now
@@ -44,7 +42,6 @@ import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
 // 2026-08-10: DRY_IN instrument auto-fetch, shared with the desktop drying panel.
-import { useDryerAutoFetch } from '@/lib/filter-ops/use-dryer-autofetch';
 import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist, isCompletingAdvance, isTerminalTargetWithChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from '../filter-management/components/remaining-filters-dialog';
 import { AhuSetChooserDialog, type FilterSetChoice } from '../filter-management/components/ahu-set-chooser-dialog';
@@ -135,6 +132,23 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // 2026-05-20: per-filter dryer duration (DRY_IN stage). Keyed by filterId
   // so reordering the queue doesn't lose values. Cleared on queue drain.
   const [dryerDurations, setDryerDurations] = useState<Record<string, number>>({});
+  // Dry In multi-select (2026-09-04): Submit acts on the ticked queue rows only
+  // (new rows start ticked). On DRY_IN ONE duration covers every queued filter —
+  // dryerDurations is kept as the per-filter mirror the batch path already reads.
+  const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(new Set());
+  const [dryerBatchDuration, setDryerBatchDuration] = useState<number>(30);
+  const toggleQueueSelect = (filterId: string) => setSelectedQueueIds(prev => { const n = new Set(prev); if (n.has(filterId)) n.delete(filterId); else n.add(filterId); return n; });
+  const selectAllQueue = (all: boolean) => setSelectedQueueIds(all ? new Set(scanQueue.map(q => q.filterId)) : new Set());
+  const applyBatchDuration = (minutes: number) => {
+    setDryerBatchDuration(minutes);
+    setDryerDurations(prev => Object.fromEntries(Object.keys(prev).map(id => [id, minutes])));
+  };
+  // After a batch submit: drop the submitted rows, keep the unticked ones queued.
+  const clearSubmittedFromQueue = () => {
+    setScanQueue(prev => prev.filter(q => !selectedQueueIds.has(q.filterId)));
+    setDryerDurations(prev => Object.fromEntries(Object.entries(prev).filter(([id]) => !selectedQueueIds.has(id))));
+    setSelectedQueueIds(new Set());
+  };
   const [remarks, setRemarks] = useState('');
   // ─── Dialog state — now owned by useFilterOperationsCore (D1/D2/D4 Day 3b) ──
   // Compat aliases: read-only views into core.dialogState.
@@ -868,14 +882,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // default so the Submit-All button is enabled out of the box. Operator
     // can change per row before submitting. Only meaningful on DRY_IN
     // stage; harmlessly ignored on others.
+    setSelectedQueueIds(prev => new Set([...prev, resolved.filterId]));
     if (activeStage?.key === 'DRY_IN') {
-      setDryerDurations(prev => ({ ...prev, [resolved.filterId]: prev[resolved.filterId] ?? 30 }));
+      setDryerDurations(prev => ({ ...prev, [resolved.filterId]: prev[resolved.filterId] ?? dryerBatchDuration }));
     }
     setScanValue('');
   };
 
   const removeFromQueue = (filterId: string) => {
     setScanQueue(prev => prev.filter(q => q.filterId !== filterId));
+    setSelectedQueueIds(prev => { const n = new Set(prev); n.delete(filterId); return n; });
     setDryerDurations(prev => { const next = { ...prev }; delete next[filterId]; return next; });
   };
 
@@ -923,12 +939,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // Each item is validated against the cached pipeline graph + block assignment BEFORE
   // being queued — this is the same strict offline gate applied in handleSubmit.
   const handleSubmitQueue = async () => {
-    if (scanQueue.length === 0 || !activeStage || loading) return;
+    // Dry In multi-select (2026-09-04): only the ticked rows are submitted.
+    const batchQueue = scanQueue.filter(q => selectedQueueIds.has(q.filterId));
+    if (batchQueue.length === 0 || !activeStage || loading) return;
     setLoading(true); setError(''); setSuccess('');
     // 2026-05-20: snapshot the queue BEFORE the loop so the post-batch
     // current-state prime can target every filter even after setScanQueue([])
     // clears the live state.
-    const scanQueueSnapshot = scanQueue.slice();
+    const scanQueueSnapshot = batchQueue.slice();
     let successCount = 0;
     const failed: string[] = [];
     // 2026-05-26: capture per-filter server tape so the post-loop checklist
@@ -989,7 +1007,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         activeStage.key,
       )) === 'blocked'
     ) return;
-    for (const item of scanQueue) {
+    for (const item of batchQueue) {
       try {
         const cached = cachedFilterById.get(item.filterId);
         const cachedState = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
@@ -1083,7 +1101,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               requestedBlockName: selectedBlock.name,
             });
             setBlockChangeReason('');
-            setScanQueue([]); setDryerDurations({});
+            clearSubmittedFromQueue();
             setLoading(false);
             return;
           }
@@ -1101,9 +1119,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           // Build the remainingBatch from ALL queued items after this one
           // — they share the reason + equipment dialog values when they
           // are all cycle-start candidates.
-          const startIdx = scanQueue.findIndex(q => q.filterId === item.filterId);
+          const startIdx = batchQueue.findIndex(q => q.filterId === item.filterId);
           const rest = startIdx >= 0
-            ? scanQueue.slice(startIdx + 1).map(q => ({ filterId: q.filterId, filterName: q.filterName }))
+            ? batchQueue.slice(startIdx + 1).map(q => ({ filterId: q.filterId, filterName: q.filterName }))
             : [];
           core.dispatch({
             type: 'open_reason',
@@ -1117,7 +1135,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setPmReasonDue(false);
           // Drop the queue — the reason dialog (carrying remainingBatch)
           // drives the rest of the flow. Equipment-submit will iterate.
-          setScanQueue([]); setDryerDurations({});
+          clearSubmittedFromQueue();
           setLoading(false);
           return;
         }
@@ -1157,8 +1175,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             const batchMembers: Array<{ filterId: string; filterName: string }> = [
               { filterId: item.filterId, filterName: item.filterName },
             ];
-            const startIdx = scanQueue.findIndex(q => q.filterId === item.filterId);
-            const downstream = startIdx >= 0 ? scanQueue.slice(startIdx + 1) : [];
+            const startIdx = batchQueue.findIndex(q => q.filterId === item.filterId);
+            const downstream = startIdx >= 0 ? batchQueue.slice(startIdx + 1) : [];
             for (const q of downstream) {
               try {
                 const cs = await getCache<any>(`filter-state-${q.filterId}`) ?? {};
@@ -1592,7 +1610,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         }
       } catch { /* ignore — user can re-scan to trigger */ }
     }
-    setScanQueue([]); setDryerDurations({});
+    clearSubmittedFromQueue();
     // B1 (2026-07-10): clear the remarks box after a stage submit completes so the
     // note doesn't linger and get silently reused on the operator's next op (which
     // also surfaced as a checklist-gated advance carrying stale remarks).
@@ -3830,31 +3848,34 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 {/* Scan Queue */}
                 {scanQueue.length > 0 && (
                   <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-1.5">
-                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Queue ({scanQueue.length})</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        <input type="checkbox" className="w-5 h-5 accent-cyan-600"
+                          checked={scanQueue.length > 0 && scanQueue.every(q => selectedQueueIds.has(q.filterId))}
+                          onChange={e => selectAllQueue(e.target.checked)} />
+                        Queue ({scanQueue.length}) · {scanQueue.filter(q => selectedQueueIds.has(q.filterId)).length} selected
+                      </label>
+                      {/* Dry In multi-select (2026-09-04): ONE duration for every selected filter. */}
+                      {activeStage?.key === 'DRY_IN' && (
+                        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                          Duration
+                          <select value={dryerBatchDuration} onChange={e => applyBatchDuration(Number(e.target.value))}
+                            className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700">
+                            {[5, 10, 15, 30, 45, 60, 90, 120, 180, 240].map(m => <option key={m} value={m}>{m} min</option>)}
+                          </select>
+                        </label>
+                      )}
+                    </div>
                     {scanQueue.map(q => (
                       <div key={q.filterId} className="flex items-center justify-between gap-2 py-1.5 px-2 bg-slate-50 rounded-lg">
+                        <input type="checkbox" className="w-5 h-5 accent-cyan-600 shrink-0" checked={selectedQueueIds.has(q.filterId)} onChange={() => toggleQueueSelect(q.filterId)} />
                         <span className="text-sm font-medium text-slate-700 min-w-0 flex-1">
                           {q.filterName}
                           {q.ahuName && (
                             <span className="ml-2 text-xs font-normal text-slate-500">· {q.ahuName}</span>
                           )}
                         </span>
-                        {/* 2026-05-20: per-filter dryer duration selector. Only
-                            rendered on DRY_IN stage; the operator picks a value
-                            for each filter, then Submit All iterates with
-                            per-filter durations. Default 30 min set in
-                            handleAddToQueue. */}
-                        {activeStage?.key === 'DRY_IN' && (
-                          <select
-                            value={dryerDurations[q.filterId] ?? 30}
-                            onChange={e => setDryerDurations(prev => ({ ...prev, [q.filterId]: Number(e.target.value) }))}
-                            className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700 shrink-0"
-                          >
-                            {[5, 10, 15, 30, 45, 60, 90, 120, 180, 240].map(m => (
-                              <option key={m} value={m}>{m} min</option>
-                            ))}
-                          </select>
-                        )}
+                        {/* per-filter duration select removed 2026-09-04: one duration for the selection lives in the header */}
                         <button onClick={() => removeFromQueue(q.filterId)} className="text-red-400 text-xs hover:text-red-600 shrink-0">Remove</button>
                       </div>
                     ))}
@@ -3868,11 +3889,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                     scan auto-submit. Operator can scan multiple filters and
                     confirm the queue before submitting all. The "Submit"
                     button is disabled until at least one filter is queued. */}
-                <button onClick={handleSubmitQueue} disabled={loading || scanQueue.length === 0}
+                <button onClick={handleSubmitQueue} disabled={loading || scanQueue.every(q => !selectedQueueIds.has(q.filterId))}
                   className={`w-full py-4 bg-gradient-to-r ${activeStage.gradient} text-white rounded-2xl font-bold text-base disabled:opacity-40 active:opacity-90 flex items-center justify-center gap-2 shadow-lg`}>
                   {loading
                     ? <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Submitting{scanQueue.length > 0 ? ` ${scanQueue.length} filter${scanQueue.length === 1 ? '' : 's'}` : ''}…</span></>
-                    : <>✓ Submit {scanQueue.length > 0 ? `All (${scanQueue.length})` : ''}</>}
+                    : <>✓ Submit {scanQueue.length > 0 ? `Selected (${scanQueue.filter(q => selectedQueueIds.has(q.filterId)).length})` : ''}</>}
                 </button>
               </div>
             )}
@@ -3889,25 +3910,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               );
               if (dryingFilters.length === 0) return null;
               return (
-                <div className="bg-white border border-amber-200 rounded-2xl overflow-hidden">
-                  <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5">
-                    <h3 className="text-sm font-bold text-white">Currently Drying ({dryingFilters.length})</h3>
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {dryingFilters.map((f: any) => (
-                      <DryingFilterCard
-                        key={f.id}
-                        filterId={f.id}
-                        filterName={f.name}
-                        online={online}
-                        getCache={getCache}
-                        executeOrQueue={executeOrQueue}
-                        onSuccess={(msg) => { setSuccess(msg); mutate('/api/assets/instances'); refreshOfflineData(); }}
-                        onError={setError}
-                      />
-                    ))}
-                  </div>
-                </div>
+                <DryingFiltersPanel
+                  filters={dryingFilters}
+                  online={online}
+                  executeOrQueue={executeOrQueue as any}
+                  getCache={getCache}
+                  cacheData={cache}
+                  onSuccess={(msg) => { setSuccess(msg); mutate('/api/assets/instances'); refreshOfflineData(); }}
+                  onError={setError}
+                  variant="mobile"
+                />
               );
             })()}
 
@@ -4336,294 +4348,5 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         />
       )}
     </div>
-  );
-}
-
-/**
- * DryingFilterCard — Shows a single filter's dryer status with countdown + temperature selection.
- * Works both online (SWR polling) and offline (cached state).
- */
-function DryingFilterCard({
-  filterId, filterName, online, getCache, executeOrQueue, onSuccess, onError,
-}: {
-  filterId: string; filterName: string; online: boolean;
-  getCache: <T>(key: string) => Promise<T | null>;
-  executeOrQueue: any;
-  onSuccess: (msg: string) => void; onError: (msg: string) => void;
-}) {
-  // Phase 8.7 Wave-5: shared 1Hz tick — same hook the desktop DryingFilterRow uses.
-  const now = useNowTick();
-  const [temp, setTemp] = useState<number | ''>('');
-  const [submitting, setSubmitting] = useState(false);
-  const [cycleData, setCycleData] = useState<any>(null);
-  const [equipGroup, setEquipGroup] = useState<any>(null);
-  // Restore previously selected temperature from cache (survives navigation)
-  useEffect(() => {
-    getCache<number>(`dryer-temp-${filterId}`).then(saved => {
-      if (saved !== null && saved !== undefined) setTemp(saved);
-    }).catch(err => {
-      // IDB read failure means the operator's saved temp won't restore on
-      // navigation back to the dryer card — recoverable (re-select), but
-      // worth surfacing so IDB quota/lock issues are visible.
-      // eslint-disable-next-line no-console -- intentional structured log
-      console.warn(
-        '[mobile-operations] dryer-temp restore failed —',
-        err instanceof Error ? err.message : String(err),
-      );
-    });
-  }, [filterId]);
-
-  // Load dryer data from API (online) or cache (offline)
-  useEffect(() => {
-    const load = async () => {
-      if (online) {
-        try {
-          const st = await import('../../lib/api-client').then(m => m.apiClient.get<any>(`/api/filters/${filterId}/current-state`));
-          setCycleData(st?.currentCycle);
-          setEquipGroup(st?.equipmentGroup);
-          return;
-        } catch { /* fall through to cache */ }
-      }
-      // Offline: use cached state
-      const cached = await getCache<any>(`filter-state-${filterId}`);
-      setCycleData(cached?.currentCycle);
-      let grp = cached?.equipmentGroup ?? null;
-      // Fallback: resolve from cached equipment groups
-      if (!grp) {
-        const allGroups = await getCache<any[]>('equipment-groups') ?? [];
-        if (cached?.currentCycle?.cleaningAreaId) {
-          const blockGroups = allGroups.filter((g: any) => g.blockId === cached.currentCycle.cleaningAreaId);
-          if (blockGroups.length >= 1) grp = blockGroups[0];
-        }
-        // Last resort: if only one equipment group exists, use it
-        if (!grp && allGroups.length === 1) grp = allGroups[0];
-      }
-      setEquipGroup(grp);
-    };
-    load();
-    // Refresh every 15s when online
-    if (online) {
-      const interval = setInterval(load, 15000);
-      return () => clearInterval(interval);
-    }
-  }, [filterId, online]);
-
-  // Phase 8.7 Wave-5: shared countdown projection (same shape desktop uses).
-  const projection = projectDryerCountdown(cycleData, now);
-  const { startedAt, durationMin, halfReached, remainingMin, remainingSecPart, progressPct } = projection;
-
-  // Phase 8.7 Wave-5: shared instrument lookup. Mobile keeps the linear
-  // option-walker (preserves byte-equivalent runtime; desktop uses the
-  // snapped flavour because of the original buildTempOptions implementation
-  // there).
-  //
-  // 2026-08-10: MOVED above the two early returns below. `useDryerAutoFetch`
-  // needs `dryerInstrument`, and a hook after a conditional return is illegal
-  // in React — the card would crash the moment a filter's readings were
-  // submitted (return null) or its dryer hadn't started (early return). Pure
-  // relocation: none of these three depend on the countdown values.
-  const dryerInstrument = findDryerTempInstrument(equipGroup);
-  const tempOptions: number[] = dryerInstrument
-    ? buildTempOptionsLinear(dryerInstrument.operatingMin, dryerInstrument.operatingMax, dryerInstrument.leastCount)
-    : [];
-  const tempUom = dryerInstrument?.uom ?? '°C';
-
-  // Persist the temperature exactly as the manual dropdown does, so a fetched
-  // value also survives navigating away and back.
-  const applyTemp = (val: number | '') => {
-    setTemp(val);
-    if (val === '') return;
-    import('@/lib/offline-store').then(({ cacheData }) => {
-      cacheData(`dryer-temp-${filterId}`, val, 24 * 60 * 60 * 1000);
-    }).catch(err => {
-      // eslint-disable-next-line no-console -- intentional structured log
-      console.warn(
-        '[mobile-operations] dryer-temp persist failed —',
-        err instanceof Error ? err.message : String(err),
-      );
-    });
-  };
-
-  // 2026-08-10: DRY_IN auto-fetch, shared with the desktop DryingFilterRow.
-  // This card — not the equipment dialog — is where the dryer temperature is
-  // actually entered, which is why "auto fetch works in Wash In but not in
-  // Dry In": the call was never wired here. Hook call sits above the early
-  // returns below (React forbids conditional hooks).
-  const autoFetch = useDryerAutoFetch({
-    filterId,
-    group: equipGroup,
-    dryerInstrument,
-    online,
-    onValue: applyTemp,
-  });
-
-  // 2026-05-25: once dryer readings are submitted, hide the card entirely
-  // until this filter re-enters DRY_IN in a future cycle. Desktop mirrors
-  // this — see drying-filters-panel.tsx DryingFilterRow.
-  // (Both early returns now sit BELOW every hook call — see the relocation
-  // note above.)
-  if (cycleData?.dryerReadingsSubmitted) return null;
-
-  if (!startedAt || !durationMin) {
-    return (
-      <div className="px-4 py-3 flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-700">{filterName}</span>
-        <span className="text-[10px] text-slate-400">waiting for dryer start...</span>
-      </div>
-    );
-  }
-
-  const handleTempSubmit = async () => {
-    if (!temp || submitting || !equipGroup) return;
-    setSubmitting(true);
-    try {
-      const dryInInstruments = (equipGroup.instruments ?? []).filter((i: any) => i.stageKey === 'DRY_IN');
-      const readings: Record<string, number> = {};
-      for (const inst of dryInInstruments) {
-        if (dryerInstrument && inst.id === dryerInstrument.id) { readings[inst.id] = Number(temp); continue; }
-        // 2026-08-10: use a REAL fetched value for a non-temperature DRY_IN
-        // instrument when auto-fetch returned one. `operatingMin` is a
-        // fabricated number recorded as if measured — keep it only as the
-        // manual-mode fallback it already was.
-        const auto = autoFetch.fetched[inst.id];
-        readings[inst.id] = typeof auto === 'number' ? auto : inst.operatingMin;
-      }
-      const { executed } = await executeOrQueue('advance', filterId, filterName, {
-        targetState: 'DRY_IN',
-        dryerAction: 'SUBMIT_READINGS',
-        equipmentGroupId: equipGroup.id,
-        instrumentReadings: readings,
-        remarks: `Dryer temperature ${temp}${tempUom} - ${filterName}`,
-      }, 'DRY_IN');
-      // Phase 8.6 part 2: route the offline cache rewrite through the
-      // shared `recomputeAndCacheFilterState` helper instead of a prop-drilled
-      // callback. Same behaviour, no parent wiring.
-      if (!executed) await recomputeAndCacheFilterState(filterId, 'DRY_IN', false, null);
-      // Mark readings as submitted in cache (read AFTER recompute to get latest) + clear persisted temp
-      try {
-        const freshState = await getCache<any>(`filter-state-${filterId}`) ?? {};
-        const { cacheData } = await import('@/lib/offline-store');
-        cacheData(`filter-state-${filterId}`, { ...freshState, currentCycle: { ...(freshState.currentCycle ?? {}), dryerReadingsSubmitted: true } });
-        cacheData(`dryer-temp-${filterId}`, null, 0);
-      } catch (err) {
-        // Cache update failure can cause the optimistic UI (set below via
-        // setCycleData) to diverge from what /current-state will return
-        // next time — operator may see "Complete" but the next page load
-        // re-shows Dry In waiting. Surface so the failure is debuggable
-        // instead of silently corrupting the offline cache view.
-        // eslint-disable-next-line no-console -- intentional structured log
-        console.warn(
-          '[mobile-operations] dryer-reading cache update failed —',
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-      // Update local component state so UI shows "Complete" immediately
-      setCycleData((prev: any) => ({ ...(prev ?? {}), dryerReadingsSubmitted: true }));
-      setTemp('');
-      onSuccess(`${filterName} → Dry In complete (${temp}${tempUom})${executed ? '' : ' (queued)'}`);
-    } catch (e: any) {
-      onError(e.message ?? 'Failed');
-    }
-    setSubmitting(false);
-  };
-
-  return (
-    <div className="px-4 py-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-sm font-semibold text-slate-800">{filterName}</div>
-          <div className="text-[10px] text-slate-500">{durationMin} min total</div>
-        </div>
-        <div className={`text-xs font-bold px-2.5 py-1 rounded-full ${cycleData?.dryerReadingsSubmitted ? 'bg-green-50 text-green-700 border border-green-200' : halfReached ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-          {cycleData?.dryerReadingsSubmitted ? 'Complete' : halfReached ? 'Ready' : `${remainingMin}:${String(remainingSecPart).padStart(2, '0')}`}
-        </div>
-      </div>
-
-      {/* Progress bar */}
-      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all ${halfReached ? 'bg-green-500' : 'bg-amber-500'}`} style={{ width: `${progressPct}%` }} />
-      </div>
-
-      {/* Temperature already recorded */}
-      {cycleData?.dryerReadingsSubmitted && (
-        <div className="flex items-center gap-2 pt-1 px-1">
-          <div className="flex-1 bg-green-50 border border-green-200 rounded-xl px-3 py-2.5 text-sm text-green-700 font-medium flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-            Temperature recorded
-          </div>
-        </div>
-      )}
-      {/* Temperature selection — only when half-time reached and not yet submitted */}
-      {halfReached && !cycleData?.dryerReadingsSubmitted && (autoFetch.isAuto ? !!dryerInstrument : tempOptions.length > 0) && (
-        <>
-        {/* 2026-08-10: auto-fetch mode swaps the stepped dropdown for a free
-            numeric input + "Get Values", matching the WASH_IN equipment dialog.
-            Offline `isAuto` is false and the original dropdown is used. */}
-        {autoFetch.isAuto && (
-          <button
-            type="button"
-            onClick={autoFetch.getValues}
-            disabled={submitting || autoFetch.fetching}
-            className="w-full mt-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-xl bg-cyan-600 text-white active:bg-cyan-500 disabled:opacity-50"
-          >
-            {autoFetch.fetching
-              ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
-            {autoFetch.fetching ? 'Fetching…' : 'Get Values'}
-          </button>
-        )}
-        {autoFetch.isAuto && autoFetch.status && (
-          <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">{autoFetch.status}</div>
-        )}
-        <div className="flex items-center gap-2 pt-1">
-          {/* Timed-out fetch reverts to the stepped dropdown (2026-08-10), but
-              only when it has entries — an empty select would dead-end. */}
-          {autoFetch.isAuto && !(autoFetch.timedOut && tempOptions.length > 0) ? (
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="number"
-                step="any"
-                inputMode="decimal"
-                value={temp}
-                // Fetched value is READ-ONLY (2026-08-10); typeable only before
-                // the fetch lands or after it gives up (manual fallback).
-                onChange={e => {
-                  if (autoFetch.locked) return;
-                  applyTemp(e.target.value === '' ? '' : Number(e.target.value));
-                }}
-                readOnly={autoFetch.locked}
-                aria-readonly={autoFetch.locked}
-                disabled={submitting}
-                placeholder={autoFetch.fetching ? 'Fetching…' : `Enter or fetch ${tempUom}`}
-                className={`flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-amber-400 outline-none ${autoFetch.locked ? 'bg-slate-100 text-slate-600' : 'bg-white text-slate-800'}`}
-              />
-              {autoFetch.locked && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
-            </div>
-          ) : (
-          <select
-            value={temp}
-            onChange={e => applyTemp(e.target.value ? Number(e.target.value) : '')}
-            disabled={submitting}
-            className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:border-amber-400 outline-none"
-          >
-            <option value="">Select {tempUom}...</option>
-            {tempOptions.map(v => <option key={v} value={v}>{formatByLeastCount(v, dryerInstrument?.leastCount)} {tempUom}</option>)}
-          </select>
-          )}
-          <button
-            onClick={handleTempSubmit}
-            disabled={!temp || submitting || autoFetch.fetching}
-            className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-bold disabled:opacity-40 active:opacity-90"
-          >
-            {submitting ? '...' : 'Submit'}
-          </button>
-        </div>
-        </>
-      )}
-      {halfReached && !cycleData?.dryerReadingsSubmitted && !dryerInstrument && (
-        <div className="text-[10px] text-red-500">No temperature instrument configured for this equipment group</div>
-      )}
-    </div>
-
   );
 }

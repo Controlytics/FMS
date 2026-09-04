@@ -85,3 +85,17 @@ See the CHANGELOG entry "Every record cap removed, backend and web
 `maximum` on limit, no `Math.min(limit, N)`, no hard `take: N` on a list, no
 `maxItems` on a bulk action, no `.slice(0, N)` on a rendered data list. Fetch-all
 web calls use `ALL_ROWS` from `lib/page-size.ts`.
+
+---
+
+# Dry In: multi-select duration + temperature, auto-fetch on half time (2026-09-04)
+
+Operator ask (confirmed 3 assumptions: edited fetched value recorded as
+AUTO_OVERRIDDEN; per-filter half-time; fetch failure -> manual fallback).
+
+- [x] A. Backend: `readingSources` on advance + bulk payloads; `source` stored per reading in the event
+- [x] B. Shared hook `useDryerAutoFetch`: auto-start at half time, no Get Values, editable -> AUTO_OVERRIDDEN
+- [x] C. Desktop: queue checkboxes + one DRY_IN duration dropdown; drying panel checkboxes + one temperature + change value + Submit selected (bulk)
+- [x] D. Tablet: same on the scan queue and the Currently Drying panel
+- [x] E. Tests (hook 14/14, web 820/820), typecheck both apps, desktop live check (source AUTO + AUTO_OVERRIDDEN in filter_events), CHANGELOG, commit
+- [ ] F. Tablet half-time fetch + submit - operator testing (queue/duration/partial submit already verified)

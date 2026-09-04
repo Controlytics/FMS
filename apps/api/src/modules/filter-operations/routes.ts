@@ -58,6 +58,10 @@ const BULK_PAYLOAD_PROPERTIES = {
   equipmentId: { type: 'string', format: 'uuid' },
   checklistData: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
   instrumentReadings: { type: 'object', additionalProperties: { type: 'number' }, maxProperties: MAX_OBJECT_PROPS },
+          // Dry In multi-select (2026-09-04): per-instrument provenance of the reading. AUTO = fetched from the
+          // instrument, AUTO_OVERRIDDEN = fetched then changed by the operator, MANUAL = typed/selected. Stored on
+          // the event's instrumentReadings[] as `source` so the record shows both that it was fetched and changed.
+          readingSources: { type: 'object', additionalProperties: { type: 'string', enum: ['MANUAL', 'AUTO', 'AUTO_OVERRIDDEN'] }, maxProperties: MAX_OBJECT_PROPS },
   dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
   dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
   // /:id/submit-checklist
@@ -334,6 +338,10 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           checklistData: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
           equipmentGroupId: { type: 'string', format: 'uuid' },
           instrumentReadings: { type: 'object', additionalProperties: { type: 'number' }, maxProperties: MAX_OBJECT_PROPS },
+          // Dry In multi-select (2026-09-04): per-instrument provenance of the reading. AUTO = fetched from the
+          // instrument, AUTO_OVERRIDDEN = fetched then changed by the operator, MANUAL = typed/selected. Stored on
+          // the event's instrumentReadings[] as `source` so the record shows both that it was fetched and changed.
+          readingSources: { type: 'object', additionalProperties: { type: 'string', enum: ['MANUAL', 'AUTO', 'AUTO_OVERRIDDEN'] }, maxProperties: MAX_OBJECT_PROPS },
           dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
           dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
           // 2026-08-10: operator's AHU filter-set choice, mirroring the field of
@@ -423,6 +431,10 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           remarks: { type: 'string', maxLength: MAX_TEXT_LEN },
           equipmentGroupId: { type: 'string', format: 'uuid' },
           instrumentReadings: { type: 'object', additionalProperties: { type: 'number' }, maxProperties: MAX_OBJECT_PROPS },
+          // Dry In multi-select (2026-09-04): per-instrument provenance of the reading. AUTO = fetched from the
+          // instrument, AUTO_OVERRIDDEN = fetched then changed by the operator, MANUAL = typed/selected. Stored on
+          // the event's instrumentReadings[] as `source` so the record shows both that it was fetched and changed.
+          readingSources: { type: 'object', additionalProperties: { type: 'string', enum: ['MANUAL', 'AUTO', 'AUTO_OVERRIDDEN'] }, maxProperties: MAX_OBJECT_PROPS },
           dryerAction: { type: 'string', enum: ['SET_DURATION', 'SUBMIT_READINGS'] },
           dryerDurationMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
           // ── checklist half ──

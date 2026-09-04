@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] - Dry In: multi-select duration + temperature, auto-fetch at half time (2026-09-04)
+
+Operator request. At Dry In the queue rows carry checkboxes and ONE "Dryer duration
+for selected" dropdown; Submit acts on the ticked rows only and unticked rows stay
+queued. The "Currently Drying" panel is now ONE shared component (`variant`
+desktop/mobile) instead of a desktop panel plus an inline tablet copy: each row
+ticks only after half time, one temperature box applies to every ticked row,
+"Change value" edits a single row, one Submit records the batch (one audited
+advance per filter, queued offline as before).
+
+With auto-fetch on the equipment group the dryer temperature is fetched ON ITS OWN
+the moment a row reaches half time - no Get Values button. A fetched value is
+editable again: editing flips its provenance to AUTO_OVERRIDDEN. This deliberately
+reverses the 2026-08-10 read-only rule, on the operator's explicit request with the
+consequence stated. Both `/:id/advance` and `bulk-operate` accept
+`readingSources` (MANUAL / AUTO / AUTO_OVERRIDDEN, enum-validated) and store it as
+`source` on each reading in the event, so the record shows both that the value was
+fetched and that it was changed. The cycle detail view renders it as "Auto" /
+"Auto · changed". The WASH_IN equipment dialog is unchanged (still locks, sends no
+source).
+
+Verified live on the desktop (block MUPS, operator account, mock instrument):
+both rows fetched at half time, one edited, batch submitted; the event rows hold
+`source: AUTO` and `source: AUTO_OVERRIDDEN`. Tablet queue / duration / partial
+submit verified; the tablet half-time submit was handed to the operator.
+
 ## [Unreleased] - Audit chain: the 3,308 "tampering" rows explained and reported honestly (2026-09-04)
 
 `verify-chain` reported 3,310 per-row checksum mismatches, 3,308 of them
