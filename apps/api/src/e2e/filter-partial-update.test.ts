@@ -65,6 +65,16 @@ describe('Filter partial update — attributes are merged, not replaced', () => 
   let token: string;
   let testUserId: string;
   let filterId: string;
+  // Own hierarchy fixture (2026-09-04). This file used to do `prisma.ahu.findFirst()`
+  // and throw when the seeded test DB had no AHU - the ambient-fixture
+  // anti-pattern entities.test.ts was fixed for on 2026-07-02. A BLOCK and an
+  // AHU are created as asset_instances; the asset->typed mirror trigger writes
+  // the `blocks` / `ahus` rows with the SAME id, which is what `filter.ahuId`
+  // references. Torn down in afterAll (the mirror removes the typed rows).
+  let blockTemplateId: string;
+  let ahuTemplateId: string;
+  let blockId: string;
+  let ahuId: string;
 
   const putFilter = (payload: Record<string, unknown>) =>
     app.inject({
@@ -98,8 +108,15 @@ describe('Filter partial update — attributes are merged, not replaced', () => 
     });
     testUserId = user.id;
 
-    const ahu = await prisma.ahu.findFirst({ select: { id: true } });
-    if (!ahu) throw new Error('Test DB has no AHU to hang a filter on');
+    for (const [code, label] of [['BLOCK', 'Block'], ['AHU', 'AHU']] as const) {
+      await prisma.templateKind.upsert({ where: { code }, update: {}, create: { code, label, isSystem: true } });
+    }
+    blockTemplateId = (await prisma.assetTemplate.create({ data: { name: `${PREFIX} Block Tpl`, templateKind: 'BLOCK' } })).id;
+    ahuTemplateId = (await prisma.assetTemplate.create({ data: { name: `${PREFIX} AHU Tpl`, templateKind: 'AHU' } })).id;
+    blockId = (await prisma.assetInstance.create({ data: { name: `${PREFIX}-BLOCK`, templateId: blockTemplateId } })).id;
+    ahuId = (await prisma.assetInstance.create({ data: { name: `${PREFIX}-AHU`, templateId: ahuTemplateId, parentId: blockId } })).id;
+    const ahu = await prisma.ahu.findUnique({ where: { id: ahuId }, select: { id: true } });
+    if (!ahu) throw new Error('asset->typed mirror did not produce the ahus row - is trg_mirror_asset_instance_iud installed on this DB?');
     const created = await prisma.filter.create({
       data: { id: crypto.randomUUID(), ahuId: ahu.id, name: `${PREFIX}-F1`, status: 'Active', attributes: { ...SEEDED_ATTRS } } as any,
     });
@@ -122,6 +139,12 @@ describe('Filter partial update — attributes are merged, not replaced', () => 
     await prisma.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: ids } }, { targetAssetId: { in: ids } }] } });
     await prisma.filter.deleteMany({ where: { id: { in: ids } } });
     await prisma.assetInstance.deleteMany({ where: { id: { in: ids } } }); // reverse-mirror rows
+    // Own hierarchy fixture, child first; the mirror trigger drops the typed rows.
+    await prisma.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: [ahuId, blockId] } }, { targetAssetId: { in: [ahuId, blockId] } }] } }).catch(() => undefined);
+    if (ahuId) await prisma.assetInstance.delete({ where: { id: ahuId } }).catch(() => undefined);
+    if (blockId) await prisma.assetInstance.delete({ where: { id: blockId } }).catch(() => undefined);
+    if (ahuTemplateId) await prisma.assetTemplate.delete({ where: { id: ahuTemplateId } }).catch(() => undefined);
+    if (blockTemplateId) await prisma.assetTemplate.delete({ where: { id: blockTemplateId } }).catch(() => undefined);
     await prisma.session.updateMany({ where: { userId: testUserId }, data: { isActive: false, terminationReason: 'partial_update_test_cleanup' } });
     try {
       await prisma.user.delete({ where: { id: testUserId } });

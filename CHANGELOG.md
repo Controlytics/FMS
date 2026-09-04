@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] - API test suite fully green: the last fixture-dependent e2e file owns its fixture (2026-09-04)
+
+`e2e/filter-partial-update.test.ts` used `prisma.ahu.findFirst()` and threw when
+the seeded test DB had no AHU (the ambient-fixture anti-pattern). It now creates
+a throwaway BLOCK + AHU as `asset_instances` - the asset->typed mirror trigger
+writes the `ahus` row with the same id, which `filter.ahuId` references - and
+removes them in `afterAll`. Single-fork baseline: 141 files, 0 failing, 1468
+passing, 16 skipped. Verified the fixture leaves nothing behind.
+
 ## [Unreleased] - M27 closed: deleting a filter mid-cycle is refused; six stranded cycles ended (2026-09-04)
 
 Six inactive filters still owned a cleaning cycle in IN_PROGRESS: five were

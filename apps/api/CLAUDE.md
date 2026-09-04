@@ -148,19 +148,19 @@ warning rules out data corruption); single-fork masks it in practice.
 
 **Verified baseline** (2026-09-04, single-fork mode, branch `RFID` after the
 strict audit + no-caps + M27 work): **1468 passing, 0 failed, 16 skipped (141
-files; 1 file failing).** Web: **816/816 (63 files)**. The one failing file is
-`e2e/filter-partial-update.test.ts` - its `beforeAll` throws *"Test DB has no
-AHU to hang a filter on"* (ambient-fixture anti-pattern below; its 4 tests are
-counted as skipped). The other three files listed below as failing on
-2026-08-10 pass now. If your single-fork run shows materially different
+files; 0 files failing).** Web: **816/816 (63 files)**. The last fixture-
+dependent file, `e2e/filter-partial-update.test.ts`, now creates its own
+BLOCK + AHU as asset_instances (the asset->typed mirror writes the `ahus` row
+with the same id) and tears them down - all four files listed below as failing
+on 2026-08-10 pass. If your single-fork run shows materially different
 numbers, investigate before assuming your change broke something.
 
 Prior baseline (2026-08-10, freshly rebuilt `digilog_test_db`): 1257 passing,
 1 failed, 20 skipped (125 files; 4 files failing). Web 644/644 (49 files).
 
-The 4 failing files are **known and unrelated to product code** (confirmed by
-stash-and-compare) — they are tests that depend on state a freshly-seeded DB
-doesn't have:
+The 4 files that failed on 2026-08-10 were **known and unrelated to product code**
+(confirmed by stash-and-compare) — tests that depended on state a freshly-seeded
+DB doesn't have (all pass as of 2026-09-04; kept for the pattern):
 
 - `e2e/{filter-partial-update, filter-replace-duplicate-name,
   retire-replace-identifier-invariant}` — each does `prisma.ahu.findFirst()` in
