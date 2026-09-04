@@ -62,8 +62,9 @@ export default async function identifierRoutes(app: FastifyInstance) {
           ahu: { type: 'string', description: 'Filter by AHU name (substring)' },
           user: { type: 'string', description: 'Filter by user (substring)' },
           page: { type: 'integer', minimum: 1 },
-          // 2026-07-03: RFID identifier list uncapped per user request (was 500).
-          limit: { type: 'integer', minimum: 1, maximum: 1_000_000 },
+          // 2026-07-03: RFID identifier list uncapped per user request (was 500);
+          // 2026-09-04: no maximum at all.
+          limit: { type: 'integer', minimum: 1 },
         },
       },
       response: {

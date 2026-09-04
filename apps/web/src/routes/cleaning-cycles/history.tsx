@@ -106,8 +106,8 @@ export function CleaningCycleHistoryPage() {
   // filters at Block level there (the backend recursive walk still resolves every
   // descendant filter), and the AHU dropdown stays disabled until an area exists.
   const { data: blocksData } = useSWR<PaginatedResponse<any>>('/api/hierarchy/blocks');
-  const { data: areasData } = useSWR<PaginatedResponse<any>>(blockId ? `/api/hierarchy/areas?blockId=${blockId}&limit=500` : null);
-  const { data: ahusData } = useSWR<PaginatedResponse<any>>(areaId ? `/api/hierarchy/ahus?areaId=${areaId}&limit=500` : null);
+  const { data: areasData } = useSWR<PaginatedResponse<any>>(blockId ? `/api/hierarchy/areas?blockId=${blockId}` : null);
+  const { data: ahusData } = useSWR<PaginatedResponse<any>>(areaId ? `/api/hierarchy/ahus?areaId=${areaId}` : null);
   const blocks = (blocksData?.data ?? []) as any[];
   const areas = (areasData?.data ?? []) as any[];
   const ahus = (ahusData?.data ?? []) as any[];

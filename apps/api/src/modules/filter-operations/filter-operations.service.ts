@@ -308,10 +308,9 @@ export class FilterOperationsService {
     if (filterIdConstraint) manualWhere.filterId = filterIdConstraint;
     if (fromD || toD) { manualWhere.performedAt = {}; if (fromD) manualWhere.performedAt.gte = fromD; if (toD) manualWhere.performedAt.lte = toD; }
 
-    const CAP = 5000; // safety cap on the lightweight merge index
     const [cyclesLite, manualLite] = await Promise.all([
-      prisma.cleaningCycle.findMany({ where: cycleWhere, select: { id: true, startedAt: true }, orderBy: { startedAt: 'desc' }, take: CAP }),
-      prisma.filterEvent.findMany({ where: manualWhere, select: { id: true, performedAt: true }, orderBy: { performedAt: 'desc' }, take: CAP }),
+      prisma.cleaningCycle.findMany({ where: cycleWhere, select: { id: true, startedAt: true }, orderBy: { startedAt: 'desc' } }),
+      prisma.filterEvent.findMany({ where: manualWhere, select: { id: true, performedAt: true }, orderBy: { performedAt: 'desc' } }),
     ]);
     const merged = [
       ...cyclesLite.map((c) => ({ id: c.id, kind: 'cycle' as const, date: c.startedAt ? new Date(c.startedAt).getTime() : 0 })),
@@ -1034,7 +1033,6 @@ export class FilterOperationsService {
         filterDetails: { select: { filterSet: true } },
       },
       orderBy: { updatedAt: 'desc' },
-      take: 5000, // defensive cap — preserves the array contract, bounds memory (audit perf)
     });
     const retirements = retirementsRaw.map((r: any) => ({
       ...r,
@@ -1125,7 +1123,6 @@ export class FilterOperationsService {
       },
       select: { id: true, userId: true, userName: true, timestamp: true, afterValue: true },
       orderBy: { timestamp: 'desc' },
-      take: 5000, // defensive cap — preserves the array contract, bounds memory (audit perf)
     });
 
     const mapped = records.map(r => {

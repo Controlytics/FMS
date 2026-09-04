@@ -131,7 +131,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
           ],
         },
         select: { entityId: true },
-        take: 10000,
       });
 
       const templateAssignments = await prisma.templateAssignment.findMany({
@@ -141,7 +140,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
           ],
         },
         select: { templateId: true },
-        take: 10000,
       });
 
       const assignedEntityIds = entityAssignments.map((a: any) => a.entityId);
@@ -214,14 +212,12 @@ export default async function instanceRoutes(app: FastifyInstance) {
         { assigneeType: "ROLE", roleValue: role },
       ]},
       select: { entityId: true },
-      take: 10000,
     });
     const templateAssignments = await prisma.templateAssignment.findMany({
       where: { OR: [
         { assigneeType: "USER", userId },
       ]},
       select: { templateId: true },
-      take: 10000,
     });
     const eIds = entityAssignments.map((a: any) => a.entityId);
     const tIds = templateAssignments.map((a: any) => a.templateId);
@@ -553,7 +549,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
     type: 'object',
     required: ['filterIds'],
     properties: {
-      filterIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 200 },
+      filterIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
       remarks: { type: 'string' },
     },
   } as const;
@@ -599,7 +595,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['filterIds', 'remarks'],
         properties: {
-          filterIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 200 },
+          filterIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
           remarks: { type: 'string', minLength: 1 },
         },
       },

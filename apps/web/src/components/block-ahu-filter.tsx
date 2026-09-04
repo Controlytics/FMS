@@ -51,9 +51,9 @@ export function useBlockAhuScope(): BlockAhuScope {
   // 21 blocks / 38 AHUs / 22 areas live (2026-08-20) — well inside the
   // hierarchy endpoints' 500-row cap. Areas are needed only to resolve AHUs
   // that hang off an Area rather than directly off a Block (Area is optional).
-  const { data: blocksResp } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/blocks?limit=500');
-  const { data: ahusResp } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/ahus?limit=500');
-  const { data: areasResp } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/areas?limit=500');
+  const { data: blocksResp } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/blocks');
+  const { data: ahusResp } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/ahus');
+  const { data: areasResp } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/areas');
 
   const blocks = useMemo(
     () => [...(blocksResp?.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),

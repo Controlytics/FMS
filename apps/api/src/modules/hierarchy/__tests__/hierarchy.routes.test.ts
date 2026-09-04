@@ -4,7 +4,7 @@
  * Coverage:
  *   1. GET /tree returns 4 blocks with nested areas → ahus → filters
  *   2. 401 when Authorization header is missing
- *   3. ?limit=10000 is clamped to the 500 ceiling (audit §1.8)
+ *   3. an explicit limit is honoured as given (no ceiling since 2026-09-04)
  *
  * Why a new pattern in this repo:
  *   - assets/__tests__/instance.routes.test.ts (referenced in the task brief)
@@ -174,23 +174,19 @@ describe('hierarchy routes', () => {
     }
   });
 
-  it('rejects a limit above the (raised) 1,000,000 ceiling', async () => {
-    // 2026-07-03: record lists were uncapped for real deployments; the ceiling
-    // moved 500 → 1,000,000. The JSON-schema `maximum` is still the wire gate —
-    // AJV rejects anything ABOVE it with a 400 before the handler runs. Assert
-    // the gate still fires just past the new ceiling.
+  it('an explicit limit above the old 1,000,000 ceiling is honoured (no cap, 2026-09-04)', async () => {
+    // 2026-07-03 moved the ceiling 500 -> 1,000,000; 2026-09-04 removed it.
+    // Whatever the caller asks for reaches Prisma as `take`.
+    mockPrisma.block.findMany.mockResolvedValueOnce([]);
+    mockPrisma.block.count.mockResolvedValueOnce(0);
     const app = await buildFixtureApp();
     try {
       const res = await app.inject({
         method: 'GET', url: '/api/hierarchy/blocks?limit=1000001', headers: AUTH,
       });
-      expect(res.statusCode).toBe(400);
-      const body = res.json();
-      // Fastify validation error shape: error/message + (optional) details.
-      // Our global error handler isn't installed here, so the message comes
-      // from Fastify directly: "querystring/limit must be <= 500".
-      expect(String(body.message ?? '')).toMatch(/limit/i);
-      expect(mockPrisma.block.findMany).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(200);
+      const arg = mockPrisma.block.findMany.mock.calls[0][0];
+      expect(arg.take).toBe(1000001);
     } finally {
       await app.close();
     }

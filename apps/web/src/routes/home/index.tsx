@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import useSWR from 'swr';
 import { useAuth } from '@/hooks/use-auth';
 import { MODULE_FLOWS, CATEGORY_ORDER } from './module-flows';
@@ -39,7 +40,7 @@ export default function HomePage() {
   // viewer can read profiles (FCP_READ / Super Admin) so no 403 hits the
   // console for operators — the note still renders, just without the number.
   const canReadProfiles = (user?.role === 'SUPER_ADMIN') || (user?.permissions ?? []).includes('FCP_READ');
-  const { data: cpData } = useSWR<any>(canReadProfiles ? '/api/filter-cleaning-profiles?limit=200' : null);
+  const { data: cpData } = useSWR<any>(canReadProfiles ? `/api/filter-cleaning-profiles?limit=${ALL_ROWS}` : null);
   const cpList: any[] = Array.isArray(cpData) ? cpData : (Array.isArray(cpData?.data) ? cpData.data : []);
   const activeProfileCount = cpList.filter((p) => p?.status === 'ACTIVE').length;
 

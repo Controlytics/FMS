@@ -17,9 +17,8 @@
  *
  * Pagination contract (matches the audit §1.8 fix landed earlier today on
  *   `queries/telemetry.routes.ts`):
- *   - default page = 1, default limit = 50
- *   - hard ceiling = 500 enforced both by the JSON-schema `maximum: 500`
- *     and by `Math.min(Math.max(limit ?? 50, 1), 500)` in `normalizeLimit`.
+ *   - default page = 1; an omitted limit returns ALL rows; an explicit
+ *     limit is honoured as given (no ceiling - operator decision 2026-09-04).
  *
  * Visibility: this read path does NOT apply EntityAssignment /
  * TemplateAssignment scoping. Wave 2 is just proving the read path; the
@@ -35,9 +34,8 @@ import type { FilterFieldInput } from '../assets/services/filter-fields.service.
 import type { RequestContext } from '../../types/context.js';
 
 // 2026-07-03: record lists are uncapped per user request. An OMITTED limit means
-// "return ALL rows" (no Prisma `take`). MAX_LIMIT is only a sanity gate for an
-// explicitly-provided value — the frontend now omits limit entirely.
-const MAX_LIMIT = 1_000_000;
+// "return ALL rows" (no Prisma `take`). 2026-09-04: the 1,000,000 sanity gate on
+// an explicit value went too - no record cap anywhere, by operator decision.
 
 type ExpandLevel = 0 | 1 | 2 | 3;
 
@@ -67,11 +65,11 @@ export interface FilterListQuery extends PageQuery {
 /**
  * Returns `undefined` when the client omits `limit` — the record list is
  * uncapped (2026-07-03), so an omitted limit returns ALL rows (no `take`).
- * A provided value is honored (min 1), clamped only by the huge sanity ceiling.
+ * A provided value is honored as given (min 1).
  */
 export function normalizeLimit(raw?: number): number | undefined {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
-  return Math.min(Math.max(Math.trunc(raw), 1), MAX_LIMIT);
+  return Math.max(Math.trunc(raw), 1);
 }
 
 export function normalizePage(raw?: number): number {

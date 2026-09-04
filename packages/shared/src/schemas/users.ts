@@ -47,7 +47,7 @@ export const userQuerySchema = z.object({
   // would silently vanish from a recipient picker with nothing on screen to
   // say so. The response carries only id/username/fullName/role/status-class
   // fields, so a 1000-row page is cheap.
-  limit: z.coerce.number().min(1).max(1000).default(20),
+  limit: z.coerce.number().min(1).default(20), // no record cap (operator decision 2026-09-04)
 });
 
 export const bulkDeleteUsersSchema = z.object({

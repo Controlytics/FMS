@@ -1305,7 +1305,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   // the create-PM-entry schedule picker so a new entry can be attached even
   // when no entries exist yet. Read-only; SUPER_ADMIN.
   app.get('/data/pm-schedules', { preHandler: dataPreHandler, schema: dataSchema('List PM schedules') }, async () => {
-    const schedules = await prisma.pmSchedule.findMany({ orderBy: [{ year: 'desc' }, { updatedAt: 'desc' }], take: 500 });
+    const schedules = await prisma.pmSchedule.findMany({ orderBy: [{ year: 'desc' }, { updatedAt: 'desc' }] });
     const entityIds = [...new Set(schedules.map(s => s.entityId))];
     const entities = await prisma.assetInstance.findMany({ where: { id: { in: entityIds } }, select: { id: true, name: true } });
     const nameById = new Map(entities.map(e => [e.id, e.name]));

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import useSWR, { mutate } from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
@@ -36,7 +37,7 @@ export function ChecklistProfileListPage() {
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const swrKey = '/api/checklist-profiles?limit=100';
+  const swrKey = `/api/checklist-profiles?limit=${ALL_ROWS}`;
   const { data, isLoading } = useSWR(swrKey);
 
   const handleCreate = async () => {

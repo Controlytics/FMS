@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect, useRef, useMemo } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
@@ -314,7 +315,7 @@ export function MobileWrapperPage() {
 
   // Notifications (overdue deviations etc.) — bell badge + center view.
   const { data: notifData, mutate: mutateNotifs } =
-    useSWR<any>(online ? '/api/notifications?limit=50' : null, { refreshInterval: view === 'notifications' ? 15000 : 60000 });
+    useSWR<any>(online ? `/api/notifications?limit=${ALL_ROWS}` : null, { refreshInterval: view === 'notifications' ? 15000 : 60000 });
   const notifications: any[] = notifData?.data ?? [];
   const unreadCount: number = notifData?.unreadCount ?? 0;
   const markNotifRead = async (n: any) => {
@@ -330,7 +331,7 @@ export function MobileWrapperPage() {
   // 2026-05-20: also load when view==='status' so the new stage-detail drill-down
   // can derive "Last cleaned" per filter from the most-recent COMPLETED cycle.
   const { data: cyclesData, isLoading: cyclesLoading } =
-    useSWR<any>(online && (view === 'cycles' || view === 'status' || view === 'rfid-assign' || view === 'replace') ? '/api/filters/cycles?page=1&limit=200&includeEvents=true' : null,
+    useSWR<any>(online && (view === 'cycles' || view === 'status' || view === 'rfid-assign' || view === 'replace') ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true` : null,
       { refreshInterval: view === 'cycles' ? 30000 : 0 });
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
@@ -2563,7 +2564,7 @@ export function MobileWrapperPage() {
 
                 <div className="space-y-2">
                   <div className="text-[11px] text-slate-500 font-mono-tab px-1">
-                    showing <span className="text-slate-800 font-semibold">{Math.min(rfidVisibleFilters.length, 60)}</span> of {rfidVisibleFilters.length}
+                    showing <span className="text-slate-800 font-semibold">{rfidVisibleFilters.length}</span> of {rfidVisibleFilters.length}
                   </div>
                   {rfidVisibleFilters.length === 0 && (
                     <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">No filters match.</div>
@@ -2573,7 +2574,7 @@ export function MobileWrapperPage() {
                       to read each line. Green = at least one tag assigned;
                       red = no tag yet. Right-side mono shows the FIRST tag
                       ID when assigned (with "+N more" if multiple). */}
-                  {rfidVisibleFilters.slice(0, 60).map((f: any) => {
+                  {rfidVisibleFilters.map((f: any) => {
                     const tags = rfidTagsByFilter.get(f.id) ?? [];
                     const isAssigned = tags.length > 0;
                     const firstTag = isAssigned ? (tags[0]?.identifierValue ?? '') : '';
@@ -2859,12 +2860,12 @@ export function MobileWrapperPage() {
 
                 <div className="space-y-2">
                   <div className="text-[11px] text-slate-500 font-mono-tab px-1">
-                    showing <span className="text-slate-800 font-semibold">{Math.min(repVisibleFilters.length, 60)}</span> of {repVisibleFilters.length}
+                    showing <span className="text-slate-800 font-semibold">{repVisibleFilters.length}</span> of {repVisibleFilters.length}
                   </div>
                   {repVisibleFilters.length === 0 && (
                     <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">No filters match.</div>
                   )}
-                  {repVisibleFilters.slice(0, 60).map((f: any) => {
+                  {repVisibleFilters.map((f: any) => {
                     const tags = rfidTagsByFilter.get(f.id) ?? [];
                     const firstTag = tags[0]?.identifierValue ?? '';
                     return (
@@ -3338,7 +3339,7 @@ export function MobileWrapperPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {candidates.slice(0, 80).map((f: any) => {
+                      {candidates.map((f: any) => {
                         const tags = rfidTagsByFilter.get(f.id) ?? [];
                         const firstTag = tags[0]?.identifierValue ?? '';
                         const selected = replTaskSelected.has(f.id);
@@ -3365,9 +3366,6 @@ export function MobileWrapperPage() {
                           </button>
                         );
                       })}
-                      {candidates.length > 80 && (
-                        <div className="text-[10.5px] text-slate-400 text-center">Showing first 80 — search to narrow.</div>
-                      )}
                     </div>
                   )}
                 </div>

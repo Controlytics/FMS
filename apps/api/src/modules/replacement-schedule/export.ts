@@ -14,7 +14,6 @@ export async function exportEntriesXlsx(): Promise<Buffer> {
   const entries = await prisma.replacementScheduleEntry.findMany({
     include: { schedule: true },
     orderBy: [{ scheduleDate: 'asc' }, { slNo: 'asc' }],
-    take: 5000,
   });
 
   const wb = new ExcelJS.Workbook();

@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
@@ -570,7 +571,7 @@ export function FilterDataManagementPage() {
 
   // Users for the "Performed By" picker. Fetched only while an event edit is
   // open — the console has nine tabs and most never need this list.
-  const usersData = useSWR<any>(rowEditDialog?.entity === 'event' ? '/api/users?page=1&limit=500' : null);
+  const usersData = useSWR<any>(rowEditDialog?.entity === 'event' ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
   const userOptions = ((usersData.data as any)?.data ?? []).map((u: any) => ({
     value: u.id,
     label: `${u.fullName ?? u.username} (${u.username})`,
@@ -658,7 +659,7 @@ export function FilterDataManagementPage() {
   const genericTabs: GenericTabDef[] = [];
   const activeGenericTab = genericTabs.find((t: GenericTabDef) => t.key === tab);
   const { data: genericData, isLoading: genericLoading } = useSWR(
-    activeGenericTab ? `${activeGenericTab.endpoint}?limit=50` : null
+    activeGenericTab ? `${activeGenericTab.endpoint}?limit=${ALL_ROWS}` : null
   );
   const genericRows: any[] = (genericData as any)?.data ?? [];
 
@@ -756,7 +757,7 @@ export function FilterDataManagementPage() {
   // loaded entries (there is no flat /pm-schedules list endpoint).
   const needFilterOpts = !!createDialog && (createDialog.entity === 'cycle' || createDialog.entity === 'event' || createDialog.entity === 'block-change');
   const createFiltersData = useSWR<any>(needFilterOpts ? '/api/hierarchy/filters' : null);
-  const createProfilesData = useSWR<any>(createDialog?.entity === 'cycle' ? '/api/filter-cleaning-profiles?limit=200' : null);
+  const createProfilesData = useSWR<any>(createDialog?.entity === 'cycle' ? `/api/filter-cleaning-profiles?limit=${ALL_ROWS}` : null);
   const createSchedulesData = useSWR<any>(createDialog?.entity === 'pm-entry' ? '/api/super-admin/data/pm-schedules' : null);
   const filterOpts: { value: string; label: string }[] = (createFiltersData.data?.data ?? []).map((f: any) => ({ value: f.id, label: f.name ?? f.id }));
   const profileOpts: { value: string; label: string }[] = (createProfilesData.data?.data ?? []).map((p: any) => ({ value: p.id, label: `${p.name ?? p.id}${p.version ? ` (v${p.version})` : ''}` }));

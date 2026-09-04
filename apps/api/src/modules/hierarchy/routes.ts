@@ -11,10 +11,8 @@
  * `*_VIEW <- *_READ` fallback in `hasEffectivePermission` lets ASSET_READ
  * also satisfy this gate, so we don't strand any role).
  *
- * Pagination: page ≥ 1, default limit 50, hard cap 500 (audit §1.8). The
- * JSON-schema `maximum: 500` is the wire gate; the handler still defensively
- * clamps via `normalizeLimit` so any Zod/schema bypass path still can't dump
- * the table.
+ * Pagination: page ≥ 1; an omitted limit returns ALL rows and an explicit
+ * limit is honoured as given - no cap (operator decision 2026-09-04).
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -119,9 +117,9 @@ const paginatedEnvelope = (itemSchema: object) => ({
 const pageQueryProps = {
   page: { type: 'integer', minimum: 1, default: 1 },
   // 2026-07-03: record lists uncapped per user request. NO default — an omitted
-  // limit reaches the handler as undefined → returns ALL rows. `maximum` is only
-  // a sanity gate for an explicitly-provided value.
-  limit: { type: 'integer', minimum: 1, maximum: 1_000_000 },
+  // limit reaches the handler as undefined → returns ALL rows. 2026-09-04: no
+  // maximum either.
+  limit: { type: 'integer', minimum: 1 },
 } as const;
 
 export default async function hierarchyRoutes(app: FastifyInstance) {

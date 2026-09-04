@@ -89,7 +89,7 @@ export default async function userRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['userIds'],
         properties: {
-          userIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 50 },
+          userIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
         },
       },
       response: {

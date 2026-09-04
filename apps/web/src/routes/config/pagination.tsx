@@ -77,8 +77,8 @@ export function PaginationConfigPage() {
   };
 
   const handleSave = async () => {
-    if (limit < 5 || limit > 1000) {
-      setMessage({ type: 'error', text: 'Limit must be between 5 and 1000.' });
+    if (limit < 1) { // no upper bound (operator decision 2026-09-04)
+      setMessage({ type: 'error', text: 'Limit must be at least 1.' });
       return;
     }
     if (count < 2 || count > 10) {

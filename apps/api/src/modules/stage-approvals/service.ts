@@ -272,7 +272,6 @@ export const stageApprovalService = {
     return withSelfFlag(ctx, await prisma.cleaningStageApproval.findMany({
       where,
       orderBy: { requestedAt: 'desc' },
-      take: 200,
       select: SUMMARY_SELECT,
     }));
   },

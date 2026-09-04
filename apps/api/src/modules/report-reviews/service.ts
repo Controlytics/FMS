@@ -149,7 +149,7 @@ export const reportReviewService = {
     const where: Record<string, unknown> = {};
     if (opts.status) where.status = opts.status;
     if (opts.mine) where.generatedBy = ctx.userSub;
-    const rows = await prisma.reportReview.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200, select: SUMMARY_SELECT });
+    const rows = await prisma.reportReview.findMany({ where, orderBy: { createdAt: 'desc' }, select: SUMMARY_SELECT });
     return rows;
   },
 

@@ -130,7 +130,7 @@ export const auditTemplatesSchema = z.record(z.string(), z.string());
 
 // Pagination Configuration Schema
 export const paginationConfigSchema = z.object({
-  limit: z.number().min(5).max(1000).default(100),
+  limit: z.number().min(1).default(100), // no upper bound (operator decision 2026-09-04)
   count: z.number().min(2).max(10).default(3),
   options: z.array(z.number().min(5)).min(2).max(10).default([10, 25, 50]),
 }).refine(data => data.options.every(opt => opt <= data.limit), {
@@ -147,13 +147,12 @@ export const paginationConfigSchema = z.object({
 // observed ~50–60k failure point). `message` is the user-facing text shown when
 // an export is blocked — `{count}` (attempted rows) and `{max}` (the limit) are
 // substituted at render time; either placeholder may be omitted safely.
-export const EXPORT_LIMIT_HARD_CEILING = 50000;
 export const EXPORT_LIMIT_DEFAULT_MAX = 10000;
 export const EXPORT_LIMIT_DEFAULT_MESSAGE =
   'The current filters match {count} records, which exceeds the maximum export limit of {max}. Please narrow your date range or filters and try again.';
 
 export const exportLimitConfigSchema = z.object({
-  maxRecords: z.number().int().min(1).max(EXPORT_LIMIT_HARD_CEILING).default(EXPORT_LIMIT_DEFAULT_MAX),
+  maxRecords: z.number().int().min(1).default(EXPORT_LIMIT_DEFAULT_MAX), // no ceiling (operator decision 2026-09-04)
   message: z.string().min(1).max(500).default(EXPORT_LIMIT_DEFAULT_MESSAGE),
 });
 export type ExportLimitConfig = z.infer<typeof exportLimitConfigSchema>;

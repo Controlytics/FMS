@@ -76,3 +76,11 @@ scope (SUPER_ADMIN): M06 M07 M50 M51 M76.
 - The per-role page sweep covered SIDEBAR pages only; the tablet `/m` views were
   not in it, which is how the `limit=200` regression got past. Next sweep must
   include the tablet views with the exact params they send.
+
+## Follow-up the same day - every record cap removed (operator decision)
+
+See the CHANGELOG entry "Every record cap removed, backend and web
+(2026-09-04)" for the full removed / kept lists. Rule going forward: no
+`maximum` on limit, no `Math.min(limit, N)`, no hard `take: N` on a list, no
+`maxItems` on a bulk action, no `.slice(0, N)` on a rendered data list. Fetch-all
+web calls use `ALL_ROWS` from `lib/page-size.ts`.

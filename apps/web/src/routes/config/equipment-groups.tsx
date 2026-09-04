@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
@@ -164,7 +165,7 @@ export function EquipmentGroupsConfigPage() {
     // error — the soft-lock is informational; a transient network blip must
     // never wedge admin work.
     try {
-      const res = await apiClient.get<{ data: any[] }>('/api/filters/cycles?status=IN_PROGRESS&limit=100');
+      const res = await apiClient.get<{ data: any[] }>(`/api/filters/cycles?status=IN_PROGRESS&limit=${ALL_ROWS}`);
       const activeCount = (res.data ?? []).filter((c: any) => c.equipmentGroupId === g.id).length;
       if (activeCount > 0) {
         setEditConflict({ group: g, activeCount });

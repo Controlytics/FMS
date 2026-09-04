@@ -435,8 +435,8 @@ export function FilterLifecycleReportPage() {
 
   // Hierarchy dropdown sources.
   const { data: blocksData } = useSWR<{ data: HNode[] }>('/api/hierarchy/blocks');
-  const { data: areasData } = useSWR<{ data: HNode[] }>('/api/hierarchy/areas?limit=500');
-  const { data: ahusData } = useSWR<{ data: HNode[] }>('/api/hierarchy/ahus?limit=500');
+  const { data: areasData } = useSWR<{ data: HNode[] }>('/api/hierarchy/areas');
+  const { data: ahusData } = useSWR<{ data: HNode[] }>('/api/hierarchy/ahus');
   const { data: filtersData } = useSWR<{ data: HNode[] }>('/api/hierarchy/filters');
   // Lifecycle sources (ASSET_READ, same as the dropdowns). Bare arrays.
   const { data: retirementsData } = useSWR<any[]>('/api/filters/retirements');

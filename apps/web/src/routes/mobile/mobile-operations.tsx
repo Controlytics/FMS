@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
@@ -486,7 +487,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: datetimeData } = useSWR(online ? '/api/config/datetime/current' : null);
   // B.14 — Cache approved block-change requests so an APPROVED status from a
   // recent server-side approval is visible offline before the cycle starts.
-  const { data: approvedBlockChangesData } = useSWR(online ? '/api/block-change-requests?status=APPROVED&limit=200' : null);
+  const { data: approvedBlockChangesData } = useSWR(online ? `/api/block-change-requests?status=APPROVED&limit=${ALL_ROWS}` : null);
   // B.11 — Cache reauth scope for current user so offline ops know which actions
   // need a queued password vs. immediate dialog.
   const { data: myReauthActionsData } = useSWR(online && user ? '/api/config/action-reauth/my-actions' : null);
@@ -509,7 +510,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // an offline sync, operators couldn't view the resulting cycle data without
   // a desktop. Mirror the desktop endpoint, scoped to recent cycles only.
   const { data: cyclesData, isLoading: cyclesLoading } =
-    useSWR<any>(online && view === 'cycles' ? '/api/filters/cycles?page=1&limit=30&includeEvents=true' : null, { refreshInterval: 30000 });
+    useSWR<any>(online && view === 'cycles' ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true` : null, { refreshInterval: 30000 });
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   useEffect(() => { if (cyclesData?.data) cache('cleaning-cycles-recent', cyclesData.data); }, [cyclesData, cache]);
   useEffect(() => {

@@ -1,4 +1,5 @@
 import React, { useRef, useState, useMemo } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
@@ -204,11 +205,10 @@ export function PmScheduleListPage() {
     return Array.from({ length: span + 1 }, (_, i) => fromYear + i);
   }, [fromYear, toYear]);
 
-  // limit=2000 so the whole year's entries load (the page has no pagination UI;
-  // the old default of 50 hid most records in the ALL view).
+  // ALL_ROWS so the whole year's entries load (the page has no pagination UI).
   const statusQs = statusFilter !== 'ALL' ? `&approvalStatus=${statusFilter}` : '';
   const entriesUrls = useMemo(
-    () => years.map(y => `/api/pm-schedules/entries?year=${y}&limit=2000${statusQs}`),
+    () => years.map(y => `/api/pm-schedules/entries?year=${y}&limit=${ALL_ROWS}${statusQs}`),
     [years, statusQs],
   );
   const entriesKey = entriesUrls.length ? (['pm-entries', ...entriesUrls] as const) : null;
@@ -270,11 +270,11 @@ export function PmScheduleListPage() {
     for (const y of years) {
       let p = 1;
       while (p <= 100) {
-        const res: any = await apiClient.get(`/api/pm-schedules/entries?year=${y}&page=${p}&limit=200`);
+        const res: any = await apiClient.get(`/api/pm-schedules/entries?year=${y}&page=${p}&limit=${ALL_ROWS}`);
         const batch: any[] = res?.data ?? [];
         all.push(...batch);
         const total: number = res?.total ?? batch.length;
-        if (batch.length === 0 || p * 200 >= total) break;
+        if (batch.length === 0 || p * ALL_ROWS >= total) break;
         p++;
       }
     }
@@ -432,7 +432,7 @@ export function PmScheduleListPage() {
   const { data: instancesData } = useSWR('/api/assets/instances');
   const instances = (instancesData?.data ?? []) as any[];
 
-  const { data: ahuListData } = useSWR('/api/hierarchy/ahus?limit=500');
+  const { data: ahuListData } = useSWR('/api/hierarchy/ahus');
   const ahuList = (ahuListData?.data ?? []) as Array<{ id: string; name: string }>;
 
   // Review step (3-step workflow): send a reviewed entry on to approval.

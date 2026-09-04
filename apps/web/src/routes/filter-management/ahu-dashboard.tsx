@@ -43,14 +43,14 @@ export function AhuDashboardPage() {
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
   // A-01 wave 5: migrated from /api/assets/instances to typed hierarchy endpoints.
   // GET /api/hierarchy/ahus/:id returns the single AHU row (name, status, etc.).
-  // GET /api/hierarchy/filters?ahuId=...&limit=1000 returns only filter-kind rows
+  // GET /api/hierarchy/filters?ahuId=... returns only filter-kind rows (all of them)
   // for this AHU — no client-side templateKind filtering needed.
   const { data: asset } = useSWR(id ? `/api/hierarchy/ahus/${id}` : null);
   // Max 1000 filters per AHU; if more exist, a warning banner below alerts the operator.
   // May 16 H19 tuning (2026-05-20): was 10s. With 1000-child AHU pages, this
   // pulled the same large payload 6×/min/operator. 30s halves API load and
   // still feels live for cleanroom workflows that take minutes per stage.
-  const { data: childrenData } = useSWR(id ? `/api/hierarchy/filters?ahuId=${id}&limit=1000` : null, { refreshInterval: 30000 });
+  const { data: childrenData } = useSWR(id ? `/api/hierarchy/filters?ahuId=${id}` : null, { refreshInterval: 30000 });
   const truncated = (childrenData?.total ?? 0) > ((childrenData?.data ?? []).length ?? 0);
   const { data: events } = useSWR(id ? `/api/filters/events?ahuId=${id}&limit=10` : null) // M89: events are per FILTER; ahuId resolves server-side;
 

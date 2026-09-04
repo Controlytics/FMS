@@ -130,10 +130,11 @@ describe('POST /api/filters/bulk-operate', () => {
     expect(body.results[1]).toMatchObject({ status: 'ok' });
   });
 
-  it('rejects >200 items with 400', async () => {
+  it('accepts more than 200 items - no bulk cap (operator decision 2026-09-04)', async () => {
     const items = Array.from({ length: 201 }, (_, i) => ({ clientOpId: `k${i}`, filterId: uuid(1), kind: 'advance', payload: { targetState: 'X', tapeVersion: 1 } }));
     const res = await app.inject({ method: 'POST', url: '/api/filters/bulk-operate', headers: { authorization: `Bearer ${token}` }, payload: { items } });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().results).toHaveLength(201);
   });
 
   it('requires auth (401 without token)', async () => {

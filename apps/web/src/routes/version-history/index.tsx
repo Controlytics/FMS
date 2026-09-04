@@ -18,6 +18,7 @@
  * for v1; structured per-entity viewer is a follow-up).
  */
 import { useState, useEffect } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import { useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
@@ -33,13 +34,13 @@ const TABS: { id: EntityKind; label: string; listEndpoint: string; itemLabel: (i
   {
     id: 'cleaning-profile',
     label: 'Cleaning Profiles',
-    listEndpoint: '/api/filter-cleaning-profiles?page=1&limit=200',
+    listEndpoint: `/api/filter-cleaning-profiles?page=1&limit=${ALL_ROWS}`,
     itemLabel: it => `${it.name ?? '(unnamed)'} · v${it.version ?? '?'}`,
   },
   {
     id: 'checklist-profile',
     label: 'Checklist Profiles',
-    listEndpoint: '/api/checklist-profiles?page=1&limit=200',
+    listEndpoint: `/api/checklist-profiles?page=1&limit=${ALL_ROWS}`,
     itemLabel: it => `${it.name ?? '(unnamed)'} · v${it.version ?? '?'}`,
   },
   {

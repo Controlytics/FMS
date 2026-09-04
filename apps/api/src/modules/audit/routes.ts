@@ -557,7 +557,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['ids', 'reason'],
         properties: {
-          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 1000 },
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
           reason: { type: 'string', minLength: 5, maxLength: 500 },
         },
       },
@@ -838,7 +838,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['ids', 'reason'],
         properties: {
-          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 1000 },
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
           reason: { type: 'string', minLength: 5, maxLength: 500 },
         },
       },
@@ -912,7 +912,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         properties: {
           fromPosition: { type: 'integer', minimum: 0 },
           toPosition: { type: 'integer', minimum: 0 },
-          maxAnomalies: { type: 'integer', minimum: 1, maximum: 10000, default: 100 },
+          maxAnomalies: { type: 'integer', minimum: 1, default: 100 },
         },
       },
       response: {

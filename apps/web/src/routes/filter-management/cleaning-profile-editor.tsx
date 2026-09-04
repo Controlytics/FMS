@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import { useParams, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
@@ -47,7 +48,7 @@ export function CleaningProfileEditorPage() {
   const reauth = useReauth();
   const isNew = id === 'new';
   const { data: profile } = useSWR(!isNew && id ? `/api/filter-cleaning-profiles/${id}` : null);
-  const { data: checklistsData } = useSWR('/api/checklist-profiles?limit=500&isActive=true');
+  const { data: checklistsData } = useSWR(`/api/checklist-profiles?limit=${ALL_ROWS}&isActive=true`);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const [name, setName] = useState('');

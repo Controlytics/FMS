@@ -1,10 +1,10 @@
 import type { ModuleConfigDefinition } from '../../../lib/config-registry.js';
-import { EXPORT_LIMIT_HARD_CEILING, EXPORT_LIMIT_DEFAULT_MAX, EXPORT_LIMIT_DEFAULT_MESSAGE } from '@digilog/shared';
+import { EXPORT_LIMIT_DEFAULT_MAX, EXPORT_LIMIT_DEFAULT_MESSAGE } from '@digilog/shared';
 
 // Export size guardrail. Client-side PDF/Excel generation OOMs the browser past
 // tens of thousands of rows, so every export button blocks first and shows the
-// message below. `maxRecords` is the SOFT limit (admin-tunable); the hard
-// ceiling is enforced in the zod schema (`exportLimitConfigSchema.max`).
+// message below. `maxRecords` is admin-tunable with NO ceiling (operator
+// decision 2026-09-04: no record caps anywhere).
 export const exportLimitDef: ModuleConfigDefinition = {
   moduleKey: 'export-limit',
   moduleName: 'Export Limits',
@@ -21,10 +21,9 @@ export const exportLimitDef: ModuleConfigDefinition = {
       key: 'maxRecords',
       type: 'number',
       label: 'Maximum Export Records',
-      description: `Block any PDF/Excel export with more rows than this. Cannot exceed ${EXPORT_LIMIT_HARD_CEILING.toLocaleString()} (the safety ceiling — larger exports crash the browser).`,
+      description: 'Block any PDF/Excel export with more rows than this. No upper bound - set it as high as the site needs.',
       default: EXPORT_LIMIT_DEFAULT_MAX,
       min: 1,
-      max: EXPORT_LIMIT_HARD_CEILING,
       group: 'Export Limits',
     },
     {

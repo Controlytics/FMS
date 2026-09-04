@@ -88,7 +88,7 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
       body: {
         type: 'object', required: ['ids', 'action'],
         properties: {
-          ids: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'string', format: 'uuid' } },
+          ids: { type: 'array', minItems: 1, items: { type: 'string', format: 'uuid' } },
           action: { type: 'string', enum: ['approve', 'reject'] },
           remarks: { type: 'string' },
           _currentPassword: { type: 'string' },

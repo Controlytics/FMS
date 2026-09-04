@@ -619,8 +619,7 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         properties: {
           items: {
             type: 'array',
-            minItems: 1,
-            maxItems: 200,
+            minItems: 1, // no record cap (operator decision 2026-09-04)
             items: {
               type: 'object',
               required: ['clientOpId', 'filterId', 'kind'],

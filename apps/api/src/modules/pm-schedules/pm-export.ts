@@ -24,7 +24,6 @@ export async function exportEntriesXlsx(_ctx: RequestContext, year: number): Pro
     where: { schedule: { status: 'ACTIVE', year } },
     include: { schedule: true },
     orderBy: [{ plannedDate: 'asc' }],
-    take: 5000,
   });
   const entityIds = [...new Set(entries.map((e: any) => e.schedule?.entityId).filter(Boolean))] as string[];
   const ahus = entityIds.length > 0

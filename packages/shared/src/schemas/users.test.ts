@@ -155,8 +155,10 @@ describe('userQuerySchema', () => {
     if (result.success) expect(result.data.limit).toBe(500);
   });
 
-  it('rejects limit over 1000', () => {
-    expect(userQuerySchema.safeParse({ limit: '1001' }).success).toBe(false);
+  it('accepts any limit - no record cap (operator decision 2026-09-04)', () => {
+    const r = userQuerySchema.safeParse({ limit: '1000000' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.limit).toBe(1000000);
   });
 });
 

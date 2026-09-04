@@ -96,7 +96,7 @@ export function MyTasksPage() {
   // due task), so the operator always sees the full set. /areas carries blockId
   // for the cascade. Tasks are still filtered by id against these.
   const { data: blocksData } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/blocks');
-  const { data: areasData } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/areas?limit=500');
+  const { data: areasData } = useSWR<{ data: HierarchyNode[] }>('/api/hierarchy/areas');
   const allBlocks = blocksData?.data ?? [];
   const allAreas = areasData?.data ?? [];
 

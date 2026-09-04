@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { ALL_ROWS } from '@/lib/page-size';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -42,7 +43,7 @@ export function CleaningProfileAssignmentPage() {
   const { toast } = useToast();
 
   const { data: configData } = useSWR<AssignmentConfig>('/api/config/cleaning-profile-assignment');
-  const { data: profilesData } = useSWR<{ data: CleaningProfile[] }>('/api/filter-cleaning-profiles?limit=100');
+  const { data: profilesData } = useSWR<{ data: CleaningProfile[] }>(`/api/filter-cleaning-profiles?limit=${ALL_ROWS}`);
   // A-01 Wave 5 (2026-05-29): migrated off /api/assets/instances + /api/assets/templates
   // to the typed-table /api/hierarchy/* endpoints. Removes the template-kind
   // detection + Set-membership filtering that this file previously needed.
@@ -51,8 +52,8 @@ export function CleaningProfileAssignmentPage() {
   // separate calls (SWR dedupes per-key) — cheaper than one nested expand
   // because each piece is consumed in a different `useMemo`.
   const { data: blocksData }  = useSWR<{ data: any[] }>('/api/hierarchy/blocks');
-  const { data: areasData }   = useSWR<{ data: any[] }>('/api/hierarchy/areas?limit=500');
-  const { data: ahusData }    = useSWR<{ data: any[] }>('/api/hierarchy/ahus?limit=500');
+  const { data: areasData }   = useSWR<{ data: any[] }>('/api/hierarchy/areas');
+  const { data: ahusData }    = useSWR<{ data: any[] }>('/api/hierarchy/ahus');
   const { data: filtersData } = useSWR<{ data: any[] }>('/api/hierarchy/filters');
 
   const [mode, setMode] = useState<AssignmentMode>('BY_ENTITY');

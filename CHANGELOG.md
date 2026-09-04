@@ -1,5 +1,54 @@
 # Changelog
 
+## [Unreleased] - Every record cap removed, backend and web (2026-09-04, operator decision)
+
+Operator: "remove all the limits, check all pages, is there any backend limits,
+remove all those limits". This finishes what the page-size change earlier the
+same day started: not one list, bulk action or fetch-all call is capped now.
+
+### Removed
+
+- **Hard `take` caps on lists:** entity/template assignment lookups (10,000),
+  retirements + replacements arrays (5,000), the cleaning-record merge index
+  (5,000), PM + replacement exports (5,000), report reviews (200), stage
+  approvals (200; the live list has 410), super-admin PM schedule picker (500).
+- **The 1,000,000 "sanity gates"** on hierarchy and RFID identifier lists
+  (schema `maximum` + `normalizeLimit` clamp). An explicit limit is honoured as
+  given; an omitted one still returns everything.
+- **Bulk-action item caps:** bulk-operate 200 items, filter review/approve 200,
+  audit bulk delete/redact 1,000, stage-approval bulk 200, user bulk delete 50,
+  verify-chain `maxAnomalies` 10,000.
+- **Shared Zod caps:** users list `limit` (1,000) - the user pickers had just
+  been switched to fetch everything and would have 400'd; pagination config
+  "Maximum Page Size" (5..1,000, now >= 1); the export-limit hard ceiling
+  (50,000) - `maxRecords` is admin-set with no upper bound.
+- **Web hard-coded limits:** every fetch-all call that carried its own number
+  (users 500, checklists 100/500, cleaning profiles 100/200, IN_PROGRESS cycles
+  100, block changes 200, tablet cycles 30/200, tablet notifications 50, PM
+  entries 2,000/200, version history 200, generic data tabs 50) now uses ONE
+  constant, `ALL_ROWS` in `lib/page-size.ts`; hierarchy calls simply omit
+  `limit` (that route returns all). The tablet RFID-assign / replace / candidate
+  lists rendered only the first 60 / 60 / 80 filters - all rows render now.
+
+### Kept on purpose (not record caps) - listed so nobody hunts for them
+
+- `minimum: 1` on page / limit (prevents 500s, sizes nothing).
+- Validation ranges: tolerance days 0..365, month 1..12, hierarchy level 1..10,
+  dryer minutes 1..1440, exactly 3 instruments per equipment group, field
+  `maxLength`s, remarks 2,000 chars, 500 object keys per payload.
+- Transport/security: body 10 MB (login 4 KB), upload 5 MB (backup 100 MB),
+  backup decompress 2 GB, rate limits, guest 5/window, 24 h absolute session.
+- The offline sync paging (`SYNC_PAGE_LIMIT` 500 + `hasMore` retry) - a paging
+  mechanism the tablet loops over, not a cap, and a protected surface.
+- The Export Limit setting itself (admin-configurable, default 10,000): it is
+  the operator's own control; only its hidden 50,000 ceiling was removed.
+- Dashboard stat probes (`limit=1`, they read `total` only) and the AHU
+  dashboard "Recent Activity" widget (10 newest events by design).
+
+Verified live: hierarchy `limit=1000001` -> 200; users `limit=1000000` -> 200
+(was 400); export-limit 100,000 and pagination 5,000 accepted (both restored
+after the probe); cleaning record `limit=1000000` -> all 709 rows.
+
 ## [Unreleased] - No page-size caps on any list (2026-09-04, operator decision)
 
 Operator: "dont put any limits in any page". Every list endpoint now returns

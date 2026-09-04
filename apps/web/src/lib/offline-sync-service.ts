@@ -15,6 +15,7 @@
  */
 
 import { apiClient } from './api-client';
+import { ALL_ROWS } from './page-size';
 import {
   cacheData,
   cacheFilters,
@@ -130,8 +131,8 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     try {
       const [blocksRes, areasRes, ahusRes, filtersTypedRes] = await Promise.all([
         apiClient.get<any>('/api/hierarchy/blocks'),
-        apiClient.get<any>('/api/hierarchy/areas?limit=500'),
-        apiClient.get<any>('/api/hierarchy/ahus?limit=500'),
+        apiClient.get<any>('/api/hierarchy/areas'),
+        apiClient.get<any>('/api/hierarchy/ahus'),
         apiClient.get<any>('/api/hierarchy/filters'),
       ]);
       await Promise.all([
@@ -262,7 +263,7 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // 8. Checklist profiles (with questions)
     report(steps[currentStep]);
     try {
-      const checklistRes = await apiClient.get<any>('/api/checklist-profiles?limit=100&isActive=true&expand=questions');
+      const checklistRes = await apiClient.get<any>(`/api/checklist-profiles?limit=${ALL_ROWS}&isActive=true&expand=questions`);
       await cacheItem('checklist-profiles', checklistRes?.data ?? []);
     } catch (err) {
       recordSoftFailure('checklist-profiles', err);
@@ -272,7 +273,7 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     // 9. Cleaning profiles (with stages and connections)
     report(steps[currentStep]);
     try {
-      const profilesRes = await apiClient.get<any>('/api/filter-cleaning-profiles?limit=100&status=ACTIVE');
+      const profilesRes = await apiClient.get<any>(`/api/filter-cleaning-profiles?limit=${ALL_ROWS}&status=ACTIVE`);
       const profiles = profilesRes?.data ?? [];
       await cacheItem('cleaning-profiles', profiles);
       // Also cache each profile's full pipeline (stages + connections)

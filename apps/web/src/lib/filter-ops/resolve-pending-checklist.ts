@@ -35,6 +35,7 @@
  */
 
 import type { Action } from '@digilog/shared';
+import { ALL_ROWS } from '../page-size';
 import {
   getCurrentActions,
   hasActionKind,
@@ -85,7 +86,7 @@ export async function resolveChecklistForTargetStage(
   if (!online) return [];
   try {
     const res = await apiClient.get<any>(
-      '/api/checklist-profiles?limit=100&isActive=true&expand=questions',
+      `/api/checklist-profiles?limit=${ALL_ROWS}&isActive=true&expand=questions`,
     );
     const list = res?.data ?? res;
     if (!Array.isArray(list)) return [];

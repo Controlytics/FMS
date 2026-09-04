@@ -28,7 +28,7 @@ const naText = (v: unknown): string => {
 // Filters belonging to one AHU — rendered inside an expanded Replacement
 // Schedule row (gated per-role by SUPER_ADMIN). Lazy-fetched on expand.
 function AhuFiltersRow({ ahuId, identMap }: { ahuId: string; identMap: Map<string, string[]> }) {
-  const { data, isLoading } = useSWR<any>(ahuId ? `/api/hierarchy/filters?ahuId=${ahuId}&limit=200` : null);
+  const { data, isLoading } = useSWR<any>(ahuId ? `/api/hierarchy/filters?ahuId=${ahuId}` : null);
   const filters: any[] = data?.data ?? [];
   if (isLoading) return <div className="px-8 py-3 text-[12px] text-slate-400">Loading filters…</div>;
   if (filters.length === 0) return <div className="px-8 py-3 text-[12px] text-slate-400">No filters under this AHU.</div>;
