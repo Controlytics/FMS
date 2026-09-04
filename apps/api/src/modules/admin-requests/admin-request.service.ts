@@ -97,10 +97,19 @@ export const adminRequestService = {
     requestData: Record<string, unknown>;
     remarks?: string;
   }) {
+    // Audit 2026-09-04 (Low #3): the public user-lookup now returns a MASKED name,
+    // which the form echoes back as requesterName. When the employee ID matches a
+    // user, the record carries that user's real name from the users table, not
+    // whatever the caller typed.
+    let requesterName = stripHtml(data.requesterName);
+    if (data.requesterEmployeeId) {
+      const known = await prisma.user.findUnique({ where: { username: stripHtml(data.requesterEmployeeId) }, select: { fullName: true } });
+      if (known?.fullName) requesterName = known.fullName;
+    }
     const request = await prisma.adminRequest.create({
       data: {
         requestType: data.requestType,
-        requesterName: stripHtml(data.requesterName),
+        requesterName,
         requesterEmployeeId: data.requesterEmployeeId ? stripHtml(data.requesterEmployeeId) : null,
         requesterEmail: data.requesterEmail ?? null,
         requestData: data.requestData as any,

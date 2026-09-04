@@ -31,12 +31,12 @@ finding must be reproduced live (API or browser) or it is dropped/downgraded.
 | # | sev | where | what | status |
 |---|---|---|---|---|
 | 1 | Med | `POST /api/backup/restore` catch-all | any unmatched error → 500 RESTORE_FAILED, incl. Fastify's own 406 multipart error | **fixed** (4xx passed through; verified 406 live) |
-| 2 | Low | `POST /api/audit/report-export-log` | any authenticated user can write a REPORT_GENERATED audit row with caller-supplied reportType/recordCount (self-attributed) | report |
-| 3 | Low | `GET /api/admin-requests/user-lookup` (public, rate-limited) | pre-login exact employee-ID existence check returns fullName; by design for contact-admin | report |
-| 4 | Info | `GET /api/replacement-schedules/{due,tasks,blocked-filters}` | ungated by design; ADMIN/QA can read replacement tasks via API though the doc gives them no Replacement List | report |
+| 2 | Low | `POST /api/audit/report-export-log` | any authenticated user can write a REPORT_GENERATED audit row with caller-supplied reportType/recordCount (self-attributed) | **fixed** (reportType allow-listed; verified 400 live) |
+| 3 | Low | `GET /api/admin-requests/user-lookup` (public, rate-limited) | pre-login exact employee-ID existence check returns fullName; by design for contact-admin | **fixed** (name masked; request resolves the real name server-side) |
+| 4 | Info | `GET /api/replacement-schedules/{due,tasks,blocked-filters}` | ungated by design; ADMIN/QA can read replacement tasks via API though the doc gives them no Replacement List | **fixed** (VIEW or OPERATE required; ADMIN 403 live) |
 | 5 | Med | `/api/filters/{events,cycles,cleaning-record,manual-status-changes}` | `page=-1` / `limit=0` reached Prisma → 500 | **fixed** (schema `minimum`; verified 400 live). Regression: the `maximum: 100` added with it 400'd the tablet cycles view (`limit=200`, clamped to 100 by the service for months) - removed same day |
 | 6 | Med | AHU dashboard "Recent Activity" (M89) | queried `/api/filters/events?filterId=<AHU id>` — events are per filter, so always empty | **fixed** (`ahuId` param resolves child filters; 43 rows live, random uuid → 0) |
-| 7 | Info | `GET /api/notification-rules/:id` unknown id | 400 DATA_CONSTRAINT instead of 404 (findUniqueOrThrow). No FE caller of the GET | report |
+| 7 | Info | `GET /api/notification-rules/:id` unknown id | 400 DATA_CONSTRAINT instead of 404 (findUniqueOrThrow). No FE caller of the GET | **fixed** (404 NOT_FOUND; verified live) |
 | 8 | Med | `GET /api/config/report-labels/current` | gated CONFIG_READ but read by every report page for every role → 403 + SWR error on 22 of 63 page loads | **fixed** (all-authenticated, same contract as page-titles) |
 | 9 | Low | `triggerSync('app-start')` + 60 s poll | roles without ASSET_VIEW/FILTER_OPERATE (ADMIN) 403 on `/api/sync/since` at start and every poll | **fixed** (gated on the user's permissions) |
 

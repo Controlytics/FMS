@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] - The four Low findings of the audit, fixed (2026-09-04)
+
+- **`POST /api/audit/report-export-log` took any `reportType` string**, so any
+  authenticated caller could plant an arbitrary report name in the §11 trail.
+  It is now an allow-list of the twelve report names the web app records
+  (`REPORT_EXPORT_NAMES` in audit/routes.ts); anything else is a 400.
+- **`GET /api/admin-requests/user-lookup` returned the full name pre-login.**
+  It now returns a masked name (`O******* U***`): enough to confirm you typed
+  your own employee ID, useless for enumerating the directory. When the request
+  is filed, the record takes the real name from the users table by employee ID,
+  so the masked echo never lands in the record (verified: a submit with the
+  masked name stored "Operator User").
+- **`/api/replacement-schedules/{due,tasks,blocked-filters}` were open to any
+  authenticated role**, so ADMIN - which the privileges document gives no
+  Replacement List - could read every replacement task. They now require
+  `REPLACEMENT_SCHEDULE_VIEW` or `FILTER_OPERATE`; every role that runs
+  replacements holds one (verified ADMIN 403, SUPERVISOR 200 on all three).
+- **`GET /api/notification-rules/:id` answered 400 DATA_CONSTRAINT for an
+  unknown id** (`findUniqueOrThrow`). It, the toggle and test-fire routes, and
+  `reportReviews.getById` now answer 404 NOT_FOUND.
+
 ## [Unreleased] - API test suite fully green: the last fixture-dependent e2e file owns its fixture (2026-09-04)
 
 `e2e/filter-partial-update.test.ts` used `prisma.ahu.findFirst()` and threw when

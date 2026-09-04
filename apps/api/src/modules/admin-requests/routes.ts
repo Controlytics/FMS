@@ -6,6 +6,12 @@ import { adminRequestService } from './admin-request.service.js';
 import { prisma } from '../../lib/prisma.js';
 import { rateLimitKeyGenerator } from '../../lib/rate-limit-key.js';
 
+/** 'Siva Munnangi' -> 'S*** M*******': first letter of each word, length preserved. */
+export function maskFullName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  return name.trim().split(/\s+/).map((w) => (w.length <= 1 ? w : w[0] + '*'.repeat(w.length - 1))).join(' ');
+}
+
 export default async function adminRequestRoutes(app: FastifyInstance) {
 
   // 1. POST / — Submit a new request (PUBLIC, no auth)
@@ -125,7 +131,11 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
       select: { username: true, fullName: true },
     });
     if (!user) return { exists: false, username: username.trim(), fullName: null };
-    return { exists: true, username: user.username, fullName: user.fullName };
+    // Audit 2026-09-04 (Low #3): this is pre-login, so the full name is MASKED
+    // ('S***** M*******') - enough for the person to confirm they typed their own
+    // employee ID, useless for enumerating the directory. The submitted request
+    // gets the real name from the users table (admin-request.service.create).
+    return { exists: true, username: user.username, fullName: maskFullName(user.fullName) };
   });
 
   // 2. GET / — List all requests (admin only)

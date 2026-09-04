@@ -190,7 +190,9 @@ export const reportReviewService = {
       throw new AppError(409, 'CONCURRENT_DECISION',
         'Someone else decided this report while you were deciding. Reload to see the current status.');
     }
-    return prisma.reportReview.findUniqueOrThrow({ where: { id } });
+    const row = await prisma.reportReview.findUnique({ where: { id } });
+    if (!row) throw new AppError(404, 'NOT_FOUND', 'Report review not found');
+    return row;
   },
 
   /** Stage 2 — reviewer approves (→ PENDING_APPROVAL, assigns the approver) or rejects. */

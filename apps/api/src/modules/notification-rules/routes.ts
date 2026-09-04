@@ -88,10 +88,11 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    return prisma.notificationRule.findUniqueOrThrow({
-      where: { id },
-      include: { recipients: true },
-    });
+    // Audit 2026-09-04 (Low #7): findUniqueOrThrow surfaced an unknown id as 400
+    // DATA_CONSTRAINT; a missing rule is a 404.
+    const rule = await prisma.notificationRule.findUnique({ where: { id }, include: { recipients: true } });
+    if (!rule) throw new NotFoundError('Notification rule not found');
+    return rule;
   });
 
   // POST /api/notification-rules — create rule
@@ -322,7 +323,9 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
       ipAddress: req.ip, sessionId: req.user.sessionId,
     });
 
-    return prisma.notificationRule.findUniqueOrThrow({ where: { id } });
+    const after = await prisma.notificationRule.findUnique({ where: { id } });
+    if (!after) throw new NotFoundError('Notification rule not found');
+    return after;
   });
 
   // POST /api/notification-rules/:id/test — test fire a rule
@@ -335,10 +338,8 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    const rule = await prisma.notificationRule.findUniqueOrThrow({
-      where: { id },
-      include: { recipients: true },
-    });
+    const rule = await prisma.notificationRule.findUnique({ where: { id }, include: { recipients: true } });
+    if (!rule) throw new NotFoundError('Notification rule not found');
 
     const meta = EVENT_TYPE_META[rule.eventType];
     const testVars: Record<string, string> = {};

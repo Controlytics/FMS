@@ -147,11 +147,14 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
   });
 
   // Entries whose window is active right now (drives tablet tasks + dashboard).
-  // 2026-06-04 (per user): replacement TASKS are open to any authenticated role
-  // on the tablet — no permission rule. (Web VIEW/UPLOAD of the schedule above
-  // stays role-gated; only these two task endpoints are opened.) Auth is still
-  // enforced by the global onRequest hook.
+  // 2026-06-04 (per user): replacement TASKS were open to any authenticated role.
+  // Audit 2026-09-04 (Low #4): that let ADMIN - which the privileges document
+  // gives no Replacement List - read every replacement task via the API. The
+  // three task reads now need REPLACEMENT_SCHEDULE_VIEW (the list page) or
+  // FILTER_OPERATE (the tablet operating roles). Every role that runs
+  // replacements holds one of them; SUPER_ADMIN bypasses.
   app.get('/due', {
+    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE')],
     schema: { tags: ['Replacement Schedule'], summary: 'List currently-due replacement entries (any role)', response: { 200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } } }, ...errorResponses } },
   }, async () => {
     const data = await listDueEntries();
@@ -160,19 +163,20 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
 
   // ALL approved entries (every status) with live AHU-filter progress — drives
   // the tablet Replacement Tasks page (Pending / Completed tabs + full details).
-  // Same open-to-any-role auth as /due (2026-06-15): operators run scheduled
-  // replacements from the tablet; the execute still requires REPLACE_FILTER reauth.
+  // Same gate as /due; the execute still requires REPLACE_FILTER reauth.
   app.get('/tasks', {
+    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE')],
     schema: { tags: ['Replacement Schedule'], summary: 'List all replacement task entries with AHU progress (any role)', response: { 200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } } }, ...errorResponses } },
   }, async () => {
     const data = await listTaskEntries();
     return { data };
   });
 
-  // Blocked-filter set for the cleaning gate (2026-07-16). Any authenticated role,
-  // same posture as /due and /tasks — operators need it to know which filters they
-  // may start cleaning. Returns only filter ids.
+  // Blocked-filter set for the cleaning gate (2026-07-16). Same gate as /due and
+  // /tasks — operators need it to know which filters they may start cleaning.
+  // Returns only filter ids.
   app.get('/blocked-filters', {
+    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE')],
     schema: {
       tags: ['Replacement Schedule'],
       summary: 'Filter ids blocked from starting a cleaning cycle (overdue AHU replacement)',

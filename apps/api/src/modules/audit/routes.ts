@@ -9,6 +9,13 @@ import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
 
+/** Report names the web app records on export - the only values report-export-log accepts. */
+export const REPORT_EXPORT_NAMES = [
+  'Audit Trail', 'Cleaning Cycle Detail', 'Cleaning Lifecycle', 'Cleaning Record', 'Deviations',
+  'Filters', 'PM Schedule', 'Quality Notifications', 'RFID Track Record', 'Replacement List',
+  'Replacement Schedule', 'Retirement List',
+] as const;
+
 export default async function auditRoutes(app: FastifyInstance) {
   // GET /api/audit — query audit trail (requires AUDIT_READ permission)
   app.get('/', {
@@ -429,6 +436,10 @@ export default async function auditRoutes(app: FastifyInstance) {
   // own report generation — the per-report export permission is already enforced
   // by that report's own view/export gate + data endpoints. The write only
   // attributes a REPORT_GENERATED row to the caller.
+  // Audit 2026-09-04 (Low #2): `reportType` used to be free text, so any caller
+  // could plant an arbitrary report name in the §11 trail. It is now the fixed
+  // list of report names the web app sends (lib/report-export-log.ts callers).
+  // Add a name here when a new report page gets an export.
   app.post('/report-export-log', {
     schema: {
       tags: ['Audit'],
@@ -438,7 +449,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['reportType', 'format', 'recordCount'],
         properties: {
-          reportType: { type: 'string', minLength: 1, maxLength: 100, description: 'Human report name, e.g. "Audit Trail", "Filters", "PM Schedule"' },
+          reportType: { type: 'string', enum: REPORT_EXPORT_NAMES, description: 'Human report name, e.g. "Audit Trail", "Filters", "PM Schedule"' },
           format: { type: 'string', enum: ['PDF', 'Excel'] },
           recordCount: { type: 'integer', minimum: 0 },
           period: { type: 'string' },
