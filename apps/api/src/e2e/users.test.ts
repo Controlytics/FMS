@@ -116,14 +116,20 @@ describe('Users endpoints', () => {
       expect(JSON.parse(res.body).limit).toBe(500);
     });
 
-    it('answers an out-of-range limit 400, never 500', async () => {
-      const res = await authGet(app, '/api/users?limit=1001', adminToken);
+    it('answers limit=0 with 400, never 500 (minimum stays; there is no maximum since 2026-09-04)', async () => {
+      const res = await authGet(app, '/api/users?limit=0', adminToken);
       // The status is the point: a client-side validation failure must not be
       // reported as a server crash (nor page anyone via SYSTEM_ERROR).
       expect(res.statusCode).toBe(400);
       const body = JSON.parse(res.body);
       expect(body.error).toBe('VALIDATION_ERROR');
       expect(body.message).toMatch(/limit/i);
+    });
+
+    it('honours any large limit - no record cap (operator decision 2026-09-04)', async () => {
+      const res = await authGet(app, '/api/users?limit=1000000', adminToken);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).limit).toBe(1000000);
     });
 
     it('answers a non-numeric limit 400, never 500', async () => {
