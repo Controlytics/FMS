@@ -19,9 +19,28 @@ import { formatConfiguredDateTime } from '../../lib/format-datetime.js';
 
 export interface PmWorkflowConfig {
   workflowEnabled: boolean;
-  uploadRole: string;
+  /** Roles allowed to upload. MANY roles since 2026-09-04 (T2 of the role-privileges
+   *  alignment): the operator's document grants PM + Replacement upload to Supervisor
+   *  AND Shift Officer, and a single-role select could not express that. Empty = anyone
+   *  with the route permission. */
+  uploadRole: string[];
   reviewRole: string;
   approvalRole: string;
+}
+
+/**
+ * Normalise a configured role setting to a list. Accepts the legacy single-role
+ * string (every install before 2026-09-04 stored one), an array from the
+ * multiselect editor, or nothing. Blank / non-string entries are dropped.
+ */
+export function normalizeRoles(v: unknown): string[] {
+  const list = Array.isArray(v) ? v : [v];
+  const out: string[] = [];
+  for (const x of list) {
+    const s = (x ?? '').toString().trim();
+    if (s && !out.includes(s)) out.push(s);
+  }
+  return out;
 }
 
 export async function getPmWorkflowConfig(): Promise<PmWorkflowConfig> {
@@ -29,7 +48,7 @@ export async function getPmWorkflowConfig(): Promise<PmWorkflowConfig> {
   const v = (cfg?.configValue as any) ?? {};
   return {
     workflowEnabled: v.workflowEnabled === true, // default OFF until review UI ships
-    uploadRole: (v.uploadRole ?? '').toString().trim(),
+    uploadRole: normalizeRoles(v.uploadRole),
     reviewRole: (v.reviewRole ?? '').toString().trim(),
     approvalRole: (v.approvalRole ?? '').toString().trim(),
   };
@@ -54,7 +73,7 @@ export async function getReplacementWorkflowConfig(): Promise<PmWorkflowConfig> 
   };
   return {
     workflowEnabled: typeof v.workflowEnabled === 'boolean' ? v.workflowEnabled : pm.workflowEnabled,
-    uploadRole: roleOrInherit(v.uploadRole, pm.uploadRole),
+    uploadRole: normalizeRoles(v.uploadRole).length ? normalizeRoles(v.uploadRole) : pm.uploadRole,
     reviewRole: roleOrInherit(v.reviewRole, pm.reviewRole),
     approvalRole: roleOrInherit(v.approvalRole, pm.approvalRole),
   };
@@ -64,11 +83,13 @@ export async function getReplacementWorkflowConfig(): Promise<PmWorkflowConfig> 
  * Role gate for a workflow step. SUPER_ADMIN always passes; an unset configured
  * role means "anyone with the route permission" (no extra role restriction).
  */
-export function assertPmRole(userRole: string | undefined, configuredRole: string, actionLabel: string, subject = 'PM schedules') {
+export function assertPmRole(userRole: string | undefined, configuredRole: string | string[], actionLabel: string, subject = 'PM schedules') {
   if (userRole === 'SUPER_ADMIN') return;
-  if (!configuredRole) return;
-  if (userRole !== configuredRole) {
-    throw new AppError(403, 'FORBIDDEN_ROLE', `Only users with role "${configuredRole}" can ${actionLabel} ${subject}`);
+  const allowed = normalizeRoles(configuredRole);
+  if (allowed.length === 0) return;
+  if (!userRole || !allowed.includes(userRole)) {
+    const who = allowed.map(r => `"${r}"`).join(' or ');
+    throw new AppError(403, 'FORBIDDEN_ROLE', `Only users with role ${who} can ${actionLabel} ${subject}`);
   }
 }
 

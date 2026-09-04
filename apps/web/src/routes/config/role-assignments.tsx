@@ -11,7 +11,7 @@ import { themeButton } from '@/lib/theme-styles';
 // (hasCustomPage:false) only so those dynamic endpoints exist — this page is
 // their single editing surface (the standalone config cards were removed).
 
-const CONFIG_KEYS = ['pm-schedule-approval', 'replacement-schedule-approval', 'qnn-notifications', 'guest-cleaning-requests', 'block-change-approval', 'stage-interlock', 'pm-schedule-settings'] as const;
+const CONFIG_KEYS = ['pm-schedule-approval', 'replacement-schedule-approval', 'filter-approval', 'qnn-notifications', 'guest-cleaning-requests', 'block-change-approval', 'stage-interlock', 'pm-schedule-settings'] as const;
 type CfgKey = (typeof CONFIG_KEYS)[number];
 
 const CROSS_BLOCK_MODES = [
@@ -49,6 +49,11 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
     </svg>
   ),
+  filter: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+    </svg>
+  ),
   qnn: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -77,7 +82,7 @@ const Icons = {
 };
 
 const EMPTY_CFG: Record<CfgKey, Record<string, any>> = {
-  'pm-schedule-approval': {}, 'replacement-schedule-approval': {}, 'qnn-notifications': {}, 'guest-cleaning-requests': {}, 'block-change-approval': {}, 'stage-interlock': {}, 'pm-schedule-settings': {},
+  'pm-schedule-approval': {}, 'replacement-schedule-approval': {}, 'filter-approval': {}, 'qnn-notifications': {}, 'guest-cleaning-requests': {}, 'block-change-approval': {}, 'stage-interlock': {}, 'pm-schedule-settings': {},
 };
 
 // Stable deep-equality for plain JSON config values (object keys order-insensitive).
@@ -99,11 +104,14 @@ function jsonEqual(a: any, b: any): boolean {
 
 /** A single workflow step (Upload / Review / Approve) — a role picker with a
  *  step number, rendered as a vertical, connected sequence. */
-const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel }: {
+const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel, multi }: {
   cfg: Record<CfgKey, Record<string, any>>;
   patch: (key: CfgKey, field: string, value: any) => void;
   roles: { name: string; label: string }[];
   k: CfgKey; field: string; n: number; last?: boolean; title: string; blankLabel: string;
+  /** Many roles may hold this step (Upload, since 2026-09-04). The stored value
+   *  may still be the legacy single-role string; it is shown as one selected chip. */
+  multi?: boolean;
 }) => (
   <div className="relative flex gap-3">
     {/* connector line down to the next step */}
@@ -113,11 +121,35 @@ const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel 
     </span>
     <label className="flex-1 min-w-0">
       <span className="block text-[13px] font-semibold text-slate-700">{title}</span>
+      {multi ? (() => {
+        const raw = cfg[k]?.[field];
+        const sel: string[] = Array.isArray(raw) ? raw : (typeof raw === 'string' && raw.trim() ? [raw.trim()] : []);
+        const toggle = (name: string) => patch(k, field, sel.includes(name) ? sel.filter((r) => r !== name) : [...sel, name]);
+        return (
+          <div className="mt-1">
+            <div className="flex flex-wrap gap-2">
+              {roles.map((r) => {
+                const active = sel.includes(r.name);
+                return (
+                  <button type="button" key={r.name} onClick={() => toggle(r.name)} aria-pressed={active}
+                    className={`inline-flex items-center rounded-full border px-3 py-1 text-[12px] font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${
+                      active ? 'bg-cyan-600 border-cyan-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300 hover:text-cyan-700'
+                    }`}>
+                    {r.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">{sel.length === 0 ? blankLabel : `${sel.length} role${sel.length === 1 ? '' : 's'} selected`}</p>
+          </div>
+        );
+      })() : (
       <select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
         className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
         <option value="">{blankLabel}</option>
         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
       </select>
+      )}
     </label>
   </div>
 );
@@ -259,6 +291,7 @@ export function RoleAssignmentsPage() {
   // Replacement workflow inherits the PM toggle until explicitly set here.
   const rsWf = cfg['replacement-schedule-approval']?.workflowEnabled;
   const pmWfOn = cfg['pm-schedule-approval']?.workflowEnabled === true;
+  const filterWfOn = cfg['filter-approval']?.workflowEnabled === true;
   const rsInheriting = typeof rsWf !== 'boolean';
   const rsEffective = rsInheriting ? pmWfOn : rsWf === true;
 
@@ -298,7 +331,7 @@ export function RoleAssignmentsPage() {
           desc="Who uploads, reviews, and approves PM schedules.">
           <WorkflowToggle on={pmWfOn} onClick={() => patch('pm-schedule-approval', 'workflowEnabled', !pmWfOn)} />
           <div className="space-y-3.5">
-            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="pm-schedule-approval" field="uploadRole" n={1} title="Upload" blankLabel="Anyone with permission" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="pm-schedule-approval" field="uploadRole" n={1} multi title="Upload" blankLabel="Anyone with permission" />
             <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="pm-schedule-approval" field="reviewRole" n={2} title="Review" blankLabel="Anyone with permission" />
             <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="pm-schedule-approval" field="approvalRole" n={3} last title="Approve" blankLabel="Anyone with permission" />
           </div>
@@ -310,9 +343,24 @@ export function RoleAssignmentsPage() {
             onClick={() => patch('replacement-schedule-approval', 'workflowEnabled', !rsEffective)}
             hint={rsInheriting ? '(inheriting from PM)' : undefined} />
           <div className="space-y-3.5">
-            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="uploadRole" n={1} title="Upload" blankLabel="Inherit from PM" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="uploadRole" n={1} multi title="Upload" blankLabel="Inherit from PM" />
             <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="reviewRole" n={2} title="Review" blankLabel="Inherit from PM" />
             <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="approvalRole" n={3} last title="Approve" blankLabel="Inherit from PM" />
+          </div>
+        </Card>
+
+        {/* Filter Creation Workflow. Unlike Replacement, it does NOT inherit from
+            PM: this workflow is new, so no install's behaviour depends on the
+            old shared config, and coupling filter creation to the PM schedule
+            roles would let one setting silently govern two unrelated surfaces.
+            Blank = anyone holding the create/upload permission. */}
+        <Card icon={Icons.filter} tint="cyan" title="Filter Creation Workflow"
+          desc="Who creates/uploads, reviews, and approves NEW filters. While ON, a new filter is visible but cannot be operated until approved.">
+          <WorkflowToggle on={filterWfOn} onClick={() => patch('filter-approval', 'workflowEnabled', !filterWfOn)} />
+          <div className="space-y-3.5">
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="filter-approval" field="uploadRole" n={1} multi title="Create / Upload" blankLabel="Anyone with permission" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="filter-approval" field="reviewRole" n={2} title="Review" blankLabel="Anyone with permission" />
+            <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="filter-approval" field="approvalRole" n={3} last title="Approve" blankLabel="Anyone with permission" />
           </div>
         </Card>
 

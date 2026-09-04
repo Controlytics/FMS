@@ -46,3 +46,26 @@ describe('assertPmRole — uploadRole enforcement', () => {
     }
   });
 });
+
+describe('assertPmRole — many upload roles (T2, 2026-09-04)', () => {
+  // The operator's Role privileges.docx grants PM + Replacement upload to
+  // Supervisor AND Shift Officer. A single-role select could not express that,
+  // so Shift Officer held PM_UPLOAD yet 403'd on every upload.
+  it('every configured role passes', () => {
+    for (const role of ['SUPERVISOR', 'SHIFTOFFICER']) {
+      expect(() => assertPmRole(role, ['SUPERVISOR', 'SHIFTOFFICER'], 'upload')).not.toThrow();
+    }
+  });
+  it('a role outside the list is still refused, naming every allowed role', () => {
+    expect(() => assertPmRole('OPERATOR', ['SUPERVISOR', 'SHIFTOFFICER'], 'upload'))
+      .toThrow(/"SUPERVISOR" or "SHIFTOFFICER"/);
+  });
+  it('the legacy single-role string keeps working unchanged', () => {
+    expect(() => assertPmRole('SUPERVISOR', 'SUPERVISOR', 'upload')).not.toThrow();
+    expect(() => assertPmRole('SHIFTOFFICER', 'SUPERVISOR', 'upload')).toThrow();
+  });
+  it('an empty list, blanks and junk entries stay permissive (nothing configured)', () => {
+    expect(() => assertPmRole('OPERATOR', [], 'upload')).not.toThrow();
+    expect(() => assertPmRole('OPERATOR', ['', '  '], 'upload')).not.toThrow();
+  });
+});

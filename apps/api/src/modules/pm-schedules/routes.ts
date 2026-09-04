@@ -169,7 +169,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             workflowEnabled: { type: 'boolean' },
-            uploadRole: { type: 'string' },
+            uploadRole: { type: 'array', items: { type: 'string' } },
             reviewRole: { type: 'string' },
             approvalRole: { type: 'string' },
           },
