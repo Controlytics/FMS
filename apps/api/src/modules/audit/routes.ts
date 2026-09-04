@@ -923,7 +923,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         properties: {
           fromPosition: { type: 'integer', minimum: 0 },
           toPosition: { type: 'integer', minimum: 0 },
-          maxAnomalies: { type: 'integer', minimum: 1, default: 100 },
+          maxAnomalies: { type: 'integer', minimum: 1 }, // no default cap (2026-09-04): the whole chain is walked
         },
       },
       response: {
@@ -935,6 +935,8 @@ export default async function auditRoutes(app: FastifyInstance) {
             preChainRows: { type: 'integer' },
             chainedRows: { type: 'integer' },
             highestPosition: { type: 'integer', nullable: true },
+            // 2026-09-04: pre-cut-over V1 rows whose payload keys JSONB re-ordered - not tampering.
+            legacyKeyOrderRows: { type: 'object', properties: { proven: { type: 'integer' }, unverifiable: { type: 'integer' } } },
             anomalies: {
               type: 'array',
               items: {
@@ -943,6 +945,7 @@ export default async function auditRoutes(app: FastifyInstance) {
                   position: { type: 'integer' },
                   id: { type: 'string' },
                   kind: { type: 'string' },
+                  informational: { type: 'boolean' },
                   message: { type: 'string' },
                   expected: { type: 'string', nullable: true },
                   actual: { type: 'string', nullable: true },

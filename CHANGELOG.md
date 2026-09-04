@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - Audit chain: the 3,308 "tampering" rows explained and reported honestly (2026-09-04)
+
+`verify-chain` reported 3,310 per-row checksum mismatches, 3,308 of them
+unexplained since July. Investigated and proven: rows written before the
+2026-05-29 V2 cut-over were hashed with nested keys in insertion order, and
+Postgres JSONB re-orders object keys on storage, so any payload with two or
+more keys can no longer be re-hashed from the DB (0 of 2,076 one-key rows are
+affected; almost every multi-key row is). Restoring the written key order
+reproduces the stored checksums byte for byte.
+
+The verifier now classifies those rows as `LEGACY_V1_KEY_ORDER` (proven by
+trying every key order, payloads up to 6 keys) or
+`LEGACY_V1_KEY_ORDER_UNVERIFIABLE` (too large to prove) - informational,
+counted in a new `legacyKeyOrderRows` summary, not tampering. A pre-cut-over
+row that matches under NO key order, any row after the cut-over, and any keyed
+row still fail as `PER_ROW_CHECKSUM_MISMATCH`. The 100-anomaly default cap is
+gone, so the endpoint walks the whole chain. Nothing was recomputed.
+
+Live after the change: 2,376 proven + 931 unverifiable legacy rows; 44 link
+breaks + 62 gaps from the deliberate hard-delete tests; 3 real in-place edits
+(two audited on 2026-08-27, one replacement record whose timestamp was rewritten
+before that edit path was audited). Report:
+`tasks/AUDIT-CHAIN-INVESTIGATION-2026-09-04.md`.
+
 ## [Unreleased] - Tablet stage approve / reject verified end to end (2026-09-04, no code change)
 
 The 2026-09-02 tablet Stage Approvals tab's approve and reject writes had never
