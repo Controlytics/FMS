@@ -179,6 +179,13 @@ export async function loadCountedFilters(ahuId: string, set?: FilterSetChoice): 
       isActive: true,
       status: { not: 'Retired' },
       template: { templateKind: 'FILTER' },
+      // Filter creation workflow (2026-09-04): a filter awaiting review or
+      // approval is EXCLUDED from AHU readiness rather than blocking it. It
+      // cannot be cleaned, so counting it would make the AHU permanently
+      // un-completable — and this function feeds loadLocalContext(), which
+      // THROWS on a non-approved filter, so leaving it in would fail the whole
+      // AHU rather than skip one row.
+      approvalStatus: 'APPROVED',
       ...filterSetWhere(set),
     },
     select: {

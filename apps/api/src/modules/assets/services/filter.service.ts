@@ -10,6 +10,7 @@ import { sanitizeAuditValue } from '../../../lib/audit-diff.js';
 import { ConflictError, ValidationError } from '../../../lib/errors.js';
 import { validateAndBuildFilterAttributes, FILTER_ATTRIBUTE_FIELDS, type FilterFieldInput } from './filter-fields.service.js';
 import { identifierService } from './identifier.service.js';
+import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole } from '../filter-workflow.js';
 
 export interface CreateFilterTypedInput extends FilterFieldInput {
   name: string;
@@ -36,6 +37,14 @@ export const filterService = {
     const filterSetEnum: 'SET_A' | 'SET_B' | undefined =
       input.filterSet === 'A' ? 'SET_A' : input.filterSet === 'B' ? 'SET_B' : undefined;
 
+    // Filter creation workflow (2026-09-04). BOTH filter-creation paths land
+    // here — the Filters page dialog via POST /api/hierarchy/filters, and every
+    // row of the bulk upload via bulk-upload-filter.service — so this is the one
+    // place the status has to be stamped.
+    const wf = await getFilterWorkflowConfig();
+    if (wf.workflowEnabled) assertPmRole(ctx.userRole, wf.uploadRole, 'create', 'filters');
+    const approvalStatus = initialApprovalStatus(wf);
+
     const filter = await prisma.$transaction(async (tx) => {
       const f = await tx.filter.create({
         data: {
@@ -59,6 +68,26 @@ export const filterService = {
           ...(input.filterProfileId ? { filterProfileId: input.filterProfileId } : {}),
         },
       });
+
+      // 🔴 The approval columns live on asset_instances, and the row above was
+      // created by fn_mirror_typed_to_asset_instance — a trigger that knows
+      // nothing about this workflow, so it took the column's APPROVED default.
+      // Stamp the real status here, inside the same transaction, or every
+      // bulk-uploaded filter would arrive already approved.
+      //
+      // Only written when the workflow is on: an ordinary create must leave the
+      // attribution null rather than imply a submission that never happened.
+      if (approvalStatus !== 'APPROVED') {
+        await tx.assetInstance.update({
+          where: { id: f.id },
+          data: {
+            approvalStatus: approvalStatus as any,
+            submittedBy: ctx.userSub ?? null,
+            submittedByName: ctx.userId ?? null,
+            submittedAt: new Date(),
+          },
+        });
+      }
       return f;
     });
 

@@ -15,11 +15,26 @@ interface TemplateColumn {
   note?: string;
 }
 
-export async function buildFilterUploadTemplate(): Promise<Buffer> {
+/**
+ * `ahuNames` are the AHUs under the block the operator is uploading into, read
+ * at DOWNLOAD time — so the dropdown reflects the block as it stands right then,
+ * and an AHU added later needs a fresh template (same contract the field-option
+ * dropdowns already have).
+ *
+ * The list is REQUIRED, not optional: a template with an `ahu` column but no
+ * dropdown would look like this feature while silently accepting free text into
+ * a name-resolution path. The route 400s rather than emit one.
+ */
+export async function buildFilterUploadTemplate(ahuNames: string[]): Promise<Buffer> {
   const opts = await loadFilterFieldOptions();
 
   const columns: TemplateColumn[] = [
     { key: 'name', header: 'name', note: 'Required. Unique filter ID / name.' },
+    // Per-row AHU (2026-09-04). One upload can now span every AHU in the block.
+    // Blank falls back to the AHU picked in the dialog, mirroring how filterSet
+    // falls back to the dialog default.
+    { key: 'ahu', header: 'ahu', options: ahuNames,
+      note: 'AHU this filter belongs to. Pick from the dropdown (the AHUs in this block). Leave blank to use the AHU selected in the upload dialog.' },
     { key: 'filterSet', header: 'filterSet', options: ['A', 'B'], note: 'A or B. Leave blank to use the dialog Default Filter Set.' },
     { key: 'ahuType', header: 'ahuType', options: opts.ahuType },
     { key: 'filterType', header: 'filterType', options: opts.filterType },

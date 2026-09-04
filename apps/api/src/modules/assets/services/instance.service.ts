@@ -17,6 +17,7 @@ import { upsertFilterDetails } from '../../../lib/filter-details.js';
 // an active cycle. No circular dependency (helpers.ts imports only prisma + crypto).
 import { computeChecksum } from '../../filter-operations/helpers.js';
 import { getFilterStageRules, classifyMove, moveStartsCycle, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
+import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole } from '../filter-workflow.js';
 import { resolveManualCycleReason, breakActiveCycleTx, startManualCycleTx } from '../../filter-operations/manual-cycle.js';
 // uns / device-credential / connectivity provisioning removed with data-ingestion removal.
 
@@ -115,6 +116,19 @@ export const instanceService = {
     // For filter-kind templates, also eagerly create the FilterDetails 1:1 sidecar
     // (Step 6 — keeps cycle-state writes from needing a "row exists?" check downstream).
     const isFilterKind = (template as any).templateKind === 'FILTER';
+
+    // Filter creation workflow (2026-09-04). Only FILTER-kind instances enter
+    // it: a Block / Area / AHU keeps the column's APPROVED default, because a
+    // hierarchy node has no approval workflow and gating one would break the
+    // tree. When the workflow is off, `initialApprovalStatus` returns APPROVED
+    // and this is a no-op.
+    const wf = isFilterKind ? await getFilterWorkflowConfig() : null;
+    if (wf?.workflowEnabled) {
+      assertPmRole(ctx.userRole, wf.uploadRole, 'create', 'filters');
+    }
+    const approvalStatus = wf ? initialApprovalStatus(wf) : 'APPROVED';
+    const inWorkflow = approvalStatus !== 'APPROVED';
+
     const { instance } = await prisma.$transaction(async (tx) => {
       const inst = await tx.assetInstance.create({
         data: {
@@ -128,6 +142,15 @@ export const instanceService = {
           customAttributes: data.customAttributes as any,
           parentId: data.parentId ?? null,
           createdBy: ctx.userId,
+          approvalStatus: approvalStatus as any,
+          // Attribution only when the filter actually enters the workflow, so
+          // an ordinary create leaves these null rather than implying a
+          // submission that never needed to happen.
+          ...(inWorkflow ? {
+            submittedBy: ctx.userSub ?? null,
+            submittedByName: ctx.userId ?? null,
+            submittedAt: new Date(),
+          } : {}),
         } as any,
       });
 

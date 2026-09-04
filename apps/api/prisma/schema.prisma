@@ -649,6 +649,39 @@ model AssetInstance {
   createdBy        String?  @map("created_by") @db.VarChar(50)
   updatedBy        String?  @map("updated_by") @db.VarChar(50)
 
+  // ── Filter create/upload → review → approve workflow (2026-09-04) ──
+  //
+  // Reuses PmEntryApprovalStatus rather than adding a near-identical enum:
+  // ReplacementEntry already reuses it with its own default, and nothing in the
+  // codebase switches on the type. The PM-specific NAME is the only mismatch.
+  //
+  // DEFAULT APPROVED is load-bearing. This table also holds Blocks, Areas and
+  // AHUs, none of which have an approval workflow, and it already holds 199
+  // live filters. Defaulting to APPROVED leaves every existing row and every
+  // non-filter asset untouched and fully operable. Only the two FILTER creation
+  // paths ever write another value, and only while the workflow is enabled
+  // (system_config['filter-approval'].workflowEnabled, default false).
+  //
+  // A non-APPROVED filter exists and is readable, but cannot be OPERATED — see
+  // loadLocalContext() + start-cycle.ts. Rejection keeps the row so the uploader
+  // can correct and resubmit it; the name stays taken, by design.
+  approvalStatus   PmEntryApprovalStatus @default(APPROVED) @map("approval_status")
+  submittedBy      String?   @map("submitted_by") @db.Uuid
+  submittedByName  String?   @map("submitted_by_name") @db.VarChar(255)
+  submittedAt      DateTime? @map("submitted_at") @db.Timestamptz
+  reviewedBy       String?   @map("reviewed_by") @db.Uuid
+  reviewedByName   String?   @map("reviewed_by_name") @db.VarChar(255)
+  reviewedAt       DateTime? @map("reviewed_at") @db.Timestamptz
+  reviewRemarks    String?   @map("review_remarks")
+  approvedBy       String?   @map("approved_by") @db.Uuid
+  approvedByName   String?   @map("approved_by_name") @db.VarChar(255)
+  approvedAt       DateTime? @map("approved_at") @db.Timestamptz
+  approvalRemarks  String?   @map("approval_remarks")
+  rejectedBy       String?   @map("rejected_by") @db.Uuid
+  rejectedByName   String?   @map("rejected_by_name") @db.VarChar(255)
+  rejectedAt       DateTime? @map("rejected_at") @db.Timestamptz
+  rejectionRemarks String?   @map("rejection_remarks")
+
   template          AssetTemplate       @relation(fields: [templateId], references: [id])
   // Wave 5 (2026-05-20) / May 16 H8 fix: was onDelete: SetNull. That meant
   // deleting a Block silently re-rooted every Area / AHU / Filter under it
@@ -672,6 +705,8 @@ model AssetInstance {
   @@index([parentId])
   @@index([name])
   @@index([isActive])
+  // The Filters list filters on it, and the operability gate reads it per write.
+  @@index([approvalStatus])
   @@map("asset_instances")
 }
 

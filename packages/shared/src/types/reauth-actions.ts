@@ -154,6 +154,11 @@ export const REAUTH_ACTIONS = {
   EDIT_FILTER: { label: 'Edit Filter', category: 'Filter Management' },
   DELETE_FILTER: { label: 'Delete Filter', category: 'Filter Management' },
   RETIRE_FILTER: { label: 'Retire Filter', category: 'Filter Management' },
+  // Filter creation workflow (2026-09-04). Approving a filter is what makes it
+  // operable, so each decision is a §11 electronic signature.
+  REVIEW_FILTER: { label: 'Review New Filter', category: 'Filter Management' },
+  APPROVE_FILTER: { label: 'Approve New Filter', category: 'Filter Management' },
+  REJECT_FILTER: { label: 'Reject New Filter', category: 'Filter Management' },
   REPLACE_FILTER: { label: 'Replace Filter', category: 'Filter Management' },
   BULK_UPLOAD_FILTERS: { label: 'Bulk Upload Filters', category: 'Filter Management' },
   REVIEW_REPLACEMENT_SCHEDULE: { label: 'Review Replacement Schedule', category: 'Filter Management' },

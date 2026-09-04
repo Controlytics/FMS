@@ -31,6 +31,11 @@ const { mockPrisma } = vi.hoisted(() => ({
     filter: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
     // getTree() zips FilterDetails onto nested filters (T2.2).
     filterDetails: { findMany: vi.fn(async () => []) },
+    // zipFilterDetails also reads the creation-workflow approvalStatus, which
+    // lives on asset_instances rather than FilterDetails (2026-09-04). Without
+    // this handle the whole tree 500s on `undefined.findMany`. Returning none
+    // is the right default: the zip falls back to APPROVED.
+    assetInstance: { findMany: vi.fn(async () => []) },
     // getTree()/listFilters()/getFilter() derive lastCleanedAt via groupBys over
     // cleaning-stage filter events + completed cycles (zipLastCleaned). Default: none.
     cleaningCycle: { groupBy: vi.fn(async () => []) },

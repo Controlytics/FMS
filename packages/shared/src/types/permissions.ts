@@ -69,6 +69,10 @@ export const PERMISSIONS = {
   FILTER_CREATE: 'FILTER_CREATE',
   FILTER_EDIT: 'FILTER_EDIT',
   FILTER_DELETE: 'FILTER_DELETE',
+  // Filter creation workflow (2026-09-04). Implements rows 13/14 of the
+  // operator's Role privileges.docx, which had no counterpart until now.
+  FILTER_REVIEW: 'FILTER_REVIEW',
+  FILTER_APPROVE: 'FILTER_APPROVE',
   FILTER_RETIRE: 'FILTER_RETIRE',
   FILTER_REPLACE: 'FILTER_REPLACE',
   FILTER_STATUS_UPDATE: 'FILTER_STATUS_UPDATE',

@@ -41,6 +41,27 @@ import { findMissingRequiredAttributes } from './filter-list/lib/validate-templa
 import { apiUrl } from '@/lib/url-utils';
 import { downloadName } from '@/lib/download-name';
 
+// Filter creation workflow (2026-09-04). A filter that has not been APPROVED
+// exists and is listed, but CANNOT be operated — so it has to be visibly
+// different from an ordinary filter, or an operator scans it and gets a 409
+// with no idea why. APPROVED renders nothing: nearly every filter is approved,
+// and a badge on every row would be noise.
+const APPROVAL_BADGE: Record<string, { label: string; cls: string; title: string }> = {
+  PENDING_REVIEW: {
+    label: 'Pending Review', cls: 'bg-amber-50 text-amber-700 border-amber-200',
+    title: 'Awaiting review. This filter cannot be cleaned until it is approved.',
+  },
+  PENDING_APPROVAL: {
+    label: 'Pending Approval', cls: 'bg-blue-50 text-blue-700 border-blue-200',
+    title: 'Reviewed, awaiting approval. This filter cannot be cleaned until it is approved.',
+  },
+  REJECTED: {
+    label: 'Rejected', cls: 'bg-red-50 text-red-700 border-red-200',
+    title: 'Rejected. Correct it and resubmit before it can be used.',
+  },
+};
+
+
 // A-01 T2.2: flatten the typed /api/hierarchy/tree (blocks → areas → ahus →
 // filters, + direct-under-block ahus) into the legacy flat "instance" shape the
 // page already consumes — each node carries `parentId` + `template.templateKind`
@@ -71,6 +92,11 @@ export function FilterListPage() {
   const can = useCan();
   const canCreate = can('filters.hierarchy_create');
   const canBulkUpload = can('filters.bulk_upload');
+  // Filter creation workflow (2026-09-04). Either workflow role may REJECT — a
+  // reviewer who spots a bad row should not have to pass it on to get it turned
+  // back — which is why the reject button ORs the two.
+  const canReviewFilters = can('filters.review');
+  const canApproveFilters = can('filters.approve');
   const canCreateFilter = can('filters.create');
   const canEditFilter = can('filters.edit');
   const canDeleteFilter = can('filters.delete');
@@ -223,8 +249,11 @@ export function FilterListPage() {
   // membership checks — handles multiple FILTER-kind templates.
   const blockTemplateId = templates.find((t: any) => t.templateKind === 'BLOCK')?.id;
   const ahuTemplateId = templates.find((t: any) => t.templateKind === 'AHU')?.id;
-  const filterTemplateIds = new Set(
-    templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
+  // Memoised (audit M90, 2026-09-04): a fresh Set every render made it a
+  // new dep for `allFilters` below on every render, so that useMemo never hit.
+  const filterTemplateIds = useMemo(
+    () => new Set(templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id)),
+    [templates],
   );
 
   const blocks = useMemo(() =>
@@ -443,6 +472,10 @@ export function FilterListPage() {
         // cycle + manual seed) — the value actually shown in the column. This
         // is what fixes "cleaned on Tab but Last Cleaned didn't update on Web".
         lastCleanedAt: f.lastCleanedAt ?? null,
+        // Filter creation workflow (2026-09-04). Defaults to APPROVED so a row
+        // from an older cached response reads as usable rather than showing a
+        // spurious "pending" badge.
+        approvalStatus: (f.approvalStatus as string) ?? 'APPROVED',
         _rawAttributes: f.attributes ?? {},
       };
     });
@@ -661,6 +694,59 @@ export function FilterListPage() {
     } else {
       setSelectedFilterIds(new Set(selectableFilters.map(f => f.id)));
     }
+  };
+
+  // ── Filter creation workflow decisions (2026-09-04) ────────────────────────
+  //
+  // The endpoints take an ARRAY of ids, so one click clears a whole bulk upload.
+  // They are all-or-nothing on purpose: the server refuses the batch if ANY
+  // selected filter is in the wrong state and names the offenders, rather than
+  // half-applying and leaving the operator to work out which of 200 moved.
+  //
+  // Only filters actually IN the workflow are sent — selecting a mix of pending
+  // and already-approved rows is normal, and would otherwise 409 the whole call.
+  const workflowSelection = (states: string[]) =>
+    visibleSelectedFilters.filter((f: any) => states.includes(f.approvalStatus));
+
+  const handleWorkflowDecision = (
+    kind: 'review' | 'approve' | 'reject',
+    ids: string[],
+    remarks?: string,
+  ) => {
+    if (ids.length === 0) return;
+    const action = kind === 'review' ? 'REVIEW_FILTER' : kind === 'approve' ? 'APPROVE_FILTER' : 'REJECT_FILTER';
+    const verb = kind === 'review' ? 'Reviewed' : kind === 'approve' ? 'Approved' : 'Rejected';
+    reauth.execute(action, async (password?: string) => {
+      const body: Record<string, unknown> = { filterIds: ids, ...(remarks ? { remarks } : {}) };
+      const url = `/api/assets/instances/${kind}`;
+      if (password) await api.postWithReauth(url, body, password);
+      else await api.post(url, body);
+    }, {
+      onSuccess: () => {
+        toast.success(`${ids.length} filter(s) ${verb.toLowerCase()}`,
+          kind === 'approve' ? 'They can now be cleaned.' : undefined);
+        setSelectedFilterIds(new Set());
+        // The badge and the operability gate both read approvalStatus, so the
+        // filter list has to be refetched or the row keeps its old badge.
+        mutate('/api/hierarchy/filters');
+      },
+      onError: (e: any) => toast.error(`${verb} failed`, e?.message ?? 'Unknown error'),
+    });
+  };
+
+  const promptRejectFilters = () => {
+    const targets = workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']);
+    if (targets.length === 0) return;
+    // A rejection reason is mandatory server-side (21 CFR §11: a refusal has to
+    // say why). Asking here avoids a guaranteed round-trip failure.
+    const remarks = window.prompt(
+      `Reject ${targets.length} filter(s)? They stay in the list as Rejected so they can be corrected and resubmitted.\n\nReason (required):`);
+    if (remarks === null) return;
+    if (!remarks.trim()) {
+      toast.error('Reason required', 'A rejection must record why.');
+      return;
+    }
+    handleWorkflowDecision('reject', targets.map((f: any) => f.id), remarks.trim());
   };
 
   const openBulkStatusPanel = () => {
@@ -1249,11 +1335,23 @@ export function FilterListPage() {
     // and no stale client copy.
     try {
       const token = sessionStorage.getItem('access_token');
-      const res = await fetch(apiUrl('/api/assets/instances/filter-upload-template.xlsx'), {
+      // blockId is REQUIRED (2026-09-04): it decides which AHUs the sheet's `ahu`
+      // dropdown offers, read fresh on every download — so an AHU created since
+      // the last download appears in the next one.
+      if (!selectedBlock) {
+        toast.error('Template download failed', 'Select a block first — the AHU dropdown is built from it.');
+        return;
+      }
+      const res = await fetch(apiUrl(`/api/assets/instances/filter-upload-template.xlsx?blockId=${encodeURIComponent(selectedBlock)}`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        const msg = res.status === 401 ? 'Session expired — please log in again.' : `HTTP ${res.status}`;
+        // A 400 here is actionable (no AHUs in the block), so surface the
+        // server's own wording rather than a bare status code.
+        let msg = res.status === 401 ? 'Session expired — please log in again.' : `HTTP ${res.status}`;
+        if (res.status === 400) {
+          try { msg = (await res.json())?.message ?? msg; } catch { /* keep the status */ }
+        }
         toast.error('Template download failed', msg);
         return;
       }
@@ -1640,6 +1738,31 @@ export function FilterListPage() {
                 )}
               </span>
               <div className="flex items-center gap-2">
+                {/* Workflow decisions. Rendered only when the selection actually
+                    contains filters in that state, so the bar stays clean on a
+                    normal install where the workflow is off and everything is
+                    already APPROVED. */}
+                {canReviewFilters && workflowSelection(['PENDING_REVIEW']).length > 0 && (
+                  <button onClick={() => handleWorkflowDecision('review', workflowSelection(['PENDING_REVIEW']).map((f: any) => f.id))}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Review ({workflowSelection(['PENDING_REVIEW']).length})
+                  </button>
+                )}
+                {canApproveFilters && workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']).length > 0 && (
+                  <button onClick={() => handleWorkflowDecision('approve', workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']).map((f: any) => f.id))}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    Approve ({workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']).length})
+                  </button>
+                )}
+                {(canReviewFilters || canApproveFilters) && workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']).length > 0 && (
+                  <button onClick={promptRejectFilters}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-700 text-white text-xs font-semibold rounded-lg hover:bg-rose-800 transition-colors">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    Reject
+                  </button>
+                )}
                 {canStatusUpdate && (
                   <button onClick={openBulkStatusPanel} disabled={visibleSelectedFilters.length === 0}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
@@ -1762,6 +1885,12 @@ export function FilterListPage() {
                               <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${FILTER_STATE_COLORS[f.currentState ?? ''] ?? 'bg-gray-400'}`} />
                               <span className="min-w-0 break-words text-sm font-medium text-slate-800" title={f.name}>{f.name}</span>
                             </div>
+                            {APPROVAL_BADGE[f.approvalStatus] && (
+                              <span title={APPROVAL_BADGE[f.approvalStatus].title}
+                                className={`mt-1 ml-4 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[f.approvalStatus].cls}`}>
+                                {APPROVAL_BADGE[f.approvalStatus].label}
+                              </span>
+                            )}
                           </td>
                           <td className="px-2 py-2 text-xs text-slate-500">
                             {f.filterType !== '-'

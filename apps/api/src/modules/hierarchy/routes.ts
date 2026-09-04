@@ -50,6 +50,17 @@ const filterExtraProps = {
   // cycle, manual lastCleaningDate seed). Single source of truth so the web
   // Filters page and the tablet can never disagree. See zipLastCleaned().
   lastCleanedAt: { type: ['string', 'null'], nullable: true },
+  // Filter creation workflow (2026-09-04). `additionalProperties: false` above
+  // means an unlisted field is silently STRIPPED, so this has to be declared or
+  // the Filters page can never badge a pending filter.
+  //
+  // NULLABLE because this same filterSchema is reused for the nested filters
+  // inside GET /hierarchy/tree, and those rows come straight off the typed
+  // `filters` table — the column lives on `asset_instances`, so they carry no
+  // value and a non-nullable `type: 'string'` made the whole tree 500 on
+  // serialisation. Only the FLAT list (/hierarchy/filters, via zipFilterDetails)
+  // populates it; read it from there, not from the tree.
+  approvalStatus: { type: ['string', 'null'], nullable: true },
 } as const;
 
 const filterSchema = {

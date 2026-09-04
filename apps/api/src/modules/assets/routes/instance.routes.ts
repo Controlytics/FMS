@@ -7,6 +7,10 @@ import { createAssetInstanceSchema, updateAssetInstanceSchema, assetQuerySchema 
 import { instanceService } from '../services/instance.service.js';
 import { bulkUploadFilters } from '../services/bulk-upload-filter.service.js';
 import { buildFilterUploadTemplate } from '../services/filter-upload-template.service.js';
+import { prisma } from '../../../lib/prisma.js';
+import {
+  listPendingFilters, reviewFilters, approveFilters, rejectFilters, resubmitFilter, pendingFilterCounts,
+} from '../filter-approval.service.js';
 
 // Opt-in visibility scoping (EntityAssignment / TemplateAssignment) is unused
 // on most installs — both tables are empty. Without this guard every non-admin
@@ -311,10 +315,38 @@ export default async function instanceRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entities'],
       summary: 'Download the filter bulk-upload .xlsx template',
-      description: 'Streams an .xlsx workbook with Excel data-validation dropdowns (filterSet, ahuType, filterType, micronSize, filterSize) populated from the live master data.',
+      description: 'Streams an .xlsx workbook with Excel data-validation dropdowns (ahu, filterSet, ahuType, filterType, micronSize, filterSize) populated from live data. `blockId` is REQUIRED: the `ahu` dropdown lists the AHUs in that block as they stand at download time.',
+      querystring: {
+        type: 'object',
+        required: ['blockId'],
+        properties: { blockId: { type: 'string', format: 'uuid' } },
+      },
     },
-  }, async (_req, reply) => {
-    const buf = await buildFilterUploadTemplate();
+  }, async (req, reply) => {
+    // blockId is REQUIRED (2026-09-04). Without it the sheet would carry an
+    // `ahu` column with no dropdown — free text feeding a name-resolution path,
+    // which looks like the feature while silently not being it.
+    const { blockId } = req.query as { blockId: string };
+    // An AHU hangs off the block directly OR off an area in it, so both are
+    // collected — the same union the Filters page cascade uses.
+    const areaIds = (await prisma.area.findMany({
+      where: { blockId, isActive: true }, select: { id: true },
+    })).map(a => a.id);
+    const ahus = await prisma.ahu.findMany({
+      where: {
+        isActive: true,
+        OR: [{ blockId }, ...(areaIds.length ? [{ areaId: { in: areaIds } }] : [])],
+      },
+      select: { name: true },
+      orderBy: { name: 'asc' },
+    });
+    if (ahus.length === 0) {
+      return reply.code(400).send({
+        error: 'NO_AHUS',
+        message: 'This block has no AHUs yet. Create an AHU before bulk-uploading filters into it.',
+      });
+    }
+    const buf = await buildFilterUploadTemplate(ahus.map(a => a.name));
     return reply
       .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       .header('Content-Disposition', 'attachment; filename="filter-upload-template.xlsx"')
@@ -483,6 +515,116 @@ export default async function instanceRoutes(app: FastifyInstance) {
   });
 
   // 11. PUT /instances/:id — Update instance
+  // ─── Filter creation workflow: review / approve / reject / resubmit ───
+  //
+  // Mirrors the PM schedule endpoints. Every action takes an ARRAY of filter
+  // ids because a bulk upload creates up to 200 at once and "these 198 are
+  // fine, those 2 are wrong" has to work. The per-step ROLE gate lives in the
+  // service (system_config['filter-approval']); the permission gate is here.
+
+  app.get('/instances/pending-approval', {
+    preHandler: [app.requireAnyPermission('FILTER_REVIEW', 'FILTER_APPROVE', 'ASSET_READ')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Filters in the create → review → approve workflow',
+      querystring: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['PENDING_REVIEW', 'PENDING_APPROVAL', 'REJECTED', 'APPROVED'] },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const { status } = req.query as { status?: string };
+    return listPendingFilters(buildContext(req), status);
+  });
+
+  app.get('/instances/approval-counts', {
+    preHandler: [app.requirePermission('ASSET_READ')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Counts per filter approval status (Filters page badges)',
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => pendingFilterCounts(buildContext(req)));
+
+  const idsBody = {
+    type: 'object',
+    required: ['filterIds'],
+    properties: {
+      filterIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 200 },
+      remarks: { type: 'string' },
+    },
+  } as const;
+
+  app.post('/instances/review', {
+    preHandler: [app.requirePermission('FILTER_REVIEW')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Review newly created filters (PENDING_REVIEW → PENDING_APPROVAL)',
+      body: idsBody,
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REVIEW_FILTER', req, reply);
+    if (!ok) return;
+    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks?: string };
+    return reviewFilters(buildContext(req), filterIds, remarks);
+  });
+
+  app.post('/instances/approve', {
+    preHandler: [app.requirePermission('FILTER_APPROVE')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Approve filters for use (→ APPROVED). Only approved filters can be operated.',
+      body: idsBody,
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('APPROVE_FILTER', req, reply);
+    if (!ok) return;
+    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks?: string };
+    return approveFilters(buildContext(req), filterIds, remarks);
+  });
+
+  app.post('/instances/reject', {
+    // Either workflow role may reject, so accept either permission — a reviewer
+    // who spots a bad row should not have to pass it on to get it turned back.
+    preHandler: [app.requireAnyPermission('FILTER_REVIEW', 'FILTER_APPROVE')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Reject filters (→ REJECTED). The row survives so it can be corrected and resubmitted.',
+      body: {
+        type: 'object',
+        required: ['filterIds', 'remarks'],
+        properties: {
+          filterIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 200 },
+          remarks: { type: 'string', minLength: 1 },
+        },
+      },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('REJECT_FILTER', req, reply);
+    if (!ok) return;
+    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks: string };
+    return rejectFilters(buildContext(req), filterIds, remarks);
+  });
+
+  app.post('/instances/:id/resubmit', {
+    preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_CREATE', 'FILTER_BULK_UPLOAD')],
+    schema: {
+      tags: ['Entities'],
+      summary: 'Resubmit a rejected filter (REJECTED → PENDING_REVIEW)',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    return resubmitFilter(buildContext(req), id);
+  });
+
   app.put('/instances/:id', {
     preHandler: [app.requireAnyPermission('ASSET_UPDATE', 'FILTER_EDIT', 'FILTER_HIERARCHY_EDIT')],
     schema: {

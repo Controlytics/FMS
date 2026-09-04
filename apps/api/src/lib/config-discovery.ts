@@ -39,6 +39,7 @@ export async function discoverAndRegisterConfigs(): Promise<void> {
     import('../modules/config/defs/pm-schedule-settings.def.js'),
     import('../modules/config/defs/pm-schedule-approval.def.js'),
     import('../modules/config/defs/replacement-schedule-approval.def.js'),
+    import('../modules/config/defs/filter-approval.def.js'),
     import('../modules/config/defs/qnn-notifications.def.js'),
     import('../modules/config/defs/guest-cleaning-requests.def.js'),
     import('../modules/config/defs/ahu-filter-set-config.def.js'),

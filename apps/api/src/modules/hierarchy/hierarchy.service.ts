@@ -122,20 +122,31 @@ async function zipFilterDetails<T extends { id: string }>(rows: T[]): Promise<Ar
   currentCycleId: string | null;
   filterProfileId: string | null;
   filterSet: string | null;
+  approvalStatus: string;
 }>> {
   if (rows.length === 0) return [] as any;
   const ids = rows.map((r) => r.id);
-  const details = await prisma.filterDetails.findMany({
-    where: { assetInstanceId: { in: ids } },
-    select: {
-      assetInstanceId: true,
-      currentLifecycleState: true,
-      currentCycleId: true,
-      filterProfileId: true,
-      filterSet: true,
-    },
-  });
+  // The creation-workflow status lives on asset_instances (the mirror row), not
+  // on FilterDetails — see schema.prisma. Fetched alongside so the Filters page
+  // can badge a pending filter without a second round trip.
+  const [details, approvals] = await Promise.all([
+    prisma.filterDetails.findMany({
+      where: { assetInstanceId: { in: ids } },
+      select: {
+        assetInstanceId: true,
+        currentLifecycleState: true,
+        currentCycleId: true,
+        filterProfileId: true,
+        filterSet: true,
+      },
+    }),
+    prisma.assetInstance.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, approvalStatus: true },
+    }),
+  ]);
   const byId = new Map(details.map((d) => [d.assetInstanceId, d]));
+  const approvalById = new Map(approvals.map((a) => [a.id, a.approvalStatus as string]));
   return rows.map((r) => {
     const d = byId.get(r.id);
     return {
@@ -144,6 +155,9 @@ async function zipFilterDetails<T extends { id: string }>(rows: T[]): Promise<Ar
       currentCycleId: d?.currentCycleId ?? null,
       filterProfileId: d?.filterProfileId ?? null,
       filterSet: (d?.filterSet as string | null | undefined) ?? null,
+      // Defaults to APPROVED so a row with no mirror (should not happen) reads
+      // as usable rather than silently un-operable.
+      approvalStatus: approvalById.get(r.id) ?? 'APPROVED',
     };
   });
 }

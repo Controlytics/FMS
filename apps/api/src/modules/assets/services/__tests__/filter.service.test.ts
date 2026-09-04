@@ -11,6 +11,14 @@ vi.mock('../../../../lib/prisma.js', () => {
     filterDetails: { create: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     cleaningCycle: { findFirst: vi.fn() },
     assetIdentifier: { findMany: vi.fn(), deleteMany: vi.fn() },
+    // Filter creation workflow (2026-09-04): create() reads
+    // system_config['filter-approval']. `undefined` is the real "no row yet"
+    // shape, which getFilterWorkflowConfig treats as workflow OFF — so these
+    // tests keep asserting the unchanged, workflow-disabled behaviour.
+    systemConfig: { findUnique: vi.fn(async () => undefined) },
+    // create() stamps the approval columns on the mirrored asset_instances row,
+    // but only when the workflow is ON. Present so the handle exists either way.
+    assetInstance: { update: vi.fn(async ({ data }: any) => ({ ...data })) },
     $transaction: vi.fn(async (fn: any) => fn(prisma)),
   };
   return { prisma };

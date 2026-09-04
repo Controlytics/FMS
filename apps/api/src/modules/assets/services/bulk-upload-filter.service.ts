@@ -37,6 +37,9 @@ export interface BulkUploadOutcome {
 interface ParsedRow {
   rowNumber: number; // 1-based spreadsheet row (header is row 1, first data row is 2)
   name: string;
+  // Per-row AHU (2026-09-04). Deliberately NOT optional: a sheet without the
+  // column must yield '' rather than undefined, or every .trim() below throws.
+  ahu: string;
   filterSet: string;
   ahuType: string;
   filterType: string;
@@ -50,6 +53,7 @@ interface ParsedRow {
 const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNumber'>> = {
   name: 'name', filtername: 'name', filterid: 'name',
+  ahu: 'ahu', ahuname: 'ahu',
   filterset: 'filterSet',
   ahutype: 'ahuType',
   filtertype: 'filterType',
@@ -57,6 +61,11 @@ const HEADER_ALIASES: Record<string, keyof Omit<ParsedRow, 'rowNumber'>> = {
   filtersize: 'filterSize', filterdimensions: 'filterSize', dimensions: 'filterSize',
   lastcleaningdate: 'lastCleaningDate',
 };
+
+/** Insert an AHU under its lower-cased name (case-insensitive row matching). */
+function blockAhyName_set(map: Map<string, { id: string; name: string }>, a: { id: string; name: string }) {
+  map.set(a.name.trim().toLowerCase(), { id: a.id, name: a.name });
+}
 
 function cellToString(v: unknown): string {
   if (v === null || v === undefined) return '';
@@ -103,7 +112,7 @@ function parseWorkbook(buffer: Buffer): Promise<{ rows: ParsedRow[]; error?: str
     const rows: ParsedRow[] = [];
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      const r: ParsedRow = { rowNumber, name: '', filterSet: '', ahuType: '', filterType: '', micronSize: '', filterSize: '', lastCleaningDate: '' };
+      const r: ParsedRow = { rowNumber, name: '', ahu: '', filterSet: '', ahuType: '', filterType: '', micronSize: '', filterSize: '', lastCleaningDate: '' };
       let any = false;
       row.eachCell((cell, col) => {
         const key = colKey[col];
@@ -140,6 +149,34 @@ export async function bulkUploadFilters(
   const ahu = await prisma.assetInstance.findUnique({ where: { id: ahuId }, select: { id: true, name: true } });
   if (!ahu) return { results: [{ row: 1, name: '', status: 'error', error: 'AHU not found' }], created: 0, failed: 1 };
 
+  // 2b. Per-row AHU (2026-09-04). One upload can span every AHU in the block.
+  //
+  // Resolution is by NAME, because that is what an Excel dropdown round-trips,
+  // and is SCOPED TO THE BLOCK. Names happen to be globally unique in the live
+  // data, but relying on that would let a typo drop filters into another
+  // block's AHU. A row naming an AHU outside this block is an ERROR, never a
+  // fall-back to the dialog AHU: putting filters somewhere the operator did not
+  // ask for is worse than refusing the row.
+  //
+  // Matching is case-insensitive — a user can retype over the dropdown, and the
+  // `name` de-dup below is already insensitive for the same reason.
+  const blockAhuByName = new Map<string, { id: string; name: string }>();
+  if (blockId) {
+    const areaIds = (await prisma.area.findMany({
+      where: { blockId, isActive: true }, select: { id: true },
+    })).map(a => a.id);
+    const blockAhus = await prisma.ahu.findMany({
+      where: {
+        isActive: true,
+        OR: [{ blockId }, ...(areaIds.length ? [{ areaId: { in: areaIds } }] : [])],
+      },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    for (const a of blockAhus) blockAhyName_set(blockAhuByName, a);
+  }
+  const knownAhuNames = [...blockAhuByName.values()].map(a => a.name);
+
   // 3. Existing names (batch, case-insensitive)
   const existing = await prisma.assetInstance.findMany({
     where: { name: { in: rows.map((r) => r.name).filter(Boolean), mode: 'insensitive' }, isActive: true },
@@ -150,13 +187,39 @@ export async function bulkUploadFilters(
   // 4. Validate every row → collect per-cell errors; build the create payload for clean rows.
   const results: BulkResult[] = [];
   const namesInBatch = new Set<string>();
-  const toCreate: Array<{ rowNumber: number; name: string; filterSet?: 'A' | 'B'; ahuType: string; filterType: string; micronSize: string; filterSize: string; lastCleaningDate: string }> = [];
+  const toCreate: Array<{ rowNumber: number; name: string; ahuId: string; ahuName: string; filterSet?: 'A' | 'B'; ahuType: string; filterType: string; micronSize: string; filterSize: string; lastCleaningDate: string }> = [];
+  // Resolved AHU per spreadsheet row, so the dry-run preview can show where each
+  // filter will actually land (including the fallback) rather than a blank cell.
+  const resolvedAhuByRow = new Map<number, string>();
 
   for (const r of rows) {
     const rowErrs: BulkResult[] = [];
     const name = r.name.trim();
 
     if (!name) rowErrs.push({ row: r.rowNumber, name: '', status: 'error', column: 'name', value: '', error: 'Filter Name is required' });
+
+    // AHU: the per-row cell wins; blank falls back to the AHU chosen in the
+    // dialog (same shape as filterSet's dialog default below).
+    let rowAhuId = ahuId;
+    let rowAhuName = ahu.name;
+    const ahuRaw = r.ahu.trim();
+    if (ahuRaw) {
+      const hit = blockAhuByName.get(ahuRaw.toLowerCase());
+      if (hit) { rowAhuId = hit.id; rowAhuName = hit.name; }
+      else {
+        // Preview shows what was TYPED, not the dialog fallback — a cell reading
+        // "AHU-M" beside an error saying "AHU-05 is not in this block" would
+        // contradict itself. The row errors out regardless (rowAhuId is unused).
+        rowAhuName = ahuRaw;
+        rowErrs.push({
+          row: r.rowNumber, name, status: 'error', column: 'ahu', value: r.ahu,
+          error: knownAhuNames.length
+            ? `"${ahuRaw}" is not an AHU in this block. Valid: ${knownAhuNames.join(', ')}`
+            : `"${ahuRaw}" could not be matched — re-download the template for this block.`,
+        });
+      }
+    }
+    resolvedAhuByRow.set(r.rowNumber, rowAhuName);
 
     // filterSet: the per-row Excel cell wins. The legacy `defaultWire` (dialog
     // default Set) is retained for API back-compat but the upload dialog no
@@ -187,7 +250,7 @@ export async function bulkUploadFilters(
       results.push(...rowErrs);
       continue;
     }
-    toCreate.push({ rowNumber: r.rowNumber, name, filterSet: filterSetWire, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, filterSize: r.filterSize, lastCleaningDate: r.lastCleaningDate });
+    toCreate.push({ rowNumber: r.rowNumber, name, ahuId: rowAhuId, ahuName: rowAhuName, filterSet: filterSetWire, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, filterSize: r.filterSize, lastCleaningDate: r.lastCleaningDate });
   }
 
   // 5. Dry-run: report would-create rows as success, return parsed rows for the preview.
@@ -198,7 +261,10 @@ export async function bulkUploadFilters(
       results,
       created: 0,
       failed: results.filter((r) => r.status === 'error').length,
-      rows: rows.map((r) => ({ name: r.name, filterSet: r.filterSet, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, filterSize: r.filterSize, lastCleaningDate: r.lastCleaningDate })),
+      // `ahu` is the RESOLVED name, so a blank cell reads as the dialog AHU
+      // rather than looking empty — the operator confirms where 200 filters
+      // land, which is the whole point of the preview.
+      rows: rows.map((r) => ({ name: r.name, ahu: resolvedAhuByRow.get(r.rowNumber) ?? ahu.name, filterSet: r.filterSet, ahuType: r.ahuType, filterType: r.filterType, micronSize: r.micronSize, filterSize: r.filterSize, lastCleaningDate: r.lastCleaningDate })),
     };
   }
 
@@ -212,7 +278,7 @@ export async function bulkUploadFilters(
     try {
       const f = await filterService.create({
         name: c.name,
-        ahuId,
+        ahuId: c.ahuId,
         ...(c.filterSet ? { filterSet: c.filterSet } : {}),
         ahuType: c.ahuType, filterType: c.filterType, micronSize: c.micronSize, filterSize: c.filterSize, lastCleaningDate: c.lastCleaningDate,
       }, ctx);

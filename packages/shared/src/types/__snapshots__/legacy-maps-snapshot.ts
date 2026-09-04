@@ -63,6 +63,9 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   { id: 'filters.events', label: 'View Filter Events', category: 'Filter Management', icon: 'list' },
   { id: 'filters.bulk_upload', label: 'Bulk Upload Filters', category: 'Filters Page Controls', icon: 'upload' },
   { id: 'filters.retire', label: 'Retire Filters', category: 'Filters Page Controls', icon: 'archive' },
+  // Filter creation workflow (2026-09-04) — doc rows 13/14.
+  { id: 'filters.review', label: 'Review New Filters', category: 'Filters Page Controls', icon: 'clipboard-check' },
+  { id: 'filters.approve', label: 'Approve New Filters', category: 'Filters Page Controls', icon: 'check-circle' },
   { id: 'filters.replace', label: 'Replace Filters', category: 'Filters Page Controls', icon: 'refresh' },
   { id: 'filters.status_update', label: 'Update Filter Status', category: 'Filters Page Controls', icon: 'edit' },
   { id: 'filters.create', label: 'Create Filters', category: 'Filters Page Controls', icon: 'plus' },
@@ -148,7 +151,12 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'filters.bypass': ['FILTER_BYPASS', 'ASSET_READ'],
   'filters.events': ['EVENT_READ', 'ASSET_READ'],
   'filters.bulk_upload': ['FILTER_BULK_UPLOAD'],
-  'filters.retire': ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
+  // 2026-09-04: FILTER_OPERATE dropped — retire gates on FILTER_RETIRE alone,
+  // and FILTER_OPERATE is the start/advance/bypass gate.
+  'filters.retire': ['FILTER_RETIRE', 'ASSET_READ'],
+  // Action perm + read dep only. Review must NOT confer approve.
+  'filters.review': ['FILTER_REVIEW', 'ASSET_READ'],
+  'filters.approve': ['FILTER_APPROVE', 'ASSET_READ'],
   'filters.replace': ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
   'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_READ'],
   'filters.create': ['FILTER_CREATE', 'ASSET_READ'],
@@ -161,7 +169,9 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'filters.hierarchy_delete': ['FILTER_HIERARCHY_DELETE', 'ASSET_READ'],
   'filters.rfid_manage': ['FILTER_RFID_MANAGE', 'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_READ'],
   'filters.export': ['FILTER_LIST_EXPORT'],
-  'replacement_schedule.view': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'],
+  // 2026-09-04: UPLOAD dropped from the VIEW grant — it was the gate of the
+  // upload node and of the upload route, so viewing granted writing.
+  'replacement_schedule.view': ['REPLACEMENT_SCHEDULE_VIEW'],
   'replacement_schedule.upload': ['REPLACEMENT_SCHEDULE_UPLOAD'],
   'replacement_schedule.review': ['REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_VIEW'],
   'replacement_schedule.approve': ['REPLACEMENT_SCHEDULE_APPROVE', 'REPLACEMENT_SCHEDULE_VIEW'],

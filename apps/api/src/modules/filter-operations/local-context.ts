@@ -31,6 +31,7 @@ import type {
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import type { RequestContext } from '../../types/context.js';
+import { assertFilterOperable } from '../assets/filter-workflow.js';
 
 /**
  * Output of the loader. The bundled `cp` (raw Prisma profile row, with
@@ -93,6 +94,7 @@ export async function loadLocalContext(
     where: { id: filterId },
     select: {
       id: true,
+      approvalStatus: true,
       name: true,
       parentId: true,
       filterDetails: {
@@ -109,6 +111,21 @@ export async function loadLocalContext(
     // Mirror the existing service.getFilter() behaviour.
     throw new AppError(404, 'NOT_FOUND', 'Filter not found');
   }
+
+  // 🔴 Filter creation workflow gate (2026-09-04). EVERY cycle write goes
+  // through this loader — advance, bypass, advance-with-checklist,
+  // submit-checklist — so refusing here covers all of them at once and a new
+  // write path inherits it instead of having to remember.
+  //
+  // start-cycle.ts is the one exception: it loads via getFilter(), so it
+  // asserts separately. The gate is deliberately NOT inside getFilter() itself,
+  // because 6 of that function's 9 callers are reads that must keep working on
+  // a pending filter (its own event/cycle lists, getCycleById's owner check).
+  //
+  // ahu-completion-gate.ts also calls this loader. It EXCLUDES pending filters
+  // from its candidate set before getting here, so readiness is computed over
+  // operable filters rather than throwing on the whole AHU.
+  assertFilterOperable(inst.approvalStatus, inst.name);
 
   const filterCurrentCycleId = inst.filterDetails?.currentCycleId ?? null;
 

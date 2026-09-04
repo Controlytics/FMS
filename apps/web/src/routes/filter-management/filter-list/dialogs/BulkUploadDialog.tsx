@@ -32,6 +32,7 @@ type Props = {
 // values so the operator knows what the Excel dropdowns will offer.
 const fieldColumns = (opts: FilterFieldOptions) => [
   { key: 'name', label: 'name', hint: 'Filter Name — required, must be unique' },
+  { key: 'ahu', label: 'ahu', hint: 'Dropdown of the AHUs in this block — blank uses the AHU selected above' },
   { key: 'filterSet', label: 'filterSet', hint: 'A or B (required — set per row in the Excel column)' },
   { key: 'ahuType', label: 'ahuType', hint: opts.ahuType.join(', ') || '—' },
   { key: 'filterType', label: 'filterType', hint: opts.filterType.join(', ') || '—' },
@@ -41,7 +42,11 @@ const fieldColumns = (opts: FilterFieldOptions) => [
 ];
 
 // Columns rendered in the preview table.
-const PREVIEW_KEYS = ['name', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate'] as const;
+// `ahu` is second so the operator sees WHERE each filter lands right next to
+// its name — confirming a 200-row import without that is confirming blind. The
+// server sends the RESOLVED name, so a blank cell shows the dialog AHU rather
+// than an empty box.
+const PREVIEW_KEYS = ['name', 'ahu', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate'] as const;
 
 export function BulkUploadDialog({
   step, ahu, area, ahus, areas, file, rows, error, results, created, failed, fieldOptions,
@@ -155,7 +160,7 @@ export function BulkUploadDialog({
           {step === 'preview' && (
             <>
               <div className="flex items-center justify-between">
-                <p className="text-sm text-slate-600">Review before import — into <strong>{ahus.find(h => h.id === ahu)?.name ?? '—'}</strong></p>
+                <p className="text-sm text-slate-600">Review before import — the <strong>ahu</strong> column shows where each filter will land (blank cells default to <strong>{ahus.find(h => h.id === ahu)?.name ?? '—'}</strong>)</p>
                 <button onClick={onChangeFile}
                   className="text-xs hover:opacity-80 font-medium text-theme-primary">Change file</button>
               </div>

@@ -691,6 +691,33 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Filter "{targetName}" retired by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  // Filter creation workflow (2026-09-04). One row per FILTER, not per batch —
+  // an inspector asks who approved THIS filter, and a batch-level row cannot
+  // answer that. Mirrors the PM_SCHEDULE_* workflow entries above.
+  FILTER_REVIEWED: {
+    label: 'Filter Reviewed',
+    category: 'Filter Management',
+    template: 'New filter "{targetName}" reviewed by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  FILTER_APPROVED: {
+    label: 'Filter Approved',
+    category: 'Filter Management',
+    template: 'New filter "{targetName}" approved for use by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  FILTER_REJECTED: {
+    label: 'Filter Rejected',
+    category: 'Filter Management',
+    template: 'New filter "{targetName}" rejected by {actor} with reason: "{reason}"',
+    placeholders: ['actor', 'targetName', 'reason'],
+  },
+  FILTER_RESUBMITTED: {
+    label: 'Filter Resubmitted',
+    category: 'Filter Management',
+    template: 'Rejected filter "{targetName}" corrected and resubmitted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
   BULK_FILTER_UPLOAD: {
     label: 'Filters Bulk Uploaded',
     category: 'Filter Management',

@@ -376,10 +376,34 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         // 5C: per-action UI intent (old FE gated bulk-upload on FILTER_BULK_UPLOAD only).
         // Shared create endpoint also accepts ASSET_CREATE — residual API-looseness, not UI.
         gate: ['FILTER_BULK_UPLOAD'], configurable: true },
+      // 🔴 2026-09-04: FILTER_OPERATE dropped from the grant set. POST
+      // /api/filters/:id/retire gates on FILTER_RETIRE alone, so it was never
+      // needed here — but FILTER_OPERATE is the gate for start-cycle / advance /
+      // bypass, so granting a role "Retire Filters" handed it the whole cleaning
+      // operation. Caught applying Role privileges.docx: MANAGER is granted
+      // Filter Retirement Activity (row 25) and NOT Cleaning Operations, yet
+      // ended up able to run cycles through the API. Same class as the
+      // replacement_schedule.view fix above and the 2026-07-01 ASSET_* leak.
       { id: 'filters.retire', label: 'Retire Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Retire',
-        icon: 'archive', category: 'Filters Page Controls', permissions: ['FILTER_RETIRE', 'FILTER_OPERATE', 'ASSET_READ'],
+        icon: 'archive', category: 'Filters Page Controls', permissions: ['FILTER_RETIRE', 'ASSET_READ'],
         reauthAction: 'RETIRE_FILTER', enforce: 'a',
         gate: ['FILTER_RETIRE'], configurable: true },
+      // Filter creation workflow (2026-09-04). Implements rows 13 ("Filters
+      // Review" → Manager) and 14 ("Filter Approve" → QA) of the operator's
+      // Role privileges.docx, which had no counterpart in the app until now.
+      //
+      // Grant sets hold ONLY the action permission plus the read dependency —
+      // deliberately not FILTER_CREATE or each other. Granting "review" must
+      // not confer "approve": the whole point of the two steps is that
+      // different roles perform them.
+      { id: 'filters.review', label: 'Review New Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Review',
+        icon: 'clipboard-check', category: 'Filters Page Controls', permissions: ['FILTER_REVIEW', 'ASSET_READ'],
+        reauthAction: 'REVIEW_FILTER', enforce: 'a',
+        gate: ['FILTER_REVIEW'], configurable: true },
+      { id: 'filters.approve', label: 'Approve New Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Approve',
+        icon: 'check-circle', category: 'Filters Page Controls', permissions: ['FILTER_APPROVE', 'ASSET_READ'],
+        reauthAction: 'APPROVE_FILTER', enforce: 'a',
+        gate: ['FILTER_APPROVE'], configurable: true },
       { id: 'filters.replace', label: 'Replace Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Replace',
         icon: 'refresh', category: 'Filters Page Controls', permissions: ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
         reauthAction: 'REPLACE_FILTER', enforce: 'a',
@@ -466,8 +490,17 @@ export const PERMISSION_TREE: SidebarGroup[] = [
       { id: 'replacement_list.export', label: 'Export Replacement List Report (PDF / Excel)', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Export',
         icon: 'download', category: 'Filters Page Controls', permissions: ['REPLACEMENT_LIST_EXPORT'], enforce: 'c',
         gate: ['REPLACEMENT_LIST_EXPORT'], configurable: true }, // 5C fix: UI gates on REPLACEMENT_LIST_EXPORT; page-view perm would loosen
+      // 🔴 2026-09-04: this granted REPLACEMENT_SCHEDULE_UPLOAD as well, and
+      // that permission is exactly the gate of `replacement_schedule.upload` and
+      // of POST /api/replacement-schedule/upload. So granting a role "View
+      // Replacement Schedule" handed it UPLOAD — the same over-grant class as the
+      // 2026-07-01 ASSET_* leak. It was masked, not prevented, by assertPmRole's
+      // separate uploadRole check (see pm-schedules/__tests__/upload-role.test.ts,
+      // which records MANAGER / QA / OPERATOR all holding the permission live).
+      // Viewing must not grant writing; the workflow-role check is a second gate,
+      // not a substitute for the first.
       { id: 'replacement_schedule.view', label: 'View Replacement Schedule', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'View Schedule',
-        icon: 'calendar', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD'], enforce: 'a',
+        icon: 'calendar', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_VIEW'], enforce: 'a',
         gate: ['REPLACEMENT_SCHEDULE_VIEW'], configurable: true },
       { id: 'replacement_schedule.upload', label: 'Upload Replacement Schedule', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Upload',
         icon: 'upload', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_UPLOAD'], enforce: 'a',
@@ -841,7 +874,11 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'dashboard.view', 'dashboard.create', 'dashboard.manage', 'dashboard.assign',
   'checklists.create', 'checklists.edit', 'checklists.delete', // checklists.submit + .toggle enforced-only 2026-07-01
   'filters.operate', 'filters.bypass', 'filters.events',
-  'filters.bulk_upload', 'filters.retire', 'filters.replace', 'filters.status_update',
+  'filters.bulk_upload', 'filters.retire',
+  // Filter creation workflow (2026-09-04) — doc rows 13/14. Placed beside
+  // bulk_upload because they are the steps that follow it.
+  'filters.review', 'filters.approve',
+  'filters.replace', 'filters.status_update',
   'filters.create', 'filters.edit', 'filters.delete',
   'retirement_list.export', 'replacement_list.export',
   'filters.hierarchy_create', 'filters.hierarchy_edit', 'filters.hierarchy_delete', 'filters.rfid_manage', 'filters.export', // rfid_manage re-added to picker 2026-07-02 (was enforced-only since 2026-07-01)

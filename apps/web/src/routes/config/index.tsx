@@ -340,7 +340,7 @@ export function ConfigIndexPage() {
   // GET/PUT endpoints, which Role Assignments reads/writes — setting
   // hasCustomPage:true would drop those routes and break that page.
   const roleAssignmentKeys = new Set([
-    'pm-schedule-approval', 'replacement-schedule-approval',
+    'pm-schedule-approval', 'replacement-schedule-approval', 'filter-approval',
     'qnn-notifications', 'guest-cleaning-requests', 'block-change-approval',
     'stage-interlock', 'pm-schedule-settings',
     // Hosted in the consolidated "Filter Setup" page (hasCustomPage:false defs,
