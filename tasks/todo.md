@@ -1,3 +1,38 @@
+# Stage Approvals: stage details on every request + SUPER_ADMIN edit (2026-09-05)
+
+Operator ask: (1) SUPER_ADMIN Edit on the Stage Approvals page; (2) a Wash Out
+request shows the Wash In details (done time, RO water pressure, air pressure,
+cleaning reason, user) and the Wash Out done time + user; a Dry Out request
+shows Dry In started time, duration, temperature, ended time, user, and the
+Dry Out done time + user. Web AND tablet. Existing frozen snapshot stays.
+
+Decisions:
+- Stage details are DERIVED LIVE on the server from the cycle + `filter_events`
+  (not frozen into `detailsSnapshot`): historic rows get them too, and a
+  SUPER_ADMIN edit of an event shows up immediately.
+- Edit = two existing dialogs, no new editor: the approval RECORD through a new
+  `PUT /api/super-admin/filter-data/stage-approvals/:id`; the stage details
+  (cycle + events) through the existing cycle editor + console PUTs.
+- Edit is on the web page only; the tablet shows the details (read-only).
+
+## Backend (apps/api)
+- [x] B1 `stage-approvals/stage-details.ts` — pure `deriveStageDetails()` + DB `collectStageDetails()`; attached as `stageDetails` on queue / list / getById rows
+- [x] B2 (15 tests) unit tests for the pure derivation (event picking rules: reject rows excluded, dryer started/ended discriminator, latest-before-request, fallbacks)
+- [x] B3 `super-admin/record-edit-routes.ts` new `PUT /filter-data/stage-approvals/:id` (status, approverRole, requestedBy/At, decidedBy/At, decisionRemarks) → MANUAL_RECORD_UPDATED
+
+## Frontend (apps/web)
+- [x] F1 `lib/stage-approval.ts` — `StageDetails` type + `stageDetailGroups()` rows builder (+ test)
+- [x] F2 `components/stage-approval-details.tsx` — one card for web + tablet
+- [x] F3 (+ Row inline-component -> render function) `routes/stage-approvals/index.tsx` — details in the decision dialog + per-row expander; SA Edit (record dialog) + Edit stage details (cycle editor)
+- [x] F4 `routes/mobile/mobile-wrapper.tsx` — details in the card expander + in the decision dialog
+- [x] F5 `routes/audit/audit-helpers.ts` — `cleaning_stage_approval` record-type label
+
+## Verify
+- [x] V1 API tsc clean, 42/42 module tests (queue-supersede mock gained cycle/event/user models); web tsc clean, 827/827
+- [x] V2 live `verify_stage_details.cjs` 27/27: drive a MUPS test filter DRY_IN → DRY_OUT to raise a PENDING; check `stageDetails` on queue/list for DRY_OUT and on a historic WASH_OUT row; SA PUT + ADMIN 403; edit reverted
+- [x] V3 browser (Playwright; real pointer clicks went dead mid-session -> JS clicks via evaluate): web page as SA (details, both Edit paths), as non-SA (no pencils); tablet /m card + dialog
+- [x] V4 docs: CHANGELOG, BACKEND_GUIDE, docs/compliance/stage-interlock.md, API docs, memory
+
 # SUPER_ADMIN record edits on 6 user-facing pages (2026-09-05)
 
 Operator ask (confirmed): SUPER_ADMIN-only Edit on RFID Track Record, Filters,
@@ -41,6 +76,8 @@ through the API to the linked tables. Chain break on audit-row edits ACCEPTED.
 - [x] V2 live `verify_sa_edit.cjs`: 34/34 (403s for ADMIN, RFID remarks + tag move with `asset_identifiers` following, filter attrs + AHU move + tag with mirror/relationships/track record, lifecycle with reason rule, retirement audit-row fields, notification createdAt + enum rejection). Test edits reverted; the retirement row's performer restored by SQL (the API cannot write a NULL performer)
 - [x] V3 browser (headless): SA sees Edit on all 6 pages (Filters list = `/filter-list`, block card -> Filters tab), a temp ADMIN sees none; real saves through the Notifications dialog and the Filters dialog (Area/AHU cascade preselected from the row, micron size written, reason on the audit row), both reverted. RFID <-> Filters cross-page refresh verified at the API level (track record shows the tag rows), not by a second browser tab
 - [x] V4 docs: CHANGELOG, BACKEND_GUIDE, future/backend/{MODULES,API_ENDPOINTS}.md, future/overview/API_LIST.md, memory
+
+Residue: PENDING WASH_OUT approval f1a9b925-064d-49aa-a1e8-f7625d25391a on MUPS/RCB/SA/17-01 (cycle CC-MUPS/RCB/SA/17-01-008-20260905) left for the operator's tablet check; MANUAL_RECORD_UPDATED rows with "verification:" / "browser verification" reasons on that approval and its WASH_IN event (values reverted).
 
 # Strict audit — non-SUPER_ADMIN surface (2026-09-04)
 

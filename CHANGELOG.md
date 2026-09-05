@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] - Stage Approvals: stage details on every request + SUPER_ADMIN edit (2026-09-05)
+
+Operator request. An approver deciding a Wash Out gate now sees what the wash
+recorded — Wash In done time, RO water pressure, compressed air pressure,
+cleaning reason, cleaned-by user, and the Wash Out done time + user. A Dry Out
+gate shows the dryer start time, duration, temperature, end time, user, and the
+Dry Out done time + user. Shown on the desktop page (per-row Details toggle and
+inside the approve/reject dialog) and on the tablet Stage Approvals tab (card
+expander + dialog), from ONE component (`components/stage-approval-details.tsx`).
+
+- **Server-derived, not frozen.** `stageDetails` is built at read time from the
+  cycle + `filter_events` (`stage-approvals/stage-details.ts`, pure derivation +
+  DB collector, 15 unit tests) and attached to every row of `/queue`, the list
+  and `/:id`. Historic rows get it too, and a SUPER_ADMIN correction of an event
+  is reflected on the next read — a frozen copy would keep showing the value
+  that was corrected. `detailsSnapshot` keeps its one job: the frozen filter
+  identity. Reject→redo cycles resolve per attempt (latest matching event at or
+  before `requestedAt`); interlock decision rows are never counted as a wash or
+  a dry; readings render by their own description so whatever instruments the
+  group carries appear under the right stage.
+- **Dryer start time reads the event's `performedAt` first**, then the cycle
+  row, and only then the `dryerStartedAt` copy inside the event attributes. All
+  three are written equal, but only the first two are editable — a back-dated
+  live cycle whose events were moved to 1 Sep still carried a 5 Sep attribute
+  copy, which would have shown the dryer starting after Dry Out.
+- **SUPER_ADMIN Edit on the Stage Approvals page (web).** Two existing dialogs,
+  no new editor: the approval RECORD (status, approver role, requested by/at,
+  decided by/at, decision remarks) through the new
+  `PUT /api/super-admin/filter-data/stage-approvals/:id`; the stage DETAILS
+  through the cycle editor (`super-admin-cycle-edit.tsx`) on the wash / dry
+  events the card is derived from, via the console's audited cycle/event PUTs.
+  The record endpoint runs NONE of approve()/reject()'s side effects (no
+  APPROVAL_GRANTED event, no deviation, no lifecycle move, no notification) and
+  refuses an inconsistent merged row (PENDING with a decider; APPROVED/REJECTED
+  without one; REJECTED without remarks). `status` still drives the live gate,
+  which is why the edit is re-auth gated and audited. Not on the tablet.
+- **Fixed while here:** the page's `Row` was an inline component (`const Row =
+  () => …`), so every state change remounted all rows (427 on the All tab);
+  now a plain render function.
+- Verified: API tsc + 42 module tests, web tsc + 827 tests; live script 27/27
+  (a real PENDING WASH_OUT raised on MUPS/RCB/SA/17-01 and LEFT PENDING for the
+  tablet check; OPERATOR 403; every validation; edit + revert with audit rows);
+  browser as SUPER_ADMIN: details card on the queue row, the archive Dry Out row
+  and inside the approve dialog, a real save through the cycle editor (reading
+  2.7→2.8, card refreshed, reverted) and through the record dialog (remark,
+  reverted). Zero console errors.
+
 ## [Unreleased] - SUPER_ADMIN edits any record from six user-facing pages (2026-09-05)
 
 Operator request. A SUPER_ADMIN now sees an Edit action on the RFID Track

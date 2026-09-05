@@ -78,7 +78,7 @@ The main application file registers everything in this order:
 | `checklist-profiles` | `/api/checklist-profiles` | 9 | Checklist template + question management |
 | `pm-schedules` | `/api/pm-schedules` | 18 | PM scheduling, entries, executions, approvals |
 | `block-change-requests` | `/api/block-change-requests` | 5 | Block reassignment approval workflow |
-| `stage-approvals` | `/api/stage-approvals` | 6 | Stage-interlock approval workflow (WASH_OUT/DRY_OUT QA gate) |
+| `stage-approvals` | `/api/stage-approvals` | 6 | Stage-interlock approval workflow (WASH_OUT/DRY_OUT QA gate). Every row carries live `stageDetails` (wash / dry times, readings, reason, performers) derived from the cycle events by `stage-details.ts` (2026-09-05); the SUPER_ADMIN record edit lives in `super-admin/record-edit-routes.ts` |
 | `replacement-schedule` | `/api/replacement-schedules` | 6 | Scheduled filter-replacement workflow |
 
 ### Reports

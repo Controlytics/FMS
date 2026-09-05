@@ -49,6 +49,31 @@ The **two gate points are fixed (not configurable)** — `INTERLOCK_POINTS`:
 - `detailsSnapshot` — **frozen** filter identity (name, block/area/AHU, micron, type, dimensions, set) so the approver verifies exactly what was cleaned even if the hierarchy later changes
 - `requestedBy` / `requestedByName`, `decidedBy` / `decidedByName`, `decisionRemarks`
 
+**Not stored, derived at read time (2026-09-05): `stageDetails`.** Every row the
+API returns (`/queue`, list, `/:id`) carries what the stage actually recorded,
+built from the cycle + its `filter_events` by `stage-approvals/stage-details.ts`:
+for a WASH_OUT gate the Wash In done time / performer / instrument readings (RO
+water, compressed air), the cleaning reason and the Wash Out done time /
+performer; for a DRY_OUT gate the dryer start, duration, temperature, end,
+performers and the Dry Out done time / performer. It is deliberately **not**
+frozen into `detailsSnapshot`: historic rows get it, and a SUPER_ADMIN
+correction of an event shows on the next read. On a reject→redo cycle each
+attempt describes its own wash/dry (latest matching event at or before
+`requestedAt`, 60 s slack). Interlock decision rows (`kind: STAGE_INTERLOCK_*`)
+are never counted as a wash or a dry. Performers render as usernames, 8-char
+uuid prefix when the user is gone.
+
+**SUPER_ADMIN edit (2026-09-05).** The approval ROW can be corrected through
+`PUT /api/super-admin/filter-data/stage-approvals/:id` (status, approver role,
+requested by/at, decided by/at, decision remarks; SUPER_ADMIN_DATA_EDIT re-auth,
+`_changeReason`, MANUAL_RECORD_UPDATED audit row with before/after). It runs
+**none** of approve()/reject()'s side effects — no APPROVAL_GRANTED event, no
+deviation, no lifecycle move, no notification — because a forged decision event
+would claim a signature nobody gave. Note `status` still drives the live gate
+(`assertStageApprovedToLeave` reads the latest row), so flipping PENDING →
+APPROVED releases a parked filter. The stage DETAILS are edited through the
+console's cycle/event PUTs (the cycle editor is launched from the page).
+
 ## 3. Online flow (the normal path)
 
 ### a) Entering a gated stage
@@ -69,6 +94,12 @@ and a banner explains the stage is awaiting QA approval.
 ### c) Approver decides — `/stage-approvals`
 The approver's **password is their digital signature** — always required via
 `enforceReauthAlways` (intrinsic to the action, cannot be toggled off).
+
+Both the desktop page and the tablet tab show, beside the frozen filter
+identity, the live `stageDetails` card (§2) — per row behind a Details toggle
+and inside the approve/reject dialog — so the decision is made on the recorded
+times, readings, reason and performers, not on the filter's name alone. One
+component renders it on both surfaces (`components/stage-approval-details.tsx`).
 
 - **Approve** → status `APPROVED` + immutable `APPROVAL_GRANTED` filter event +
   hash-chained `STAGE_APPROVAL_APPROVED` audit row. The operator is released to

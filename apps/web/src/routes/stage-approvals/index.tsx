@@ -7,6 +7,28 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useCan } from '@/hooks/use-can';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { prettyStage, detailRows, type StageApprovalSummary } from '@/lib/stage-approval';
+import { ALL_ROWS } from '@/lib/page-size';
+import { StageApprovalDetailsCard } from '@/components/stage-approval-details';
+import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
+import { SuperAdminCycleEditDialog } from '@/components/super-admin-cycle-edit';
+
+const APPROVAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUPERSEDED'];
+/** Sentinel for the decided-by picker: "" means keep, this means clear. */
+const CLEAR = '__clear__';
+
+/**
+ * The stage events the cycle editor should show for one approval — the steps
+ * whose times / performers / readings the details card is built from. A reject
+ * row (WASH_OUT -> WASH_IN with kind STAGE_INTERLOCK_*) is a decision, not a
+ * wash, so it is left out.
+ */
+export function eventsForApproval(stageKey: string, events: any[]): any[] {
+  const wanted = stageKey === 'WASH_OUT' ? ['WASH_IN', 'WASH_OUT'] : stageKey === 'DRY_OUT' ? ['DRY_IN', 'DRY_OUT'] : [];
+  return (events ?? []).filter((e) =>
+    e?.eventType === 'STATE_TRANSITION'
+    && wanted.includes(e?.toState)
+    && !(typeof e?.attributes?.kind === 'string' && e.attributes.kind.startsWith('STAGE_INTERLOCK_')));
+}
 
 const STATUS_CHIP: Record<string, string> = {
   PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -29,6 +51,66 @@ export function StageApprovalsPage() {
   // buttons that 403'd on submit — they are now hidden (UNGATED → gated correction).
   const can = useCan();
   const [tab, setTab] = useState<'queue' | 'all'>('queue');
+
+  // ── SUPER_ADMIN edit (2026-09-05, operator request) ──────────────────────
+  // Two existing dialogs, no new editor: the approval RECORD (who/when/status/
+  // remarks) through PUT /api/super-admin/filter-data/stage-approvals/:id, and
+  // the stage DETAILS (the cycle + the wash / dry events the card is derived
+  // from) through the cycle editor and the console's audited cycle/event PUTs.
+  const isSuperAdmin = useIsSuperAdmin();
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const users: any[] = usersData?.data ?? [];
+  const { data: rolesData } = useSWR<Array<{ name: string; displayName?: string }>>(isSuperAdmin ? '/api/roles' : null);
+  const roles = Array.isArray(rolesData) ? rolesData : [];
+  const [saEditRow, setSaEditRow] = useState<StageApprovalSummary | null>(null);
+  const [cycleEdit, setCycleEdit] = useState<{ cycle: any; events: any[]; title: string } | null>(null);
+  const [cycleEditLoading, setCycleEditLoading] = useState<string | null>(null);
+  // Per-row "Details" expander — the stage details are useful on the archive
+  // rows too, which have no decision dialog to show them in.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (id: string) =>
+    setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  const openCycleEdit = async (r: StageApprovalSummary) => {
+    if (!r.cycleId) { toast.error('No cycle', 'This approval is not bound to a cleaning cycle.'); return; }
+    setCycleEditLoading(r.id);
+    try {
+      const cycle = await apiClient.get<any>(`/api/filters/cycles/${r.cycleId}`);
+      setCycleEdit({
+        cycle,
+        events: eventsForApproval(r.stageKey, cycle?.events ?? []),
+        title: `Edit ${prettyStage(r.stageKey)} stage details - ${r.detailsSnapshot?.filterName ?? r.filterId}`,
+      });
+    } catch (e: any) {
+      toast.error('Failed', e?.message ?? 'Could not load the cleaning cycle');
+    } finally {
+      setCycleEditLoading(null);
+    }
+  };
+
+  const approvalFields: EditFieldSpec[] = [
+    { key: 'status', label: 'Status', type: 'select', required: true, options: APPROVAL_STATUSES.map((v) => ({ value: v, label: STATUS_LABEL[v] ?? v })),
+      help: 'APPROVED / REJECTED need a decided-by and decided-at; PENDING must have neither. Changing the status here does NOT run the approve / reject side effects (no event, no filter move, no notification).' },
+    { key: 'approverRole', label: 'Approver role', type: 'select', required: true,
+      options: roles.map((x) => ({ value: x.name, label: x.displayName ? `${x.displayName} (${x.name})` : x.name })) },
+    { key: 'requestedBy', label: 'Requested by (performer)', type: 'select', options: userOptions(users),
+      emptyOption: saEditRow ? `-- keep current (${saEditRow.requestedByName}) --` : '-- keep current --' },
+    { key: 'requestedAt', label: 'Requested at', type: 'datetime', required: true },
+    { key: 'decidedBy', label: 'Decided by', type: 'select',
+      options: [{ value: CLEAR, label: '(clear - no decider)' }, ...userOptions(users)],
+      emptyOption: saEditRow?.decidedByName ? `-- keep current (${saEditRow.decidedByName}) --` : '-- keep current (none) --' },
+    { key: 'decidedAt', label: 'Decided at', type: 'datetime' },
+    { key: 'decisionRemarks', label: 'Decision remarks', type: 'textarea' },
+  ];
+
+  const saveApproval = async (changed: Record<string, any>, reason: string, pw?: string) => {
+    if (!saEditRow) return;
+    const body: Record<string, any> = { ...changed, _changeReason: reason };
+    if (body.decidedBy === CLEAR) body.decidedBy = '';
+    // A blanked datetime arrives as '' from the dialog; the server reads '' as clear.
+    const url = `/api/super-admin/filter-data/stage-approvals/${saEditRow.id}`;
+    return pw ? apiClient.putWithReauth(url, body, pw) : apiClient.put(url, body);
+  };
 
   const { data: queueData, mutate: mutateQueue } = useSWR<{ data: StageApprovalSummary[] }>('/api/stage-approvals/queue', { refreshInterval: 30000 });
   const { data: allData, mutate: mutateAll } = useSWR<{ data: StageApprovalSummary[] }>('/api/stage-approvals');
@@ -135,7 +217,13 @@ export function StageApprovalsPage() {
     });
   };
 
-  const Row = ({ r, inQueue }: { r: StageApprovalSummary; inQueue: boolean }) => (
+  // A plain render function, NOT an inline component: an inline `const Row =
+  // () => …` gets a new identity on every page render, so React unmounted and
+  // remounted every row (427 on the All tab) on each state change — including
+  // the per-row Details toggle added 2026-09-05, which made a single click
+  // rebuild the whole list and drop focus.
+  const renderRow = (r: StageApprovalSummary, inQueue: boolean) => (
+    <div key={r.id}>
     <div className={`grid ${inQueue ? 'grid-cols-[auto_1.6fr_1fr_1fr_auto]' : 'grid-cols-[1.6fr_1fr_1fr_auto]'} items-center gap-3 px-4 py-3 hover:bg-slate-50/50`}>
       {inQueue && (
         <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleOne(r.id)}
@@ -161,6 +249,11 @@ export function StageApprovalsPage() {
         {r.status === 'REJECTED' && r.decisionRemarks && <div className="text-[11px] text-rose-500 mt-1">{r.decisionRemarks}</div>}
       </div>
       <div className="flex items-center gap-2 justify-end">
+        <button onClick={() => toggleExpanded(r.id)} aria-expanded={expanded.has(r.id)}
+          className="px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50">
+          {expanded.has(r.id) ? 'Hide details' : 'Details'}
+        </button>
+        {isSuperAdmin && <SuperAdminEditButton onClick={() => setSaEditRow(r)} title="Edit approval record (Super Admin)" />}
         {inQueue ? (
           r.selfRequested ? (
             // Segregation of duties: this reader performed the stage, so both
@@ -181,6 +274,13 @@ export function StageApprovalsPage() {
           )
         ) : null}
       </div>
+    </div>
+    {expanded.has(r.id) && (
+      <div className="px-4 pb-4 pt-1 bg-slate-50/40">
+        <StageApprovalDetailsCard stageKey={r.stageKey} details={r.stageDetails}
+          onEdit={isSuperAdmin ? () => { if (cycleEditLoading !== r.id) void openCycleEdit(r); } : undefined} />
+      </div>
+    )}
     </div>
   );
 
@@ -226,19 +326,19 @@ export function StageApprovalsPage() {
         {list.length === 0 ? (
           <div className="text-sm text-slate-400 py-12 text-center">{tab === 'queue' ? 'Nothing awaiting your approval.' : 'No stage approvals yet.'}</div>
         ) : (
-          list.map((r) => <Row key={r.id} r={r} inQueue={tab === 'queue'} />)
+          list.map((r) => renderRow(r, tab === 'queue'))
         )}
       </div>
 
       {/* Verify + decide dialog (single) */}
       {dlg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !busy && setDlg(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 rounded-t-2xl text-white" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 rounded-t-2xl text-white shrink-0" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <h3 className="font-bold">{dlg.action === 'approve' ? 'Verify & approve stage' : 'Reject stage'}</h3>
               <p className="text-white/80 text-[12px] mt-0.5">{prettyStage(dlg.item.stageKey)} — {dlg.item.detailsSnapshot?.filterName ?? dlg.item.filterId}</p>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto">
               {/* Frozen detail snapshot the approver verifies */}
               <div className="rounded-xl border border-slate-200 bg-slate-50/60 divide-y divide-slate-100">
                 {detailRows(dlg.item.detailsSnapshot).map((row) => (
@@ -248,6 +348,8 @@ export function StageApprovalsPage() {
                   </div>
                 ))}
               </div>
+              {/* What the stage actually recorded (server-derived from the cycle events). */}
+              <StageApprovalDetailsCard stageKey={dlg.item.stageKey} details={dlg.item.stageDetails} />
               {dlg.action === 'reject' && (
                 <p className="text-[12px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
                   Rejecting sends this filter back to <b>{prettyStage(dlg.item.rejectToStateKey)}</b> for re-cleaning.
@@ -260,7 +362,7 @@ export function StageApprovalsPage() {
                   placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'Optional remarks'} />
               </div>
             </div>
-            <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-2">
+            <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-2 shrink-0">
               <button onClick={() => setDlg(null)} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
               <button onClick={submit} disabled={busy}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${dlg.action === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
@@ -310,6 +412,26 @@ export function StageApprovalsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {saEditRow && (
+        <SuperAdminRecordEditDialog
+          open
+          title={`Edit stage approval - ${saEditRow.detailsSnapshot?.filterName ?? saEditRow.filterId}`}
+          subtitle={`${prettyStage(saEditRow.stageKey)} · attempt ${saEditRow.attemptSeq} · Super Admin edit, written to the database and recorded in the audit trail`}
+          fields={approvalFields}
+          initial={{
+            status: saEditRow.status, approverRole: saEditRow.approverRole, requestedBy: '', requestedAt: saEditRow.requestedAt,
+            decidedBy: '', decidedAt: saEditRow.decidedAt ?? '', decisionRemarks: saEditRow.decisionRemarks ?? '',
+          }}
+          onSave={saveApproval}
+          onSaved={() => { toast.success('Stage approval updated', 'Recorded in the audit trail'); refresh(); }}
+          onClose={() => setSaEditRow(null)}
+        />
+      )}
+      {cycleEdit && (
+        <SuperAdminCycleEditDialog cycle={cycleEdit.cycle} events={cycleEdit.events} title={cycleEdit.title}
+          onClose={() => setCycleEdit(null)} onSaved={() => { toast.success('Stage details updated', 'Recorded in the audit trail'); refresh(); }} />
       )}
 
       <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying}

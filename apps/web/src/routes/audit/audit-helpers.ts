@@ -128,6 +128,8 @@ const RECORD_TYPE_OVERRIDES: Record<string, string> = {
   block_change_request: 'Block Change Request',
   retired_filter: 'Retired Filter',
   audit_trail: 'Audit',
+  // 2026-09-05: Stage Approvals page SUPER_ADMIN edit.
+  cleaning_stage_approval: 'Stage Approval',
 };
 
 /**

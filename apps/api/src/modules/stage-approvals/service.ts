@@ -28,6 +28,7 @@ import { computeChecksum } from '../filter-operations/helpers.js';
 import { getInterlockConfig, prettyStage } from '../filter-operations/stage-interlock.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { getLogger } from '../../lib/logger.js';
+import { collectStageDetails, type StageDetails } from './stage-details.js';
 
 const stageApprovalLog = getLogger('stage-approvals', 'application');
 
@@ -95,6 +96,20 @@ async function withSelfFlag<T extends { requestedBy: string }>(
     ...rest,
     selfRequested: cfg.requireDifferentApprover && requestedBy === ctx.userSub,
   }));
+}
+
+/**
+ * Attach the live stage details (Wash In / Wash Out or Dry In / Dry Out times,
+ * performers, readings, cleaning reason) to each summary row. Derived from the
+ * cycle + filter_events at read time — see stage-details.ts for why it is not
+ * frozen into detailsSnapshot.
+ */
+async function withStageDetails<T extends { id: string; cycleId: string | null; stageKey: string; requestedAt: Date; requestedByName: string | null }>(
+  rows: T[],
+): Promise<(T & { stageDetails: StageDetails })[]> {
+  if (rows.length === 0) return [];
+  const details = await collectStageDetails(rows);
+  return rows.map((r) => ({ ...r, stageDetails: details.get(r.id) ?? { cleaningReason: null } }));
 }
 
 type GateRow = { filterId: string; stageKey: string; cycleId: string | null };
@@ -250,7 +265,7 @@ export const stageApprovalService = {
         stageApprovalLog.error({ err: e, rowId: row.id }, 'Superseding an orphan stage approval failed');
       }
     }
-    return withSelfFlag(ctx, actionable);
+    return withStageDetails(await withSelfFlag(ctx, actionable));
   },
 
   /** Broader list — ?status=APPROVED|REJECTED|PENDING for the archive. */
@@ -269,17 +284,18 @@ export const stageApprovalService = {
         { requestedBy: ctx.userSub },
       ];
     }
-    return withSelfFlag(ctx, await prisma.cleaningStageApproval.findMany({
+    return withStageDetails(await withSelfFlag(ctx, await prisma.cleaningStageApproval.findMany({
       where,
       orderBy: { requestedAt: 'desc' },
       select: SUMMARY_SELECT,
-    }));
+    })));
   },
 
   async getById(id: string) {
     const row = await prisma.cleaningStageApproval.findUnique({ where: { id } });
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Stage approval not found.');
-    return row;
+    const [withDetails] = await withStageDetails([row]);
+    return withDetails;
   },
 
   /** APPROVE — release the operator. Records APPROVAL_GRANTED + audit signature. */

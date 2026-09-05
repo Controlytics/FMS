@@ -4,6 +4,11 @@ vi.mock('../../../lib/prisma.js', () => ({
   prisma: {
     cleaningStageApproval: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
     filterDetails: { findMany: vi.fn(), findUnique: vi.fn() },
+    // Read by withStageDetails() for every actionable row (stage-details.ts);
+    // empty here — the derivation has its own unit tests.
+    cleaningCycle: { findMany: vi.fn().mockResolvedValue([]) },
+    filterEvent: { findMany: vi.fn().mockResolvedValue([]) },
+    user: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),
   },
 }));

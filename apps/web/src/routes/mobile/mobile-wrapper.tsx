@@ -26,6 +26,7 @@ import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../lib/filter-constants';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { prettyStage, detailRows, type StageApprovalSummary } from '@/lib/stage-approval';
+import { StageApprovalDetailsCard } from '@/components/stage-approval-details';
 
 type View = 'home' | 'status' | 'my-tasks' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications' | 'stage-approvals';
 
@@ -459,6 +460,12 @@ export function MobileWrapperPage() {
   // realistic failures here are not rare: CONCURRENT_DECISION (two shift
   // officers, one gate), SELF_APPROVAL_FORBIDDEN, and the stale-gate 409.
   const [saError, setSaError] = useState('');
+  // Per-card "Details" expander (2026-09-05): the Wash In / Wash Out or Dry In /
+  // Dry Out times, readings, reason and users the server derives for each
+  // request. Read-only on the tablet; the SUPER_ADMIN edit lives on the desktop page.
+  const [saExpanded, setSaExpanded] = useState<Set<string>>(new Set());
+  const toggleSaExpanded = (id: string) =>
+    setSaExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const openSaDlg = (item: StageApprovalSummary, action: 'approve' | 'reject') => {
     setSaDlg({ item, action });
@@ -1972,6 +1979,15 @@ export function MobileWrapperPage() {
                         {r.status === 'REJECTED' && r.decisionRemarks && (
                           <div className="text-[11px] text-rose-500 mt-1">{r.decisionRemarks}</div>
                         )}
+                        <button onClick={() => toggleSaExpanded(r.id)} aria-expanded={saExpanded.has(r.id)}
+                          className="mt-2 w-full py-2 rounded-xl text-[12px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 active:bg-slate-100">
+                          {saExpanded.has(r.id) ? 'Hide details' : `Show ${prettyStage(r.stageKey) === 'Wash Out' ? 'wash' : 'dry'} details`}
+                        </button>
+                        {saExpanded.has(r.id) && (
+                          <div className="mt-2">
+                            <StageApprovalDetailsCard stageKey={r.stageKey} details={r.stageDetails} compact />
+                          </div>
+                        )}
                         {pending && saTab === 'queue' && (
                           r.selfRequested ? (
                             // Segregation of duties, decided by the server. Both
@@ -3440,6 +3456,8 @@ export function MobileWrapperPage() {
                   </div>
                 ))}
               </div>
+              {/* What the stage actually recorded — same server-derived card as the desktop page. */}
+              <StageApprovalDetailsCard stageKey={saDlg.item.stageKey} details={saDlg.item.stageDetails} compact />
               {saDlg.action === 'reject' && (
                 <p className="text-[12px] text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
                   Rejecting sends this filter back to <b>{prettyStage(saDlg.item.rejectToStateKey)}</b> for re-cleaning.

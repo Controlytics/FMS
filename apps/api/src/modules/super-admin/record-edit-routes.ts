@@ -299,4 +299,118 @@ export default async function recordEditRoutes(app: FastifyInstance) {
     });
     return { success: true, applied, data: after };
   });
+
+  // ── Stage Approval record (Stage Approvals page, 2026-09-05) ────────────
+  // Edits the approval ROW only — who requested it and when, who decided it,
+  // when, with what remarks, its status and approver role. It deliberately
+  // runs NONE of approve()/reject()'s side effects (no APPROVAL_GRANTED event,
+  // no deviation, no lifecycle move, no notification): this is a record
+  // correction, not a decision, and a forged decision event would claim a
+  // signature nobody gave. The audit row carries before/after and the reason.
+  //
+  // Note that `status` still drives the live gate: the leave-gate in
+  // stage-interlock.ts reads the LATEST approval's status, so flipping a
+  // PENDING row to APPROVED releases a parked filter. That is the point of
+  // letting a SUPER_ADMIN edit it — and why it is re-auth gated and audited.
+  //
+  // The stage DETAILS shown on that page (wash / dry times, readings, reason)
+  // live on the cycle and its filter_events and are edited through the
+  // console's existing `PUT /data/cleaning-cycles/:id` + `PUT /data/filter-events/:id`.
+  app.put('/filter-data/stage-approvals/:id', {
+    preHandler: guarded,
+    schema: {
+      tags: ['Super Admin'],
+      summary: 'Edit one cleaning-stage approval record (no decision side effects)',
+      params: idParam,
+      body: {
+        type: 'object',
+        required: ['_changeReason'],
+        properties: {
+          ...reasonSchemaProps,
+          status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'SUPERSEDED'] },
+          approverRole: { type: 'string', minLength: 1, maxLength: 50 },
+          requestedBy: { type: 'string', format: 'uuid' },
+          requestedAt: { type: 'string' },
+          // Blank clears the decision (decidedBy, decidedByName, decidedAt).
+          decidedBy: { type: 'string' },
+          decidedAt: { type: 'string' },
+          decisionRemarks: { type: 'string', maxLength: 4000 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const reason = readChangeReason(req, reply);
+    if (!reason) return;
+    const body = req.body as {
+      status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED'; approverRole?: string;
+      requestedBy?: string; requestedAt?: string; decidedBy?: string; decidedAt?: string; decisionRemarks?: string;
+    };
+
+    const existing = await prisma.cleaningStageApproval.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Stage approval not found' });
+
+    const data: Record<string, unknown> = {};
+    if (body.status !== undefined) data.status = body.status;
+    if (body.approverRole !== undefined) {
+      const roleName = body.approverRole.trim();
+      const role = await prisma.role.findFirst({ where: { name: roleName }, select: { name: true } });
+      if (!role) return reply.code(404).send({ error: 'NOT_FOUND', message: `Role "${roleName}" not found` });
+      data.approverRole = role.name;
+    }
+    for (const f of ['requestedAt', 'decidedAt'] as const) {
+      if (body[f] === undefined) continue;
+      if (!body[f]) {
+        if (f === 'requestedAt') return reply.code(400).send({ error: 'INVALID_VALUE', message: 'requestedAt cannot be blank' });
+        data[f] = null;
+        continue;
+      }
+      const d = new Date(body[f] as string);
+      if (Number.isNaN(d.getTime())) return reply.code(400).send({ error: 'INVALID_VALUE', message: `${f} must be a valid date-time` });
+      data[f] = d;
+    }
+    if (body.requestedBy !== undefined) {
+      const u = await prisma.user.findUnique({ where: { id: body.requestedBy }, select: { id: true, username: true } });
+      if (!u) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User for requestedBy not found' });
+      data.requestedBy = u.id; data.requestedByName = u.username;
+    }
+    if (body.decidedBy !== undefined) {
+      if (!body.decidedBy) {
+        data.decidedBy = null; data.decidedByName = null;
+      } else {
+        const u = await prisma.user.findUnique({ where: { id: body.decidedBy }, select: { id: true, username: true } });
+        if (!u) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User for decidedBy not found' });
+        data.decidedBy = u.id; data.decidedByName = u.username;
+      }
+    }
+    if (body.decisionRemarks !== undefined) data.decisionRemarks = body.decisionRemarks.trim() || null;
+
+    if (Object.keys(data).length === 0) {
+      return reply.code(400).send({ error: 'NO_CHANGES', message: 'Nothing to change' });
+    }
+
+    // A decision needs a decider and a time; a PENDING row has neither. Check
+    // the MERGED result so a partial update cannot leave a half-decided row.
+    const merged = { ...existing, ...data } as typeof existing;
+    if (merged.status === 'PENDING' && (merged.decidedBy || merged.decidedAt)) {
+      return reply.code(400).send({ error: 'INVALID_VALUE', message: 'A PENDING approval cannot carry a decided-by / decided-at. Clear them or change the status.' });
+    }
+    if ((merged.status === 'APPROVED' || merged.status === 'REJECTED') && (!merged.decidedBy || !merged.decidedAt)) {
+      return reply.code(400).send({ error: 'INVALID_VALUE', message: `An ${merged.status} approval needs both decided-by and decided-at.` });
+    }
+    if (merged.status === 'REJECTED' && !(merged.decisionRemarks ?? '').trim()) {
+      return reply.code(400).send({ error: 'INVALID_VALUE', message: 'A REJECTED approval needs decision remarks.' });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.cleaningStageApproval.update({ where: { id }, data });
+      await auditManualChange(req, {
+        verb: 'UPDATED', targetType: 'cleaning_stage_approval', targetId: id,
+        label: `Stage approval (${existing.stageKey}) for filter "${(existing.detailsSnapshot as any)?.filterName ?? existing.filterId}"`,
+        reason, before: existing, after: u,
+      }, tx);
+      return u;
+    });
+    return { success: true, data: sanitizeSnapshot(updated) };
+  });
 }
