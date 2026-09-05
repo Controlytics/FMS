@@ -1,10 +1,12 @@
-﻿import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
-import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
+import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { readSuperAdminApiEnabledUncached, setSuperAdminApiEnabled } from '../../lib/super-admin-lock.js';
 import { auditLog, type AuditTx } from '../../lib/audit.js';
+import { requireDataEditReauth, reasonSchemaProps, readChangeReason, auditManualChange } from './manual-change.js';
+import recordEditRoutes from './record-edit-routes.js';
 import { computeChecksum } from '../filter-operations/helpers.js';
-import { NotificationType, PmEntryApprovalStatus, CleaningCycleStatus, FilterEventType, BlockChangeStatus } from '@prisma/client';
+import { NotificationType, PmEntryApprovalStatus, CleaningCycleStatus, FilterEventType, BlockChangeStatus, DeviationStatus, DeviationClosureKind } from '@prisma/client';
 
 // Console verification 2026-09-04: an invalid enum value (e.g. a notification
 // `type` that is not a NotificationType) used to reach Prisma and come back as
@@ -17,6 +19,7 @@ const CONSOLE_ENUM_FIELDS: Record<string, Record<string, Record<string, string>>
   notification: { type: NotificationType },
   pmScheduleEntry: { approvalStatus: PmEntryApprovalStatus },
   blockChangeRequest: { status: BlockChangeStatus },
+  deviation: { status: DeviationStatus, closureKind: DeviationClosureKind },
 };
 function invalidEnum(model: keyof typeof CONSOLE_ENUM_FIELDS, data: Record<string, unknown>): { error: string; message: string } | null {
   for (const [field, values] of Object.entries(CONSOLE_ENUM_FIELDS[model])) {
@@ -50,109 +53,10 @@ function invalidEnum(model: keyof typeof CONSOLE_ENUM_FIELDS, data: Record<strin
  * the row it describes). A failed audit write rolls the whole thing back only
  * where the handler runs in a transaction; see each handler.
  */
-async function requireDataEditReauth(req: FastifyRequest, reply: FastifyReply) {
-  const { ok } = await enforceReauth('SUPER_ADMIN_DATA_EDIT', req, reply);
-  if (!ok) {
-    // enforceReauth has already sent the 401 response â€” Fastify stops
-    // the preHandler chain on send. Returning is sufficient.
-    return;
-  }
-}
-
-/**
- * Mandatory justification on every manual data change (21 CFR § 11.10(e): the
- * record must say WHY, not just who and what).
- *
- * Body key is `_changeReason` — underscore-prefixed like `_currentPassword`
- * so it never collides with a real column. `BlockChangeRequest.reason` is a
- * live field on one of the edited tables; sharing the key would silently
- * overwrite it with the operator's justification.
- */
-const MIN_REASON_LEN = 5;
-const MAX_REASON_LEN = 500;
-/** Spread into any mutation body schema so the field is documented + bounded. */
-const reasonSchemaProps = {
-  _changeReason: { type: 'string', minLength: MIN_REASON_LEN, maxLength: MAX_REASON_LEN, description: 'Why this manual change is being made. Recorded on the audit row.' },
-};
-function readChangeReason(req: FastifyRequest, reply: FastifyReply): string | null {
-  const raw = (req.body as any)?._changeReason;
-  const reason = typeof raw === 'string' ? raw.trim() : '';
-  if (reason.length < MIN_REASON_LEN) {
-    reply.code(400).send({
-      error: 'REASON_REQUIRED',
-      message: `A reason of at least ${MIN_REASON_LEN} characters is required — manual data changes are recorded in the audit trail.`,
-    });
-    return null;
-  }
-  if (reason.length > MAX_REASON_LEN) {
-    reply.code(400).send({ error: 'REASON_TOO_LONG', message: `Reason must be ${MAX_REASON_LEN} characters or fewer.` });
-    return null;
-  }
-  return reason;
-}
-
-type ManualVerb = 'CREATED' | 'UPDATED' | 'DELETED';
-
-/**
- * Write the audit row for one manual data change.
- *
- * `targetType` is snake_case and drives BOTH the stored row and the rendered
- * description — `audit-helpers.ts` resolves the `{recordType}` placeholder
- * from it (cleaning_cycle → "Cleaning Cycle"), which is why three generic
- * MANUAL_RECORD_* actions still read specifically on the audit page.
- *
- * Pass `tx` to join the caller's transaction so the data write and its audit
- * row commit or roll back together.
- */
-async function auditManualChange(
-  req: FastifyRequest,
-  opts: {
-    verb: ManualVerb;
-    targetType: string;
-    targetId: string;
-    label: string;
-    reason: string;
-    before?: unknown;
-    after?: unknown;
-    /** Extra context the row itself doesn't carry (e.g. cascaded deletes). */
-    sideEffects?: Record<string, unknown>;
-  },
-  tx?: AuditTx,
-): Promise<void> {
-  const u = req.user as any;
-  const verbWord = opts.verb === 'CREATED' ? 'created' : opts.verb === 'UPDATED' ? 'edited' : 'deleted';
-  await auditLog({
-    userId: u?.sub,
-    userName: u?.username,
-    userRole: u?.role,
-    action: `MANUAL_RECORD_${opts.verb}`,
-    targetType: opts.targetType,
-    targetId: opts.targetId,
-    beforeValue: opts.before ? sanitizeSnapshot(opts.before) : undefined,
-    afterValue: opts.sideEffects
-      ? { ...(opts.after ? sanitizeSnapshot(opts.after) as object : {}), _sideEffects: opts.sideEffects }
-      : opts.after ? sanitizeSnapshot(opts.after) : undefined,
-    reason: opts.reason,
-    signatureMeaning: `${opts.label} manually ${verbWord} via Filter Data Management`,
-    ipAddress: req.ip,
-    userAgent: req.headers['user-agent'],
-    sessionId: u?.sessionId,
-  }, tx);
-}
-
-/**
- * Prisma rows carry Date and BigInt values; `auditLog` JSON-stringifies the
- * snapshots and BigInt has no JSON representation (it throws). Normalise both
- * so a snapshot of any table can go into before/afterValue unchanged.
- */
-function sanitizeSnapshot(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value, (_k, v) => {
-    if (typeof v === 'bigint') return v.toString();
-    return v;
-  }));
-}
-
 export default async function superAdminRoutes(app: FastifyInstance) {
+  // SUPER_ADMIN edits launched from the user-facing pages (RFID Track Record,
+  // Filters, Retirement / Replacement lists) - same prefix, same guards.
+  await app.register(recordEditRoutes);
 
   // â”€â”€â”€ PLATFORM STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get('/stats', {
@@ -263,6 +167,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
           attributes: { type: 'object' },
           filterSet: { type: 'string', enum: ['SET_A', 'SET_B', ''] },
           updatedAt: { type: 'string' },
+          // 2026-09-05 (Retirement List page edit): the date, performer and
+          // remarks live on the FILTER_RETIRED audit row, not on the asset -
+          // changing them rewrites that row and BREAKS the hash chain there.
+          retiredAt: { type: 'string' },
+          retiredBy: { type: 'string', maxLength: 100, description: 'Username of the performer' },
+          remarks: { type: 'string', maxLength: 2000 },
         },
       },
     },
@@ -274,6 +184,42 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const filter = await prisma.assetInstance.findFirst({ where: { id, status: 'Retired' } });
     if (!filter) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Retired filter not found' });
     const beforeDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { filterSet: true } });
+
+    let chainBroken = false;
+    if (body.retiredAt !== undefined || body.retiredBy !== undefined || body.remarks !== undefined) {
+      // getRetirements() joins the LATEST FILTER_RETIRED row per filter; edit that one.
+      const retireRow = await prisma.auditTrail.findFirst({ where: { action: 'FILTER_RETIRED', targetId: id }, orderBy: { timestamp: 'desc' } });
+      if (!retireRow) return reply.code(404).send({ error: 'NOT_FOUND', message: 'No FILTER_RETIRED audit row for this filter - nothing carries its date, performer or remarks' });
+      const rowData: any = {};
+      if (body.retiredAt !== undefined) {
+        const d = new Date(body.retiredAt);
+        if (Number.isNaN(d.getTime())) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'retiredAt must be a valid date-time' });
+        rowData.timestamp = d;
+      }
+      if (body.retiredBy !== undefined) {
+        const u = await prisma.user.findUnique({ where: { username: body.retiredBy }, select: { id: true, username: true } });
+        if (!u) return reply.code(404).send({ error: 'NOT_FOUND', message: `User "${body.retiredBy}" not found` });
+        rowData.userId = u.id; rowData.userName = u.username;
+      }
+      if (body.remarks !== undefined) rowData.afterValue = { ...((retireRow.afterValue as any) ?? {}), remarks: body.remarks?.trim() || null };
+      const actor = req.user as any;
+      await prisma.$transaction(async (tx) => {
+        // Same contract as the replacement edit below: meta-audit row FIRST, in
+        // the same transaction, preserving the original values; no checksum
+        // recompute - the break stays visible in verify-chain by design.
+        await auditLog({
+          userId: actor?.sub, userName: actor?.username, userRole: actor?.role,
+          action: 'AUDIT_RECORD_UPDATED', targetType: 'audit_trail', targetId: retireRow.id,
+          beforeValue: { timestamp: retireRow.timestamp, userId: retireRow.userId, userName: retireRow.userName, afterValue: retireRow.afterValue, action: retireRow.action },
+          afterValue: { timestamp: rowData.timestamp ?? retireRow.timestamp, userId: rowData.userId ?? retireRow.userId, userName: rowData.userName ?? retireRow.userName, afterValue: rowData.afterValue ?? retireRow.afterValue },
+          reason,
+          signatureMeaning: `Retirement record ${retireRow.id} (filter "${filter.name}") edited in place; audit hash chain broken at this position`,
+          ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: actor?.sessionId,
+        }, tx);
+        await tx.auditTrail.update({ where: { id: retireRow.id }, data: rowData });
+      });
+      chainBroken = true;
+    }
 
     const data: any = {};
     if (body.name !== undefined) data.name = body.name;
@@ -297,8 +243,9 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       verb: 'UPDATED', targetType: 'retired_filter', targetId: id, label: 'Retired filter', reason,
       before: { ...filter, filterSet: beforeDetails?.filterSet ?? null },
       after: { ...(updated as object), filterSet: body.filterSet !== undefined ? (body.filterSet || null) : (beforeDetails?.filterSet ?? null) },
+      ...(chainBroken ? { sideEffects: { retirementAuditRowEdited: true } } : {}),
     });
-    return updated;
+    return { ...(updated as object), chainBroken };
   });
 
   // The 2026-07-15 removal of these two DELETEs was correct for what they did:
@@ -1110,7 +1057,13 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       if (body[f] !== undefined) data[f] = body[f] || null;
     }
     if (body.performedAt !== undefined) data.performedAt = new Date(body.performedAt);
-    if (body.attributes !== undefined) data.attributes = body.attributes;
+    // 2026-09-05: MERGE onto the stored attributes. The console's cycle dialog
+    // sends only `{ instrumentReadings }`, and a straight replace dropped every
+    // other key on the event - `action`, `dryerDurationMinutes`,
+    // `cleaningReasonKey` - which the Cleaning Record columns read.
+    if (body.attributes !== undefined && body.attributes !== null && typeof body.attributes === 'object') {
+      data.attributes = { ...((existing.attributes as Record<string, unknown> | null) ?? {}), ...(body.attributes as Record<string, unknown>) };
+    }
     const badE = invalidEnum('filterEvent', data); if (badE) return reply.code(400).send(badE);
     const updated = await prisma.filterEvent.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'filter_event', targetId: id, label: 'Filter event', reason, before: existing, after: updated });
@@ -1194,6 +1147,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     for (const f of ['type', 'title', 'message', 'forUserId', 'forRole', 'targetUserId', 'createdBy']) { if (body[f] !== undefined) data[f] = body[f]; }
     if (body.isRead !== undefined) data.isRead = body.isRead === true || body.isRead === 'true';
     if (body.readAt !== undefined) data.readAt = body.readAt ? new Date(body.readAt) : null;
+    // 2026-09-05: the Notifications page SUPER_ADMIN edit may back-date a row.
+    if (body.createdAt !== undefined && body.createdAt) {
+      const d = new Date(body.createdAt);
+      if (Number.isNaN(d.getTime())) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'createdAt must be a valid date-time' });
+      data.createdAt = d;
+    }
     const badN = invalidEnum('notification', data); if (badN) return reply.code(400).send(badN);
     const updated = await prisma.notification.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'notification', targetId: id, label: 'Notification', reason, before: existing, after: updated });
@@ -1233,6 +1192,84 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   });
 
   // â”€â”€â”€ Admin Requests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Deviations (Deviations page SUPER_ADMIN edit, 2026-09-05) ─────────
+  // A deviation is the audit record of an overdue PM task. `acknowledgedBy` /
+  // `completedBy` are user ids; the *Name columns are resolved from the user so
+  // a picked user cannot be recorded under a different name.
+  app.put('/data/deviations/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit deviation'), params: idParam, body: mutationBody() } }, async (req, reply) => {
+    const { id } = req.params as any;
+    const reason = readChangeReason(req, reply);
+    if (!reason) return;
+    const existing = await prisma.deviation.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
+    const body = req.body as any;
+    const data: any = {};
+    for (const f of ['status', 'closureKind', 'closureReason', 'ahuName']) { if (body[f] !== undefined) data[f] = body[f] || null; }
+    if (body.status !== undefined && !body.status) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'status is required' });
+    for (const f of ['scheduledDate', 'windowStart', 'windowEnd', 'acknowledgedAt', 'completedAt', 'closedAt']) {
+      if (body[f] === undefined) continue;
+      if (!body[f]) { data[f] = null; continue; }
+      const d = new Date(body[f]);
+      if (Number.isNaN(d.getTime())) return reply.code(400).send({ error: 'INVALID_VALUE', message: `${f} must be a valid date-time` });
+      data[f] = d;
+    }
+    if (data.scheduledDate === null || data.windowEnd === null) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'scheduledDate and windowEnd cannot be blank' });
+    for (const f of ['overdueDaysAtOpen', 'delayDays']) {
+      if (body[f] === undefined) continue;
+      if (body[f] === '' || body[f] === null) { if (f === 'delayDays') data[f] = null; continue; }
+      const n = Number(body[f]); if (!Number.isFinite(n)) return reply.code(400).send({ error: 'INVALID_VALUE', message: `${f} must be a number` });
+      data[f] = Math.trunc(n);
+    }
+    if (body.passwordVerified !== undefined) data.passwordVerified = body.passwordVerified === true || body.passwordVerified === 'true';
+    for (const [idField, nameField] of [['acknowledgedBy', 'acknowledgedByName'], ['completedBy', 'completedByName']] as const) {
+      if (body[idField] === undefined) continue;
+      if (!body[idField]) { data[idField] = null; data[nameField] = null; continue; }
+      const u = await prisma.user.findUnique({ where: { id: body[idField] }, select: { id: true, username: true, fullName: true } });
+      if (!u) return reply.code(404).send({ error: 'NOT_FOUND', message: `User for ${idField} not found` });
+      data[idField] = u.id; data[nameField] = u.fullName ?? u.username;
+    }
+    const badD = invalidEnum('deviation', data); if (badD) return reply.code(400).send(badD);
+    const updated = await prisma.deviation.update({ where: { id }, data });
+    await auditManualChange(req, { verb: 'UPDATED', targetType: 'deviation', targetId: id, label: `Deviation ${existing.deviationNumber}`, reason, before: existing, after: updated });
+    return updated;
+  });
+
+  // ─── Quality Notifications (QNN page SUPER_ADMIN edit, 2026-09-05) ──────
+  app.put('/data/quality-notifications/:id', { preHandler: dataMutationPreHandler, schema: { ...dataSchema('Edit quality notification'), params: idParam, body: mutationBody() } }, async (req, reply) => {
+    const { id } = req.params as any;
+    const reason = readChangeReason(req, reply);
+    if (!reason) return;
+    const existing = await prisma.qualityNotification.findUnique({ where: { id } });
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
+    const body = req.body as any;
+    const data: any = {};
+    if (body.qnn !== undefined) {
+      const q = String(body.qnn).trim();
+      if (!q) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'qnn cannot be blank' });
+      const dupe = await prisma.qualityNotification.findFirst({ where: { qnn: q, id: { not: id } }, select: { id: true } });
+      if (dupe) return reply.code(409).send({ error: 'CONFLICT', message: `QNN ${q} already exists on another record` });
+      data.qnn = q;
+    }
+    if (body.action !== undefined) { if (!String(body.action).trim()) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'action cannot be blank' }); data.action = String(body.action).trim(); }
+    for (const f of ['ahuName', 'message']) { if (body[f] !== undefined) data[f] = body[f] || null; }
+    if (body.createdAt !== undefined && body.createdAt) {
+      const d = new Date(body.createdAt);
+      if (Number.isNaN(d.getTime())) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'createdAt must be a valid date-time' });
+      data.createdAt = d;
+    }
+    if (body.performedBy !== undefined) {
+      if (!body.performedBy) { data.performedBy = null; data.performedByName = null; }
+      else {
+        const u = await prisma.user.findUnique({ where: { id: body.performedBy }, select: { id: true, username: true, fullName: true } });
+        if (!u) return reply.code(404).send({ error: 'NOT_FOUND', message: 'User not found' });
+        data.performedBy = u.id; data.performedByName = u.fullName ?? u.username;
+      }
+    }
+    const updated = await prisma.qualityNotification.update({ where: { id }, data });
+    await auditManualChange(req, { verb: 'UPDATED', targetType: 'quality_notification', targetId: id, label: `Quality notification ${existing.qnn}`, reason, before: existing, after: updated });
+    return updated;
+  });
+
   app.get('/data/admin-requests', { preHandler: dataPreHandler, schema: dataSchema('List admin requests') }, async (req) => {
     return paginatedList(prisma.adminRequest, req.query, { requestedAt: 'desc' });
   });

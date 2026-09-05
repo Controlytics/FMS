@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { api } from '@/lib/api-client';
+import { ALL_ROWS } from '@/lib/page-size';
+import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 import { useToast } from '@/hooks/use-toast';
 import { useCan } from '@/hooks/use-can';
 import { Pagination } from '@/components/ui/pagination';
@@ -26,6 +29,26 @@ export function RetirementListPage() {
   // nulls the filter's parentId, so the browser cannot derive the AHU — see
   // resolveAhuScopes in filter-operations.service.ts.
   const scope = useBlockAhuScope();
+
+  // SUPER_ADMIN edit (2026-09-05). Name / Set live on the filter; the date,
+  // performer and remarks live on its FILTER_RETIRED audit row, so changing
+  // those breaks the hash chain from that row onward (operator-accepted).
+  const isSuperAdmin = useIsSuperAdmin();
+  const [editRow, setEditRow] = useState<any>(null);
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const retirementFields: EditFieldSpec[] = [
+    { key: 'name', label: 'Filter', type: 'text', required: true },
+    { key: 'filterSet', label: 'Set', type: 'select', options: [{ value: 'SET_A', label: 'Set A' }, { value: 'SET_B', label: 'Set B' }], emptyOption: 'No set' },
+    { key: 'retiredAt', label: 'Retired on', type: 'datetime' },
+    { key: 'retiredBy', label: 'Retired by', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'username'), emptyOption: '-- keep current --' },
+    { key: 'remarks', label: 'Remarks', type: 'textarea' },
+  ];
+  const saveRetirement = async (changed: Record<string, any>, reason: string, password?: string) => {
+    const body: Record<string, any> = { ...changed, _changeReason: reason };
+    if (body.retiredBy === '') delete body.retiredBy;
+    const url = `/api/super-admin/filter-data/retirements/${editRow.id}`;
+    return password ? api.putWithReauth<any>(url, body, password) : api.put<any>(url, body);
+  };
 
   const retirements = useMemo(() => {
     if (!Array.isArray(data)) return [];
@@ -248,6 +271,7 @@ export function RetirementListPage() {
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Retired On</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                  {isSuperAdmin && <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -294,6 +318,11 @@ export function RetirementListPage() {
                         Retired
                       </span>
                     </td>
+                    {isSuperAdmin && (
+                      <td className="px-5 py-3.5 text-right">
+                        <SuperAdminEditButton onClick={() => setEditRow(r)} />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -301,6 +330,18 @@ export function RetirementListPage() {
           </div>
           <Pagination className="border-t border-slate-200 bg-slate-50/50" page={safePage} pageSize={pageSize} totalItems={filtered.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </div>
+      )}
+      {editRow && (
+        <SuperAdminRecordEditDialog
+          open
+          title={`Edit retirement - ${editRow.name}`}
+          chainWarning
+          fields={retirementFields}
+          initial={{ name: editRow.name ?? '', filterSet: editRow.filterSet ?? '', retiredAt: editRow.retiredAt ?? editRow.updatedAt ?? '', retiredBy: editRow.retiredBy ?? '', remarks: editRow.remarks ?? '' }}
+          onSave={saveRetirement}
+          onSaved={() => { toast.success('Retirement record updated', 'Recorded in the audit trail'); mutate('/api/filters/retirements'); mutate('/api/hierarchy/tree'); }}
+          onClose={() => setEditRow(null)}
+        />
       )}
     </div>
   );

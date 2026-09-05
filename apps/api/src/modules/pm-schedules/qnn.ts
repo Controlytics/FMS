@@ -35,7 +35,7 @@ export async function listQnn(query: { page?: number; limit?: number; from?: str
       take: limit,
       select: {
         id: true, qnn: true, action: true, ahuName: true, message: true,
-        performedByName: true, createdAt: true,
+        performedBy: true, performedByName: true, createdAt: true,
       },
     }),
     prisma.qualityNotification.count({ where }),

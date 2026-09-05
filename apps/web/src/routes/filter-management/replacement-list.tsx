@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { api } from '@/lib/api-client';
+import { ALL_ROWS } from '@/lib/page-size';
+import { SuperAdminRecordEditDialog, SuperAdminEditButton, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
@@ -35,6 +38,39 @@ export function ReplacementListPage() {
   // itself holds only the two filter ids) — see resolveAhuScopes in
   // filter-operations.service.ts.
   const scope = useBlockAhuScope();
+
+  // SUPER_ADMIN edit (2026-09-05). A replacement record IS a FILTER_REPLACED
+  // audit row: editing it breaks the hash chain from that row onward
+  // (operator-accepted). Old/new filters are dropdowns over every filter the
+  // system knows - active ones from the hierarchy plus the retired list, since
+  // the old filter of a replacement is normally retired.
+  const [editRow, setEditRow] = useState<any>(null);
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const { data: activeFilters } = useSWR<any>(isSuperAdmin ? `/api/hierarchy/filters?limit=${ALL_ROWS}` : null);
+  const { data: retiredFilters } = useSWR<any>(isSuperAdmin ? '/api/filters/retirements' : null);
+  const filterOpts = useMemo(() => {
+    const opts: Array<{ value: string; label: string }> = [];
+    for (const f of ((activeFilters as any)?.data ?? [])) opts.push({ value: f.id, label: f.name });
+    for (const f of (Array.isArray(retiredFilters) ? retiredFilters : [])) opts.push({ value: f.id, label: `${f.name} (retired)` });
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [activeFilters, retiredFilters]);
+  const filterNameOf = (id: string) => (filterOpts.find(o => o.value === id)?.label ?? '').replace(/ \(retired\)$/, '');
+  const replacementFields: EditFieldSpec[] = [
+    { key: 'oldFilterId', label: 'Old filter', type: 'select', options: filterOpts, emptyOption: '-- keep current --' },
+    { key: 'newFilterId', label: 'New filter', type: 'select', options: filterOpts, emptyOption: '-- keep current --' },
+    { key: 'replacedAt', label: 'Replaced on', type: 'datetime' },
+    { key: 'performedBy', label: 'Performed by', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'username'), emptyOption: '-- keep current --' },
+    { key: 'remarks', label: 'Remarks', type: 'textarea' },
+  ];
+  const saveReplacement = async (changed: Record<string, any>, reason: string, password?: string) => {
+    const body: Record<string, any> = { ...changed, _changeReason: reason };
+    for (const k of ['oldFilterId', 'newFilterId', 'performedBy']) if (body[k] === '') delete body[k];
+    // The audit row stores the names beside the ids; keep both in step.
+    if (body.oldFilterId) body.oldFilterName = filterNameOf(body.oldFilterId);
+    if (body.newFilterId) body.newFilterName = filterNameOf(body.newFilterId);
+    const url = `/api/super-admin/filter-data/replacements/${editRow.id}`;
+    return password ? api.putWithReauth<any>(url, body, password) : api.put<any>(url, body);
+  };
 
   const replacements = useMemo(() => {
     if (!Array.isArray(data)) return [];
@@ -273,6 +309,7 @@ export function ReplacementListPage() {
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Replaced On</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Performed By</th>
                   <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
+                  {isSuperAdmin && <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -317,6 +354,11 @@ export function ReplacementListPage() {
                     <td className="px-5 py-3.5 text-sm text-slate-500 max-w-xs">
                       <span className="block truncate" title={r.remarks ?? ''}>{r.remarks ?? '—'}</span>
                     </td>
+                    {isSuperAdmin && (
+                      <td className="px-5 py-3.5 text-right">
+                        <SuperAdminEditButton onClick={() => setEditRow(r)} />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -324,6 +366,18 @@ export function ReplacementListPage() {
           </div>
           <Pagination className="border-t border-slate-200 bg-slate-50/50" page={safePage} pageSize={pageSize} totalItems={filtered.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </div>
+      )}
+      {editRow && (
+        <SuperAdminRecordEditDialog
+          open
+          title={`Edit replacement - ${editRow.oldFilterName ?? ''} → ${editRow.newFilterName ?? ''}`}
+          chainWarning
+          fields={replacementFields}
+          initial={{ oldFilterId: editRow.oldFilterId ?? '', newFilterId: editRow.newFilterId ?? '', replacedAt: editRow.replacedAt ?? '', performedBy: editRow.performedBy ?? '', remarks: editRow.remarks ?? '' }}
+          onSave={saveReplacement}
+          onSaved={() => { toast.success('Replacement record updated', 'Recorded in the audit trail'); mutate('/api/filters/replacements'); }}
+          onClose={() => setEditRow(null)}
+        />
       )}
       </div>
       )}

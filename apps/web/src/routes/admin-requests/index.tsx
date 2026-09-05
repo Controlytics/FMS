@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api-client';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { Pagination } from '@/components/ui/pagination';
+import { ALL_ROWS } from '@/lib/page-size';
+import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 
 const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border: string; icon: string }> = {
   CREATE_USER: { label: 'Create User', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: '+' },
@@ -58,6 +60,29 @@ export function AdminRequestsPage() {
   const [processing, setProcessing] = useState(false);
   const [approvalResult, setApprovalResult] = useState<{ username?: string; temporaryPassword?: string; message?: string; requestType?: string } | null>(null);
   const [copied, setCopied] = useState<string>('');
+
+  // SUPER_ADMIN edit of any column (2026-09-05) - same endpoint and rules as
+  // the Filter Data Management console's Admin Requests tab.
+  const isSuperAdmin = useIsSuperAdmin();
+  const [editReq, setEditReq] = useState<any>(null);
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const adminRequestFields: EditFieldSpec[] = [
+    { key: 'requestType', label: 'Type', type: 'select', required: true, options: Object.entries(TYPE_CFG).map(([value, c]) => ({ value, label: c.label })) },
+    { key: 'status', label: 'Status', type: 'select', required: true, options: Object.entries(STATUS_CFG).map(([value, c]) => ({ value, label: c.label })) },
+    { key: 'requesterName', label: 'Requester name', type: 'text', required: true },
+    { key: 'requesterEmployeeId', label: 'Employee ID', type: 'text' },
+    { key: 'requesterEmail', label: 'Email', type: 'text' },
+    { key: 'requestedAt', label: 'Submitted at', type: 'datetime', required: true },
+    { key: 'processedAt', label: 'Processed at', type: 'datetime' },
+    { key: 'processedBy', label: 'Processed by', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'username'), emptyOption: '-- nobody --' },
+    { key: 'remarks', label: 'Requester remarks', type: 'textarea' },
+    { key: 'adminRemarks', label: 'Admin remarks', type: 'textarea' },
+  ];
+  const saveAdminRequest = async (changed: Record<string, any>, reason: string, password?: string) => {
+    const body: Record<string, any> = { ...changed, _changeReason: reason };
+    const url = `/api/super-admin/data/admin-requests/${editReq.id}`;
+    return password ? api.putWithReauth<any>(url, body, password) : api.put<any>(url, body);
+  };
 
   // A11y (M83): both overlays below are hand-rolled rather than the shared
   // `ui/dialog` (the slide-over is a right-edge panel, the result dialog has its
@@ -355,9 +380,15 @@ export function AdminRequestsPage() {
                     <td className="px-5 py-3.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
                     <td className="px-5 py-3.5 text-[12px] text-slate-400">{timeAgo(req.requestedAt)}</td>
                     <td className="px-5 py-3.5 text-right">
-                      <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
-                        {isPending ? 'Review' : 'View'}
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                      <span className="inline-flex items-center gap-2">
+                        {isSuperAdmin && (
+                          // stopPropagation: the row itself opens the review panel.
+                          <SuperAdminEditButton onClick={(e) => { e.stopPropagation(); setEditReq(req); }} />
+                        )}
+                        <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
+                          {isPending ? 'Review' : 'View'}
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </span>
                       </span>
                     </td>
                   </tr>
@@ -532,6 +563,23 @@ export function AdminRequestsPage() {
         onCancel={() => { reauth.cancel(); setProcessing(false); }}
         actionLabel="Process Request"
       />
+
+      {editReq && (
+        <SuperAdminRecordEditDialog
+          open
+          title={`Edit request - ${editReq.requesterName ?? ''}`}
+          fields={adminRequestFields}
+          initial={{
+            requestType: editReq.requestType ?? '', status: editReq.status ?? '', requesterName: editReq.requesterName ?? '',
+            requesterEmployeeId: editReq.requesterEmployeeId ?? '', requesterEmail: editReq.requesterEmail ?? '',
+            requestedAt: editReq.requestedAt ?? '', processedAt: editReq.processedAt ?? '', processedBy: editReq.processedBy ?? '',
+            remarks: editReq.remarks ?? '', adminRemarks: editReq.adminRemarks ?? '',
+          }}
+          onSave={saveAdminRequest}
+          onSaved={() => { toast.success('Request updated', 'Recorded in the audit trail'); mutate('/api/admin-requests'); mutate('/api/admin-requests/pending-count'); }}
+          onClose={() => setEditReq(null)}
+        />
+      )}
 
       {/* Approval result dialog — shows temporary password/username for admin to share */}
       {approvalResult && (

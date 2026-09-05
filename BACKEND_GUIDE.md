@@ -55,7 +55,7 @@ The main application file registers everything in this order:
 
 | Module | Prefix | Endpoints | Key Features |
 |---|---|---|---|
-| `super-admin` | `/api/super-admin` | ~30 | Platform-wide admin, system stats, data management (org CRUD removed in MT removal 2026-04-30) |
+| `super-admin` | `/api/super-admin` | ~34 | Platform-wide admin, system stats, data management (org CRUD removed in MT removal 2026-04-30); 2026-09-05 +4 page-launched record edits (`filter-data/rfid-events/:id`, `filter-data/filters/:id` in `record-edit-routes.ts`; `data/deviations/:id`, `data/quality-notifications/:id`) |
 | `admin-requests` | `/api/admin-requests` | 4 | Admin action request workflow |
 
 > **Note (MT removal 2026-04-30):** `org-admin` and `tenant-admin` modules were deleted entirely. DigiLog is now single-tenant.

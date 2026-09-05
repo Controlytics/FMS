@@ -40,6 +40,13 @@ export default async function notificationRoutes(app: FastifyInstance) {
                   isRead: { type: 'boolean' },
                   readAt: { type: 'string', format: 'date-time' },
                   createdAt: { type: 'string', format: 'date-time' },
+                  // 2026-09-05: routing fields, so the SUPER_ADMIN edit dialog on
+                  // the Notifications page can show and change who a row is for.
+                  // They were always on the row; the schema simply dropped them.
+                  targetUserId: { type: ['string', 'null'] },
+                  forUserId: { type: ['string', 'null'] },
+                  forRole: { type: ['string', 'null'] },
+                  createdBy: { type: ['string', 'null'] },
                 },
               },
             },

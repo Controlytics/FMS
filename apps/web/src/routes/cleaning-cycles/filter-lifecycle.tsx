@@ -16,6 +16,8 @@ import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
+import { PencilIcon, useIsSuperAdmin } from '@/components/super-admin-record-edit';
+import { SuperAdminCycleEditDialog } from '@/components/super-admin-cycle-edit';
 
 // Lightweight shapes for the hierarchy dropdown rows (the /api/hierarchy/*
 // endpoints carry the parent id on each child: area.blockId, ahu.areaId,
@@ -236,6 +238,9 @@ function CycleAccordionItem({ summary, index, formatDateTime, fallback }: {
 }) {
   const [open, setOpen] = useState(false);
   const { data: detail } = useSWR(open ? `/api/filters/cycles/${summary.id}` : null);
+  // SUPER_ADMIN edit (2026-09-05) of the expanded cycle + its stage events.
+  const isSuperAdmin = useIsSuperAdmin();
+  const [saEdit, setSaEdit] = useState(false);
   const eff = effectiveCycleStatus(summary);
   const sc = STATUS_CONFIG[eff];
   const title = summary.cycleCode ?? summary.cleaningReasonLabel ?? summary.cleaningReasonKey ?? 'Cycle';
@@ -269,7 +274,21 @@ function CycleAccordionItem({ summary, index, formatDateTime, fallback }: {
               <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" /> Loading detail…
             </div>
           ) : (
-            <CycleDetailView cycle={detail} fallback={fallback} />
+            <>
+              {isSuperAdmin && (
+                <div className="flex justify-end mb-2">
+                  <button type="button" onClick={() => setSaEdit(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-[12px] font-medium text-amber-700 hover:bg-amber-50 shadow-sm">
+                    <PencilIcon className="w-4 h-4 text-amber-600" /> Edit record
+                  </button>
+                </div>
+              )}
+              <CycleDetailView cycle={detail} fallback={fallback} />
+              {saEdit && (
+                <SuperAdminCycleEditDialog cycle={detail} events={detail.events ?? []} title={`Edit cleaning record - ${detail.filterName ?? ''}`}
+                  onClose={() => setSaEdit(false)} />
+              )}
+            </>
           )}
         </div>
       )}

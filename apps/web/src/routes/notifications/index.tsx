@@ -15,18 +15,34 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { Pagination } from '@/components/ui/pagination';
+import { ALL_ROWS } from '@/lib/page-size';
+import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 
 interface Notification {
   id: string;
   type: string;
   title: string;
   message: string;
-  targetUserId?: string;
+  targetUserId?: string | null;
+  forUserId?: string | null;
+  forRole?: string | null;
   isRead: boolean;
   readAt?: string;
   createdAt: string;
-  createdBy?: string;
+  createdBy?: string | null;
 }
+
+// Prisma `NotificationType` (apps/api/prisma/schema.prisma), for the
+// SUPER_ADMIN edit dropdown. The server rejects any value outside the enum.
+const NOTIFICATION_TYPES = [
+  'ACCOUNT_LOCKED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'PASSWORD_RESET_REQUEST', 'PASSWORD_RESET_APPROVED',
+  'PASSWORD_RESET_REJECTED', 'USER_CREATED', 'USER_UPDATED', 'ROLE_CHANGED', 'USER_CREATION_REQUEST_SUBMITTED',
+  'USER_CREATION_REQUEST_APPROVED', 'USER_CREATION_REQUEST_REJECTED', 'DEVICE_ONLINE', 'DEVICE_OFFLINE',
+  'DEVICE_INACTIVITY', 'USER_LOGIN', 'USER_LOCKED', 'CHECKLIST_SUBMITTED', 'CHECKLIST_APPROVED', 'CHECKLIST_REJECTED',
+  'SYSTEM_ERROR', 'PM_OVERDUE', 'PM_OVERDUE_COMPLETED', 'PM_SCHEDULE_QNN', 'GUEST_CLEANING_REQUEST',
+  'REPORT_REVIEW_REQUESTED', 'REPORT_REVIEW_APPROVED', 'REPORT_REVIEW_REJECTED', 'PASSWORD_EXPIRY_WARNING',
+  'PASSWORD_EXPIRED_NOTICE', 'STAGE_APPROVAL_REQUESTED', 'STAGE_APPROVAL_APPROVED', 'STAGE_APPROVAL_REJECTED',
+];
 
 const typeColors: Record<string, string> = {
   ACCOUNT_LOCKED: 'bg-gradient-to-r from-red-500 to-rose-500 text-white',
@@ -126,6 +142,33 @@ export function NotificationsPage() {
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // SUPER_ADMIN edit of any column (2026-09-05) - same endpoint and rules as
+  // the Filter Data Management console's Notifications tab. `forUserId` holds
+  // a USERNAME (notification.repository.ts filters `{ forUserId: username }`),
+  // so the "For user" picker is keyed by username, not by user id.
+  const isSuperAdmin = useIsSuperAdmin();
+  const [editNotif, setEditNotif] = useState<Notification | null>(null);
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const { data: rolesData } = useSWR<any>(isSuperAdmin ? '/api/roles/active' : null);
+  const notificationFields: EditFieldSpec[] = [
+    { key: 'type', label: 'Type', type: 'select', required: true, options: NOTIFICATION_TYPES.map(t => ({ value: t, label: t.replace(/_/g, ' ') })) },
+    { key: 'title', label: 'Title', type: 'text', required: true },
+    { key: 'message', label: 'Message', type: 'textarea', required: true },
+    { key: 'forUserId', label: 'For user', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'username'), emptyOption: '-- nobody --' },
+    { key: 'forRole', label: 'For role', type: 'select', options: (Array.isArray(rolesData) ? rolesData : []).map((r: any) => ({ value: r.name, label: r.displayName ?? r.name })), emptyOption: '-- no role --' },
+    { key: 'isRead', label: 'Read', type: 'checkbox' },
+    { key: 'readAt', label: 'Read at', type: 'datetime' },
+    { key: 'createdAt', label: 'Created at', type: 'datetime', required: true },
+  ];
+  const saveNotification = async (changed: Record<string, any>, reason: string, password?: string) => {
+    if (!editNotif) return;
+    const body: Record<string, any> = { ...changed, _changeReason: reason };
+    if ('forUserId' in body && body.forUserId === '') body.forUserId = null;
+    if ('forRole' in body && body.forRole === '') body.forRole = null;
+    const url = `/api/super-admin/data/notifications/${editNotif.id}`;
+    return password ? api.putWithReauth<any>(url, body, password) : api.put<any>(url, body);
+  };
 
   useEffect(() => {
     const t = setTimeout(() => { setSearchQuery(search.trim()); setPage(1); }, 300);
@@ -663,6 +706,9 @@ export function NotificationsPage() {
                           Mark Unread
                         </Button>
                       ))}
+                      {isSuperAdmin && (
+                        <SuperAdminEditButton onClick={() => setEditNotif(notification)} />
+                      )}
                       {can('notifications.delete') && (
                         <Button
                           variant="ghost"
@@ -683,6 +729,22 @@ export function NotificationsPage() {
           </div>
           );
         })}
+
+        {editNotif && (
+          <SuperAdminRecordEditDialog
+            open
+            title={`Edit notification - ${editNotif.title}`}
+            fields={notificationFields}
+            initial={{
+              type: editNotif.type, title: editNotif.title, message: editNotif.message,
+              forUserId: editNotif.forUserId ?? '', forRole: editNotif.forRole ?? '',
+              isRead: editNotif.isRead, readAt: editNotif.readAt ?? '', createdAt: editNotif.createdAt,
+            }}
+            onSave={saveNotification}
+            onSaved={() => { toast.success('Notification updated', 'Recorded in the audit trail'); mutate(); globalMutate('/api/notifications/unread-count'); }}
+            onClose={() => setEditNotif(null)}
+          />
+        )}
 
         {/* Empty State */}
         {(!data?.data || data.data.length === 0) && (

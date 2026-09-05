@@ -13,6 +13,8 @@ import { effectiveCycleStatus, performerLabel, transitionEndpoints, phaseSuffix 
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useToast } from '@/hooks/use-toast';
 import { downloadName } from '@/lib/download-name';
+import { PencilIcon } from '@/components/super-admin-record-edit';
+import { SuperAdminCycleEditDialog } from '@/components/super-admin-cycle-edit';
 
 export function CleaningCycleTimelinePage() {
   const { id } = useParams<{ id: string }>();
@@ -26,6 +28,7 @@ export function CleaningCycleTimelinePage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const canExportPdf = isSuperAdmin || perms.includes('REPORT_EXPORT') || perms.includes('REPORT_GENERATE');
   const [downloading, setDownloading] = useState(false);
+  const [saEdit, setSaEdit] = useState(false);
   const { data: cycle, isLoading } = useSWR(id ? `/api/filters/cycles/${id}` : null);
 
   // A cycle ended by retire/replace writes NO CYCLE_TERMINATED event — the
@@ -120,12 +123,18 @@ export function CleaningCycleTimelinePage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             Back to History
           </button>
-          {canExportPdf && (
+          {(canExportPdf || isSuperAdmin) && (
             <div className="flex items-center gap-2">
-              <ExportMenu surface="cleaning-detail" onExportPdf={handleExportPDF} onExportExcel={exportExcel} busy={downloading}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40" />
-              <SendForReviewButton buildSnapshot={buildCycleSnapshot}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all" />
+              {isSuperAdmin && (
+                <button type="button" onClick={() => setSaEdit(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-white border border-amber-300 rounded-lg text-[13px] font-medium text-amber-700 hover:bg-amber-50 shadow-sm transition-all">
+                  <PencilIcon className="w-4 h-4 text-amber-600" /> Edit record
+                </button>
+              )}
+              {canExportPdf && <ExportMenu surface="cleaning-detail" onExportPdf={handleExportPDF} onExportExcel={exportExcel} busy={downloading}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all disabled:opacity-40" />}
+              {canExportPdf && <SendForReviewButton buildSnapshot={buildCycleSnapshot}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all" />}
             </div>
           )}
         </div>
@@ -135,6 +144,10 @@ export function CleaningCycleTimelinePage() {
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         <CycleDetailView cycle={cycle} fallback={fallback} />
       </div>
+      {saEdit && (
+        <SuperAdminCycleEditDialog cycle={cycle} events={cycle.events ?? []} title={`Edit cleaning record - ${cycle.filterName ?? ''}`}
+          onClose={() => setSaEdit(false)} onSaved={() => toast.success('Record updated', 'Written to the database and recorded in the audit trail')} />
+      )}
     </div>
   );
 }

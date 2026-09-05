@@ -13,10 +13,16 @@ import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useToast } from '@/hooks/use-toast';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
+import { ALL_ROWS } from '@/lib/page-size';
+import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 
 interface DeviationRow {
   id: string;
   deviationNumber: string;
+  acknowledgedBy?: string | null;
+  completedBy?: string | null;
+  closureKind?: string | null;
+  closureReason?: string | null;
   ahuName: string;
   filterCount: number;
   scheduledDate: string;
@@ -96,7 +102,35 @@ export function DeviationsPage() {
 
   const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
   if (status !== 'ALL') params.set('status', status);
-  const { data, isLoading } = useSWR<DeviationResponse>(`/api/pm-schedules/deviations?${params}`, { refreshInterval: 30000 });
+  const { data, isLoading, mutate: refetch } = useSWR<DeviationResponse>(`/api/pm-schedules/deviations?${params}`, { refreshInterval: 30000 });
+
+  // SUPER_ADMIN edit of any column (2026-09-05). Acknowledged / Completed by
+  // are user pickers; the server stores the id and resolves the name.
+  const isSuperAdmin = useIsSuperAdmin();
+  const [editRow, setEditRow] = useState<DeviationRow | null>(null);
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const deviationFields: EditFieldSpec[] = [
+    { key: 'status', label: 'Status', type: 'select', required: true, options: [{ value: 'OPEN', label: 'Open' }, { value: 'ACKNOWLEDGED', label: 'Acknowledged' }, { value: 'CLOSED', label: 'Closed' }] },
+    { key: 'ahuName', label: 'AHU', type: 'text', required: true },
+    { key: 'scheduledDate', label: 'Scheduled date', type: 'datetime', required: true },
+    { key: 'windowStart', label: 'Window start', type: 'datetime' },
+    { key: 'windowEnd', label: 'Window end', type: 'datetime', required: true },
+    { key: 'overdueDaysAtOpen', label: 'Overdue days at open', type: 'number', required: true },
+    { key: 'acknowledgedBy', label: 'Acknowledged by', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'id'), emptyOption: '-- nobody --' },
+    { key: 'acknowledgedAt', label: 'Acknowledged at', type: 'datetime' },
+    { key: 'completedBy', label: 'Completed by', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'id'), emptyOption: '-- nobody --' },
+    { key: 'completedAt', label: 'Completed at', type: 'datetime' },
+    { key: 'delayDays', label: 'Delay (days)', type: 'number' },
+    { key: 'closedAt', label: 'Closed at', type: 'datetime' },
+    { key: 'closureKind', label: 'Closure kind', type: 'select', options: [{ value: 'COMPLETED_LATE', label: 'Completed late' }, { value: 'SKIPPED', label: 'Skipped (written off)' }], emptyOption: '-- none --' },
+    { key: 'closureReason', label: 'Closure reason', type: 'textarea' },
+  ];
+  const saveDeviation = async (changed: Record<string, any>, reason: string, password?: string) => {
+    if (!editRow) return;
+    const body: Record<string, any> = { ...changed, _changeReason: reason };
+    const url = `/api/super-admin/data/deviations/${editRow.id}`;
+    return password ? apiClient.putWithReauth<any>(url, body, password) : apiClient.put<any>(url, body);
+  };
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
@@ -351,7 +385,7 @@ export function DeviationsPage() {
             <table className="w-full">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  {['Deviation #', 'AHU', 'Filters', 'Scheduled', 'Overdue', 'Status', 'Acknowledged By', 'Completed By', 'Completed', 'Delay'].map((h, i) => (
+                  {['Deviation #', 'AHU', 'Filters', 'Scheduled', 'Overdue', 'Status', 'Acknowledged By', 'Completed By', 'Completed', 'Delay', ...(isSuperAdmin ? ['Edit'] : [])].map((h, i) => (
                     <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -395,6 +429,9 @@ export function DeviationsPage() {
                           ? <span className={`${severityPill} ${severityCls(d.delayDays)}`}>{daysLabel(d.delayDays)}</span>
                           : <span className="text-slate-600">—</span>}
                       </td>
+                      {isSuperAdmin && (
+                        <td className="px-4 py-3 text-right"><SuperAdminEditButton onClick={() => setEditRow(d)} /></td>
+                      )}
                     </tr>
                   );
                 })}
@@ -409,6 +446,23 @@ export function DeviationsPage() {
         <div className="border-t border-slate-200 bg-white shrink-0">
           <Pagination page={page} pageSize={pageSize} totalItems={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </div>
+      )}
+
+      {editRow && (
+        <SuperAdminRecordEditDialog
+          open
+          title={`Edit deviation - ${editRow.deviationNumber}`}
+          fields={deviationFields}
+          initial={{
+            status: editRow.status, ahuName: editRow.ahuName ?? '', scheduledDate: editRow.scheduledDate, windowStart: editRow.windowStart ?? '', windowEnd: editRow.windowEnd,
+            overdueDaysAtOpen: editRow.overdueDaysAtOpen, acknowledgedBy: editRow.acknowledgedBy ?? '', acknowledgedAt: editRow.acknowledgedAt ?? '',
+            completedBy: editRow.completedBy ?? '', completedAt: editRow.completedAt ?? '', delayDays: editRow.delayDays ?? '', closedAt: editRow.closedAt ?? '',
+            closureKind: editRow.closureKind ?? '', closureReason: editRow.closureReason ?? '',
+          }}
+          onSave={saveDeviation}
+          onSaved={() => { toast.success('Deviation updated', 'Recorded in the audit trail'); refetch(); }}
+          onClose={() => setEditRow(null)}
+        />
       )}
     </div>
   );

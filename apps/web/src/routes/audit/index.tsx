@@ -27,6 +27,8 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { downloadName } from '@/lib/download-name';
+import { ALL_ROWS } from '@/lib/page-size';
+import { SuperAdminRecordEditDialog, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 
 const AUDIT_COLS = ['timestamp', 'action', 'user', 'role', 'targetType', 'description', 'ipAddress'];
 
@@ -52,6 +54,14 @@ export function AuditTrailPage() {
   const canRedact = can('audit.redact');
   const canHardDelete = can('audit.delete');
   const canDestroy = canRedact || canHardDelete;
+  // SUPER_ADMIN row edit (2026-09-05): PUT /api/audit/:id - the August console
+  // endpoint (UPDATE_AUDIT_RECORD re-auth, reason, meta-audit row first). It
+  // rewrites an audit row, so the hash chain breaks from it onward; checksum
+  // fields are never editable and meta-audit / redacted rows are refused.
+  const isSuperAdmin = useIsSuperAdmin();
+  const [editRecord, setEditRecord] = useState<any>(null);
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const { data: rolesData } = useSWR<any>(isSuperAdmin ? '/api/roles/active' : null);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(defaultLimit);
 
@@ -522,8 +532,45 @@ export function AuditTrailPage() {
           ACTION_COLORS={ACTION_COLORS}
           onViewRecord={setSelectedRecord}
           onDeleteRecord={redactSingleAudit}
+          canEdit={isSuperAdmin}
+          onEditRecord={setEditRecord}
         />
       </ReportPageWrapper>
+
+      {editRecord && (() => {
+        const actionOptions = Object.keys(templates ?? {}).sort();
+        const auditFields: EditFieldSpec[] = [
+          { key: 'timestamp', label: 'Date & time', type: 'datetime', required: true },
+          { key: 'action', label: 'Action', type: 'select', required: true, options: (v) => (actionOptions.includes(v.action) || !v.action ? actionOptions : [v.action, ...actionOptions]).map(a => ({ value: a, label: a.replace(/_/g, ' ') })) },
+          { key: 'userName', label: 'User', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'username'), emptyOption: '-- keep current --' },
+          { key: 'userRole', label: 'Role', type: 'select', options: (Array.isArray(rolesData) ? rolesData : []).map((r: any) => ({ value: r.name, label: r.displayName ?? r.name })), emptyOption: '-- keep current --' },
+          { key: 'targetType', label: 'Target type', type: 'text' },
+          { key: 'targetId', label: 'Target id', type: 'text' },
+          { key: 'signatureMeaning', label: 'Signature meaning', type: 'textarea' },
+        ];
+        return (
+          <SuperAdminRecordEditDialog
+            open
+            title={`Edit audit record - ${String(editRecord.action ?? '').replace(/_/g, ' ')}`}
+            subtitle="Super Admin edit - the before/after payloads and checksums are not editable here; use Redact to mask a payload"
+            chainWarning
+            reauthAction="UPDATE_AUDIT_RECORD"
+            fields={auditFields}
+            initial={{
+              timestamp: editRecord.timestamp, action: editRecord.action ?? '', userName: editRecord.userName ?? '', userRole: editRecord.userRole ?? '',
+              targetType: editRecord.targetType ?? '', targetId: editRecord.targetId ?? '', signatureMeaning: editRecord.signatureMeaning ?? '',
+            }}
+            onSave={async (changed, reason, password) => {
+              const body: Record<string, any> = { ...changed, reason };
+              for (const k of ['userName', 'userRole']) if (body[k] === '') delete body[k];
+              const url = `/api/audit/${editRecord.id}`;
+              return password ? api.putWithReauth<any>(url, body, password) : api.put<any>(url, body);
+            }}
+            onSaved={() => { toast.success('Audit record updated', 'The original values were preserved in a new audit record; the hash chain is broken from this row onward'); mutate(); }}
+            onClose={() => setEditRecord(null)}
+          />
+        );
+      })()}
 
       {/* Pagination */}
       {data && data.total > 0 && (

@@ -139,6 +139,7 @@ This file is an **index** — for handler-level detail (request/response shapes,
 - Organizations: `GET /organizations`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`
 - `GET /stats`
 - Filter data admin: retirements (`GET|PUT|DELETE|POST .../unretire`) and replacements (`GET|PUT|DELETE`)
+- Page-launched SUPER_ADMIN record edits (2026-09-05): `PUT /filter-data/rfid-events/:id`, `PUT /filter-data/filters/:id`, `PUT /data/deviations/:id`, `PUT /data/quality-notifications/:id`
 - Data management console: `/data/cleaning-cycles`, `/data/filter-events`, `/data/audit-trail`, `/data/alarms`, `/data/notifications`, `/data/admin-requests`, `/data/block-change-requests`, `/data/pm-entries` — each supports `GET` (list), `PUT /:id` (edit), `DELETE /:id`
 
 ## LDAP — `/api/ldap`

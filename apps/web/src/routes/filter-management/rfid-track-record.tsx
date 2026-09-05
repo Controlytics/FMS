@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 import { useCan } from '@/hooks/use-can';
+import { ALL_ROWS } from '@/lib/page-size';
+import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
@@ -18,11 +20,16 @@ import { downloadName } from '@/lib/download-name';
 const RFID_COLS = ['sNo', 'dateTime', 'event', 'rfid', 'filter', 'ahu', 'user', 'reason'];
 
 type TrackRow = {
+  /** audit_trail row id - what the SUPER_ADMIN edit addresses. */
+  id: string;
   timestamp: string;
   event: 'ASSIGN' | 'REMOVE';
   rfidNumber: string;
+  filterId: string | null;
   filterName: string | null;
+  ahuId: string | null;
   ahuName: string | null;
+  userId: string | null;
   user: string | null;
   reason: string | null;
 };
@@ -66,6 +73,49 @@ export function RfidTrackRecordPage() {
   const totalPages = data?.totalPages ?? 1;
 
   const resetPageAnd = (fn: (v: string) => void) => (v: string) => { fn(v); setPage(1); };
+
+  // ── SUPER_ADMIN edit (2026-09-05). A row IS an audit_trail row, so the edit
+  // breaks the hash chain from it onward (accepted by the operator); when the
+  // row is the tag's latest event the live tag is corrected too. Reference
+  // lists load only for a SUPER_ADMIN, and only once the page is open.
+  const isSuperAdmin = useIsSuperAdmin();
+  const [editRow, setEditRow] = useState<TrackRow | null>(null);
+  const { data: treeData } = useSWR<any[]>(isSuperAdmin ? '/api/hierarchy/tree' : null);
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const { data: identifiersData } = useSWR<any>(isSuperAdmin ? '/api/assets/identifiers' : null);
+  const { ahuOpts, filterRows } = (() => {
+    const ahus: Array<{ value: string; label: string }> = [];
+    const filters: Array<{ id: string; name: string; ahuId: string }> = [];
+    const takeAhu = (ahu: any, prefix: string) => {
+      ahus.push({ value: ahu.id, label: `${prefix}${ahu.name}` });
+      for (const f of ahu.filters ?? []) filters.push({ id: f.id, name: f.name, ahuId: ahu.id });
+    };
+    for (const b of (Array.isArray(treeData) ? treeData : [])) {
+      for (const a of b.areas ?? []) for (const ahu of a.ahus ?? []) takeAhu(ahu, `${b.name} / ${a.name} / `);
+      for (const ahu of b.ahus ?? []) takeAhu(ahu, `${b.name} / `);
+    }
+    return { ahuOpts: ahus, filterRows: filters };
+  })();
+  const knownTags: string[] = ((identifiersData as any)?.data ?? (Array.isArray(identifiersData) ? identifiersData : []))
+    .filter((i: any) => i.identifierType === 'RFID').map((i: any) => i.identifierValue);
+  const rfidFields: EditFieldSpec[] = [
+    { key: 'timestamp', label: 'Date & time', type: 'datetime', required: true },
+    { key: 'event', label: 'Event', type: 'select', required: true, options: [{ value: 'ASSIGN', label: 'Assigned' }, { value: 'REMOVE', label: 'Removed' }] },
+    { key: 'rfidNumber', label: 'RFID number', type: 'text', required: true, suggestions: knownTags },
+    { key: 'ahuId', label: 'AHU', type: 'select', options: ahuOpts, emptyOption: '-- all AHUs --', help: 'Narrows the Filter list below. The AHU column always shows the filter\'s current AHU.' },
+    { key: 'filterId', label: 'Filter', type: 'select', emptyOption: '-- keep current --',
+      options: (v) => filterRows.filter(f => !v.ahuId || f.ahuId === v.ahuId).map(f => ({ value: f.id, label: f.name })) },
+    { key: 'userId', label: 'User', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'id'), emptyOption: '-- keep current --' },
+    { key: 'remarks', label: 'Remarks', type: 'textarea', placeholder: 'Shown in the Reason column' },
+  ];
+  const saveRfidRow = async (changed: Record<string, any>, reason: string, password?: string) => {
+    if (!editRow) return;
+    const body: Record<string, any> = { ...changed, _changeReason: reason };
+    delete body.ahuId; // a picker aid only - the row stores the filter
+    for (const k of ['filterId', 'userId']) if (body[k] === '') delete body[k];
+    const url = `/api/super-admin/filter-data/rfid-events/${editRow.id}`;
+    return password ? api.putWithReauth<any>(url, body, password) : api.put<any>(url, body);
+  };
 
   const buildRfidExport = async (): Promise<{ body: string[][]; period: string; total: number }> => {
     const all = await api.get<Resp>(`/api/assets/identifiers/track-record?${buildQs(500, 1)}`);
@@ -222,6 +272,7 @@ export function RfidTrackRecordPage() {
                   {headLabels.map((h, i) => (
                     <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
+                  {isSuperAdmin && <th className="text-right px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -239,12 +290,38 @@ export function RfidTrackRecordPage() {
                     <td className="px-4 py-3 text-[13px] text-slate-600">{r.ahuName ?? <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600">{r.user ?? <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600">{r.reason ?? <span className="text-slate-300">—</span>}</td>
+                    {isSuperAdmin && (
+                      <td className="px-4 py-3 text-right">
+                        <SuperAdminEditButton onClick={() => setEditRow(r)} />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
         </div>
+
+        {editRow && (
+          <SuperAdminRecordEditDialog
+            open
+            title="Edit RFID record"
+            chainWarning
+            fields={rfidFields}
+            initial={{
+              timestamp: editRow.timestamp, event: editRow.event, rfidNumber: editRow.rfidNumber,
+              ahuId: editRow.ahuId ?? '', filterId: editRow.filterId ?? '', userId: editRow.userId ?? '', remarks: editRow.reason ?? '',
+            }}
+            onChange={(key, _value, next) => (key === 'ahuId' ? { ...next, filterId: '' } : undefined)}
+            onSave={saveRfidRow}
+            onSaved={(res: any) => {
+              toast.success('RFID record updated', res?.liveTagNote ?? 'Recorded in the audit trail');
+              // Track record + the live tag list the Filters page reads.
+              mutate((key) => typeof key === 'string' && key.startsWith('/api/assets/identifiers'));
+            }}
+            onClose={() => setEditRow(null)}
+          />
+        )}
 
         {total > 0 && (
           <div className="px-6 py-3 border-t border-slate-200 bg-white shrink-0 flex items-center justify-between flex-wrap gap-3">

@@ -48,8 +48,15 @@ interface AuditTableProps {
   // redact button; `canHardDelete` shows the physical-delete button (breaks chain).
   canRedact?: boolean;
   canHardDelete?: boolean;
+  /** SUPER_ADMIN row edit (2026-09-05) - PUT /api/audit/:id. Hidden on redacted and meta-audit rows, which the API refuses. */
+  canEdit?: boolean;
+  onEditRecord?: (record: any) => void;
   onHardDeleteRecord?: (id: string) => void;
 }
+
+// Rows that record a previous change to the audit trail; the API refuses to
+// edit them (409 META_AUDIT_IMMUTABLE), so the button is not offered.
+const META_AUDIT_ACTIONS = new Set(['AUDIT_RECORD_UPDATED', 'AUDIT_RECORD_DELETED', 'AUDIT_RECORDS_BULK_DELETED', 'AUDIT_RECORD_REDACTED', 'AUDIT_RECORDS_BULK_REDACTED']);
 
 export function AuditTable({
   data,
@@ -72,6 +79,8 @@ export function AuditTable({
   onDeleteRecord,
   canRedact = true,
   canHardDelete = false,
+  canEdit = false,
+  onEditRecord,
   onHardDeleteRecord,
 }: AuditTableProps) {
   // Timestamp, Description, Action, Performed By, Status, Details — plus the
@@ -308,6 +317,19 @@ export function AuditTable({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                           </svg>
                         </Button>
+                        {canEdit && onEditRecord && !redacted && !META_AUDIT_ACTIONS.has(record.action) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onEditRecord(record)}
+                            title="Edit record (Super Admin - rewrites this audit row, breaks the hash chain from here)"
+                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </Button>
+                        )}
                         {/* Already-redacted rows drop the redact button: the payload
                             is gone, and a second click cost a prompt + a reauth
                             round-trip only to 409 ALREADY_REDACTED. Hard-delete

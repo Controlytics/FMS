@@ -82,7 +82,7 @@ Endpoint counts below come from `grep 'app.(get|post|put|patch|delete)'` on 2026
 |---|---|---|
 | `tenant-admin` | 6 | Org CRUD + info |
 | `tenant-admin/org-detail-routes` | 15 | Per-org: users, entities, templates, user-entity assignments, visible-entities |
-| `super-admin` | 35 | Orgs CRUD + stats + filter-data admin (retirements, replacements) + data management console (cleaning-cycles, filter-events, audit-trail, alarms, notifications, admin-requests, block-change-requests, pm-entries — each with list/edit/delete) |
+| `super-admin` | 39 | Orgs CRUD + stats + filter-data admin (retirements, replacements, and since 2026-09-05 the page-launched SUPER_ADMIN edits of an RFID Track Record row and of every Filters-page column) + data management console (2026-09-05 also `PUT /data/deviations/:id` + `PUT /data/quality-notifications/:id`) (cleaning-cycles, filter-events, audit-trail, alarms, notifications, admin-requests, block-change-requests, pm-entries — each with list/edit/delete) |
 | `org-admin` | 3 | Read-only org-scoped views of users, entities, info |
 | `entity-assignments` | 6 | User↔entity assignment CRUD + bulk + `/my-entities` |
 

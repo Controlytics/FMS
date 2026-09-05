@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { useCan } from '@/hooks/use-can';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { useIsSuperAdmin } from '@/components/super-admin-record-edit';
 import { api } from '@/lib/api-client';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { createReport } from '@/lib/pdf-report';
@@ -186,6 +187,18 @@ export function FilterListPage() {
   const [editFilterMicronSize, setEditFilterMicronSize] = useState('');
   const [editFilterFilterSize, setEditFilterFilterSize] = useState('');
   const [editFilterLastCleaning, setEditFilterLastCleaning] = useState<LastCleaningDateState>({ date: '', na: false });
+  // SUPER_ADMIN edit (2026-09-05): the same dialog also moves the filter
+  // (Area / AHU), sets the cleaning status, re-assigns the RFID tag and takes a
+  // mandatory change reason; the save goes to the super-admin endpoint, which
+  // writes each change to its own table and audits the whole edit.
+  const isSuperAdmin = useIsSuperAdmin();
+  const [editFilterArea, setEditFilterArea] = useState('');
+  const [editFilterAhu, setEditFilterAhu] = useState('');
+  const [editFilterState, setEditFilterState] = useState('');
+  const [editFilterCleaningReason, setEditFilterCleaningReason] = useState('');
+  const [editFilterRfid, setEditFilterRfid] = useState('');
+  const [editFilterReason, setEditFilterReason] = useState('');
+  const { data: cleaningReasonsData } = useSWR<any>(isSuperAdmin ? '/api/filters/reasons' : null);
   // Delete filter dialog
   const [deleteFilterDialog, setDeleteFilterDialog] = useState<FilterRef | null>(null);
   const [deleteFilterSubmitting, setDeleteFilterSubmitting] = useState(false);
@@ -1049,12 +1062,15 @@ export function FilterListPage() {
   };
 
   // ── Edit filter helpers ──
-  const openEditFilter = (f: {
-    id: string; name: string; filterSet?: string;
-    ahuType?: string; filterType?: string; micronSize?: string; filterSize?: string; lastCleaningDate?: string | null;
-  }) => {
+  const openEditFilter = (f: EditFilterRef) => {
     setEditFilterDialog(f);
     setEditFilterName(f.name);
+    setEditFilterArea(f.areaId ?? '');
+    setEditFilterAhu(f.ahuId ?? '');
+    setEditFilterState(f.currentState ?? '');
+    setEditFilterCleaningReason('');
+    setEditFilterRfid(f.rfid ?? '');
+    setEditFilterReason('');
     // The API sends the raw Prisma enum ('SET_A'/'SET_B'/null) — see
     // hierarchy.service.ts. This used to compare against 'B', which never
     // matched, so the toggle silently pre-selected Set A for EVERY filter and
@@ -1076,6 +1092,43 @@ export function FilterListPage() {
     setEditFilterSubmitting(true);
     setEditFilterError('');
     const id = editFilterDialog.id;
+    if (isSuperAdmin) {
+      if (editFilterReason.trim().length < 5) { setEditFilterError('A change reason of at least 5 characters is required.'); setEditFilterSubmitting(false); return; }
+      const d = editFilterDialog;
+      const setBefore = d.filterSet === 'SET_B' ? 'B' : d.filterSet === 'SET_A' ? 'A' : '';
+      const body: any = {
+        _changeReason: editFilterReason.trim(),
+        name: editFilterName.trim(),
+        ahuType: editFilterAhuType || '',
+        filterType: editFilterFilterType || '',
+        micronSize: editFilterMicronSize || '',
+        filterSize: editFilterFilterSize || '',
+        lastCleaningDate: encodeLastCleaningDate(editFilterLastCleaning) ?? '',
+        // Only what changed for the fields with side effects: a same-value
+        // AHU / status / tag must not re-run a move, a lifecycle rule or a
+        // remove-and-reassign of the tag.
+        ...(editFilterSet !== setBefore ? { filterSet: editFilterSet } : {}),
+        ...(editFilterAhu && editFilterAhu !== (d.ahuId ?? '') ? { ahuId: editFilterAhu } : {}),
+        ...(editFilterState && editFilterState !== (d.currentState ?? '') ? { lifecycleState: editFilterState, ...(editFilterCleaningReason ? { cleaningReasonKey: editFilterCleaningReason } : {}) } : {}),
+        ...(editFilterRfid.trim() !== (d.rfid ?? '') ? { rfidNumber: editFilterRfid.trim() } : {}),
+      };
+      await reauth.execute('SUPER_ADMIN_DATA_EDIT', async (password?: string) => {
+        if (password) await api.putWithReauth(`/api/super-admin/filter-data/filters/${id}`, body, password);
+        else await api.put(`/api/super-admin/filter-data/filters/${id}`, body);
+      }, {
+        onSuccess: () => {
+          toast.success('Filter Updated', `"${editFilterName}" saved and recorded in the audit trail`);
+          setEditFilterDialog(null);
+          setEditFilterSubmitting(false);
+          mutate('/api/hierarchy/tree');
+          mutate('/api/assets/identifiers');
+          mutate((key) => typeof key === 'string' && (key.startsWith('/api/filters/cycles') || key.startsWith('/api/filters/events') || key.startsWith('/api/assets/identifiers')));
+        },
+        onError: (err: any) => { setEditFilterError(err?.message ?? 'Failed to update filter'); setEditFilterSubmitting(false); },
+        onCancel: () => setEditFilterSubmitting(false),
+      });
+      return;
+    }
     await reauth.execute('EDIT_FILTER', async (password?: string) => {
       // Typed-direct update (A-01 T2.3) — concrete fields only. No templateId /
       // generic attributes. filter.service.ts overlays onto the stored
@@ -1933,11 +1986,19 @@ export function FilterListPage() {
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-end gap-0.5">
+                              {isRetired && isSuperAdmin && (
+                                <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, filterSize: f.filterSize, lastCleaningDate: f.lastCleaningDate, blockId: f.blockId, areaId: f.areaId, ahuId: f.ahuId, currentState: f.currentState, status: f.status, rfid: (identifiersByAsset.get(f.id) ?? []).find((i: any) => i.identifierType === 'RFID')?.identifierValue ?? '' })}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Edit Filter (Super Admin)">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                </button>
+                              )}
                               {!isRetired && (
                                 <>
                                   {canEditFilter && (
-                                    <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, filterSize: f.filterSize, lastCleaningDate: f.lastCleaningDate })}
-                                      className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Edit Filter">
+                                    <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, filterSize: f.filterSize, lastCleaningDate: f.lastCleaningDate, blockId: f.blockId, areaId: f.areaId, ahuId: f.ahuId, currentState: f.currentState, status: f.status, rfid: (identifiersByAsset.get(f.id) ?? []).find((i: any) => i.identifierType === 'RFID')?.identifierValue ?? '' })}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title={isSuperAdmin ? 'Edit Filter (Super Admin)' : 'Edit Filter'}>
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                       </svg>
@@ -2192,6 +2253,41 @@ export function FilterListPage() {
           onLastCleaningChange={setEditFilterLastCleaning}
           onClose={() => setEditFilterDialog(null)}
           onSubmit={submitEditFilter}
+          superAdmin={isSuperAdmin ? (() => {
+            // Areas of the filter's block; AHUs of the chosen area, or every
+            // AHU in the block (direct + in any area) when no area is chosen.
+            const blockId = editFilterDialog.blockId ?? null;
+            const inBlock = (i: any) => i.isActive !== false && i.status !== 'Retired';
+            const areas = instances.filter((i: any) => i.template?.templateKind === 'AREA' && i.parentId === blockId && inBlock(i));
+            const areaIds = new Set(areas.map((a: any) => a.id));
+            const ahus = instances.filter((i: any) => i.template?.templateKind === 'AHU' && inBlock(i)
+              && (editFilterArea ? i.parentId === editFilterArea : (i.parentId === blockId || areaIds.has(i.parentId))));
+            const current = editFilterDialog.currentState ?? '';
+            const lifecycleOptions = LIFECYCLE_STATE_OPTIONS.some(o => o.value === current) || !current
+              ? LIFECYCLE_STATE_OPTIONS
+              : [{ value: current, label: STATUS_LABELS[current]?.label ?? current }, ...LIFECYCLE_STATE_OPTIONS];
+            return {
+              showHierarchy: editFilterDialog.status !== 'Retired',
+              areaOptions: areas.map((a: any) => ({ id: a.id, name: a.name })),
+              ahuOptions: ahus.map((a: any) => ({ id: a.id, name: a.name })),
+              areaId: editFilterArea,
+              ahuId: editFilterAhu,
+              onAreaChange: (v: string) => { setEditFilterArea(v); setEditFilterAhu(''); },
+              onAhuChange: setEditFilterAhu,
+              lifecycleOptions,
+              lifecycleState: editFilterState,
+              currentLifecycleState: current,
+              onLifecycleChange: setEditFilterState,
+              cleaningReasons: ((cleaningReasonsData as any)?.reasons ?? []).filter((r: any) => r.isActive !== false).map((r: any) => ({ key: r.key, name: r.name })),
+              cleaningReasonKey: editFilterCleaningReason,
+              onCleaningReasonChange: setEditFilterCleaningReason,
+              rfid: editFilterRfid,
+              onRfidChange: setEditFilterRfid,
+              reason: editFilterReason,
+              onReasonChange: setEditFilterReason,
+              onClearFilterSet: () => setEditFilterSet(''),
+            };
+          })() : undefined}
         />
       )}
 

@@ -154,8 +154,8 @@ Split into Orgs, Stats, Filter-data admin, and a **Data management console**:
 |---|---|
 | Orgs | `GET /organizations`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id` |
 | Stats | `GET /stats` |
-| Filter data | Retirements: `PUT|DELETE|POST .../unretire` • Replacements: `PUT|DELETE` |
-| Data console | `GET|PUT|DELETE` on each of: `/data/cleaning-cycles`, `/data/filter-events`, `/data/audit-trail`, `/data/alarms`, `/data/notifications`, `/data/admin-requests`, `/data/block-change-requests`, `/data/pm-entries` |
+| Filter data | Retirements: `PUT|DELETE|POST .../unretire` (PUT also takes `retiredAt` / `retiredBy` / `remarks` since 2026-09-05 — rewrites the FILTER_RETIRED audit row, chain break) • Replacements: `PUT|DELETE` • `PUT /filter-data/rfid-events/:id` (edit one RFID Track Record row = an ASSET_IDENTIFIER_* audit row; corrects the live tag when the row is the tag's latest event) • `PUT /filter-data/filters/:id` (every Filters-page column: name, AHU move, field values, set, last cleaning date, lifecycle status, RFID) — both SUPER_ADMIN + SUPER_ADMIN_DATA_EDIT re-auth + `_changeReason` |
+| Data console | `GET|PUT|DELETE` on each of: `/data/cleaning-cycles`, `/data/filter-events`, `/data/audit-trail`, `/data/alarms`, `/data/notifications`, `/data/admin-requests`, `/data/block-change-requests`, `/data/pm-entries`; `PUT /data/deviations/:id` + `PUT /data/quality-notifications/:id` (2026-09-05, launched from the Deviations / Quality Notifications pages; user pickers resolve the `*Name` columns server-side) |
 
 All Data-console routes share a `dataPreHandler` and a `dataSchema(description)` helper for uniform audit logging.
 

@@ -110,6 +110,9 @@ export const identifierService = {
       const isAssign = r.action === 'ASSET_IDENTIFIER_CREATED';
       const v = ((isAssign ? r.afterValue : r.beforeValue) as any) ?? {};
       return {
+        // The audit row id. The SUPER_ADMIN edit on the RFID Track Record page
+        // (2026-09-05) addresses a row by it; every other reader ignores it.
+        id: r.id,
         timestamp: r.timestamp,
         event: isAssign ? 'ASSIGN' : 'REMOVE',
         rfidNumber: v.identifierValue ?? null,
@@ -148,11 +151,17 @@ export const identifierService = {
     let enriched = events.map((e) => {
       const f = e.assetId ? fmap.get(e.assetId) : null;
       return {
+        id: e.id,
         timestamp: e.timestamp,
         event: e.event,
         rfidNumber: e.rfidNumber as string,
+        // Ids ride along with the names so an edit dialog can pre-select the
+        // filter / AHU / user without a reverse lookup by display text.
+        filterId: e.assetId,
         filterName: f?.name ?? null,
+        ahuId: f?.parentId ?? null,
         ahuName: f?.parentId ? (pmap.get(f.parentId) ?? null) : null,
+        userId: e.userId,
         user: e.userName || (e.userId ? (umap.get(e.userId) ?? e.userId) : null),
         reason: e.reason,
       };

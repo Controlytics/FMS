@@ -1,3 +1,47 @@
+# SUPER_ADMIN record edits on 6 user-facing pages (2026-09-05)
+
+Operator ask (confirmed): SUPER_ADMIN-only Edit on RFID Track Record, Filters,
+Admin Requests, Notifications, Retirement List, Replacement List. Edits write
+through the API to the linked tables. Chain break on audit-row edits ACCEPTED.
+"Update live tag too" ACCEPTED for RFID / Filter RFID changes.
+
+## Rules applied to every edit
+- backend `requireRole('SUPER_ADMIN')` + `requireDataEditReauth` (SUPER_ADMIN_DATA_EDIT) + `_changeReason` >= 5
+- audit row per edit (MANUAL_RECORD_UPDATED, or AUDIT_RECORD_UPDATED meta-row FIRST when the record IS an audit row)
+- reference values are dropdowns (Area/AHU/Filter/Set/Status/Event/User/type enums)
+
+## Backend touch points (apps/api)
+- [x] B1 `assets/services/identifier.service.ts` getRfidTrackRecord: rows carry `id`, `filterId`, `ahuId`, `userId`
+- [x] B2 `super-admin/record-edit-routes.ts` NEW `PUT /filter-data/rfid-events/:id` — edit ASSET_IDENTIFIER_CREATED/DELETED audit row (timestamp, event, rfidNumber, filterId, user, remarks->reason), meta-audit first, live `asset_identifiers` update when the row is the tag's LATEST event
+- [x] B3 `super-admin/record-edit-routes.ts` NEW `PUT /filter-data/filters/:id` — full filter edit: name/attrs/set via filterService.update, AHU move (filters.ahu_id + trigger + asset_relationships swap), lifecycle via instanceService.changeLifecycleState, RFID via identifierService create/delete, MANUAL_RECORD_UPDATED audit
+- [x] B4 `super-admin/routes.ts` extend `PUT /filter-data/retirements/:id` with retiredAt / retiredBy / remarks -> FILTER_RETIRED audit row (meta-audit first, chainBroken)
+- [x] B5 `super-admin/routes.ts` `PUT /data/notifications/:id` accept `createdAt`; `notifications/routes.ts` GET list returns targetUserId/forUserId/forRole/createdBy (currently stripped by the response schema)
+- [x] B6 unit tests: `__tests__/rfid-event-edit.test.ts` 14/14 (payload placement + live-tag rule; the own-row rule was found by the test, fixed); shared helpers moved to `super-admin/manual-change.ts`
+
+## Frontend touch points (apps/web)
+- [x] F1 NEW `components/super-admin-record-edit.tsx` — shared dialog (fields spec, reason, own reauth dialog, chain warning) + `useIsSuperAdmin`
+- [x] F2 `routes/filter-management/rfid-track-record.tsx` — SA Edit column + dialog (datetime, Event, RFID, AHU->Filter cascade, User, Remarks)
+- [x] F3 `routes/filter-management/filter-list.tsx` + `filter-list/dialogs/EditFilterDialog.tsx` + `filter-list/types.ts` — SA sees Area/AHU cascade, Status, RFID, reason in the same Edit dialog; submit goes to the SA endpoint; retired rows also editable for SA
+- [x] F4 `routes/admin-requests/index.tsx` — SA Edit (all columns)
+- [x] F5 `routes/notifications/index.tsx` (`forUserId` is a USERNAME - picker keyed by username; full 33-value NotificationType list) — SA Edit (all columns)
+- [x] F6 `routes/filter-management/retirement-list.tsx` — SA Edit (name, set, date, performer, remarks)
+- [x] F7 `routes/filter-management/replacement-list.tsx` — SA Edit (old/new filter, date, performer, remarks)
+
+## Batch 2 (same day): Cleaning Record, cycle View, Lifecycle report, Deviations, Quality Notifications
+- [x] G1 `components/super-admin-cycle-edit.tsx` — cycle row + every stage event (from/to, time, performer, remarks, reading values) through the console's cycle + event PUTs, one reason, one re-auth; cycle=null for a manual status update row
+- [x] G2 backend `PUT /data/deviations/:id` + `PUT /data/quality-notifications/:id` (user pickers resolve `*Name`; QNN unique -> 409); `CONSOLE_ENUM_FIELDS.deviation`; QNN list exposes `performedBy`
+- [x] G3 **bug fixed**: event PUT replaced `attributes` wholesale -> now merges (the console's cycle dialog was dropping `action` / `dryerDurationMinutes` / `cleaningReasonKey`)
+- [x] G4 pages: `cleaning-cycles/history.tsx` (cycle + manual rows), `timeline.tsx` (Edit record in the header), `filter-lifecycle.tsx` (inside the expanded cycle), `deviations/index.tsx`, `quality-notifications.tsx`
+- [x] G5 verify: API tsc + touched tests 82/82; web tsc + 820/820; live `verify_sa_edit2.cjs` 19/21 (the 2 "fails" = the QNN row's original performer is a deleted user, which the API rightly refuses - restored by SQL); browser: SA Edit on all five surfaces, MANAGER none, real saves through the cycle editor (reading value) and the QNN dialog, Lifecycle editor opens inside the expanded cycle; nested-<button> warning found by the sweep and fixed (`PencilIcon`)
+- [x] G6 docs: CHANGELOG, BACKEND_GUIDE, MODULES, API_ENDPOINTS, API_LIST
+- [x] H1 Audit Trail page: SA pencil per row (not redacted / not meta rows) -> existing `PUT /api/audit/:id` (reauth UPDATE_AUDIT_RECORD, body key `reason`); generic dialog gained `reauthAction`; audit list now returns `userName`. Browser 13/13 (real save + meta row + revert; MANAGER none); meta row PUT -> 409 live
+
+## Verify (each page: web typecheck + vitest, API typecheck + vitest, live curl, browser as SA + as ADMIN (no button, 403))
+- [x] V1 API tsc clean; touched-module tests 191/191; web tsc clean; web suite 820/820 after making `useIsSuperAdmin` router-free (the admin-requests page test renders without a Router)
+- [x] V2 live `verify_sa_edit.cjs`: 34/34 (403s for ADMIN, RFID remarks + tag move with `asset_identifiers` following, filter attrs + AHU move + tag with mirror/relationships/track record, lifecycle with reason rule, retirement audit-row fields, notification createdAt + enum rejection). Test edits reverted; the retirement row's performer restored by SQL (the API cannot write a NULL performer)
+- [x] V3 browser (headless): SA sees Edit on all 6 pages (Filters list = `/filter-list`, block card -> Filters tab), a temp ADMIN sees none; real saves through the Notifications dialog and the Filters dialog (Area/AHU cascade preselected from the row, micron size written, reason on the audit row), both reverted. RFID <-> Filters cross-page refresh verified at the API level (track record shows the tag rows), not by a second browser tab
+- [x] V4 docs: CHANGELOG, BACKEND_GUIDE, future/backend/{MODULES,API_ENDPOINTS}.md, future/overview/API_LIST.md, memory
+
 # Strict audit — non-SUPER_ADMIN surface (2026-09-04)
 
 Operator ask: complete, strict audit for bugs / broken / dead connections /
@@ -98,4 +142,9 @@ AUTO_OVERRIDDEN; per-filter half-time; fetch failure -> manual fallback).
 - [x] C. Desktop: queue checkboxes + one DRY_IN duration dropdown; drying panel checkboxes + one temperature + change value + Submit selected (bulk)
 - [x] D. Tablet: same on the scan queue and the Currently Drying panel
 - [x] E. Tests (hook 14/14, web 820/820), typecheck both apps, desktop live check (source AUTO + AUTO_OVERRIDDEN in filter_events), CHANGELOG, commit
-- [ ] F. Tablet half-time fetch + submit - operator testing (queue/duration/partial submit already verified)
+- [x] F. Tablet half-time submit - verified 2026-09-05 headless on `/m` (operator 101012, block MUPS, tags CA000BEA + CA000BD9), ONLINE and OFFLINE:
+  - offline temperature: both drying rows ready from the cached state, Select all ready, one temperature, Submit (2) -> 2 SUBMIT_READINGS ops queued with `readingSources: MANUAL`; reconnect drained them in 4 s; `filter_events` hold `source: MANUAL`, `dryer_readings_submitted = true`.
+  - offline duration: 2 tags scanned offline, one 5-min duration, Submit Selected (2) -> 2 SET_DURATION ops queued, Currently Drying counted down from the cache; half time reached offline -> one temperature -> 2 more ops; 4 ops synced on reconnect; `dryer_started_at` anchored to the offline time (10:23), not the sync time (10:26).
+  - no fetch offline by design (`isAuto` requires `online`); the manual dropdown is used. No code change was needed.
+  - harness note: an injected token skips the login page, so the offline-replay grant must be minted by hand (`POST /api/auth/offline-grant`) or sync stalls on "waiting on re-authentication" - that is the harness, not the app.
+  - the physical tap on a real tablet is still the operator's.

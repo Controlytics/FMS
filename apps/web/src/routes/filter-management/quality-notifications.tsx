@@ -15,6 +15,8 @@ import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { downloadName } from '@/lib/download-name';
+import { ALL_ROWS } from '@/lib/page-size';
+import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 
 const QNN_COLS = ['sNo', 'qnn', 'action', 'ahu', 'message', 'by', 'dateTime'];
 
@@ -24,9 +26,11 @@ type QnnRow = {
   action: string;
   ahuName: string | null;
   message: string | null;
+  performedBy?: string | null;
   performedByName: string | null;
   createdAt: string;
 };
+const QNN_ACTIONS = ['UPLOAD', 'REVIEW', 'APPROVE', 'REJECT', 'RESUBMIT'];
 type Resp = { data: QnnRow[]; total: number; page: number; limit: number; totalPages: number };
 
 
@@ -58,9 +62,28 @@ export function QualityNotificationsPage() {
     return qs.toString();
   };
 
-  const { data, isLoading } = useSWR<Resp>(`/api/pm-schedules/qnn?${buildQs(perPage, page)}`);
+  const { data, isLoading, mutate: refetch } = useSWR<Resp>(`/api/pm-schedules/qnn?${buildQs(perPage, page)}`);
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
+
+  // SUPER_ADMIN edit of any column (2026-09-05).
+  const isSuperAdmin = useIsSuperAdmin();
+  const [editRow, setEditRow] = useState<QnnRow | null>(null);
+  const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
+  const qnnFields: EditFieldSpec[] = [
+    { key: 'qnn', label: 'QNN', type: 'text', required: true, help: 'Must stay unique.' },
+    { key: 'action', label: 'Action', type: 'select', required: true, options: (v) => (QNN_ACTIONS.includes(v.action) || !v.action ? QNN_ACTIONS : [v.action, ...QNN_ACTIONS]).map(a => ({ value: a, label: a })) },
+    { key: 'ahuName', label: 'AHU', type: 'text' },
+    { key: 'message', label: 'Message', type: 'textarea' },
+    { key: 'performedBy', label: 'By', type: 'select', options: userOptions((usersData as any)?.data ?? [], 'id'), emptyOption: '-- nobody --' },
+    { key: 'createdAt', label: 'Date & time', type: 'datetime', required: true },
+  ];
+  const saveQnn = async (changed: Record<string, any>, reason: string, password?: string) => {
+    if (!editRow) return;
+    const body: Record<string, any> = { ...changed, _changeReason: reason };
+    const url = `/api/super-admin/data/quality-notifications/${editRow.id}`;
+    return password ? api.putWithReauth<any>(url, body, password) : api.put<any>(url, body);
+  };
 
   const buildExport = async (): Promise<{ body: string[][]; period: string; total: number }> => {
     const all = await api.get<Resp>(`/api/pm-schedules/qnn?${buildQs(500, 1)}`);
@@ -195,6 +218,7 @@ export function QualityNotificationsPage() {
                   {headLabels.map((h, i) => (
                     <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
+                  {isSuperAdmin && <th className="text-right px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -207,6 +231,7 @@ export function QualityNotificationsPage() {
                     <td className="px-4 py-3 text-[13px] text-slate-600 max-w-[360px]">{r.message ?? <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap">{r.performedByName ?? <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(r.createdAt)}</td>
+                    {isSuperAdmin && <td className="px-4 py-3 text-right"><SuperAdminEditButton onClick={() => setEditRow(r)} /></td>}
                   </tr>
                 ))}
               </tbody>
@@ -219,6 +244,18 @@ export function QualityNotificationsPage() {
             control, whose own docblock calls it the "canonical app-wide
             pagination control. ONE style everywhere"; this page had drifted from
             it. Same component and props the Audit Trail page uses. */}
+        {editRow && (
+          <SuperAdminRecordEditDialog
+            open
+            title={`Edit ${editRow.qnn}`}
+            fields={qnnFields}
+            initial={{ qnn: editRow.qnn, action: editRow.action, ahuName: editRow.ahuName ?? '', message: editRow.message ?? '', performedBy: editRow.performedBy ?? '', createdAt: editRow.createdAt }}
+            onSave={saveQnn}
+            onSaved={() => { toast.success('Quality notification updated', 'Recorded in the audit trail'); refetch(); }}
+            onClose={() => setEditRow(null)}
+          />
+        )}
+
         {total > 0 && (
           <div className="px-6 py-3 border-t border-slate-200 bg-white shrink-0">
             <Pagination

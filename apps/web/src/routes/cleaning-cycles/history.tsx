@@ -18,6 +18,8 @@ import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 import { STATUS_LABELS } from '../filter-management/filter-list/constants';
 import { CycleDetailView } from './cycle-detail-view';
+import { SuperAdminEditButton, useIsSuperAdmin } from '@/components/super-admin-record-edit';
+import { SuperAdminCycleEditDialog } from '@/components/super-admin-cycle-edit';
 import type { CleaningCycle, FilterInstance, PaginatedResponse } from '../../types/filter';
 // Stage/dryer logic + column order live in a shared module so this list and the
 // Filter Lifecycle Report (filter-lifecycle.tsx) can never drift. See that file
@@ -92,6 +94,10 @@ export function CleaningCycleHistoryPage() {
   // Manual status update opened in the detail dialog (manual rows have no cycle
   // page to navigate to, so View opens an in-place summary instead).
   const [manualView, setManualView] = useState<any | null>(null);
+  // SUPER_ADMIN edit (2026-09-05): a cycle row edits the cycle + its stage
+  // events; a manual status update row edits that single event.
+  const isSuperAdmin = useIsSuperAdmin();
+  const [saEdit, setSaEdit] = useState<{ cycle: any | null; events: any[]; title: string } | null>(null);
 
   // A-01 Wave 5 (2026-05-29): migrated off /api/assets/instances +
   // /api/assets/templates to /api/hierarchy/filters (typed-table read).
@@ -499,10 +505,13 @@ export function CleaningCycleHistoryPage() {
                         <span className={`inline-flex items-center px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap border ${mInfo.color}`}>{mInfo.label}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <button onClick={() => setManualView(c)}
-                          className="text-[12px] font-semibold text-cyan-600 hover:text-cyan-700 px-3 py-1.5 rounded-lg hover:bg-cyan-50 transition-colors opacity-60 group-hover:opacity-100">
-                          View
-                        </button>
+                        <span className="inline-flex items-center gap-1">
+                          {isSuperAdmin && <SuperAdminEditButton onClick={() => setSaEdit({ cycle: null, events: [c], title: `Edit manual status update - ${c.filterName ?? ''}` })} />}
+                          <button onClick={() => setManualView(c)}
+                            className="text-[12px] font-semibold text-cyan-600 hover:text-cyan-700 px-3 py-1.5 rounded-lg hover:bg-cyan-50 transition-colors opacity-60 group-hover:opacity-100">
+                            View
+                          </button>
+                        </span>
                       </td>
                     </tr>
                   );
@@ -583,10 +592,13 @@ export function CleaningCycleHistoryPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <button onClick={() => navigate(`/cleaning-cycles/${c.id}`)}
-                        className="text-[12px] font-semibold text-cyan-600 hover:text-cyan-700 px-3 py-1.5 rounded-lg hover:bg-cyan-50 transition-colors opacity-60 group-hover:opacity-100">
-                        View
-                      </button>
+                      <span className="inline-flex items-center gap-1">
+                        {isSuperAdmin && <SuperAdminEditButton onClick={() => setSaEdit({ cycle: c, events: c.events ?? [], title: `Edit cleaning record - ${c.filterName ?? ''}` })} />}
+                        <button onClick={() => navigate(`/cleaning-cycles/${c.id}`)}
+                          className="text-[12px] font-semibold text-cyan-600 hover:text-cyan-700 px-3 py-1.5 rounded-lg hover:bg-cyan-50 transition-colors opacity-60 group-hover:opacity-100">
+                          View
+                        </button>
+                      </span>
                     </td>
                   </tr>
                 );
@@ -608,6 +620,11 @@ export function CleaningCycleHistoryPage() {
             pageSizeOptions={paginationOptions}
           />
         </div>
+      )}
+
+      {saEdit && (
+        <SuperAdminCycleEditDialog cycle={saEdit.cycle} events={saEdit.events} title={saEdit.title}
+          onClose={() => setSaEdit(null)} onSaved={() => toast.success('Record updated', 'Written to the database and recorded in the audit trail')} />
       )}
 
       {/* Manual status update — shown through the SAME detail view as a cleaning

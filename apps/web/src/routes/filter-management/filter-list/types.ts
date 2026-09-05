@@ -14,6 +14,13 @@ export type EditFilterRef = {
   micronSize?: string;
   filterSize?: string;
   lastCleaningDate?: string | null;
+  // SUPER_ADMIN edit (2026-09-05): hierarchy position, cleaning status, tag.
+  blockId?: string | null;
+  areaId?: string | null;
+  ahuId?: string | null;
+  currentState?: string | null;
+  status?: string;
+  rfid?: string;
 };
 export type HierarchyNode = { id: string; name: string; entityType: string };
 export type CreateDialogState = { type: 'block' | 'area' | 'ahu'; parentId?: string; parentName?: string };

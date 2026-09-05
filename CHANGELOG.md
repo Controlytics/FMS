@@ -1,5 +1,110 @@
 # Changelog
 
+## [Unreleased] - SUPER_ADMIN edits any record from six user-facing pages (2026-09-05)
+
+Operator request. A SUPER_ADMIN now sees an Edit action on the RFID Track
+Record, Filters, Admin Requests, Notifications, Retirement List and Replacement
+List pages. Every save goes through the API to the tables that actually hold
+the data, under the Filter Data Management console's rules: `requireRole
+('SUPER_ADMIN')`, SUPER_ADMIN_DATA_EDIT re-authentication, a change reason of at
+least 5 characters, and an audit row per edit (MANUAL_RECORD_UPDATED, or an
+AUDIT_RECORD_UPDATED meta-row written FIRST when the record IS an audit row).
+Reference values are dropdowns: Area, AHU, Filter, Set, Status, Event, User,
+type/status enums.
+
+- **RFID Track Record** (`PUT /api/super-admin/filter-data/rfid-events/:id`,
+  new). A row is an ASSET_IDENTIFIER_CREATED / _DELETED audit row. Date & time,
+  Event (Assigned / Removed), RFID number, Filter (AHU narrows the list), User
+  and Remarks are editable. **The live tag is corrected too** (operator
+  decision), but only when the edited row is the tag number's LATEST event -
+  editing an older Assigned row must never re-assign a tag that was removed
+  later. Conflicts (number live on another filter, target filter already
+  tagged) are refused with 409. Rule and payload placement live in
+  `super-admin/rfid-event-edit.ts`, pure and unit-tested (14 cases).
+- **Filters page** (`PUT /api/super-admin/filter-data/filters/:id`, new). The
+  existing Edit dialog gains, for a SUPER_ADMIN only: Area / AHU cascade,
+  Status, RFID tag, a "None" set option and the mandatory reason. Name / field
+  values / set go through `filterService.update` (option-list validation, mirror
+  kept in step); an AHU move writes `filters.ahu_id` (the trigger mirrors
+  `parent_id`) and swaps the CONTAINS / CONTAINED_IN relationship pair; Status
+  goes through `instanceService.changeLifecycleState`, so the cleaning-profile
+  sequence rule and the cleaning-reason requirement apply exactly as on Update
+  Status; the RFID change removes and re-assigns through `identifierService`,
+  so both steps appear on the RFID Track Record. Last cleaned edits the manual
+  seed (`attributes.lastCleaningDate`); a later completed cycle still wins in
+  the column, as before.
+- **Retirement List**: `PUT /filter-data/retirements/:id` now also takes
+  `retiredAt`, `retiredBy` (username) and `remarks`, which live on the
+  FILTER_RETIRED audit row (meta-row first, `chainBroken: true`).
+- **Replacement List / Admin Requests / Notifications** reuse the console's
+  existing PUTs. The notification list now returns `targetUserId / forUserId /
+  forRole / createdBy` (the response schema had been dropping them) and the PUT
+  accepts `createdAt`.
+- One shared dialog, `components/super-admin-record-edit.tsx`, for all six
+  pages: sends only the fields that changed, owns the re-auth prompt, prints
+  the hash-chain warning for audit-row records. `useIsSuperAdmin` resolves the
+  user without `useNavigate` so page unit tests render without a Router.
+- The RFID Track Record rows now carry `id`, `filterId`, `ahuId`, `userId`.
+
+**Same day, five more pages** (operator request): Cleaning Record, the cycle
+View page, the Filter Lifecycle Report (expanded cycle), Deviations and
+Quality Notifications.
+- A cleaning record is a cycle row PLUS its `filter_events` rows, so one new
+  dialog (`components/super-admin-cycle-edit.tsx`) edits both: status, times,
+  reason and dryer fields on the cycle; from/to state, time, performer,
+  remarks and every instrument reading value on each stage event. It saves
+  through the console's existing `PUT /data/cleaning-cycles/:id` and
+  `PUT /data/filter-events/:id` with one reason and one re-auth, and only the
+  changed fields. A manual status update row (one event, no cycle) opens the
+  same dialog with the cycle section hidden. Readings keep their instrument
+  identity; only the value moves.
+- **Bug fixed on the way:** the event PUT REPLACED `attributes` wholesale, so
+  the console's cycle dialog (which sends only `{ instrumentReadings }`)
+  silently dropped `action`, `dryerDurationMinutes` and `cleaningReasonKey`
+  off the event - the keys the Cleaning Record columns read. It now merges.
+- Deviations (`PUT /data/deviations/:id`, new): status, AHU, scheduled date,
+  window, overdue days, acknowledged / completed by (user pickers - the server
+  resolves the `*Name` columns from the picked user), times, delay, closure
+  kind and reason. Quality Notifications (`PUT /data/quality-notifications/:id`,
+  new): QNN (unique, 409 on a clash), action, AHU, message, performer, time.
+  A performer that is no longer a user is refused (404), so a row whose
+  original performer was deleted keeps its stored name until a live user is
+  picked.
+
+**Audit Trail page too** (same day): a SUPER_ADMIN pencil on every row that is
+not redacted and not itself a record of an audit change. It reuses the August
+console endpoint `PUT /api/audit/:id` (UPDATE_AUDIT_RECORD re-auth, reason,
+meta-audit row written first, checksums never editable): date & time, action
+(dropdown of every known action), user, role, target type / id, signature
+meaning. The before/after payloads stay non-editable here; Redact remains the
+way to mask one. The audit list now returns `userName` so the picker can
+prefill. Verified in the browser: dialog opens on a LOGIN_SUCCESS row, the
+save rewrites the row with an AUDIT_RECORD_UPDATED row carrying the typed
+reason, then reverted; a MANAGER sees no pencil; a meta-audit row edit is
+refused with 409 META_AUDIT_IMMUTABLE.
+
+Verified live (19 more API checks): ADMIN 403s, deviation + QNN edits with
+the list endpoints reflecting them, the reading-value edit keeping the other
+attribute keys, a cycle field edit visible on the Cleaning Record; all
+reverted. Browser: Edit on all five surfaces for SUPER_ADMIN, none for a
+MANAGER; real saves through the cycle editor (reading value, audit row with
+the reason, View page re-rendered) and the QNN dialog.
+
+**Chain break accepted.** Editing an RFID row, a retirement's date / performer
+/ remarks, or a replacement rewrites an `audit_trail` row; `verify-chain`
+reports the chain broken from that row onward, permanently. The operator
+accepted this on 2026-09-05, as for the console in August.
+
+Verified live (34 API checks, all passing): 403 for ADMIN on every new route;
+remarks / filter-move on a live RFID row with the `asset_identifiers` row
+following; attrs + AHU move + tag on a filter with the typed table, the mirror,
+the relationship pair and the track record all updated, then reverted;
+lifecycle WASH_IN (reason required) then completed; retirement date / performer
+/ remarks; notification `createdAt` and enum rejection. Browser (headless, as
+SUPER_ADMIN and as a temporary ADMIN): Edit present on the SA pages, absent for
+ADMIN; one real save through the Notifications dialog with the typed reason
+landing on the audit row.
+
 ## [Unreleased] - Dry In: multi-select duration + temperature, auto-fetch at half time (2026-09-04)
 
 Operator request. At Dry In the queue rows carry checkboxes and ONE "Dryer duration
@@ -25,6 +130,17 @@ Verified live on the desktop (block MUPS, operator account, mock instrument):
 both rows fetched at half time, one edited, batch submitted; the event rows hold
 `source: AUTO` and `source: AUTO_OVERRIDDEN`. Tablet queue / duration / partial
 submit verified; the tablet half-time submit was handed to the operator.
+
+**2026-09-05 - tablet OFFLINE verification (no code change).** Driven headless on
+`/m` as the operator with the browser offline: two tags scanned at Dry In, one
+duration, Submit Selected -> two SET_DURATION ops queued and the Currently Drying
+panel counted down from the cached state; at half time both rows became ready, one
+temperature, Submit -> two SUBMIT_READINGS ops (`readingSources: MANUAL`; no fetch
+offline by design). Reconnect drained all four in 4 s; the server anchored
+`dryer_started_at` to the offline time, and the events carry `source: MANUAL`.
+APK rebuilt from this state with a BLANK `VITE_API_URL`, so the tablet keeps
+taking its server address from the Server Address screen - no rebuild on an IP
+change.
 
 ## [Unreleased] - Audit chain: the 3,308 "tampering" rows explained and reported honestly (2026-09-04)
 

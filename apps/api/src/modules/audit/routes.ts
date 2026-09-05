@@ -52,6 +52,9 @@ export default async function auditRoutes(app: FastifyInstance) {
                 properties: {
                   id: { type: 'string' },
                   userId: { type: 'string', nullable: true },
+                  // 2026-09-05: the Audit Trail page's SUPER_ADMIN edit prefills
+                  // the performer from it (PUT /:id edits userName, not userId).
+                  userName: { type: 'string', nullable: true },
                   userRole: { type: 'string', nullable: true },
                   action: { type: 'string' },
                   targetType: { type: 'string', nullable: true },
