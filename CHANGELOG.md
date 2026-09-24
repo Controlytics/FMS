@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased] - Date & Time format applies everywhere (2026-09-24)
+
+Operator: "in some screens the date and time format is different; what is
+selected under Configuration → Date & Time Format should come in the entire
+application". Sweep of every place that rendered a date on its own instead of
+through the configured formatter (`useDatetimeFormat` on the web,
+`lib/format-datetime.ts` on the API):
+
+- **Hook gains `formatDayMonth(value)`** — day + month in the configured
+  order / separator / timezone with the year stripped (`stripYear`, 3 tests),
+  for lines that cannot afford a year. Never hand-roll "DD/MM" again: under
+  MM/DD/YYYY it silently disagrees with the column next to it.
+- **Fixed on the web:** dashboard daily-cycles axis (was `en` "Sep 24");
+  tablet home header (was a hardcoded "WED, 24 SEP", now weekday + configured
+  day/month); Deviations window range "15/06-25/06" (was a hardcoded UTC
+  DD/MM); Replacement Schedule upload preview date (raw cell); PM Schedules
+  "created for …" / "change to …" toasts and the overwrite confirm, which
+  echoed the raw `<input type=date>` value (`showInputDate`). Hook default
+  `timeFormat` aligned to the config def default (12-hour) so the first paint
+  before the config arrives matches the API's fallback.
+- **Fixed on the API:** PM Schedule and Replacement Schedule `.xlsx` exports
+  wrote raw UTC ISO (`2026-04-15`, `2026-06-16 07:38`) — now the configured
+  format and timezone (`15/04/2026`, `16/06/2026 13:08`); PM import
+  "already on the schedule" reasons; the missed-PM write-off signature
+  meaning. `format-datetime.ts` gained sync `formatDateWith` /
+  `formatDateTimeWith` for many-row callers (config read once).
+- Left as they are on purpose: filenames and wire params (ISO), `<input>`
+  values, chart MONTH labels ("Sep 26" is not a date format), and the PM
+  upload past-date warning, which quotes the spreadsheet cell as typed.
+
+Verified live: dashboard ticks `26/08`, deviations `15/06-25/06`, tablet
+`THU, 24/09`, both exports; web 839 + 3 tests, API 393 tests, tsc clean.
+
 ## [Unreleased] - Filters page: review / approve from the row, with the details in front of the decider (2026-09-24)
 
 Operator request. The filter creation workflow (2026-09-04) put its Review /

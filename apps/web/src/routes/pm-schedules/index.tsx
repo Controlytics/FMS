@@ -17,7 +17,7 @@ import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
 import { logReportExportOrWarn } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
-import { isoToDateInput } from '@/lib/datetime-input';
+import { isoToDateInput, startOfDayIso } from '@/lib/datetime-input';
 import { apiUrl } from '@/lib/url-utils';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
@@ -89,6 +89,9 @@ export function PmScheduleListPage() {
   const exportLimit = useExportLimit();
   const { formatDate, formatDateTime, config: datetimeConfig } = useDatetimeFormat();
   const datetimeTz = datetimeConfig.timezone;
+  // A <input type=date> value is a bare YYYY-MM-DD; show it back to the user in
+  // the configured date format, not the wire format.
+  const showInputDate = (d: string) => (d ? formatDate(startOfDayIso(d, datetimeTz)) || d : d);
   const [exporting, setExporting] = useState(false);
   const reauth = useReauth();
   // Runtime-facing PM settings; the admin /api/config/dynamic/pm-schedule-settings
@@ -504,7 +507,7 @@ export function PmScheduleListPage() {
       },
       {
         onSuccess: () => {
-          toast.success('Created', `PM schedule created for ${createForm.plannedDate}`);
+          toast.success('Created', `PM schedule created for ${showInputDate(createForm.plannedDate)}`);
           resetCreate();
           refreshAll();
         },
@@ -531,7 +534,7 @@ export function PmScheduleListPage() {
       },
       {
         onSuccess: () => {
-          toast.success('Sent for review', `Change to ${createForm.plannedDate} submitted for review & approval. The current date stays active until approved.`);
+          toast.success('Sent for review', `Change to ${showInputDate(createForm.plannedDate)} submitted for review & approval. The current date stays active until approved.`);
           setOverwriteConfirm(null);
           resetCreate();
           refreshAll();
@@ -1248,7 +1251,7 @@ export function PmScheduleListPage() {
                   <p className="text-sm text-slate-600">
                     <span className="font-semibold">{overwriteConfirm.ahuName}</span> has an approved PM
                     schedule for {overwriteConfirm.year} (planned {overwriteConfirm.existingDate}).
-                    Overwrite it with <span className="font-semibold">{createForm.plannedDate}</span>?
+                    Overwrite it with <span className="font-semibold">{showInputDate(createForm.plannedDate)}</span>?
                   </p>
                   <p className="text-xs text-slate-400">
                     The change goes to review → approval (a QNN is raised). The current date stays

@@ -6,11 +6,27 @@ interface DatetimeConfig {
   timezone: string;
 }
 
+// Matches datetime.def.ts (and the API's format-datetime.ts) defaults. Only
+// used for the first paint before /api/config/datetime/current arrives.
 const defaultConfig: DatetimeConfig = {
   dateFormat: 'DD/MM/YYYY',
-  timeFormat: '24-hour',
+  timeFormat: '12-hour',
   timezone: 'Asia/Kolkata',
 };
+
+// Drop the year from a date already rendered by formatDateValue, keeping the
+// configured day/month ORDER and separator. Used where a line cannot afford
+// the year (chart axes, the tablet header, a "15/06-25/06" window range).
+export function stripYear(formatted: string, dateFormat: string): string {
+  switch (dateFormat) {
+    case 'YYYY-MM-DD': return formatted.replace(/^\d{4}-/, '');
+    case 'DD-MMM-YYYY': return formatted.replace(/-\d{4}$/, '');
+    case 'MMM DD, YYYY': return formatted.replace(/,\s*\d{4}$/, '');
+    case 'MM/DD/YYYY':
+    case 'DD/MM/YYYY':
+    default: return formatted.replace(/\/\d{4}$/, '');
+  }
+}
 
 function formatDateValue(date: Date, dateFormat: string, timezone: string): string {
   try {
@@ -94,5 +110,14 @@ export function useDatetimeFormat() {
     return null;
   };
 
-  return { formatDate, formatTime, formatDateTime, formatIfDate, config };
+  // Day + month only, in the configured order/separator/timezone (no year).
+  // Never hand-roll "DD/MM" at a call site: the operator may have picked
+  // MM/DD/YYYY, and a hardcoded order silently disagrees with every other
+  // screen. Returns '' for an invalid value, like the other formatters.
+  const formatDayMonth = (value: string | Date): string => {
+    const full = formatDate(value);
+    return full ? stripYear(full, config.dateFormat) : '';
+  };
+
+  return { formatDate, formatTime, formatDateTime, formatIfDate, formatDayMonth, config };
 }

@@ -8,17 +8,20 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { checkPmEnabled } from './pm-shared.js';
 import { neutralizeRow } from '../../lib/spreadsheet-safe.js';
+import { getDatetimeConfig, formatDateWith, formatDateTimeWith } from '../../lib/format-datetime.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending', PENDING_REVIEW: 'To Review', PENDING_APPROVAL: 'To Approve',
   APPROVED: 'Approved', REJECTED: 'Rejected',
 };
-const fmt = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-const fmtDT = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 16).replace('T', ' ') : '');
-
 export async function exportEntriesXlsx(_ctx: RequestContext, year: number): Promise<Buffer> {
   await checkPmEnabled();
+  // Dates in the configured format + timezone (Config → Date & Time), not raw
+  // UTC ISO — the sheet must read like the page it was exported from.
+  const dtCfg = await getDatetimeConfig();
+  const fmt = (d: Date | null | undefined) => formatDateWith(dtCfg, d);
+  const fmtDT = (d: Date | null | undefined) => formatDateTimeWith(dtCfg, d);
 
   const entries = await prisma.pmScheduleEntry.findMany({
     where: { schedule: { status: 'ACTIVE', year } },

@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { resolvePmReasonKeys } from './pm-shared.js';
+import { formatConfiguredDate } from '../../lib/format-datetime.js';
 
 /**
  * "An earlier scheduled PM for this AHU was never done" — detection and write-off
@@ -193,7 +194,7 @@ export async function applyPmSkips(
       },
       reason,
       signatureMeaning:
-        `Scheduled PM for "${task.ahuName}" on ${task.plannedDate.toISOString().slice(0, 10)} ` +
+        `Scheduled PM for "${task.ahuName}" on ${await formatConfiguredDate(task.plannedDate)} ` +
         `was NOT performed; written off with a reason at cleaning start`,
       ipAddress: actor.ipAddress,
       userAgent: actor.userAgent,

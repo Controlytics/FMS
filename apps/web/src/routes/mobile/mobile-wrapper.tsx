@@ -119,7 +119,7 @@ function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: stri
 
 export function MobileWrapperPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
-  const { formatTime, formatDate, formatDateTime, config: datetimeConfig } = useDatetimeFormat();
+  const { formatTime, formatDate, formatDateTime, formatDayMonth, config: datetimeConfig } = useDatetimeFormat();
   // W2: mobile entry point bypasses AppLayout, so wire the offline-cache
   // config bootstrap here too. The hook is a no-op when the user isn't
   // authenticated yet (SWR doesn't fire on null key inside it).
@@ -1164,7 +1164,8 @@ export function MobileWrapperPage() {
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  <div className="font-mono-tab text-[10px] text-slate-500 leading-none">{new Date().toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short', timeZone: datetimeConfig.timezone }).toUpperCase()}</div>
+                  <div className="font-mono-tab text-[10px] text-slate-500 leading-none">{/* Weekday is not a date-format choice; the day+month part follows Config → Date & Time. */}
+                    {`${new Date().toLocaleDateString('en-US', { weekday: 'short', timeZone: datetimeConfig.timezone })}, ${formatDayMonth(new Date())}`.toUpperCase()}</div>
                   <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-900 text-white text-[10px] font-medium tracking-wide">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                     {user?.role?.replace('_', ' ') ?? 'OPERATOR'}

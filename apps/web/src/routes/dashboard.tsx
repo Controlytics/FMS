@@ -396,6 +396,7 @@ function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value
 }
 
 function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: string) => boolean }) {
+  const { formatDayMonth } = useDatetimeFormat();
   const {
     stageCounts = {}, statusCounts = {}, dailyCycles = [], monthlyCycles = [], totalFilters = 0, activeCycles = 0, completedToday = 0,
     filterSetCounts = {}, filterStatusCounts = {}, cleaningReasons = [], filterTypeCounts = [], micronCounts = [],
@@ -415,11 +416,12 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
   const openDrill = (dimension: string, item: { label: string; key?: string }) =>
     setDrill({ dimension, value: item.key ?? item.label, title: `Filters · ${item.label}` });
 
-  // Format daily labels as short day
+  // Daily axis labels: day + month in the CONFIGURED order (no year — the axis
+  // cannot afford it), so the chart agrees with every table on the page.
   const dailyFormatted = useMemo(() => dailyCycles.map((d: any) => ({
     ...d,
-    label: new Date(d.day).toLocaleDateString('en', { month: 'short', day: 'numeric' }),
-  })), [dailyCycles]);
+    label: formatDayMonth(d.day),
+  })), [dailyCycles, formatDayMonth]);
 
   // Format monthly labels
   const monthlyFormatted = useMemo(() => monthlyCycles.map((d: any) => ({

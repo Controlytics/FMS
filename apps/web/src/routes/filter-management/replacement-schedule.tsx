@@ -451,7 +451,7 @@ export function ReplacementSchedulePage() {
                             {firstOfAhu && <td rowSpan={ahuSpan} className="text-center text-slate-500 font-medium align-top bg-slate-50/50">{ahuOrdinal}</td>}
                             {firstOfAhu && <td rowSpan={ahuSpan} className="font-medium text-slate-800 align-top bg-slate-50/50 border-l-2 border-teal-100">{r.ahuName}</td>}
                             {firstOfMicron && <td rowSpan={micronSpan} className="text-center text-slate-700 font-medium align-top bg-slate-50/30">{r.filterMicron}</td>}
-                            <td>{r.filterSize}</td><td>{r.qty}</td><td>{r.scheduleDate}</td><td className="text-center">{r.toleranceDays}</td>
+                            <td>{r.filterSize}</td><td>{r.qty}</td><td>{formatDate(r.scheduleDate) || r.scheduleDate}</td><td className="text-center">{r.toleranceDays}</td>
                           </tr>
                         ))}
                       </tbody>

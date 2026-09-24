@@ -89,7 +89,7 @@ export function DeviationsPage() {
   const can = useCan();
   const { toast } = useToast();
   const exportLimit = useExportLimit();
-  const { formatDate, formatDateTime } = useDatetimeFormat();
+  const { formatDate, formatDateTime, formatDayMonth } = useDatetimeFormat();
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -153,10 +153,9 @@ export function DeviationsPage() {
    * older rows, so it is mirrored from windowEnd when missing.
    */
   const MS_DAY = 86400000;
-  const shortDay = (iso: string) => {
-    const dt = new Date(iso);
-    return `${String(dt.getUTCDate()).padStart(2, '0')}/${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
-  };
+  // Day + month in the configured order/timezone (was a hardcoded UTC "DD/MM",
+  // which disagreed with the Scheduled column above it under MM/DD/YYYY).
+  const shortDay = (iso: string) => formatDayMonth(iso);
   const toleranceOf = (d: DeviationRow) =>
     Math.round((new Date(d.windowEnd).getTime() - new Date(d.scheduledDate).getTime()) / MS_DAY);
   // Two short pieces rather than one string: at 7.5pt the PDF's Scheduled column

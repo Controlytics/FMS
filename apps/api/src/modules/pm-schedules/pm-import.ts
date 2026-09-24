@@ -19,6 +19,7 @@ import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag } from './pm-workflow.js';
 import { checkSeparation } from './pm-separation.js';
+import { getDatetimeConfig, formatDateWith } from '../../lib/format-datetime.js';
 
 interface ParsedRow {
   rowNum: number;
@@ -71,6 +72,9 @@ export async function evaluateGuards(
 }
 
 export async function importSchedules(ctx: RequestContext, rows: Array<Record<string, any>>) {
+  // Dates quoted back to the operator (skipped-row reasons) follow Config →
+  // Date & Time, like the page they read them on. Read once, format per row.
+  const dtCfg = await getDatetimeConfig();
   await checkPmEnabled();
 
   // Load default tolerance from config
@@ -258,7 +262,7 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
       for (const p of alreadyScheduled) {
         skipped.push({
           row: p.rowNum,
-          reason: `AHU "${ahu.name}": ${p.plannedDate.toISOString().slice(0, 10)} is already on the ${year} schedule — left unchanged.`,
+          reason: `AHU "${ahu.name}": ${formatDateWith(dtCfg, p.plannedDate)} is already on the ${year} schedule — left unchanged.`,
           data: p.raw,
         });
       }

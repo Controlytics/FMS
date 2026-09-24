@@ -66,6 +66,27 @@ export async function getDatetimeConfig(): Promise<DatetimeConfig> {
   }
 }
 
+/**
+ * Synchronous variants for callers that format MANY values (Excel exports,
+ * import result lists): read the config once with getDatetimeConfig(), then
+ * format each row without a DB round-trip. Same output as the async pair.
+ */
+export function formatDateWith(cfg: DatetimeConfig, value: Date | string | null | undefined): string {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return '';
+  try { return formatDateValue(date, cfg.dateFormat, cfg.timezone); }
+  catch { return formatDateValue(date, cfg.dateFormat, 'UTC'); }
+}
+
+export function formatDateTimeWith(cfg: DatetimeConfig, value: Date | string | null | undefined): string {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return '';
+  try { return `${formatDateValue(date, cfg.dateFormat, cfg.timezone)} ${formatTimeValue(date, cfg.timeFormat, cfg.timezone)}`; }
+  catch { return `${formatDateValue(date, cfg.dateFormat, 'UTC')} ${formatTimeValue(date, cfg.timeFormat, 'UTC')}`; }
+}
+
 /** "DD/MM/YYYY hh:mm AM" in the configured timezone (IST by default). */
 export async function formatConfiguredDateTime(value: Date | string): Promise<string> {
   const date = value instanceof Date ? value : new Date(value);

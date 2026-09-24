@@ -2,15 +2,19 @@
 import ExcelJS from 'exceljs';
 import { prisma } from '../../lib/prisma.js';
 import { neutralizeRow } from '../../lib/spreadsheet-safe.js';
+import { getDatetimeConfig, formatDateWith, formatDateTimeWith } from '../../lib/format-datetime.js';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending', PENDING_REVIEW: 'To Review', PENDING_APPROVAL: 'To Approve',
   APPROVED: 'Approved', REJECTED: 'Rejected',
 };
-const fmt = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-const fmtDT = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 16).replace('T', ' ') : '');
 
 export async function exportEntriesXlsx(): Promise<Buffer> {
+  // Dates in the configured format + timezone (Config → Date & Time), not raw
+  // UTC ISO — the sheet must read like the page it was exported from.
+  const dtCfg = await getDatetimeConfig();
+  const fmt = (d: Date | null | undefined) => formatDateWith(dtCfg, d);
+  const fmtDT = (d: Date | null | undefined) => formatDateTimeWith(dtCfg, d);
   const entries = await prisma.replacementScheduleEntry.findMany({
     include: { schedule: true },
     orderBy: [{ scheduleDate: 'asc' }, { slNo: 'asc' }],
