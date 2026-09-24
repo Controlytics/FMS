@@ -88,6 +88,14 @@ EXCLUDE from lists (must not throw):
 - [x] F6 — The operability gate (every path listed above)
 - [x] F7 — Permissions: `FILTER_REVIEW` / `FILTER_APPROVE` + tree nodes, and grant them per `Role privileges.docx` (review → MANAGER, approve → QA)
 - [x] F8 — status badge + Review / Approve / Reject buttons on the Filters page bulk bar
+  - **Superseded 2026-09-24 (operator request):** the bulk-bar buttons were removed.
+    The step is taken from the ROW (Review / Approve beside the badge, offered
+    only to the owning role, in sequence) inside a details popup
+    (`dialogs/FilterApprovalDialog.tsx`); Reject lives in that popup with a
+    mandatory reason. A pending filter has no checkbox and no other controls.
+    REJECTED rows offer Edit / Delete / **Resubmit** (previously unreachable
+    from the UI). Rule: `filter-list/lib/workflow-row-actions.ts` (+ tests).
+    See CHANGELOG 2026-09-24.
 - [x] F9 — Tests, doc sync (counts change), CHANGELOG, memory
 
 ## Closed

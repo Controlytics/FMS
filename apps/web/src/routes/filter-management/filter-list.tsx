@@ -38,6 +38,10 @@ import { HierarchyDeleteDialog } from './filter-list/dialogs/HierarchyDeleteDial
 import { EditFilterDialog } from './filter-list/dialogs/EditFilterDialog';
 import { DeleteFilterDialog } from './filter-list/dialogs/DeleteFilterDialog';
 import { BulkUploadDialog } from './filter-list/dialogs/BulkUploadDialog';
+import { FilterApprovalDialog, type ApprovalDialogMode } from './filter-list/dialogs/FilterApprovalDialog';
+import { FilterBulkApprovalDialog, type BulkMode } from './filter-list/dialogs/FilterBulkApprovalDialog';
+import { workflowRowActions } from './filter-list/lib/workflow-row-actions';
+import { pendingWorkflowSteps } from './filter-list/lib/pending-workflow-steps';
 import { findMissingRequiredAttributes } from './filter-list/lib/validate-template-attributes';
 import { apiUrl } from '@/lib/url-utils';
 import { downloadName } from '@/lib/download-name';
@@ -61,6 +65,10 @@ const APPROVAL_BADGE: Record<string, { label: string; cls: string; title: string
     title: 'Rejected. Correct it and resubmit before it can be used.',
   },
 };
+
+// Permission-free probe for the selection rule: `selectable` depends only on
+// the status, so any perms give the same answer.
+const WF_NO_PERMS = { canReview: false, canApprove: false, canEdit: false, canDelete: false, canSubmit: false };
 
 
 // A-01 T2.2: flatten the typed /api/hierarchy/tree (blocks → areas → ahus →
@@ -685,7 +693,10 @@ export function FilterListPage() {
     });
   };
 
-  const selectableFilters = blockFilters.filter(f => f.currentState !== 'RETIRED');
+  // A filter still in the creation workflow has no bulk checkbox (2026-09-24):
+  // it offers its details and its next workflow step, nothing else. Same rule
+  // as the per-row cluster — see workflowRowActions.
+  const selectableFilters = blockFilters.filter(f => f.currentState !== 'RETIRED' && workflowRowActions(f.approvalStatus, WF_NO_PERMS).selectable);
   const allSelected = selectableFilters.length > 0 && selectableFilters.every(f => selectedFilterIds.has(f.id));
 
   // The filters a bulk action will actually touch: the selection Set narrowed to
@@ -709,26 +720,50 @@ export function FilterListPage() {
     }
   };
 
-  // ── Filter creation workflow decisions (2026-09-04) ────────────────────────
+  // ── Filter creation workflow decisions (2026-09-04; redesigned 2026-09-24) ──
   //
-  // The endpoints take an ARRAY of ids, so one click clears a whole bulk upload.
-  // They are all-or-nothing on purpose: the server refuses the batch if ANY
-  // selected filter is in the wrong state and names the offenders, rather than
-  // half-applying and leaving the operator to work out which of 200 moved.
-  //
-  // Only filters actually IN the workflow are sent — selecting a mix of pending
-  // and already-approved rows is normal, and would otherwise 409 the whole call.
-  const workflowSelection = (states: string[]) =>
-    visibleSelectedFilters.filter((f: any) => states.includes(f.approvalStatus));
+  // One filter at a time, from the row, with its details in front of the
+  // decider (FilterApprovalDialog). The endpoints still take an ARRAY of ids —
+  // the bulk-bar buttons that used to send a whole selection were removed on
+  // the operator's request: a review taken without looking at the record is
+  // not a review. Sending a one-element array keeps the server unchanged.
+  const [approvalDialog, setApprovalDialog] = useState<{ filter: any; mode: ApprovalDialogMode } | null>(null);
+  // Bulk step over every filter of the block waiting on the viewer (a bulk
+  // upload creates up to 200 at once). Same endpoints, one array of ids.
+  const [bulkApprovalMode, setBulkApprovalMode] = useState<BulkMode | null>(null);
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+
+  const openApprovalDialog = (f: any, mode: ApprovalDialogMode) => {
+    closePanel(); closeStatusPanel(); closeRfidPanel();
+    setApprovalDialog({ filter: f, mode });
+  };
+
+  // What the viewer can bulk-act on in THIS block (search / diagram narrowing
+  // included, so the count on the button is the count in the popup).
+  const pendingSteps = useMemo(
+    () => pendingWorkflowSteps(blockFilters, { canReview: canReviewFilters, canApprove: canApproveFilters }),
+    [blockFilters, canReviewFilters, canApproveFilters],
+  );
+  const bulkTargets = bulkApprovalMode === 'review' ? pendingSteps.review : bulkApprovalMode === 'approve' ? pendingSteps.approve : [];
+
+  // Row shape the popups read; the list row lacks block name + RFID.
+  const toDialogFilter = (f: any) => ({
+    ...f,
+    blockName: f.blockId ? (instanceMap.get(f.blockId)?.name ?? null) : null,
+    rfid: (identifiersByAsset.get(f.id) ?? []).find((i: any) => i.identifierType === 'RFID')?.identifierValue ?? null,
+  });
 
   const handleWorkflowDecision = (
     kind: 'review' | 'approve' | 'reject',
     ids: string[],
     remarks?: string,
+    label?: string,
   ) => {
     if (ids.length === 0) return;
     const action = kind === 'review' ? 'REVIEW_FILTER' : kind === 'approve' ? 'APPROVE_FILTER' : 'REJECT_FILTER';
     const verb = kind === 'review' ? 'Reviewed' : kind === 'approve' ? 'Approved' : 'Rejected';
+    const subject = ids.length === 1 ? (label ?? approvalDialog?.filter?.name ?? 'Filter') : `${ids.length} filters`;
+    setApprovalSubmitting(true);
     reauth.execute(action, async (password?: string) => {
       const body: Record<string, unknown> = { filterIds: ids, ...(remarks ? { remarks } : {}) };
       const url = `/api/assets/instances/${kind}`;
@@ -736,30 +771,44 @@ export function FilterListPage() {
       else await api.post(url, body);
     }, {
       onSuccess: () => {
-        toast.success(`${ids.length} filter(s) ${verb.toLowerCase()}`,
-          kind === 'approve' ? 'They can now be cleaned.' : undefined);
-        setSelectedFilterIds(new Set());
-        // The badge and the operability gate both read approvalStatus, so the
-        // filter list has to be refetched or the row keeps its old badge.
-        mutate('/api/hierarchy/filters');
+        setApprovalSubmitting(false);
+        setApprovalDialog(null);
+        setBulkApprovalMode(null);
+        toast.success(`${subject} ${verb.toLowerCase()}`,
+          kind === 'review' ? 'Sent for approval.'
+            : kind === 'approve' ? (ids.length === 1 ? 'It can now be cleaned.' : 'They can now be cleaned.')
+              : (ids.length === 1
+                ? 'It stays in the list as Rejected until corrected and resubmitted.'
+                : 'They stay in the list as Rejected until corrected and resubmitted.'));
+        // The badge, the row's action cluster and the operability gate all read
+        // approvalStatus, which arrives with /api/hierarchy/tree — the key this
+        // page actually reads. (It used to revalidate /api/hierarchy/filters,
+        // which nothing on this page subscribes to, so the row kept its old
+        // badge until the 30 s poll.)
+        mutate('/api/hierarchy/tree');
+        mutate('/api/assets/instances/pending-approval');
+        for (const id of ids) mutate(`/api/assets/instances/${id}`);
       },
-      onError: (e: any) => toast.error(`${verb} failed`, e?.message ?? 'Unknown error'),
+      onError: (e: any) => {
+        setApprovalSubmitting(false);
+        toast.error(`${verb} failed`, e?.message ?? 'Unknown error');
+      },
+      // A cancelled re-auth is not an error: the popup stays open, unlocked.
+      onCancel: () => setApprovalSubmitting(false),
     });
   };
 
-  const promptRejectFilters = () => {
-    const targets = workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']);
-    if (targets.length === 0) return;
-    // A rejection reason is mandatory server-side (21 CFR §11: a refusal has to
-    // say why). Asking here avoids a guaranteed round-trip failure.
-    const remarks = window.prompt(
-      `Reject ${targets.length} filter(s)? They stay in the list as Rejected so they can be corrected and resubmitted.\n\nReason (required):`);
-    if (remarks === null) return;
-    if (!remarks.trim()) {
-      toast.error('Reason required', 'A rejection must record why.');
-      return;
+  // REJECTED → PENDING_REVIEW. Corrected values go through the normal Edit
+  // dialog first; this only moves the state (no reauth on the endpoint).
+  const handleResubmitFilter = async (f: any) => {
+    try {
+      await api.post(`/api/assets/instances/${f.id}/resubmit`, {});
+      toast.success(`${f.name} resubmitted`, 'It is back in Pending Review.');
+      mutate('/api/hierarchy/tree');
+      mutate(`/api/assets/instances/${f.id}`);
+    } catch (e: any) {
+      toast.error('Resubmit failed', e?.message ?? 'Unknown error');
     }
-    handleWorkflowDecision('reject', targets.map((f: any) => f.id), remarks.trim());
   };
 
   const openBulkStatusPanel = () => {
@@ -1751,6 +1800,22 @@ export function FilterListPage() {
             </div>
             {/* Action group — Export · Create Filter · Bulk Upload kept adjacent */}
             <div className="flex items-center gap-2">
+              {/* Bulk workflow step: every filter in the block waiting on the
+                  viewer's role, in one popup. Rendered only when there is one. */}
+              {pendingSteps.review.length > 0 && (
+                <button onClick={() => setBulkApprovalMode('review')} title="Review every filter waiting for review in this block"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 shadow-sm transition-all">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  Review ({pendingSteps.review.length})
+                </button>
+              )}
+              {pendingSteps.approve.length > 0 && (
+                <button onClick={() => setBulkApprovalMode('approve')} title="Approve every reviewed filter waiting in this block"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-green-600 hover:bg-green-700 shadow-sm transition-all">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  Approve ({pendingSteps.approve.length})
+                </button>
+              )}
               {blockFilters.length > 0 && (
                 <>
                   {canExport && <ExportMenu surface="filters" onExportPdf={exportFiltersPdf} onExportExcel={exportFiltersExcel}
@@ -1791,31 +1856,10 @@ export function FilterListPage() {
                 )}
               </span>
               <div className="flex items-center gap-2">
-                {/* Workflow decisions. Rendered only when the selection actually
-                    contains filters in that state, so the bar stays clean on a
-                    normal install where the workflow is off and everything is
-                    already APPROVED. */}
-                {canReviewFilters && workflowSelection(['PENDING_REVIEW']).length > 0 && (
-                  <button onClick={() => handleWorkflowDecision('review', workflowSelection(['PENDING_REVIEW']).map((f: any) => f.id))}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition-colors">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    Review ({workflowSelection(['PENDING_REVIEW']).length})
-                  </button>
-                )}
-                {canApproveFilters && workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']).length > 0 && (
-                  <button onClick={() => handleWorkflowDecision('approve', workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']).map((f: any) => f.id))}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                    Approve ({workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']).length})
-                  </button>
-                )}
-                {(canReviewFilters || canApproveFilters) && workflowSelection(['PENDING_REVIEW', 'PENDING_APPROVAL']).length > 0 && (
-                  <button onClick={promptRejectFilters}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-700 text-white text-xs font-semibold rounded-lg hover:bg-rose-800 transition-colors">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    Reject
-                  </button>
-                )}
+                {/* Creation-workflow decisions (Review / Approve / Reject) are
+                    NOT here any more (2026-09-24): a pending filter has no
+                    checkbox, and its step is taken from the row, inside the
+                    details popup. */}
                 {canStatusUpdate && (
                   <button onClick={openBulkStatusPanel} disabled={visibleSelectedFilters.length === 0}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
@@ -1903,10 +1947,17 @@ export function FilterListPage() {
                       const tags = (identifiersByAsset.get(f.id) ?? []).filter((i: any) => i.identifierType === 'RFID');
                       const isSelected = selectedFilterIds.has(f.id);
                       const isRetired = f.currentState === 'RETIRED';
+                      // Creation workflow (2026-09-24): a filter not yet APPROVED
+                      // shows details + its next step only. See workflow-row-actions.ts.
+                      const wf = workflowRowActions(f.approvalStatus, {
+                        canReview: canReviewFilters, canApprove: canApproveFilters,
+                        canEdit: canEditFilter, canDelete: canDeleteFilter,
+                        canSubmit: canCreateFilter || canBulkUpload,
+                      }, { isRetired });
                       return (
                         <tr key={f.id} className={`transition-colors [&>td]:whitespace-nowrap ${isSelected ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50/50'}`}>
                           <td className="w-10 px-2 py-2">
-                            {!isRetired ? (
+                            {wf.selectable ? (
                               <input type="checkbox" checked={isSelected} onChange={() => toggleFilterSelect(f.id)}
                                 className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
                             ) : <div className="w-4 h-4" />}
@@ -1939,10 +1990,37 @@ export function FilterListPage() {
                               <span className="min-w-0 break-words text-sm font-medium text-slate-800" title={f.name}>{f.name}</span>
                             </div>
                             {APPROVAL_BADGE[f.approvalStatus] && (
-                              <span title={APPROVAL_BADGE[f.approvalStatus].title}
-                                className={`mt-1 ml-4 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[f.approvalStatus].cls}`}>
-                                {APPROVAL_BADGE[f.approvalStatus].label}
-                              </span>
+                              <div className="mt-1 ml-4 flex items-center gap-1.5">
+                                <span title={APPROVAL_BADGE[f.approvalStatus].title}
+                                  className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[f.approvalStatus].cls}`}>
+                                  {APPROVAL_BADGE[f.approvalStatus].label}
+                                </span>
+                                {/* The viewer's workflow step sits right beside the
+                                    badge, in the Filter column, so it is on screen
+                                    without scrolling the wide table to the Actions
+                                    column. (Details / Edit / Delete stay there.) */}
+                                {wf.primary === 'review' && (
+                                  <button onClick={() => openApprovalDialog(f, 'review')}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-600 text-white text-[11px] font-semibold hover:bg-amber-700 transition-colors" title="Review this filter">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                    Review
+                                  </button>
+                                )}
+                                {wf.primary === 'approve' && (
+                                  <button onClick={() => openApprovalDialog(f, 'approve')}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-green-600 text-white text-[11px] font-semibold hover:bg-green-700 transition-colors" title="Approve this filter">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                    Approve
+                                  </button>
+                                )}
+                                {wf.showResubmit && (
+                                  <button onClick={() => handleResubmitFilter(f)}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-700 text-white text-[11px] font-semibold hover:bg-slate-800 transition-colors" title="Send this corrected filter back for review">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                    Resubmit
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </td>
                           <td className="px-2 py-2 text-xs text-slate-500">
@@ -1986,7 +2064,38 @@ export function FilterListPage() {
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-end gap-0.5">
-                              {isRetired && isSuperAdmin && (
+                              {!wf.operable && (
+                                <>
+                                  {/* Pending / rejected filter: a Details popup, and
+                                      (rejected only) the creator's Edit / Delete. The
+                                      Review / Approve / Resubmit step is rendered next
+                                      to the status badge in the Filter column. */}
+                                  <button onClick={() => openApprovalDialog(f, 'view')}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors" title="Filter Details">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                  </button>
+                                  {wf.showEdit && (
+                                    <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, filterSize: f.filterSize, lastCleaningDate: f.lastCleaningDate, blockId: f.blockId, areaId: f.areaId, ahuId: f.ahuId, currentState: f.currentState, status: f.status, rfid: (identifiersByAsset.get(f.id) ?? []).find((i: any) => i.identifierType === 'RFID')?.identifierValue ?? '' })}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Correct this rejected filter">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  {wf.showDelete && (
+                                    <button onClick={() => setDeleteFilterDialog({ id: f.id, name: f.name })}
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete Filter">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              {wf.operable && isRetired && isSuperAdmin && (
                                 <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, filterSize: f.filterSize, lastCleaningDate: f.lastCleaningDate, blockId: f.blockId, areaId: f.areaId, ahuId: f.ahuId, currentState: f.currentState, status: f.status, rfid: (identifiersByAsset.get(f.id) ?? []).find((i: any) => i.identifierType === 'RFID')?.identifierValue ?? '' })}
                                   className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Edit Filter (Super Admin)">
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1994,7 +2103,7 @@ export function FilterListPage() {
                                   </svg>
                                 </button>
                               )}
-                              {!isRetired && (
+                              {wf.operable && !isRetired && (
                                 <>
                                   {canEditFilter && (
                                     <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, filterSize: f.filterSize, lastCleaningDate: f.lastCleaningDate, blockId: f.blockId, areaId: f.areaId, ahuId: f.ahuId, currentState: f.currentState, status: f.status, rfid: (identifiersByAsset.get(f.id) ?? []).find((i: any) => i.identifierType === 'RFID')?.identifierValue ?? '' })}
@@ -2087,6 +2196,35 @@ export function FilterListPage() {
           deleting={deletingBlock}
           onCancel={() => setDeleteBlockDialog(null)}
           onConfirm={handleDeleteBlock}
+        />
+      )}
+
+      {/* Filter creation workflow: bulk review / approve over the block */}
+      {bulkApprovalMode && (
+        <FilterBulkApprovalDialog
+          filters={bulkTargets.map(toDialogFilter)}
+          mode={bulkApprovalMode}
+          canReject={canReviewFilters || canApproveFilters}
+          submitting={approvalSubmitting}
+          formatDateTime={formatDateTime}
+          onClose={() => { if (!approvalSubmitting) setBulkApprovalMode(null); }}
+          onViewDetails={(f) => setApprovalDialog({ filter: f, mode: 'view' })}
+          onComplete={(ids, remarks) => handleWorkflowDecision(bulkApprovalMode, ids, remarks || undefined, bulkTargets.find(f => f.id === ids[0])?.name)}
+          onReject={(ids, reason) => handleWorkflowDecision('reject', ids, reason, bulkTargets.find(f => f.id === ids[0])?.name)}
+        />
+      )}
+
+      {/* Filter creation workflow: details / review / approve popup (single) */}
+      {approvalDialog && (
+        <FilterApprovalDialog
+          filter={toDialogFilter(approvalDialog.filter)}
+          mode={approvalDialog.mode}
+          canReject={canReviewFilters || canApproveFilters}
+          submitting={approvalSubmitting}
+          formatDateTime={formatDateTime}
+          onClose={() => { if (!approvalSubmitting) setApprovalDialog(null); }}
+          onComplete={(remarks) => handleWorkflowDecision(approvalDialog.mode === 'review' ? 'review' : 'approve', [approvalDialog.filter.id], remarks || undefined, approvalDialog.filter.name)}
+          onReject={(reason) => handleWorkflowDecision('reject', [approvalDialog.filter.id], reason, approvalDialog.filter.name)}
         />
       )}
 

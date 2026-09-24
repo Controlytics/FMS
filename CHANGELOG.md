@@ -1,5 +1,64 @@
 # Changelog
 
+## [Unreleased] - Filters page: review / approve from the row, with the details in front of the decider (2026-09-24)
+
+Operator request. The filter creation workflow (2026-09-04) put its Review /
+Approve / Reject buttons on the bulk action bar, so they only appeared after
+ticking checkboxes, and a reviewer could clear a whole upload without seeing a
+single record. Redesigned:
+
+- **A filter that is not yet APPROVED shows its details and nothing else.** No
+  edit / delete / status / retire / RFID controls and no bulk checkbox while it
+  is Pending Review or Pending Approval. The rule lives once in
+  `filter-list/lib/workflow-row-actions.ts` (7 tests) and drives both the row
+  cluster and the selection set.
+- **The next step sits on the row, beside the status badge**, offered only to the
+  role that owns it: **Review** on a Pending Review row for `filters.review`
+  (MANAGER), **Approve** on a Pending Approval row for `filters.approve` (QA).
+  The sequence is enforced in the UI as well: an approver sees Details, not
+  Approve, on a row that has not been reviewed yet (the endpoint would accept
+  it; the page does not offer it). Placed in the Filter column on purpose: the
+  Actions column is off-screen at common widths.
+- **Every step opens the same popup** (`dialogs/FilterApprovalDialog.tsx`):
+  location, filter fields, template attributes, RFID, cleaning status, and the
+  workflow history (submitted / reviewed / approved / rejected by whom, when,
+  with remarks) read from `GET /api/assets/instances/:id`. Footer is Cancel +
+  **Complete Review** (→ Pending Approval) or Cancel + **Approve** (→ Approved,
+  the row becomes an ordinary operable row again). **Reject…** is inside the
+  popup for either role, with a mandatory reason. Anyone can open the popup
+  read-only through the eye icon.
+- **Rejected filters** offer the creator (`filters.create` / `filters.bulk_upload`)
+  Edit, Delete and **Resubmit** (→ Pending Review). There was no Resubmit
+  anywhere in the UI before; a rejected filter was a dead end.
+- The bulk-bar Review / Approve / Reject buttons are gone. The endpoints are
+  unchanged and still take an array.
+- **Bulk step for uploads (same day, operator: "bulk review and reject is not
+  happening").** A bulk upload creates up to 200 filters; reviewing them one
+  popup at a time is not usable. The block toolbar now shows **Review (n)** to
+  the reviewer when the block has filters in Pending Review, and **Approve (n)**
+  to the approver when it has reviewed ones (`lib/pending-workflow-steps.ts`,
+  4 tests; sequence kept — an approver's list never holds an unreviewed
+  filter). It opens `dialogs/FilterBulkApprovalDialog.tsx`: a table of every
+  such filter with area, AHU, AHU type, filter type, micron, dimensions, set,
+  RFID, submitted by / at (and reviewed by / at + remarks on the approve step),
+  all rows ticked, an eye icon per row to open the single details popup on
+  top, optional remarks recorded on every ticked filter, **Complete Review (n)**
+  / **Approve (n)**, and **Reject selected (n)…** with ONE mandatory reason for
+  the ticked rows. One request per decision; the server still writes one
+  audit row per filter. Verified headless on an 8-filter upload: review 6 of
+  8, reject the other 2 with one reason, approve the 6 as QA, 18/18 checks.
+- **Fixed while here:** after a decision the page revalidated
+  `/api/hierarchy/filters`, a key nothing on the page subscribes to, so the
+  badge kept its old value until the 30 s poll. It now revalidates
+  `/api/hierarchy/tree`, which is what the list reads.
+
+Verified headless (Playwright, real API + Vite) as MANAGER, QA and superadmin:
+21/21 checks, audit rows `FILTER_REVIEWED` / `FILTER_REJECTED` /
+`FILTER_APPROVED` / `FILTER_RESUBMITTED` written with the popup remarks as
+`reason`; web 834/834, tsc clean. Re-auth did not prompt because
+`REVIEW_FILTER` / `APPROVE_FILTER` / `REJECT_FILTER` are not enabled under
+Config → Action Re-auth in this deployment.
+
 ## [Unreleased] - Stage Approvals: stage details on every request + SUPER_ADMIN edit (2026-09-05)
 
 Operator request. An approver deciding a Wash Out gate now sees what the wash
