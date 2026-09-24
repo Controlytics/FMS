@@ -1,5 +1,57 @@
 # Changelog
 
+## [Unreleased] - Re-auth coverage: every operation has a row, and the row is enforced (2026-09-24)
+
+Operator: "in re-auth configuration so many actions were not added — report
+downloading, tablet operations, … check the entire application; if selected,
+the password must be asked at that operation." Inventory
+(`scratchpad/reauth_inventory.cjs`): 204 mutation routes, **96 with no gate**;
+two catalog rows inert; report downloads never touched a gate at all.
+Plan + decisions: `tasks/REAUTH-COVERAGE-PLAN.md`.
+
+- **Catalog 100 → 127** (`packages/shared`): `EXPORT_*` ×12 (one per report),
+  `STAGE_WASH_IN … STAGE_STORAGE_OUT` ×6, `REQUEST_BLOCK_CHANGE`,
+  `RESUBMIT_FILTER`, `UPLOAD_REPLACEMENT_SCHEDULE`, `SUBMIT_REPORT_REVIEW`,
+  `MANAGE_NOTIFICATION_RULES`, `MANAGE_USER_GROUPS`, `DELETE_NOTIFICATION_LOG`,
+  `MANAGE_DEBUG_TRACES`, `TOGGLE_SUPER_ADMIN_API_ACCESS`. Shared
+  `REPORT_EXPORT_ACTIONS` map + `stageReauthAction()` keep API and web in step.
+- **Report downloads.** PDF/Excel are built client-side, so the gate is the
+  audit write every export makes first (`POST /api/audit/report-export-log`,
+  now `enforceReauth(REPORT_EXPORT_ACTIONS[reportType])`) — the audit row IS
+  the signed act. Web: `requireExportReauth()` in `lib/report-export-log.ts`
+  on all 12 pages; the two server-side `.xlsx` GETs (PM / Replacement
+  schedule) enforce the same rows and reuse the verified password via
+  `x-reauth-password`. A dismissed dialog means no file.
+- **Tablet stations + web Filter Operations.** `/advance`,
+  `/advance-with-checklist` and `/bulk-operate` (per item) now also enforce
+  the station row of the `targetState`; `start-and-advance` forwards the
+  password to its advance half (it did not). `useReauth().execute` /
+  `executeWithResult` accept `string | string[]` (prompt if ANY is on); the
+  five per-filter loops on the web page sign ONCE (`lib/stage-reauth.ts`
+  `signOnce` → `POST /api/auth/verify`) and forward the password per filter.
+- **Config pages.** Every dynamic def has `requiresReauth: true` +
+  `reauthAction` (`UPDATE_CONFIG_PAGE` umbrella; session / datetime /
+  login-security their own rows — the `UPDATE_SESSION_CONFIG` and
+  `UPDATE_DATETIME_CONFIG` rows had been inert because the API derived
+  `UPDATE_SESSION` / `UPDATE_DATETIME`). Five static config routes
+  (export-options, pm-schedule-filters, replacement-schedule-filters,
+  report-labels, report-page-titles) gated on `UPDATE_CONFIG_PAGE`; the
+  manifest now carries `reauthAction` so the page pre-prompts on the right row.
+- **Pages that called gated endpoints with no prompt** (an enabled row was a
+  bare 401): user-id, roles Permissions / Sidebar / Re-auth tabs,
+  role-assignments, report-labels, report-page-titles, export-options,
+  replacement-schedule-filters, notification-rules (+ user groups),
+  notification-logs, debug. All now go through `executeWithResult` and render
+  the new one-line `<ReauthPrompt reauth={reauth} />`.
+- Also gated: block-change request (web + tablet), filter resubmit,
+  replacement-schedule upload, report-review submit, notification rules /
+  user groups / delivery-log delete, debug operation-trace, cleaning-profile
+  toggle-status (`UPDATE_CLEANING_PROFILE`).
+- Not gated on purpose: auth flows, the public "contact admin" request,
+  offline-grant, guest cleaning request, photo upload, mark-read, previews /
+  validators, diagnostics (`*/test`), POST-shaped reads, cron sweeps, and
+  endpoints with no web caller (dashboards, notification templates/send).
+
 ## [Unreleased] - Date & Time format applies everywhere (2026-09-24)
 
 Operator: "in some screens the date and time format is different; what is

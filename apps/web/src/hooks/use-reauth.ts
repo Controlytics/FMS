@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import useSWR from 'swr';
+import { REAUTH_ACTIONS } from '@digilog/shared';
 
 interface ReauthState {
   isOpen: boolean;
@@ -30,6 +31,11 @@ interface ReauthState {
  * with `{ error: 'REAUTH_CANCELLED' }` when onCancel is absent, so a caller
  * cannot hang, but onCancel is the honest shape.
  */
+/** True for the rejection `execute`/`executeWithResult` produce when the operator dismisses the dialog. */
+export function isReauthCancelled(e: unknown): boolean {
+  return (e as { error?: string } | null)?.error === 'REAUTH_CANCELLED';
+}
+
 export function useReauth() {
   const { data: myActions } = useSWR<{ actions: string[] }>(
     '/api/config/action-reauth/my-actions',
@@ -54,20 +60,26 @@ export function useReauth() {
     reject?: (err: unknown) => void;
   } | null>(null);
 
+  // An action may be ONE key or SEVERAL: a stage move is gated by the generic
+  // ADVANCE_FILTER_STAGE row AND its station row (STAGE_WASH_IN …), and the
+  // server enforces whichever the operator switched on. Prompt if ANY needs it.
+  // The first key is the "primary" one shown in the dialog / sent on verify.
   const needsReauth = useCallback(
-    (action: string): boolean => {
-      return myActions?.actions.includes(action) ?? false;
+    (action: string | string[]): boolean => {
+      const list = Array.isArray(action) ? action : [action];
+      return list.some((a) => myActions?.actions.includes(a) ?? false);
     },
     [myActions],
   );
 
   const execute = useCallback(
     async (
-      action: string,
+      actionOrActions: string | string[],
       callback: (password?: string) => Promise<void>,
       options?: { onSuccess?: () => void; onError?: (err: unknown) => void; onCancel?: () => void },
     ) => {
-      if (needsReauth(action)) {
+      const action = Array.isArray(actionOrActions) ? actionOrActions[0] : actionOrActions;
+      if (needsReauth(actionOrActions)) {
         pendingAction.current?.reject?.({ error: 'REAUTH_SUPERSEDED' });
         pendingAction.current = {
           action,
@@ -113,7 +125,8 @@ export function useReauth() {
    * Existing `execute` callers are unaffected.
    */
   const executeWithResult = useCallback(
-    <T,>(action: string, callback: (password?: string) => Promise<T>): Promise<T> => {
+    <T,>(actionOrActions: string | string[], callback: (password?: string) => Promise<T>): Promise<T> => {
+      const action = Array.isArray(actionOrActions) ? actionOrActions[0] : actionOrActions;
       const openDialog = (resolve: (v: T) => void, reject: (e: unknown) => void) => {
         // Supersede any still-pending dialog promise so it can't leak unsettled if
         // a second gated call ever races this shared single-slot ref (no live
@@ -122,7 +135,7 @@ export function useReauth() {
         pendingAction.current = { action, callback, resolve, reject };
         setState({ isOpen: true, password: '', error: '', isVerifying: false });
       };
-      if (needsReauth(action)) {
+      if (needsReauth(actionOrActions)) {
         return new Promise<T>((resolve, reject) => openDialog(resolve, reject));
       }
       // Not gated per SWR — run inline (Promise.resolve guards a synchronous throw
@@ -205,6 +218,14 @@ export function useReauth() {
     setState((s) => ({ ...s, password }));
   }, []);
 
+  // Label of the action the open dialog is signing, from the shared catalog
+  // (2026-09-24). Pages that render one dialog for several actions used to
+  // pass one static label — the Audit Trail page said "Delete Audit Record"
+  // while signing an export.
+  const pendingActionLabel = state.isOpen && pendingAction.current
+    ? (REAUTH_ACTIONS as Record<string, { label: string }>)[pendingAction.current.action]?.label
+    : undefined;
+
   return {
     needsReauth,
     execute,
@@ -212,6 +233,7 @@ export function useReauth() {
     confirm,
     cancel,
     setPassword,
+    pendingActionLabel,
     isOpen: state.isOpen,
     password: state.password,
     error: state.error,

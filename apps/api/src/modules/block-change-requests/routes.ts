@@ -56,6 +56,8 @@ export default async function blockChangeRoutes(app: FastifyInstance) {
       response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('REQUEST_BLOCK_CHANGE', req, reply);
+    if (!reauthOk) return;
     const ctx = buildContext(req);
     const result = await blockChangeService.create(ctx, req.body as any);
     return reply.code(201).send(result);

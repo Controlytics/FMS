@@ -209,9 +209,93 @@ export const REAUTH_ACTIONS = {
   // generate/sign module.) The active report-reviews workflow keeps these two:
   REVIEW_REPORT: { label: 'Review Report', category: 'Reports' },
   APPROVE_REPORT: { label: 'Approve Report', category: 'Reports' },
+  SUBMIT_REPORT_REVIEW: { label: 'Submit Report for Review', category: 'Reports' },
+
+  // ── 2026-09-24 coverage sweep (operator: "every operation must have a
+  // re-auth selection; if selected, the password must be asked") ──────────
+  //
+  // Report downloads. PDF / Excel are produced client-side from data already
+  // on the page, so the gate is the audit write every export makes first
+  // (POST /api/audit/report-export-log) — see lib/report-export-log.ts on the
+  // web. One row per report so the policy can differ by report (the Audit
+  // Trail export is the one an inspector cares about). The two server-side
+  // .xlsx routes (PM / Replacement schedule) enforce the same rows.
+  EXPORT_AUDIT_TRAIL: { label: 'Export Audit Trail (PDF / Excel)', category: 'Reports' },
+  EXPORT_CLEANING_CYCLE_DETAIL: { label: 'Export Cleaning Cycle Detail', category: 'Reports' },
+  EXPORT_CLEANING_LIFECYCLE: { label: 'Export Cleaning Lifecycle Report', category: 'Reports' },
+  EXPORT_CLEANING_RECORD: { label: 'Export Cleaning Record', category: 'Reports' },
+  EXPORT_DEVIATIONS: { label: 'Export Deviations Report', category: 'Reports' },
+  EXPORT_FILTERS: { label: 'Export Filters List', category: 'Reports' },
+  EXPORT_PM_SCHEDULE: { label: 'Export PM Schedule', category: 'Reports' },
+  EXPORT_QUALITY_NOTIFICATIONS: { label: 'Export Quality Notifications (QNN)', category: 'Reports' },
+  EXPORT_RFID_TRACK_RECORD: { label: 'Export RFID Track Record', category: 'Reports' },
+  EXPORT_REPLACEMENT_LIST: { label: 'Export Replacement List', category: 'Reports' },
+  EXPORT_REPLACEMENT_SCHEDULE: { label: 'Export Replacement Schedule', category: 'Reports' },
+  EXPORT_RETIREMENT_LIST: { label: 'Export Retirement List', category: 'Reports' },
+
+  // Stage moves, one row per station. Enforced IN ADDITION to
+  // START_CLEANING_CYCLE / ADVANCE_FILTER_STAGE on /advance,
+  // /advance-with-checklist and /bulk-operate (per item, from targetState),
+  // so an operator can require a signature on, say, Storage In only. Same
+  // rows govern the web Filter Operations page and the tablet scan stations.
+  STAGE_WASH_IN: { label: 'Move to Wash In (web + tablet station)', category: 'Filter Management' },
+  STAGE_WASH_OUT: { label: 'Move to Wash Out (web + tablet station)', category: 'Filter Management' },
+  STAGE_DRY_IN: { label: 'Move to Dry In (web + tablet station)', category: 'Filter Management' },
+  STAGE_DRY_OUT: { label: 'Move to Dry Out (web + tablet station)', category: 'Filter Management' },
+  STAGE_STORAGE_IN: { label: 'Move to Storage In (web + tablet station)', category: 'Filter Management' },
+  STAGE_STORAGE_OUT: { label: 'Move to Storage Out (web + tablet station)', category: 'Filter Management' },
+
+  // Operations that had no gate at all.
+  REQUEST_BLOCK_CHANGE: { label: 'Request Block Change', category: 'Filter Management' },
+  RESUBMIT_FILTER: { label: 'Resubmit Rejected Filter', category: 'Filter Management' },
+  UPLOAD_REPLACEMENT_SCHEDULE: { label: 'Upload Replacement Schedule', category: 'Filter Management' },
+  // (No row for POST /api/admin-requests: it is the PUBLIC "contact admin"
+  // form on the login page — no session, so nothing to re-authenticate.)
+  MANAGE_USER_GROUPS: { label: 'Create / Edit / Delete User Group', category: 'User Management' },
+  MANAGE_NOTIFICATION_RULES: { label: 'Create / Edit / Delete Notification Rule', category: 'Notifications' },
+  DELETE_NOTIFICATION_LOG: { label: 'Delete Notification Delivery Log', category: 'Notifications' },
+  MANAGE_DEBUG_TRACES: { label: 'Change Debug Trace Settings', category: 'Configuration' },
+  // Was enforced (enforceReauthAlways) but missing from this map, so its row
+  // could not be shown. Informational, like the other always-on actions.
+  TOGGLE_SUPER_ADMIN_API_ACCESS: { label: 'Toggle Super-Admin API Access', category: 'Super Admin' },
 } as const;
 
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
+
+/**
+ * Report name (as sent to POST /api/audit/report-export-log and rendered in
+ * the REPORT_GENERATED audit row) → the re-auth row that gates its download.
+ * Shared by the API gate and the web export helper so they cannot drift.
+ */
+export const REPORT_EXPORT_ACTIONS = {
+  'Audit Trail': 'EXPORT_AUDIT_TRAIL',
+  'Cleaning Cycle Detail': 'EXPORT_CLEANING_CYCLE_DETAIL',
+  'Cleaning Lifecycle': 'EXPORT_CLEANING_LIFECYCLE',
+  'Cleaning Record': 'EXPORT_CLEANING_RECORD',
+  'Deviations': 'EXPORT_DEVIATIONS',
+  'Filters': 'EXPORT_FILTERS',
+  'PM Schedule': 'EXPORT_PM_SCHEDULE',
+  'Quality Notifications': 'EXPORT_QUALITY_NOTIFICATIONS',
+  'RFID Track Record': 'EXPORT_RFID_TRACK_RECORD',
+  'Replacement List': 'EXPORT_REPLACEMENT_LIST',
+  'Replacement Schedule': 'EXPORT_REPLACEMENT_SCHEDULE',
+  'Retirement List': 'EXPORT_RETIREMENT_LIST',
+} as const satisfies Record<string, ReauthAction>;
+
+export type ReportExportName = keyof typeof REPORT_EXPORT_ACTIONS;
+
+/** Lifecycle stage → its re-auth row. Null for a state that is not a station. */
+export function stageReauthAction(targetState: string | null | undefined): ReauthAction | null {
+  switch (targetState) {
+    case 'WASH_IN': return 'STAGE_WASH_IN';
+    case 'WASH_OUT': return 'STAGE_WASH_OUT';
+    case 'DRY_IN': return 'STAGE_DRY_IN';
+    case 'DRY_OUT': return 'STAGE_DRY_OUT';
+    case 'STORAGE_IN': return 'STAGE_STORAGE_IN';
+    case 'STORAGE_OUT': return 'STAGE_STORAGE_OUT';
+    default: return null;
+  }
+}
 
 export const REAUTH_ACTION_CATEGORIES = [
   'User Management',

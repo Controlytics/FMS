@@ -583,7 +583,9 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('DELETE_NOTIFICATION_LOG', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     // Fetch first: gives a real 404 (Prisma's P2025 on a missing id surfaced as a
     // 500) AND captures the dispatch evidence before the row is destroyed.

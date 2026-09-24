@@ -35,6 +35,8 @@ interface ManifestEntry {
   icon: string;
   category: string;
   requiresReauth: boolean;
+  /** The re-auth row the API enforces on this page's save (2026-09-24). */
+  reauthAction?: string | null;
   hasCustomPage: boolean;
   settings: SettingDef[];
 }
@@ -251,7 +253,11 @@ export function DynamicConfigPage() {
         session: 'UPDATE_SESSION_CONFIG',
         datetime: 'UPDATE_DATETIME_CONFIG',
       };
+      // 2026-09-24: the manifest now says which row the API enforces
+      // (`def.reauthAction`, e.g. the UPDATE_CONFIG_PAGE umbrella), so the
+      // dialog opens up front instead of on a retroactive 401.
       const action =
+        moduleDef?.reauthAction ??
         reauthActionByModuleKey[moduleKey!] ??
         `UPDATE_${moduleKey!.toUpperCase().replace(/-/g, '_')}`;
       await reauth.execute(action, async (password?) => {

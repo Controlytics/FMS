@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHan
 import useSWR, { useSWRConfig } from 'swr';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api-client';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
 import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shared';
 
@@ -123,6 +125,7 @@ interface ReauthTabProps {
 export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
   function ReauthTab({ selectableRoles, onStateChange }, ref) {
     const { mutate } = useSWRConfig();
+    const reauth = useReauth();
 
     const { data: reauthConfig, isLoading: reauthLoading } = useSWR<Record<string, string[]>>(
       '/api/config/action-reauth',
@@ -242,17 +245,21 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
       setReauthSaving(true);
       setReauthSaveMessage(null);
       try {
-        await api.put('/api/config/action-reauth', reauthCurrentConfig);
+        // UPDATE_REAUTH_CONFIG has been enforced by the API since 2026-05 (C6);
+        // this tab never asked for the password (2026-09-24).
+        await reauth.executeWithResult('UPDATE_REAUTH_CONFIG', (pw) => pw
+          ? api.putWithReauth('/api/config/action-reauth', reauthCurrentConfig, pw)
+          : api.put('/api/config/action-reauth', reauthCurrentConfig));
         mutate('/api/config/action-reauth');
         mutate('/api/config/action-reauth/my-actions');
         setReauthLocalConfig(null);
         setReauthSaveMessage({ type: 'success', text: 'Action re-authentication settings saved successfully.' });
       } catch (err: any) {
-        setReauthSaveMessage({ type: 'error', text: err.message ?? 'Failed to save settings.' });
+        if (!isReauthCancelled(err)) setReauthSaveMessage({ type: 'error', text: err.message ?? 'Failed to save settings.' });
       } finally {
         setReauthSaving(false);
       }
-    }, [reauthCurrentConfig, mutate]);
+    }, [reauthCurrentConfig, mutate, reauth]);
 
     const handleReauthReset = useCallback(() => {
       setReauthLocalConfig(null);
@@ -274,6 +281,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
 
     return (
       <>
+        <ReauthPrompt reauth={reauth} actionLabel="Save re-auth settings" />
         {reauthLoading ? (
           <div className="flex items-center justify-center h-64">
             <div className="flex flex-col items-center gap-3 text-slate-500">

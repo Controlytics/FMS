@@ -13,7 +13,9 @@ export const datetimeDef: ModuleConfigDefinition = {
   // requireSuperAdmin() preHandlers in config/routes.ts and the route guard in
   // main.tsx. Set here so the module stops appearing in a non-SA manifest.
   requiredRole: 'SUPER_ADMIN',
-  requiresReauth: false,
+  requiresReauth: true,
+  // 2026-09-24 coverage sweep: every config page is a gate-able action.
+  reauthAction: 'UPDATE_DATETIME_CONFIG',
   hasCustomPage: true,
   customPagePath: '/config/datetime',
   settings: [

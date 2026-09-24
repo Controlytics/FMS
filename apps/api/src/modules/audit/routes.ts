@@ -3,7 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { verifyAuditChecksum } from '../../lib/hash-chain.js';
 import { auditVisibilityScope } from '../../lib/audit-visibility.js';
 import { auditLog } from '../../lib/audit.js';
-import { auditQuerySchema } from '@digilog/shared';
+import { auditQuerySchema, REPORT_EXPORT_ACTIONS } from '@digilog/shared';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
@@ -466,7 +466,9 @@ export default async function auditRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth((REPORT_EXPORT_ACTIONS as Record<string, string>)[(req.body as { reportType: string }).reportType] ?? 'EXPORT_AUDIT_TRAIL', req, reply);
+    if (!reauthOk) return;
     const { reportType, format, recordCount, period, search, startDate, endDate } =
       req.body as { reportType: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string };
     await auditLog({

@@ -251,7 +251,10 @@ export function useOffline() {
             clientOpId: `${clientOpId}:advance`,
           };
           // /advance is NOT in the reauth config — plain post is correct.
-          result = await apiClient.post(`/api/filters/${filterId}/advance`, advanceBody);
+          // Forward the re-auth password to the advance half as well (2026-09-24):
+          // ADVANCE_FILTER_STAGE and the per-station rows (STAGE_WASH_IN …) can
+          // now be switched on, and this half is where the server checks them.
+          result = await onlinePost(`/api/filters/${filterId}/advance`, advanceBody);
           break;
         }
         // Cycle-start whose FIRST stage carries a mandatory checklist (2026-07-16).

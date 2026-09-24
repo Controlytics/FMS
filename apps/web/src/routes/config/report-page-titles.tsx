@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -14,6 +16,7 @@ type Draft = { companyName?: string; appName?: string };
  */
 export function ReportPageTitlesPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
   const { user } = useAuth();
   const { branding } = useBranding();
   const perms = (user?.permissions as string[] | undefined) ?? [];
@@ -31,11 +34,14 @@ export function ReportPageTitlesPage() {
   const save = async () => {
     setSaving(true);
     try {
-      await apiClient.put('/api/config/report-page-titles', draft);
+      // UPDATE_CONFIG_PAGE gates every configuration save (2026-09-24).
+      await reauth.executeWithResult('UPDATE_CONFIG_PAGE', (pw) => pw
+        ? apiClient.putWithReauth('/api/config/report-page-titles', draft, pw)
+        : apiClient.put('/api/config/report-page-titles', draft));
       await mutate(draft, false);
       toast.success('Saved', 'Report identity updated.');
     } catch (e: any) {
-      toast.error('Save failed', e?.message ?? 'Could not save report identity.');
+      if (!isReauthCancelled(e)) toast.error('Save failed', e?.message ?? 'Could not save report identity.');
     } finally { setSaving(false); }
   };
 
@@ -48,6 +54,7 @@ export function ReportPageTitlesPage() {
 
   return (
     <div className="space-y-5">
+      <ReauthPrompt reauth={reauth} />
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <p className="text-sm text-slate-500 max-w-2xl">Company &amp; application name shown in the header and footer of every report. Leave blank to use the values from <span className="font-medium text-slate-600">Branding</span>; the logo always comes from Branding.</p>
         <button onClick={save} disabled={!canWrite || !dirty || saving}

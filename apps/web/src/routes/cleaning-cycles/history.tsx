@@ -13,9 +13,11 @@ import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { ManualEntryBadge } from '@/components/manual-entry-badge';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { STATUS_LABELS } from '../filter-management/filter-list/constants';
 import { CycleDetailView } from './cycle-detail-view';
 import { SuperAdminEditButton, useIsSuperAdmin } from '@/components/super-admin-record-edit';
@@ -49,6 +51,10 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 export function CleaningCycleHistoryPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
+
+  const reauth = useReauth();
   const exportLimit = useExportLimit();
   const { formatDateTime, config: datetimeConfig } = useDatetimeFormat();
   const { labelsFor } = useReportLabels();
@@ -313,7 +319,7 @@ export function CleaningCycleHistoryPage() {
       if (rows.length === 0) { toast.error('Nothing to export', 'This selection contains no cleaning cycles.'); return; }
       const report = await buildHistoryReport(rows);
       if (!report) return;
-      await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'PDF', recordCount: rows.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Record', format: 'PDF', recordCount: rows.length }, toast.warning);
       report.save(`${downloadName('cleaning-cycles', selectedFilterName)}.pdf`);
     } finally { setDownloading(false); }
   };
@@ -331,13 +337,14 @@ export function CleaningCycleHistoryPage() {
       const rows = await fetchExportCycles();
       if (!rows) return;
       if (rows.length === 0) { toast.error('Nothing to export', 'This selection contains no cleaning cycles.'); return; }
-      await logReportExportOrWarn({ reportType: 'Cleaning Record', format: 'Excel', recordCount: rows.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Record', format: 'Excel', recordCount: rows.length }, toast.warning);
       exportToExcel({ filename: `cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Cleaning Record', head: ccHead, rows: buildCleaningRows(rows) });
     } finally { setDownloading(false); }
   };
 
   return (
     <div className="h-full flex flex-col">
+      <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
         <div className="flex items-center justify-between mb-4">

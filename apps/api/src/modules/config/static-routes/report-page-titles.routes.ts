@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { auditLog } from '../../../lib/audit.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { prisma } from '../../../lib/prisma.js';
+import { enforceReauth } from '../../../lib/reauth-check.js';
 
 const CONFIG_KEY = 'report-page-titles';
 
@@ -51,7 +52,9 @@ export async function reportPageTitlesRoutes(app: FastifyInstance) {
       body: { type: 'object', additionalProperties: true },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' } } } },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!reauthOk) return;
     const body = req.body as Record<string, unknown>;
     const ctx = buildContext(req);
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: CONFIG_KEY } });

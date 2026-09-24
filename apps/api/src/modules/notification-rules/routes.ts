@@ -8,6 +8,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
 import { NotFoundError } from '../../lib/errors.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 const EVENT_TYPE_META: Record<string, { label: string; module: string; variables: string[] }> = {
   DEVICE_ONLINE:        { label: 'Device Online',         module: 'devices',    variables: ['deviceName', 'deviceId', 'timestamp'] },
@@ -134,7 +135,9 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_NOTIFICATION_RULES', req, reply);
+    if (!reauthOk) return;
     const body = req.body as any;
     const ctx = buildContext(req);
     const { recipients, ...ruleData } = body;
@@ -206,7 +209,9 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_NOTIFICATION_RULES', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     const body = req.body as any;
     const { recipients, ...ruleData } = body;
@@ -273,7 +278,9 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
       summary: 'Delete notification rule',
       params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_NOTIFICATION_RULES', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     const existing = await prisma.notificationRule.findUnique({ where: { id } });
     await prisma.notificationRule.delete({ where: { id } });
@@ -297,7 +304,9 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
       summary: 'Toggle notification rule active status',
       params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_NOTIFICATION_RULES', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     // Single statement: a find-then-update read-modify-write lets two concurrent
     // toggles read the same isActive and net to one flip.

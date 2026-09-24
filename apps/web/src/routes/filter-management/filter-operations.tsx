@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useReauth } from '../../hooks/use-reauth';
+import { withStageAction, signOnce } from '../../lib/stage-reauth';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { StageScanDialog } from './components/stage-scan-dialog';
@@ -503,6 +504,10 @@ export function FilterOperationsPage() {
         overrideTargetState ?? activeStage.key,
       )) === 'blocked'
     ) return;
+    // Sign ONCE for the whole batch (2026-09-24): ADVANCE_FILTER_STAGE and the
+    // station row can be switched on; the password is forwarded per filter.
+    const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], overrideTargetState ?? activeStage.key));
+    if (!sig.ok) return;
     let success = 0;
     const failed: string[] = [];
     const newSubmissions: Array<{stage: string; filter: string; block?: string; time: string}> = [];
@@ -517,7 +522,7 @@ export function FilterOperationsPage() {
           // the same roster the popup showed (mirrors submit-checklist).
           ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
           ...extraBody,
-        }, overrideTargetState ?? activeStage.key);
+        }, overrideTargetState ?? activeStage.key, sig.password);
         success++;
         // Update cached pipeline state after offline advance.
         // Deep-review fix D3: pass blockId so the offline cycle stub records cleaningAreaId.
@@ -908,7 +913,8 @@ export function FilterOperationsPage() {
       const blockName = reasonDialog.block?.name;
       const block = reasonDialog.block;
       setLoading(true); setReasonError(''); setSubmitting(true);
-      await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+      // + the station row of the first stage (2026-09-24).
+      await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], stage.key), async (password?) => {
         const startBody = { cleaningReasonKey: reasonKey, cleaningJustification: justification || undefined, cleaningAreaId: blockId };
 
         // 1) Start cycle for every filter in the batch.
@@ -1011,6 +1017,8 @@ export function FilterOperationsPage() {
           setLoading(false); setSubmitting(false);
           return;
         }
+        const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], stage.key));
+        if (!sig.ok) { setLoading(false); setSubmitting(false); return; }
         let success = 0; const failed: string[] = [];
         const newSubs: typeof recentSubmissions = [];
         for (const item of batch) {
@@ -1022,7 +1030,7 @@ export function FilterOperationsPage() {
               // See advanceBatch: scopes the server INTERLOCK gate to the roster
               // the AHU pre-flight showed. Absent when the pre-flight didn't run.
               ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
-            }, stage.key);
+            }, stage.key, sig.password);
             success++;
             newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
           } catch (e: any) {
@@ -1067,7 +1075,7 @@ export function FilterOperationsPage() {
 
       // For WASH_IN: check equipment groups before advancing (online only)
       if (dialogCapture.stage.key === 'WASH_IN' && reasonBlock?.id && online) {
-        await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+        await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], dialogCapture.stage.key), async (password?) => {
           const startBody = { ...cycleBody };
           if (password) await apiClient.postWithReauth(`/api/filters/${dialogCapture.filterId}/start-cycle`, startBody, password);
           else await apiClient.post(`/api/filters/${dialogCapture.filterId}/start-cycle`, startBody);
@@ -1203,6 +1211,8 @@ export function FilterOperationsPage() {
   const startDryerForBatch = async (batch: Array<{ filterId: string; filterName: string }>, minutes: number) => {
     const blockId = selectedBlock?.id;
     const blockName = selectedBlock?.name;
+      const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], 'DRY_IN'));
+      if (!sig.ok) return;
       let success = 0; const failed: string[] = [];
       const newSubs: typeof recentSubmissions = [];
       for (const item of batch) {
@@ -1213,7 +1223,7 @@ export function FilterOperationsPage() {
             dryerAction: 'SET_DURATION',
             dryerDurationMinutes: minutes,
             remarks: remarks || `Dryer started (${minutes} min) - Batch`,
-          }, 'DRY_IN');
+          }, 'DRY_IN', sig.password);
           success++;
           newSubs.push({ stage: 'Dryer Started' + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
         } catch (e: any) {
@@ -1275,6 +1285,8 @@ export function FilterOperationsPage() {
       return;
     }
 
+    const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], 'DRY_IN'));
+    if (!sig.ok) { setDryerLoading(false); return; }
     try {
       const { executed } = await executeOrQueue('advance', dryerDialog.filterId, dryerDialog.filterName, {
         targetState: 'DRY_IN',
@@ -1282,7 +1294,7 @@ export function FilterOperationsPage() {
         dryerAction: 'SET_DURATION',
         dryerDurationMinutes: minutes,
         remarks: remarks || `Dryer started (${minutes} min) - ${dryerDialog.filterName}`,
-      }, 'DRY_IN');
+      }, 'DRY_IN', sig.password);
       recordSubmission({ stage: 'Dryer Started' + (executed ? '' : ' (queued)'), filter: dryerDialog.filterName, block: blockName, time: formatTime(new Date()) });
       refreshFilters();
       // Cache dryer timing + equipmentGroup (offline + navigation persistence)
@@ -1341,6 +1353,13 @@ export function FilterOperationsPage() {
       // so `if (!blockChangeDialog)` would always be whatever it was at
       // function entry, not "have we set it this run". Local flag = correct.
       let blockChangePopped = false;
+      // One signature for the batch: cycle start (when not started) or stage
+      // move, plus the station row of the target stage (2026-09-24).
+      const sig = await signOnce(reauth, withStageAction(
+        [savedCyclePayload ? 'START_CLEANING_CYCLE' : 'ADVANCE_FILTER_STAGE'],
+        isDryerReadings ? 'DRY_IN' : stage.key,
+      ));
+      if (!sig.ok) { setEquipmentLoading(false); return; }
       for (const item of batch) {
         try {
           const advPayload = {
@@ -1357,10 +1376,10 @@ export function FilterOperationsPage() {
             const res = await executeOrQueue('start-and-advance', item.filterId, item.filterName, {
               cyclePayload: { ...savedCyclePayload, equipmentGroupId: groupId },
               advancePayload: advPayload,
-            } as any, isDryerReadings ? 'DRY_IN' : stage.key);
+            } as any, isDryerReadings ? 'DRY_IN' : stage.key, sig.password);
             executed = res.executed;
           } else {
-            const res = await executeOrQueue('advance', item.filterId, item.filterName, advPayload, isDryerReadings ? 'DRY_IN' : stage.key);
+            const res = await executeOrQueue('advance', item.filterId, item.filterName, advPayload, isDryerReadings ? 'DRY_IN' : stage.key, sig.password);
             executed = res.executed;
           }
           success++;
@@ -1720,23 +1739,29 @@ export function FilterOperationsPage() {
       // Submit a block-change request for an approver to approve.
       if (!online) { setPopupError('Block change requests need an internet connection. Connect and try again.'); return; }
       setBlockChangeSubmitting(true);
-      try {
-        await apiClient.post('/api/block-change-requests', {
-          filterId: blockChangeDialog.filterId,
-          filterName: blockChangeDialog.filterName,
-          fromBlockId: blockChangeDialog.homeBlockId,
-          fromBlockName: blockChangeDialog.homeBlockName,
-          toBlockId: blockChangeDialog.requestedBlockId,
-          toBlockName: blockChangeDialog.requestedBlockName,
-          reason: blockChangeReason.trim() || undefined,
-        });
-        setToast({ type: 'success', message: 'Block change request submitted. Waiting for approval.' });
-        core.dispatch({ type: 'close' });
-        setBlockChangeReason('');
-      } catch (e: any) {
-        setPopupError(e.message ?? 'Failed to submit block change request');
-      }
-      setBlockChangeSubmitting(false);
+      // REQUEST_BLOCK_CHANGE is a configurable re-auth row (2026-09-24).
+      const body = {
+        filterId: blockChangeDialog.filterId,
+        filterName: blockChangeDialog.filterName,
+        fromBlockId: blockChangeDialog.homeBlockId,
+        fromBlockName: blockChangeDialog.homeBlockName,
+        toBlockId: blockChangeDialog.requestedBlockId,
+        toBlockName: blockChangeDialog.requestedBlockName,
+        reason: blockChangeReason.trim() || undefined,
+      };
+      await reauth.execute('REQUEST_BLOCK_CHANGE', async (password?) => {
+        if (password) await apiClient.postWithReauth('/api/block-change-requests', body, password);
+        else await apiClient.post('/api/block-change-requests', body);
+      }, {
+        onSuccess: () => {
+          setToast({ type: 'success', message: 'Block change request submitted. Waiting for approval.' });
+          core.dispatch({ type: 'close' });
+          setBlockChangeReason('');
+          setBlockChangeSubmitting(false);
+        },
+        onError: (e: any) => { setPopupError(e?.message ?? 'Failed to submit block change request'); setBlockChangeSubmitting(false); },
+        onCancel: () => setBlockChangeSubmitting(false),
+      });
       return;
     }
     // CONFIRM mode: operator self-confirm — mark acknowledged + re-submit.

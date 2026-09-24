@@ -15,7 +15,7 @@ import { createReport } from '../../lib/pdf-report';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { isoToDateInput, startOfDayIso } from '@/lib/datetime-input';
 import { apiUrl } from '@/lib/url-utils';
@@ -313,9 +313,10 @@ export function PmScheduleListPage() {
     try {
       const built = await buildPmReport();
       if (!built) return;
-      await logReportExportOrWarn({ reportType: 'PM Schedule', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'PM Schedule', format: 'PDF', recordCount: built.count }, toast.warning);
       built.report.save(`${downloadName('pm-schedule', String(yearLabel))}.pdf`);
     } catch (e: any) {
+      if (isReauthCancelled(e)) return; // operator dismissed the password dialog — no export
       toast.error('Export failed', e?.message ?? 'Could not generate PDF');
     } finally { setExporting(false); }
   };
@@ -326,14 +327,19 @@ export function PmScheduleListPage() {
     setExporting(true);
     try {
       if (allEntries.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(allEntries.length)); return; }
-      await logReportExportOrWarn({ reportType: 'PM Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
+      // One signature covers the audit write AND the server-side workbook GET
+      // (same EXPORT_PM_SCHEDULE row; the password rides in x-reauth-password).
+      const signedPw = await requireExportReauth(reauth, { reportType: 'PM Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
       const base = (window as any).__API_BASE__ ?? '';
       // The server builds one workbook per year, so a cross-year range
       // downloads one file per year. Exporting only `fromYear` would drop the
       // rest without saying so.
       for (const y of years) {
         const res = await fetch(`${base}/api/pm-schedules/entries/export.xlsx?year=${y}`, {
-          headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}` },
+          headers: {
+            Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}`,
+            ...(signedPw ? { 'x-reauth-password': signedPw } : {}),
+          },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
@@ -342,6 +348,7 @@ export function PmScheduleListPage() {
         document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
       }
     } catch (e: any) {
+      if (isReauthCancelled(e)) return; // operator dismissed the password dialog — no export
       toast.error('Export failed', e?.message ?? 'Could not download Excel');
     } finally { setExporting(false); }
   };

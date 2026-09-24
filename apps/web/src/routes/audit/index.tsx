@@ -21,7 +21,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
-import { logReportExport } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
@@ -336,14 +336,16 @@ export function AuditTrailPage() {
 
   // Record the export as an auditable event BEFORE the file is saved. Throws on
   // failure so the caller can block the download (fail-closed, 21 CFR §11).
+  // EXPORT_AUDIT_TRAIL is a configurable re-auth row (2026-09-24): when on for
+  // this role, the password is asked here and the audit write is the signed act.
   const logExport = async (format: 'PDF' | 'Excel', recordCount: number) => {
-    await logReportExport({
+    await requireExportReauth(reauth, {
       reportType: 'Audit Trail', format, recordCount,
       period: currentPeriod(),
       search: debouncedSearch || undefined,
       startDate: fromDateTime ? new Date(fromDateTime).toISOString() : undefined,
       endDate: toDateTime ? new Date(toDateTime).toISOString() : undefined,
-    });
+    }, toast.warning, { strict: true });
   };
 
   const exportPdf = async () => {
@@ -626,7 +628,7 @@ export function AuditTrailPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setDeleting(false); setHardDeleting(false); }}
-        actionLabel="Delete Audit Record"
+        actionLabel={reauth.pendingActionLabel ?? 'Audit Trail action'}
       />
     </div>
   );

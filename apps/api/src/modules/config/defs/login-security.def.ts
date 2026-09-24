@@ -10,6 +10,8 @@ export const loginSecurityDef: ModuleConfigDefinition = {
   permissions: { read: 'CONFIG_READ', write: 'CONFIG_UPDATE' },
   requiredRole: null,
   requiresReauth: true,
+  // 2026-09-24 coverage sweep: every config page is a gate-able action.
+  reauthAction: 'UPDATE_LOGIN_SECURITY',
   hasCustomPage: true,
   customPagePath: '/config/login-security',
   settings: [

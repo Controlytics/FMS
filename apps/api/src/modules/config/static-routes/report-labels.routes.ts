@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../../lib/build-context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
+import { enforceReauth } from '../../../lib/reauth-check.js';
 
 /**
  * Report Labels config — admin-editable titles, subtitles and table column
@@ -37,7 +38,9 @@ export async function reportLabelsRoutes(app: FastifyInstance) {
       body: { type: 'object', additionalProperties: true },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!reauthOk) return;
     const body = req.body as Record<string, unknown>;
     const ctx = buildContext(req);
 

@@ -616,7 +616,9 @@ export default async function instanceRoutes(app: FastifyInstance) {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('RESUBMIT_FILTER', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     return resubmitFilter(buildContext(req), id);
   });

@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../../lib/build-context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
+import { enforceReauth } from '../../../lib/reauth-check.js';
 
 // Per-role toggle: may this role see the filters under each AHU on the
 // PM Schedule page? Stored shape: { [roleName: string]: boolean }.
@@ -23,7 +24,9 @@ export async function pmScheduleFiltersRoutes(app: FastifyInstance) {
       summary: 'Update the per-role "show AHU filters" matrix (PM Schedule)',
       body: { type: 'object', additionalProperties: { type: 'boolean' } },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!reauthOk) return;
     const body = req.body as Record<string, boolean>;
     const ctx = buildContext(req);
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-filters' } });

@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../../lib/build-context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
+import { enforceReauth } from '../../../lib/reauth-check.js';
 
 // Role-wise, per-page export-format config.
 // Stored shape: { [roleName: string]: { [surfaceKey: string]: 'NONE'|'PDF'|'EXCEL'|'BOTH' } }
@@ -26,7 +27,9 @@ export async function exportOptionsRoutes(app: FastifyInstance) {
         additionalProperties: { type: 'object', additionalProperties: { type: 'string' } },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!reauthOk) return;
     const body = req.body as Record<string, Record<string, string>>;
     const ctx = buildContext(req);
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'export-options' } });

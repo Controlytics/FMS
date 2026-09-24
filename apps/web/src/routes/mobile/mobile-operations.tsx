@@ -10,6 +10,7 @@ import { useReauth } from '../../hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
+import { withStageAction, batchTargetState } from '../../lib/stage-reauth';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 // Dry In multi-select (2026-09-04): the Currently Drying panel is SHARED with the desktop page.
 import { DryingFiltersPanel } from '../filter-management/components/drying-filters-panel';
@@ -909,7 +910,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // retry (the operator re-submits).
   const runBulkOnline = async (
     ops: BulkClientItem[],
-    reauthAction: string,
+    // Generic row(s) + the station row of the batch's target stage (2026-09-24).
+    reauthAction: string | string[],
   ): Promise<{ results: BulkClientResult[]; actionsByFilter: Map<string, any[]>; okCount: number; failures: string[] } | 'transport_error' | 'cancelled'> => {
     let resp: { results: BulkClientResult[] };
     try {
@@ -1436,7 +1438,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // unchanged. A wholesale transport failure keeps the scanQueue intact for
     // retry (per-item STALE_TAPE/validation failures surface as `failures`).
     if (online && bulkOps.length > 0) {
-      const out = await runBulkOnline(bulkOps, 'ADVANCE_FILTER_STAGE');
+      const out = await runBulkOnline(bulkOps, withStageAction(['ADVANCE_FILTER_STAGE'], batchTargetState(bulkOps)));
       if (out === 'cancelled') return; // operator declined reauth — keep queue, no error banner
       if (out === 'transport_error') {
         setError('Could not reach the server to submit the batch. Please try Submit again.');
@@ -2093,7 +2095,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             cyclePayload,
             advancePayload: advanceFor(f.filterName),
           }));
-          const out = await runBulkOnline(ops, 'START_CLEANING_CYCLE');
+          const out = await runBulkOnline(ops, withStageAction(['START_CLEANING_CYCLE'], batchTargetState(ops)));
           if (out === 'cancelled') { setLoading(false); return; }
           if (out === 'transport_error') { setError('Could not reach the server to start the cycles. Please try again.'); setLoading(false); return; }
           for (const [fid, actions] of out.actionsByFilter) cycleStartActions.set(fid, actions);
@@ -2164,7 +2166,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
 
     // No equipment groups, SINGLE filter — fire the compound op. START_CLEANING_CYCLE
     // is reauth-gated for ADMIN role; wrap so the password dialog appears.
-    await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+    // (+ the station row for the first stage, 2026-09-24.)
+    await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], reasonDialog.stage), async (password?) => {
       const runStart = (extraCycleFields: Record<string, any> = {}) =>
         core.startAndAdvance({
           filterId: reasonDialog.filterId,
@@ -2506,7 +2509,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${f.filterName}`,
             },
           }));
-          const out = await runBulkOnline(ops, 'START_CLEANING_CYCLE');
+          const out = await runBulkOnline(ops, withStageAction(['START_CLEANING_CYCLE'], batchTargetState(ops)));
           // Operator declined reauth — keep the dialog + state, no error banner.
           if (out === 'cancelled') { setLoading(false); return; }
           // Wholesale transport failure — keep state so the operator can retry.
@@ -2548,7 +2551,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           // as the multi-filter DRY_IN SET_DURATION path (handleSubmitQueue
           // line ~890). For single-filter, no batchRest, normal dispatch.
           const useUnifiedBatch = batchRest.length > 0;
-          await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+          await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], targetState), async (password?) => {
             const res = await core.startAndAdvance({
               filterId: equipFiltId,
               filterName: equipFiltName,
@@ -2662,7 +2665,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           const readingsSnap = readings;
           for (const rest of batchRest) {
             try {
-              await reauth.execute('START_CLEANING_CYCLE', async (password?) => {
+              await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], targetState), async (password?) => {
                 const restRes = await core.startAndAdvance({
                   filterId: rest.filterId,
                   filterName: rest.filterName,
@@ -3003,7 +3006,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Both gates when any item carries an advance — runBulkOnline's action is
       // only the reauth prompt label; the server enforces both regardless
       // (reauthActionsForItems maps advance-with-checklist to BOTH).
-      const out = await runBulkOnline(ops, 'SUBMIT_CHECKLIST_WITH_SIGNATURE');
+      const out = await runBulkOnline(ops, withStageAction(['SUBMIT_CHECKLIST_WITH_SIGNATURE'], batchTargetState(ops)));
       // Operator declined reauth — keep the dialog + state, no error banner.
       if (out === 'cancelled') { setLoading(false); return; }
       if (out === 'transport_error') {
@@ -3223,17 +3226,25 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (blockChangeMode === 'APPROVAL') {
       if (!online) { setError('Block change requests need an internet connection.'); return; }
       setBlockChangeSubmitting(true);
-      try {
-        await apiClient.post('/api/block-change-requests', {
-          filterId: blockChangeDialog.filterId, filterName: blockChangeDialog.filterName,
-          fromBlockId: blockChangeDialog.homeBlockId, fromBlockName: blockChangeDialog.homeBlockName,
-          toBlockId: blockChangeDialog.requestedBlockId, toBlockName: blockChangeDialog.requestedBlockName,
-          reason: blockChangeReason.trim() || undefined,
-        });
-        setSuccess('Block change request submitted. Waiting for approval.');
-        core.dispatch({ type: 'close' }); setScanValue('');
-      } catch (e: any) { setError(e.message ?? 'Failed to submit request'); }
-      setBlockChangeSubmitting(false);
+      // REQUEST_BLOCK_CHANGE is a configurable re-auth row (2026-09-24).
+      const body = {
+        filterId: blockChangeDialog.filterId, filterName: blockChangeDialog.filterName,
+        fromBlockId: blockChangeDialog.homeBlockId, fromBlockName: blockChangeDialog.homeBlockName,
+        toBlockId: blockChangeDialog.requestedBlockId, toBlockName: blockChangeDialog.requestedBlockName,
+        reason: blockChangeReason.trim() || undefined,
+      };
+      await reauth.execute('REQUEST_BLOCK_CHANGE', async (password?) => {
+        if (password) await apiClient.postWithReauth('/api/block-change-requests', body, password);
+        else await apiClient.post('/api/block-change-requests', body);
+      }, {
+        onSuccess: () => {
+          setSuccess('Block change request submitted. Waiting for approval.');
+          core.dispatch({ type: 'close' }); setScanValue('');
+          setBlockChangeSubmitting(false);
+        },
+        onError: (e: any) => { setError(e?.message ?? 'Failed to submit request'); setBlockChangeSubmitting(false); },
+        onCancel: () => setBlockChangeSubmitting(false),
+      });
       return;
     }
     // CONFIRM mode: self-confirm.

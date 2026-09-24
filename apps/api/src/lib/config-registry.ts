@@ -76,6 +76,7 @@ export interface ModuleConfigDefinition {
   };
   requiredRole?: string | null;
   requiresReauth: boolean;
+  /** Re-auth row that gates PUT /api/config/dynamic/:key (2026-09-24); the web pre-prompts on it. */
   reauthAction?: string | null;
 
   settings: SettingDefinition[];
@@ -103,6 +104,7 @@ export interface ConfigManifestEntry {
   sortOrder: number;
   requiredRole: string | null;
   requiresReauth: boolean;
+  reauthAction?: string | null;
   hasCustomPage: boolean;
   customPagePath: string | null;
   settings: SettingDefinition[];
@@ -149,6 +151,7 @@ class ConfigRegistry {
         sortOrder: def.sortOrder,
         requiredRole: def.requiredRole ?? null,
         requiresReauth: def.requiresReauth,
+        reauthAction: def.reauthAction ?? null,
         hasCustomPage: def.hasCustomPage ?? false,
         customPagePath: def.customPagePath ?? null,
         settings: def.settings,

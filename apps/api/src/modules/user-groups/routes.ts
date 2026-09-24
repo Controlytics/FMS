@@ -5,7 +5,8 @@ import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
-import { NotFoundError } from '../../lib/errors.js';
+import { NotFoundError } from '../../lib/errors.js';import { enforceReauth } from '../../lib/reauth-check.js';
+
 
 export default async function userGroupRoutes(app: FastifyInstance) {
 
@@ -40,7 +41,9 @@ export default async function userGroupRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_USER_GROUPS', req, reply);
+    if (!reauthOk) return;
     const { name, description } = req.body as { name: string; description?: string };
     const ctx = buildContext(req);
     const group = await prisma.userGroup.create({
@@ -71,7 +74,9 @@ export default async function userGroupRoutes(app: FastifyInstance) {
         additionalProperties: false,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_USER_GROUPS', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     const body = req.body as Record<string, unknown>;
     const existing = await prisma.userGroup.findUnique({ where: { id } });
@@ -99,7 +104,9 @@ export default async function userGroupRoutes(app: FastifyInstance) {
       summary: 'Delete user group',
       params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_USER_GROUPS', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     const existing = await prisma.userGroup.findUnique({
       where: { id },
@@ -169,7 +176,9 @@ export default async function userGroupRoutes(app: FastifyInstance) {
         properties: { userIds: { type: 'array', items: { type: 'string' } } },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_USER_GROUPS', req, reply);
+    if (!reauthOk) return;
     const { id } = req.params as { id: string };
     const { userIds } = req.body as { userIds: string[] };
     const group = await prisma.userGroup.findUnique({ where: { id } });
@@ -205,7 +214,9 @@ export default async function userGroupRoutes(app: FastifyInstance) {
         required: ['id', 'userId'],
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_USER_GROUPS', req, reply);
+    if (!reauthOk) return;
     const { id, userId } = req.params as { id: string; userId: string };
     const group = await prisma.userGroup.findUnique({ where: { id } });
     if (!group) throw new NotFoundError('User group not found');

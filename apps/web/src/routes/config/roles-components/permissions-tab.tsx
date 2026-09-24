@@ -3,6 +3,8 @@ import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api-client';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useToast } from '@/hooks/use-toast';
 import { FEATURE_PRIVILEGES } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
@@ -28,6 +30,7 @@ const DEFAULT_ROLE_ICON = 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14
 export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabProps>(
   function PermissionsTab({ selectableRoles, onStateChange }, ref) {
     const { toast } = useToast();
+    const reauth = useReauth();
 
     const [permSelectedRole, setPermSelectedRole] = useState<string>('ADMIN');
     const [permissions, setPermissions] = useState<Record<string, boolean>>({});
@@ -44,10 +47,14 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     const handlePermSave = useCallback(async () => {
       setPermSaving(true);
       try {
-        await api.put(`/api/config/roles/${permSelectedRole}`, { permissions });
+        // The API has gated this on UPDATE_ROLE_CONFIG all along; the tab never
+        // asked for the password, so an enabled row was a bare 401 (2026-09-24).
+        await reauth.executeWithResult('UPDATE_ROLE_CONFIG', (pw) => pw
+          ? api.putWithReauth(`/api/config/roles/${permSelectedRole}`, { permissions }, pw)
+          : api.put(`/api/config/roles/${permSelectedRole}`, { permissions }));
         setPermDirty(false);
       } catch (error: any) {
-        toast.error('Save Failed', error.message || 'Failed to save permissions');
+        if (!isReauthCancelled(error)) toast.error('Save Failed', error.message || 'Failed to save permissions');
       } finally {
         setPermSaving(false);
       }
@@ -94,6 +101,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     // ─────────────────────────────────────────────────────────────────────
     return (
       <>
+        <ReauthPrompt reauth={reauth} actionLabel="Save role permissions" />
         {/* Role Selection Card */}
         <Card className="border-0 shadow-xl bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
           <div className="h-1 bg-gradient-to-r from-violet-500 via-purple-500 to-indigo-500" />

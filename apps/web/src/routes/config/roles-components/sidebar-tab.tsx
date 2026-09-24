@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api-client';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useToast } from '@/hooks/use-toast';
 import { SIDEBAR_ITEMS } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
@@ -28,6 +30,7 @@ interface SidebarTabProps {
 export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
   function SidebarTab({ activeRoles, onStateChange }, ref) {
     const { toast } = useToast();
+    const reauth = useReauth();
 
     const [sidebarSubTab, setSidebarSubTab] = useState<'role' | 'user'>('role');
     const [sidebarSelectedRole, setSidebarSelectedRole] = useState<string>('');
@@ -87,27 +90,35 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     const handleSaveSidebarRole = useCallback(async () => {
       setSidebarSaving(true);
       try {
-        await api.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems });
+        // UPDATE_ROLE_CONFIG / UPDATE_USER_CONFIG were enforced by the API but
+        // never prompted for here (2026-09-24).
+        await reauth.executeWithResult('UPDATE_ROLE_CONFIG', (pw) => pw
+          ? api.putWithReauth(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems }, pw)
+          : api.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems }));
         setSidebarDirty(false);
-      } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save sidebar configuration'); } finally { setSidebarSaving(false); }
+      } catch (error: any) { if (!isReauthCancelled(error)) toast.error('Save Failed', error.message || 'Failed to save sidebar configuration'); } finally { setSidebarSaving(false); }
     }, [sidebarSelectedRole, enabledItems, sidebarRoleConfig, toast]);
 
     const handleSaveSidebarUser = useCallback(async () => {
       if (!selectedUser) return;
       setSidebarSaving(true);
       try {
-        await api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems });
+        await reauth.executeWithResult('UPDATE_USER_CONFIG', (pw) => pw
+          ? api.putWithReauth(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems }, pw)
+          : api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems }));
         setSidebarDirty(false);
-      } catch (error: any) { toast.error('Save Failed', error.message || 'Failed to save user sidebar configuration'); } finally { setSidebarSaving(false); }
+      } catch (error: any) { if (!isReauthCancelled(error)) toast.error('Save Failed', error.message || 'Failed to save user sidebar configuration'); } finally { setSidebarSaving(false); }
     }, [selectedUser, enabledItems, userConfig, toast]);
 
     const resetUserToRoleDefault = async () => {
       if (!selectedUser) return;
       setSidebarSaving(true);
       try {
-        await api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: [] });
+        await reauth.executeWithResult('UPDATE_USER_CONFIG', (pw) => pw
+          ? api.putWithReauth(`/api/config/users/${selectedUser.id}`, { sidebarItems: [] }, pw)
+          : api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: [] }));
         setEnabledItems([]); setSidebarDirty(false);
-      } catch (error: any) { toast.error('Reset Failed', error.message || 'Failed to reset user to role defaults'); } finally { setSidebarSaving(false); }
+      } catch (error: any) { if (!isReauthCancelled(error)) toast.error('Reset Failed', error.message || 'Failed to reset user to role defaults'); } finally { setSidebarSaving(false); }
     };
 
     const filteredUsers = usersData?.data?.filter((u: User) =>
@@ -295,6 +306,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
 
     return (
       <div className="bg-white rounded-2xl border border-slate-200/60 shadow-soft overflow-hidden">
+        <ReauthPrompt reauth={reauth} actionLabel="Save sidebar configuration" />
         {/* Inner tabs: Role / User */}
         <div className="flex border-b border-slate-200">
           <button onClick={() => handleSidebarSubTabChange('role')} className={`flex-1 px-6 py-4 text-sm font-medium transition-all flex items-center justify-center gap-2 ${

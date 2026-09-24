@@ -1,6 +1,6 @@
 import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../lib/build-context.js';
-import { enforceReauthAlways } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { reportReviewService as svc } from './service.js';
 
 // Report Review/Approval workflow — prefix /api/report-reviews
@@ -24,7 +24,9 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
         },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('SUBMIT_REPORT_REVIEW', req, reply);
+    if (!reauthOk) return;
     const ctx = buildContext(req);
     const row = await svc.submit(ctx, req.body as any);
     return { id: row.id, status: row.status };

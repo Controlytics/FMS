@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -24,6 +26,7 @@ const FMT_CLS: Record<string, string> = {
 
 export function ExportOptionsPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
   const { data: matrixData, mutate } = useSWR<Matrix>('/api/config/export-options');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
@@ -59,10 +62,14 @@ export function ExportOptionsPage() {
   const save = async () => {
     setSaving(true);
     try {
-      await apiClient.put('/api/config/export-options', draft);
+      // UPDATE_CONFIG_PAGE gates every configuration save (2026-09-24).
+      await reauth.executeWithResult('UPDATE_CONFIG_PAGE', (pw) => pw
+        ? apiClient.putWithReauth('/api/config/export-options', draft, pw)
+        : apiClient.put('/api/config/export-options', draft));
       await mutate(draft, false);
       toast.success('Saved', 'Export options updated for all roles.');
     } catch (err: any) {
+      if (isReauthCancelled(err)) return;
       toast.error('Save failed', err?.message ?? 'Could not save export options.');
     } finally {
       setSaving(false);
@@ -71,6 +78,7 @@ export function ExportOptionsPage() {
 
   return (
     <div className="space-y-5">
+      <ReauthPrompt reauth={reauth} />
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm text-slate-500 max-w-2xl">
           Choose which export formats each role can use on each page. Unset cells default to

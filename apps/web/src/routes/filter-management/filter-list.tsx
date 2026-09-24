@@ -12,7 +12,7 @@ import { api } from '@/lib/api-client';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
@@ -800,15 +800,20 @@ export function FilterListPage() {
 
   // REJECTED → PENDING_REVIEW. Corrected values go through the normal Edit
   // dialog first; this only moves the state (no reauth on the endpoint).
-  const handleResubmitFilter = async (f: any) => {
-    try {
-      await api.post(`/api/assets/instances/${f.id}/resubmit`, {});
-      toast.success(`${f.name} resubmitted`, 'It is back in Pending Review.');
-      mutate('/api/hierarchy/tree');
-      mutate(`/api/assets/instances/${f.id}`);
-    } catch (e: any) {
-      toast.error('Resubmit failed', e?.message ?? 'Unknown error');
-    }
+  const handleResubmitFilter = (f: any) => {
+    // RESUBMIT_FILTER is a configurable re-auth row (2026-09-24).
+    reauth.execute('RESUBMIT_FILTER', async (password?: string) => {
+      if (password) await api.postWithReauth(`/api/assets/instances/${f.id}/resubmit`, {}, password);
+      else await api.post(`/api/assets/instances/${f.id}/resubmit`, {});
+    }, {
+      onSuccess: () => {
+        toast.success(`${f.name} resubmitted`, 'It is back in Pending Review.');
+        mutate('/api/hierarchy/tree');
+        mutate(`/api/assets/instances/${f.id}`);
+      },
+      onError: (e: any) => toast.error('Resubmit failed', e?.message ?? 'Unknown error'),
+      onCancel: () => {},
+    });
   };
 
   const openBulkStatusPanel = () => {
@@ -1506,7 +1511,7 @@ export function FilterListPage() {
     const { headers, body, safeName } = buildFiltersExport();
     if (body.length === 0) return;
     if (body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(body.length)); return; }
-    await logReportExportOrWarn({ reportType: 'Filters', format: 'Excel', recordCount: body.length }, toast.warning);
+    await requireExportReauth(reauth, { reportType: 'Filters', format: 'Excel', recordCount: body.length }, toast.warning);
     exportToExcel({ filename: `${safeName}-filters`, sheetName: 'Filters', head: headers, rows: body });
   };
 
@@ -1532,7 +1537,7 @@ export function FilterListPage() {
   const exportFiltersPdf = async () => {
     const built = await buildFiltersReport();
     if (!built) return;
-    await logReportExportOrWarn({ reportType: 'Filters', format: 'PDF', recordCount: built.count }, toast.warning);
+    await requireExportReauth(reauth, { reportType: 'Filters', format: 'PDF', recordCount: built.count }, toast.warning);
     built.report.save(`${downloadName(built.safeName, 'filters')}.pdf`);
   };
 

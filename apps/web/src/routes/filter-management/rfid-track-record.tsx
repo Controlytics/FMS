@@ -11,9 +11,11 @@ import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
 
@@ -40,6 +42,10 @@ const PER_PAGE = 50;
 export function RfidTrackRecordPage() {
   const can = useCan();
   const { toast } = useToast();
+
+  // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
+
+  const reauth = useReauth();
   const exportLimit = useExportLimit();
   const { formatDateTime } = useDatetimeFormat();
   const { labelsFor } = useReportLabels();
@@ -192,7 +198,7 @@ export function RfidTrackRecordPage() {
     try {
       const built = await buildRfidReport();
       if (!built) return;
-      await logReportExportOrWarn({ reportType: 'RFID Track Record', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'RFID Track Record', format: 'PDF', recordCount: built.count }, toast.warning);
       built.report.save(`${downloadName('rfid-track-record')}.pdf`);
     } finally { setDownloading(false); }
   };
@@ -204,7 +210,7 @@ export function RfidTrackRecordPage() {
     try {
       const r = await buildRfidExport();
       if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return; }
-      await logReportExportOrWarn({ reportType: 'RFID Track Record', format: 'Excel', recordCount: r.body.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'RFID Track Record', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `rfid-track-record-${new Date().toISOString().slice(0, 10)}`, sheetName: 'RFID Track Record', head: headLabels, rows: r.body });
     } finally { setDownloading(false); }
   };
@@ -213,6 +219,7 @@ export function RfidTrackRecordPage() {
 
   return (
     <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={totalPages} hideFooter>
+      <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-3">

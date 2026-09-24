@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -226,6 +228,7 @@ const WorkflowToggle = ({ on, onClick, hint }: { on: boolean; onClick: () => voi
 
 export function RoleAssignmentsPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
   const roles = useRoleOptions();
   const [cfg, setCfg] = useState<Record<CfgKey, Record<string, any>>>(EMPTY_CFG);
   // Last-saved (or last-loaded) snapshot — Save All diffs against this.
@@ -267,12 +270,16 @@ export function RoleAssignmentsPage() {
     if (changedKeys.length === 0) return;
     setSaving(true);
     try {
-      await Promise.all(changedKeys.map((k) => apiClient.put(`/api/config/dynamic/${k}`, cfg[k])));
+      // Every section here is a dynamic config def gated by UPDATE_CONFIG_PAGE
+      // (2026-09-24); one signature covers all changed sections.
+      await reauth.executeWithResult('UPDATE_CONFIG_PAGE', (pw) => Promise.all(changedKeys.map((k) => pw
+        ? apiClient.putWithReauth(`/api/config/dynamic/${k}`, cfg[k], pw)
+        : apiClient.put(`/api/config/dynamic/${k}`, cfg[k]))));
       // Advance the baseline for just the keys we saved.
       setBaseline((b) => ({ ...b, ...Object.fromEntries(changedKeys.map((k) => [k, JSON.parse(JSON.stringify(cfg[k]))])) }));
       toast.success('Saved', changedKeys.length === 1 ? '1 section updated.' : `${changedKeys.length} sections updated.`);
     } catch (e: any) {
-      toast.error('Save failed', e?.message ?? 'Could not save role assignments.');
+      if (!isReauthCancelled(e)) toast.error('Save failed', e?.message ?? 'Could not save role assignments.');
     } finally { setSaving(false); }
   };
 
@@ -297,6 +304,7 @@ export function RoleAssignmentsPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <ReauthPrompt reauth={reauth} />
       {/* Header / action bar */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">

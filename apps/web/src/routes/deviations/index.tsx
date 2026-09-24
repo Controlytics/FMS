@@ -6,11 +6,13 @@ import { Pagination } from '@/components/ui/pagination';
 import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
 import { ALL_ROWS } from '@/lib/page-size';
@@ -88,6 +90,8 @@ function daysLabel(n: number | null | undefined): string {
 export function DeviationsPage() {
   const can = useCan();
   const { toast } = useToast();
+  // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
+  const reauth = useReauth();
   const exportLimit = useExportLimit();
   const { formatDate, formatDateTime, formatDayMonth } = useDatetimeFormat();
   const [status, setStatus] = useState('ALL');
@@ -281,9 +285,10 @@ export function DeviationsPage() {
     try {
       const built = await buildDeviationsReport();
       if (!built) return;
-      await logReportExportOrWarn({ reportType: 'Deviations', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Deviations', format: 'PDF', recordCount: built.count }, toast.warning);
       built.report.save(`${downloadName('deviations')}.pdf`);
     } catch (e: any) {
+      if (isReauthCancelled(e)) return; // operator dismissed the password dialog — no export
       setDownloadMsg(e?.message ?? 'Failed to generate the report.');
     } finally { setDownloading(false); }
   };
@@ -295,15 +300,17 @@ export function DeviationsPage() {
     try {
       const r = await buildDeviationsExport();
       if (!r) return;
-      await logReportExportOrWarn({ reportType: 'Deviations', format: 'Excel', recordCount: r.body.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Deviations', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `deviations-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Deviations', head: HEAD, rows: r.body });
     } catch (e: any) {
+      if (isReauthCancelled(e)) return; // operator dismissed the password dialog — no export
       setDownloadMsg(e?.message ?? 'Failed to generate the report.');
     } finally { setDownloading(false); }
   };
 
   return (
     <div className="h-full flex flex-col">
+      <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
         <div className="flex items-center gap-3 mb-4">

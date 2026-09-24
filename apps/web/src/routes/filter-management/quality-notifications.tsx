@@ -3,7 +3,7 @@ import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
@@ -11,6 +11,8 @@ import { api } from '../../lib/api-client';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
@@ -37,6 +39,10 @@ type Resp = { data: QnnRow[]; total: number; page: number; limit: number; totalP
 export function QualityNotificationsPage() {
   const { formatDateTime } = useDatetimeFormat();
   const { toast } = useToast();
+
+  // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
+
+  const reauth = useReauth();
   const exportLimit = useExportLimit();
   const { labelsFor } = useReportLabels();
   const L = labelsFor('quality-notifications');
@@ -140,7 +146,7 @@ export function QualityNotificationsPage() {
     try {
       const built = await buildQnnReport();
       if (!built) return;
-      await logReportExportOrWarn({ reportType: 'Quality Notifications', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Quality Notifications', format: 'PDF', recordCount: built.count }, toast.warning);
       built.report.save(`${downloadName('quality-notifications')}.pdf`);
     } finally { setDownloading(false); }
   };
@@ -152,7 +158,7 @@ export function QualityNotificationsPage() {
     try {
       const r = await buildExport();
       if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return; }
-      await logReportExportOrWarn({ reportType: 'Quality Notifications', format: 'Excel', recordCount: r.body.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Quality Notifications', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `quality-notifications-${new Date().toISOString().slice(0, 10)}`, sheetName: 'QNN', head: headLabels, rows: r.body });
     } finally { setDownloading(false); }
   };
@@ -177,6 +183,7 @@ export function QualityNotificationsPage() {
   // build their own.
   return (
     <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={data?.totalPages ?? 1} hideFooter>
+      <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-3">

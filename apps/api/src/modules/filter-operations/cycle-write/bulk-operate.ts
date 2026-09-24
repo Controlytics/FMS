@@ -17,6 +17,7 @@
  * happened (21 CFR §11). See cycle-write/advance-with-checklist.ts.
  */
 import type { RequestContext } from '../../../types/context.js';
+import { stageReauthAction } from '@digilog/shared';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
 export type BulkOpKind = 'advance' | 'start-and-advance' | 'submit-checklist' | 'advance-with-checklist';
@@ -37,15 +38,24 @@ export type BulkOpResult =
 /** Reauth action implied by each op kind (mid-cycle advance is not reauth-gated). */
 export function reauthActionsForItems(items: BulkOpItem[]): string[] {
   const set = new Set<string>();
+  // Per-station rows (2026-09-24): every item that moves a filter to a stage
+  // also clears that stage's row (STAGE_WASH_IN …), so the tablet's scan
+  // stations can be gated individually. Mirrors withStageAction() on the
+  // single-filter routes.
+  const addStage = (payload: unknown) => {
+    const stage = stageReauthAction((payload as { targetState?: string } | undefined)?.targetState);
+    if (stage) set.add(stage);
+  };
   for (const it of items) {
-    if (it.kind === 'advance') set.add('ADVANCE_FILTER_STAGE');
-    else if (it.kind === 'start-and-advance') set.add('START_CLEANING_CYCLE');
+    if (it.kind === 'advance') { set.add('ADVANCE_FILTER_STAGE'); addStage(it.payload); }
+    else if (it.kind === 'start-and-advance') { set.add('START_CLEANING_CYCLE'); addStage(it.advancePayload); }
     else if (it.kind === 'submit-checklist') set.add('SUBMIT_CHECKLIST_WITH_SIGNATURE');
     // Performs BOTH writes in one tx, so it must clear BOTH gates — mirrors the
     // single-filter /advance-with-checklist route.
     else if (it.kind === 'advance-with-checklist') {
       set.add('ADVANCE_FILTER_STAGE');
       set.add('SUBMIT_CHECKLIST_WITH_SIGNATURE');
+      addStage(it.payload);
     }
   }
   return [...set];

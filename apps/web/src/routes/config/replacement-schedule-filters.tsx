@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -16,6 +18,7 @@ interface Role { name: string; displayName: string; }
  */
 export function ReplacementScheduleFiltersPage() {
   const { toast } = useToast();
+  const reauth = useReauth();
   const { data: pmData, mutate: mutatePm } = useSWR<Matrix>('/api/config/pm-schedule-filters');
   const { data: repData, mutate: mutateRep } = useSWR<Matrix>('/api/config/replacement-schedule-filters');
   const { data: rolesData } = useSWR<Role[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
@@ -47,14 +50,15 @@ export function ReplacementScheduleFiltersPage() {
   const save = async () => {
     setSaving(true);
     try {
-      await Promise.all([
-        apiClient.put('/api/config/pm-schedule-filters', pmDraft),
-        apiClient.put('/api/config/replacement-schedule-filters', repDraft),
-      ]);
+      // One signature for both writes — UPDATE_CONFIG_PAGE (2026-09-24).
+      await reauth.executeWithResult('UPDATE_CONFIG_PAGE', (pw) => Promise.all([
+        pw ? apiClient.putWithReauth('/api/config/pm-schedule-filters', pmDraft, pw) : apiClient.put('/api/config/pm-schedule-filters', pmDraft),
+        pw ? apiClient.putWithReauth('/api/config/replacement-schedule-filters', repDraft, pw) : apiClient.put('/api/config/replacement-schedule-filters', repDraft),
+      ]));
       await Promise.all([mutatePm(pmDraft, false), mutateRep(repDraft, false)]);
       toast.success('Saved', 'AHU filter visibility updated for PM and Replacement schedules.');
     } catch (err: any) {
-      toast.error('Save failed', err?.message ?? 'Could not save.');
+      if (!isReauthCancelled(err)) toast.error('Save failed', err?.message ?? 'Could not save.');
     } finally {
       setSaving(false);
     }
@@ -70,6 +74,7 @@ export function ReplacementScheduleFiltersPage() {
 
   return (
     <div className="p-6 max-w-[760px] mx-auto">
+      <ReauthPrompt reauth={reauth} />
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Schedule AHU Filters</h1>

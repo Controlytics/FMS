@@ -1,3 +1,5 @@
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useState, useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
@@ -28,6 +30,8 @@ import { DateRangeFilter } from '@/components/ui/date-range-filter';
 
 export function DebugTracesPage() {
   const { toast } = useToast();
+
+  const reauth = useReauth();
   const { formatDateTime } = useDatetimeFormat();
 
   // Filters
@@ -103,9 +107,12 @@ export function DebugTracesPage() {
   const toggleOpTrace = async () => {
     const next = !(opTrace?.enabled ?? true);
     try {
-      await apiClient.put('/api/debug/traces/operation-trace', { enabled: next });
+      // MANAGE_DEBUG_TRACES is a configurable re-auth row (2026-09-24).
+      await reauth.executeWithResult('MANAGE_DEBUG_TRACES', (pw) => pw
+        ? apiClient.putWithReauth('/api/debug/traces/operation-trace', { enabled: next }, pw)
+        : apiClient.put('/api/debug/traces/operation-trace', { enabled: next }));
       await mutateOpTrace({ enabled: next }, false);
-    } catch { /* ignore */ }
+    } catch { /* cancelled or failed — flag unchanged */ }
   };
 
   const traces = data?.data ?? [];
@@ -182,6 +189,7 @@ export function DebugTracesPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <ReauthPrompt reauth={reauth} />
       {/* Page Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">

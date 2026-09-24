@@ -375,6 +375,8 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       querystring: { type: 'object', properties: { year: { type: 'integer' } } },
     },
   }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('EXPORT_PM_SCHEDULE', req, reply);
+    if (!reauthOk) return;
     const ctx = buildContext(req);
     const year = Number((req.query as any).year) || new Date().getFullYear();
     const buf = await service.exportEntriesXlsx(ctx, year);

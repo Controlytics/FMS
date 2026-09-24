@@ -31,8 +31,8 @@ export {
 } from './types/permission-tree.js';
 export type { PermissionNode, SidebarGroup } from './types/permission-tree.js';
 
-export { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from './types/reauth-actions.js';
-export type { ReauthAction, ReauthActionCategory } from './types/reauth-actions.js';
+export { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES, REPORT_EXPORT_ACTIONS, stageReauthAction } from './types/reauth-actions.js';
+export type { ReauthAction, ReauthActionCategory, ReportExportName } from './types/reauth-actions.js';
 
 export { AUDIT_TEMPLATE_DEFAULTS, AUDIT_TEMPLATE_CATEGORIES, getDefaultTemplates } from './types/audit-templates.js';
 export type { AuditTemplateDefinition, AuditTemplateCategory } from './types/audit-templates.js';

@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
@@ -11,6 +13,7 @@ export function ReportLabelsPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const { toast } = useToast();
+  const reauth = useReauth();
   const { data, mutate } = useSWR<ReportLabelsConfig>('/api/config/report-labels/current', { revalidateOnMount: true });
   const [config, setConfig] = useState<ReportLabelsConfig>({});
   const [saving, setSaving] = useState(false);
@@ -39,12 +42,15 @@ export function ReportLabelsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await apiClient.put('/api/config/report-labels', config);
+      // UPDATE_CONFIG_PAGE gates every configuration save (2026-09-24).
+      await reauth.executeWithResult('UPDATE_CONFIG_PAGE', (pw) => pw
+        ? apiClient.putWithReauth('/api/config/report-labels', config, pw)
+        : apiClient.put('/api/config/report-labels', config));
       mutate();
       setDirty(false);
       toast.success('Saved', 'Report labels updated');
     } catch (e: any) {
-      toast.error('Error', e.message || 'Failed to save');
+      if (!isReauthCancelled(e)) toast.error('Error', e.message || 'Failed to save');
     }
     setSaving(false);
   };
@@ -58,6 +64,7 @@ export function ReportLabelsPage() {
 
   return (
     <div className="space-y-5">
+      <ReauthPrompt reauth={reauth} />
       {/* Panel toolbar */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <p className="text-sm text-slate-500 max-w-2xl">Customize report titles, subtitles, and table column headers — applied to both the on-screen view and the PDF. Leave a field blank to keep the built-in label. (Logo &amp; company name are set on the Identity tab / Branding.)</p>

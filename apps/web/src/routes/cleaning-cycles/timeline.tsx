@@ -10,8 +10,10 @@ import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { effectiveCycleStatus, performerLabel, transitionEndpoints, phaseSuffix } from '../../lib/cleaning-cycle-report';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { downloadName } from '@/lib/download-name';
 import { PencilIcon } from '@/components/super-admin-record-edit';
 import { SuperAdminCycleEditDialog } from '@/components/super-admin-cycle-edit';
@@ -20,6 +22,10 @@ export function CleaningCycleTimelinePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
+
+  const reauth = useReauth();
   const { formatDateTime, formatDate } = useDatetimeFormat();
   // 2026-05-26 audit fix (PA-CLEANUP-1): gate PDF export on
   // REPORT_EXPORT — pre-fix any CYCLE_READ user could PDF the timeline.
@@ -81,7 +87,7 @@ export function CleaningCycleTimelinePage() {
     setDownloading(true);
     try {
       const report = await buildCycleReport();
-      await logReportExportOrWarn({ reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: cycle.events?.length ?? 0 }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: cycle.events?.length ?? 0 }, toast.warning);
       report.save(`${downloadName('cycle', cycle.filterName ?? 'filter', formatDate(cycle.startedAt))}.pdf`);
     } finally { setDownloading(false); }
   };
@@ -108,13 +114,14 @@ export function CleaningCycleTimelinePage() {
         e.remarks ?? '-',
         ];
       });
-      await logReportExportOrWarn({ reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: rows.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: rows.length }, toast.warning);
       exportToExcel({ filename: `cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}`, sheetName: 'Cycle Detail', head, rows });
     } finally { setDownloading(false); }
   };
 
   return (
     <div className="h-full flex flex-col">
+      <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* Header (back + export) — page-level chrome stays here; the per-cycle
           detail body is the shared <CycleDetailView>. */}
       <div className="px-6 pt-6 pb-4 shrink-0">

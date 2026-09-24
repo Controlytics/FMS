@@ -5,12 +5,14 @@ import { api } from '@/lib/api-client';
 import { ALL_ROWS } from '@/lib/page-size';
 import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useCan } from '@/hooks/use-can';
 import { Pagination } from '@/components/ui/pagination';
 import { BlockAhuFilter, useBlockAhuScope } from '@/components/block-ahu-filter';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useReportLabels } from '@/hooks/use-report-labels';
 import { downloadName } from '@/lib/download-name';
@@ -18,6 +20,10 @@ import { downloadName } from '@/lib/download-name';
 export function RetirementListPage() {
   const { formatDate } = useDatetimeFormat();
   const { toast } = useToast();
+
+  // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
+
+  const reauth = useReauth();
   const exportLimit = useExportLimit();
   const can = useCan();
   const { data, isLoading } = useSWR('/api/filters/retirements', { refreshInterval: 30000 });
@@ -131,7 +137,7 @@ export function RetirementListPage() {
         formatDateTime: (d: string) => formatDate(d),
       });
       report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
-      await logReportExportOrWarn({ reportType: 'Retirement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Retirement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
       report.save(`${downloadName('retirement-list')}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
@@ -144,7 +150,7 @@ export function RetirementListPage() {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No retirements to include'); return; }
     if (filtered.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(filtered.length)); return; }
     try {
-      await logReportExportOrWarn({ reportType: 'Retirement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Retirement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
       exportToExcel({ filename: 'retirement-list', sheetName: 'Retirements', head: reportHead, rows: reportRows() });
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the Excel file');
@@ -153,6 +159,7 @@ export function RetirementListPage() {
 
   return (
     <div className="p-6 space-y-6">
+      <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* ─── Header ─── */}
       <div className="flex items-center gap-4">
         <div className="p-3 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 shadow-lg shadow-cyan-500/25">

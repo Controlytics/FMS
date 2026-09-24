@@ -3,6 +3,8 @@ import { ALL_ROWS } from '@/lib/page-size';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
@@ -211,34 +213,42 @@ function RulesTab() {
   const [editing, setEditing] = useState<Partial<NotificationRule> | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const reauth = useReauth();
 
   const saveRule = async () => {
     if (!editing?.name || !(editing?.eventTypes?.length)) return;
     setSaving(true);
     setError('');
     try {
-      if (editing.id) {
-        await apiClient.put(`/api/notification-rules/${editing.id}`, editing);
-      } else {
-        await apiClient.post('/api/notification-rules', editing);
-      }
+      // MANAGE_NOTIFICATION_RULES is a configurable re-auth row (2026-09-24).
+      await reauth.executeWithResult('MANAGE_NOTIFICATION_RULES', (pw) => editing.id
+        ? (pw ? apiClient.putWithReauth(`/api/notification-rules/${editing.id}`, editing, pw) : apiClient.put(`/api/notification-rules/${editing.id}`, editing))
+        : (pw ? apiClient.postWithReauth('/api/notification-rules', editing, pw) : apiClient.post('/api/notification-rules', editing)));
       mutate();
       setEditing(null);
     } catch (err: any) {
-      setError(err.message || 'Failed to save');
+      if (!isReauthCancelled(err)) setError(err.message || 'Failed to save');
     }
     setSaving(false);
   };
 
   const deleteRule = async (id: string) => {
     if (!confirm('Delete this notification rule?')) return;
-    await apiClient.delete(`/api/notification-rules/${id}`);
-    mutate();
+    try {
+      await reauth.executeWithResult('MANAGE_NOTIFICATION_RULES', (pw) => pw
+        ? apiClient.deleteWithReauth(`/api/notification-rules/${id}`, pw)
+        : apiClient.delete(`/api/notification-rules/${id}`));
+      mutate();
+    } catch (err: any) { if (!isReauthCancelled(err)) setError(err.message || 'Failed to delete'); }
   };
 
   const toggleRule = async (id: string) => {
-    await apiClient.put(`/api/notification-rules/${id}/toggle`, {});
-    mutate();
+    try {
+      await reauth.executeWithResult('MANAGE_NOTIFICATION_RULES', (pw) => pw
+        ? apiClient.putWithReauth(`/api/notification-rules/${id}/toggle`, {}, pw)
+        : apiClient.put(`/api/notification-rules/${id}/toggle`, {}));
+      mutate();
+    } catch (err: any) { if (!isReauthCancelled(err)) setError(err.message || 'Failed to toggle'); }
   };
 
   const testRule = async (id: string) => {
@@ -448,6 +458,7 @@ function RulesTab() {
   // Rules list
   return (
     <div className="space-y-4">
+      <ReauthPrompt reauth={reauth} />
       <div className="flex justify-between items-center">
         <p className="text-sm text-slate-500">{rules?.length ?? 0} notification rules configured</p>
         <Button onClick={() => setEditing({ name: '', eventType: '', eventTypes: [], emailEnabled: true, inAppEnabled: true, smsEnabled: false, cooldownMinutes: 0, priority: 0, isActive: true, recipients: [], conditions: {} })}>
@@ -533,11 +544,18 @@ function GroupsTab() {
   const [newDesc, setNewDesc] = useState('');
   const [managingId, setManagingId] = useState<string | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
+  const reauth = useReauth();
   const [addUserId, setAddUserId] = useState('');
 
+  // MANAGE_USER_GROUPS is a configurable re-auth row (2026-09-24). A dismissed
+  // dialog rejects with REAUTH_CANCELLED and simply leaves the group as it was.
   const createGroup = async () => {
     if (!newName) return;
-    await apiClient.post('/api/user-groups', { name: newName, description: newDesc });
+    const body = { name: newName, description: newDesc };
+    try {
+      await reauth.executeWithResult('MANAGE_USER_GROUPS', (pw) => pw
+        ? apiClient.postWithReauth('/api/user-groups', body, pw) : apiClient.post('/api/user-groups', body));
+    } catch { return; }
     mutate();
     setCreating(false);
     setNewName('');
@@ -546,7 +564,10 @@ function GroupsTab() {
 
   const deleteGroup = async (id: string) => {
     if (!confirm('Delete this group?')) return;
-    await apiClient.delete(`/api/user-groups/${id}`);
+    try {
+      await reauth.executeWithResult('MANAGE_USER_GROUPS', (pw) => pw
+        ? apiClient.deleteWithReauth(`/api/user-groups/${id}`, pw) : apiClient.delete(`/api/user-groups/${id}`));
+    } catch { return; }
     mutate();
   };
 
@@ -558,7 +579,12 @@ function GroupsTab() {
 
   const addMember = async () => {
     if (!managingId || !addUserId) return;
-    await apiClient.post(`/api/user-groups/${managingId}/members`, { userIds: [addUserId] });
+    const body = { userIds: [addUserId] };
+    try {
+      await reauth.executeWithResult('MANAGE_USER_GROUPS', (pw) => pw
+        ? apiClient.postWithReauth(`/api/user-groups/${managingId}/members`, body, pw)
+        : apiClient.post(`/api/user-groups/${managingId}/members`, body));
+    } catch { return; }
     setAddUserId('');
     loadMembers(managingId);
     mutate();
@@ -566,7 +592,11 @@ function GroupsTab() {
 
   const removeMember = async (userId: string) => {
     if (!managingId) return;
-    await apiClient.delete(`/api/user-groups/${managingId}/members/${userId}`);
+    try {
+      await reauth.executeWithResult('MANAGE_USER_GROUPS', (pw) => pw
+        ? apiClient.deleteWithReauth(`/api/user-groups/${managingId}/members/${userId}`, pw)
+        : apiClient.delete(`/api/user-groups/${managingId}/members/${userId}`));
+    } catch { return; }
     loadMembers(managingId);
     mutate();
   };
@@ -616,6 +646,7 @@ function GroupsTab() {
 
   return (
     <div className="space-y-4">
+      <ReauthPrompt reauth={reauth} />
       <div className="flex justify-between items-center">
         <p className="text-sm text-slate-500">{groups?.length ?? 0} user groups</p>
         <Button onClick={() => setCreating(true)}>+ New Group</Button>

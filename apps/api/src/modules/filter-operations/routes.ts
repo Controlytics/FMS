@@ -6,6 +6,14 @@ import { FilterOperationsService } from './filter-operations.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { stageReauthAction } from '@digilog/shared';
+
+/** Append the per-station re-auth row for the body's targetState, if any. */
+function withStageAction(actions: string[], body: unknown): string[] {
+  const target = (body as { targetState?: string } | undefined)?.targetState;
+  const stage = stageReauthAction(target);
+  return stage ? [...actions, stage] : actions;
+}
 import { getFilterStageRules, buildStageOptions } from './stage-rules.js';
 import { getCleaningReasons } from './filter-resolver.js';
 import { computeAhuCompletionStatus, computeAhuBatchStatus, computeAhuSetAvailability, findProfilesWithoutFinalChecklist } from './ahu-completion-gate.js';
@@ -391,7 +399,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('ADVANCE_FILTER_STAGE', req, reply);
+    // Generic row + the station row for the target stage (2026-09-24): the
+    // operator may require a signature on one station only.
+    const { ok } = await enforceReauth(withStageAction(['ADVANCE_FILTER_STAGE'], req.body), req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
@@ -486,8 +496,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    // Both actions — this op performs both writes, so it must clear both gates.
-    const { ok } = await enforceReauth(['ADVANCE_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE'], req, reply);
+    // Both actions — this op performs both writes, so it must clear both gates
+    // (+ the station row for the target stage, 2026-09-24).
+    const { ok } = await enforceReauth(withStageAction(['ADVANCE_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE'], req.body), req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };

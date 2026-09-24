@@ -233,7 +233,9 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
         ...errorResponses,
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('UPDATE_CLEANING_PROFILE', req, reply);
+    if (!reauthOk) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     return service.toggleStatus(ctx, id);

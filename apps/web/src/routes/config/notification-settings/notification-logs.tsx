@@ -1,3 +1,5 @@
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
@@ -38,6 +40,7 @@ export function NotificationLogsPage() {
   const { formatDateTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
+  const reauth = useReauth();
   const [perPage, setPerPage] = useState(paginationOptions[0]);
   const [channel, setChannel] = useState('');
   const [status, setStatus] = useState('');
@@ -57,13 +60,17 @@ export function NotificationLogsPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await apiClient.delete(`/api/notification-settings/logs/${id}`);
+      // DELETE_NOTIFICATION_LOG is a configurable re-auth row (2026-09-24).
+      await reauth.executeWithResult('DELETE_NOTIFICATION_LOG', (pw) => pw
+        ? apiClient.deleteWithReauth(`/api/notification-settings/logs/${id}`, pw)
+        : apiClient.delete(`/api/notification-settings/logs/${id}`));
       mutate();
-    } catch { /* ignore */ }
+    } catch { /* cancelled or failed — the row simply stays */ }
   };
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <ReauthPrompt reauth={reauth} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">

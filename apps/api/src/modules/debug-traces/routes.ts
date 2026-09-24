@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { auditVisibilityScope } from '../../lib/audit-visibility.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 /**
  * Debug Traces — repointed onto audit_trail (2026-06-12).
@@ -180,7 +181,9 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
       tags: ['Debug Traces'], summary: 'Set operation-trace flag (vestigial)',
       body: { type: 'object', properties: { enabled: { type: 'boolean' } } },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('MANAGE_DEBUG_TRACES', req, reply);
+    if (!reauthOk) return;
     const enabled = !!(req.body as { enabled?: boolean }).enabled;
     await prisma.systemConfig.upsert({
       where: { configKey: 'debug' },

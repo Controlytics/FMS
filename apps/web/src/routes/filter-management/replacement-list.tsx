@@ -7,11 +7,13 @@ import { SuperAdminRecordEditDialog, SuperAdminEditButton, userOptions, type Edi
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { Pagination } from '@/components/ui/pagination';
 import { BlockAhuFilter, useBlockAhuScope } from '@/components/block-ahu-filter';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useReportLabels } from '@/hooks/use-report-labels';
 import { ReplacementSchedulePage } from './replacement-schedule';
@@ -20,6 +22,10 @@ import { downloadName } from '@/lib/download-name';
 export function ReplacementListPage() {
   const { formatDate } = useDatetimeFormat();
   const { toast } = useToast();
+
+  // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
+
+  const reauth = useReauth();
   const exportLimit = useExportLimit();
   const { user } = useAuth();
   const perms = user?.permissions ?? [];
@@ -151,7 +157,7 @@ export function ReplacementListPage() {
         formatDateTime: (d: string) => formatDate(d),
       });
       report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
-      await logReportExportOrWarn({ reportType: 'Replacement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Replacement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
       report.save(`${downloadName('replacement-list')}.pdf`);
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
@@ -164,7 +170,7 @@ export function ReplacementListPage() {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No replacements to include'); return; }
     if (filtered.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(filtered.length)); return; }
     try {
-      await logReportExportOrWarn({ reportType: 'Replacement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Replacement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
       exportToExcel({ filename: 'replacement-list', sheetName: 'Replacements', head: reportHead, rows: reportRows() });
     } catch (e: any) {
       toast.error('Export failed', e?.message ?? 'Could not generate the Excel file');
@@ -173,6 +179,7 @@ export function ReplacementListPage() {
 
   return (
     <div>
+      <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* ─── List | Schedule toggle ─── */}
       <div className="px-6 pt-6">
         <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">

@@ -8,7 +8,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { apiClient } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
@@ -176,8 +176,12 @@ export function ReplacementSchedulePage() {
     setExporting(true);
     try {
       if (allEntries.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(allEntries.length)); return; }
-      await logReportExportOrWarn({ reportType: 'Replacement Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
-      const res = await fetch(apiUrl('/api/replacement-schedules/export.xlsx'), { headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}` } });
+      // One signature covers the audit write AND the server-side workbook GET
+      // (same EXPORT_REPLACEMENT_SCHEDULE row; password in x-reauth-password).
+      const signedPw = await requireExportReauth(reauth, { reportType: 'Replacement Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
+      const res = await fetch(apiUrl('/api/replacement-schedules/export.xlsx'), {
+        headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}`, ...(signedPw ? { 'x-reauth-password': signedPw } : {}) },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -203,7 +207,7 @@ export function ReplacementSchedulePage() {
     try {
       const report = await buildReplacementReport();
       if (!report) return;
-      await logReportExportOrWarn({ reportType: 'Replacement Schedule', format: 'PDF', recordCount: schedules.flatMap((s: any) => (s.entries ?? [])).length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Replacement Schedule', format: 'PDF', recordCount: schedules.flatMap((s: any) => (s.entries ?? [])).length }, toast.warning);
       report.save(`${downloadName('replacement-schedule')}.pdf`);
     } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not generate PDF'); } finally { setExporting(false); }
   };

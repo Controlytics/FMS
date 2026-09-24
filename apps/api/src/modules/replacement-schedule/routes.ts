@@ -73,6 +73,8 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_UPLOAD')],
     schema: { tags: ['Replacement Schedule'], summary: 'Upload a replacement schedule', consumes: ['multipart/form-data'], response: { 200: uploadResultSchema, ...errorResponses } },
   }, async (req, reply) => {
+    const { ok: reauthOk } = await enforceReauth('UPLOAD_REPLACEMENT_SCHEDULE', req, reply);
+    if (!reauthOk) return;
     const { buffer, fileName } = await readUpload(req);
     if (!buffer || buffer.length === 0) return reply.code(400).send({ error: 'VALIDATION', message: 'A file is required' });
     const result = await processUpload(buffer, fileName, buildContext(req), { validateOnly: false });
@@ -92,7 +94,11 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
   app.get('/export.xlsx', {
     preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_VIEW')],
     schema: { tags: ['Replacement Schedule'], summary: 'Export replacement schedule as Excel' },
-  }, async (_req, reply) => {
+  }, async (req, reply) => {
+    // Same row as the client-side Replacement Schedule exports (2026-09-24);
+    // the password rides in the x-reauth-password header on this GET.
+    const { ok: reauthOk } = await enforceReauth('EXPORT_REPLACEMENT_SCHEDULE', req, reply);
+    if (!reauthOk) return;
     const buf = await exportEntriesXlsx();
     return reply
       .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

@@ -1,3 +1,5 @@
+import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
@@ -52,6 +54,7 @@ export function UserIdConfigPage() {
     config?.autoGenerate ? '/api/config/user-id/next' : null
   );
 
+  const reauth = useReauth();
   const [form, setForm] = useState<UserIdConfig>({
     format: 'LETTERS_NUMBERS',
     length: 6,
@@ -82,11 +85,16 @@ export function UserIdConfigPage() {
     try {
       const saveData = { ...form };
       if (!saveData.format.startsWith('PREFIX_')) { saveData.prefix = ''; }
-      await apiClient.put('/api/config/user-id', saveData);
+      // The API has gated this save on UPDATE_USERID_CONFIG since 2026-06;
+      // the page never asked for the password, so an enabled row was a bare 401.
+      await reauth.executeWithResult('UPDATE_USERID_CONFIG', (pw) => pw
+        ? apiClient.putWithReauth('/api/config/user-id', saveData, pw)
+        : apiClient.put('/api/config/user-id', saveData));
       mutate();
       setSaveMessage({ type: 'success', text: 'Configuration saved successfully!' });
       setTimeout(() => setSaveMessage(null), 4000);
     } catch (err: any) {
+      if (isReauthCancelled(err)) return;
       console.error('Failed to save:', err);
       setSaveMessage({ type: 'error', text: err?.message || 'Failed to save configuration' });
       setTimeout(() => setSaveMessage(null), 5000);
@@ -159,6 +167,7 @@ export function UserIdConfigPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <ReauthPrompt reauth={reauth} />
       {/* Header */}
       <div className="flex items-center gap-4">
         <div className="p-3 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/25">

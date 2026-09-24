@@ -10,10 +10,12 @@ import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { cycleEndInfo, effectiveCycleStatus, performerLabel } from '../../lib/cleaning-cycle-report';
-import { logReportExportOrWarn } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { startOfDayIso, endOfDayIso } from '@/lib/datetime-input';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
 import { PencilIcon, useIsSuperAdmin } from '@/components/super-admin-record-edit';
@@ -447,6 +449,10 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
 export function FilterLifecycleReportPage() {
   const { formatDateTime, formatDate, config: datetimeConfig } = useDatetimeFormat();
   const { toast } = useToast();
+
+  // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
+
+  const reauth = useReauth();
   const exportLimit = useExportLimit();
   // Phase 5C: lifecycle.export gate = ['REPORT_EXPORT','REPORT_GENERATE'] — SAME as old check.
   const can = useCan();
@@ -796,7 +802,7 @@ export function FilterLifecycleReportPage() {
       }
 
       if (asSnapshot) return report.getSnapshot();
-      await logReportExportOrWarn({ reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: totalCycles + totalEvents + totalManual }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: totalCycles + totalEvents + totalManual }, toast.warning);
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       report.save(`${downloadName('lifecycle', safeScope)}.pdf`);
       return null;
@@ -852,7 +858,7 @@ export function FilterLifecycleReportPage() {
       }
       if (rows.length === 0) { setDownloadMsg('No cleaning cycles or manual updates found for this selection and period.'); return; }
       if (rows.length > exportLimit.maxRecords) { setDownloadMsg(exportLimit.tooLargeMessage(rows.length)); return; }
-      await logReportExportOrWarn({ reportType: 'Cleaning Lifecycle', format: 'Excel', recordCount: rows.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Lifecycle', format: 'Excel', recordCount: rows.length }, toast.warning);
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       exportToExcel({ filename: `lifecycle-${safeScope}`, sheetName: 'Cleaning Cycles', head, rows });
     } catch (e: any) {
@@ -869,6 +875,7 @@ export function FilterLifecycleReportPage() {
 
   return (
     <div className="h-full flex flex-col">
+      <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
         <div className="flex items-start justify-between gap-3 mb-4">
