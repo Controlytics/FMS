@@ -30,7 +30,8 @@ export type WorkflowRowActions = {
   operable: boolean;
   /** Bulk checkbox shown. Never for a filter still in the workflow. */
   selectable: boolean;
-  /** Read-only details popup for anyone who can see the row. */
+  /** Read-only details popup for anyone who can see the row. Always on — an
+   *  approved filter's popup is where its review/approval record is read. */
   showDetails: boolean;
   /** The inline workflow step for THIS viewer, or null. */
   primary: 'review' | 'approve' | null;
@@ -51,7 +52,9 @@ export function workflowRowActions(
     return {
       operable: true,
       selectable: !retired,
-      showDetails: false,
+      // The Details popup stays after approval (operator, 2026-09-24): it is
+      // where the who-submitted / reviewed / approved record is read later.
+      showDetails: true,
       primary: null,
       showResubmit: false,
       showEdit: false,

@@ -8,14 +8,21 @@ const creator: WorkflowPerms = { ...none, canEdit: true, canDelete: true, canSub
 const superAdmin: WorkflowPerms = { canReview: true, canApprove: true, canEdit: true, canDelete: true, canSubmit: true };
 
 describe('workflowRowActions', () => {
-  it('APPROVED (and a missing status) is an ordinary, selectable row with no workflow controls', () => {
+  it('APPROVED (and a missing status) is an ordinary, selectable row with no workflow step, Details kept', () => {
     for (const status of ['APPROVED', null, undefined]) {
       const a = workflowRowActions(status, superAdmin);
       expect(a.operable).toBe(true);
       expect(a.selectable).toBe(true);
-      expect(a.showDetails).toBe(false);
+      // The eye stays after approval: it is where the review/approval record is read.
+      expect(a.showDetails).toBe(true);
       expect(a.primary).toBeNull();
       expect(a.showResubmit).toBe(false);
+    }
+  });
+
+  it('Details is offered on every status, whoever looks', () => {
+    for (const status of ['APPROVED', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'REJECTED', 'SOMETHING_NEW']) {
+      expect(workflowRowActions(status, none).showDetails).toBe(true);
     }
   });
 

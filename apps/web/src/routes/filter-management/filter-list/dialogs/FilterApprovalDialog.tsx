@@ -96,7 +96,11 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
     ? 'Check the details below, then complete the review to send this filter for approval.'
     : mode === 'approve'
       ? 'Check the details below. Once approved, this filter can be cleaned and operated.'
-      : 'This filter is in the creation workflow and cannot be operated yet.';
+      : status === 'APPROVED'
+        ? 'Approved filter. The workflow record below shows who submitted, reviewed and approved it.'
+        : status === 'REJECTED'
+          ? 'Rejected. Correct it and resubmit before it can be used.'
+          : 'This filter is in the creation workflow and cannot be operated yet.';
   const headerCls = mode === 'review'
     ? 'bg-gradient-to-r from-amber-500 to-orange-500'
     : mode === 'approve'

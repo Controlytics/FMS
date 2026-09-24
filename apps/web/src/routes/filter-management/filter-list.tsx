@@ -2064,19 +2064,23 @@ export function FilterListPage() {
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-end gap-0.5">
+                              {/* Details popup on EVERY row (operator, 2026-09-24): after
+                                  approval it is where the submitted / reviewed / approved
+                                  record is read. */}
+                              {wf.showDetails && (
+                                <button onClick={() => openApprovalDialog(f, 'view')}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors" title="Filter Details">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                  </svg>
+                                </button>
+                              )}
                               {!wf.operable && (
                                 <>
-                                  {/* Pending / rejected filter: a Details popup, and
-                                      (rejected only) the creator's Edit / Delete. The
+                                  {/* Rejected only: the creator's Edit / Delete. The
                                       Review / Approve / Resubmit step is rendered next
                                       to the status badge in the Filter column. */}
-                                  <button onClick={() => openApprovalDialog(f, 'view')}
-                                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors" title="Filter Details">
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                    </svg>
-                                  </button>
                                   {wf.showEdit && (
                                     <button onClick={() => openEditFilter({ id: f.id, name: f.name, filterSet: f.filterSet, ahuType: f.ahuType, filterType: f.filterType, micronSize: f.micronSize, filterSize: f.filterSize, lastCleaningDate: f.lastCleaningDate, blockId: f.blockId, areaId: f.areaId, ahuId: f.ahuId, currentState: f.currentState, status: f.status, rfid: (identifiersByAsset.get(f.id) ?? []).find((i: any) => i.identifierType === 'RFID')?.identifierValue ?? '' })}
                                       className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors" title="Correct this rejected filter">

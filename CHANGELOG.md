@@ -47,6 +47,10 @@ single record. Redesigned:
   the ticked rows. One request per decision; the server still writes one
   audit row per filter. Verified headless on an 8-filter upload: review 6 of
   8, reject the other 2 with one reason, approve the 6 as QA, 18/18 checks.
+- **The Details eye stays after approval** (operator, same day). An approved
+  row keeps the eye icon in Actions; its popup is view-only, says "Approved
+  filter", and shows who submitted, reviewed and approved it. Filters created
+  before the workflow show "No workflow history recorded".
 - **Fixed while here:** after a decision the page revalidated
   `/api/hierarchy/filters`, a key nothing on the page subscribes to, so the
   badge kept its old value until the 30 s poll. It now revalidates
