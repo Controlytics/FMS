@@ -5,6 +5,14 @@ type Props = {
   action: 'retire' | 'replace';
   remarks: string;
   submitting: boolean;
+  /**
+   * Roles & Access toggles (2026-09-24): a role granted only "Retire Filter"
+   * sees Retirement alone, only "Replace Filter" sees Replacement alone, both
+   * see the choice. The server refuses the missing one anyway; this stops
+   * the panel from offering it. Both default to true for older callers.
+   */
+  canRetire?: boolean;
+  canReplace?: boolean;
   onActionChange: (a: 'retire' | 'replace') => void;
   onRemarksChange: (v: string) => void;
   onClose: () => void;
@@ -12,15 +20,17 @@ type Props = {
 };
 
 export function RetireReplacePanel({
-  filter, action, remarks, submitting,
+  filter, action, remarks, submitting, canRetire = true, canReplace = true,
   onActionChange, onRemarksChange, onClose, onSubmit,
 }: Props) {
+  const both = canRetire && canReplace;
+  const title = both ? 'Retire / Replace Filter' : canRetire ? 'Retire Filter' : 'Replace Filter';
   return (
     <>
       <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
       <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 animate-in slide-in-from-right">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-          <h3 className="text-lg font-semibold text-slate-800">Retire / Replace Filter</h3>
+          <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -39,14 +49,20 @@ export function RetireReplacePanel({
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Action</label>
-            <select
-              value={action}
-              onChange={e => onActionChange(e.target.value as 'retire' | 'replace')}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
-            >
-              <option value="retire">Retirement</option>
-              <option value="replace">Replacement</option>
-            </select>
+            {both ? (
+              <select
+                value={action}
+                onChange={e => onActionChange(e.target.value as 'retire' | 'replace')}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
+              >
+                <option value="retire">Retirement</option>
+                <option value="replace">Replacement</option>
+              </select>
+            ) : (
+              // Only one action is granted to this role — show it, no choice.
+              <input type="text" readOnly value={action === 'retire' ? 'Retirement' : 'Replacement'}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm" />
+            )}
           </div>
           <div className={`rounded-lg p-3 text-xs ${action === 'retire' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
             {action === 'retire'

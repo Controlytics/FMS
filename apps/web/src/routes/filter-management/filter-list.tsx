@@ -613,7 +613,9 @@ export function FilterListPage() {
   const openPanel = (filter: { id: string; name: string }) => {
     closeStatusPanel(); // close status panel if open
     setPanelFilter(filter);
-    setPanelAction('retire');
+    // Open on the action this role actually holds (Roles & Access toggles);
+    // a Replace-only role used to land on Retirement and get a 403.
+    setPanelAction(canRetire ? 'retire' : 'replace');
     setPanelRemarks('');
   };
 
@@ -2141,7 +2143,8 @@ export function FilterListPage() {
                                   )}
                                   {(canRetire || canReplace) && (
                                     <button onClick={() => openPanel({ id: f.id, name: f.name })}
-                                      className="p-1.5 rounded-lg text-slate-400 hover:text-orange-600 hover:bg-orange-50 transition-colors" title="Retire / Replace">
+                                      className="p-1.5 rounded-lg text-slate-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                                      title={canRetire && canReplace ? 'Retire / Replace' : canRetire ? 'Retire Filter' : 'Replace Filter'}>
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0" />
                                       </svg>
@@ -2256,6 +2259,8 @@ export function FilterListPage() {
           action={panelAction}
           remarks={panelRemarks}
           submitting={panelSubmitting}
+          canRetire={canRetire}
+          canReplace={canReplace}
           onActionChange={setPanelAction}
           onRemarksChange={setPanelRemarks}
           onClose={closePanel}

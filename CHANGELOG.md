@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] - Filters row: Retire / Replace panel follows the role's toggles (2026-09-24)
+
+Operator: "if a role is assigned only retirement, only that option should
+come; if replacement, only replacement; if both, both." Roles & Access
+already had separate "Retire Filter" / "Replace Filter" toggles and the
+server refused the missing one, but the single-row panel always offered
+both and opened on Retirement — a Replace-only role landed on an action it
+could not perform. `RetireReplacePanel` now takes `canRetire` / `canReplace`:
+both → the Action dropdown; one → that action fixed, title and row tooltip
+named after it ("Retire Filter" / "Replace Filter"); the panel opens on the
+granted action. Bulk buttons were already per-toggle. 4 render tests; live
+check as MANAGER (retire only) and OPERATOR (replace only), 6/6.
+
 ## [Unreleased] - Re-auth coverage: every operation has a row, and the row is enforced (2026-09-24)
 
 Operator: "in re-auth configuration so many actions were not added — report
