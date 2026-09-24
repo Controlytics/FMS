@@ -135,10 +135,28 @@ export const ldapService = {
   },
 
   async testConnection(config?: Partial<LdapConfig>): Promise<{ success: boolean; message: string }> {
-    const cfg = config ? { ...await this.getConfig(), ...config } : await this.getConfig();
+    const stored = await this.getConfig();
+    const cfg = config ? { ...stored, ...config } : stored;
 
     if (!cfg.serverUrl || !cfg.bindDN || !cfg.bindPassword) {
       return { success: false, message: 'Server URL, Bind DN, and Bind Password are required' };
+    }
+    // Audit 2026-09-24 (F4): only ldap:// and ldaps:// — anything else is a
+    // request to open a socket to an arbitrary host from the server.
+    if (!/^ldaps?:\/\//i.test(cfg.serverUrl)) {
+      return { success: false, message: 'Server URL must start with ldap:// or ldaps://' };
+    }
+    // F4 (cont.): the request body is merged OVER the saved config, and the
+    // bind used the SAVED bind password — so a CONFIG_UPDATE holder could point
+    // `serverUrl` at a host they control and receive the stored service-account
+    // password (which GET /config masks) in a cleartext simple bind. Testing a
+    // DIFFERENT server, or with the TLS check switched off, requires the caller
+    // to supply the bind password themselves.
+    const serverChanged = !!config?.serverUrl && config.serverUrl !== stored.serverUrl;
+    const tlsLoosened = config?.tlsRejectUnauthorized === false && stored.tlsRejectUnauthorized !== false;
+    const usingStoredPassword = !config?.bindPassword || config.bindPassword === '********';
+    if ((serverChanged || tlsLoosened) && usingStoredPassword) {
+      return { success: false, message: 'Enter the Bind Password to test a different server URL or with TLS verification disabled.' };
     }
 
     const client = new Client({
@@ -262,8 +280,10 @@ export const ldapService = {
   matchesLdapGroup,
 
   mapGroupsToRole(groups: string[], config: LdapConfig): string {
+    // F4 (cont.): `defaultRole` gets the same SUPER_ADMIN guard as the mappings.
+    const fallbackRole = config.defaultRole && config.defaultRole !== 'SUPER_ADMIN' ? config.defaultRole : 'OPERATOR';
     if (!config.roleMappings || config.roleMappings.length === 0) {
-      return config.defaultRole || 'OPERATOR';
+      return fallbackRole;
     }
 
     // Check each mapping - first match wins (mappings should be ordered by priority)
@@ -279,7 +299,7 @@ export const ldapService = {
       }
     }
 
-    return config.defaultRole || 'OPERATOR';
+    return fallbackRole;
   },
 
   async provisionUser(username: string, ldapResult: LdapAuthResult, config: LdapConfig) {

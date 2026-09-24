@@ -176,4 +176,36 @@ describe('Filter replace — duplicate-name guard', () => {
     const active91 = await prisma.assetInstance.count({ where: { name: `${PREFIX}-91`, isActive: true } });
     expect(active91).toBe(1);
   });
+
+  // Audit 2026-09-24 (F1): the replacement inherits the old filter's approval
+  // state. It used to take the column default (APPROVED), so replacing a
+  // PENDING_REVIEW filter minted an operable one with no review or approval.
+  it('a replacement inherits the old filter\'s approval status (no workflow bypass)', async () => {
+    const a = await prisma.assetInstance.findUniqueOrThrow({ where: { id: filterA } });
+    const aDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: filterA } });
+    const pending = await prisma.assetInstance.create({
+      data: {
+        name: `${PREFIX}-80`, templateId: a.templateId, templateVersion: a.templateVersion, parentId: a.parentId,
+        attributes: a.attributes ?? {}, status: 'Active', isActive: true, createdBy: TEST_USERNAME,
+        approvalStatus: 'PENDING_REVIEW', submittedBy: testUserId, submittedByName: TEST_USERNAME, submittedAt: new Date(),
+      },
+    });
+    if (aDetails) {
+      await prisma.filterDetails.create({ data: { assetInstanceId: pending.id, filterSet: aDetails.filterSet, filterProfileId: aDetails.filterProfileId } });
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/filters/${pending.id}/replace`,
+      headers: { authorization: `Bearer ${token}`, 'x-reauth-password': TEST_PASSWORD },
+      payload: { remarks: 'replace a filter that is still pending review' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    const created = await prisma.assetInstance.findUniqueOrThrow({ where: { id: body.newFilterId } });
+    expect(created.name).toBe(`${PREFIX}-81`);
+    expect(created.approvalStatus).toBe('PENDING_REVIEW');
+    expect(created.submittedByName).toBe(TEST_USERNAME);
+    expect(created.approvedAt).toBeNull();
+  });
 });

@@ -25,6 +25,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { computeChecksum } from '../filter-operations/helpers.js';
+import { lockAndVerifyFilterState } from '../filter-operations/cycle-write/locking.js';
 import { getInterlockConfig, prettyStage } from '../filter-operations/stage-interlock.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { getLogger } from '../../lib/logger.js';
@@ -375,7 +376,8 @@ export const stageApprovalService = {
           action: 'STAGE_APPROVAL_APPROVED',
           targetType: 'cleaning_stage_approval',
           targetId: row.id,
-          afterValue: { stageKey: row.stageKey, filterName: (row.detailsSnapshot as any)?.filterName ?? null },
+          // Audit 2026-09-24: the approver's remarks are on the row (decisionRemarks) but were not in the signature record.
+          afterValue: { stageKey: row.stageKey, filterName: (row.detailsSnapshot as any)?.filterName ?? null, remarks: cleanRemarks },
           signatureMeaning: `${prettyStage(row.stageKey)} approved for filter "${(row.detailsSnapshot as any)?.filterName ?? row.filterId}"`,
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
@@ -438,6 +440,12 @@ export const stageApprovalService = {
           'Someone else decided this stage approval while you were deciding. Reload to see the current status.');
       }
       const u = await tx.cleaningStageApproval.findUniqueOrThrow({ where: { id } });
+
+      // Audit 2026-09-24 (F14): take the same FOR UPDATE row lock every cycle
+      // write takes and re-verify the filter is still at the gate INSIDE the
+      // tx — assertFilterStillAtGate above is a pre-tx read, so an offline
+      // replay racing this reject could be overwritten by the rollback below.
+      await lockAndVerifyFilterState(tx, row.filterId, row.stageKey, row.cycleId ?? null);
 
       // Immutable deviation entry: backward transition caused by QA rejection.
       const eventData = {
@@ -537,7 +545,8 @@ export const stageApprovalService = {
         else await stageApprovalService.reject(ctx, id, remarks);
         results.push({ id, status: 'ok' });
       } catch (e: any) {
-        results.push({ id, status: 'failed', error: { code: e?.code ?? 'DECISION_FAILED', message: e?.message ?? 'Failed' } });
+        // Audit 2026-09-24 (C-F6): never forward non-AppError text to the client.
+        results.push({ id, status: 'failed', error: { code: e?.code ?? 'DECISION_FAILED', message: e instanceof AppError ? e.message : 'Failed' } });
       }
     }
     return { results };

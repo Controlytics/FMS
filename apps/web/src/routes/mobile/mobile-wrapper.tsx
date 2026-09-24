@@ -1019,6 +1019,26 @@ export function MobileWrapperPage() {
   if (tabletAccess && allowedFeatures.length > 0 && !hasFeature('login')) {
     return <Navigate to="/m/login" replace />;
   }
+  // Audit 2026-09-24: a role the tablet-access allowlist does NOT include
+  // (configured, zero features — ADMIN / MANAGER / QA today) used to fall
+  // through, mount the whole shell, and fire every cache preload into 403s.
+  // Say so instead of loading a tablet the role cannot use.
+  if (tabletAccess && tabletConfigured && allowedFeatures.length === 0 && user?.role !== 'SUPER_ADMIN') {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-slate-50 p-6">
+        <div className="max-w-sm w-full bg-white border border-slate-200 rounded-2xl shadow-sm p-6 text-center space-y-3">
+          <h1 className="text-lg font-semibold text-slate-800">Tablet not enabled for your role</h1>
+          <p className="text-sm text-slate-500">
+            Your role ({user?.role ?? 'unknown'}) has no tablet features assigned. Ask an administrator to enable them under Configuration → Tablet Access, or use the desktop application.
+          </p>
+          <button type="button" onClick={() => logout()}
+            className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-slate-800 hover:bg-slate-900">
+            Log out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-slate-50 to-slate-100 select-none overflow-hidden">

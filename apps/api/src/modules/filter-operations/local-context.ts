@@ -85,6 +85,13 @@ async function loadCycle(currentCycleId: string | null) {
  *   `assertCycleActive` fail-closes against a missing currentCycleId so
  *   the sentinel is consumed safely.
  */
+/** Audit 2026-09-24 (C-F2): 409 for a retired / deactivated filter. Shared by loadLocalContext and start-cycle. */
+export function assertFilterNotRetired(currentLifecycleState: string | null, isActive: boolean | null | undefined, name: string | null): void {
+  if (currentLifecycleState === 'RETIRED' || isActive === false) {
+    throw new AppError(409, 'FILTER_RETIRED', `Filter "${name ?? ''}" is retired and cannot be cleaned.`);
+  }
+}
+
 export async function loadLocalContext(
   filterId: string,
   ctx: RequestContext,
@@ -95,6 +102,7 @@ export async function loadLocalContext(
     select: {
       id: true,
       approvalStatus: true,
+      isActive: true,
       name: true,
       parentId: true,
       filterDetails: {
@@ -126,6 +134,10 @@ export async function loadLocalContext(
   // from its candidate set before getting here, so readiness is computed over
   // operable filters rather than throwing on the whole AHU.
   assertFilterOperable(inst.approvalStatus, inst.name);
+  // Audit 2026-09-24 (C-F2): a Retired filter kept APPROVED and passed the gate
+  // above, so the API (not the UI, which hides retired rows) accepted cycle
+  // writes on it. Same rule for every write path that loads here.
+  assertFilterNotRetired(inst.filterDetails?.currentLifecycleState ?? null, inst.isActive, inst.name);
 
   const filterCurrentCycleId = inst.filterDetails?.currentCycleId ?? null;
 

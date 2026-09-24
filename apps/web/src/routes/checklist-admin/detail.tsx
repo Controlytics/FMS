@@ -363,7 +363,7 @@ export function ChecklistProfileDetailPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex gap-2 shrink-0">
                   {canEdit && (
                     <button onClick={() => openEdit(q)}
                       className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors" style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)' }}>Edit</button>

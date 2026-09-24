@@ -3,6 +3,7 @@ import { errorResponses } from '../../../lib/error-schemas.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { enforceReauth } from '../../../lib/reauth-check.js';
+import { auditLog } from '../../../lib/audit.js';
 
 // Keep in sync with ALL_CARDS in apps/web/src/routes/config/dashboard-cards.tsx
 const VALID_CARD_KEYS = new Set([
@@ -57,10 +58,22 @@ export async function dashboardCardsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'INVALID_CARD_KEY', message: `Unknown card key(s): ${invalid.join(', ')}` });
     }
 
-    await prisma.systemConfig.upsert({
-      where: { configKey: 'dashboard-cards' },
-      update: { configValue, updatedBy: ctx.userSub },
-      create: { configKey: 'dashboard-cards', configValue, configType: 'display', requiresReauth: false, updatedBy: ctx.userSub },
+    // Audit 2026-09-24: this write bypassed configService and left no audit
+    // row — the only config PUT that did. Same CONFIG_CHANGED row as the rest.
+    const before = await prisma.systemConfig.findUnique({ where: { configKey: 'dashboard-cards' }, select: { configValue: true } });
+    await prisma.$transaction(async (tx) => {
+      await tx.systemConfig.upsert({
+        where: { configKey: 'dashboard-cards' },
+        update: { configValue, updatedBy: ctx.userSub },
+        create: { configKey: 'dashboard-cards', configValue, configType: 'display', requiresReauth: false, updatedBy: ctx.userSub },
+      });
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'CONFIG_CHANGED', targetType: 'system_config', targetId: 'dashboard-cards',
+        beforeValue: (before?.configValue as Record<string, unknown> | null) ?? null,
+        afterValue: configValue as Record<string, unknown>,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      }, tx);
     });
     return { success: true };
   });

@@ -42,7 +42,8 @@ vi.mock('../../../lib/reauth-check.js', () => ({
   invalidateReauthCache: mockInvalidateReauthCache,
   isReauthRequired: mockIsReauthRequired,
 }));
-vi.mock('@digilog/shared', () => ({
+vi.mock('@digilog/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@digilog/shared')>()),
   getDefaultTemplates: mockGetDefaultTemplates,
   FEATURE_TO_PERMISSION_MAP: { 'user-management': ['USER_CREATE', 'USER_READ'] },
   FEATURE_PRIVILEGES: [{ id: 'user-management', label: 'User Management' }],

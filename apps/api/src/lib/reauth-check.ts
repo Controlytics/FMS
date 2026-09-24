@@ -219,6 +219,15 @@ export async function enforceReauth(
   // verifies an HMAC-signed grant token at onRequest time and decorates
   // `req.offlineReplayVerified` only when the token is valid + bound to the
   // current user+session. Bare boolean header is rejected upstream.
+  // Audit 2026-09-24 (F2): strip `_currentPassword` FIRST, before every early
+  // return. The web client injects it into the body on any re-auth-capable
+  // call; when the caller's role was not in the action's policy this function
+  // returned at `!needed` with the field still in place, and three static
+  // config PUTs then upserted `req.body` verbatim into system_config AND the
+  // immutable audit trail — four live CONFIG_CHANGED rows carry a plaintext
+  // SUPER_ADMIN password. The handlers are not the place to remember this;
+  // the gate is.
+  const bodyPw = takeBodyPassword(req);
   if (req.offlineReplayVerified === true) return { ok: true };
 
   const role = req.user.role;
@@ -227,10 +236,8 @@ export async function enforceReauth(
   if (!needed) return { ok: true };
   const primaryAction = actions[0];
 
-  // Extract password from body field or custom header
-  const body = req.body as Record<string, unknown> | undefined;
-  const password = (body?._currentPassword as string)
-    ?? (req.headers['x-reauth-password'] as string);
+  // Extract password from body field (already removed from the body above) or custom header
+  const password = bodyPw ?? (req.headers['x-reauth-password'] as string);
 
   if (!password) {
     reply.code(401).send({
@@ -247,15 +254,23 @@ export async function enforceReauth(
     return { ok: false };
   }
 
-  // Strip password from body so it doesn't get stored or validated by Zod
-  if (body?._currentPassword) {
-    delete body._currentPassword;
-  }
-
   // Mark request as already verified so hardcoded re-auth can skip
   (req as any)._reauthVerified = true;
 
   return { ok: true };
+}
+
+/**
+ * Remove `_currentPassword` from the request body and return it. Runs at the
+ * top of BOTH gates, unconditionally, so no handler downstream can ever see —
+ * let alone persist — the field.
+ */
+function takeBodyPassword(req: FastifyRequest): string | undefined {
+  const body = req.body as Record<string, unknown> | undefined;
+  if (!body || typeof body !== 'object') return undefined;
+  const pw = body._currentPassword;
+  if (pw !== undefined) delete body._currentPassword;
+  return typeof pw === 'string' ? pw : undefined;
 }
 
 /**
@@ -270,9 +285,9 @@ export async function enforceReauthAlways(
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<{ ok: boolean }> {
+  const bodyPw = takeBodyPassword(req);
   if (req.offlineReplayVerified === true) return { ok: true };
-  const body = req.body as Record<string, unknown> | undefined;
-  const password = (body?._currentPassword as string) ?? (req.headers['x-reauth-password'] as string);
+  const password = bodyPw ?? (req.headers['x-reauth-password'] as string);
   if (!password) {
     reply.code(401).send({ error: 'REAUTH_REQUIRED', message: 'This action requires password re-authentication.', action });
     return { ok: false };
@@ -282,7 +297,6 @@ export async function enforceReauthAlways(
     reply.code(failure.error === 'ACCOUNT_LOCKED' ? 403 : 401).send(failure);
     return { ok: false };
   }
-  if (body?._currentPassword) delete body._currentPassword;
   (req as any)._reauthVerified = true;
   return { ok: true };
 }

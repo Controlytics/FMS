@@ -110,6 +110,9 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
 
     const body = req.body as Record<string, unknown>;
     const ctx = buildContext(req);
+    // Audit 2026-09-24: capture the pre-change value for the audit row (only
+    // afterValue used to be written, so an inspector could not see what changed).
+    const beforeCfg = (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' }, select: { configValue: true } }))?.configValue as Record<string, unknown> | null | undefined;
 
     // Preserve masked secrets — don't overwrite with bullet characters
     const secretFields = ['password', 'clientSecret', 'refreshToken'];
@@ -137,7 +140,12 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     });
 
     invalidateNotificationConfigCache();
-    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_EMAIL_CONFIG', targetType: 'system_config', targetId: 'notification-email', afterValue: maskSecrets(body, EMAIL_AUDIT_SAFE_KEYS) });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_EMAIL_CONFIG', targetType: 'system_config', targetId: 'notification-email',
+      beforeValue: beforeCfg ? maskSecrets(beforeCfg, EMAIL_AUDIT_SAFE_KEYS) : undefined,
+      afterValue: maskSecrets(body, EMAIL_AUDIT_SAFE_KEYS),
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
     return { success: true };
   });
 
@@ -408,6 +416,14 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const value = (config?.configValue ?? {}) as Record<string, unknown>;
     const sensitiveKeys = ['twilioAuthToken', 'vonageApiSecret'];
     for (const key of sensitiveKeys) { if (value[key]) value[key] = MASK; }
+    // Audit 2026-09-24 (B-F4): the HTTP-gateway headers carry the API key (the
+    // file's own comment says so) and were returned in clear. Mask their values;
+    // the PUT rehydrates a masked header from the stored config.
+    if (value.httpGatewayHeaders && typeof value.httpGatewayHeaders === 'object') {
+      value.httpGatewayHeaders = Object.fromEntries(
+        Object.entries(value.httpGatewayHeaders as Record<string, unknown>).map(([k, v]) => [k, v ? MASK : v]),
+      );
+    }
     return value;
   });
 
@@ -453,6 +469,13 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const existing = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } });
     const existingValue = (existing?.configValue ?? {}) as Record<string, unknown>;
     for (const key of sensitiveKeys) { if (body[key] === MASK) body[key] = existingValue[key]; }
+    // B-F4 (cont.): a header value that comes back masked keeps its stored value.
+    if (body.httpGatewayHeaders && typeof body.httpGatewayHeaders === 'object') {
+      const storedHeaders = (existingValue.httpGatewayHeaders ?? {}) as Record<string, unknown>;
+      body.httpGatewayHeaders = Object.fromEntries(
+        Object.entries(body.httpGatewayHeaders as Record<string, unknown>).map(([k, v]) => [k, v === MASK ? storedHeaders[k] : v]),
+      );
+    }
 
     await prisma.systemConfig.upsert({
       where: { configKey: 'notification-sms' },
@@ -461,7 +484,12 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     });
 
     invalidateNotificationConfigCache();
-    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_SMS_CONFIG', targetType: 'system_config', targetId: 'notification-sms', afterValue: maskSecrets(body, SMS_AUDIT_SAFE_KEYS) });
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_SMS_CONFIG', targetType: 'system_config', targetId: 'notification-sms',
+      beforeValue: existing ? maskSecrets(existingValue, SMS_AUDIT_SAFE_KEYS) : undefined,
+      afterValue: maskSecrets(body, SMS_AUDIT_SAFE_KEYS),
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    });
     return { success: true };
   });
 
@@ -633,7 +661,18 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const body = req.body as any;
-    return prisma.notificationTemplate.create({ data: { name: body.name, channel: body.channel, subject: body.subject, bodyTemplate: body.bodyTemplate, description: body.description, variables: body.variables, createdBy: req.user.username } });
+    // Audit 2026-09-24: template CRUD wrote no audit row at all — a template is
+    // the wording of every outbound notification, so its edits are a record.
+    return prisma.$transaction(async (tx) => {
+      const created = await tx.notificationTemplate.create({ data: { name: body.name, channel: body.channel, subject: body.subject, bodyTemplate: body.bodyTemplate, description: body.description, variables: body.variables, createdBy: req.user.username } });
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'NOTIFICATION_TEMPLATE_CREATED', targetType: 'notification_template', targetId: created.id,
+        afterValue: { name: created.name, channel: created.channel, subject: created.subject, bodyTemplate: created.bodyTemplate, description: created.description, variables: created.variables },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+      }, tx);
+      return created;
+    });
   });
 
   app.put('/templates/:id', {
@@ -656,7 +695,19 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     for (const key of ['name', 'subject', 'bodyTemplate', 'description', 'variables', 'isActive'] as const) {
       if (key in body) data[key] = body[key];
     }
-    return prisma.notificationTemplate.update({ where: { id }, data });
+    return prisma.$transaction(async (tx) => {
+      const before = await tx.notificationTemplate.findUnique({ where: { id } });
+      if (!before) throw new NotFoundError('Notification template not found');
+      const updated = await tx.notificationTemplate.update({ where: { id }, data });
+      const pick = (t: typeof before) => ({ name: t.name, subject: t.subject, bodyTemplate: t.bodyTemplate, description: t.description, variables: t.variables, isActive: t.isActive });
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'NOTIFICATION_TEMPLATE_UPDATED', targetType: 'notification_template', targetId: id,
+        beforeValue: pick(before), afterValue: pick(updated),
+        ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+      }, tx);
+      return updated;
+    });
   });
 
   app.delete('/templates/:id', {
@@ -669,7 +720,20 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    await prisma.notificationTemplate.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      const before = await tx.notificationTemplate.findUnique({ where: { id } });
+      if (!before) throw new NotFoundError('Notification template not found');
+      // Audit BEFORE the row dies, in the same tx (same rule as the Filter Data
+      // Management console): beforeValue needs the record while it exists.
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'NOTIFICATION_TEMPLATE_DELETED', targetType: 'notification_template', targetId: id,
+        beforeValue: { name: before.name, channel: before.channel, subject: before.subject, bodyTemplate: before.bodyTemplate, description: before.description, variables: before.variables, isActive: before.isActive },
+        afterValue: { deleted: true },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+      }, tx);
+      await tx.notificationTemplate.delete({ where: { id } });
+    });
     return { success: true };
   });
 }

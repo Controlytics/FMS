@@ -122,8 +122,14 @@ const httpsOptions = process.env.API_HTTPS === 'true'
 // reverse proxy (set TRUST_PROXY=1 or TRUST_PROXY=<hop-count> in env).
 // Default false → req.ip uses the raw socket address, attacker can't lie.
 const trustProxyEnv = process.env.TRUST_PROXY;
-const trustProxy = trustProxyEnv
-  ? (Number.isFinite(Number(trustProxyEnv)) ? Number(trustProxyEnv) : trustProxyEnv === 'true')
+// fastify 5.12 (npm audit fix 2026-09-24, GHSA X-Forwarded-* spoofing under
+// trustProxy hop-count) dropped the numeric form from the option's type. A
+// hop-count is expressed as the equivalent function instead — "trust the first
+// N hops" — so TRUST_PROXY=<n> keeps its meaning.
+const trustProxy: boolean | ((address: string, hop: number) => boolean) = trustProxyEnv
+  ? (Number.isFinite(Number(trustProxyEnv))
+      ? ((_address: string, hop: number) => hop < Number(trustProxyEnv))
+      : trustProxyEnv === 'true')
   : false;
 
 const app = Fastify({

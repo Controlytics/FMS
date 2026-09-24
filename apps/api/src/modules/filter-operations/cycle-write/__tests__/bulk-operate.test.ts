@@ -91,7 +91,9 @@ describe('bulkOperate', () => {
     const { results } = await bulkOperate(service, {} as any, items);
 
     expect(callOrder).toEqual(['startCycle', 'advance']);
-    expect(service.startCycle).toHaveBeenCalledWith({}, uuid(3), { cleaningReasonKey: 'ROUTINE' });
+    // Audit 2026-09-24 (F10): the start half gets a derived clientOpId so a
+    // retried start-and-advance can never start a second cycle.
+    expect(service.startCycle).toHaveBeenCalledWith({}, uuid(3), { cleaningReasonKey: 'ROUTINE', clientOpId: 'b:start' });
     expect(service.advance).toHaveBeenCalledWith({}, uuid(3), { targetState: 'WASH_IN', tapeVersion: 1 });
     expect(results[0]).toMatchObject({
       status: 'ok',
@@ -140,7 +142,8 @@ describe('bulkOperate', () => {
       clientOpId: 'a',
       filterId: uuid(1),
       status: 'failed',
-      error: { code: 'STALE_TAPE', message: 'Tape version stale' },
+      // Audit 2026-09-24 (C-F6): a plain Error's text is not forwarded; only AppError messages are client-safe.
+      error: { code: 'STALE_TAPE', message: 'Operation failed' },
     });
     expect(results[1]).toEqual({
       clientOpId: 'b',
@@ -163,7 +166,7 @@ describe('bulkOperate', () => {
       clientOpId: 'x',
       filterId: uuid(1),
       status: 'failed',
-      error: { code: 'OP_FAILED', message: 'boom' },
+      error: { code: 'OP_FAILED', message: 'Operation failed' },
     });
   });
 });

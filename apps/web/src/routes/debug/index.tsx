@@ -112,7 +112,10 @@ export function DebugTracesPage() {
         ? apiClient.putWithReauth('/api/debug/traces/operation-trace', { enabled: next }, pw)
         : apiClient.put('/api/debug/traces/operation-trace', { enabled: next }));
       await mutateOpTrace({ enabled: next }, false);
-    } catch { /* cancelled or failed — flag unchanged */ }
+    } catch (e: any) {
+      // Audit 2026-09-24 (web F5): only a cancel is silent.
+      if (!isReauthCancelled(e)) toast.error('Toggle Failed', e?.message ?? 'The operation-trace flag was not changed.');
+    }
   };
 
   const traces = data?.data ?? [];

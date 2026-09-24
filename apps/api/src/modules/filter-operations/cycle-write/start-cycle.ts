@@ -26,6 +26,7 @@ import type { FilterOperationsService } from '../filter-operations.service.js';
 import { getPendingEarlierPmTasks, applyPmSkips, MIN_SKIP_REASON } from '../../pm-schedules/pm-pending-tasks.js';
 import { resolvePmReasonKeys } from '../../pm-schedules/pm-shared.js';
 import { assertFilterOperable } from '../../assets/filter-workflow.js';
+import { assertFilterNotRetired } from '../local-context.js';
 
 /** True when this cleaning reason is one of the configured PM reasons. */
 async function isPmReasonKey(key: string): Promise<boolean> {
@@ -104,10 +105,12 @@ export async function startCycleImpl(
   // Filter creation workflow gate (2026-09-04). This path loads via getFilter()
   // rather than loadLocalContext(), so it needs its own assertion — see the
   // comment in local-context.ts for why the gate is not inside getFilter().
-  const { approvalStatus } = (await prisma.assetInstance.findUnique({
-    where: { id: filterId }, select: { approvalStatus: true },
-  })) ?? { approvalStatus: null };
+  const { approvalStatus, isActive } = (await prisma.assetInstance.findUnique({
+    where: { id: filterId }, select: { approvalStatus: true, isActive: true },
+  })) ?? { approvalStatus: null, isActive: null };
   assertFilterOperable(approvalStatus, filter.name);
+  // Audit 2026-09-24 (C-F2): no cycle on a retired filter (see local-context.ts).
+  assertFilterNotRetired(filter.currentLifecycleState, isActive, filter.name);
 
   const resolvedProfileIdForCycle = await resolveFilterProfile(filter);
   if (!resolvedProfileIdForCycle) throw new AppError(400, 'NO_PROFILE', 'Filter has no assigned profile');

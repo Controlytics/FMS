@@ -186,7 +186,7 @@ export default async function roleRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { name } = req.params as { name: string };
-    return roleService.getByName(name);
+    return roleService.getByName(name, req.user.role);
   });
 
   // POST /api/roles — Create new role (SUPER_ADMIN only)

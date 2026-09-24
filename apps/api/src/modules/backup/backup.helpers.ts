@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { neutralizeFormula } from '../../lib/spreadsheet-safe.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -12,6 +13,14 @@ export interface BackupData {
     tableCount: number;
     checksum: string;
     format?: string;
+    /**
+     * Audit 2026-09-24 (api #1): HMAC-SHA256 over `checksum|timestamp` with
+     * AUDIT_CHAIN_KEY. Proves the file was produced by THIS server — the plain
+     * checksum only proves it was not corrupted, and anyone can recompute it
+     * after editing `users.password_hash` / `roles.permissions`. A restore by a
+     * non-SUPER_ADMIN caller is accepted only when this verifies.
+     */
+    signature?: string;
   };
   data: Record<string, any[]>;
 }
@@ -85,12 +94,28 @@ export function escapeSqlValue(value: any, elementType?: string): string {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
+/** Server signature for a backup (see BackupData.metadata.signature). Null when no key is configured. */
+export function signBackup(checksum: string, timestamp: string, key: string | null): string | undefined {
+  if (!key) return undefined;
+  return createHmac('sha256', key).update(`${checksum}|${timestamp}`).digest('hex');
+}
+
+/** True when `signature` is the server's own signature for this checksum/timestamp. */
+export function verifyBackupSignature(meta: { checksum: string; timestamp: string; signature?: string }, key: string | null): boolean {
+  const expected = signBackup(meta.checksum, meta.timestamp, key);
+  if (!expected || !meta.signature) return false;
+  const a = Buffer.from(expected, 'hex'); const b = Buffer.from(String(meta.signature), 'hex');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** Escape a value for CSV output. */
 export function escapeCsvValue(value: any): string {
   if (value === null || value === undefined) return '';
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'object') return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
-  const str = String(value);
+  // Audit 2026-09-24 (B-F7): same formula neutralisation as the PM / replacement
+  // exports — a filter named `=HYPERLINK(...)` must not execute when the CSV is opened.
+  const str = String(neutralizeFormula(value));
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`;
   }

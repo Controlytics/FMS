@@ -44,6 +44,8 @@ export default async function ldapRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauth('UPDATE_LDAP_CONFIG', req, reply);
     if (!ok) return;
     const body = req.body as Record<string, any>;
+    // Audit 2026-09-24: beforeValue was never written for this security-critical config.
+    const before = await ldapService.getConfig();
     await ldapService.saveConfig(body, req.user.username);
 
     await auditLog({
@@ -52,6 +54,7 @@ export default async function ldapRoutes(app: FastifyInstance) {
       action: 'LDAP_CONFIG_UPDATED',
       targetType: 'system_config',
       targetId: 'ldap',
+      beforeValue: maskSecrets(before as unknown as Record<string, unknown>, LDAP_AUDIT_SAFE_KEYS),
       afterValue: maskSecrets(body, LDAP_AUDIT_SAFE_KEYS),
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],

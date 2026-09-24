@@ -407,6 +407,14 @@ export class ChecklistProfileService {
         where: { profileId }, orderBy: { sortOrder: 'asc' }, select: { id: true },
       });
       previousOrder = current.map((q) => q.id);
+      // Audit 2026-09-24 (A-F8): the ids must be exactly this profile's questions —
+      // otherwise a question of ANOTHER profile is re-sorted and the audit row
+      // attributes the change to the wrong profile.
+      const own = new Set(previousOrder);
+      const foreign = questionIds.filter((q) => !own.has(q));
+      if (foreign.length > 0 || new Set(questionIds).size !== questionIds.length || questionIds.length !== previousOrder.length) {
+        throw new AppError(400, 'INVALID_QUESTION_ORDER', 'questionIds must list every question of this profile exactly once.');
+      }
       await snapshotAndBump(tx, profileId, 'questions reordered', ctx);
       await Promise.all(questionIds.map((qId, i) =>
         tx.checklistQuestion.update({ where: { id: qId }, data: { sortOrder: i } })

@@ -4,7 +4,8 @@ const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
     filterCleaningProfile: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     filterPipelineConnection: { createMany: vi.fn() },
-    $transaction: vi.fn(),
+    // create() now runs profile + stages + connections in one interactive tx (audit 2026-09-24, A-F5)
+    $transaction: vi.fn(async (fn: any) => (typeof fn === 'function' ? fn(mockPrisma) : Promise.all(fn))),
   },
 }));
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));

@@ -323,23 +323,39 @@ export class FilterProfileService {
 
     // filterProfileId now lives on FilterDetails (Step 6) — upsert per-instance
     // so legacy non-eager rows still get a sidecar row.
-    let assignedCount = 0;
-    await Promise.all(filterInstanceIds.map(async (assetId) => {
-      await prisma.filterDetails.upsert({
-        where: { assetInstanceId: assetId },
-        update: { filterProfileId: id },
-        create: { assetInstanceId: assetId, filterProfileId: id },
-      });
-      assignedCount++;
-    }));
+    // Audit 2026-09-24 (A-F6): the ids were upserted blind (any asset_instances
+    // row — a Block or AHU got a FilterDetails sidecar) with no transaction, so a
+    // bad id half-applied the batch and skipped the audit row. Validate first;
+    // then write + audit atomically.
+    const ids = Array.from(new Set(filterInstanceIds));
+    const [typed, live] = await Promise.all([
+      prisma.filter.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+      prisma.assetInstance.findMany({ where: { id: { in: ids }, isActive: true }, select: { id: true } }),
+    ]);
+    const liveIds = new Set(live.map((l) => l.id));
+    const filters = typed.filter((f) => liveIds.has(f.id));
+    const found = new Set(filters.map((f) => f.id));
+    const missing = ids.filter((i) => !found.has(i));
+    if (missing.length > 0) {
+      throw new AppError(400, 'INVALID_FILTER_IDS', `${missing.length} id(s) are not active filters: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}`);
+    }
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'ASSIGNED',
-      targetType: 'filter_profile', targetId: id,
-      afterValue: { assignedFilters: filterInstanceIds.length, profileVersion: fp.version },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    await prisma.$transaction(async (tx) => {
+      for (const assetId of ids) {
+        await tx.filterDetails.upsert({
+          where: { assetInstanceId: assetId },
+          update: { filterProfileId: id },
+          create: { assetInstanceId: assetId, filterProfileId: id },
+        });
+      }
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'ASSIGNED',
+        targetType: 'filter_profile', targetId: id,
+        afterValue: { assignedFilters: ids.length, filterNames: filters.map((f) => f.name), profileVersion: fp.version },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      }, tx);
     });
 
-    return { success: true, assignedCount };
+    return { success: true, assignedCount: ids.length };
   }
 }

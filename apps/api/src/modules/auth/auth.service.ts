@@ -114,33 +114,13 @@ export const authService = {
       }
     }
 
-    // Account status (SUPER_ADMIN is lockout-exempt and auto-unlocks — it can
-    // never be locked out of the system).
-    if (user.status === 'LOCKED') {
-      if (user.role === 'SUPER_ADMIN') {
-        // Auto-unlock SUPER_ADMIN accounts
-        await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
-      } else if (user.lockoutUntil && user.lockoutUntil < new Date()) {
-        await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
-      } else {
-        throw new AppError(403, "ACCOUNT_LOCKED", "Account locked due to multiple failed login attempts. Contact administrator.");
-      }
-    }
-
-    if (user.status === 'DISABLED') {
-      throw new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled. Contact administrator.');
-    }
-
-    if (user.status === 'EXPIRED') {
-      if (user.role === 'SUPER_ADMIN') {
-        // Auto-recover SUPER_ADMIN from EXPIRED status
-        await authRepository.updateUser(user.id, { status: 'ENABLED', forcePasswordChange: false });
-      } else if (user.isTemporaryPassword && user.forcePasswordChange) {
-        await authRepository.updateUser(user.id, { status: 'ENABLED' });
-      } else {
-        throw new AppError(403, "PASSWORD_EXPIRED", "Your password has expired. Contact an administrator to reset your password.");
-      }
-    }
+    // Audit 2026-09-24 (F7): account STATE used to be checked here, BEFORE the
+    // password — so any password at all answered 403 ACCOUNT_LOCKED /
+    // ACCOUNT_DISABLED / PASSWORD_EXPIRED for a real account and 401 for an
+    // unknown one, which is the user-enumeration API-1 set out to close. The
+    // state checks now run only after the password has verified (see below):
+    // a caller who has proved the password may learn the account's state;
+    // nobody else may.
 
     // LDAP authentication for LDAP-sourced users
     let skipPasswordCheck = false;
@@ -183,7 +163,17 @@ export const authService = {
       // Shared lockout policy. SUPER_ADMIN is exempt (applyFailedPasswordAttempt
       // returns locked:false for it), so a SUPER_ADMIN just gets a LOGIN_FAILED and
       // can always retry. All other roles lock after maxFailedAttempts.
-      const { locked } = await applyFailedPasswordAttempt(user, ip, userAgent);
+      //
+      // F7: an account that is ALREADY locked / disabled / expired takes no
+      // further attempt bookkeeping and answers the same 401 as a wrong password
+      // on a healthy account — re-locking or announcing the lock here would tell
+      // a caller without the password that the account exists and what state it
+      // is in. A healthy account that crosses the threshold on THIS attempt is
+      // told so: that message is the lockout itself, not a disclosure of prior
+      // state.
+      const { locked } = user.status === 'ENABLED'
+        ? await applyFailedPasswordAttempt(user, ip, userAgent)
+        : { locked: false };
       if (locked) {
         throw new AppError(403, 'ACCOUNT_LOCKED', 'Account locked due to multiple failed login attempts. Contact administrator.');
       }
@@ -198,6 +188,35 @@ export const authService = {
       // Audit API-1: unified error; Audit API-2: do not expose attemptsRemaining in response
       // (audit log above already records the attempt count server-side for admin review)
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
+    }
+
+    // Account status — only now, with the password proven (F7, see above).
+    // SUPER_ADMIN is lockout-exempt and auto-unlocks — it can never be locked
+    // out of the system.
+    if (user.status === 'LOCKED') {
+      if (user.role === 'SUPER_ADMIN') {
+        // Auto-unlock SUPER_ADMIN accounts
+        await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
+      } else if (user.lockoutUntil && user.lockoutUntil < new Date()) {
+        await authRepository.updateUser(user.id, { status: 'ENABLED', failedLoginAttempts: 0, lockoutUntil: null, lockedAt: null });
+      } else {
+        throw new AppError(403, "ACCOUNT_LOCKED", "Account locked due to multiple failed login attempts. Contact administrator.");
+      }
+    }
+
+    if (user.status === 'DISABLED') {
+      throw new AppError(403, 'ACCOUNT_DISABLED', 'Your account has been disabled. Contact administrator.');
+    }
+
+    if (user.status === 'EXPIRED') {
+      if (user.role === 'SUPER_ADMIN') {
+        // Auto-recover SUPER_ADMIN from EXPIRED status
+        await authRepository.updateUser(user.id, { status: 'ENABLED', forcePasswordChange: false });
+      } else if (user.isTemporaryPassword && user.forcePasswordChange) {
+        await authRepository.updateUser(user.id, { status: 'ENABLED' });
+      } else {
+        throw new AppError(403, "PASSWORD_EXPIRED", "Your password has expired. Contact an administrator to reset your password.");
+      }
     }
 
     // Check password expiry (derived from passwordChangedAt + live policy,
@@ -499,6 +518,16 @@ export const authService = {
     if (existingRequest) return 'pending';
 
     await authRepository.createResetRequest(user.id);
+
+    // Audit 2026-09-24: the request that later justifies PASSWORD_RESET_REQUEST_APPROVED
+    // had no row of its own — the trail showed an approval of a request that, as far as
+    // the trail knew, was never made. Unauthenticated, so the subject is the actor.
+    await auditLog({
+      userId: user.username, userRole: user.role, action: 'PASSWORD_RESET_REQUESTED',
+      targetType: 'user', targetId: user.id,
+      afterValue: { username: user.username, fullName: user.fullName },
+      ipAddress: ip, userAgent,
+    });
 
     await createNotification({
       type: 'PASSWORD_RESET_REQUEST', title: 'Password Reset Request',

@@ -140,7 +140,13 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     if (!reauthOk) return;
     const body = req.body as any;
     const ctx = buildContext(req);
-    const { recipients, ...ruleData } = body;
+    // Audit 2026-09-24 (B-F11): whitelist — an unknown key used to reach Prisma
+    // and 500, and id/createdAt were client-settable.
+    const { recipients } = body;
+    const ruleData: any = {};
+    for (const k of ['name', 'description', 'eventType', 'eventTypes', 'conditions', 'emailEnabled', 'smsEnabled', 'inAppEnabled', 'emailTemplateId', 'smsTemplateId', 'cooldownMinutes', 'isActive'] as const) {
+      if (body[k] !== undefined) ruleData[k] = body[k];
+    }
 
     // Normalize: accept eventTypes array or single eventType
     if (ruleData.eventTypes?.length) {
@@ -231,6 +237,9 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     if (cleanData.smsTemplateId === '') cleanData.smsTemplateId = null;
     if (cleanData.description === '') cleanData.description = null;
 
+    // Audit 2026-09-24 (compliance F6): capture the full prior row for the audit.
+    const beforeRule = await prisma.notificationRule.findUnique({ where: { id }, include: { recipients: true } });
+
     // Update rule + replace recipients in transaction
     const rule = await prisma.$transaction(async (tx) => {
       const updated = await tx.notificationRule.update({
@@ -263,7 +272,8 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'NOTIFICATION_RULE_UPDATED', targetType: 'notification_rule', targetId: id,
-      afterValue: { name: rule.name, eventType: rule.eventType },
+      beforeValue: beforeRule ?? undefined,
+      afterValue: rule,
       ipAddress: req.ip, sessionId: req.user.sessionId,
     });
 

@@ -5,7 +5,8 @@ import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
-import { NotFoundError } from '../../lib/errors.js';import { enforceReauth } from '../../lib/reauth-check.js';
+import { NotFoundError } from '../../lib/errors.js';
+import { enforceReauth } from '../../lib/reauth-check.js';
 
 
 export default async function userGroupRoutes(app: FastifyInstance) {
@@ -155,12 +156,16 @@ export default async function userGroupRoutes(app: FastifyInstance) {
       select: { id: true, username: true, fullName: true, email: true, role: true, status: true },
     });
     const userMap = new Map(users.map(u => [u.id, u]));
-    return members.map(m => ({
-      id: m.id,
-      userId: m.userId,
-      createdAt: m.createdAt,
-      user: userMap.get(m.userId) ?? null,
-    }));
+    // Audit 2026-09-24 (F12): same SUPER_ADMIN hiding as the user list.
+    const callerRole = req.user.role;
+    return members
+      .filter((m) => callerRole === 'SUPER_ADMIN' || userMap.get(m.userId)?.role !== 'SUPER_ADMIN')
+      .map(m => ({
+        id: m.id,
+        userId: m.userId,
+        createdAt: m.createdAt,
+        user: userMap.get(m.userId) ?? null,
+      }));
   });
 
   // POST /api/user-groups/:id/members — add users to group

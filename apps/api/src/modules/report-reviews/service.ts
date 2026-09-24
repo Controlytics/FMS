@@ -257,10 +257,12 @@ export const reportReviewService = {
     return updated;
   },
 
-  async audit(ctx: RequestContext, row: { id: string; status: string }, action: string, meaning: string) {
+  async audit(ctx: RequestContext, row: { id: string; status: string; title?: string; reviewRemarks?: string | null; approvalRemarks?: string | null }, action: string, meaning: string) {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action,
-      targetType: 'report_review', targetId: row.id, afterValue: { status: row.status },
+      targetType: 'report_review', targetId: row.id,
+      // Audit 2026-09-24: the decider's remarks were persisted on the row but absent from the signature record.
+      afterValue: { status: row.status, title: row.title ?? null, reviewRemarks: row.reviewRemarks ?? null, approvalRemarks: row.approvalRemarks ?? null },
       signatureMeaning: meaning, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
   },

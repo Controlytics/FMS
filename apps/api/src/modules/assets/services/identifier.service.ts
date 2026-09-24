@@ -1,6 +1,6 @@
 import type { RequestContext } from '../../../types/context.js';
 import { auditLog } from '../../../lib/audit.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../lib/errors.js';
+import { AppError, NotFoundError, ValidationError, ConflictError } from '../../../lib/errors.js';
 import { identifierRepository } from '../repositories/identifier.repository.js';
 import { instanceRepository } from '../repositories/instance.repository.js';
 import { prisma } from '../../../lib/prisma.js';
@@ -100,9 +100,16 @@ export const identifierService = {
   }) {
     const where: any = { action: { in: ['ASSET_IDENTIFIER_CREATED', 'ASSET_IDENTIFIER_DELETED'] } };
     if (query.from || query.to) {
+      // Audit 2026-09-24 (A-F1): an unparsable date became `Invalid Date` → Prisma
+      // validation error → 500 + a SYSTEM_ERROR notification, for every role.
+      const parse = (v: string, label: string) => {
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) throw new AppError(400, 'INVALID_DATE', `"${label}" is not a valid date.`);
+        return d;
+      };
       where.timestamp = {};
-      if (query.from) where.timestamp.gte = new Date(query.from);
-      if (query.to) where.timestamp.lte = new Date(query.to);
+      if (query.from) where.timestamp.gte = parse(query.from, 'from');
+      if (query.to) where.timestamp.lte = parse(query.to, 'to');
     }
     const rows = await prisma.auditTrail.findMany({ where, orderBy: { timestamp: 'desc' } });
 

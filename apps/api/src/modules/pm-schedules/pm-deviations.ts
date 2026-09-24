@@ -355,7 +355,7 @@ export async function acknowledgeDeviation(ctx: RequestContext, id: string) {
     },
   });
   await auditLog({
-    userId: ctx.userSub, userRole: ctx.userRole,
+    userId: ctx.userId, userRole: ctx.userRole, // username, not uuid (compliance F3)
     action: 'ACKNOWLEDGE_PM_OVERDUE', targetType: 'deviation', targetId: id,
     beforeValue: { status: dev.status },
     afterValue: { status: 'ACKNOWLEDGED', passwordVerified: true, overdueDays: dev.overdueDaysAtOpen },

@@ -50,6 +50,20 @@ const configCards = [
 ];
 
 const superAdminCards = [
+  // Audit 2026-09-24: moved from configCards. Every key the page edits is served by
+  // a def with requiredRole SUPER_ADMIN, so an ADMIN who opened it got eight 403s.
+  {
+    title: 'Role Assignments',
+    description: 'All role assignments in one place — PM workflow, block-change, QNN visibility, guest requests',
+    href: '/config/role-assignments',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-4.5" />
+      </svg>
+    ),
+    gradient: 'from-cyan-500 to-blue-600',
+    shadowColor: 'shadow-cyan-500/25',
+  },
   {
     // Moved out of configCards 2026-09-03 (operator request). It sets the
     // date/time format every §11 record is READ in, so it is not an ADMIN-level
@@ -243,18 +257,6 @@ const superAdminCards = [
   // PM Schedule Settings is edited on the consolidated Role Assignments page
   // (Section "PM Schedule Settings"). The old standalone card was a duplicate
   // and has been removed — see roleAssignmentKeys in ConfigIndexPage.
-  {
-    title: 'Role Assignments',
-    description: 'All role assignments in one place — PM workflow, block-change, QNN visibility, guest requests',
-    href: '/config/role-assignments',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-4.5" />
-      </svg>
-    ),
-    gradient: 'from-cyan-500 to-blue-600',
-    shadowColor: 'shadow-cyan-500/25',
-  },
   // PM Schedule Approval, Block Change Approval (Cross-Block Cleaning), and
   // Cleaning Stage Interlock are all edited on the consolidated Role Assignments
   // page. Their old standalone cards were duplicates and have been removed — see

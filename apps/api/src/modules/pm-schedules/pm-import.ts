@@ -14,6 +14,7 @@
  * unpopulated. Two guards refuse the wipe outright — see `evaluateGuards`.
  */
 import type { RequestContext } from '../../types/context.js';
+import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled } from './pm-shared.js';
@@ -367,7 +368,8 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
     } catch (e: any) {
       // The transaction rolled back — this schedule is unchanged on disk.
       for (const p of bucket) {
-        skipped.push({ row: p.rowNum, reason: `DB error: ${e.message ?? String(e)}`, data: p.raw });
+        // Audit 2026-09-24 (C-F6): the operator sees a stable reason; the raw error is on the server log.
+        skipped.push({ row: p.rowNum, reason: e instanceof AppError ? e.message : 'Database error while saving this schedule — nothing was written for it.', data: p.raw });
       }
     }
   }

@@ -26,7 +26,8 @@ beforeEach(() => {
   P.pmSchedule.findUnique.mockResolvedValue(EXISTING);
   P.pmSchedule.update.mockResolvedValue({ ...EXISTING, status: 'ARCHIVED' });
   P.pmSchedule.create.mockResolvedValue({ id: 'sched-2', version: 2, entries: [] });
-  P.$transaction.mockImplementation(async (ops: any[]) => Promise.all(ops));
+  // update() runs an interactive tx (audit 2026-09-24, C-F7); the array form is kept for anything else.
+  P.$transaction.mockImplementation(async (arg: any) => (typeof arg === 'function' ? arg(P) : Promise.all(arg)));
 });
 
 describe('update — entry validation precedes any write', () => {
@@ -65,7 +66,7 @@ describe('update — archive + recreate atomicity', () => {
     const result = await update(ctx, 'sched-1', { entries: VALID_ENTRIES });
 
     expect(P.$transaction).toHaveBeenCalledTimes(1);
-    expect(P.$transaction.mock.calls[0][0]).toHaveLength(2);
+    expect(typeof P.$transaction.mock.calls[0][0]).toBe('function');
     expect(P.pmSchedule.update).toHaveBeenCalledWith({ where: { id: 'sched-1' }, data: { status: 'ARCHIVED' } });
     expect(P.pmSchedule.create.mock.calls[0][0].data).toMatchObject({ version: 2, status: 'ACTIVE' });
     expect(result).toMatchObject({ id: 'sched-2' });

@@ -83,6 +83,13 @@ export function assertDryerStarted(
  * because the operator's actual click time was already validated when they
  * performed the action offline (server is replaying their queued submission).
  */
+/** The instant a guard measures against: the replayed op's own offline instant when present, else server now. */
+function offlineMs(offlineTime: Date | string | null | undefined, now: number): number {
+  if (!offlineTime) return now;
+  const t = offlineTime instanceof Date ? offlineTime.getTime() : new Date(offlineTime).getTime();
+  return Number.isFinite(t) ? t : now;
+}
+
 export function assertDryerHalfTimeElapsed(
   ctx: LocalContext,
   cycle: CycleSlice,
@@ -90,7 +97,6 @@ export function assertDryerHalfTimeElapsed(
   offlineTime?: Date | string | null,
 ): GuardResult {
   if (dryerAction !== 'SUBMIT_READINGS') return { ok: true };
-  if (offlineTime) return { ok: true };
   if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) return { ok: true };
 
   const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
@@ -98,7 +104,11 @@ export function assertDryerHalfTimeElapsed(
     cycle.dryerStartedAt instanceof Date
       ? cycle.dryerStartedAt.getTime()
       : new Date(cycle.dryerStartedAt as string).getTime();
-  const elapsedMs = ctx.now - startedMs;
+  // Audit 2026-09-24 (F5): on offline replay the check used to be skipped
+  // outright. The queued SET_DURATION anchored dryerStartedAt to ITS offline
+  // instant, so the replayed reading's own offline instant is the right "now":
+  // the operator's tablet clock decides, but half-time is still enforced.
+  const elapsedMs = offlineMs(offlineTime, ctx.now) - startedMs;
   if (elapsedMs >= halfMs) return { ok: true };
   const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
   return {
@@ -160,7 +170,6 @@ export function assertDryerHalfTimeBeforeLeavingDryIn(
 ): GuardResult {
   if (currentLifecycleState !== 'DRY_IN') return { ok: true };
   if (targetState === 'DRY_IN') return { ok: true };
-  if (offlineTime) return { ok: true };
   if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) return { ok: true };
 
   const halfMs = (cycle.dryerDurationMinutes * 60_000) / 2;
@@ -168,7 +177,9 @@ export function assertDryerHalfTimeBeforeLeavingDryIn(
     cycle.dryerStartedAt instanceof Date
       ? cycle.dryerStartedAt.getTime()
       : new Date(cycle.dryerStartedAt as string).getTime();
-  const elapsedMs = ctx.now - startedMs;
+  // Audit 2026-09-24 (F5): same rule as assertDryerHalfTimeElapsed — offline
+  // replay measures against the replayed op's own instant, never skips.
+  const elapsedMs = offlineMs(offlineTime, ctx.now) - startedMs;
   if (elapsedMs >= halfMs) return { ok: true };
   const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
   return {

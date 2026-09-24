@@ -1,6 +1,7 @@
  
  import type { FastifyInstance } from 'fastify';
 import { enforceReauth } from '../../../lib/reauth-check.js';
+import { AppError } from '../../../lib/errors.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
 import { createAssetInstanceSchema, updateAssetInstanceSchema, assetQuerySchema } from '@digilog/shared';
@@ -443,8 +444,10 @@ export default async function instanceRoutes(app: FastifyInstance) {
       if (err.statusCode === 415 || err.message?.includes('multipart')) {
         return reply.code(400).send({ error: 'INVALID_REQUEST', message: 'Request must be multipart/form-data' });
       }
+      if (err instanceof AppError) return reply.code(err.statusCode).send({ error: err.code, message: err.message });
       app.log.error(err);
-      return reply.code(500).send({ error: 'UPLOAD_FAILED', message: err.message ?? 'Bulk upload failed' });
+      // Audit 2026-09-24 (A-F2): never echo raw error text (Prisma messages embed a source path).
+      return reply.code(500).send({ error: 'UPLOAD_FAILED', message: 'Bulk upload failed' });
     }
   });
 
@@ -505,8 +508,9 @@ export default async function instanceRoutes(app: FastifyInstance) {
       if (err.statusCode === 415 || err.message?.includes('multipart')) {
         return reply.code(400).send({ error: 'INVALID_REQUEST', message: 'Request must be multipart/form-data' });
       }
+      if (err instanceof AppError) return reply.code(err.statusCode).send({ error: err.code, message: err.message });
       app.log.error(err);
-      return reply.code(500).send({ error: 'VALIDATION_FAILED', message: err.message ?? 'Validation failed' });
+      return reply.code(500).send({ error: 'VALIDATION_FAILED', message: 'Validation failed' });
     }
   });
 

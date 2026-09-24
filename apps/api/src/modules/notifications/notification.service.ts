@@ -298,6 +298,9 @@ function assertNotificationVisible(notif: any, userRole: string, username: strin
   if (userRole === 'SUPER_ADMIN') return;
   if (userRole === 'ADMIN') {
     if (notif.forRole === 'SUPER_ADMIN') throw new NotFoundError('Notification not found');
+    // Audit 2026-09-24 (B-F9): mirror the list's OR-branch — own, ADMIN-role, or general.
+    const visible = notif.forUserId === username || notif.forRole === 'ADMIN' || (notif.forRole == null && notif.forUserId == null);
+    if (!visible) throw new NotFoundError('Notification not found');
     return;
   }
   const isForUser = notif.forUserId === username || notif.targetUserId === username;

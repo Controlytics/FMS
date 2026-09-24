@@ -194,7 +194,8 @@ createRoot(document.getElementById('root')!).render(
 
             {/* Configuration — permission-based */}
             <Route path="/config" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><ConfigIndexPage /></RequireRole>} />
-            <Route path="/config/role-assignments" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><RoleAssignmentsPage /></Suspense></RequireRole>} />
+            {/* Audit 2026-09-24: every key this page edits is served by a def with requiredRole SUPER_ADMIN, so a CONFIG_READ role (ADMIN) got a page of 403s. SA-only, like filter-data-management. */}
+            <Route path="/config/role-assignments" element={<RequireRole roles={[]}><Suspense fallback={<LazyFallback />}><RoleAssignmentsPage /></Suspense></RequireRole>} />
             <Route path="/config/password-policy" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><PasswordPolicyPage /></RequireRole>} />
             <Route path="/config/ldap" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
             {/* SUPER_ADMIN only (2026-09-03). Matches the requireSuperAdmin()
@@ -268,7 +269,8 @@ createRoot(document.getElementById('root')!).render(
                 need ASSET_VIEW for the /hierarchy/* endpoints. */}
             <Route path="/filter-lifecycle-report" element={<RequireRole permissions={[PERMISSIONS.CYCLE_READ]}><Suspense fallback={<LazyFallback />}><FilterLifecycleReportPage /></Suspense></RequireRole>} />
             <Route path="/config/filter-setup" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><FilterSetupPage /></Suspense></RequireRole>} />
-            <Route path="/config/equipment-groups" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ, PERMISSIONS.EG_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><EquipmentGroupsConfigPage /></Suspense></RequireRole>} />
+            {/* Audit 2026-09-24: CONFIG_READ alone let ADMIN in, and the page's first call (/api/hierarchy/blocks, ASSET_READ) 403'd. Gate on what the page reads. */}
+            <Route path="/config/equipment-groups" element={<RequireRole permissions={[PERMISSIONS.EG_VIEW, PERMISSIONS.ASSET_READ]}><Suspense fallback={<LazyFallback />}><EquipmentGroupsConfigPage /></Suspense></RequireRole>} />
             <Route path="/config/ahu-filter-set-config" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.ASSET_VIEW]}><Suspense fallback={<LazyFallback />}><AhuFilterSetConfigPage /></Suspense></RequireRole>} />
             <Route path="/pm-schedules" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_CREATE, PERMISSIONS.PM_UPDATE, PERMISSIONS.PM_DELETE, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><PmScheduleListPage /></Suspense></RequireRole>} />
             <Route path="/pm-schedules/:entityId" element={<RequireRole permissions={[PERMISSIONS.PM_READ, PERMISSIONS.PM_CREATE, PERMISSIONS.PM_UPDATE, PERMISSIONS.PM_DELETE, PERMISSIONS.PM_EXECUTE, PERMISSIONS.PM_APPROVE]}><Suspense fallback={<LazyFallback />}><PmScheduleDetailPage /></Suspense></RequireRole>} />

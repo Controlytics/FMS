@@ -295,11 +295,14 @@ async function authPlugin(app: FastifyInstance) {
     };
 
     // Paths allowed when forcePasswordChange is true
-    const PASSWORD_CHANGE_ALLOWED = [
-      '/api/auth/change-password',
-      '/api/auth/logout',
-      '/api/auth/me',
-      '/api/config/password-policy',
+    // Audit 2026-09-24 (api #12): exact method + path. The old prefix match on
+    // '/api/config/password-policy' also admitted PUT /api/config/password-policy,
+    // so a forced-change ADMIN could still rewrite the policy.
+    const PASSWORD_CHANGE_ALLOWED: Array<[string, string]> = [
+      ['POST', '/api/auth/change-password'],
+      ['POST', '/api/auth/logout'],
+      ['GET', '/api/auth/me'],
+      ['GET', '/api/config/password-policy/current'],
       // The tablet login gate (mobile-login.tsx checkTabletAccess) reads the
       // operator's OWN allowlist here before deciding whether to admit them.
       // Without this exemption it returned 403 for any forced-change user, the
@@ -307,7 +310,7 @@ async function authPlugin(app: FastifyInstance) {
       // was bounced off login and never reached /change-password — i.e. a
       // temp-password / reset / expired user could not set a new password from
       // the tablet at all (reported 2026-05-30). Read-only, own-config only.
-      '/api/config/tablet-access/my-features',
+      ['GET', '/api/config/tablet-access/my-features'],
     ];
 
     // Check password expiry (server-side enforcement). Derived from
@@ -343,7 +346,8 @@ async function authPlugin(app: FastifyInstance) {
 
     // Enforce forcePasswordChange server-side (§11.10(f))
     if (user.forcePasswordChange) {
-      const isAllowed = PASSWORD_CHANGE_ALLOWED.some((p) => req.url.startsWith(p));
+      const reqPath = req.url.split('?')[0];
+      const isAllowed = PASSWORD_CHANGE_ALLOWED.some(([m, p]) => req.method === m && reqPath === p);
       if (!isAllowed) {
         const errorCode = passwordExpired ? 'PASSWORD_EXPIRED' : 'FORCE_PASSWORD_CHANGE';
         return reply.code(403).send({
@@ -367,15 +371,20 @@ async function authPlugin(app: FastifyInstance) {
     if (user.role === 'SUPER_ADMIN') {
       const enabled = await isSuperAdminApiEnabled();
       if (!enabled) {
-        const SA_LOCK_ALLOWED = [
-          '/api/auth/me',
-          '/api/auth/logout',
-          '/api/auth/refresh',
-          '/api/auth/change-password',
-          '/api/config/password-policy', // public policy read used by the shell
-          '/api/super-admin/api-lock',   // read state + flip the switch (reauth on flip)
+        // Audit 2026-09-24 (B-F5): exact path + method. The old prefix match on
+        // '/api/config/password-policy' also admitted PUT /api/config/password-policy,
+        // so a locked SUPER_ADMIN could still rewrite the password policy.
+        const path = req.url.split('?')[0];
+        const SA_LOCK_ALLOWED: Array<[string, string]> = [
+          ['GET', '/api/auth/me'],
+          ['POST', '/api/auth/logout'],
+          ['POST', '/api/auth/refresh'],
+          ['POST', '/api/auth/change-password'],
+          ['GET', '/api/config/password-policy/current'], // public policy read used by the shell
+          ['GET', '/api/super-admin/api-lock'],           // read state
+          ['PUT', '/api/super-admin/api-lock'],           // flip the switch (reauth on flip)
         ];
-        if (!SA_LOCK_ALLOWED.some((p) => req.url.startsWith(p))) {
+        if (!SA_LOCK_ALLOWED.some(([m, p]) => req.method === m && path === p)) {
           return reply.code(403).send({
             error: 'SUPER_ADMIN_API_LOCKED',
             message: 'Super Admin API access is currently disabled. Re-enable it to continue.',
@@ -410,6 +419,19 @@ async function authPlugin(app: FastifyInstance) {
     // header) here makes the upgrade fail loud, not silent.
     const replayToken = req.headers[OFFLINE_REPLAY_TOKEN_HEADER];
     if (replayToken) {
+      // Audit 2026-09-24 (F1): the grant is an e-signature SUBSTITUTE for
+      // operations the tablet queued while offline — nothing else. It used to
+      // be honoured on EVERY route, so one 24h grant (minted once with the
+      // password at tablet login) silently satisfied every re-auth gate in the
+      // system: DELETE user, role edits, password policy, even the
+      // `enforceReauthAlways` gates that "cannot be turned off". Only the
+      // replay-capable filter-operation routes may see it as verified; on any
+      // other route the header is ignored and the normal password gate runs.
+      const routeUrl = req.routeOptions?.url ?? req.url;
+      if (!isOfflineReplayRoute(routeUrl)) {
+        req.offlineReplayVerified = false;
+        return;
+      }
       try {
         await verifyOfflineReplayToken(
           Array.isArray(replayToken) ? replayToken[0] : replayToken,
@@ -430,6 +452,18 @@ async function authPlugin(app: FastifyInstance) {
       });
     }
   });
+}
+
+/**
+ * Routes on which a verified offline-replay grant may stand in for the
+ * re-auth password. Keep this list to what `apps/web/src/lib/sync-engine.ts`
+ * actually replays: the per-filter cycle-write endpoints. Everything else —
+ * config, users, roles, audit, backup — is never performed offline and must
+ * always take a live password.
+ */
+export function isOfflineReplayRoute(routeUrl: string | undefined): boolean {
+  if (!routeUrl) return false;
+  return routeUrl.startsWith('/api/filters/');
 }
 
 export default fp(authPlugin, { name: 'auth' });

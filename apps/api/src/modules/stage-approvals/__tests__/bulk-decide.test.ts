@@ -28,7 +28,8 @@ describe('stageApprovalService.bulkDecide', () => {
     const out = await stageApprovalService.bulkDecide(ctx, ['a', 'b', 'c'], 'reject', 'wrong stage');
     expect(reject).toHaveBeenCalledTimes(3);
     expect(out.results[0]).toEqual({ id: 'a', status: 'ok' });
-    expect(out.results[1]).toEqual({ id: 'b', status: 'failed', error: { code: 'ALREADY_DECIDED', message: 'already decided' } });
+    // Audit 2026-09-24 (C-F6): a plain Error's text is not forwarded (only AppError messages are client-safe).
+    expect(out.results[1]).toEqual({ id: 'b', status: 'failed', error: { code: 'ALREADY_DECIDED', message: 'Failed' } });
     expect(out.results[2]).toEqual({ id: 'c', status: 'ok' });
   });
 
@@ -44,6 +45,6 @@ describe('stageApprovalService.bulkDecide', () => {
   it('defaults the error code when the thrown error has none', async () => {
     vi.spyOn(stageApprovalService, 'approve').mockRejectedValue(new Error('boom'));
     const out = await stageApprovalService.bulkDecide(ctx, ['a'], 'approve');
-    expect(out.results[0]).toEqual({ id: 'a', status: 'failed', error: { code: 'DECISION_FAILED', message: 'boom' } });
+    expect(out.results[0]).toEqual({ id: 'a', status: 'failed', error: { code: 'DECISION_FAILED', message: 'Failed' } });
   });
 });

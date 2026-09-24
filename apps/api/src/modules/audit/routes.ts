@@ -3,13 +3,30 @@ import { prisma } from '../../lib/prisma.js';
 import { verifyAuditChecksum } from '../../lib/hash-chain.js';
 import { auditVisibilityScope } from '../../lib/audit-visibility.js';
 import { auditLog } from '../../lib/audit.js';
-import { auditQuerySchema, REPORT_EXPORT_ACTIONS } from '@digilog/shared';
+import { auditQuerySchema, REPORT_EXPORT_ACTIONS, hasEffectivePermission } from '@digilog/shared';
+import { getRolePerms } from '../../plugins/rbac.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
 
 /** Report names the web app records on export - the only values report-export-log accepts. */
+/** Permissions (any one) a role needs before it may log an export of that report. Empty = any authenticated user (config-gated reports). */
+const REPORT_READ_GATES: Record<string, string[]> = {
+  'Audit Trail': ['AUDIT_READ'],
+  'Cleaning Cycle Detail': ['CYCLE_READ', 'VERSION_HISTORY_VIEW'],
+  'Cleaning Lifecycle': ['CYCLE_READ'],
+  'Cleaning Record': ['CYCLE_READ', 'VERSION_HISTORY_VIEW'],
+  'Deviations': ['PM_READ', 'PM_APPROVE'],
+  'Filters': ['FILTER_OPERATE', 'ASSET_READ'],
+  'PM Schedule': ['PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_APPROVE', 'PM_EXECUTE'],
+  'Quality Notifications': [],
+  'RFID Track Record': ['ASSET_VIEW', 'ASSET_READ', 'FILTER_RFID_MANAGE'],
+  'Replacement List': ['ASSET_READ', 'ASSET_VIEW', 'FILTER_REPLACE'],
+  'Replacement Schedule': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD', 'REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_APPROVE'],
+  'Retirement List': ['ASSET_READ', 'ASSET_VIEW', 'FILTER_RETIRE'],
+};
+
 export const REPORT_EXPORT_NAMES = [
   'Audit Trail', 'Cleaning Cycle Detail', 'Cleaning Lifecycle', 'Cleaning Record', 'Deviations',
   'Filters', 'PM Schedule', 'Quality Notifications', 'RFID Track Record', 'Replacement List',
@@ -467,7 +484,19 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok: reauthOk } = await enforceReauth((REPORT_EXPORT_ACTIONS as Record<string, string>)[(req.body as { reportType: string }).reportType] ?? 'EXPORT_AUDIT_TRAIL', req, reply);
+    // Audit 2026-09-24 (api #13): the route had no permission gate, so any role
+    // could write a REPORT_GENERATED row for any report — including ones it
+    // cannot read. Each report is gated on the permissions its page requires
+    // (mirrors the <RequireRole> guards in apps/web/src/main.tsx).
+    const reportName = (req.body as { reportType: string }).reportType;
+    const required = REPORT_READ_GATES[reportName];
+    if (req.user.role !== 'SUPER_ADMIN' && required && required.length > 0) {
+      const perms = await getRolePerms(req.user.role);
+      if (!required.some((p) => hasEffectivePermission(perms, p))) {
+        return reply.code(403).send({ error: 'FORBIDDEN', message: `You cannot export the ${reportName} report.` });
+      }
+    }
+    const { ok: reauthOk } = await enforceReauth((REPORT_EXPORT_ACTIONS as Record<string, string>)[reportName] ?? 'EXPORT_AUDIT_TRAIL', req, reply);
     if (!reauthOk) return;
     const { reportType, format, recordCount, period, search, startDate, endDate } =
       req.body as { reportType: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string };
@@ -750,7 +779,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       // Meta-audit FIRST (same tx) so the ORIGINAL field values survive the
       // edit that is about to overwrite them.
       await auditLog({
-        userId: req.user.sub,
+        userId: req.user.username, // username, not uuid (compliance F3)
         userName: req.user.username,
         userRole: req.user.role,
         action: 'AUDIT_RECORD_UPDATED',

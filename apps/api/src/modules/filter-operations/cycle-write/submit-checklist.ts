@@ -43,6 +43,7 @@ import {
 } from '../helpers.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 import { assertAhuInterlockSatisfied } from '../ahu-completion-gate.js';
+import { getInterlockConfig, isInterlockStage, assertStageApprovedToLeave } from '../stage-interlock.js';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -144,12 +145,22 @@ export async function prepareChecklist(
   // validate here, regardless of any admin edits during the cycle.
   const cyclePins = (cycle.checklistVersionPins ?? null) as Record<string, number> | null;
   let resolvedChecklists: any[] = [];
+  let checklistNodeCount = 0;
   if (cp && stageKey) {
     const currentStage = cp.stages.find(s => s.stateKey === stageKey);
     if (currentStage) {
       const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
+      checklistNodeCount = checklistNodes.length;
       resolvedChecklists = await resolveChecklistQuestions(checklistNodes, cyclePins);
     }
+  }
+
+  // Audit 2026-09-24 (C-F3): no checklist node after this stage means there is
+  // nothing to attest. Writing a CHECKLIST_COMPLETED event anyway fabricated a
+  // §11 record ("checklist completed after WASH_IN") with an empty snapshot.
+  // advance-with-checklist already refuses this (NO_CHECKLIST_AT_TARGET).
+  if (checklistNodeCount === 0) {
+    throw new AppError(400, 'NO_CHECKLIST_AT_TARGET', `There is no checklist to submit at ${prettyStageLabel(stageKey)}.`);
   }
 
   // Schema drift / required / extras — all pure, dropped through shared executor.
@@ -228,6 +239,18 @@ export async function prepareChecklist(
     }
   }
 
+  // Audit 2026-09-24 (F12): a checklist that COMPLETES the cycle is a leave of
+  // the current stage. When that stage is a QA interlock point (WASH_OUT /
+  // DRY_OUT → CHECKLIST → END), the bare two-request path used to finish the
+  // cycle with the approval still PENDING (later closed SUPERSEDED). Same rule
+  // as advance(): online only — offline work is never gated.
+  if (shouldComplete && stageKey && !ctx.isOfflineReplay) {
+    const interlockConfig = await getInterlockConfig();
+    if (interlockConfig.enabled && isInterlockStage(stageKey)) {
+      await assertStageApprovedToLeave({ cycleId: cycle.id, fromState: stageKey, targetState: 'END', config: interlockConfig });
+    }
+  }
+
   // AHU interlock gate: block final-stage completion when sibling filters are
   // still mid-cleaning.  Short-circuits on offline replay, mode ≠ INTERLOCK,
   // or no AHU parent — cost-free for all non-interlock installations.
@@ -297,12 +320,25 @@ export async function executeChecklistTx(tx: TxClient, plan: ChecklistPlan): Pro
   // Use `equals: null` (Prisma's explicit JSON-null match) instead, so
   // a stage-null event row is matched correctly and stage-other rows
   // are not.
+  // Audit 2026-09-24 (F4): "already submitted" is per ATTEMPT at the stage.
+  // After a QA rejection rolled the filter back and the stage was re-done,
+  // the attempt-1 row must not block the fresh attestation — mirror the
+  // shared gate (latestEntryIntoStage): only rows at/after the latest event
+  // that moved the filter INTO this stage count.
+  const latestEntry = stageKey
+    ? await tx.filterEvent.findFirst({
+        where: { filterId, cycleId, toState: stageKey },
+        orderBy: { performedAt: 'desc' },
+        select: { performedAt: true },
+      })
+    : null;
   const existing = await tx.filterEvent.findFirst({
     where: {
       filterId,
       cycleId,
       eventType: 'CHECKLIST_COMPLETED',
       attributes: { path: ['afterStage'], equals: stageKey ?? (null as any) },
+      ...(latestEntry ? { performedAt: { gte: latestEntry.performedAt } } : {}),
     },
   });
   if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', `Checklist already submitted for ${prettyStageLabel(stageKey)}`);
@@ -348,6 +384,14 @@ export async function executeChecklistTx(tx: TxClient, plan: ChecklistPlan): Pro
         ...(offlineTime ? { performedAt: offlineTime } : {}),
       },
     });
+    // Audit 2026-09-24 (F13): completion gets its own audit row on this
+    // path too (mirrors executeAdvanceTx).
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_COMPLETED',
+      targetType: 'filter', targetId: filterId,
+      afterValue: { cycleId, completedAt, finalStage: stageKey },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
   }
 
   // Audit §1.1 (2026-05-16): audit-write inside business tx.

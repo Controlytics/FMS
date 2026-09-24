@@ -270,7 +270,11 @@ describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)
   // req.offlineReplayVerified, which reauth-check.ts honors. Grant is bound
   // to the calling user + session — a stolen JWT cannot mint one.
   // =========================================================================
-  it('POST /api/assets/identifiers with x-offline-replay-token skips reauth (no password needed)', async () => {
+  // Audit 2026-09-24 (F1): the grant is honoured ONLY on the replay-capable
+  // /api/filters/* routes (plugins/auth.ts isOfflineReplayRoute). On every
+  // other route — this one included — it is ignored and the password gate
+  // runs as if the header were absent. The test used to assert the opposite.
+  it('POST /api/assets/identifiers with x-offline-replay-token does NOT skip reauth (grant is filter-ops only)', async () => {
     // 6a — Inject a real reauth requirement in the schema-correct shape
     //      (Record<string, string[]>). The seed file uses {actions:[...]}
     //      which does not match actionReauthConfigSchema, so we override
@@ -312,7 +316,8 @@ describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)
     expect(gateBody.error).toBe('REAUTH_REQUIRED');
 
     // 6c: obtain a real signed grant, then call with x-offline-replay-token
-    //     (no password required) → 201 created
+    //     and no password → still 401 REAUTH_REQUIRED: identifiers are not a
+    //     replay route, so the grant buys nothing here.
     const offlineGrant = await obtainOfflineGrant(app, adminToken);
     const replayRes = await app.inject({
       method: 'POST',
@@ -327,8 +332,26 @@ describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)
         identifierValue: identValueB,
       },
     });
-    expect([200, 201]).toContain(replayRes.statusCode);
-    const replayBody = JSON.parse(replayRes.body);
+    expect(replayRes.statusCode).toBe(401);
+    expect(JSON.parse(replayRes.body).error).toBe('REAUTH_REQUIRED');
+
+    // 6c': with the password it goes through as normal → 201 created.
+    const pwRes = await app.inject({
+      method: 'POST',
+      url: '/api/assets/identifiers',
+      headers: {
+        authorization: `Bearer ${adminToken}`,
+        'x-offline-replay-token': offlineGrant,
+        'x-reauth-password': 'Admin@123',
+      },
+      payload: {
+        assetId: assetB,
+        identifierType: 'RFID',
+        identifierValue: identValueB,
+      },
+    });
+    expect([200, 201]).toContain(pwRes.statusCode);
+    const replayBody = JSON.parse(pwRes.body);
     const replayData = replayBody.data || replayBody;
     expect(replayData.identifierValue).toBe(identValueB);
     expect(replayData.assetId).toBe(assetB);

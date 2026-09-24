@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 /**
  * Phase 8.7 — Concurrent-Operator Collision Test Suite.
@@ -102,7 +102,30 @@ const STAGE_WASH_OUT_ID = 'stage-wash-out';
 const STAGE_DRY_IN_ID = 'stage-dry-in';
 const END_NODE_ID = 'node-end';
 
-function makePipelineRow(opts: { flowMode?: 'SEQUENTIAL' | 'BYPASS_ENABLED' } = {}) {
+function makePipelineRow(opts: { flowMode?: 'SEQUENTIAL' | 'BYPASS_ENABLED'; checklistAfter?: string } = {}) {
+  const row = makePipelineRowBase(opts);
+  if (opts.checklistAfter) {
+    // Insert a CHECKLIST node between `checklistAfter` and its successor. The
+    // profile id resolves to nothing (findMany → []), so no questions are
+    // required — but the NODE exists, which is what submit-checklist checks
+    // (audit 2026-09-24, C-F3: no node → NO_CHECKLIST_AT_TARGET).
+    const from = row.stages.find((s) => s.stateKey === opts.checklistAfter)!;
+    const edge = row.connections.find((c) => c.fromStageId === from.id)!;
+    const cl = { id: `cl-after-${from.id}`, stateKey: null, nodeType: 'CHECKLIST', configuration: { checklistProfileId: 'cl-profile-1' }, sortOrder: 99 };
+    row.stages.push(cl as any);
+    row.connections = row.connections.filter((c) => c !== edge).concat([
+      { fromStageId: from.id, toStageId: cl.id },
+      { fromStageId: cl.id, toStageId: edge.toStageId },
+    ]);
+  }
+  return row;
+}
+
+// Set by the submitChecklist() describe: setupBaseline() then serves a profile
+// with a CHECKLIST node after the current stage (audit 2026-09-24, C-F3).
+let checklistAfterForBaseline: string | undefined;
+
+function makePipelineRowBase(opts: { flowMode?: 'SEQUENTIAL' | 'BYPASS_ENABLED' } = {}) {
   return {
     id: PROFILE_ID,
     name: 'std',
@@ -196,7 +219,9 @@ function setupBaseline(txOverride?: (tx: any) => void) {
 
   // Profile resolution chain.
   mockPrisma.filterProfile.findUnique.mockResolvedValue(null);
-  mockPrisma.filterCleaningProfile.findUnique.mockResolvedValue(makePipelineRow());
+  mockPrisma.filterCleaningProfile.findUnique.mockResolvedValue(makePipelineRow({ checklistAfter: checklistAfterForBaseline }));
+  mockPrisma.checklistProfile.findMany.mockResolvedValue([]);
+  mockPrisma.checklistProfileVersion.findMany.mockResolvedValue([]);
 
   // No bound equipment group on this cycle.
   mockPrisma.equipmentGroup.findUnique.mockResolvedValue(null);
@@ -244,6 +269,8 @@ describe('Phase 8.7 — Concurrent-Operator Collision Codes', () => {
   // 1. submitChecklist
   // ────────────────────────────────────────────────────────────────────────
   describe('submitChecklist()', () => {
+    beforeEach(() => { checklistAfterForBaseline = CURRENT_STATE; });
+    afterEach(() => { checklistAfterForBaseline = undefined; });
     it('STALE_TAPE — operator A submits with old tapeVersion after operator B advanced (tape moved on)', async () => {
       // Operator B already advanced — events.length grew, so the live tape is
       // FRESH_TAPE. Operator A's request still carries STALE_TAPE.

@@ -35,10 +35,14 @@ import {
 } from './backup.repository.js';
 import {
   computeBackupChecksum,
+  signBackup,
+  verifyBackupSignature,
   escapeSqlValue,
   generateCsv,
   type BackupData,
 } from './backup.helpers.js';
+import { getAuditChainKey } from '../../lib/hash-chain.js';
+import { AppError } from '../../lib/errors.js';
 import { getModuleLogger } from '../../lib/logger.js';
 
 const backupLog = getModuleLogger('backup');
@@ -457,6 +461,7 @@ export async function exportJson(
       generatedBy: username,
       tableCount: Object.keys(data).length,
       checksum,
+      signature: signBackup(checksum, timestamp, getAuditChainKey()),
       format: 'json',
     },
     data,
@@ -503,6 +508,7 @@ export async function exportBak(
       generatedBy: username,
       tableCount: Object.keys(data).length,
       checksum,
+      signature: signBackup(checksum, timestamp, getAuditChainKey()),
       format: 'bak',
     },
     data,
@@ -609,6 +615,11 @@ export async function restoreDump(
   fileBuffer: Buffer,
   ctx: RequestContext,
 ): Promise<{ success: boolean; message: string; backupTimestamp: string; backupVersion: string }> {
+  // Audit 2026-09-24 (api #1): a pg_dump archive carries no server signature and
+  // executes whatever it contains — SUPER_ADMIN only.
+  if (ctx.userRole !== 'SUPER_ADMIN') {
+    throw new AppError(403, 'BACKUP_UNSIGNED', 'Restoring a pg_dump archive requires a Super Admin.');
+  }
   const serverMajor = await getServerMajorVersion();
   const dir = await mkdtemp(join(tmpdir(), 'digilog-restore-'));
   const archivePath = join(dir, 'upload.dump');
@@ -904,6 +915,25 @@ export async function exportCsv(
 // Restore
 // ---------------------------------------------------------------------------
 
+/**
+ * Audit 2026-09-24 (api #1): restore TRUNCATEs and re-inserts every table —
+ * users.password_hash and roles.permissions included — so a hand-edited file
+ * is a SUPER_ADMIN takeover for anyone who may restore (ADMIN holds
+ * BACKUP_RESTORE live). The plain checksum cannot stop that: it is recomputed
+ * by the attacker. Non-SUPER_ADMIN callers may therefore restore ONLY a file
+ * this server signed (metadata.signature, HMAC with AUDIT_CHAIN_KEY); SQL / CSV
+ * / legacy unsigned JSON, and pg_dump archives, stay SUPER_ADMIN-only.
+ */
+function assertRestoreAllowedForCaller(ctx: RequestContext, backup: BackupData): void {
+  if (ctx.userRole === 'SUPER_ADMIN') return;
+  const fmt = backup.metadata.format ?? 'json';
+  const signed = (fmt === 'json' || fmt === 'bak') && verifyBackupSignature(backup.metadata, getAuditChainKey());
+  if (!signed) {
+    throw new AppError(403, 'BACKUP_UNSIGNED',
+      'Only a backup file produced by this server (signed JSON/BAK export) can be restored by your role. Other formats and unsigned files require a Super Admin.');
+  }
+}
+
 export async function restore(
   fileBuffer: Buffer,
   ctx: RequestContext,
@@ -921,6 +951,8 @@ export async function restore(
       code: 'INVALID_METADATA',
     });
   }
+
+  assertRestoreAllowedForCaller(ctx, backup);
 
   // Checksum verification (skip for SQL/CSV since checksum is computed on import)
   const fmt = backup.metadata.format ?? 'json';

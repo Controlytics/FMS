@@ -131,10 +131,16 @@ export const blockChangeService = {
     const request = await prisma.blockChangeRequest.findUnique({ where: { id } });
     if (!request) throw new AppError(404, 'NOT_FOUND', 'Request not found');
     if (request.status !== 'PENDING') throw new AppError(409, 'ALREADY_PROCESSED', `Request already ${request.status.toLowerCase()}`);
+    // Audit 2026-09-24 (C-F8): the requester cannot decide their own request.
+    if (ctx.userSub && request.requestedBy === ctx.userSub) {
+      throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', 'You cannot approve or reject your own block change request.');
+    }
 
     const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
-    const updated = await prisma.blockChangeRequest.update({
-      where: { id },
+    // C-F8 (cont.): claim the PENDING row atomically so two concurrent decisions
+    // cannot both succeed and both write an audit row.
+    const claimed = await prisma.blockChangeRequest.updateMany({
+      where: { id, status: 'PENDING' },
       data: {
         status: newStatus,
         processedBy: ctx.userSub,
@@ -143,6 +149,8 @@ export const blockChangeService = {
         processedAt: new Date(),
       },
     });
+    if (claimed.count === 0) throw new AppError(409, 'ALREADY_PROCESSED', 'Request was already decided by someone else.');
+    const updated = (await prisma.blockChangeRequest.findUnique({ where: { id } }))!;
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,

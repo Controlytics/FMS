@@ -81,7 +81,7 @@ export async function auditManualChange(
   const u = req.user as any;
   const verbWord = opts.verb === 'CREATED' ? 'created' : opts.verb === 'UPDATED' ? 'edited' : 'deleted';
   await auditLog({
-    userId: u?.sub,
+    userId: u?.username, // Audit 2026-09-24 (compliance F3): actor column is the username everywhere else
     userName: u?.username,
     userRole: u?.role,
     action: `MANUAL_RECORD_${opts.verb}`,

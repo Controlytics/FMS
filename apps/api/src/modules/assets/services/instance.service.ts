@@ -17,7 +17,7 @@ import { upsertFilterDetails } from '../../../lib/filter-details.js';
 // an active cycle. No circular dependency (helpers.ts imports only prisma + crypto).
 import { computeChecksum } from '../../filter-operations/helpers.js';
 import { getFilterStageRules, classifyMove, moveStartsCycle, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
-import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole } from '../filter-workflow.js';
+import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole, assertFilterOperable } from '../filter-workflow.js';
 import { resolveManualCycleReason, breakActiveCycleTx, startManualCycleTx } from '../../filter-operations/manual-cycle.js';
 // uns / device-credential / connectivity provisioning removed with data-ingestion removal.
 
@@ -419,6 +419,11 @@ export const instanceService = {
   ) {
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
+    // Audit 2026-09-24 (F3): a manual status move is still a cleaning write —
+    // a filter that has not passed the creation workflow cannot be moved.
+    // (The other cycle gates — interlock, checklist, PM — are deliberately
+    // NOT applied here: this is the SUPER_ADMIN override path by design.)
+    assertFilterOperable((existing as any).approvalStatus, (existing as any).name);
     const beforeState = (existing as any).currentLifecycleState ?? null;
     const newState = lifecycleState.trim();
 

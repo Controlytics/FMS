@@ -779,9 +779,11 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'play', category: 'PM Schedules', permissions: ['PM_EXECUTE', 'PM_READ'], enforce: 'a',
         gate: ['PM_EXECUTE'] },
       { id: 'my_tasks.acknowledge', label: 'Acknowledge Overdue PM Task', sidebarId: 'my-tasks', page: 'My Tasks', action: 'Acknowledge',
+        // Audit 2026-09-24 (web F4): the API gate is PM_EXECUTE (pm-schedules/routes.ts
+        // /deviations/:id/acknowledge); PM_READ let MANAGER/QA open the dialog and get a 403.
         icon: 'check', category: 'PM Schedules', permissions: ['PM_READ'],
         reauthAction: 'ACKNOWLEDGE_PM_OVERDUE', enforce: 'a',
-        gate: ['PM_READ'] },
+        gate: ['PM_EXECUTE'] },
     ],
   },
 

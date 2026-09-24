@@ -37,6 +37,11 @@ function computeCounts(blocks: HierarchyBlock[] | undefined): Counts {
         filters += h.filters.length;
       }
     }
+    // AHUs parented directly by the block (no area level) count too.
+    ahus += b.ahus.length;
+    for (const h of b.ahus) {
+      filters += h.filters.length;
+    }
   }
   return { blocks: blocks.length, areas, ahus, filters };
 }
@@ -125,12 +130,19 @@ function BlockNode({ block }: { block: HierarchyBlock }) {
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Block</span>
         <span className="text-base font-semibold text-slate-900">{block.name}</span>
         <StatusBadge status={block.status} />
-        <span className="text-xs text-slate-500">({block.areas.length} area{block.areas.length === 1 ? '' : 's'})</span>
+        <span className="text-xs text-slate-500">
+          ({block.areas.length} area{block.areas.length === 1 ? '' : 's'}
+          {block.ahus.length > 0 ? `, ${block.ahus.length} direct AHU${block.ahus.length === 1 ? '' : 's'}` : ''})
+        </span>
       </summary>
-      {block.areas.length === 0 ? (
-        <p className="ml-4 my-1 text-xs italic text-slate-400">No areas</p>
+      {block.areas.length === 0 && block.ahus.length === 0 ? (
+        <p className="ml-4 my-1 text-xs italic text-slate-400">No areas or AHUs</p>
       ) : (
-        block.areas.map((a) => <AreaNode key={a.id} area={a} />)
+        <>
+          {block.areas.map((a) => <AreaNode key={a.id} area={a} />)}
+          {/* AHUs parented directly by the block (no area level) */}
+          {block.ahus.map((h) => <AhuNode key={h.id} ahu={h} />)}
+        </>
       )}
     </details>
   );

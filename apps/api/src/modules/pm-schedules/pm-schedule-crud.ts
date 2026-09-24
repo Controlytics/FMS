@@ -100,9 +100,37 @@ export async function update(ctx: RequestContext, id: string, data: any) {
 
   const existing = await prisma.pmSchedule.findUnique({
     where: { id },
-    include: { entries: true },
+    include: { entries: { include: { executions: { select: { id: true } } } } },
   });
   if (!existing) throw new AppError(404, 'NOT_FOUND', 'PM schedule not found');
+
+  // Audit 2026-09-24 (C-F7): this is archive-then-recreate, and the recreated
+  // entries used to start from column defaults — dropping APPROVED status, the
+  // QA attribution, missed-PM write-offs (§11 statements) and stranding
+  // PmExecution rows on the ARCHIVED schedule. Every incoming row that lands on
+  // the same planned date as an existing visit now CARRIES that visit's record
+  // forward, and a visit with evidence (approval, write-off or an execution)
+  // cannot be silently dropped by leaving it out of the body.
+  const dayKey = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
+  const incomingDays = new Set(entries.map((e: any) => dayKey(e.plannedDate)));
+  const dropped = existing.entries.filter((e) =>
+    !incomingDays.has(dayKey(e.plannedDate))
+    && (e.approvalStatus === 'APPROVED' || e.skippedAt || e.executions.length > 0));
+  if (dropped.length > 0) {
+    throw new AppError(409, 'PM_ENTRY_HAS_EVIDENCE',
+      `${dropped.length} visit(s) with an approval, write-off or execution would be removed (${dropped.map((e) => dayKey(e.plannedDate)).join(', ')}). Remove them individually instead.`);
+  }
+  const existingByDay = new Map(existing.entries.map((e) => [dayKey(e.plannedDate), e]));
+  const carry = (e: (typeof existing.entries)[number] | undefined) => e ? {
+    approvalStatus: e.approvalStatus, approvalRemarks: e.approvalRemarks,
+    approvedBy: e.approvedBy, approvedByName: e.approvedByName, approvedAt: e.approvedAt,
+    submittedBy: e.submittedBy, submittedByName: e.submittedByName,
+    reviewedBy: e.reviewedBy, reviewedByName: e.reviewedByName, reviewedAt: e.reviewedAt, reviewRemarks: e.reviewRemarks,
+    rejectedBy: e.rejectedBy, rejectedByName: e.rejectedByName, rejectedAt: e.rejectedAt, rejectionStage: e.rejectionStage,
+    skippedAt: e.skippedAt, skippedBy: e.skippedBy, skippedByName: e.skippedByName, skipReason: e.skipReason,
+    lateReason: e.lateReason, lateReasonBy: e.lateReasonBy, lateReasonAt: e.lateReasonAt,
+    manualEntry: e.manualEntry,
+  } : {};
 
   // Same separation check as create, and for the same reason the entry-count
   // check above runs here: this is archive-then-recreate, so throwing after the
@@ -119,12 +147,9 @@ export async function update(ctx: RequestContext, id: string, data: any) {
 
   // Archive + recreate atomically — a failure must not strand the schedule
   // with no ACTIVE version.
-  const [, newSchedule] = await prisma.$transaction([
-    prisma.pmSchedule.update({
-      where: { id },
-      data: { status: 'ARCHIVED' },
-    }),
-    prisma.pmSchedule.create({
+  const newSchedule = await prisma.$transaction(async (tx) => {
+    await tx.pmSchedule.update({ where: { id }, data: { status: 'ARCHIVED' } });
+    const created = await tx.pmSchedule.create({
       data: {
         entityId: existing.entityId,
         year: existing.year,
@@ -139,12 +164,21 @@ export async function update(ctx: RequestContext, id: string, data: any) {
             windowStart: new Date(new Date(e.plannedDate).getTime() - (e.toleranceDays ?? 0) * 86400000),
             windowEnd: new Date(new Date(e.plannedDate).getTime() + (e.toleranceDays ?? 0) * 86400000),
             notes: e.notes ?? null,
+            ...carry(existingByDay.get(dayKey(e.plannedDate))),
           })),
         },
       },
       include: { entries: { orderBy: { month: 'asc' } } },
-    }),
-  ]);
+    });
+    // Re-point execution evidence at the carried-forward entries (same planned date).
+    for (const ne of created.entries) {
+      const old = existingByDay.get(dayKey(ne.plannedDate));
+      if (old && old.executions.length > 0) {
+        await tx.pmExecution.updateMany({ where: { scheduleEntryId: old.id }, data: { scheduleEntryId: ne.id } });
+      }
+    }
+    return created;
+  });
 
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATED',

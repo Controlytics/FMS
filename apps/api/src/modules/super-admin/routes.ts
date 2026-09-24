@@ -1,4 +1,5 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
+import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { readSuperAdminApiEnabledUncached, setSuperAdminApiEnabled } from '../../lib/super-admin-lock.js';
@@ -118,7 +119,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     await setSuperAdminApiEnabled(enabled, req.user.sub);
 
     await auditLog({
-      userId: req.user.sub,
+      userId: req.user.username, // username, not uuid (compliance F3)
       userName: req.user.username,
       userRole: req.user.role,
       action: 'SUPER_ADMIN_API_ACCESS_CHANGED',
@@ -885,7 +886,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       if (e?.code === 'P2025') {
         return reply.code(404).send({ error: 'NOT_FOUND', message: `${label} not found.` });
       }
-      return reply.code(400).send({ error: 'DELETE_FAILED', message: String(e?.message ?? `Could not delete ${label.toLowerCase()}.`) });
+      req.log.error({ err: e }, 'Filter Data Management delete failed');
+      return reply.code(400).send({ error: 'DELETE_FAILED', message: e instanceof AppError ? e.message : `Could not delete ${label.toLowerCase()}.` });
     }
   };
 
@@ -978,8 +980,11 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     data.manualEntry = true;
     const badC = invalidEnum('cleaningCycle', data); if (badC) return reply.code(400).send(badC);
     try {
-      const created = await prisma.cleaningCycle.create({ data });
-      await auditManualChange(req, { verb: 'CREATED', targetType: 'cleaning_cycle', targetId: created.id, label: 'Cleaning cycle', reason, after: created });
+      const created = await prisma.$transaction(async (tx) => {
+        const c = await tx.cleaningCycle.create({ data });
+        await auditManualChange(req, { verb: 'CREATED', targetType: 'cleaning_cycle', targetId: c.id, label: 'Cleaning cycle', reason, after: c }, tx);
+        return c;
+      });
       return created;
     } catch (e: any) {
       const msg = String(e?.message ?? '');
@@ -1022,7 +1027,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
         await tx.cleaningCycle.delete({ where: { id } });
       });
     } catch (e: any) {
-      return reply.code(400).send({ error: 'DELETE_FAILED', message: String(e?.message ?? 'Could not delete cleaning cycle.') });
+      req.log.error({ err: e }, 'Filter Data Management cycle delete failed');
+      return reply.code(400).send({ error: 'DELETE_FAILED', message: e instanceof AppError ? e.message : 'Could not delete cleaning cycle.' });
     }
     return { success: true };
   });
@@ -1050,7 +1056,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     const existing = await prisma.filterEvent.findUnique({ where: { id } });
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
     const data: any = {};
-    for (const f of ['eventType', 'fromState', 'toState', 'remarks', 'checksum']) {
+    // Audit 2026-09-24 (B-F8): `checksum` is an integrity marker, never client-settable (POST was fixed the same day).
+    for (const f of ['eventType', 'fromState', 'toState', 'remarks']) {
       if (body[f] !== undefined) data[f] = body[f];
     }
     for (const f of ['filterId', 'cycleId', 'performedBy', 'cleaningAreaId', 'equipmentId', 'blockId']) {
@@ -1065,8 +1072,12 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       data.attributes = { ...((existing.attributes as Record<string, unknown> | null) ?? {}), ...(body.attributes as Record<string, unknown>) };
     }
     const badE = invalidEnum('filterEvent', data); if (badE) return reply.code(400).send(badE);
-    const updated = await prisma.filterEvent.update({ where: { id }, data });
-    await auditManualChange(req, { verb: 'UPDATED', targetType: 'filter_event', targetId: id, label: 'Filter event', reason, before: existing, after: updated });
+    // Audit 2026-09-24 (B-F10): write + audit in one tx, like the deletes.
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.filterEvent.update({ where: { id }, data });
+      await auditManualChange(req, { verb: 'UPDATED', targetType: 'filter_event', targetId: id, label: 'Filter event', reason, before: existing, after: u }, tx);
+      return u;
+    });
     return updated;
   });
 
@@ -1086,15 +1097,20 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     data.performedBy = body.performedBy || (req.user as any)?.sub;
     data.performedAt = body.performedAt ? new Date(body.performedAt) : new Date();
     data.ipAddress = req.ip || '0.0.0.0';
-    data.checksum = body.checksum || computeChecksum({ filterId: data.filterId, cycleId: data.cycleId ?? null, eventType: data.eventType, performedBy: data.performedBy, performedAt: data.performedAt.toISOString() });
+    // Audit 2026-09-24 (F16): the checksum is server-computed, never taken from the client.
+    data.checksum = computeChecksum({ filterId: data.filterId, cycleId: data.cycleId ?? null, eventType: data.eventType, performedBy: data.performedBy, performedAt: data.performedAt.toISOString() });
     data.manualEntry = true;
     const badE = invalidEnum('filterEvent', data); if (badE) return reply.code(400).send(badE);
     try {
-      const created = await prisma.filterEvent.create({ data });
-      await auditManualChange(req, { verb: 'CREATED', targetType: 'filter_event', targetId: created.id, label: 'Filter event', reason, after: created });
+      const created = await prisma.$transaction(async (tx) => {
+        const c = await tx.filterEvent.create({ data });
+        await auditManualChange(req, { verb: 'CREATED', targetType: 'filter_event', targetId: c.id, label: 'Filter event', reason, after: c }, tx);
+        return c;
+      });
       return created;
     } catch (e: any) {
-      return reply.code(400).send({ error: 'CREATE_FAILED', message: String(e?.message ?? 'Could not create filter event.') });
+      req.log.error({ err: e }, 'Filter Data Management event create failed');
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: e instanceof AppError ? e.message : 'Could not create filter event.' });
     }
   });
 

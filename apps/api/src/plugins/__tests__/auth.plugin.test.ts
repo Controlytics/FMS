@@ -315,7 +315,8 @@ describe('authPlugin', () => {
       updatedAt: new Date(Date.now() - 365 * 86400000),
     });
 
-    const req = makeReq({ url: '/api/auth/change-password' });
+    // Audit 2026-09-24 (api #12): the allowlist matches method + exact path; the real route is POST.
+    const req = makeReq({ url: '/api/auth/change-password', method: 'POST' });
     const reply = makeReply();
 
     await onRequestHook(req, reply);

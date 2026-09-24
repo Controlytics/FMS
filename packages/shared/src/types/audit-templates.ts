@@ -328,6 +328,14 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Cleaning cycle started for filter "{targetName}" with reason "{reason}" by {actor}',
     placeholders: ['actor', 'targetName', 'reason'],
   },
+  // Audit 2026-09-24 (F13): completion used to leave only the last stage's
+  // STATE_TRANSITION / CHECKLIST_COMPLETED row; it now has its own record.
+  CYCLE_COMPLETED: {
+    label: 'Cleaning Cycle Completed',
+    category: 'Filter Operations',
+    template: 'Cleaning cycle completed for filter "{targetName}" by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
   STATE_TRANSITION: {
     label: 'Filter Stage Advanced',
     category: 'Filter Operations',
@@ -460,6 +468,19 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Equipment group "{targetName}" instruments updated by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  // Audit 2026-09-24: live rows exist for both, no template.
+  EQUIPMENT_GROUP_ENABLED: {
+    label: 'Equipment Group Enabled',
+    category: 'Equipment Groups',
+    template: 'Equipment group "{targetName}" enabled by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  EQUIPMENT_GROUP_DISABLED: {
+    label: 'Equipment Group Disabled',
+    category: 'Equipment Groups',
+    template: 'Equipment group "{targetName}" disabled by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
   EQUIPMENT_GROUP_DELETED: {
     label: 'Equipment Group Deleted',
     category: 'Equipment Groups',
@@ -546,6 +567,20 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     label: 'Archived',
     category: 'Data & Approvals',
     template: '{recordType} "{targetName}" archived by {actor}',
+    placeholders: ['actor', 'recordType', 'targetName'],
+  },
+  // Audit 2026-09-24: cleaning-profile.service.ts emits the bare
+  // ACTIVATED / DEACTIVATED on a cleaning-profile status change.
+  ACTIVATED: {
+    label: 'Activated',
+    category: 'Data & Approvals',
+    template: '{recordType} "{targetName}" activated by {actor}',
+    placeholders: ['actor', 'recordType', 'targetName'],
+  },
+  DEACTIVATED: {
+    label: 'Deactivated',
+    category: 'Data & Approvals',
+    template: '{recordType} "{targetName}" deactivated by {actor}',
     placeholders: ['actor', 'recordType', 'targetName'],
   },
   ASSIGNED: {
@@ -730,6 +765,20 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Block change requested for filter "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  // Audit 2026-09-24: emitted by block-change.service.ts but never templated,
+  // so the Audit Trail rendered the raw action key + a UUID.
+  BLOCK_CHANGE_APPROVED: {
+    label: 'Block Change Approved',
+    category: 'Filter Management',
+    template: 'Block change for filter "{targetName}" approved by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  BLOCK_CHANGE_REJECTED: {
+    label: 'Block Change Rejected',
+    category: 'Filter Management',
+    template: 'Block change for filter "{targetName}" rejected by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
   REPLACEMENT_SCHEDULE_UPLOADED: {
     label: 'Replacement Schedule Uploaded',
     category: 'Filter Management',
@@ -780,6 +829,26 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Report "{targetName}" sent for review by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  // Audit 2026-09-24: the other three report-review outcomes were emitted
+  // (report-reviews/service.ts) but untemplated.
+  REPORT_REVIEW_REVIEWED: {
+    label: 'Report Reviewed',
+    category: 'Data & Approvals',
+    template: 'Report "{targetName}" reviewed and sent for approval by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  REPORT_REVIEW_APPROVED: {
+    label: 'Report Approved',
+    category: 'Data & Approvals',
+    template: 'Report "{targetName}" approved by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  REPORT_REVIEW_REJECTED: {
+    label: 'Report Rejected',
+    category: 'Data & Approvals',
+    template: 'Report "{targetName}" rejected by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
 
   // User Management
   USER_GROUP_CREATED: {
@@ -811,6 +880,12 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     category: 'User Management',
     template: 'Member removed from user group "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName'],
+  },
+  PASSWORD_RESET_REQUESTED: {
+    label: 'Password Reset Requested',
+    category: 'User Management',
+    template: 'Password reset requested for "{targetUser}" via Forgot Password',
+    placeholders: ['targetUser'],
   },
   PASSWORD_RESET_REQUEST_APPROVED: {
     label: 'Password Reset Approved',
@@ -886,6 +961,24 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'LDAP configuration updated by {actor}',
     placeholders: ['actor'],
   },
+  NOTIFICATION_TEMPLATE_CREATED: {
+    label: 'Notification Template Created',
+    category: 'Configuration',
+    template: 'Notification template "{targetName}" created by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  NOTIFICATION_TEMPLATE_UPDATED: {
+    label: 'Notification Template Updated',
+    category: 'Configuration',
+    template: 'Notification template "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  NOTIFICATION_TEMPLATE_DELETED: {
+    label: 'Notification Template Deleted',
+    category: 'Configuration',
+    template: 'Notification template "{targetName}" deleted by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
   UPDATE_EMAIL_CONFIG: {
     label: 'Email Settings Updated',
     category: 'Configuration',
@@ -902,6 +995,55 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     label: 'Dashboard Created',
     category: 'Configuration',
     template: 'Dashboard "{targetName}" created by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  // Audit 2026-09-24 (compliance F1): the other eight dashboard mutations now audit.
+  DASHBOARD_UPDATED: {
+    label: 'Dashboard Updated',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_DELETED: {
+    label: 'Dashboard Deleted',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" deactivated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_WIDGET_CREATED: {
+    label: 'Dashboard Widget Added',
+    category: 'Configuration',
+    template: 'Dashboard widget "{targetName}" added by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_WIDGET_UPDATED: {
+    label: 'Dashboard Widget Updated',
+    category: 'Configuration',
+    template: 'Dashboard widget "{targetName}" updated by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_WIDGET_DELETED: {
+    label: 'Dashboard Widget Removed',
+    category: 'Configuration',
+    template: 'Dashboard widget "{targetName}" removed by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_LAYOUT_UPDATED: {
+    label: 'Dashboard Layout Updated',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" layout rearranged by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_ASSIGNED: {
+    label: 'Dashboard Assigned',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" assigned by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
+  DASHBOARD_UNASSIGNED: {
+    label: 'Dashboard Unassigned',
+    category: 'Configuration',
+    template: 'Dashboard "{targetName}" assignment removed by {actor}',
     placeholders: ['actor', 'targetName'],
   },
   SUPER_ADMIN_API_ACCESS_CHANGED: {

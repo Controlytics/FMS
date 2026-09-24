@@ -266,7 +266,10 @@ describe('H1 — PUT /api/auth/profile reauth gate', () => {
     expect(body.error).toBe('OFFLINE_REPLAY_HEADER_DEPRECATED');
   });
 
-  it('skips reauth on offline replay when a valid grant token is supplied', async () => {
+  // Audit 2026-09-24 (F1): the offline-replay grant is honoured ONLY on the
+  // /api/filters/* replay routes. On the profile endpoint it is ignored and the
+  // password gate runs — the test used to assert the bypass.
+  it('does NOT skip reauth on a non-replay route even with a valid grant token', async () => {
     // Mint a grant via the new endpoint (requires password).
     const grantRes = await app.inject({
       method: 'POST',
@@ -288,9 +291,8 @@ describe('H1 — PUT /api/auth/profile reauth gate', () => {
       },
       payload: { fullName: 'H1 Offline Replay' },
     });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.fullName).toBe('H1 Offline Replay');
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body).error).toBe('REAUTH_REQUIRED');
 
     // Restore.
     await app.inject({

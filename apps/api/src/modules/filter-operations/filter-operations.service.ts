@@ -2,9 +2,11 @@
  * Filter Operations Service — Core operations: cycle management, stage advancement, bypass.
  */
 import type { RequestContext } from '../../types/context.js';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { computeChecksum } from './helpers.js';
 import {
   getFilter,
   getFilterHomeBlock,
@@ -768,51 +770,92 @@ export class FilterOperationsService {
       throw new AppError(400, 'ALREADY_RETIRED', 'Filter is already retired');
     }
 
-    // Retire the filter, terminate cycle, and remove from tree — all in one transaction
+    // Retire the filter, terminate cycle, remove from tree AND write the audit
+    // row — all in one transaction (audit 2026-09-24 F8: the FILTER_RETIRED row
+    // used to be written after the commit, so a crash in between left a retired
+    // filter with no record).
     await prisma.$transaction(async (tx) => {
-      // Terminate active cycle if any. Stamp WHY (RETIRED / REPLACED — replace()
-      // calls this with 'REPLACED') so the cleaning + lifecycle reports can show
-      // the cycle as Retired/Replaced instead of a generic Terminated.
-      if (filter.currentCycleId) {
-        await tx.cleaningCycle.updateMany({
-          where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
-          data: { status: 'TERMINATED', completedAt: new Date(), terminatedAt: new Date(), terminationReason },
+      await this.retireInTx(tx, ctx, filter, remarks, terminationReason);
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * The retire write set, inside a caller-owned transaction. Shared by retire()
+   * and replace() (audit 2026-09-24 F9: replace() used to retire in ONE
+   * transaction and create the replacement in ANOTHER, with a hand-rolled
+   * "rollback" that re-activated the old row but left it orphaned from its AHU
+   * with its cycle terminated; now the whole replacement is one transaction).
+   */
+  private async retireInTx(
+    tx: Prisma.TransactionClient,
+    ctx: RequestContext,
+    filter: { id: string; name: string | null; parentId: string | null; currentCycleId: string | null; currentLifecycleState: string | null },
+    remarks: string,
+    terminationReason: string,
+  ) {
+    const filterId = filter.id;
+
+    // Terminate active cycle if any. Stamp WHY (RETIRED / REPLACED — replace()
+    // calls this with 'REPLACED') so the cleaning + lifecycle reports can show
+    // the cycle as Retired/Replaced instead of a generic Terminated.
+    if (filter.currentCycleId) {
+      const terminatedAt = new Date();
+      const ended = await tx.cleaningCycle.updateMany({
+        where: { id: filter.currentCycleId, status: 'IN_PROGRESS' },
+        data: { status: 'TERMINATED', completedAt: terminatedAt, terminatedAt, terminationReason },
+      });
+      // Audit 2026-09-24 (F2): the cycle's own event log must say it ended and
+      // why — retire/replace used to end a cycle with no CYCLE_TERMINATED
+      // event at all (20 live cycles). Same shape as terminate-cycle.ts.
+      if (ended.count > 0) {
+        const eventData = {
+          filterId, cycleId: filter.currentCycleId, eventType: 'CYCLE_TERMINATED' as const,
+          fromState: filter.currentLifecycleState ?? null,
+          performedBy: ctx.userSub,
+          attributes: { terminationReason, justification: remarks },
+          remarks,
+        };
+        await tx.filterEvent.create({
+          data: { ...eventData, checksum: computeChecksum(eventData), ipAddress: ctx.ipAddress, telemetrySnapshot: {} },
         });
       }
+    }
 
-      // Save original parentId in customAttributes so unretire can restore it.
-      // currentLifecycleState + currentCycleId moved to FilterDetails (Step 6).
-      const existingCustom = (filter as any).customAttributes ?? {};
-      await tx.assetInstance.update({
-        where: { id: filterId },
-        data: {
-          status: 'Retired',
-          isActive: false,
-          parentId: null,
-          customAttributes: { ...existingCustom, _preRetireParentId: filter.parentId },
-        },
-      });
-      await tx.filterDetails.upsert({
-        where: { assetInstanceId: filterId },
-        update: { currentLifecycleState: 'RETIRED', currentCycleId: null },
-        create: { assetInstanceId: filterId, currentLifecycleState: 'RETIRED', currentCycleId: null },
-      });
+    // Save original parentId in customAttributes so unretire can restore it.
+    // Audit 2026-09-24 (F7): read the REAL column inside the tx — the resolved
+    // filter never carried customAttributes, so the merge below always started
+    // from {} and dropped every other key.
+    const row = await tx.assetInstance.findUnique({ where: { id: filterId }, select: { customAttributes: true } });
+    const existingCustom = (row?.customAttributes as Record<string, unknown> | null) ?? {};
+    await tx.assetInstance.update({
+      where: { id: filterId },
+      data: {
+        status: 'Retired',
+        isActive: false,
+        parentId: null,
+        customAttributes: { ...existingCustom, _preRetireParentId: filter.parentId },
+      },
+    });
+    await tx.filterDetails.upsert({
+      where: { assetInstanceId: filterId },
+      update: { currentLifecycleState: 'RETIRED', currentCycleId: null },
+      create: { assetInstanceId: filterId, currentLifecycleState: 'RETIRED', currentCycleId: null },
+    });
 
-      // Remove all relationships (CONTAINS/CONTAINED_IN) so retired filter disappears from tree
-      await tx.assetRelationship.deleteMany({
-        where: { OR: [{ sourceAssetId: filterId }, { targetAssetId: filterId }] },
-      });
+    // Remove all relationships (CONTAINS/CONTAINED_IN) so retired filter disappears from tree
+    await tx.assetRelationship.deleteMany({
+      where: { OR: [{ sourceAssetId: filterId }, { targetAssetId: filterId }] },
     });
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'FILTER_RETIRED',
       targetType: 'filter', targetId: filterId,
-      afterValue: { remarks, filterName: filter.name },
+      afterValue: { remarks, filterName: filter.name, terminationReason },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    });
-
-    return { success: true };
+    }, tx);
   }
 
   /**
@@ -861,16 +904,24 @@ export class FilterOperationsService {
       select: { filterSet: true, filterProfileId: true },
     });
 
-    // Retire old filter first — mark its terminated cycle (if any) as REPLACED
-    // (not just RETIRED) so reports distinguish a replacement from a retirement.
-    await this.retire(ctx, filterId, remarks, 'REPLACED');
+    // Resolve the live filter (cycle pointer, lifecycle state) for the retire
+    // half; mirrors retire()'s own guard.
+    const resolved = await getFilter(filterId, ctx);
+    if (resolved.currentLifecycleState === 'RETIRED') {
+      throw new AppError(400, 'ALREADY_RETIRED', 'Filter is already retired');
+    }
 
-    // Create replacement filter + relationships in a transaction (rollback on failure).
+    // Audit 2026-09-24 (F8/F9): retire the old filter, create the replacement,
+    // move the tags AND write both audit rows in ONE transaction. It used to be
+    // two transactions with a hand-rolled rollback that re-activated the old row
+    // but left it orphaned from its AHU with its cycle terminated.
     // FilterDetails (filterSet, filterProfileId) live in the sidecar (Step 6).
-    let newFilter: any;
     let movedTagCount = 0;
-    try {
-      newFilter = await prisma.$transaction(async (tx) => {
+    const newFilter = await prisma.$transaction(async (tx) => {
+        // Mark its terminated cycle (if any) as REPLACED (not just RETIRED) so
+        // reports distinguish a replacement from a retirement.
+        await this.retireInTx(tx, ctx, resolved, remarks, 'REPLACED');
+
         const created = await tx.assetInstance.create({
           data: {
             name: newName,
@@ -881,6 +932,17 @@ export class FilterOperationsService {
             status: 'Active',
             isActive: true,
             createdBy: ctx.userId ?? ctx.userSub,
+            // Audit 2026-09-24 (F1): the replacement INHERITS the old filter's
+            // approval state. It used to take the column default (APPROVED),
+            // so replacing a PENDING_REVIEW / REJECTED filter minted an
+            // operable one with no review or approval. A replacement of an
+            // APPROVED filter stays approved (same specs, physical swap), so
+            // day-to-day replacements are unchanged.
+            approvalStatus: instance.approvalStatus,
+            submittedBy: instance.submittedBy, submittedByName: instance.submittedByName, submittedAt: instance.submittedAt,
+            reviewedBy: instance.reviewedBy, reviewedByName: instance.reviewedByName, reviewedAt: instance.reviewedAt, reviewRemarks: instance.reviewRemarks,
+            approvedBy: instance.approvedBy, approvedByName: instance.approvedByName, approvedAt: instance.approvedAt, approvalRemarks: instance.approvalRemarks,
+            rejectedBy: instance.rejectedBy, rejectedByName: instance.rejectedByName, rejectedAt: instance.rejectedAt, rejectionRemarks: instance.rejectionRemarks,
           },
         });
 
@@ -924,35 +986,22 @@ export class FilterOperationsService {
         });
         movedTagCount = moved.count;
 
-        return created;
-      });
-    } catch (err) {
-      // Re-activate the retired filter if replacement creation fails
-      // (currentLifecycleState moved to FilterDetails — Step 6).
-      await prisma.assetInstance.update({
-        where: { id: filterId },
-        data: { status: 'Active', isActive: true },
-      });
-      await prisma.filterDetails.update({
-        where: { assetInstanceId: filterId },
-        data: { currentLifecycleState: null },
-      });
-      throw err;
-    }
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'FILTER_REPLACED',
+          targetType: 'filter', targetId: filterId,
+          afterValue: {
+            oldFilterId: filterId,
+            oldFilterName: oldName,
+            newFilterId: created.id,
+            newFilterName: newName,
+            identifiersMoved: movedTagCount,
+            remarks,
+          },
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+        }, tx);
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FILTER_REPLACED',
-      targetType: 'filter', targetId: filterId,
-      afterValue: {
-        oldFilterId: filterId,
-        oldFilterName: oldName,
-        newFilterId: newFilter.id,
-        newFilterName: newName,
-        identifiersMoved: movedTagCount,
-        remarks,
-      },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+        return created;
     });
 
     return {

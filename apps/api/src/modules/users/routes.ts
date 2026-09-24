@@ -259,7 +259,7 @@ export default async function userRoutes(app: FastifyInstance) {
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    return userService.getById(id);
+    return userService.getById(id, req.user.role);
   });
 
   // PUT /api/users/:id — Update user

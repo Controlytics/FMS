@@ -9,6 +9,9 @@ import {
   projectDryerCountdown,
 } from '@/lib/filter-ops';
 import { recomputeAndCacheFilterState } from '@/lib/offline-cache';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
+import { signOnce, withStageAction } from '@/lib/stage-reauth';
 
 /**
  * "Currently Drying" panel — SHARED by the desktop DRY_IN stage card
@@ -42,7 +45,7 @@ export interface DryingFiltersPanelProps {
   filters: any[];
   online: boolean;
   /** `useOffline().executeOrQueue` — same signature on both surfaces. */
-  executeOrQueue: (kind: 'advance', filterId: string, filterName: string, body: Record<string, any>, stageKey: string) => Promise<{ executed: boolean; result?: any }>;
+  executeOrQueue: (kind: 'advance', filterId: string, filterName: string, body: Record<string, any>, stageKey: string, password?: string) => Promise<{ executed: boolean; result?: any }>;
   /** Cache reader (`useOffline().getCache` on the tablet, offline-store on desktop). */
   getCache: <T>(key: string) => Promise<T | null>;
   cacheData: (key: string, value: any, ttlMs?: number) => any;
@@ -74,6 +77,11 @@ interface RowState {
 export function DryingFiltersPanel({
   filters, online, executeOrQueue, getCache, cacheData, onSuccess, onError, onAfterSubmit, variant,
 }: DryingFiltersPanelProps) {
+  // Audit 2026-09-24 (web F1): the panel completed Dry In with no re-auth
+  // signature — with ADVANCE_FILTER_STAGE / STAGE_DRY_IN enabled for the role
+  // every submit was a bare 401 and no dialog ever opened. Sign once, like the
+  // Set Duration path on the operations page.
+  const reauth = useReauth();
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sharedTemp, setSharedTemp] = useState<number | ''>('');
@@ -124,6 +132,16 @@ export function DryingFiltersPanel({
     const missing = targets.filter(r => r.temp === '' || !r.group || !r.instrument);
     if (missing.length > 0) { onError(`Enter a temperature for: ${missing.map(m => m.filterName).join(', ')}`); return; }
     setSubmitting(true);
+    let sig: { ok: true; password?: string } | { ok: false };
+    try {
+      sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], 'DRY_IN'));
+    } catch (e: any) {
+      setSubmitting(false);
+      onError(e?.message ?? 'Re-authentication failed');
+      return;
+    }
+    if (!sig.ok) { setSubmitting(false); return; }
+    const password = sig.password;
     let ok = 0; let queued = 0; const failed: string[] = [];
     for (const r of targets) {
       try {
@@ -145,7 +163,7 @@ export function DryingFiltersPanel({
           instrumentReadings: readings,
           readingSources,
           remarks: `Dryer temperature ${r.temp}${r.uom} - ${r.filterName}`,
-        }, 'DRY_IN');
+        }, 'DRY_IN', password);
         if (executed) ok++; else queued++;
         // Queued offline: rewrite the cached action tape / reachable-target
         // mirrors first (the pre-2026-09-04 tablet card did this; without it a
@@ -188,6 +206,7 @@ export function DryingFiltersPanel({
 
   return (
     <div className={isMobile ? 'bg-white border border-amber-200 rounded-2xl overflow-hidden' : 'bg-white border border-slate-200 rounded-2xl p-5 space-y-3'}>
+      <ReauthPrompt reauth={reauth} />
       <div className={isMobile ? 'bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 flex items-center justify-between' : 'flex items-center justify-between'}>
         <h3 className={isMobile ? 'text-sm font-bold text-white' : 'text-sm font-semibold text-slate-500 uppercase tracking-wider'}>
           Currently Drying ({visible.length})

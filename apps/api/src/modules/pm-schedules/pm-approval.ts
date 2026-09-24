@@ -109,6 +109,24 @@ export async function listEntries(
 }
 
 /**
+ * Audit 2026-09-24 (C-F9): segregation of duties by USER. Role separation alone
+ * is config-borne — with a blank reviewRole/approvalRole any PM_REVIEW /
+ * PM_APPROVE holder could sign off their own upload. The uploader may not
+ * review or approve their own entries, and the reviewer may not also approve.
+ */
+function assertNotOwnEntry(
+  ctx: RequestContext,
+  entries: Array<{ submittedBy: string | null; reviewedBy: string | null }>,
+  step: 'review' | 'approve' | 'reject',
+) {
+  if (!ctx.userSub) return;
+  const own = entries.some((e) => e.submittedBy === ctx.userSub || (step !== 'review' && e.reviewedBy === ctx.userSub));
+  if (own) {
+    throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', `You cannot ${step} a PM schedule entry you submitted or reviewed yourself. A different user must sign off.`);
+  }
+}
+
+/**
  * Review step (workflow ON). action='approve' moves PENDING_REVIEW →
  * PENDING_APPROVAL; action='reject' moves PENDING_REVIEW → REJECTED (stage REVIEW).
  * Gated by the configured reviewRole.
@@ -128,6 +146,7 @@ export async function reviewEntries(
 
   const entries = await prisma.pmScheduleEntry.findMany({ where: { id: { in: entryIds } }, include: { schedule: true } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
+  assertNotOwnEntry(ctx, entries, 'review');
   const ahuNames = await ahuNameByEntry(entries as any);
   const qnns: string[] = [];
 
@@ -184,6 +203,7 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
 
   const entries = await prisma.pmScheduleEntry.findMany({ where: { id: { in: entryIds } }, include: { schedule: true } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
+  assertNotOwnEntry(ctx, entries, 'approve');
   const ahuNames = await ahuNameByEntry(entries as any);
 
   // Approvable from PENDING_APPROVAL (workflow ON) or legacy PENDING (workflow OFF).
@@ -259,6 +279,7 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
 
   const entries = await prisma.pmScheduleEntry.findMany({ where: { id: { in: entryIds } }, include: { schedule: true } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
+  assertNotOwnEntry(ctx, entries, 'reject');
   const ahuNames = await ahuNameByEntry(entries as any);
   const qnns: string[] = [];
 
@@ -400,6 +421,9 @@ export async function modifyReviewEntry(
   if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
   const tol = data.toleranceDays ?? entry.toleranceDays;
   const { windowStart, windowEnd } = windowsFor(planned, tol);
+  // Audit 2026-09-24 (C-F4): the review-edit was the one single-entry write with
+  // no separation check — a reviewer could move a visit onto a sibling's window.
+  await assertSeparation(entry.scheduleId, { plannedDate: planned, toleranceDays: tol, entryId }, 'This visit');
 
   const updated = await prisma.pmScheduleEntry.update({
     where: { id: entryId },

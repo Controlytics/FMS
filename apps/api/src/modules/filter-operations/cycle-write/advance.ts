@@ -694,8 +694,21 @@ export async function executeAdvanceTx(tx: TxClient, plan: AdvancePlan): Promise
         checksum: computeChecksum(completeEvent),
         ipAddress: ctx.ipAddress,
         telemetrySnapshot: {},
+        // Audit 2026-09-24 (F6): on offline replay the completion event must
+        // carry the same instant as cycle.completedAt / lastCleaningDate (the
+        // checklist completion path already did) — two §11 records for one
+        // completion cannot disagree.
+        ...(offlineTime ? { performedAt: offlineTime } : {}),
       },
     });
+    // Audit 2026-09-24 (F13): completion gets its own audit row; it used to
+    // leave only the STATE_TRANSITION of the last stage.
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_COMPLETED',
+      targetType: 'filter', targetId: filterId,
+      afterValue: { cycleId, completedAt, finalStage: targetState },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
   }
 
   // Audit §1.1 (2026-05-16): audit-write inside business tx.

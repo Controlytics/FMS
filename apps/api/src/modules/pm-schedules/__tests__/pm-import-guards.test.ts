@@ -187,7 +187,8 @@ describe('importSchedules — per-schedule atomicity', () => {
 
     expect(r.imported).toBe(0);
     expect(r.skipped).toBe(2);
-    expect(r.details.skipped.every((s: any) => /deadlock detected/.test(s.reason))).toBe(true);
+    // Audit 2026-09-24 (C-F6): raw DB error text no longer reaches the operator — a stable reason does.
+    expect(r.details.skipped.every((s: any) => /Database error while saving this schedule/.test(s.reason))).toBe(true);
   });
 
   it('isolates a failing schedule from a healthy one in the same file', async () => {

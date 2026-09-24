@@ -78,9 +78,16 @@ export const userService = {
     return userRepository.countByStatus(roleFilter);
   },
 
-  async getById(id: string) {
+  async getById(id: string, callerRole?: string) {
     const user = await userRepository.findById(id);
+    // Audit 2026-09-24 (F12): the list hides SUPER_ADMIN (and ADMIN from
+    // non-ADMIN) but the detail route returned any account by uuid — the same
+    // exclusion applies, as a 404.
     if (!user) throw new NotFoundError('User not found');
+    if (callerRole !== undefined && callerRole !== 'SUPER_ADMIN') {
+      if (user.role === 'SUPER_ADMIN') throw new NotFoundError('User not found');
+      if (user.role === 'ADMIN' && callerRole !== 'ADMIN') throw new NotFoundError('User not found');
+    }
     return user;
   },
 

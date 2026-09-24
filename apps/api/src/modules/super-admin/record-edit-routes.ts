@@ -131,7 +131,7 @@ export default async function recordEditRoutes(app: FastifyInstance) {
       // original values and says, in the chain itself, that this row was
       // rewritten - the chain break that follows is then explained, not hidden.
       await auditLog({
-        userId: u?.sub, userName: u?.username, userRole: u?.role,
+        userId: u?.username, userName: u?.username, userRole: u?.role, // username, not uuid (compliance F3)
         action: 'AUDIT_RECORD_UPDATED',
         targetType: 'audit_trail',
         targetId: id,

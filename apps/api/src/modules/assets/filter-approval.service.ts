@@ -103,7 +103,11 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
   // PENDING_REVIEW is accepted as well so an approver is not blocked when the
   // workflow was switched on after the filters were created, or when no review
   // role is configured and review is therefore a no-op step.
-  const rows = await loadInState(filterIds, ['PENDING_APPROVAL', 'PENDING_REVIEW'], 'approve');
+  // Audit 2026-09-24 (A-F3): the comment above was never enforced — with a
+  // reviewRole configured (MANAGER live) QA could approve straight from
+  // PENDING_REVIEW, skipping the review and leaving reviewedBy null.
+  const approvable = cfg.reviewRole ? ['PENDING_APPROVAL'] : ['PENDING_APPROVAL', 'PENDING_REVIEW'];
+  const rows = await loadInState(filterIds, approvable, 'approve');
 
   await prisma.assetInstance.updateMany({
     where: { id: { in: filterIds } },

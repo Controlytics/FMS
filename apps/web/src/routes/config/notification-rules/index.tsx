@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
+import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/pagination';
@@ -830,6 +831,10 @@ function TemplatesTab() {
 
 // ─── Logs Tab ─────────────────────────────────────────────────────────
 function LogsTab() {
+  // Audit 2026-09-24 (web F2): DELETE_NOTIFICATION_LOG is a re-auth row; the
+  // bare delete here answered 401 and the catch swallowed it — the row silently stayed.
+  const reauth = useReauth();
+  const { toast } = useToast();
   const { formatDateTime } = useDatetimeFormat();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -851,14 +856,20 @@ function LogsTab() {
 
   const handleDelete = async (id: string) => {
     try {
-      await apiClient.delete(`/api/notification-settings/logs/${id}`);
+      await reauth.executeWithResult('DELETE_NOTIFICATION_LOG', (pw) => pw
+        ? apiClient.deleteWithReauth(`/api/notification-settings/logs/${id}`, pw)
+        : apiClient.delete(`/api/notification-settings/logs/${id}`));
       mutate();
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      if (isReauthCancelled(e)) return;
+      toast.error(e?.message ?? 'Failed to delete the delivery log entry');
+    }
   };
 
   return (
     <div className="space-y-4">
       {/* Stats */}
+      <ReauthPrompt reauth={reauth} />
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div className="bg-white rounded-xl border border-slate-200 p-4 text-center">

@@ -22,10 +22,17 @@ import { checkPmEnabled } from './pm-shared.js';
 
 export async function createExecution(ctx: RequestContext, data: any) {
   await checkPmEnabled();
-  const { scheduleEntryId, entityId, filterSet } = data;
+  const { scheduleEntryId, filterSet } = data;
 
-  const entry = await prisma.pmScheduleEntry.findUnique({ where: { id: scheduleEntryId } });
+  const entry = await prisma.pmScheduleEntry.findUnique({ where: { id: scheduleEntryId }, include: { schedule: { select: { entityId: true } } } });
   if (!entry) throw new AppError(404, 'NOT_FOUND', 'Schedule entry not found');
+  // Audit 2026-09-24 (C-F12): the AHU comes from the entry's schedule, never from
+  // the body (the audited PM_STARTED row could name any asset), and only an
+  // APPROVED entry can be executed.
+  if (entry.approvalStatus !== 'APPROVED') {
+    throw new AppError(409, 'ENTRY_NOT_APPROVED', 'Only an approved PM schedule entry can be executed.');
+  }
+  const entityId = entry.schedule.entityId;
 
   // Prevent duplicate IN_PROGRESS executions
   const existing = await prisma.pmExecution.findFirst({

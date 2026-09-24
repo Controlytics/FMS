@@ -3,6 +3,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { auditLog } from '../../lib/audit.js';
+import { rateLimitBucket } from '../../lib/rate-limit-key.js';
 
 // Lightweight in-memory per-IP throttle for the PUBLIC guest endpoint (no
 // @fastify/rate-limit dependency — same in-process style as reauth-check). Sliding
@@ -55,7 +56,10 @@ export default async function guestRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
-    if (!allowGuestRequest(req.ip)) {
+    // Audit 2026-09-24 (F8): key on the shared bucket, not the raw IP — an
+    // IPv6 client rotating the host half of its /64 got an unlimited budget,
+    // and every accepted request appends an immutable audit row (DEP-5 rule).
+    if (!allowGuestRequest(rateLimitBucket(req.ip))) {
       return reply.code(429).send({ error: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' });
     }
     const b = req.body as Record<string, unknown>;

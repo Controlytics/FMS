@@ -101,6 +101,27 @@ export function assertProfileEnabled(
   return { ok: true };
 }
 
+function eventMs(e: { performedAt: Date | string }): number {
+  const t = e.performedAt instanceof Date ? e.performedAt.getTime() : new Date(e.performedAt).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * The instant the filter last ENTERED `stage` in this cycle (latest event
+ * whose toState is the stage), or null when no such event is in the context.
+ * Shared by the checklist gate and the server's duplicate-submission guard so
+ * "one attestation per attempt" is decided the same way on both sides.
+ */
+export function latestEntryIntoStage(events: Array<{ eventType: string; toState: string | null; performedAt: Date | string }>, stage: string): number | null {
+  let latest: number | null = null;
+  for (const e of events) {
+    if (e.toState !== stage) continue;
+    const t = eventMs(e);
+    if (latest === null || t > latest) latest = t;
+  }
+  return latest;
+}
+
 /**
  * Guard #14: pending checklist gate before advance.
  *
@@ -125,10 +146,19 @@ export function assertChecklistGatePassed(
 
   if (pendingCLNodes.length === 0) return { ok: true };
 
+  // Audit 2026-09-24 (F4): scope the attestation to the CURRENT attempt at
+  // this stage. A QA rejection sends the filter back (WASH_OUT → WASH_IN),
+  // the operator re-performs the stage, and the post-stage checklist must be
+  // answered AGAIN — the attempt-1 CHECKLIST_COMPLETED row no longer counts.
+  // "Current attempt" starts at the latest event that moved the filter INTO
+  // this stage (the ordinary STATE_TRANSITION, or the interlock-reject
+  // transition that rolled it back).
+  const entryAt = latestEntryIntoStage(ctx.events, currentState);
   const answered = ctx.events.some(
     e =>
       e.eventType === 'CHECKLIST_COMPLETED' &&
-      ((e.attributes as { afterStage?: string | null })?.afterStage ?? null) === currentState,
+      ((e.attributes as { afterStage?: string | null })?.afterStage ?? null) === currentState &&
+      (entryAt === null || eventMs(e) >= entryAt),
   );
   if (answered) return { ok: true };
 

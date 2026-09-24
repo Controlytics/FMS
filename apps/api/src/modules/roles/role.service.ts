@@ -20,7 +20,7 @@ import { roleRepository } from './role.repository.js';
  * subset-checked, so editing a lower role's label/color that already holds a
  * permission the caller lacks is not falsely blocked.
  */
-async function assertRoleWithinCallerPrivilege(
+export async function assertRoleWithinCallerPrivilege(
   ctx: RequestContext,
   incoming: { hierarchyLevel?: number; permissions?: string[] },
   target?: { name: string; hierarchyLevel: number; permissions: string[] },
@@ -237,10 +237,10 @@ export const roleService = {
     return { roles };
   },
 
-  /** Get a single role by name. Throws NotFoundError if missing. */
-  async getByName(name: string) {
+  /** Get a single role by name. Throws NotFoundError if missing. SUPER_ADMIN hidden from non-SA callers (404, like the lists). */
+  async getByName(name: string, callerRole?: string) {
     const role = await roleRepository.findByName(name);
-    if (!role) {
+    if (!role || (role.name === 'SUPER_ADMIN' && callerRole !== undefined && callerRole !== 'SUPER_ADMIN')) {
       throw new NotFoundError('Role not found');
     }
     return role;
@@ -348,7 +348,6 @@ export const roleService = {
     if (!existing) {
       throw new NotFoundError('Role not found');
     }
-
     // Check if any users have this role
     const usersWithRole = await roleRepository.countUsersByRole(name);
     if (usersWithRole > 0) {
@@ -356,6 +355,19 @@ export const roleService = {
       (err as any).usersCount = usersWithRole;
       throw err;
     }
+
+    // Audit 2026-09-24 (F5): the route promised "System roles cannot be
+    // deleted" but nothing enforced it, and unlike create/update there was no
+    // hierarchy check — any ROLE_MANAGE holder could delete an unused system
+    // role, or a custom role above their own.
+    if (existing.isSystem) {
+      throw new AppError(409, 'SYSTEM_ROLE', 'System roles cannot be deleted');
+    }
+    await assertRoleWithinCallerPrivilege(ctx, {}, {
+      name: existing.name,
+      hierarchyLevel: existing.hierarchyLevel,
+      permissions: (existing.permissions as string[]) ?? [],
+    });
 
     await roleRepository.delete(name);
 

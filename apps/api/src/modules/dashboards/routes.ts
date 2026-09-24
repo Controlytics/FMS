@@ -202,6 +202,13 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     }
 
     const dashboard = await prisma.dashboard.update({ where: { id }, data: body });
+    // Audit 2026-09-24 (compliance F1): 8 of 9 dashboard mutations wrote no audit row.
+    await auditLog({
+      userId: req.user.username, userRole: req.user.role,
+      action: 'DASHBOARD_UPDATED', targetType: 'dashboard', targetId: id,
+      beforeValue: existing, afterValue: dashboard,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
     return dashboard;
   });
 
@@ -219,6 +226,12 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     if (!existing) return reply.code(404).send({ error: 'Dashboard not found' });
 
     await prisma.dashboard.update({ where: { id }, data: { isActive: false } });
+    await auditLog({
+      userId: req.user.username, userRole: req.user.role,
+      action: 'DASHBOARD_DELETED', targetType: 'dashboard', targetId: id,
+      beforeValue: existing, afterValue: { isActive: false },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
     return { success: true };
   });
 
@@ -263,6 +276,12 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         refreshInterval: body.refreshInterval ?? 30,
       },
     });
+    await auditLog({
+      userId: req.user.username, userRole: req.user.role,
+      action: 'DASHBOARD_WIDGET_CREATED', targetType: 'dashboard_widget', targetId: widget.id,
+      afterValue: { dashboardId: id, dashboardTitle: dashboard.title, widgetType: widget.widgetType, title: widget.title, config: widget.config, dataSource: widget.dataSource, position: widget.position },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
 
     return reply.code(201).send(widget);
   });
@@ -302,6 +321,12 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     if (!widget) return reply.code(404).send({ error: 'Widget not found' });
 
     const updated = await prisma.dashboardWidget.update({ where: { id: widgetId }, data: body });
+    await auditLog({
+      userId: req.user.username, userRole: req.user.role,
+      action: 'DASHBOARD_WIDGET_UPDATED', targetType: 'dashboard_widget', targetId: widgetId,
+      beforeValue: widget, afterValue: updated,
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
     return updated;
   });
 
@@ -318,8 +343,19 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     },
     preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
   }, async (req, reply) => {
-    const { widgetId } = req.params as { widgetId: string };
-    await prisma.dashboardWidget.delete({ where: { id: widgetId } });
+    const { id, widgetId } = req.params as { id: string; widgetId: string };
+    const widget = await prisma.dashboardWidget.findFirst({ where: { id: widgetId, dashboardId: id } });
+    if (!widget) return reply.code(404).send({ error: 'Widget not found' });
+    await prisma.$transaction(async (tx) => {
+      // Audit BEFORE the row dies, in the same tx.
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'DASHBOARD_WIDGET_DELETED', targetType: 'dashboard_widget', targetId: widgetId,
+        beforeValue: widget, afterValue: { deleted: true },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+      }, tx);
+      await tx.dashboardWidget.delete({ where: { id: widgetId } });
+    });
     return { success: true };
   });
 
@@ -350,6 +386,7 @@ export default async function dashboardRoutes(app: FastifyInstance) {
     },
     preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
   }, async (req) => {
+    const { id } = req.params as { id: string };
     const { positions } = req.body as { positions: Array<{ widgetId: string; x: number; y: number; w: number; h: number }> };
     await Promise.all(positions.map(p =>
       prisma.dashboardWidget.update({
@@ -357,6 +394,12 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         data: { position: { x: p.x, y: p.y, w: p.w, h: p.h } },
       })
     ));
+    await auditLog({
+      userId: req.user.username, userRole: req.user.role,
+      action: 'DASHBOARD_LAYOUT_UPDATED', targetType: 'dashboard', targetId: id,
+      afterValue: { positions },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
     return { success: true, updated: positions.length };
   });
 
@@ -393,6 +436,12 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         roleValue: body.roleValue || null,
       },
     });
+    await auditLog({
+      userId: req.user.username, userRole: req.user.role,
+      action: 'DASHBOARD_ASSIGNED', targetType: 'dashboard', targetId: id,
+      afterValue: { assignmentId: assignment.id, assigneeType: assignment.assigneeType, userId: assignment.userId, roleValue: assignment.roleValue },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    });
 
     return reply.code(201).send(assignment);
   });
@@ -409,9 +458,21 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       },
     },
     preHandler: [app.requirePermission('DASHBOARD_ASSIGN')],
-  }, async (req) => {
-    const { assignmentId } = req.params as { assignmentId: string };
-    await prisma.dashboardAssignment.delete({ where: { id: assignmentId } });
+  }, async (req, reply) => {
+    const { dashboardId, assignmentId } = req.params as { dashboardId: string; assignmentId: string };
+    // The dashboardId in the path is now honoured (it was ignored before).
+    const assignment = await prisma.dashboardAssignment.findFirst({ where: { id: assignmentId, dashboardId } });
+    if (!assignment) return reply.code(404).send({ error: 'Assignment not found' });
+    await prisma.$transaction(async (tx) => {
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'DASHBOARD_UNASSIGNED', targetType: 'dashboard', targetId: dashboardId,
+        beforeValue: { assignmentId, assigneeType: assignment.assigneeType, userId: assignment.userId, roleValue: assignment.roleValue },
+        afterValue: { removed: true },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+      }, tx);
+      await tx.dashboardAssignment.delete({ where: { id: assignmentId } });
+    });
     return { success: true };
   });
 

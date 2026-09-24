@@ -34,7 +34,9 @@ vi.mock('../backup.helpers.js', async (importOriginal) => {
 
 import { validate, restore } from '../backup.service.js';
 
-const ctx = { userId: 'admin', userSub: 'sub-1', userRole: 'ADMIN', ipAddress: '127.0.0.1', userAgent: 'test', sessionId: 'sess-1' };
+// Audit 2026-09-24 (api #1): unsigned / SQL / CSV files are restorable by SUPER_ADMIN only.
+const ctx = { userId: 'admin', userSub: 'sub-1', userRole: 'SUPER_ADMIN', ipAddress: '127.0.0.1', userAgent: 'test', sessionId: 'sess-1' };
+const adminCtx = { ...ctx, userRole: 'ADMIN' };
 
 function makeBackup(overrides: Record<string, any> = {}) {
   return {
@@ -159,6 +161,19 @@ describe('backup.service', () => {
       mockComputeChecksum.mockReturnValue('wrong');
 
       await expect(restore(buf, ctx)).rejects.toThrow();
+    });
+
+    // Audit 2026-09-24 (api #1): a non-SUPER_ADMIN may restore only a file this
+    // server signed. An unsigned (legacy / hand-built) JSON export is refused
+    // BEFORE the checksum is even looked at, so a crafted users/roles payload
+    // cannot become a SUPER_ADMIN takeover for an ADMIN holding BACKUP_RESTORE.
+    it('refuses an unsigned backup for a non-SUPER_ADMIN caller (403 BACKUP_UNSIGNED)', async () => {
+      const backup = makeBackup();
+      const buf = Buffer.from(JSON.stringify(backup));
+      mockComputeChecksum.mockReturnValue('abc123');
+
+      await expect(restore(buf, adminCtx)).rejects.toMatchObject({ statusCode: 403, code: 'BACKUP_UNSIGNED' });
+      expect(mockRestoreFromBackup).not.toHaveBeenCalled();
     });
   });
 

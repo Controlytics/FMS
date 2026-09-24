@@ -326,7 +326,7 @@ export function FieldIdsPage() {
                             </Button>
                           </>
                         ) : (
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <div className="flex items-center gap-1">
                             {field.displayName !== field.defaultName && (
                               <Button variant="ghost" size="sm" onClick={() => handleReset(field)} disabled={saving}
                                 className="rounded-lg text-slate-400 hover:text-orange-600 hover:bg-orange-50">

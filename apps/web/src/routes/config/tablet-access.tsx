@@ -25,7 +25,10 @@ export function TabletAccessConfigPage() {
   const { toast } = useToast();
   const reauth = useReauth();
   const { data: config, isLoading } = useSWR('/api/config/tablet-access');
-  const { data: rolesData } = useSWR('/api/roles', { revalidateOnMount: true, dedupingInterval: 0 });
+  // Audit 2026-09-24: /api/roles needs ROLE_READ, which an ADMIN opening this
+  // page (CONFIG_READ) does not hold — the page rendered an empty role list
+  // behind a 403. The active-roles feed is what every logged-in user may read.
+  const { data: rolesData } = useSWR('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
   const [localConfig, setLocalConfig] = useState<TabletConfig>({});
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

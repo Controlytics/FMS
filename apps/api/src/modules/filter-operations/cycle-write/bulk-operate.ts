@@ -17,6 +17,7 @@
  * happened (21 CFR §11). See cycle-write/advance-with-checklist.ts.
  */
 import type { RequestContext } from '../../../types/context.js';
+import { AppError } from '../../../lib/errors.js';
 import { stageReauthAction } from '@digilog/shared';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
@@ -48,7 +49,9 @@ export function reauthActionsForItems(items: BulkOpItem[]): string[] {
   };
   for (const it of items) {
     if (it.kind === 'advance') { set.add('ADVANCE_FILTER_STAGE'); addStage(it.payload); }
-    else if (it.kind === 'start-and-advance') { set.add('START_CLEANING_CYCLE'); addStage(it.advancePayload); }
+    // Audit 2026-09-24 (F11): the advance half clears ADVANCE_FILTER_STAGE on
+    // the single route, so the batch must too — parity, not a new gate.
+    else if (it.kind === 'start-and-advance') { set.add('START_CLEANING_CYCLE'); set.add('ADVANCE_FILTER_STAGE'); addStage(it.advancePayload); }
     else if (it.kind === 'submit-checklist') set.add('SUBMIT_CHECKLIST_WITH_SIGNATURE');
     // Performs BOTH writes in one tx, so it must clear BOTH gates — mirrors the
     // single-filter /advance-with-checklist route.
@@ -89,7 +92,19 @@ export async function bulkOperate(
       if (item.kind === 'advance') {
         snapshot = await service.advance(ctx, item.filterId, item.payload);
       } else if (item.kind === 'start-and-advance') {
-        await service.startCycle(ctx, item.filterId, item.cyclePayload);
+        // Audit 2026-09-24 (F10): thread the item's clientOpId into the start
+        // half (`<id>:start`, exactly as the offline replay path does) so a
+        // re-submitted batch whose start committed but whose advance failed
+        // dedups on the start instead of dying on CYCLE_ACTIVE; and treat
+        // CYCLE_ACTIVE from the start half as "already started — go on to the
+        // advance", which is what the retry means.
+        const startPayload = { ...(item.cyclePayload ?? {}), clientOpId: (item.cyclePayload?.clientOpId as string | undefined) ?? `${item.clientOpId}:start` };
+        try {
+          await service.startCycle(ctx, item.filterId, startPayload);
+        } catch (startErr: any) {
+          const code = startErr?.code ?? startErr?.error ?? '';
+          if (code !== 'CYCLE_ACTIVE') throw startErr;
+        }
         snapshot = await service.advance(ctx, item.filterId, item.advancePayload);
       } else if (item.kind === 'advance-with-checklist') {
         // 2026-07-16: the ONE kind whose two writes share a transaction. Passing
@@ -106,7 +121,9 @@ export async function bulkOperate(
         clientOpId: item.clientOpId,
         filterId: item.filterId,
         status: 'failed',
-        error: { code: e?.code ?? 'OP_FAILED', message: e?.message ?? 'Operation failed' },
+        // Audit 2026-09-24 (C-F6): only AppError messages are client-safe; anything
+        // else (Prisma text embeds source path + snippet) is logged, not returned.
+        error: { code: e?.code ?? 'OP_FAILED', message: e instanceof AppError ? e.message : 'Operation failed' },
       });
     }
   }

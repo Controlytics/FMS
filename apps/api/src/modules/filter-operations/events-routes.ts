@@ -172,7 +172,11 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
   });
 
   app.get('/reasons', {
-    preHandler: [app.requirePermission('FILTER_OPERATE')],
+    // Audit 2026-09-24: the Filters landing page and the tablet shell read the
+    // reason list for every role that can see filters (MANAGER / QA hold
+    // ASSET_READ but not FILTER_OPERATE) and got a 403 on every load. Reading
+    // the reason catalogue reveals nothing; operating still needs FILTER_OPERATE.
+    preHandler: [app.requireAnyPermission('FILTER_OPERATE', 'ASSET_READ')],
     schema: {
       tags: ['Filter Operations'],
       summary: 'Get cleaning reasons',

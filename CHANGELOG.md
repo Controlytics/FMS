@@ -1,5 +1,164 @@
 # Changelog
 
+## [Unreleased] - Strict whole-application audit: 45 findings fixed (2026-09-24)
+
+Operator: "do a proper strict audit for entire application, db and apis
+everything." Five parallel sub-audits (filter operations; auth / users / roles /
+config; assets / hierarchy / profiles; audit / backup / super-admin /
+notifications; audit-trail coverage of 19 modules), a Playwright sweep of every
+route as every role, and `npm audit`. Every finding was re-verified against the
+code and the live database before it was fixed; reports are in the session
+scratchpad. Nothing here changes the offline sync engine.
+
+**Closed — privilege and signature bypasses**
+- The offline-replay grant (minted once with the password at tablet login,
+  valid 24 h) was honoured on EVERY route: one grant satisfied every re-auth
+  gate in the system, including the `enforceReauthAlways` gates that "cannot
+  be turned off". It is now honoured only on the `/api/filters/*` routes the
+  sync engine actually replays (`isOfflineReplayRoute`, `plugins/auth.ts`).
+- `_currentPassword` reached three static config PUTs verbatim when the
+  caller's role was not in the action's policy, and was upserted into
+  `system_config` AND the immutable audit trail. Four live `CONFIG_CHANGED`
+  rows carried a SUPER_ADMIN password in plaintext; they were REDACTED
+  (chain-preserving). The strip now happens inside `enforceReauth` /
+  `enforceReauthAlways` before any early return, so no handler can ever see
+  the field.
+- `PUT /api/config/roles/:role` rebuilt `roles.permissions` with no hierarchy,
+  own-role or "cannot grant what you do not hold" guard — a ROLE_MANAGE holder
+  could grant its own role `AUDIT_DELETE` / `BACKUP_RESTORE` / `ROLE_MANAGE`.
+  `assertRoleWithinCallerPrivilege` now runs before and after the expansion.
+- Login disclosed LOCKED / DISABLED / EXPIRED before verifying the password
+  (user enumeration). State is checked only after a valid password; a wrong
+  password on such an account answers the same 401 and takes no lockout
+  bookkeeping.
+- Role delete: system roles refused, hierarchy checked (users-with-role check
+  first so the count still comes back). `GET /api/roles/:name`,
+  `GET /api/users/:id` and group members hide SUPER_ADMIN like the lists.
+- MODIFY_USER admin requests (public submit) are validated through
+  `updateUserSchema` at approval — `status: EXPIRED` and non-string emails no
+  longer go through / 500.
+- QA could approve a filter straight from PENDING_REVIEW when a review role is
+  configured; PM review-edit lacked the separation guard; PM review / approve /
+  reject had no segregation by USER (only by role); block-change approval
+  allowed self-approval and a double decision; PM execution took its AHU from
+  the body and did not require an APPROVED entry.
+- A Retired filter accepted cycle writes through the API (409
+  `FILTER_RETIRED`); a bare submit-checklist at a stage with no checklist node
+  wrote a checksummed, audited attestation with an empty snapshot (400
+  `NO_CHECKLIST_AT_TARGET`, keyed on the NODE).
+- `PUT /api/pm-schedules/:id` recreated every entry from defaults, erasing
+  approvals, write-offs and attribution and stranding executions. Entries on
+  the same planned date now carry their record forward; a visit with evidence
+  cannot be dropped (409 `PM_ENTRY_HAS_EVIDENCE`); executions are re-pointed.
+- LDAP test-connection could exfiltrate the stored bind password to a
+  caller-supplied server (password now required when the URL or TLS check
+  changes; ldap/ldaps only; `defaultRole` cannot be SUPER_ADMIN).
+- Super Admin API kill-switch allowlist matched by prefix and admitted
+  `PUT /api/config/password-policy`; exact path + method now.
+- Debug trace detail returned any audit row unscoped; SMS settings read
+  returned HTTP-gateway credentials; notification IDOR for ADMIN;
+  notification-rule create spread the raw body into Prisma; super-admin
+  filter-event PUT still accepted a client checksum.
+
+**Closed — error disclosure (CWE-209) and 5xx**
+`GET /api/assets/identifiers/track-record?from=<non-date>` was a 500 plus a
+SYSTEM_ERROR notification for every role (400 now). Bulk upload, bulk-operate,
+bulk-decide, PM import, PM upload and the Filter Data Management console
+forwarded raw exception text (Prisma embeds the source path and a snippet);
+only `AppError` messages reach the client now.
+
+**Closed — audit-trail coverage**
+Dashboard-cards PUT, the debug operation-trace toggle, forgot-password
+(`PASSWORD_RESET_REQUESTED`, audit actions 97 -> 98), notification template
+create / update / delete, and `CYCLE_COMPLETED` now write rows; email / SMS /
+LDAP config rows carry `beforeValue`; stage-approval and report-review rows
+carry the decider's remarks; the super-admin console's cycle / event create
+and update audit inside the transaction. Templates added for seven emitted
+actions that rendered as raw keys (`BLOCK_CHANGE_APPROVED/REJECTED`,
+`REPORT_REVIEW_REVIEWED/APPROVED/REJECTED`, `ACTIVATED/DEACTIVATED`,
+`EQUIPMENT_GROUP_ENABLED/DISABLED`).
+
+**Closed — integrity**
+Cleaning-profile create and filter-profile assign run in one transaction and
+validate their ids; checklist reorder accepts only that profile's questions;
+duplicate-checklist guard is per attempt at the stage (after a QA rejection
+the redone stage is not blocked by attempt 1); dryer half-time is enforced on
+offline replay too; start-and-advance retries cannot start a second cycle;
+stage-approval reject re-verifies the filter state under the row lock.
+Backup: the DB password no longer travels in `pg_dump` / `pg_restore` argv
+(scoped `PGPASSWORD`), and the CSV export neutralises spreadsheet formulas.
+
+**Web**
+`GET /api/hierarchy/tree` returns a bare array but the hook was typed
+`{ blocks }`, so the preview page crashed for every role; the hook normalises
+now and block-level AHUs are counted. Role Assignments is SUPER_ADMIN-only on
+the page and the card (every key it edits is served by a SUPER_ADMIN-only
+def — ADMIN got eight 403s). The tablet shows "not enabled for your role"
+instead of mounting the shell into a 403 storm. Equipment Groups route accepts
+`EG_VIEW` or `ASSET_READ`; Tablet Access reads roles from `/api/roles/active`.
+
+**Live data / policy (applied through the API, audited)**
+Four audit rows redacted (above). `PROCESS_RESET_REQUEST` re-auth policy set to
+ADMIN (it sets another user's password and had no row); PM re-auth rows now
+name the acting roles (approve / reject + QA, review = MANAGER, upload +
+SUPERVISOR / SHIFTOFFICER). The phantom roles PROJECT_LEADER (63 rows) and
+VIEWER (10) remain in the policy — operator decision.
+
+**Dependencies** — `npm audit fix` (non-breaking): fastify 5.10 -> 5.12.5
+(numeric `trustProxy` dropped from its type; `TRUST_PROXY=<n>` is now expressed
+as a hop-count function), nodemailer, sanitize-html, adm-zip, js-yaml, xmldom,
+fast-uri, fflate. 9 advisories remain: `exceljs`/`uuid` and `vitest` need
+major bumps.
+
+**Deliberately left open (needs the operator)**
+- The grant header does not prove offline-ness: any FILTER_OPERATE user can
+  mint a grant with their own password and attach it to ONLINE `/api/filters/*`
+  calls, which skips the QA stage-interlock, AHU-completion, block-change and
+  missed-PM gates (they are "offline-exempt" by design). Scoping the grant to
+  filter routes narrows the blast radius but does not close this; closing it
+  means either requiring `offlinePerformedAt` + `clientOpId` with the header
+  or raising PENDING approvals at replay instead of skipping.
+- Restore by a non-SUPER_ADMIN `BACKUP_RESTORE` holder (ADMIN today) can
+  rewrite `users.password_hash` / `roles.permissions` from a crafted file
+  (checksum is unkeyed SHA-256). Options: SA-only restore, or HMAC the
+  checksum with `AUDIT_CHAIN_KEY`.
+- Two live FILTER rows have a non-AHU or inactive parent; AHU / Block
+  soft-delete leaves PM, replacement and equipment-group references; bulk
+  `tapeVersion` is optional; offline timestamps have no per-event floor.
+
+**Second pass (teammate reports)** — the Drying Filters panel completed Dry
+In with no re-auth signature on web and tablet (an enabled `STAGE_DRY_IN` /
+`ADVANCE_FILTER_STAGE` row made every submit a bare 401 with no dialog); it
+now signs once like the Set Duration path. Notification Rules → Delivery Logs
+delete went through re-auth and reported errors instead of swallowing them.
+Dashboards: 8 of 9 mutations (update, deactivate, widget add/edit/remove,
+layout, assign, unassign) wrote no audit row — all audit now, and the
+unassign route honours the dashboard id in its path. Five audit sites wrote
+the actor's UUID into `user_id` (227 live rows show a UUID as "User");
+they write the username now. Notification-rule updates carry the full prior
+row. **Backup restore:** a non-SUPER_ADMIN `BACKUP_RESTORE` holder (ADMIN
+live) could restore a hand-edited export that sets `users.password_hash` and
+`roles.permissions` — the plain checksum is recomputable. JSON/BAK exports now
+carry an HMAC `signature` (AUDIT_CHAIN_KEY); a non-SUPER_ADMIN may restore
+only a file this server signed, and SQL / CSV / pg_dump / legacy unsigned
+files are SUPER_ADMIN-only (403 `BACKUP_UNSIGNED`).
+
+**Third pass** — the public admin-request submit no longer writes the typed
+employee id into `audit_trail.user_id` as if that user had acted (it is
+stored as `unverified:<id>`, the claim stays in the row) and is rate-limited
+per bucket; the forced-password-change allowlist matches method + exact path
+(it admitted `PUT /api/config/password-policy`); `POST /api/audit/report-export-log`
+is gated per report on that report's read permission (any role could log a
+REPORT_GENERATED row for a report it cannot open); My Tasks "Acknowledge"
+gate is `PM_EXECUTE` like the API, and Perform is hidden for view-only roles;
+two swallowed catches (Notification Logs delete, Debug trace toggle) now
+report non-cancel errors; four hover-only action clusters (Filters block
+rows, Checklist detail, Field IDs, Help) are visible on a tablet.
+
+Tests: 23 test files updated where they asserted the old behaviour (grant
+bypass, raw error text, no-checklist submit, array-form transactions,
+unsigned restore as ADMIN, GET on a POST-only allowlist entry).
+
 ## [Unreleased] - Filters row: Retire / Replace panel follows the role's toggles (2026-09-24)
 
 Operator: "if a role is assigned only retirement, only that option should

@@ -112,13 +112,13 @@ export class PgToolError extends Error {
 async function runTool(
   bin: string,
   args: string[],
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; env?: Record<string, string> } = {},
 ): Promise<{ stdout: string; stderr: string }> {
   const timeoutMs = opts.timeoutMs ?? 30 * 60_000;
   return new Promise((resolve, reject) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(bin, args, { windowsHide: true });
+      child = spawn(bin, args, { windowsHide: true, env: opts.env ? { ...process.env, ...opts.env } : process.env });
     } catch (err: any) {
       reject(new PgToolError('PG_TOOL_NOT_FOUND', `Could not start ${bin}: ${err.message}`, null, ''));
       return;
@@ -229,6 +229,25 @@ function databaseUrl(): string {
 }
 
 /**
+ * Audit 2026-09-24 (B-F2): the password must not travel in argv — every local
+ * Windows account can read another process's command line (Win32_Process) for
+ * as long as pg_dump runs. Strip it from the URI and hand it to the child via
+ * PGPASSWORD, which is scoped to that one spawn (`env:` on spawn is not
+ * inherited by anything else this process starts).
+ */
+function splitPassword(libpqUrl: string): { url: string; password?: string } {
+  try {
+    const u = new URL(libpqUrl);
+    if (!u.password) return { url: libpqUrl };
+    const password = decodeURIComponent(u.password);
+    u.password = '';
+    return { url: u.toString(), password };
+  } catch {
+    return { url: libpqUrl };
+  }
+}
+
+/**
  * Assert the local pg_dump is at least as new as the server it will dump.
  *
  * Checked every time rather than at boot: the operator can install or change a
@@ -265,13 +284,14 @@ export async function assertPgDumpVersion(serverMajor: number): Promise<{ toolMa
 export async function runPgDump(outPath: string, opts: { serverMajor: number }): Promise<void> {
   await assertPgDumpVersion(opts.serverMajor);
   const bin = await resolvePgBinary('pg_dump');
+  const conn = splitPassword(databaseUrl());
   await runTool(bin, [
-    `--dbname=${databaseUrl()}`,
+    `--dbname=${conn.url}`,
     '-Fc',
     '--no-owner',
     '--no-privileges',
     '-f', outPath,
-  ]);
+  ], conn.password ? { env: { PGPASSWORD: conn.password } } : {});
 }
 
 /**
@@ -288,14 +308,15 @@ export async function runPgDump(outPath: string, opts: { serverMajor: number }):
  */
 export async function runPgRestore(filePath: string): Promise<{ stderr: string }> {
   const bin = await resolvePgBinary('pg_restore');
+  const conn = splitPassword(databaseUrl());
   const { stderr } = await runTool(bin, [
-    `--dbname=${databaseUrl()}`,
+    `--dbname=${conn.url}`,
     '--clean',
     '--if-exists',
     '--disable-triggers',
     '--exit-on-error',
     '--single-transaction',
     filePath,
-  ]);
+  ], conn.password ? { env: { PGPASSWORD: conn.password } } : {});
   return { stderr };
 }

@@ -89,7 +89,11 @@ export class CleaningProfileService {
     // Validate pipeline graph
     this.validatePipeline(stages, connections);
 
-    const profile = await prisma.filterCleaningProfile.create({
+    // Audit 2026-09-24 (A-F5): profile + stages + connections in ONE transaction.
+    // A connection insert that failed (unknown toStageId → FK) used to leave an
+    // ACTIVE profile with zero connections — the exact state validatePipeline exists to refuse.
+    const profile = await prisma.$transaction(async (tx) => {
+    const created = await tx.filterCleaningProfile.create({
       data: {
         lineageId: randomUUID(),
         name,
@@ -118,16 +122,16 @@ export class CleaningProfileService {
     // Create connections (need stage IDs from created profile)
     if (connections && connections.length > 0) {
       const stageMap = new Map<number, string>();
-      profile.stages.forEach((s, i) => stageMap.set(i, s.id));
+      created.stages.forEach((s, i) => stageMap.set(i, s.id));
 
-      await prisma.filterPipelineConnection.createMany({
+      await tx.filterPipelineConnection.createMany({
         data: connections.map((c: any) => {
           const fromId = c.fromStageId ?? stageMap.get(c.fromIndex);
           if (!fromId) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid connection: could not resolve source stage');
           const toId = c.toStageId ?? stageMap.get(c.toIndex);
           if (!toId) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid connection: could not resolve target stage');
           return {
-            profileId: profile.id,
+            profileId: created.id,
             fromStageId: fromId,
             toStageId: toId,
             label: c.label ?? 'Next',
@@ -138,9 +142,11 @@ export class CleaningProfileService {
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CREATED',
-      targetType: 'cleaning_profile', targetId: profile.id,
+      targetType: 'cleaning_profile', targetId: created.id,
       afterValue: { name, flowMode },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
+    return created;
     });
 
     return this.getById(ctx, profile.id);

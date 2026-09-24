@@ -378,6 +378,7 @@ export function MyTasksPage() {
               expanded={expanded.has(task.entryId)}
               onToggle={() => toggleExpand(task.entryId)}
               onPerform={() => onPerform(task)}
+              canPerform={can('my_tasks.perform')}
               formatDate={formatDate}
               formatDateTime={formatDateTime}
             />
@@ -413,6 +414,7 @@ export function MyTasksPage() {
               expanded={expanded.has(task.entryId)}
               onToggle={() => toggleExpand(task.entryId)}
               onPerform={() => onPerform(task)}
+              canPerform={can('my_tasks.perform')}
               formatDate={formatDate}
               formatDateTime={formatDateTime}
             />
@@ -481,11 +483,13 @@ export function MyTasksPage() {
 
 // ─── Task Card ───────────────────────────────────────────
 
-function TaskCard({ task, expanded, onToggle, onPerform, formatDate, formatDateTime }: {
+function TaskCard({ task, expanded, onToggle, onPerform, canPerform = true, formatDate, formatDateTime }: {
   task: TaskRow;
   expanded: boolean;
   onToggle: () => void;
   onPerform: () => void;
+  /** Audit 2026-09-24 (web F4): Perform needs PM_EXECUTE — hidden for view-only roles instead of a 403 after the password. */
+  canPerform?: boolean;
   formatDate: (d: string | Date) => string;
   formatDateTime: (d: string | Date) => string;
 }) {
@@ -583,6 +587,8 @@ function TaskCard({ task, expanded, onToggle, onPerform, formatDate, formatDateT
                 </svg>
                 Completed
               </div>
+            ) : !canPerform ? (
+              <span className="text-xs text-slate-400 italic">View only</span>
             ) : (
               <button
                 onClick={onPerform}

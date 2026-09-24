@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { auditVisibilityScope } from '../../lib/audit-visibility.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { auditLog } from '../../lib/audit.js';
 
 /**
  * Debug Traces — repointed onto audit_trail (2026-06-12).
@@ -185,10 +186,22 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
     const { ok: reauthOk } = await enforceReauth('MANAGE_DEBUG_TRACES', req, reply);
     if (!reauthOk) return;
     const enabled = !!(req.body as { enabled?: boolean }).enabled;
-    await prisma.systemConfig.upsert({
-      where: { configKey: 'debug' },
-      update: { configValue: { operation_trace_enabled: enabled } },
-      create: { configKey: 'debug', configValue: { operation_trace_enabled: enabled }, configType: 'debug' },
+    // Audit 2026-09-24: a config write with no audit row. Same CONFIG_CHANGED
+    // row as every other config surface.
+    const before = await prisma.systemConfig.findUnique({ where: { configKey: 'debug' }, select: { configValue: true } });
+    await prisma.$transaction(async (tx) => {
+      await tx.systemConfig.upsert({
+        where: { configKey: 'debug' },
+        update: { configValue: { operation_trace_enabled: enabled } },
+        create: { configKey: 'debug', configValue: { operation_trace_enabled: enabled }, configType: 'debug' },
+      });
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'CONFIG_CHANGED', targetType: 'system_config', targetId: 'debug',
+        beforeValue: (before?.configValue as Record<string, unknown> | null) ?? null,
+        afterValue: { operation_trace_enabled: enabled },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'],
+      }, tx);
     });
     return { enabled };
   });
@@ -208,7 +221,10 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
     schema: { tags: ['Debug Traces'], summary: 'Get one audited operation (trace detail)' },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    const a = await prisma.auditTrail.findUnique({ where: { id } });
+    // Audit 2026-09-24 (B-F3): same visibility scope as the list — a known UUID
+    // must not unlock a SUPER_ADMIN / MANUAL_RECORD_* row for a lower role.
+    const scope = auditVisibilityScope(req.user.role);
+    const a = await prisma.auditTrail.findFirst({ where: scope ? { AND: [scope, { id }] } : { id } });
     if (!a) throw new AppError(404, 'NOT_FOUND', 'Trace not found.');
     return toTrace(a as AuditRow);
   });

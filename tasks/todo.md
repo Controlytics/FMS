@@ -185,3 +185,14 @@ AUTO_OVERRIDDEN; per-filter half-time; fetch failure -> manual fallback).
   - no fetch offline by design (`isAuto` requires `online`); the manual dropdown is used. No code change was needed.
   - harness note: an injected token skips the login page, so the offline-replay grant must be minted by hand (`POST /api/auth/offline-grant`) or sync stalls on "waiting on re-authentication" - that is the harness, not the app.
   - the physical tap on a real tablet is still the operator's.
+
+## 2026-09-24 — Strict whole-application audit (audit log)
+
+Five sub-audits + page sweep + npm audit; ~45 findings verified and fixed in the
+working tree (uncommitted at time of writing — see CHANGELOG "Strict
+whole-application audit"). Docs touched: CHANGELOG, CLAUDE.md (lib count 39→45,
+audit actions 97→98, Important Notes), memory `project_strict_audit_2026_09_24`.
+Live data changed through the API: 4 audit rows redacted (plaintext password),
+`PROCESS_RESET_REQUEST` + 4 PM re-auth rows set. Open: grant-header ≠ proof of
+offline (design), non-SA backup restore, 2 orphan FILTER parents, AHU soft-delete
+orphans, bulk tapeVersion optional, offline timestamp floors.

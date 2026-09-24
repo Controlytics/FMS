@@ -111,19 +111,35 @@ describe('authService', () => {
         .rejects.toThrow('Username or password is incorrect.');
     });
 
-    it('throws ACCOUNT_DISABLED for disabled user', async () => {
+    it('throws ACCOUNT_DISABLED for disabled user (correct password)', async () => {
       mockRepo.findUserByUsername.mockResolvedValue(makeUser({ status: 'DISABLED' }));
+      mockVerifyPassword.mockResolvedValue(true);
 
       await expect(authService.login('admin', 'pass', '127.0.0.1', undefined))
         .rejects.toThrow('disabled');
     });
 
-    it('throws ACCOUNT_LOCKED for locked user without expired lockout', async () => {
+    it('throws ACCOUNT_LOCKED for locked user without expired lockout (correct password)', async () => {
       const future = new Date(Date.now() + 60000);
       mockRepo.findUserByUsername.mockResolvedValue(makeUser({ status: 'LOCKED', lockoutUntil: future }));
+      mockVerifyPassword.mockResolvedValue(true);
 
       await expect(authService.login('admin', 'pass', '127.0.0.1', undefined))
         .rejects.toThrow('locked');
+    });
+
+    // Audit 2026-09-24 (F7): account state must not be disclosed to a caller
+    // who has not proved the password — a wrong password on a DISABLED /
+    // LOCKED / EXPIRED account answers exactly like a wrong password on a
+    // healthy one, and takes no lockout bookkeeping either.
+    it.each(['DISABLED', 'LOCKED', 'EXPIRED'])('wrong password on a %s account answers INVALID_CREDENTIALS, not the state', async (status) => {
+      const future = new Date(Date.now() + 60000);
+      mockRepo.findUserByUsername.mockResolvedValue(makeUser({ status, lockoutUntil: status === 'LOCKED' ? future : null }));
+      mockVerifyPassword.mockResolvedValue(false);
+
+      await expect(authService.login('admin', 'wrong', '127.0.0.1', undefined))
+        .rejects.toThrow('Username or password is incorrect.');
+      expect(mockRepo.updateUser).not.toHaveBeenCalled();
     });
 
     it('unlocks user when lockout has expired', async () => {

@@ -378,10 +378,16 @@ describe('POST /:id/advance-with-checklist — atomic advance + checklist', () =
       // INSIDE the transaction, AFTER executeAdvanceTx has written the
       // transition. Exactly the shape we need: prepare passes, advance writes,
       // checklist blows up, everything must unwind.
+      // Audit 2026-09-24 (F4): the guard only counts CHECKLIST_COMPLETED rows
+      // at/after the latest transition INTO the stage (a re-done stage after a
+      // QA rejection must not be blocked by attempt 1's row). The transition
+      // into S2 is written inside the request under test, so the trap is dated
+      // ahead of it to remain on the "this attempt" side of that cut.
       await prisma.filterEvent.create({
         data: {
           filterId, cycleId, eventType: 'CHECKLIST_COMPLETED',
           performedBy: randomUUID(), // performed_by is a uuid column, not a username
+          performedAt: new Date(Date.now() + 60 * 60 * 1000),
           attributes: { afterStage: 'S2', answers: {}, checklists: [] },
           checksum: 'armed-trap-not-a-real-checksum',
           telemetrySnapshot: {},

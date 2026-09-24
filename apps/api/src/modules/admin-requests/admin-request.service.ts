@@ -5,6 +5,7 @@ import { stripHtml } from '../../lib/sanitize.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { userService, assertCanManageTarget } from '../users/user.service.js';
 import { userRepository } from '../users/user.repository.js';
+import { updateUserSchema } from '@digilog/shared';
 import type { RequestContext } from '../../types/context.js';
 
 const prisma = new PrismaClient();
@@ -128,7 +129,10 @@ export const adminRequestService = {
     const submittedName = `${formatRequestType(request.requestType)}: ${subject}`;
     const requesterRole = await resolveRequesterRole(request.requesterEmployeeId);
     await auditLog({
-      userId: request.requesterEmployeeId ?? undefined,
+      // Audit 2026-09-24 (api #4): the submit endpoint is PUBLIC, so the typed
+      // employee id is a claim, not an identity — it must not land in user_id
+      // as if that user had acted. The claim stays in afterValue.
+      userId: `unverified:${request.requesterEmployeeId ?? 'unknown'}`,
       // Was omitted entirely, leaving audit_trail.user_role blank on every
       // submission. The requester's authority is part of the record.
       userRole: requesterRole ?? undefined,
@@ -406,7 +410,17 @@ async function executeApproval(
       if (!allowed.has(field)) throw new ValidationError(`Field "${field}" cannot be modified via admin request`);
       const user = await userRepository.findByUsername(targetUsername);
       if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
-      await userService.update(user.id, { [field]: newValue }, ctx);
+      // Audit 2026-09-24 (F6): `requestData` comes from the PUBLIC, unauthenticated
+      // submit endpoint (`additionalProperties: true`) and was passed straight to
+      // userService.update — bypassing updateUserSchema. A non-string email blew
+      // up with a 500 for the approver; `status: 'EXPIRED'` / `'LOCKED'` (valid
+      // Prisma enum values the schema forbids) went through. Validate exactly as
+      // PUT /api/users/:id does.
+      const parsed = updateUserSchema.safeParse({ [field]: newValue });
+      if (!parsed.success) {
+        throw new ValidationError(`Requested value for "${field}" is not valid: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+      }
+      await userService.update(user.id, parsed.data, ctx);
       return { username: targetUsername, message: `User "${targetUsername}" updated (${field}).` };
     }
 

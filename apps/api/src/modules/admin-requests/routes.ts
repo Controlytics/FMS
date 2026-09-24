@@ -35,7 +35,13 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
   app.post('/', {
     config: {
       skipAuth: true,
+      // Audit 2026-09-24 (api #4): every accepted submission appends an immutable
+      // audit row — the global 5000/min limit is no throttle for that.
+      rateLimit: { max: 20, timeWindow: '15 minutes', keyGenerator: rateLimitKeyGenerator },
     },
+    // Audit 2026-09-24 (F11): public endpoint whose `requestData` is stored
+    // verbatim — cap it well below the 10 MB global limit.
+    bodyLimit: 16 * 1024,
     schema: {
       tags: ['Admin Requests'],
       summary: 'Submit an admin request',

@@ -1,4 +1,5 @@
 import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
+import { useToast } from '@/hooks/use-toast';
 import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -40,6 +41,7 @@ export function NotificationLogsPage() {
   const { formatDateTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
+  const { toast } = useToast();
   const reauth = useReauth();
   const [perPage, setPerPage] = useState(paginationOptions[0]);
   const [channel, setChannel] = useState('');
@@ -65,7 +67,10 @@ export function NotificationLogsPage() {
         ? apiClient.deleteWithReauth(`/api/notification-settings/logs/${id}`, pw)
         : apiClient.delete(`/api/notification-settings/logs/${id}`));
       mutate();
-    } catch { /* cancelled or failed — the row simply stays */ }
+    } catch (e: any) {
+      // Audit 2026-09-24 (web F5): only a cancel is silent; a 403/404/500 is reported.
+      if (!isReauthCancelled(e)) toast.error('Delete Failed', e?.message ?? 'The delivery log entry could not be deleted.');
+    }
   };
 
   return (

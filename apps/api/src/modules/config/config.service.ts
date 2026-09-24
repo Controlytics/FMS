@@ -7,6 +7,7 @@ import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, SID
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
+import { assertRoleWithinCallerPrivilege } from '../roles/role.service.js';
 import { invalidatePasswordPolicyCache } from '../../plugins/auth.js';
 import { sanitizeAuditValue } from '../../lib/audit-diff.js';
 import { configRegistry } from '../../lib/config-registry.js';
@@ -163,6 +164,21 @@ export const configService = {
   },
 
   async updateRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext) {
+    // Audit 2026-09-24 (F3): this path rewrites `roles.permissions` from the
+    // feature toggles and had NONE of the guards `roleService.update` has —
+    // no existence check, no own-role check, no hierarchy check, no
+    // "cannot grant what you do not hold". A ROLE_MANAGE holder could grant
+    // its own role AUDIT_DELETE / BACKUP_RESTORE / ROLE_MANAGE, or rewrite
+    // SUPER_ADMIN's row. Same guard as PUT /api/roles/:name, applied to the
+    // EXPANDED permission set (computed below) before anything is written.
+    const targetRole = await prisma.role.findFirst({ where: { name: role }, select: { name: true, hierarchyLevel: true, permissions: true } });
+    if (!targetRole) throw new NotFoundError('Role not found');
+    await assertRoleWithinCallerPrivilege(ctx, {}, {
+      name: targetRole.name,
+      hierarchyLevel: targetRole.hierarchyLevel,
+      permissions: (targetRole.permissions as string[]) ?? [],
+    });
+
     const existing = await configRepository.findRoleConfig(role);
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
 
@@ -211,6 +227,13 @@ export const configService = {
       for (const perm of sidebarPerms) permissionSet.add(perm);
 
       const permissionsArray = Array.from(permissionSet);
+      // F3 (cont.): the guard above checked the caller may touch this role at
+      // all; this one checks every permission the expansion is about to grant.
+      await assertRoleWithinCallerPrivilege(ctx, { permissions: permissionsArray }, {
+        name: targetRole.name,
+        hierarchyLevel: targetRole.hierarchyLevel,
+        permissions: (targetRole.permissions as string[]) ?? [],
+      });
       await prisma.role.updateMany({
         where: { name: role },
         data: { permissions: permissionsArray },
