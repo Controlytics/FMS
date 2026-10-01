@@ -56,7 +56,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     category: 'Operations',
     summary: 'Permanently retire a filter out of service; a single-step action with a mandatory reason, viewed on the retired-filter inventory list.',
     steps: [
-      { label: 'View Retired Filters', kind: 'system', gate: ['ASSET_READ'] },
+      { label: 'View Retirement List', kind: 'system', gate: ['RETIREMENT_LIST_VIEW'] },
       { label: 'Retire Filter (with remarks)', kind: 'action', gate: ['FILTER_RETIRE'],
         description: 'Requires reauth (RETIRE_FILTER); no review/approval step — retirement is immediate and permanent.' },
     ],
@@ -80,6 +80,8 @@ export const MODULE_FLOWS: ModuleFlow[] = [
         description: 'Only entries in REJECTED status can be resubmitted; re-enters at review.' },
       { label: 'Replace the physical filter (tablet task)', kind: 'action', gate: ['FILTER_REPLACE'],
         description: 'Executed against a due, approved entry; requires reauth (REPLACE_FILTER); retires the old filter and creates the new one.' },
+      { label: 'View Replacement List', kind: 'system', gate: ['REPLACEMENT_LIST_VIEW'],
+        description: 'The completed swap appears in the replacement history (List tab).' },
     ],
   },
   {

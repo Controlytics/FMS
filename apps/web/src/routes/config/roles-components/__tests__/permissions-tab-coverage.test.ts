@@ -82,6 +82,21 @@ describe('groupFeaturePrivilegesByTree — coverage invariant', () => {
     }
   });
 
+  // 2026-10-01: operator report — "retirement list view permission was not
+  // there" (same for the replacement list). Each page's group must lead with
+  // its own View toggle.
+  it('Retirement List and Replacement List each offer a View toggle, listed first', () => {
+    const labelsOf = (sidebarId: string) =>
+      groups.find(g => g.sidebarId === sidebarId)?.pageGroups.flatMap(pg => pg.nodes.map(n => n.label)) ?? [];
+
+    expect(labelsOf('filter-retirements')).toEqual([
+      'View Retirement List',
+      'Export Retirement List Report (PDF / Excel)',
+    ]);
+    expect(labelsOf('filter-replacements')[0]).toBe('View Replacement List');
+    expect(labelsOf('filter-replacements')).toContain('Export Replacement List Report (PDF / Excel)');
+  });
+
   it('every node with reauthAction has a string reauthAction', () => {
     for (const group of groups) {
       for (const pg of group.pageGroups) {

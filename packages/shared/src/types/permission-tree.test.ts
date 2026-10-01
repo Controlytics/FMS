@@ -153,3 +153,41 @@ describe('resolveNodePermissions (Task 1.5)', () => {
     expect(resolveNodePermissions('audit.redact')).toEqual([]);
   });
 });
+
+// 2026-10-01 — the Retirement List / Replacement List pages got their own View
+// toggle. Before, both rode on `assets.view`, so Roles & Access → Permissions
+// offered Export for each page but no View.
+describe('list-page View toggles (retirement.view / replacement.view)', () => {
+  const nodes = PERMISSION_TREE.flatMap(g => g.nodes);
+  const CASES = [
+    { id: 'retirement.view', perm: 'RETIREMENT_LIST_VIEW', sidebarId: 'filter-retirements' },
+    { id: 'replacement.view', perm: 'REPLACEMENT_LIST_VIEW', sidebarId: 'filter-replacements' },
+  ] as const;
+
+  for (const c of CASES) {
+    it(`${c.id} is a configurable toggle gated on ${c.perm}`, () => {
+      const node = nodes.find(n => n.id === c.id);
+      expect(node?.configurable).toBe(true);
+      expect(node?.sidebarId).toBe(c.sidebarId);
+      expect(resolveNodeGate(c.id)).toEqual([c.perm]);
+    });
+
+    // Sidebar visibility ORs over the GRANT set. A read dependency here
+    // (ASSET_READ / ASSET_VIEW) would show the menu to nearly every role and
+    // make the toggle do nothing — the exact state this change fixes.
+    it(`${c.id} grants ${c.perm} and nothing else`, () => {
+      expect(deriveFeatureToPermissionMap()[c.id]).toEqual([c.perm]);
+    });
+
+    it(`${c.sidebarId} lists ${c.id} as its PRIMARY (first) visibility privilege`, () => {
+      const group = PERMISSION_TREE.find(g => g.sidebarId === c.sidebarId);
+      expect(group?.visibilityPrivilegeIds[0]).toBe(c.id);
+      expect(group?.visibilityPrivilegeIds).not.toContain('assets.view');
+    });
+
+    it(`no OTHER configurable toggle hands out ${c.perm}`, () => {
+      const others = nodes.filter(n => n.configurable && n.id !== c.id && n.permissions.includes(c.perm as never));
+      expect(others.map(n => n.id)).toEqual([]);
+    });
+  }
+});

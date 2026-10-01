@@ -49,3 +49,23 @@ describe('5B sidebar visibility — tree-based matches legacy SIDEBAR_PRIVILEGE_
     expect(isSidebarItemVisible('report-reviews', ['ASSET_READ'])).toBe(true);
   });
 });
+
+// 2026-10-01 — Retirement List / Replacement List have their own View permission.
+describe('list pages follow their own View permission', () => {
+  it('Retirement List: shown with RETIREMENT_LIST_VIEW, hidden with only the asset read perms', () => {
+    expect(isSidebarItemVisible('filter-retirements', ['RETIREMENT_LIST_VIEW'])).toBe(true);
+    expect(isSidebarItemVisible('filter-retirements', ['ASSET_VIEW', 'ASSET_READ'])).toBe(false);
+    expect(isSidebarItemVisible('filter-retirements', ['REPLACEMENT_LIST_VIEW'])).toBe(false);
+  });
+
+  it('Replacement List: shown with REPLACEMENT_LIST_VIEW or any schedule permission', () => {
+    expect(isSidebarItemVisible('filter-replacements', ['REPLACEMENT_LIST_VIEW'])).toBe(true);
+    expect(isSidebarItemVisible('filter-replacements', ['REPLACEMENT_SCHEDULE_VIEW'])).toBe(true);
+    expect(isSidebarItemVisible('filter-replacements', ['ASSET_VIEW', 'ASSET_READ'])).toBe(false);
+    expect(isSidebarItemVisible('filter-replacements', ['RETIREMENT_LIST_VIEW'])).toBe(false);
+  });
+
+  it('the Filters page itself is unaffected (still ASSET_VIEW / ASSET_READ)', () => {
+    expect(isSidebarItemVisible('filter-list', ['ASSET_VIEW', 'ASSET_READ'])).toBe(true);
+  });
+});

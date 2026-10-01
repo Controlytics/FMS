@@ -18,11 +18,11 @@ import {
 } from './__snapshots__/legacy-maps-snapshot.js';
 
 describe('Phase 5E: derived maps === original snapshots', () => {
-  it('FEATURE_PRIVILEGES (85 entries) matches snapshot exactly — order-sensitive', () => {
+  it('FEATURE_PRIVILEGES (87 entries) matches snapshot exactly — order-sensitive', () => {
     expect(FEATURE_PRIVILEGES).toEqual(FEATURE_PRIVILEGES_SNAPSHOT);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP (85 keys) matches snapshot exactly — per-key array equality', () => {
+  it('FEATURE_TO_PERMISSION_MAP (87 keys) matches snapshot exactly — per-key array equality', () => {
     expect(FEATURE_TO_PERMISSION_MAP).toEqual(FEATURE_TO_PERMISSION_MAP_SNAPSHOT);
   });
 
@@ -40,7 +40,9 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     }
   });
 
-  it('configurable node count is exactly 85', () => {
+  it('configurable node count is exactly 87', () => {
+    // 87 = 85 + retirement.view / replacement.view (2026-10-01 — the two list
+    // pages got their own View toggle; both nodes existed, enforced-only).
     // 85 = 83 + filters.review / filters.approve (2026-09-04, the filter
   // creation workflow — doc rows 13/14).
   // 83 = 90 minus 9 orphaned report_templates.*/reports.* nodes (removed 2026-07-04 with the
@@ -52,15 +54,15 @@ describe('Phase 5E: derived maps === original snapshots', () => {
     // checklists.submit/toggle + cleaning_profiles.toggle; 92 = 96 minus RFID/relationship nodes;
     // 96 = 99 minus assets.create/edit/delete.
     const count = PERMISSION_TREE.flatMap(g => g.nodes).filter(n => n.configurable === true).length;
-    expect(count).toBe(85);
+    expect(count).toBe(87);
   });
 
-  it('FEATURE_PRIVILEGES has exactly 85 entries', () => {
-    expect(FEATURE_PRIVILEGES).toHaveLength(85);
+  it('FEATURE_PRIVILEGES has exactly 87 entries', () => {
+    expect(FEATURE_PRIVILEGES).toHaveLength(87);
   });
 
-  it('FEATURE_TO_PERMISSION_MAP has exactly 85 keys', () => {
-    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(85);
+  it('FEATURE_TO_PERMISSION_MAP has exactly 87 keys', () => {
+    expect(Object.keys(FEATURE_TO_PERMISSION_MAP)).toHaveLength(87);
   });
 
   it('SIDEBAR_PRIVILEGE_MAP has exactly 24 sections', () => {

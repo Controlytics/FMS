@@ -403,8 +403,8 @@ DigiLog runs with no Redis-protocol service. `ioredis` is not in `package.json`.
 │    └── Single active session per user               │
 │                                                     │
 │  Layer 3: Authorization                             │
-│    └── RBAC (102 permissions, role-based)            │
-│    └── Re-authentication (102 sensitive actions)     │
+│    └── RBAC (106 permissions, role-based)            │
+│    └── Re-authentication (127 sensitive actions)     │
 │                                                     │
 │  Layer 4: Input Validation                          │
 │    └── HTML sanitization (all text inputs)           │

@@ -18,6 +18,10 @@ export const defaultRoles = [
       'AUDIT_READ', 'AUDIT_EXPORT', 'ROLE_MANAGE',
       'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
       'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
+      // 2026-10-01: the Retirement / Replacement List pages have their own View
+      // permission now. Every default role that could already see them (they rode
+      // on ASSET_VIEW / ASSET_READ) keeps them.
+      'RETIREMENT_LIST_VIEW', 'REPLACEMENT_LIST_VIEW',
       'DASHBOARD_CREATE', 'DASHBOARD_MANAGE', 'DASHBOARD_VIEW', 'DASHBOARD_ASSIGN',
       'NOTIFICATION_VIEW', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_DELETE', 'NOTIFICATION_MANAGE',
       'BACKUP_MANAGE', 'BACKUP_RESTORE',
@@ -56,6 +60,7 @@ export const defaultRoles = [
       'AUDIT_READ', 'AUDIT_EXPORT',
       'ASSET_CREATE', 'ASSET_UPDATE', 'ASSET_DELETE',
       'ASSET_IDENTIFIER_CREATE', 'ASSET_IDENTIFIER_DELETE', 'ASSET_VIEW', 'ASSET_READ',
+      'RETIREMENT_LIST_VIEW', 'REPLACEMENT_LIST_VIEW',
       'DASHBOARD_CREATE', 'DASHBOARD_MANAGE', 'DASHBOARD_VIEW', 'DASHBOARD_ASSIGN',
       'NOTIFICATION_VIEW', 'NOTIFICATION_CREATE', 'NOTIFICATION_UPDATE', 'NOTIFICATION_MANAGE',
       'BACKUP_MANAGE', 'BACKUP_RESTORE',
@@ -85,6 +90,7 @@ export const defaultRoles = [
     permissions: [
       'AUDIT_READ',
       'ASSET_VIEW', 'ASSET_READ', 'ASSET_CREATE',
+      'RETIREMENT_LIST_VIEW', 'REPLACEMENT_LIST_VIEW',
       'DASHBOARD_VIEW',
       // Phase 2: Filter operations + read access
       'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
@@ -107,6 +113,7 @@ export const defaultRoles = [
     permissions: [
       'AUDIT_READ',
       'ASSET_VIEW', 'ASSET_READ', 'ASSET_CREATE', 'ASSET_UPDATE',
+      'RETIREMENT_LIST_VIEW', 'REPLACEMENT_LIST_VIEW',
       'DASHBOARD_VIEW',
       // Phase 2: Filter operations + checklist
       'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
@@ -126,6 +133,7 @@ export const defaultRoles = [
     permissions: [
       'AUDIT_READ',
       'ASSET_VIEW', 'ASSET_READ',
+      'RETIREMENT_LIST_VIEW', 'REPLACEMENT_LIST_VIEW',
       'DASHBOARD_VIEW',
       // Phase 2: Filter operations + checklist
       'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
@@ -144,6 +152,7 @@ export const defaultRoles = [
     permissions: [
       'AUDIT_READ',
       'ASSET_VIEW', 'ASSET_READ',
+      'RETIREMENT_LIST_VIEW', 'REPLACEMENT_LIST_VIEW',
       'DASHBOARD_VIEW',
     ],
     color: 'bg-gradient-to-r from-slate-400 to-slate-500',

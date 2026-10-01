@@ -123,7 +123,7 @@ flowchart TB
 | Frontend framework | **React 19 + Vite 6**, React Router 7, SWR, Tailwind CSS 4 |
 | Database | **PostgreSQL 18** via **Prisma 6** (61 models, 23 enums) — single DB `digilog_db` |
 | Auth (authN) | Local JWT (`jose`), bcrypt password hashing; optional LDAP (`ldapts`) |
-| Auth (authZ) | Permission-based RBAC — `PERMISSION_TREE` (102 perms / 83 privileges / 92 reauth actions) |
+| Auth (authZ) | Permission-based RBAC — `PERMISSION_TREE` (106 perms / 87 privileges / 127 reauth actions) |
 | File storage | **Local filesystem** — `UPLOAD_DIR=./uploads` (`apps/api/.env:48`) |
 | Logging | Fastify built-in logger + hash-chained `audit_trail` (SHA-256 / HMAC-SHA256) |
 | Reporting | **Client-side** `jspdf` + `jspdf-autotable` + `exceljs` (no server Chromium) |

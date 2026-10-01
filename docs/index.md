@@ -5,7 +5,7 @@ A 21 CFR Part 11–compliant digital logbook + IoT data platform with an integra
 ## Platform stats (current — 2026-07-04, verified against live code)
 - **33 API modules**, **200+ endpoints**, **61 Prisma models**, **23 enums**
 - **35 config definitions** with auto-discovery, **34 config pages**
-- **102 permissions**, **83 feature toggles**, **92 reauth actions**, **26 sidebar items**
+- **106 permissions**, **87 feature toggles**, **127 reauth actions**, **27 sidebar items**
 - **10 color themes**, configurable report layout, multi-channel notifications
 - Single PostgreSQL database (`digilog_db`); scheduled work on **in-process node-cron** (no job queue, no Redis)
 

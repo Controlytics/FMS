@@ -71,7 +71,10 @@ export const FEATURE_PRIVILEGES_SNAPSHOT: FeaturePrivilegeSnapshot[] = [
   { id: 'filters.create', label: 'Create Filters', category: 'Filters Page Controls', icon: 'plus' },
   { id: 'filters.edit', label: 'Edit Filters', category: 'Filters Page Controls', icon: 'edit' },
   { id: 'filters.delete', label: 'Delete Filters', category: 'Filters Page Controls', icon: 'trash' },
+  // Page View toggles (2026-10-01) — each list page's own View permission.
+  { id: 'retirement.view', label: 'View Retirement List', category: 'Filters Page Controls', icon: 'eye' },
   { id: 'retirement_list.export', label: 'Export Retirement List Report (PDF / Excel)', category: 'Filters Page Controls', icon: 'download' },
+  { id: 'replacement.view', label: 'View Replacement List', category: 'Filters Page Controls', icon: 'eye' },
   { id: 'replacement_list.export', label: 'Export Replacement List Report (PDF / Excel)', category: 'Filters Page Controls', icon: 'download' },
   { id: 'filters.hierarchy_create', label: 'Create Block / Area / AHU', category: 'Filters Page Controls', icon: 'plus' },
   { id: 'filters.hierarchy_edit', label: 'Edit Block / Area / AHU', category: 'Filters Page Controls', icon: 'edit' },
@@ -162,7 +165,11 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'filters.create': ['FILTER_CREATE', 'ASSET_READ'],
   'filters.edit': ['FILTER_EDIT', 'ASSET_READ'],
   'filters.delete': ['FILTER_DELETE', 'ASSET_READ'],
+  // 2026-10-01: ONE permission each, no read dependency — sidebar visibility
+  // ORs over the grant set, so ASSET_READ here would show the menu to everyone.
+  'retirement.view': ['RETIREMENT_LIST_VIEW'],
   'retirement_list.export': ['RETIREMENT_LIST_EXPORT'],
+  'replacement.view': ['REPLACEMENT_LIST_VIEW'],
   'replacement_list.export': ['REPLACEMENT_LIST_EXPORT'],
   'filters.hierarchy_create': ['FILTER_HIERARCHY_CREATE', 'ASSET_READ'],
   'filters.hierarchy_edit': ['FILTER_HIERARCHY_EDIT', 'ASSET_READ'],
@@ -290,7 +297,7 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     label: "Retirement List",
     icon: "\u{1F6AB}",
     description: "Retired filter inventory",
-    privilegeIds: ["assets.view"],
+    privilegeIds: ["retirement.view"],
   },
   {
     sidebarId: "rfid-track-record",
@@ -304,7 +311,7 @@ export const SIDEBAR_PRIVILEGE_MAP_SNAPSHOT: SidebarSectionSnapshot[] = [
     label: "Replacement List",
     icon: "\u{1F504}",
     description: "Filter replacement history + schedule (List | Schedule tabs)",
-    privilegeIds: ["assets.view", "replacement_schedule.view", "replacement_schedule.upload", "replacement_schedule.review", "replacement_schedule.approve"],
+    privilegeIds: ["replacement.view", "replacement_schedule.view", "replacement_schedule.upload", "replacement_schedule.review", "replacement_schedule.approve"],
   },
   {
     sidebarId: "filter-operations",

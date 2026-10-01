@@ -455,14 +455,23 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   // ---- Filter Retirements ----
   {
     sidebarId: 'filter-retirements', label: 'Retirement List', icon: '🚫', description: 'Retired filter inventory',
-    visibilityPrivilegeIds: ['assets.view'],
+    visibilityPrivilegeIds: ['retirement.view'],
     nodes: [
+      // 2026-10-01: the page's own View toggle. It used to be enforced-only and
+      // ride on `assets.view` (ASSET_VIEW / ASSET_READ), so Roles & Access →
+      // Permissions offered Export for this page but no View. The grant is the
+      // ONE discriminating permission and nothing else: sidebar visibility ORs
+      // over the grant set (isSidebarItemVisible), so adding ASSET_READ as a
+      // read dependency would show the menu to every role and make the toggle
+      // inert. The data feed (GET /api/filters/retirements) accepts this
+      // permission OR ASSET_READ — ASSET_READ stays because the lifecycle
+      // report, cycle timeline and tablet read the same feed.
+      { id: 'retirement.view', label: 'View Retirement List', sidebarId: 'filter-retirements', page: 'Retirement List', action: 'View',
+        icon: 'eye', category: 'Filters Page Controls', permissions: ['RETIREMENT_LIST_VIEW'], enforce: 'a',
+        gate: ['RETIREMENT_LIST_VIEW'], configurable: true },
       { id: 'retirement_list.export', label: 'Export Retirement List Report (PDF / Excel)', sidebarId: 'filter-retirements', page: 'Retirement List', action: 'Export',
         icon: 'download', category: 'Filters Page Controls', permissions: ['RETIREMENT_LIST_EXPORT'], enforce: 'c',
         gate: ['RETIREMENT_LIST_EXPORT'], configurable: true }, // 5C fix: UI gates on RETIREMENT_LIST_EXPORT; page-view perm would loosen
-      { id: 'retirement.view', label: 'View Retired Filters', sidebarId: 'filter-retirements', page: 'Retirement List', action: 'View',
-        icon: 'eye', category: 'Asset Management', permissions: ['ASSET_VIEW', 'ASSET_READ'], enforce: 'b',
-        gate: ['ASSET_READ'] },
     ],
   },
 
@@ -485,8 +494,18 @@ export const PERMISSION_TREE: SidebarGroup[] = [
   {
     sidebarId: 'filter-replacements', label: 'Replacement List', icon: '🔄',
     description: 'Filter replacement history + schedule (List | Schedule tabs)',
-    visibilityPrivilegeIds: ['assets.view', 'replacement_schedule.view', 'replacement_schedule.upload', 'replacement_schedule.review', 'replacement_schedule.approve'],
+    // `replacement.view` is listed FIRST on purpose: the first id is the
+    // sidebar item's PRIMARY privilege, which enabling the menu on the Sidebar
+    // tab auto-grants (primaryPermsForSidebarItem, config.service.ts).
+    visibilityPrivilegeIds: ['replacement.view', 'replacement_schedule.view', 'replacement_schedule.upload', 'replacement_schedule.review', 'replacement_schedule.approve'],
     nodes: [
+      // 2026-10-01: the List tab's own View toggle — see `retirement.view` for
+      // why the grant is a single permission. Without it a role still reaches
+      // the page through the replacement_schedule.* toggles, but only the
+      // Schedule tab is offered.
+      { id: 'replacement.view', label: 'View Replacement List', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'View',
+        icon: 'eye', category: 'Filters Page Controls', permissions: ['REPLACEMENT_LIST_VIEW'], enforce: 'a',
+        gate: ['REPLACEMENT_LIST_VIEW'], configurable: true },
       { id: 'replacement_list.export', label: 'Export Replacement List Report (PDF / Excel)', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'Export',
         icon: 'download', category: 'Filters Page Controls', permissions: ['REPLACEMENT_LIST_EXPORT'], enforce: 'c',
         gate: ['REPLACEMENT_LIST_EXPORT'], configurable: true }, // 5C fix: UI gates on REPLACEMENT_LIST_EXPORT; page-view perm would loosen
@@ -513,9 +532,6 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'check-circle', category: 'Filters Page Controls', permissions: ['REPLACEMENT_SCHEDULE_APPROVE', 'REPLACEMENT_SCHEDULE_VIEW'],
         reauthAction: 'APPROVE_REPLACEMENT_SCHEDULE', enforce: 'a',
         gate: ['REPLACEMENT_SCHEDULE_APPROVE'], configurable: true },
-      { id: 'replacement.view', label: 'View Replacement History', sidebarId: 'filter-replacements', page: 'Replacement List', action: 'View',
-        icon: 'eye', category: 'Asset Management', permissions: ['ASSET_VIEW', 'ASSET_READ'], enforce: 'b',
-        gate: ['ASSET_READ'] },
     ],
   },
 
@@ -882,7 +898,7 @@ const CONFIGURABLE_PRIVILEGE_ORDER: readonly string[] = [
   'filters.review', 'filters.approve',
   'filters.replace', 'filters.status_update',
   'filters.create', 'filters.edit', 'filters.delete',
-  'retirement_list.export', 'replacement_list.export',
+  'retirement.view', 'retirement_list.export', 'replacement.view', 'replacement_list.export', // .view toggles added 2026-10-01
   'filters.hierarchy_create', 'filters.hierarchy_edit', 'filters.hierarchy_delete', 'filters.rfid_manage', 'filters.export', // rfid_manage re-added to picker 2026-07-02 (was enforced-only since 2026-07-01)
   'replacement_schedule.view', 'replacement_schedule.upload', 'replacement_schedule.review', 'replacement_schedule.approve',
   'block_change.request', 'block_change.approve',

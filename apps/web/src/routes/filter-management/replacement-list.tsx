@@ -34,8 +34,12 @@ export function ReplacementListPage() {
   // Show the Schedule tab only to users who can see/manage the schedule.
   // Left as prefix-based check (out of scope for Phase 5C — no single node covers this).
   const canSchedule = isSuperAdmin || perms.some(p => p.startsWith('REPLACEMENT_SCHEDULE_'));
-  const [view, setView] = useState<'list' | 'schedule'>('list');
-  const { data, isLoading } = useSWR('/api/filters/replacements', { refreshInterval: 30000 });
+  // The List tab has its own View permission (2026-10-01). A role that reaches
+  // this page through the schedule toggles alone gets the Schedule tab only —
+  // and the list feed is not requested for it.
+  const canList = can('replacement.view');
+  const [view, setView] = useState<'list' | 'schedule'>(canList ? 'list' : 'schedule');
+  const { data, isLoading } = useSWR(canList ? '/api/filters/replacements' : null, { refreshInterval: 30000 });
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -183,10 +187,12 @@ export function ReplacementListPage() {
       {/* ─── List | Schedule toggle ─── */}
       <div className="px-6 pt-6">
         <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-          <button onClick={() => setView('list')}
-            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${view === 'list' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}>
-            Replacement List
-          </button>
+          {canList && (
+            <button onClick={() => setView('list')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${view === 'list' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}>
+              Replacement List
+            </button>
+          )}
           {canSchedule && (
             <button onClick={() => setView('schedule')}
               className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${view === 'schedule' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}>
@@ -196,7 +202,7 @@ export function ReplacementListPage() {
         </div>
       </div>
 
-      {view === 'schedule' ? <ReplacementSchedulePage /> : (
+      {view === 'schedule' || !canList ? <ReplacementSchedulePage /> : (
       <div className="p-6 space-y-6">
       {/* ─── Header ─── */}
       <div className="flex items-center gap-4">

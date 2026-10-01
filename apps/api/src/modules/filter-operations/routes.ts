@@ -755,8 +755,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
   });
 
   // ── List retired filters ──
+  // RETIREMENT_LIST_VIEW (2026-10-01) is the Retirement List page's own View
+  // permission, so a role granted only that toggle can load its page.
+  // ASSET_READ stays as an alternate: the Filter Lifecycle Report, the cycle
+  // timeline and the tablet read this same feed for their "retired" badges.
   app.get('/retirements', {
-    preHandler: [app.requirePermission('ASSET_READ')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'RETIREMENT_LIST_VIEW')],
     schema: {
       tags: ['Filter Operations'],
       summary: 'List all retired filters',
@@ -771,8 +775,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
   });
 
   // ── List replacements ──
+  // REPLACEMENT_LIST_VIEW: same reasoning as /retirements above.
   app.get('/replacements', {
-    preHandler: [app.requirePermission('ASSET_READ')],
+    preHandler: [app.requireAnyPermission('ASSET_READ', 'REPLACEMENT_LIST_VIEW')],
     schema: {
       tags: ['Filter Operations'],
       summary: 'List filter replacement history',

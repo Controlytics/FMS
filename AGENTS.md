@@ -9,7 +9,7 @@ Branch: RFID (active development) → merges to DigitalFMS → main.
 - **Backend:** 33 API modules
 - **Frontend:** 76 routes in `apps/web/src/main.tsx`
 - **Database:** 61 Prisma models, 24 enums (single database `digilog_db`; TimescaleDB `digilog_tsdb` dropped 2026-06-11)
-- **Permissions:** 102 constants, 83 feature privileges, 93 reauth actions across 16 categories, 27 sidebar items
+- **Permissions:** 106 constants, 87 feature privileges, 127 reauth actions across 16 categories, 27 sidebar items
 
 > Many modules/models were removed across 2026 tear-outs: multi-tenancy (`org-admin`/`tenant-admin` + org scoping, 2026-04-30), rule-chain + alarms (2026-05-17), data-ingestion + UNS + connectivity + queries + TimescaleDB (2026-06-11..17), qr-code (2026-06-06), and the reports generate/sign + report-templates engine (2026-07-04). See `CLAUDE.md` System Stats + `CHANGELOG.md`.
 

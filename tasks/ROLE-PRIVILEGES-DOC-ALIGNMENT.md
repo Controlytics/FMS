@@ -102,3 +102,25 @@ Before / after / delta: `tasks/role-privileges-baseline/`.
 | 13, 14 Filters Review / Approve | not applied | no such workflow exists |
 | 19 Replacement List View — QA `-` | QA KEEPS the page | row 22 gives QA **Approve**; approving is impossible without reaching the list |
 | 28 Cleaning Record — Operator `-` | desktop page hidden, `CYCLE_READ` KEPT | the tablet's Filter Cleaning Record needs it; the doc grants Operator tablet Cleaning Operations |
+
+## 2026-10-01 — Retirement List / Replacement List View permissions
+
+The two list pages no longer ride on "View Filters". Each has its own toggle
+(`retirement.view` → `RETIREMENT_LIST_VIEW`, `replacement.view` →
+`REPLACEMENT_LIST_VIEW`). The matrix did not change: migration
+`20261001090000_list_view_permissions` gave the new permission to exactly the
+roles that already saw each page.
+
+| Role | Retirement List | Replacement List |
+|---|---|---|
+| ADMIN | no | no |
+| SUPERVISOR | yes | yes |
+| MANAGER | yes | yes |
+| QA | no | yes |
+| SHIFTOFFICER | yes | yes |
+| OPERATOR | no | yes |
+
+Before-snapshot: `role-privileges-baseline/before-2026-10-01.json`. To change a
+row, use Config → Roles & Access → Permissions (the View toggle) together with
+the Sidebar tab — enabling the menu on the Sidebar tab re-grants the View
+permission on every save, so untick it there to take the page away.
