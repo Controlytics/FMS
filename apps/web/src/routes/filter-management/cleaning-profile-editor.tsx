@@ -307,7 +307,7 @@ export function CleaningProfileEditorPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* ── Left Sidebar ── */}
         <div className="w-52 bg-slate-50 border-r border-slate-200/60 p-3 overflow-y-auto shrink-0">
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Cleaning Stages</div>
+          <div className="text-[11px] font-bold text-slate-500 mb-2">Cleaning Stages</div>
           {CLEANING_STAGES.map((s) => (
             <button key={s.key} onClick={() => addNode('STAGE', s.key)}
               className="w-full text-left px-3 py-2 mb-1 rounded-lg bg-white/60 hover:bg-white text-sm text-slate-600 transition-colors flex items-center gap-2.5 group">
@@ -315,7 +315,7 @@ export function CleaningProfileEditorPage() {
               <span className="group-hover:text-slate-800">{s.name}</span>
             </button>
           ))}
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-4 mb-2">Additional</div>
+          <div className="text-[11px] font-bold text-slate-500 mt-4 mb-2">Additional</div>
           <button onClick={() => addNode('CHECKLIST')}
             className="w-full text-left px-3 py-2 mb-1 rounded-lg bg-white/60 hover:bg-white text-sm text-slate-600 transition-colors flex items-center gap-2.5 group">
             <div className="w-2.5 h-2.5 rounded-full bg-purple-500 ring-2 ring-purple-500 ring-offset-1 ring-offset-white" />
@@ -396,7 +396,7 @@ export function CleaningProfileEditorPage() {
                 onClick={(e) => e.stopPropagation()}>
 
                 {/* Node body */}
-                <div className={`w-full h-full rounded-xl border-2 flex flex-col items-center justify-center transition-shadow duration-150 ${isSelected ? 'shadow-lg shadow-cyan-500/20' : 'shadow-md shadow-black/30'}`}
+                <div className={`w-full h-full rounded-xl border-2 flex flex-col items-center justify-center transition-shadow duration-150 ${isSelected ? 'shadow-lg' : 'shadow-md shadow-black/30'}`}
                   style={{
                     backgroundColor: stageColor ? `${stageColor}22` : colors.bg,
                     borderColor: isSelected ? '#22d3ee' : (stageColor ?? colors.border),
@@ -406,7 +406,7 @@ export function CleaningProfileEditorPage() {
                     <div className="text-[9px] text-slate-500 mt-0.5 truncate max-w-[130px]">{node.configuration.checklistProfileName}</div>
                   )}
                   {node.nodeType !== 'START' && node.nodeType !== 'END' && (
-                    <div className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">{node.nodeType}</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">{node.nodeType}</div>
                   )}
                 </div>
 
@@ -459,7 +459,7 @@ export function CleaningProfileEditorPage() {
               <div className="p-4 space-y-4">
                 {/* Node Type Badge */}
                 <div>
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Node Type</div>
+                  <div className="text-[11px] font-semibold text-slate-500 mb-1">Node Type</div>
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium"
                     style={{ backgroundColor: `${colors.bg}60`, color: colors.text, border: `1px solid ${colors.border}40` }}>
                     {node.nodeType}
@@ -468,7 +468,7 @@ export function CleaningProfileEditorPage() {
 
                 {/* Position */}
                 <div>
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Position</div>
+                  <div className="text-[11px] font-semibold text-slate-500 mb-1">Position</div>
                   <div className="flex gap-2">
                     <div className="flex-1">
                       <label className="text-[10px] text-slate-300">X</label>
@@ -496,7 +496,7 @@ export function CleaningProfileEditorPage() {
                 {/* STAGE: Change stage key */}
                 {node.nodeType === 'STAGE' && (
                   <div>
-                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Stage</div>
+                    <div className="text-[11px] font-semibold text-slate-500 mb-1">Stage</div>
                     <select className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-slate-700 text-sm"
                       value={node.stateKey ?? ''}
                       onChange={e => {
@@ -515,7 +515,7 @@ export function CleaningProfileEditorPage() {
                 {/* CHECKLIST: Select checklist profile */}
                 {node.nodeType === 'CHECKLIST' && (
                   <div>
-                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Checklist Profile</div>
+                    <div className="text-[11px] font-semibold text-slate-500 mb-1">Checklist Profile</div>
                     <select className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-slate-700 text-sm"
                       value={node.configuration?.checklistProfileId ?? ''}
                       onChange={e => {
@@ -541,7 +541,7 @@ export function CleaningProfileEditorPage() {
 
                 {/* Connections Info */}
                 <div>
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Connections</div>
+                  <div className="text-[11px] font-semibold text-slate-500 mb-1">Connections</div>
                   <div className="space-y-1.5">
                     {incoming.length > 0 && (
                       <div>
@@ -579,7 +579,7 @@ export function CleaningProfileEditorPage() {
 
                 {/* Sort Order */}
                 <div>
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Sort Order</div>
+                  <div className="text-[11px] font-semibold text-slate-500 mb-1">Sort Order</div>
                   <input type="number" className="w-20 bg-white border border-slate-200 rounded px-2 py-1 text-slate-700 text-xs"
                     value={node.sortOrder}
                     onChange={e => {
@@ -592,7 +592,7 @@ export function CleaningProfileEditorPage() {
                 {/* ID (for existing nodes) */}
                 {node.id && (
                   <div>
-                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">ID</div>
+                    <div className="text-[11px] font-semibold text-slate-500 mb-1">ID</div>
                     <div className="text-[10px] text-slate-300 font-mono break-all">{node.id}</div>
                   </div>
                 )}

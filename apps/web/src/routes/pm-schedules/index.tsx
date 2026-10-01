@@ -773,19 +773,19 @@ export function PmScheduleListPage() {
       {/* ─── Summary Cards ─── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
-          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total</p>
+          <p className="text-xs font-semibold text-slate-500">Total</p>
           <p className="text-2xl font-bold text-slate-800 mt-0.5">{totalEntries}</p>
         </div>
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-          <p className="text-[11px] font-semibold text-emerald-500 uppercase tracking-wider">Approved</p>
+          <p className="text-xs font-semibold text-emerald-500">Approved</p>
           <p className="text-2xl font-bold text-emerald-700 mt-0.5">{approvedCount}</p>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-          <p className="text-[11px] font-semibold text-amber-500 uppercase tracking-wider">Pending</p>
+          <p className="text-xs font-semibold text-amber-500">Pending</p>
           <p className="text-2xl font-bold text-amber-700 mt-0.5">{pendingInView}</p>
         </div>
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-          <p className="text-[11px] font-semibold text-red-400 uppercase tracking-wider">Rejected</p>
+          <p className="text-xs font-semibold text-red-400">Rejected</p>
           <p className="text-2xl font-bold text-red-600 mt-0.5">{rejectedInView}</p>
         </div>
       </div>
@@ -874,14 +874,14 @@ export function PmScheduleListPage() {
                         className="w-3.5 h-3.5 rounded border-slate-300 cursor-pointer" style={{ accentColor: 'var(--theme-primary)' }} />
                     </th>
                   )}
-                  <th className="w-14 text-center px-2 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">S.No</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">AHU</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Scheduled Date</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Tolerance</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Window</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Approved By</th>
-                  <th className="text-right px-5 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                  <th className="w-14 text-center px-2 py-3.5 text-xs font-semibold text-slate-500">S.No</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">AHU</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Scheduled Date</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Tolerance</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Window</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Status</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Approved By</th>
+                  <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -909,10 +909,10 @@ export function PmScheduleListPage() {
                           <td className="w-14 text-center px-2 py-3 text-sm text-slate-400 font-medium">{serialNo}</td>
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-slate-800">{group.ahuName}</span>
+                              <span className="text-sm font-semibold text-slate-800 whitespace-nowrap">{group.ahuName}</span>
                               {ahuFiltersEnabled && group.filterNames.length > 0 && (
                                 <button onClick={e => { e.stopPropagation(); toggleAhuExpand(group.ahuId); }}
-                                  className="text-[10px] px-1.5 py-0.5 rounded border transition-colors font-medium" style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>
+                                  className="text-[11px] px-1.5 py-0.5 rounded border transition-colors font-medium whitespace-nowrap" style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>
                                   {group.filterNames.length} filters {isExpanded ? '▾' : '▸'}
                                 </button>
                               )}
@@ -950,7 +950,7 @@ export function PmScheduleListPage() {
                           <td className="px-5 py-3">
                             {isEditing ? (
                               <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-slate-50 focus:bg-white focus:ring-2 w-40 transition-all"
+                                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-slate-50 focus:bg-white focus:ring-3 w-40 transition-all"
                                 style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as any} />
                             ) : (
                               <div>
@@ -968,7 +968,7 @@ export function PmScheduleListPage() {
                             {isEditing ? (
                               <input type="number" value={editTolerance} onChange={e => setEditTolerance(e.target.value)}
                                 placeholder={String(entry.toleranceDays)} min={0} max={365}
-                                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-slate-50 focus:bg-white focus:ring-2 w-20 transition-all"
+                                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-slate-50 focus:bg-white focus:ring-3 w-20 transition-all"
                                 style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as any} />
                             ) : (
                               <span className="text-sm text-slate-500 font-medium">{entry.toleranceDays} days</span>
@@ -978,7 +978,7 @@ export function PmScheduleListPage() {
                             {formatDate(entry.windowStart)} — {formatDate(entry.windowEnd)}
                           </td>
                           <td className="px-5 py-3">
-                            <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${sc.bg} ${sc.text} ${sc.border}`}>
+                            <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] px-2.5 py-1 rounded-full border font-semibold ${sc.bg} ${sc.text} ${sc.border}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                               {sc.label}
                             </span>
@@ -1016,15 +1016,15 @@ export function PmScheduleListPage() {
                                   {canReview && (entry.approvalStatus === 'PENDING_REVIEW' || (workflowOn && entry.approvalStatus === 'PENDING')) && (
                                     <>
                                       <button onClick={() => handleReviewApprove([entry.id])} disabled={processing}
-                                        className="px-3 py-1.5 bg-sky-500 text-white text-[11px] font-semibold rounded-lg hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-sm">
+                                        className="whitespace-nowrap px-3 py-1.5 bg-sky-500 text-white text-[11px] font-semibold rounded-lg hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Review ✓
                                       </button>
                                       <button onClick={() => handleReject([entry.id], 'review')} disabled={processing}
-                                        className="px-3 py-1.5 bg-red-500 text-white text-[11px] font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm">
+                                        className="whitespace-nowrap px-3 py-1.5 bg-red-500 text-white text-[11px] font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Reject
                                       </button>
                                       <button onClick={() => { setEditingId(entry.id); setEditDate(entry.plannedDate.slice(0, 10)); setEditTolerance(String(entry.toleranceDays)); }}
-                                        className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-[11px] font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all">
+                                        className="whitespace-nowrap px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-[11px] font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all">
                                         Modify
                                       </button>
                                     </>
@@ -1032,24 +1032,24 @@ export function PmScheduleListPage() {
                                   {isApprover && (entry.approvalStatus === 'PENDING_APPROVAL' || (!workflowOn && entry.approvalStatus === 'PENDING')) && (
                                     <>
                                       <button onClick={() => handleApprove([entry.id])} disabled={processing}
-                                        className="px-3 py-1.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-colors shadow-sm">
+                                        className="whitespace-nowrap px-3 py-1.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Approve
                                       </button>
                                       <button onClick={() => handleReject([entry.id], 'approval')} disabled={processing}
-                                        className="px-3 py-1.5 bg-red-500 text-white text-[11px] font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm">
+                                        className="whitespace-nowrap px-3 py-1.5 bg-red-500 text-white text-[11px] font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Reject
                                       </button>
                                     </>
                                   )}
                                   {canEditEntry && entry.approvalStatus === 'APPROVED' && !hasPendingEdit && (
                                     <button onClick={() => { setEditingId(entry.id); setEditDate(entry.plannedDate.slice(0, 10)); setEditTolerance(String(entry.toleranceDays)); }}
-                                      className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-[11px] font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all">
+                                      className="whitespace-nowrap px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-[11px] font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all">
                                       Edit
                                     </button>
                                   )}
                                   {canResubmit && entry.approvalStatus === 'REJECTED' && (
                                     <button onClick={() => { setEditingId(entry.id); setEditDate(entry.plannedDate.slice(0, 10)); setEditTolerance(String(entry.toleranceDays)); }}
-                                      className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold rounded-lg hover:bg-amber-100 transition-all">
+                                      className="whitespace-nowrap px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold rounded-lg hover:bg-amber-100 transition-all">
                                       Resubmit
                                     </button>
                                   )}
@@ -1083,16 +1083,16 @@ export function PmScheduleListPage() {
 
       {/* ─── Reject Dialog ─── */}
       {rejectDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
             <div className="h-1.5 bg-gradient-to-r from-red-500 to-rose-500" />
             <div className="p-6">
               <h3 className="text-lg font-bold text-slate-800 mb-1">Reject {rejectDialog.length} Entry(s)</h3>
               <p className="text-xs text-slate-400 mb-4">Provide a reason for rejection. The uploader will see this.</p>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Remarks <span className="text-red-500">*</span></label>
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Remarks <span className="text-red-500">*</span></label>
               <textarea value={rejectRemarks} onChange={e => setRejectRemarks(e.target.value)}
                 placeholder="Why are these entries being rejected? (required)"
-                rows={3} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-red-400 focus:ring-2 focus:ring-red-100 outline-none" />
+                rows={3} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-red-400 focus:ring-3 focus:ring-red-100 outline-none" />
               <div className="flex gap-3 mt-4">
                 <button onClick={() => setRejectDialog(null)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
                 <button onClick={submitReject} disabled={processing || !rejectRemarks.trim()}
@@ -1107,7 +1107,7 @@ export function PmScheduleListPage() {
 
       {/* ─── Upload Dialog ─── */}
       {uploadOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
             <div className="h-1.5" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }} />
             <div className="p-6">
@@ -1155,7 +1155,7 @@ export function PmScheduleListPage() {
 
       {/* ─── Past-Date Warning ─── */}
       {pastDateWarning && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
             <div className="h-1.5 bg-gradient-to-r from-amber-500 to-orange-500" />
             <div className="p-6">
@@ -1172,7 +1172,7 @@ export function PmScheduleListPage() {
               <div className="flex gap-3">
                 <button onClick={() => { setPastDateWarning(null); setPendingFile(null); }} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
                 <button onClick={() => { const f = pendingFile; setPastDateWarning(null); setPendingFile(null); if (f) uploadFile(f); }}
-                  className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-amber-500/25">Proceed Anyway</button>
+                  className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold shadow-lg">Proceed Anyway</button>
               </div>
             </div>
           </div>
@@ -1187,7 +1187,7 @@ export function PmScheduleListPage() {
 
       {/* Audit 2026-05-09 fix: single-PM-schedule create dialog */}
       {createDialog && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4"
              onClick={() => !creatingSchedule && setCreateDialog(false)}>
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
                onClick={e => e.stopPropagation()}>
@@ -1202,7 +1202,7 @@ export function PmScheduleListPage() {
                 <label className="block text-xs font-semibold text-slate-600 mb-1">AHU</label>
                 <select value={createForm.ahuId}
                         onChange={e => setCreateForm(f => ({ ...f, ahuId: e.target.value }))}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100 bg-white">
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15 bg-white">
                   <option value="">Select an AHU…</option>
                   {ahuInstances.map((a: any) => (
                     <option key={a.id} value={a.id}>{a.name}</option>
@@ -1217,7 +1217,7 @@ export function PmScheduleListPage() {
                 <input type="date"
                        value={createForm.plannedDate}
                        onChange={e => setCreateForm(f => ({ ...f, plannedDate: e.target.value }))}
-                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
                 <p className="text-xs text-slate-400 mt-1">Select the year, month and day for this PM.</p>
               </div>
               <div>
@@ -1225,7 +1225,7 @@ export function PmScheduleListPage() {
                 <input type="number" min={0} max={365}
                        value={createForm.toleranceDays}
                        onChange={e => setCreateForm(f => ({ ...f, toleranceDays: Number(e.target.value) }))}
-                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
                 <p className="text-xs text-slate-400 mt-1">Window: planned date ± tolerance days.</p>
               </div>
             </div>
@@ -1247,7 +1247,7 @@ export function PmScheduleListPage() {
 
       {/* Overwrite confirmation — the AHU already has a schedule for the year. */}
       {overwriteConfirm && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4"
              onClick={() => !creatingSchedule && setOverwriteConfirm(null)}>
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
@@ -1301,7 +1301,7 @@ export function PmScheduleListPage() {
       )}
 
       {deleteScheduleConfirm && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4"
              onClick={() => !deletingSchedule && setDeleteScheduleConfirm(null)}>
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
                onClick={e => e.stopPropagation()}>
@@ -1327,7 +1327,7 @@ export function PmScheduleListPage() {
                 Cancel
               </button>
               <button type="button" onClick={submitDeleteSchedule} disabled={deletingSchedule}
-                      className="flex-1 py-2.5 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-semibold hover:from-red-400 hover:to-rose-400 shadow-lg shadow-red-500/25 disabled:opacity-50">
+                      className="flex-1 py-2.5 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-semibold hover:from-red-400 hover:to-rose-400 shadow-lg disabled:opacity-50">
                 {deletingSchedule ? 'Deleting...' : 'Delete schedule'}
               </button>
             </div>

@@ -12,10 +12,10 @@ export interface ToastItem {
 }
 
 const VARIANT_STYLES: Record<ToastVariant, string> = {
-  success: 'bg-emerald-50 border-emerald-300 text-emerald-800',
-  error: 'bg-red-50 border-red-300 text-red-800',
-  warning: 'bg-amber-50 border-amber-300 text-amber-800',
-  info: 'bg-blue-50 border-blue-300 text-blue-800',
+  success: 'bg-white border-slate-200 border-l-emerald-600 text-slate-800',
+  error: 'bg-white border-slate-200 border-l-red-600 text-slate-800',
+  warning: 'bg-white border-slate-200 border-l-amber-500 text-slate-800',
+  info: 'bg-white border-slate-200 border-l-brand-600 text-slate-800',
 };
 
 const VARIANT_ICONS: Record<ToastVariant, string> = {
@@ -41,7 +41,7 @@ function ToastEntry({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: st
   return (
     <div
       className={cn(
-        'flex items-start gap-3 px-4 py-3 rounded-lg border shadow-lg max-w-sm transition-all duration-200',
+        'flex items-start gap-3 px-4 py-3 rounded-lg border border-l-4 shadow-lg max-w-sm transition-all duration-200',
         VARIANT_STYLES[toast.variant],
         visible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0',
       )}

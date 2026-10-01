@@ -456,7 +456,7 @@ export function NotificationsPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="p-2 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -472,7 +472,7 @@ export function NotificationsPage() {
         </div>
         <div className="flex flex-wrap gap-4">
           <div className="min-w-[260px] flex-1">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Search</label>
+            <label className="text-xs font-semibold text-slate-500 mb-2 block">Search</label>
             <div className="relative group">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-cyan-100 to-sky-100 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -503,7 +503,7 @@ export function NotificationsPage() {
             </div>
           </div>
           <div className="min-w-[200px]">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Time Period</label>
+            <label className="text-xs font-semibold text-slate-500 mb-2 block">Time Period</label>
             <div className="relative group">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-blue-100 to-indigo-100 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -536,7 +536,7 @@ export function NotificationsPage() {
           </div>
           {period === 'custom' && (
             <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">From / To</label>
+              <label className="text-xs font-semibold text-slate-500 mb-2 block">From / To</label>
               {/* The one From/To control in the app — it is what stops a To
                   earlier than the From, which the API answers with an empty
                   list indistinguishable from "no matching records". */}
@@ -550,7 +550,7 @@ export function NotificationsPage() {
             </div>
           )}
           <div className="min-w-[180px]">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Status</label>
+            <label className="text-xs font-semibold text-slate-500 mb-2 block">Status</label>
             <div className="relative group">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-amber-100 to-orange-100 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -615,7 +615,7 @@ export function NotificationsPage() {
               type="checkbox"
               checked={isAllSelected}
               onChange={toggleSelectAll}
-              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-brand-600/15"
             />
             <span className="text-sm font-medium text-slate-600 group-hover:text-slate-800">
               Select All on Page
@@ -639,7 +639,7 @@ export function NotificationsPage() {
                 ? 'border-indigo-300 bg-indigo-50/30 ring-1 ring-indigo-200'
                 : notification.isRead
                   ? 'border-slate-200/60 opacity-75'
-                  : 'border-amber-200 shadow-amber-100/50'
+                  : 'border-amber-200'
             }`}
           >
             <div className="flex items-start gap-4">
@@ -649,7 +649,7 @@ export function NotificationsPage() {
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => toggleSelect(notification.id)}
-                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-brand-600/15 cursor-pointer"
                 />
               </div>
               <div className={`p-3 rounded-xl ${typeColors[notification.type] ?? 'bg-slate-500 text-white'} shadow-lg`}>

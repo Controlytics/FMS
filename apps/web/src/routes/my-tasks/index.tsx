@@ -264,7 +264,7 @@ export function MyTasksPage() {
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
-            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Search</label>
+            <label className="text-xs font-semibold text-slate-500">Search</label>
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -274,7 +274,7 @@ export function MyTasksPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="AHU, block or area…"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:bg-white outline-none transition-all"
               />
             </div>
           </div>
@@ -296,9 +296,9 @@ export function MyTasksPage() {
           />
 
           <div className="flex flex-col gap-1 min-w-[150px]">
-            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Status</label>
+            <label className="text-xs font-semibold text-slate-500">Status</label>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all">
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:bg-white outline-none transition-all">
               <option value="">All</option>
               <option value="pending">Pending</option>
               <option value="overdue">Overdue</option>
@@ -450,13 +450,13 @@ export function MyTasksPage() {
               </p>
               <div className="text-[11px] text-slate-400">Deviation {ackTask.deviation.deviationNumber}</div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Password</label>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">Password</label>
                 <input
                   type="password" autoFocus value={ackPassword}
                   onChange={(e) => { setAckPassword(e.target.value); setAckError(''); }}
                   onKeyDown={(e) => { if (e.key === 'Enter' && ackPassword.trim() && !ackSubmitting) handleAckConfirm(); }}
                   placeholder="Enter your password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
                 />
                 {ackError && <p className="text-xs text-rose-600 mt-1.5">{ackError}</p>}
               </div>
@@ -640,9 +640,9 @@ function FilterSelect({ label, value, options, allLabel, onChange }: {
 }) {
   return (
     <div className="flex flex-col gap-1 min-w-[160px]">
-      <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{label}</label>
+      <label className="text-xs font-semibold text-slate-500">{label}</label>
       <select value={value} onChange={e => onChange(e.target.value)}
-        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all">
+        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:bg-white outline-none transition-all">
         <option value="">{allLabel}</option>
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>

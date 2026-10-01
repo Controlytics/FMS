@@ -293,7 +293,7 @@ export function EquipmentGroupsConfigPage() {
             className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 flex items-center justify-center text-white shadow-lg">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
           </div>
           <div>
@@ -303,7 +303,7 @@ export function EquipmentGroupsConfigPage() {
         </div>
         {canCreate && (
           <button onClick={handleCreate} disabled={!selectedBlockId}
-            className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl hover:from-cyan-500 hover:to-teal-500 disabled:opacity-40 transition-all text-sm font-semibold shadow-lg shadow-cyan-500/25 flex items-center gap-2">
+            className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl hover:from-cyan-500 hover:to-teal-500 disabled:opacity-40 transition-all text-sm font-semibold shadow-lg flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             Add Equipment Group
           </button>
@@ -313,20 +313,20 @@ export function EquipmentGroupsConfigPage() {
       {/* Stats + Block Selector */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Select Block</label>
+          <label className="text-xs font-semibold text-slate-500 mb-2 block">Select Block</label>
           <select value={selectedBlockId} onChange={e => setSelectedBlockId(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none">
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none">
             <option value="">-- Select Block --</option>
             {blocks.map((b: any) => (
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
         </div>
-        <div className="bg-gradient-to-br from-cyan-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg shadow-cyan-500/20">
+        <div className="bg-gradient-to-br from-cyan-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
           <div className="text-2xl font-bold">{groups.length}</div>
           <div className="text-cyan-100 text-sm font-medium">Equipment Groups</div>
         </div>
-        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg shadow-teal-500/20">
+        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg">
           <div className="text-2xl font-bold">{groups.reduce((s, g) => s + g.instruments.length, 0)}</div>
           <div className="text-teal-100 text-sm font-medium">Total Instruments</div>
         </div>
@@ -448,9 +448,9 @@ export function EquipmentGroupsConfigPage() {
 
       {/* Create / Edit Dialog */}
       {editing && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
           <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="h-1.5 bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500" />
+            <div className="h-1.5 bg-gradient-to-r from-emerald-500 to-emerald-500" />
             <div className="px-6 py-4 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-white">
@@ -465,15 +465,15 @@ export function EquipmentGroupsConfigPage() {
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Group Name *</label>
-                  <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" placeholder="e.g. Equipment Group 1"
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Group Name *</label>
+                  <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none" placeholder="e.g. Equipment Group 1"
                     value={editing.group.name ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, name: e.target.value } })} />
                 </div>
                 {editing.isNew && (
                   <div>
-                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Block</label>
+                    <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Block</label>
                     <select value={editing.group.blockId ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, blockId: e.target.value } })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none">
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none">
                       {blocks.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </div>
@@ -511,45 +511,45 @@ export function EquipmentGroupsConfigPage() {
                     <div className="p-4 bg-white space-y-3">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
-                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">S.No</label>
-                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
+                          <label className="text-[11px] font-semibold text-slate-500 mb-1 block">S.No</label>
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none"
                             value={inst.serialNumber} onChange={e => updateInstrument(idx, 'serialNumber', e.target.value)} />
                         </div>
                         <div>
-                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument ID *</label>
-                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
+                          <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Instrument ID *</label>
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none"
                             value={inst.instrumentId} onChange={e => updateInstrument(idx, 'instrumentId', e.target.value)} placeholder="e.g. CAP-001" />
                         </div>
                         <div>
-                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">UOM *</label>
-                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
+                          <label className="text-[11px] font-semibold text-slate-500 mb-1 block">UOM *</label>
+                          <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none"
                             value={inst.uom} onChange={e => updateInstrument(idx, 'uom', e.target.value)} />
                         </div>
                         <div>
-                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Least Count *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
+                          <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Least Count *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none"
                             value={inst.leastCount} onChange={e => updateInstrument(idx, 'leastCount', parseFloat(e.target.value) || 0)} />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
-                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument Min *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
+                          <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Instrument Min *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none"
                             value={inst.instrumentMin} onChange={e => updateInstrument(idx, 'instrumentMin', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
-                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Instrument Max *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
+                          <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Instrument Max *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none"
                             value={inst.instrumentMax} onChange={e => updateInstrument(idx, 'instrumentMax', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
-                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Operating Min *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
+                          <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Operating Min *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none"
                             value={inst.operatingMin} onChange={e => updateInstrument(idx, 'operatingMin', parseFloat(e.target.value) || 0)} />
                         </div>
                         <div>
-                          <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Operating Max *</label>
-                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none"
+                          <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Operating Max *</label>
+                          <input type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none"
                             value={inst.operatingMax} onChange={e => updateInstrument(idx, 'operatingMax', parseFloat(e.target.value) || 0)} />
                         </div>
                       </div>
@@ -591,9 +591,9 @@ export function EquipmentGroupsConfigPage() {
                   </div>
                   <div className="p-4 bg-white space-y-4">
                     <div>
-                      <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Readings URL (one endpoint for all instruments)</label>
+                      <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Readings URL (one endpoint for all instruments)</label>
                       <input type="url" placeholder="http://192.168.1.x:port/readings"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none font-mono"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none font-mono"
                         value={editing.group.readingUrl ?? ''} onChange={e => setEditing({ ...editing, group: { ...editing.group, readingUrl: e.target.value } })} />
                       <p className="text-[11px] text-slate-400 mt-1">Must return JSON like <code className="font-mono text-slate-500">{'{ "reading": { "air_pressure": 6.2, ... } }'}</code>. Each instrument reads its own value via the key below.</p>
                     </div>
@@ -602,13 +602,13 @@ export function EquipmentGroupsConfigPage() {
                       return (
                         <div key={idx} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
                           <div>
-                            <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">{inst.description} — response key</label>
+                            <label className="text-[11px] font-semibold text-slate-500 mb-1 block">{inst.description} — response key</label>
                             <input type="text" placeholder="e.g. air_pressure"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-400 outline-none font-mono"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none font-mono"
                               value={inst.responseKey ?? ''} onChange={e => updateInstrument(idx, 'responseKey', e.target.value)} />
                           </div>
                           <div className="md:w-40">
-                            <label className="text-[10px] font-semibold text-slate-400 uppercase mb-1 block">Latest value</label>
+                            <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Latest value</label>
                             <div className={`px-3 py-2 rounded-lg text-sm border ${lv?.error ? 'bg-red-50 border-red-200 text-red-600' : lv?.value !== undefined ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-semibold' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
                               {lv?.loading ? 'Fetching…' : lv?.error ? lv.error : lv?.value !== undefined ? `${lv.value} ${inst.uom}` : '—'}
                             </div>
@@ -631,7 +631,7 @@ export function EquipmentGroupsConfigPage() {
               <button onClick={() => setEditing(null)}
                 className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
               <button onClick={handleSave} disabled={saving}
-                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-teal-500 shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2">
+                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-teal-500 shadow-lg flex items-center justify-center gap-2">
                 {saving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 {saving ? 'Saving...' : 'Save Equipment Group'}
               </button>
@@ -646,7 +646,7 @@ export function EquipmentGroupsConfigPage() {
           to validate against the EquipmentGroupVersion at the pin. The dialog
           is a heads-up; admin can proceed. */}
       {editConflict && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setEditConflict(null)}>
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4" onClick={() => setEditConflict(null)}>
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
             <div className="px-6 py-5 space-y-4">
@@ -667,7 +667,7 @@ export function EquipmentGroupsConfigPage() {
                 className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
               <button
                 onClick={() => { const g = editConflict.group; setEditConflict(null); openEditor(g); }}
-                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-amber-500/25">
+                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold hover:from-amber-400 hover:to-orange-400 shadow-lg">
                 Proceed with edit
               </button>
             </div>

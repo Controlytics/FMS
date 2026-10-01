@@ -105,7 +105,7 @@ export function PmPendingTasksDialog({
                   rows={2}
                   placeholder="Why was this scheduled cleaning not done?"
                   aria-label={`Reason the ${formatDate(t.plannedDate)} PM was not performed`}
-                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 outline-none transition-all focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 outline-none transition-all focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15"
                 />
                 <p className="mt-1 text-[11px] text-slate-400">
                   {short > 0

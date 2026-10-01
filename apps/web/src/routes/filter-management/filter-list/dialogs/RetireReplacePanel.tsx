@@ -53,7 +53,7 @@ export function RetireReplacePanel({
               <select
                 value={action}
                 onChange={e => onActionChange(e.target.value as 'retire' | 'replace')}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
               >
                 <option value="retire">Retirement</option>
                 <option value="replace">Replacement</option>
@@ -78,7 +78,7 @@ export function RetireReplacePanel({
               onChange={e => onRemarksChange(e.target.value)}
               placeholder="Enter reason for retirement/replacement..."
               rows={4}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
             />
           </div>
         </div>

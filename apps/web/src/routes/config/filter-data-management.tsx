@@ -109,7 +109,7 @@ function ReasonBox({ value, onChange, danger, hint }: { value: string; onChange:
   const short = MIN_REASON_LEN - value.trim().length;
   return (
     <div className="mt-4">
-      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+      <label className="block text-xs font-bold text-slate-500 mb-1.5">
         Reason for this change <span className="text-red-500">*</span>
       </label>
       <textarea
@@ -117,8 +117,8 @@ function ReasonBox({ value, onChange, danger, hint }: { value: string; onChange:
         onChange={e => onChange(e.target.value)}
         rows={2}
         placeholder="Why is this record being changed?"
-        className={`w-full px-3 py-2 border rounded-lg text-[13px] resize-none focus:ring-2 focus:outline-none ${
-          danger ? 'border-red-200 focus:ring-red-500/30 focus:border-red-400' : 'border-slate-200 focus:ring-cyan-500/30 focus:border-cyan-400'
+        className={`w-full px-3 py-2 border rounded-lg text-[13px] resize-none focus:ring-3 focus:outline-none ${
+          danger ? 'border-red-200 focus:ring-red-500/30 focus:border-red-400' : 'border-slate-200 focus:ring-brand-600/15 focus:border-brand-600'
         }`}
       />
       <p className="text-[11px] text-slate-400 mt-1">
@@ -188,10 +188,10 @@ function Field(props: {
   required?: boolean;
 }) {
   const { label, value, onChange, type = 'text', textarea, select, options, optionObjs, placeholder, required } = props;
-  const cls = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none';
+  const cls = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[13px] text-slate-700 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none';
   return (
     <div>
-      <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+      <label className="block text-xs font-bold text-slate-500 mb-1">
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </label>
       {optionObjs ? (
@@ -345,7 +345,7 @@ function LifecyclePanel({
   return (
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
       <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-2">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+        <span className="text-xs font-bold text-slate-500">
           Lifecycle · {cycle.cycleCode ?? cycle.filterName}
         </span>
         <span className="text-[11px] text-slate-400">{events.length} step{events.length === 1 ? '' : 's'}</span>
@@ -1376,7 +1376,7 @@ export function FilterDataManagementPage() {
         <div className="h-1 bg-gradient-to-r from-red-500 via-rose-500 to-pink-500" />
         <div className="px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 shadow-lg shadow-red-500/20">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 shadow-lg">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
@@ -1397,7 +1397,7 @@ export function FilterDataManagementPage() {
               <div className="text-2xl font-bold text-slate-800">
                 {totalRecords}
               </div>
-              <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Records</div>
+              <div className="text-xs text-slate-500 font-medium">Records</div>
             </div>
           </div>
         </div>
@@ -1430,7 +1430,7 @@ export function FilterDataManagementPage() {
           {(tab === 'retirements' || tab === 'replacements') && (
             <button
               onClick={() => { setChangeReason(''); setManualRecordDialog({ kind: tab === 'retirements' ? 'retirement' : 'replacement' }); setManualRecordFields({}); }}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold shadow-sm hover:from-cyan-500 hover:to-blue-500">
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold shadow-sm hover:from-brand-700 hover:to-brand-800">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Create
             </button>
@@ -1438,7 +1438,7 @@ export function FilterDataManagementPage() {
           {TAB_CREATE_ENTITY[tab] && (
             <button
               onClick={() => openCreate(TAB_CREATE_ENTITY[tab])}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold shadow-sm hover:from-cyan-500 hover:to-blue-500">
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold shadow-sm hover:from-brand-700 hover:to-brand-800">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Create
             </button>
@@ -1448,7 +1448,7 @@ export function FilterDataManagementPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input value={search} onChange={e => { setSearch(e.target.value); resetPaging(); }} placeholder="Search..."
-              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 w-52 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" />
+              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 w-52 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none" />
           </div>
         </div>
       </div>
@@ -1472,13 +1472,13 @@ export function FilterDataManagementPage() {
           <>
             <div className="h-6 w-px bg-slate-200" />
             <label className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <span className="text-xs font-semibold text-slate-500">
                 {FILTERS_BY_TAB[tab].label}
               </span>
               <select
                 value={kindFilter}
                 onChange={e => { setKindFilter(e.target.value); resetPaging(); }}
-                className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[12px] text-slate-700 focus:bg-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:outline-none transition-all"
+                className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[12px] text-slate-700 focus:bg-white focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:outline-none transition-all"
               >
                 <option value="">All</option>
                 {FILTERS_BY_TAB[tab].options.map(o => (
@@ -1522,11 +1522,11 @@ export function FilterDataManagementPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-                  <th className="text-left px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filter Name</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Original Parent</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filter Set</th>
-                  <th className="text-left px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Retired At</th>
-                  <th className="text-right px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Actions</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500">Filter Name</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500">Original Parent</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500">Filter Set</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500">Retired At</th>
+                  <th className="text-right px-5 py-3.5 text-xs font-bold text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1537,7 +1537,7 @@ export function FilterDataManagementPage() {
                       <td className="px-5 py-3.5">
                         {isEditing ? (
                           <input value={editFields.name ?? r.name} onChange={e => setEditFields(p => ({ ...p, name: e.target.value }))} autoFocus
-                            className="border border-cyan-300 rounded-lg px-3 py-1.5 text-[13px] w-56 bg-white focus:ring-2 focus:ring-cyan-100 outline-none" />
+                            className="border border-cyan-300 rounded-lg px-3 py-1.5 text-[13px] w-56 bg-white focus:ring-3 focus:ring-brand-600/15 outline-none" />
                         ) : (
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
@@ -1557,7 +1557,7 @@ export function FilterDataManagementPage() {
                       <td className="px-5 py-3.5">
                         {isEditing ? (
                           <select value={editFields.filterSet ?? r.filterSet ?? ''} onChange={e => setEditFields(p => ({ ...p, filterSet: e.target.value }))}
-                            className="border border-cyan-300 rounded-lg px-3 py-1.5 text-[13px] bg-white focus:ring-2 focus:ring-cyan-100 outline-none">
+                            className="border border-cyan-300 rounded-lg px-3 py-1.5 text-[13px] bg-white focus:ring-3 focus:ring-brand-600/15 outline-none">
                             <option value="">None</option>
                             <option value="SET_A">Set A</option>
                             <option value="SET_B">Set B</option>
@@ -1633,14 +1633,14 @@ export function FilterDataManagementPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-                  <th className="text-left px-3 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Old Filter Name</th>
-                  <th className="text-left px-3 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Old Filter ID</th>
-                  <th className="text-left px-3 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">New Filter Name</th>
-                  <th className="text-left px-3 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">New Filter ID</th>
-                  <th className="text-left px-3 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Performed By</th>
-                  <th className="text-left px-3 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Remarks</th>
-                  <th className="text-left px-3 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                  <th className="text-right px-3 py-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Actions</th>
+                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Old Filter Name</th>
+                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Old Filter ID</th>
+                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">New Filter Name</th>
+                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">New Filter ID</th>
+                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Performed By</th>
+                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Remarks</th>
+                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Date</th>
+                  <th className="text-right px-3 py-3.5 text-[11px] font-bold text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1752,7 +1752,7 @@ export function FilterDataManagementPage() {
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {['S.No', 'Filter', 'Micron Size', 'Air Pressure', 'RO Water', 'Wash In', 'Wash Out', 'Wash By', 'Dryer Temp', 'Dry In', 'Dry Out', 'Dry By', 'Duration', 'Status', 'Actions'].map((h, i) => (
-                    <th key={i} className="text-left px-3 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className="text-left px-3 py-3 text-[11px] font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1954,7 +1954,7 @@ export function FilterDataManagementPage() {
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {['Timestamp', 'Action', 'Performed By', 'Target', 'Status', 'Actions'].map((h, i) => (
-                    <th key={i} className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -2050,7 +2050,7 @@ export function FilterDataManagementPage() {
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {['Requester', 'Type', 'Status', 'Submitted', 'Processed By', 'Actions'].map((h, i) => (
-                    <th key={i} className="text-left px-5 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -2156,9 +2156,9 @@ export function FilterDataManagementPage() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                   {activeGenericTab.columns.map(col => (
-                    <th key={col} className="text-left px-3 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{col.replace(/([A-Z])/g, ' $1').trim()}</th>
+                    <th key={col} className="text-left px-3 py-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">{col.replace(/([A-Z])/g, ' $1').trim()}</th>
                   ))}
-                  <th className="text-right px-3 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky right-0 bg-slate-50/80">Actions</th>
+                  <th className="text-right px-3 py-3 text-[11px] font-bold text-slate-500 sticky right-0 bg-slate-50/80">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -2286,7 +2286,7 @@ export function FilterDataManagementPage() {
 
       {/* Delete Confirmation Dialog */}
       {confirmDelete && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
             <div className="h-1.5 bg-gradient-to-r from-red-500 to-rose-500" />
             <div className="p-6">
@@ -2326,9 +2326,9 @@ export function FilterDataManagementPage() {
           derived display columns). Checksum intentionally omitted because
           editing it would invalidate the SHA-256 hash chain. */}
       {rowEditDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="h-1.5 bg-gradient-to-r from-cyan-500 to-blue-500" />
+            <div className="h-1.5 bg-gradient-to-r from-brand-600 to-brand-700" />
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-[15px] font-bold text-slate-800">
@@ -2370,7 +2370,7 @@ export function FilterDataManagementPage() {
                       written back to the event that owns each one. */}
                   {cycleReadingGroups.length > 0 && (
                     <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <p className="mb-2 text-xs font-bold text-slate-500">
                         Instrument readings
                       </p>
                       <div className="space-y-3">
@@ -2496,7 +2496,7 @@ export function FilterDataManagementPage() {
               </button>
               <button onClick={submitRowEdit} disabled={rowEditSaving || !reasonOk(changeReason)}
                 title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
-                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
+                className="flex-1 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-brand-700 hover:to-brand-800">
                 {rowEditSaving ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
@@ -2506,9 +2506,9 @@ export function FilterDataManagementPage() {
 
       {/* Create-row Dialog — inserts a new record into the active tab's table */}
       {createDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="h-1.5 bg-gradient-to-r from-cyan-500 to-blue-500" />
+            <div className="h-1.5 bg-gradient-to-r from-brand-600 to-brand-700" />
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-[15px] font-bold text-slate-800">
@@ -2624,7 +2624,7 @@ export function FilterDataManagementPage() {
               </button>
               <button onClick={submitCreate} disabled={createSaving || !reasonOk(changeReason)}
                 title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
-                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
+                className="flex-1 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-brand-700 hover:to-brand-800">
                 {createSaving ? 'Creating…' : 'Create Record'}
               </button>
             </div>
@@ -2639,9 +2639,9 @@ export function FilterDataManagementPage() {
           Trail tab. Every mutation on this page needs a reason, and a textarea
           cannot live inside a table row. */}
       {reasonPrompt && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className={`h-1.5 bg-gradient-to-r ${reasonPrompt.danger ? 'from-red-500 to-rose-500' : 'from-cyan-500 to-blue-500'}`} />
+            <div className={`h-1.5 bg-gradient-to-r ${reasonPrompt.danger ? 'from-red-500 to-rose-500' : 'from-brand-600 to-brand-700'}`} />
             <div className="p-6">
               <h3 className="text-[15px] font-bold text-slate-800 mb-2">{reasonPrompt.title}</h3>
               <div className={`text-[13px] rounded-xl p-3 border ${reasonPrompt.danger ? 'bg-red-50 border-red-100 text-red-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2653,7 +2653,7 @@ export function FilterDataManagementPage() {
                   className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
                 <button onClick={runReasonPrompt} disabled={promptBusy || !reasonOk(promptReason)}
                   title={reasonOk(promptReason) ? undefined : 'Enter a reason for this change'}
-                  className={`flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition-colors ${reasonPrompt.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'}`}>
+                  className={`flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition-colors ${reasonPrompt.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800'}`}>
                   {promptBusy ? 'Working…' : reasonPrompt.confirmLabel}
                 </button>
               </div>
@@ -2667,7 +2667,7 @@ export function FilterDataManagementPage() {
           chain position are absent on purpose: editable, they would let the
           operator forge a chain link and conceal the break this edit creates. */}
       {auditEditDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="h-1.5 bg-gradient-to-r from-red-500 to-rose-500" />
             <div className="px-6 pt-5 pb-3">
@@ -2713,9 +2713,9 @@ export function FilterDataManagementPage() {
           replacement record" records a swap between two filters that already
           exist. Neither invents a filter — that belongs on the Filters page. */}
       {manualRecordDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="h-1.5 bg-gradient-to-r from-cyan-500 to-blue-500" />
+            <div className="h-1.5 bg-gradient-to-r from-brand-600 to-brand-700" />
             <div className="px-6 pt-5 pb-3">
               <h3 className="text-[15px] font-bold text-slate-800">
                 {manualRecordDialog.kind === 'retirement' ? 'Create retirement record' : 'Create replacement record'}
@@ -2768,7 +2768,7 @@ export function FilterDataManagementPage() {
                 className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
               <button onClick={submitManualRecord} disabled={manualRecordSaving || !reasonOk(changeReason)}
                 title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
-                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-cyan-500 hover:to-blue-500">
+                className="flex-1 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-brand-700 hover:to-brand-800">
                 {manualRecordSaving ? 'Creating…' : 'Create Record'}
               </button>
             </div>
@@ -2778,9 +2778,9 @@ export function FilterDataManagementPage() {
 
       {/* Unretire Dialog */}
       {unretireDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="h-1.5 bg-gradient-to-r from-emerald-500 to-teal-500" />
+            <div className="h-1.5 bg-gradient-to-r from-emerald-500 to-emerald-500" />
             <div className="p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
@@ -2809,7 +2809,7 @@ export function FilterDataManagementPage() {
                   className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
                 <button onClick={() => handleUnretire(unretireDialog.id)} disabled={processing || !reasonOk(changeReason)}
                   title={reasonOk(changeReason) ? undefined : 'Enter a reason for restoring this filter'}
-                  className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-500 transition-all">
+                  className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg hover:from-emerald-500 hover:to-emerald-500 transition-all">
                   {processing ? 'Restoring...' : 'Restore Filter'}
                 </button>
               </div>

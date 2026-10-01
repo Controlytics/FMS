@@ -111,7 +111,7 @@ export function VersionHistoryPage() {
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-center gap-3">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25">
+        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -142,7 +142,7 @@ export function VersionHistoryPage() {
           selectedId={selected?.id ?? null}
           onSelect={(id, name) => { setSelected({ kind: tab, id, name }); setSnapshot(null); }}
         />
-        <div className="md:col-span-2 bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm min-h-[20rem]">
+        <div className="md:col-span-2 bg-white rounded-2xl border border-slate-300 p-6 shadow-sm min-h-[20rem]">
           {selected ? (
             <VersionTimeline
               kind={selected.kind}
@@ -192,20 +192,20 @@ function EntityList({
   }
   if (!data) {
     return (
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 text-sm text-slate-400">Loading…</div>
+      <div className="bg-white rounded-2xl border border-slate-300 p-4 text-sm text-slate-400">Loading…</div>
     );
   }
   if (items.length === 0) {
     return (
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 text-sm text-slate-400">
+      <div className="bg-white rounded-2xl border border-slate-300 p-4 text-sm text-slate-400">
         No {tabConfig.label.toLowerCase()} yet.
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide font-semibold text-slate-500">
+    <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-500">
         {items.length} {tabConfig.label}
       </div>
       <div className="divide-y divide-slate-100 max-h-[32rem] overflow-y-auto">
@@ -214,7 +214,7 @@ function EntityList({
             key={it.id}
             onClick={() => onSelect(it.id, it.name ?? it.id)}
             className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
-              selectedId === it.id ? 'bg-indigo-50 border-l-2 border-indigo-500' : ''
+              selectedId === it.id ? 'bg-brand-50 border-l-2 border-brand-600' : ''
             }`}
           >
             <div className="text-sm font-medium text-slate-800">{tabConfig.itemLabel(it)}</div>
@@ -317,11 +317,11 @@ function VersionTimelineRow({
 
   return (
     <li className="ml-4">
-      <span className="absolute -left-2 w-4 h-4 rounded-full bg-indigo-500 border-2 border-white" />
+      <span className="absolute -left-2 w-4 h-4 rounded-full bg-brand-600 border-2 border-white" />
       <div className="bg-slate-50 border border-slate-200 rounded-xl">
         <button
           onClick={() => onPickVersion(versionNumber)}
-          className="w-full text-left px-4 py-3 hover:bg-indigo-50 hover:border-indigo-300 transition-colors rounded-xl"
+          className="w-full text-left px-4 py-3 hover:bg-slate-50 hover:border-slate-400 transition-colors rounded-xl"
         >
           <div className="flex items-baseline gap-3">
             <span className="text-sm font-semibold text-slate-800">v{versionNumber}</span>
@@ -336,7 +336,7 @@ function VersionTimelineRow({
           <div className="border-t border-slate-200 px-4 py-2">
             <button
               onClick={() => setShowDiff(s => !s)}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+              className="text-xs text-brand-700 hover:text-brand-800 font-medium"
             >
               {showDiff ? 'Hide comparison' : `Compare with v${versionNumber - 1}`}
             </button>
@@ -426,7 +426,7 @@ function VersionCompare({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {flowCol(`Before · v${prev}`, 'bg-slate-100 text-slate-600', prevData)}
-      {flowCol(`After · v${curr}`, 'bg-indigo-100 text-indigo-700', currData)}
+      {flowCol(`After · v${curr}`, 'bg-brand-100 text-brand-700', currData)}
     </div>
   );
 }
@@ -503,7 +503,7 @@ function DiffLine({ change }: { change: DiffChange }) {
   return (
     <li className={`border rounded-lg px-2.5 py-1.5 ${meta.box}`}>
       <div className="flex items-baseline gap-2 flex-wrap">
-        <span className={`text-[10px] font-bold uppercase tracking-wide ${meta.tagColor}`}>{meta.tag}</span>
+        <span className={`text-[11px] font-bold ${meta.tagColor}`}>{meta.tag}</span>
         <span className="font-semibold text-slate-800">{humanizePath(change.path)}</span>
       </div>
       {change.kind === 'changed' && (
@@ -646,7 +646,7 @@ function SnapshotModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl border-2 border-slate-200 shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col"
+        className="bg-white rounded-2xl border border-slate-300 shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
@@ -692,7 +692,7 @@ function SnapshotBody({ kind, data }: { kind: EntityKind; data: any }) {
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline gap-3">
-      <span className="text-xs uppercase tracking-wide text-slate-500 w-32 shrink-0">{label}</span>
+      <span className="text-xs text-slate-500 w-32 shrink-0">{label}</span>
       <span className="text-sm text-slate-800">{value ?? <span className="text-slate-400">—</span>}</span>
     </div>
   );
@@ -797,13 +797,13 @@ function CleaningProfileSnapshot({ data }: { data: any }) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Pipeline flow</h5>
+        <h5 className="text-xs text-slate-500 mb-2">Pipeline flow</h5>
         <ProfileFlow stages={stages} connections={connections} />
       </div>
 
       {reasons.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Cleaning reasons ({reasons.length})</h5>
+          <h5 className="text-xs text-slate-500 mb-2">Cleaning reasons ({reasons.length})</h5>
           <ul className="text-sm space-y-1">
             {reasons.map((r: any, i: number) => (
               <li key={r.key ?? i} className="flex items-baseline gap-3">
@@ -817,7 +817,7 @@ function CleaningProfileSnapshot({ data }: { data: any }) {
       )}
 
       <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Pipeline stages ({stages.length})</h5>
+        <h5 className="text-xs text-slate-500 mb-2">Pipeline stages ({stages.length})</h5>
         {stages.length === 0 ? (
           <p className="text-sm text-slate-400">No stages.</p>
         ) : (
@@ -840,7 +840,7 @@ function CleaningProfileSnapshot({ data }: { data: any }) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Connections ({connections.length})</h5>
+        <h5 className="text-xs text-slate-500 mb-2">Connections ({connections.length})</h5>
         {connections.length === 0 ? (
           <p className="text-sm text-slate-400">No connections.</p>
         ) : (
@@ -875,7 +875,7 @@ function ChecklistProfileSnapshot({ data }: { data: any }) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">Questions ({questions.length})</h5>
+        <h5 className="text-xs text-slate-500 mb-2">Questions ({questions.length})</h5>
         {questions.length === 0 ? (
           <p className="text-sm text-slate-400">No questions.</p>
         ) : (
@@ -924,7 +924,7 @@ function EquipmentGroupSnapshot({ data }: { data: any }) {
 
       {Object.entries(byStage).map(([stage, items]) => (
         <div key={stage} className="bg-white border border-slate-200 rounded-xl p-4">
-          <h5 className="text-xs uppercase tracking-wide text-slate-500 mb-2">{stage} ({items.length})</h5>
+          <h5 className="text-xs text-slate-500 mb-2">{stage} ({items.length})</h5>
           <table className="w-full text-sm">
             <thead className="text-xs text-slate-500 border-b border-slate-200">
               <tr>

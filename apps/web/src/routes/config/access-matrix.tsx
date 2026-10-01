@@ -157,7 +157,7 @@ export function AccessMatrixPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25">
+          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
@@ -182,7 +182,7 @@ export function AccessMatrixPage() {
             type="button"
             onClick={save}
             disabled={!dirty || saving}
-            className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-brand-700 hover:bg-brand-700 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
@@ -199,29 +199,29 @@ export function AccessMatrixPage() {
             <table className="w-full">
               <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                 <tr>
-                  <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Module</th>
+                  <th className="text-left px-5 py-3 text-xs font-bold text-slate-500">Module</th>
                   {roles.map(r => (
-                    <th key={r.name} className="px-3 py-3 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    <th key={r.name} className="px-3 py-3 text-center text-xs font-bold text-slate-500 whitespace-nowrap">
                       <div className="flex flex-col items-center gap-1">
                         <span>{r.displayName}</span>
                         <button
                           type="button"
                           onClick={() => toggleColumnAll(r.name)}
-                          className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-700"
+                          className="text-[10px] font-semibold text-brand-700 hover:text-brand-700"
                         >
                           toggle all
                         </button>
                       </div>
                     </th>
                   ))}
-                  <th className="px-3 py-3 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wider">Row</th>
+                  <th className="px-3 py-3 text-center text-xs font-bold text-slate-500">Row</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {[...modulesByCategory.entries()].map(([category, modules]) => (
                   <Fragment key={category}>
                     <tr className="bg-slate-50/50">
-                      <td colSpan={roles.length + 2} className="px-5 py-2 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                      <td colSpan={roles.length + 2} className="px-5 py-2 text-xs font-bold text-slate-600">
                         {category}
                       </td>
                     </tr>
@@ -237,7 +237,7 @@ export function AccessMatrixPage() {
                               type="checkbox"
                               checked={isAssigned(m.moduleKey, r.name)}
                               onChange={() => toggle(m.moduleKey, r.name)}
-                              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              className="w-4 h-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600/15"
                             />
                           </td>
                         ))}
@@ -245,7 +245,7 @@ export function AccessMatrixPage() {
                           <button
                             type="button"
                             onClick={() => toggleRowAll(m.moduleKey)}
-                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700"
+                            className="text-[11px] font-semibold text-brand-700 hover:text-brand-700"
                           >
                             all
                           </button>

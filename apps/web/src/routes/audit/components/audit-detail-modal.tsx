@@ -80,7 +80,7 @@ export function AuditDetailModal({
     <Dialog open={!!selectedRecord} onClose={onClose} className="max-w-2xl">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-indigo-100 text-indigo-600">
+          <div className="p-2 rounded-xl bg-brand-100 text-brand-700">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
@@ -97,12 +97,12 @@ export function AuditDetailModal({
         return (
         <div className="space-y-4 max-h-[70vh] overflow-y-auto">
           {/* What happened, and when. */}
-          <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100">
-            <p className="text-sm font-semibold text-indigo-900">
+          <div className="p-4 rounded-xl bg-gradient-to-r from-brand-50 to-brand-50 border border-brand-100">
+            <p className="text-sm font-semibold text-brand-900">
               {getAuditSummary(selectedRecord, templates)}
             </p>
             <div className="flex items-center gap-3 mt-2">
-              <p className="text-xs text-indigo-500">
+              <p className="text-xs text-brand-600">
                 {formatDateTime(selectedRecord.timestamp)}
               </p>
               {detailStatus === 'Success' ? (
@@ -155,10 +155,10 @@ export function AuditDetailModal({
           )}
 
           {/* ── The change: old value → new value, and nothing else ─────────── */}
-          <div className="rounded-xl border border-indigo-100 overflow-hidden">
-            <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-100">
-              <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                Changes{changes.length > 0 && <span className="font-normal text-indigo-400"> ({changes.length})</span>}
+          <div className="rounded-xl border border-brand-100 overflow-hidden">
+            <div className="px-4 py-2 bg-brand-50 border-b border-brand-100">
+              <p className="text-xs font-semibold text-brand-700">
+                Changes{changes.length > 0 && <span className="font-normal text-brand-500"> ({changes.length})</span>}
               </p>
             </div>
             <div className="p-4 bg-white" data-testid="audit-changes">
@@ -166,7 +166,7 @@ export function AuditDetailModal({
                 <div className="space-y-2">
                   {changes.map((c) => (
                     <div key={c.field} className="flex items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider min-w-[120px] pt-0.5">{c.field}</span>
+                      <span className="text-xs font-semibold text-slate-500 min-w-[120px] pt-0.5">{c.field}</span>
                       <span className="text-sm flex items-center gap-2 flex-wrap">
                         <ChangeValue text={c.from} tone="from" />
                         <span className="text-slate-400">→</span>
@@ -194,7 +194,7 @@ export function AuditDetailModal({
           {/* Reason — the operator's justification is part of what happened. */}
           {selectedRecord.reason && (
             <div className="p-4 rounded-xl bg-amber-50 border border-amber-100">
-              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-1">Reason</p>
+              <p className="text-xs font-semibold text-amber-700 mb-1">Reason</p>
               <p className="text-sm text-amber-800">{selectedRecord.reason}</p>
             </div>
           )}
@@ -215,16 +215,16 @@ export function AuditDetailModal({
             if (!oldId && !newId) return null;
             const Side = ({ heading, name, id, tone }: { heading: string; name: string; id: string; tone: 'rose' | 'emerald' }) => (
               <div className={`p-3 rounded-xl border ${tone === 'rose' ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                <p className={`text-xs font-semibold uppercase tracking-wider ${tone === 'rose' ? 'text-rose-700' : 'text-emerald-700'}`}>{heading}</p>
+                <p className={`text-xs font-semibold ${tone === 'rose' ? 'text-rose-700' : 'text-emerald-700'}`}>{heading}</p>
                 <p className="text-sm font-semibold text-slate-800 mt-1 break-words">{name || '—'}</p>
-                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mt-2">Filter ID</p>
+                <p className="text-[11px] font-medium text-slate-500 mt-2">Filter ID</p>
                 <code className="text-[11px] font-mono text-slate-600 break-all">{id || '—'}</code>
               </div>
             );
             return (
               <div className="rounded-xl border border-slate-200 overflow-hidden">
                 <div className="px-4 py-2 bg-slate-50 border-b border-slate-200">
-                  <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Replacement</p>
+                  <p className="text-xs font-semibold text-slate-700">Replacement</p>
                 </div>
                 <div className="p-4 bg-white grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Side heading="Replaced (old)" name={oldName} id={oldId} tone="rose" />
@@ -249,24 +249,24 @@ export function AuditDetailModal({
               panel would look like the record was empty. */}
           {isSuperAdmin && hasFullRecord && (
             <details className="rounded-xl border border-slate-200 overflow-hidden" open={changes.length === 0}>
-              <summary className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none">
+              <summary className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 cursor-pointer select-none">
                 Full record (previous / new)
               </summary>
               <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <p className="text-xs font-semibold text-red-700 uppercase tracking-wider mb-2">Previous Value</p>
+                  <p className="text-xs font-semibold text-red-700 mb-2">Previous Value</p>
                   {beforeEntries.length === 0 ? <p className="text-sm text-slate-400">—</p> : beforeEntries.map(([key, value]) => (
                     <div key={key} className="py-1 text-sm">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-2">{prettyFieldName(key)}</span>
+                      <span className="text-xs font-semibold text-slate-500 mr-2">{prettyFieldName(key)}</span>
                       <span className="text-slate-800 break-all">{maskAuditValue(key, value)}</span>
                     </div>
                   ))}
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-2">New Value</p>
+                  <p className="text-xs font-semibold text-green-700 mb-2">New Value</p>
                   {afterEntries.length === 0 ? <p className="text-sm text-slate-400">—</p> : afterEntries.map(([key, value]) => (
                     <div key={key} className="py-1 text-sm">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-2">{prettyFieldName(key)}</span>
+                      <span className="text-xs font-semibold text-slate-500 mr-2">{prettyFieldName(key)}</span>
                       <span className="text-slate-800 break-all">{maskAuditValue(key, value)}</span>
                     </div>
                   ))}
@@ -284,33 +284,33 @@ export function AuditDetailModal({
               Not a security boundary — see the note on the component above. */}
           {isSuperAdmin && (
           <details className="rounded-xl border border-slate-200 overflow-hidden">
-            <summary className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none">
+            <summary className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 cursor-pointer select-none">
               Record details
             </summary>
             <div className="p-4 bg-white space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Record ID</p>
+                  <p className="text-xs font-medium text-slate-500">Record ID</p>
                   <p className="text-sm font-semibold text-slate-800 mt-1 break-all">#{selectedRecord.id}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Timestamp</p>
+                  <p className="text-xs font-medium text-slate-500">Timestamp</p>
                   <p className="text-sm font-semibold text-slate-800 mt-1">
                     {formatDateTime(selectedRecord.timestamp)}
                   </p>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Performed By</p>
+                  <p className="text-xs font-medium text-slate-500">Performed By</p>
                   <p className="text-sm font-semibold text-slate-800 mt-1">{selectedRecord.userId}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Action</p>
+                  <p className="text-xs font-medium text-slate-500">Action</p>
                   <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium border mt-1 ${ACTION_COLORS[selectedRecord.action] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
                     {selectedRecord.action}
                   </span>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Status</p>
+                  <p className="text-xs font-medium text-slate-500">Status</p>
                   <div className="mt-1">
                     {detailStatus === 'Success' ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Success</span>
@@ -320,17 +320,17 @@ export function AuditDetailModal({
                   </div>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">User Role</p>
+                  <p className="text-xs font-medium text-slate-500">User Role</p>
                   <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold mt-1 ${ROLE_COLORS[selectedRecord.userRole] || 'bg-slate-100 text-slate-700'}`}>
                     {selectedRecord.userRole}
                   </span>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">IP Address</p>
+                  <p className="text-xs font-medium text-slate-500">IP Address</p>
                   <p className="text-sm font-mono text-slate-800 mt-1">{selectedRecord.ipAddress || '-'}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Target Type</p>
+                  <p className="text-xs font-medium text-slate-500">Target Type</p>
                   <p className="text-sm font-semibold text-slate-800 mt-1">{selectedRecord.targetType || '-'}</p>
                 </div>
               </div>
@@ -340,7 +340,7 @@ export function AuditDetailModal({
                   <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
-                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Integrity Checksum (SHA-256)</p>
+                  <p className="text-xs font-semibold text-slate-600">Integrity Checksum (SHA-256)</p>
                 </div>
                 <code className="text-xs font-mono text-slate-600 break-all">{selectedRecord.checksum}</code>
               </div>

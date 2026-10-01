@@ -132,7 +132,7 @@ export function RoleAccessPage() {
   const renderHeaderActions = () => {
     if (activeTab === 'roles' && isSuperAdmin) {
       return (
-        <Button onClick={openCreateDialog} className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold">
+        <Button onClick={openCreateDialog} className="bg-white text-brand-700 hover:bg-slate-50 shadow-lg font-semibold">
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Create Role
         </Button>
@@ -140,7 +140,7 @@ export function RoleAccessPage() {
     }
     if (activeTab === 'permissions' && permState.dirty) {
       return (
-        <Button onClick={() => permissionsRef.current?.save()} disabled={permState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold">
+        <Button onClick={() => permissionsRef.current?.save()} disabled={permState.saving} className="bg-white text-brand-700 hover:bg-slate-50 shadow-lg font-semibold">
           {permState.saving ? (
             <><svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Saving...</>
           ) : (
@@ -151,7 +151,7 @@ export function RoleAccessPage() {
     }
     if (activeTab === 'sidebar' && sidebarState.dirty && sidebarState.canSave) {
       return (
-        <Button onClick={() => sidebarRef.current?.save()} disabled={sidebarState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold">
+        <Button onClick={() => sidebarRef.current?.save()} disabled={sidebarState.saving} className="bg-white text-brand-700 hover:bg-slate-50 shadow-lg font-semibold">
           {sidebarState.saving ? (
             <><svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Saving...</>
           ) : (
@@ -166,7 +166,7 @@ export function RoleAccessPage() {
           <Button onClick={() => reauthRef.current?.reset()} variant="outline" className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-semibold">
             Discard
           </Button>
-          <Button onClick={() => reauthRef.current?.save()} disabled={reauthState.saving} className="bg-white text-purple-600 hover:bg-purple-50 shadow-lg font-semibold">
+          <Button onClick={() => reauthRef.current?.save()} disabled={reauthState.saving} className="bg-white text-brand-700 hover:bg-slate-50 shadow-lg font-semibold">
             {reauthState.saving ? (
               <><svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Saving...</>
             ) : (
@@ -182,7 +182,7 @@ export function RoleAccessPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-600 p-6 text-white shadow-2xl">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 p-6 text-white shadow-2xl">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -197,7 +197,7 @@ export function RoleAccessPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold">Role & Access Configuration</h1>
-                <p className="text-purple-100/80 text-sm">Manage roles, permissions, sidebar visibility, and re-authentication</p>
+                <p className="text-brand-100/80 text-sm">Manage roles, permissions, sidebar visibility, and re-authentication</p>
               </div>
             </div>
           </div>
@@ -215,7 +215,7 @@ export function RoleAccessPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 px-6 py-4 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
                 activeTab === tab.id
-                  ? 'bg-violet-50 text-violet-700 border-b-2 border-violet-500'
+                  ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-600'
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
@@ -234,14 +234,14 @@ export function RoleAccessPage() {
           <RoleTable roles={roles} isLoading={rolesLoading} isSuperAdmin={isSuperAdmin} onEdit={openEditDialog} onDelete={openDeleteDialog} />
 
           {/* Info Banner */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-100/50 p-5">
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-50 to-brand-50 border border-brand-100/50 p-5">
             <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg shadow-purple-500/25">
+              <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h3 className="font-bold text-purple-900 mb-1">Role Hierarchy</h3>
-                <p className="text-sm text-purple-700">
+                <h3 className="font-bold text-brand-900 mb-1">Role Hierarchy</h3>
+                <p className="text-sm text-brand-700">
                   Users can only create or manage users with roles of equal or lower hierarchy level.
                   System roles (marked with the System badge) cannot be deleted but their permissions can be customized.
                 </p>

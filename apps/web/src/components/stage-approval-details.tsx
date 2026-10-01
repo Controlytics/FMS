@@ -30,7 +30,7 @@ export function StageApprovalDetailsCard({ stageKey, details, compact = false, o
       {groups.map((g) => (
         <div key={g.title} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           <div className="flex items-center justify-between px-3 py-1.5 bg-slate-50 border-b border-slate-100">
-            <span className={`${labelCls} font-bold uppercase tracking-wider text-slate-500`}>{g.title}</span>
+            <span className={`${labelCls} font-bold text-slate-500`}>{g.title}</span>
             {onEdit && g === groups[0] && (
               <button type="button" onClick={onEdit} title="Edit stage details (Super Admin)" aria-label="Edit stage details (Super Admin)"
                 className="p-1 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors">
@@ -41,7 +41,7 @@ export function StageApprovalDetailsCard({ stageKey, details, compact = false, o
           <div className="divide-y divide-slate-100">
             {g.rows.map((row, i) => (
               <div key={`${row.label}-${i}`} className="flex items-center justify-between gap-3 px-3 py-1.5">
-                <span className={`${labelCls} uppercase tracking-wider text-slate-400 shrink-0`}>{row.label}</span>
+                <span className={`${labelCls} text-slate-500 shrink-0`}>{row.label}</span>
                 <span className={`${valueCls} font-medium text-slate-700 text-right`}>{row.value}</span>
               </div>
             ))}

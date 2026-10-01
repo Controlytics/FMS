@@ -42,7 +42,7 @@ export function BulkRetireReplacePanel({
             <label className="block text-sm font-medium text-slate-600 mb-1">Remarks <span className="text-red-500">*</span></label>
             <textarea value={remarks} onChange={e => onRemarksChange(e.target.value)}
               placeholder={`Enter reason for ${action === 'retire' ? 'retirement' : 'replacement'}...`} rows={4}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]" />
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]" />
           </div>
         </div>
         <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">

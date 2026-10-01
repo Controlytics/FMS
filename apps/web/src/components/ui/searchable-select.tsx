@@ -145,7 +145,7 @@ export function SearchableSelect({
           'border-2 border-slate-200 bg-white text-sm font-medium text-slate-700',
           'shadow-sm transition-all duration-200 ease-out',
           'hover:border-slate-300 hover:bg-slate-50/50 hover:shadow-md',
-          'focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10',
+          'focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15',
           'disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-50',
           triggerClassName,
         )}
@@ -155,7 +155,7 @@ export function SearchableSelect({
         </span>
         <ChevronDown
           className={cn(
-            'ml-1 h-4 w-4 shrink-0 text-indigo-500 transition-transform duration-200',
+            'ml-1 h-4 w-4 shrink-0 text-brand-600 transition-transform duration-200',
             open && 'rotate-180',
           )}
         />
@@ -170,7 +170,7 @@ export function SearchableSelect({
             // inside the scroll container that clips it.
             'w-max min-w-full max-w-[70vw]',
             align === 'right' ? 'right-0' : 'left-0',
-            'border-2 border-slate-200 bg-white shadow-lg',
+            'border border-slate-300 bg-white shadow-lg',
           )}
         >
           <div className="relative border-b border-slate-200 p-2">
@@ -184,7 +184,7 @@ export function SearchableSelect({
               className={cn(
                 'h-10 w-full rounded-lg bg-slate-50 pl-9 pr-9 text-sm text-slate-700',
                 'placeholder:text-slate-400',
-                'focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
+                'focus:bg-white focus:outline-none focus:ring-3 focus:ring-brand-600/15',
               )}
             />
             {query && (
@@ -217,9 +217,9 @@ export function SearchableSelect({
                   onClick={() => select(option.value)}
                   className={cn(
                     'flex h-11 w-full items-center px-4 text-left text-sm',
-                    'transition-colors duration-150 hover:bg-indigo-50',
+                    'transition-colors duration-150 hover:bg-slate-50',
                     option.value === value
-                      ? 'bg-indigo-50 font-semibold text-indigo-700'
+                      ? 'bg-brand-50 font-semibold text-brand-700'
                       : 'text-slate-700',
                   )}
                 >

@@ -208,7 +208,7 @@ export function DryingFiltersPanel({
     <div className={isMobile ? 'bg-white border border-amber-200 rounded-2xl overflow-hidden' : 'bg-white border border-slate-200 rounded-2xl p-5 space-y-3'}>
       <ReauthPrompt reauth={reauth} />
       <div className={isMobile ? 'bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 flex items-center justify-between' : 'flex items-center justify-between'}>
-        <h3 className={isMobile ? 'text-sm font-bold text-white' : 'text-sm font-semibold text-slate-500 uppercase tracking-wider'}>
+        <h3 className={isMobile ? 'text-sm font-bold text-white' : 'text-sm font-semibold text-slate-500'}>
           Currently Drying ({visible.length})
         </h3>
         {readyRows.length > 0 && (

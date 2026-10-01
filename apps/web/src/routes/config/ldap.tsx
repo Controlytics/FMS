@@ -144,7 +144,7 @@ export default function LdapConfigPage() {
           <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </Link>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/25">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
             </svg>
@@ -195,30 +195,30 @@ export default function LdapConfigPage() {
             <div className="col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Server URL <span className="text-red-500">*</span></label>
               <input value={config.serverUrl} onChange={e => updateField('serverUrl', e.target.value)} placeholder="ldaps://ad.company.com:636"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
               <p className="text-xs text-slate-400 mt-1">Use ldaps:// for secure connection (port 636) or ldap:// for plain (port 389)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind DN <span className="text-red-500">*</span></label>
               <input value={config.bindDN} onChange={e => updateField('bindDN', e.target.value)} placeholder="CN=svc_digilog,OU=Service Accounts,DC=company,DC=com"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind Password <span className="text-red-500">*</span></label>
               <input type="password" value={config.bindPassword} onChange={e => updateField('bindPassword', e.target.value)} placeholder="Service account password"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Connection Timeout (ms)</label>
               <input type="number" value={config.connectionTimeout} onChange={e => updateField('connectionTimeout', Number(e.target.value))}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
             </div>
             <div className="flex items-end pb-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={config.tlsRejectUnauthorized} onChange={e => updateField('tlsRejectUnauthorized', e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-green-500" />
+                  className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-brand-600/15" />
                 <span className="text-sm text-slate-700">Verify TLS Certificate</span>
               </label>
             </div>
@@ -256,25 +256,25 @@ export default function LdapConfigPage() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Base DN <span className="text-red-500">*</span></label>
             <input value={config.searchBase} onChange={e => updateField('searchBase', e.target.value)} placeholder="OU=Users,DC=company,DC=com"
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Filter</label>
             <input value={config.searchFilter} onChange={e => updateField('searchFilter', e.target.value)} placeholder="(sAMAccountName={{username}})"
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
             <p className="text-xs text-slate-400 mt-1">Use {'{{username}}'} as placeholder for the login username</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Username Attribute</label>
               <input value={config.usernameAttribute} onChange={e => updateField('usernameAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
               <p className="text-xs text-slate-400 mt-1">AD: sAMAccountName, OpenLDAP: uid</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Group Attribute</label>
               <input value={config.groupAttribute} onChange={e => updateField('groupAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
             </div>
           </div>
         </div>
@@ -293,23 +293,23 @@ export default function LdapConfigPage() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
               <input value={config.fullNameAttribute} onChange={e => updateField('fullNameAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input value={config.emailAttribute} onChange={e => updateField('emailAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
               <input value={config.departmentAttribute} onChange={e => updateField('departmentAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
             </div>
           </div>
           <div className="mt-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={config.syncAttributes} onChange={e => updateField('syncAttributes', e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-green-500" />
+                className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-brand-600/15" />
               <span className="text-sm text-slate-700">Sync attributes on every login</span>
             </label>
           </div>
@@ -338,11 +338,11 @@ export default function LdapConfigPage() {
               <div key={i} className="flex items-center gap-3">
                 <div className="flex-1">
                   <input value={mapping.ldapGroup} onChange={e => updateRoleMapping(i, 'ldapGroup', e.target.value)} placeholder="CN=Admins,OU=Groups,DC=company,DC=com"
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500/30" />
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
                 </div>
                 <svg className="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                 <select value={mapping.role} onChange={e => updateRoleMapping(i, 'role', e.target.value)}
-                  className="w-48 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30">
+                  className="w-48 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15">
                   {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
                 </select>
                 <button onClick={() => removeRoleMapping(i)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
@@ -354,7 +354,7 @@ export default function LdapConfigPage() {
           <div className="pt-2">
             <label className="block text-sm font-medium text-slate-700 mb-1">Default Role (when no group matches)</label>
             <select value={config.defaultRole} onChange={e => updateField('defaultRole', e.target.value)}
-              className="w-64 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30">
+              className="w-64 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15">
               {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
             </select>
           </div>
@@ -368,7 +368,7 @@ export default function LdapConfigPage() {
         </Link>
         <button onClick={handleSave} disabled={saving || !canWrite || !dirty}
           title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-          className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 shadow-lg shadow-green-500/25">
+          className="inline-flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-medium hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 shadow-lg">
           {saving ? 'Saving...' : 'Save Configuration'}
         </button>
       </div>

@@ -26,8 +26,10 @@ export function useRfidGuard() {
     const MIN_FAST_KEYS = 3;
 
     const handler = (e: KeyboardEvent) => {
-      // Only track printable characters
-      if (e.key.length !== 1) return;
+      // Only track printable characters. `key` is undefined on the synthetic
+      // keydown Chrome dispatches when it autofills a field (seen on the SMTP
+      // password input) — reading `.length` there threw on every autofill.
+      if (!e.key || e.key.length !== 1) return;
 
       // Allow if focused element is an RFID input
       const target = e.target as HTMLElement;

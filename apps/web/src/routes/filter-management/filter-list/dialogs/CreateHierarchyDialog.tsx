@@ -18,7 +18,7 @@ export function CreateHierarchyDialog({
   onNameChange, onAttrChange, onCancel, onSubmit,
 }: Props) {
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
         <div className={`h-1.5 ${dialog.type === 'block' ? '' : dialog.type === 'area' ? 'bg-gradient-to-r from-purple-500 to-violet-500' : 'bg-gradient-to-r from-teal-500 to-emerald-500'}`} style={dialog.type === 'block' ? { background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' } : undefined} />
         <div className="p-6">
@@ -35,15 +35,15 @@ export function CreateHierarchyDialog({
           </div>
           <div className="space-y-3 mb-5 max-h-[50vh] overflow-y-auto">
             <div>
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Name <span className="text-red-500">*</span></label>
+              <label className="text-xs font-bold text-slate-500 mb-1.5 block">Name <span className="text-red-500">*</span></label>
               <input value={name} onChange={e => onNameChange(e.target.value)} autoFocus
                 placeholder={`Enter ${dialog.type} name...`}
-                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none" />
+                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none" />
             </div>
             {/* Dynamic attribute fields from template schema */}
             {schema.map((field: any) => (
               <div key={field.fieldName}>
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">
+                <label className="text-xs font-bold text-slate-500 mb-1.5 block">
                   {field.fieldName.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()}
                   {field.unit && <span className="text-slate-400 normal-case font-normal"> ({field.unit})</span>}
                   {field.required && <span className="text-red-500"> *</span>}
@@ -52,7 +52,7 @@ export function CreateHierarchyDialog({
                   <select
                     value={attrs[field.fieldName] ?? ''}
                     onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none"
                   >
                     <option value="">Select...</option>
                     {(field.dropdownOptions ?? []).map((opt: string) => (
@@ -63,7 +63,7 @@ export function CreateHierarchyDialog({
                   <select
                     value={attrs[field.fieldName] ?? ''}
                     onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none"
                   >
                     <option value="">Select...</option>
                     <option value="true">Yes</option>
@@ -74,7 +74,7 @@ export function CreateHierarchyDialog({
                     type="date"
                     value={attrs[field.fieldName] ?? ''}
                     onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none"
                   />
                 ) : (
                   <input
@@ -83,7 +83,7 @@ export function CreateHierarchyDialog({
                     value={attrs[field.fieldName] ?? ''}
                     onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
                     placeholder={field.fieldName.replace(/_/g, ' ')}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none"
                   />
                 )}
               </div>
@@ -95,8 +95,8 @@ export function CreateHierarchyDialog({
             <button onClick={onSubmit} disabled={creating || !name.trim()}
               className={`flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg ${
                 dialog.type === 'block' ? ''
-                : dialog.type === 'area' ? 'bg-gradient-to-r from-purple-600 to-violet-600 shadow-purple-500/25'
-                : 'bg-gradient-to-r from-teal-600 to-emerald-600 shadow-teal-500/25'
+                : dialog.type === 'area' ? 'bg-gradient-to-r from-purple-600 to-violet-600'
+                : 'bg-gradient-to-r from-teal-600 to-emerald-600'
               }`}
               style={dialog.type === 'block' ? themeButton : undefined}>
               {creating ? 'Creating...' : 'Create'}

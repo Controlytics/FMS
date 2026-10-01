@@ -27,8 +27,8 @@ const VARIANTS: Record<DialogVariant, {
     defaultMessage: 'Your changes have been saved successfully.',
   },
   error: {
-    header: 'linear-gradient(to right, #dc2626, #b91c1c)',
-    okStyle: { background: 'linear-gradient(to right, #dc2626, #b91c1c)' },
+    header: '#b91c1c',
+    okStyle: { background: '#b91c1c' },
     iconPath: 'M6 18L18 6M6 6l12 12', // X
     defaultMessage: 'Something went wrong. Please try again.',
   },
@@ -45,13 +45,13 @@ export function MessageDialog({ item, onDismiss }: { item: DialogMessage; onDism
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4"
+      className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[80] p-4"
       onClick={() => onDismiss(item.id)}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl"
+        className="bg-white border border-slate-200 rounded-xl w-full max-w-sm overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-4 flex items-center gap-3" style={{ background: v.header }}>
@@ -60,7 +60,7 @@ export function MessageDialog({ item, onDismiss }: { item: DialogMessage; onDism
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d={v.iconPath} />
             </svg>
           </div>
-          <h2 className="text-lg font-bold text-white">{item.title}</h2>
+          <h2 className="text-base font-semibold text-white">{item.title}</h2>
         </div>
 
         <div className="px-6 py-5">

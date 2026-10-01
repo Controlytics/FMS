@@ -10,14 +10,14 @@ import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shar
 // ── Re-auth tab constants ──
 const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgLight: string; icon: string; description: string }> = {
   'User Management': {
-    gradient: 'from-blue-600 to-indigo-600',
+    gradient: 'from-brand-600 to-brand-700',
     bgLight: 'bg-blue-50 border-blue-200 text-blue-700',
     icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z',
     description: 'Account creation, modification, and access control',
   },
   'Configuration': {
-    gradient: 'from-purple-600 to-pink-600',
-    bgLight: 'bg-purple-50 border-purple-200 text-purple-700',
+    gradient: 'from-brand-600 to-brand-700',
+    bgLight: 'bg-brand-50 border-brand-200 text-brand-700',
     icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z',
     description: 'System policy and security settings',
   },
@@ -34,14 +34,14 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     description: 'Database export and restore operations',
   },
   'Asset Management': {
-    gradient: 'from-emerald-500 to-teal-600',
+    gradient: 'from-emerald-500 to-emerald-600',
     bgLight: 'bg-emerald-50 border-emerald-200 text-emerald-700',
     icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
     description: 'Asset CRUD, relationships, and identifiers',
   },
   // 'Alarms' category removed 2026-05-17 (alarm subsystem retired).
   'Checklist': {
-    gradient: 'from-cyan-500 to-blue-600',
+    gradient: 'from-brand-600 to-brand-700',
     bgLight: 'bg-cyan-50 border-cyan-200 text-cyan-700',
     icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
     description: 'Checklist submission, review, and approval',
@@ -55,7 +55,7 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     description: 'Help article management',
   },
   'Filter Management': {
-    gradient: 'from-sky-500 to-blue-600',
+    gradient: 'from-brand-600 to-brand-700',
     bgLight: 'bg-sky-50 border-sky-200 text-sky-700',
     icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
     description: 'Filter cleaning cycle operations and deviations',
@@ -67,8 +67,8 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     description: 'Cleaning pipeline profile management',
   },
   'Filter Profiles': {
-    gradient: 'from-indigo-500 to-violet-600',
-    bgLight: 'bg-indigo-50 border-indigo-200 text-indigo-700',
+    gradient: 'from-brand-600 to-brand-700',
+    bgLight: 'bg-brand-50 border-brand-200 text-brand-700',
     icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10',
     description: 'Filter-to-profile assignment and management',
   },
@@ -85,7 +85,7 @@ const REAUTH_CATEGORY_META: Record<ReauthActionCategory, { gradient: string; bgL
     description: 'Equipment group and instrument configuration',
   },
   'Reports': {
-    gradient: 'from-sky-500 to-blue-600',
+    gradient: 'from-brand-600 to-brand-700',
     bgLight: 'bg-sky-50 border-sky-200 text-sky-700',
     icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
     description: 'Report template and generation management',
@@ -323,13 +323,13 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
               </div>
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-purple-50">
-                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="p-2 rounded-lg bg-brand-50">
+                    <svg className="w-5 h-5 text-brand-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                   </div>
                   <div>
-                    <p className="text-2xl font-bold text-purple-700">{reauthStats.totalChecks}</p>
+                    <p className="text-2xl font-bold text-brand-700">{reauthStats.totalChecks}</p>
                     <p className="text-xs text-slate-500">Total Checks</p>
                   </div>
                 </div>
@@ -350,7 +350,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
             </div>
 
             {/* Info Banner */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200/60 p-4">
+            <div className="bg-gradient-to-r from-brand-50 to-brand-50 rounded-xl border border-blue-200/60 p-4">
               <div className="flex items-start gap-3">
                 <div className="p-1.5 rounded-lg bg-blue-100 flex-shrink-0 mt-0.5">
                   <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -414,7 +414,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
                 <select
                   value={reauthRoleFilter}
                   onChange={e => setReauthRoleFilter(e.target.value)}
-                  className="h-10 px-3 pr-8 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 cursor-pointer appearance-none"
+                  className="h-10 px-3 pr-8 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 cursor-pointer appearance-none"
                   style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', backgroundSize: '16px' }}
                 >
                   <option value="all">All Roles ({selectableRoles.length})</option>
@@ -426,12 +426,12 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
             </div>
 
             {/* Matrix Table */}
-            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40">
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl">
               <div className="overflow-x-auto rounded-2xl">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200" style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
-                      <th className="text-left px-5 pt-4 pb-3 text-xs font-semibold text-slate-500 uppercase tracking-wider" style={{ minWidth: reauthVisibleRoles.length > 3 ? '240px' : '300px' }}>
+                      <th className="text-left px-5 pt-4 pb-3 text-xs font-semibold text-slate-500" style={{ minWidth: reauthVisibleRoles.length > 3 ? '240px' : '300px' }}>
                         Action
                       </th>
                       {reauthVisibleRoles.map(role => (
@@ -615,7 +615,7 @@ function ReauthCategorySection({
                     />
                     <div className={`w-5 h-5 rounded-md border-2 transition-all duration-150 flex items-center justify-center
                       ${checked
-                        ? 'border-blue-500 bg-blue-500 shadow-sm shadow-blue-500/25'
+                        ? 'border-blue-500 bg-blue-500 shadow-sm'
                         : 'border-slate-300 bg-white group-hover/check:border-slate-400 group-hover/check:bg-slate-50'
                       }`}
                     >

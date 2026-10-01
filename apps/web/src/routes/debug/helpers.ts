@@ -49,7 +49,7 @@ export function getStatusBadgeClass(status: PipelineTrace['finalStatus']): strin
 export function getTransportBadgeClass(transport: string): string {
   switch (transport.toUpperCase()) {
     case 'MQTT':
-      return 'bg-violet-100 text-violet-700 border-violet-200';
+      return 'bg-brand-100 text-brand-700 border-brand-200';
     case 'HTTP':
       return 'bg-blue-100 text-blue-700 border-blue-200';
     case 'WEBSOCKET':
@@ -63,7 +63,7 @@ export function getTransportBadgeClass(transport: string): string {
 export function getMessageTypeBadgeClass(type: string): string {
   switch (type.toUpperCase()) {
     case 'TELEMETRY':
-      return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+      return 'bg-brand-100 text-brand-700 border-brand-200';
     case 'ATTRIBUTES':
       return 'bg-teal-100 text-teal-700 border-teal-200';
     case 'RPC':

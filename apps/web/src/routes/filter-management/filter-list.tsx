@@ -1636,7 +1636,7 @@ export function FilterListPage() {
             { label: 'With RFID', value: enrichedFilters.filter(f => (identifiersByAsset.get(f.id) ?? []).some((i: any) => i.identifierType === 'RFID')).length, color: 'text-violet-700', bg: 'bg-violet-50 border-violet-100' },
           ].map(stat => (
             <div key={stat.label} className={`rounded-xl border px-4 py-3.5 ${stat.bg}`}>
-              <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{stat.label}</p>
+              <p className="text-xs font-medium text-slate-500">{stat.label}</p>
               <p className={`text-2xl font-bold mt-0.5 ${stat.color}`}>{stat.value}</p>
             </div>
           ))}
@@ -1692,7 +1692,7 @@ export function FilterListPage() {
                     tabIndex={0}
                     onClick={() => { setSelectedBlock(block.id); setBlockTab('view'); setSelectedFilterIds(new Set()); setPage(1); }}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedBlock(block.id); setBlockTab('view'); setSelectedFilterIds(new Set()); setPage(1); } }}
-                    className="bg-white border border-slate-200 rounded-xl p-5 text-left hover:border-[var(--theme-primary)] hover:shadow-md transition-all group cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    className="bg-white border border-slate-200 rounded-xl p-5 text-left hover:border-[var(--theme-primary)] hover:shadow-md transition-all group cursor-pointer focus:outline-none focus:ring-3 focus:ring-brand-600/15"
                   >
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow" style={themeGradientBr}>
@@ -1778,7 +1778,7 @@ export function FilterListPage() {
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                   placeholder="Search filters…"
-                  className="w-56 pl-9 pr-8 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
+                  className="w-56 pl-9 pr-8 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
                 />
                 {search && (
                   <button onClick={() => { setSearch(''); setPage(1); }} title="Clear search"
@@ -1922,7 +1922,7 @@ export function FilterListPage() {
                   return (
                 <table className="w-full">
                   <thead className="sticky top-0 z-20">
-                    <tr className="bg-slate-50 border-b border-slate-200 [&>th]:bg-slate-50 [&>th]:whitespace-nowrap [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:uppercase [&>th]:tracking-wider">
+                    <tr className="bg-slate-50 border-b border-slate-200 [&>th]:bg-slate-50 [&>th]:whitespace-nowrap [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500">
                       <th className="w-10 px-2 py-2">
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
                           className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />

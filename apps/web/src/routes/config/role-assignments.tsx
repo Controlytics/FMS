@@ -134,7 +134,7 @@ const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel,
                 const active = sel.includes(r.name);
                 return (
                   <button type="button" key={r.name} onClick={() => toggle(r.name)} aria-pressed={active}
-                    className={`inline-flex items-center rounded-full border px-3 py-1 text-[12px] font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${
+                    className={`inline-flex items-center rounded-full border px-3 py-1 text-[12px] font-medium transition-all focus:outline-none focus-visible:ring-3 focus-visible:ring-brand-600/15 ${
                       active ? 'bg-cyan-600 border-cyan-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300 hover:text-cyan-700'
                     }`}>
                     {r.label}
@@ -147,7 +147,7 @@ const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel,
         );
       })() : (
       <select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
-        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
+        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
         <option value="">{blankLabel}</option>
         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
       </select>
@@ -158,7 +158,7 @@ const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel,
 
 const Switch = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
   <button type="button" onClick={onClick} aria-pressed={on}
-    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${on ? 'bg-cyan-600' : 'bg-slate-300'}`}>
+    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-3 focus-visible:ring-brand-600/15 ${on ? 'bg-cyan-600' : 'bg-slate-300'}`}>
     <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
   </button>
 );
@@ -180,7 +180,7 @@ const RoleChips = ({ cfg, roles, toggleArr, k, field }: {
         const active = sel.includes(r.name);
         return (
           <button type="button" key={r.name} onClick={() => toggleArr(k, field, r.name)} aria-pressed={active}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all focus:outline-none focus-visible:ring-3 focus-visible:ring-brand-600/15 ${
               active
                 ? 'bg-cyan-600 border-cyan-600 text-white shadow-sm'
                 : 'bg-white border-slate-200 text-slate-600 hover:border-cyan-300 hover:text-cyan-700'
@@ -308,7 +308,7 @@ export function RoleAssignmentsPage() {
       {/* Header / action bar */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span className="grid place-items-center w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-500 to-teal-600 text-white shadow-lg shadow-cyan-500/20">
+          <span className="grid place-items-center w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-1.35M9 9a3 3 0 10-2.5 4.65" />
             </svg>
@@ -395,7 +395,7 @@ export function RoleAssignmentsPage() {
                   <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
                     {CROSS_BLOCK_MODES.map((m) => (
                       <button type="button" key={m.v} onClick={() => patch(bk, 'mode', m.v)} aria-pressed={mode === m.v}
-                        className={`px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${
+                        className={`px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all focus:outline-none focus-visible:ring-3 focus-visible:ring-brand-600/15 ${
                           mode === m.v ? 'bg-white text-cyan-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'
                         }`}>
                         {m.label}
@@ -411,7 +411,7 @@ export function RoleAssignmentsPage() {
                     <label className="block">
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Approval role</span>
                       <select value={cfg[bk]?.approvalRole ?? ''} onChange={(e) => patch(bk, 'approvalRole', e.target.value)}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
                         <option value="">Anyone with permission</option>
                         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
                       </select>
@@ -422,7 +422,7 @@ export function RoleAssignmentsPage() {
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Auto-expire (hours)</span>
                       <input type="number" min={0} value={cfg[bk]?.autoExpireHours ?? 24}
                         onChange={(e) => patch(bk, 'autoExpireHours', e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400" />
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
                       <span className="mt-1 block text-[11px] text-slate-400">0 = approved requests never expire.</span>
                     </label>
 
@@ -466,7 +466,7 @@ export function RoleAssignmentsPage() {
                     <label className="block">
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Wash Out approver</span>
                       <select value={cfg[ik]?.washOutApproverRole ?? ''} onChange={(e) => patch(ik, 'washOutApproverRole', e.target.value)}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
                         <option value="">Super Admin only</option>
                         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
                       </select>
@@ -476,7 +476,7 @@ export function RoleAssignmentsPage() {
                     <label className="block">
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Dry Out approver</span>
                       <select value={cfg[ik]?.dryOutApproverRole ?? ''} onChange={(e) => patch(ik, 'dryOutApproverRole', e.target.value)}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
                         <option value="">Super Admin only</option>
                         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
                       </select>
@@ -524,14 +524,14 @@ export function RoleAssignmentsPage() {
                         <span className="block text-[13px] font-semibold text-slate-700 mb-1">Default tolerance (days)</span>
                         <input type="number" min={0} max={365} value={cfg[pk]?.defaultToleranceDays ?? 3}
                           onChange={(e) => patch(pk, 'defaultToleranceDays', e.target.value === '' ? '' : Math.min(365, Math.max(0, Number(e.target.value))))}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400" />
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
                         <span className="mt-1 block text-[11px] text-slate-400">Used when a CSV row leaves tolerance blank (± days).</span>
                       </label>
 
                       <label className="block">
                         <span className="block text-[13px] font-semibold text-slate-700 mb-1">Task visibility</span>
                         <select value={visibility} onChange={(e) => patch(pk, 'taskVisibility', e.target.value)}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400">
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
                           <option value="GLOBAL">Everyone with PM access</option>
                           <option value="PER_USER">Per-user assignment (not yet implemented)</option>
                           <option value="ROLE_GATED">Role-gated (not yet implemented)</option>

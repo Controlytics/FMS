@@ -97,7 +97,7 @@ export function ExportOptionsPage() {
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-slate-50">Page</th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 sticky left-0 bg-slate-50">Page</th>
                 {roles.map((r) => (
                   <th key={r.name} className="px-3 py-2 text-center min-w-[130px]">
                     <div className="text-[12px] font-bold text-slate-700">{r.displayName || r.name}</div>

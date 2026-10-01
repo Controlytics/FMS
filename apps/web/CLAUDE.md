@@ -108,7 +108,38 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
   step's real backend `gate` (traceable to routes/`PERMISSION_TREE`); the prior
   static `default-roles` map + drift-guard were retired for the live matrix.
 
-## Theme
+## Theme / design system (redesigned 2026-10-01)
+**`src/app.css` is the design system.** Every look-and-feel decision is a token there;
+change the token, not 189 files.
+- **Fonts:** IBM Plex Sans (everything) + IBM Plex Mono (identifiers, timestamps,
+  readings). Self-hosted: `public/fonts/plex/*.woff2` + `public/fonts/plex.css`
+  (generated from `@fontsource/ibm-plex-{sans,mono}`, Latin + Latin-ext). Never a CDN.
+- **One brand hue.** Use `brand-*` (theme primary) and `accent-*` (theme second hue).
+  They are derived at runtime from `--theme-*` (`lib/themes.ts` `applyTheme`).
+  Tailwind's `cyan-*` / `teal-*` are REMAPPED onto them in `@theme`, because ~900
+  existing class names hardcode the Ocean hues. New code writes `brand-*`.
+- **`brand-600` is AA-safe with white text** in all 10 themes (primaries were deepened
+  to the -700 shade for that). Filled buttons: `bg-brand-600 hover:bg-brand-700`.
+- **Radius is tight:** `rounded-lg` 8px (controls), `rounded-xl` 10px (cards),
+  `rounded-2xl` 12px. Shadows are low and slate-tinted; cards sit on a 1px border.
+- **Status colours stay semantic** and are never the brand: emerald = active/done,
+  amber = pending, red = rejected/terminated, purple = REPLACED, plus Set A/Set B,
+  Area, SMS channel, audit action groups. Stage tiles on Filter Operations keep
+  their stage colours.
+- **No ALL-CAPS tracked labels.** Labels and table headers are sentence case,
+  `text-xs font-semibold text-slate-500/600`.
+- **Tables:** row hairlines come from a base rule on `td`/`th` in `app.css`
+  (`border-collapse: separate` means a border on `<tr>` never paints).
+- **Focus:** global `:focus-visible` outline in the theme colour; inputs use
+  `focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15`.
+- **Touch:** shared Button / Input / Select grow to 44px under
+  `[@media(pointer:coarse)]`, so the tablet keeps its targets.
+- **Signed-out screens** (sign in, forgot password, change password, contact admin,
+  guest request, and the tablet's `/m/login` + `/m/forgot-password`) all render inside
+  `components/auth-shell.tsx` (`AuthShell`, `AuthError`, `AuthSuccess`).
+- 🔴 **Role colours are DATA.** `roles.color` stores Tailwind class strings from
+  `config/roles-components/role-color-picker.tsx`; that file is what keeps those
+  classes in the build. Never run a colour codemod over it.
 - Unified light theme: bg-white cards, bg-slate-50 sections, border-slate-200
 - Gradient dialog headers are acceptable
 - No dark theme anywhere in the application

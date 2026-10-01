@@ -102,7 +102,7 @@ export function StatusUpdatePanel({
             <select
               value={state}
               onChange={e => onStateChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
             >
               <option value="" disabled>Select status…</option>
               {profileOptions
@@ -151,7 +151,7 @@ export function StatusUpdatePanel({
                 <select
                   value={reasonKey}
                   onChange={e => setReasonKey(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                 >
                   <option value="" disabled>Select reason…</option>
                   {reasons.map(r => (
@@ -169,7 +169,7 @@ export function StatusUpdatePanel({
                     onChange={e => setJustification(e.target.value)}
                     placeholder="Min 10 characters…"
                     rows={3}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                   />
                 </div>
               )}
@@ -185,7 +185,7 @@ export function StatusUpdatePanel({
               onChange={e => onRemarksChange(e.target.value)}
               placeholder="Enter reason for status change..."
               rows={4}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
             />
           </div>
 

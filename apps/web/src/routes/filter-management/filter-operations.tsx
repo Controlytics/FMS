@@ -1962,17 +1962,17 @@ export function FilterOperationsPage() {
           <div className="grid grid-cols-3 gap-3">
             {CLEANING_STAGES.map((stage) => (
               <button key={stage.key} onClick={() => handleStageClick(stage)}
-                className={`bg-gradient-to-br ${stage.color} border-2 ${stage.border} rounded-2xl p-6 text-center transition-all hover:scale-[1.03] hover:shadow-lg hover:shadow-cyan-600/10 active:scale-[0.98]`}>
+                className={`bg-gradient-to-br ${stage.color} border-2 ${stage.border} rounded-2xl p-6 text-center transition-all hover:shadow-lg active:scale-[0.98]`}>
                 <div className="text-4xl mb-3">{stage.icon}</div>
                 <div className="text-white font-bold text-lg">{stage.label}</div>
-                {stage.needsBlock && <div className="text-white/50 text-[10px] mt-2 uppercase tracking-wider">Block Selection Required</div>}
+                {stage.needsBlock && <div className="text-white/50 text-[11px] mt-2">Block Selection Required</div>}
               </button>
             ))}
           </div>
 
           {recentSubmissions.length > 0 && (
             <div className="bg-white border border-slate-200 rounded-2xl p-5">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Recent Submissions</h3>
+              <h3 className="text-sm font-semibold text-slate-500 mb-3">Recent Submissions</h3>
               <div className="space-y-2">
                 {recentSubmissions.map((sub, i) => (
                   <div key={sub.filter + '-' + sub.stage + '-' + sub.time} className="flex items-center gap-3 py-2 border-b border-slate-200 last:border-0 text-sm">
@@ -1999,7 +1999,7 @@ export function FilterOperationsPage() {
               return (
                 <button key={stage.key}
                   onClick={() => setSelectedStatusStage(isActive ? null : stage.key)}
-                  className={`bg-gradient-to-br ${stage.color} border-2 ${isActive ? 'border-cyan-400 ring-2 ring-cyan-400/30 scale-[1.03]' : stage.border} rounded-2xl p-4 text-center transition-all hover:scale-[1.02] active:scale-[0.98] relative`}>
+                  className={`bg-gradient-to-br ${stage.color} border-2 ${isActive ? 'border-cyan-400 ring-2 ring-cyan-400/30 scale-[1.03]' : stage.border} rounded-2xl p-4 text-center transition-all active:scale-[0.98] relative`}>
                   <div className="text-2xl mb-1">{stage.icon}</div>
                   <div className="text-white font-semibold text-xs">{stage.label}</div>
                   <div className={`mt-2 inline-flex items-center justify-center min-w-[28px] h-7 rounded-full font-bold text-sm ${count > 0 ? 'bg-white/20 text-white' : 'bg-white/5 text-white/30'}`}>
@@ -2029,7 +2029,7 @@ export function FilterOperationsPage() {
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-slate-800">{filter.name}</span>
                         {filter.set && (
-                          <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${filter.set === 'SET_A' ? 'bg-indigo-50 text-indigo-700' : 'bg-purple-50 text-purple-700'}`}>
+                          <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${filter.set === 'SET_A' ? 'bg-brand-50 text-brand-700' : 'bg-brand-50 text-brand-700'}`}>
                             Set {filter.set.replace('SET_', '')}
                           </span>
                         )}

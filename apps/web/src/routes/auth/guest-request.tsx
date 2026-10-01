@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { useBranding } from '@/hooks/use-branding';
+import { AuthShell, AuthError, AuthSuccess } from '@/components/auth-shell';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { getApiBase } from '@/lib/api-base';
 
 // Public (unauthenticated) page reached from the login "Guest" button. Collects a
@@ -17,7 +19,6 @@ const FIELDS = [
 type FieldKey = (typeof FIELDS)[number]['key'];
 
 export function GuestRequestPage() {
-  const { branding } = useBranding();
   const [form, setForm] = useState<Record<FieldKey, string>>({ name: '', employeeId: '', block: '', area: '', ahu: '', filter: '' });
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -51,53 +52,39 @@ export function GuestRequestPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
-        <div className="px-6 py-5" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-          <h1 className="text-lg font-bold text-white">Filter Cleaning Request</h1>
-          <p className="text-white/70 text-sm">{branding.appName} — guest request</p>
+    <AuthShell
+      title="Filter cleaning request"
+      description={done ? undefined : 'Guest request. Fill in every field, then send it.'}
+      backToLogin
+    >
+      {done ? (
+        <div className="space-y-5">
+          <AuthSuccess title="Request sent">Your filter cleaning request has been sent.</AuthSuccess>
+          <a href="/login" className="flex h-11 w-full items-center justify-center rounded-lg bg-brand-600 text-sm font-medium text-white hover:bg-brand-700">
+            Back to sign in
+          </a>
         </div>
-
-        {done ? (
-          <div className="p-8 text-center space-y-3">
-            <div className="w-14 h-14 mx-auto rounded-full bg-emerald-50 flex items-center justify-center">
-              <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-            </div>
-            <p className="text-slate-700 font-semibold">Request submitted</p>
-            <p className="text-sm text-slate-500">Your filter cleaning request has been sent. Thank you.</p>
-            <a href="/login" className="inline-block mt-2 text-sm font-medium text-cyan-600 hover:underline">Back to login</a>
-          </div>
-        ) : (
-          <div className="p-6 space-y-4">
-            <p className="text-sm text-slate-500">Fill in all fields, then submit your request.</p>
-            {error && <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>}
-            {FIELDS.map((f) => (
-              <label key={f.key} className="block">
-                <span className="block text-sm font-medium text-slate-700 mb-1">{f.label} <span className="text-red-500">*</span></span>
-                <input
-                  type="text"
-                  value={form[f.key]}
-                  onChange={(e) => set(f.key, e.target.value)}
-                  placeholder={f.placeholder}
-                  maxLength={f.key === 'employeeId' ? 60 : 120}
-                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none transition-all"
-                />
-              </label>
-            ))}
-            <button
-              onClick={submit}
-              disabled={!allFilled || submitting}
-              className="w-full py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}
-            >
-              {submitting ? 'Submitting…' : 'Submit Request'}
-            </button>
-            <div className="text-center">
-              <a href="/login" className="text-sm font-medium text-slate-500 hover:text-slate-700 hover:underline">Back to login</a>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      ) : (
+        <div className="space-y-4">
+          {error && <AuthError>{error}</AuthError>}
+          {FIELDS.map((f) => (
+            <label key={f.key} className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">{f.label} <span className="text-red-600">*</span></span>
+              <Input
+                type="text"
+                value={form[f.key]}
+                onChange={(e) => set(f.key, e.target.value)}
+                placeholder={f.placeholder}
+                maxLength={f.key === 'employeeId' ? 60 : 120}
+                className="h-11"
+              />
+            </label>
+          ))}
+          <Button onClick={submit} disabled={!allFilled || submitting} className="h-11 w-full">
+            {submitting ? 'Sending…' : 'Send request'}
+          </Button>
+        </div>
+      )}
+    </AuthShell>
   );
 }

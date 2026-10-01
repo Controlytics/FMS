@@ -21,13 +21,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       <input
         ref={ref}
         className={cn(
-          'flex h-11 w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800',
+          'flex h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900',
+          '[@media(pointer:coarse)]:h-11',
           'file:border-0 file:bg-transparent file:text-sm file:font-medium',
           'placeholder:text-slate-400',
-          'focus:outline-none focus:border-[#3b82f6] focus:ring-2 focus:ring-[#3b82f6]/20',
-          'hover:border-slate-300',
-          'disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-slate-50',
-          'transition-all duration-200',
+          'hover:border-slate-400',
+          'focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15',
+          'disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-50 disabled:hover:border-slate-300',
           className,
         )}
         {...secureHandlers}

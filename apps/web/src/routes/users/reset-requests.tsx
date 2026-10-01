@@ -149,7 +149,7 @@ export function ResetRequestsPage() {
       case 'PENDING':
         return <Badge className="bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0 shadow-sm">Pending</Badge>;
       case 'APPROVED':
-        return <Badge className="bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0 shadow-sm">Approved</Badge>;
+        return <Badge className="bg-gradient-to-r from-emerald-400 to-emerald-400 text-white border-0 shadow-sm">Approved</Badge>;
       case 'REJECTED':
         return <Badge className="bg-gradient-to-r from-red-400 to-rose-400 text-white border-0 shadow-sm">Rejected</Badge>;
       default:
@@ -163,7 +163,7 @@ export function ResetRequestsPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg shadow-amber-500/20">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
               </svg>
@@ -186,7 +186,7 @@ export function ResetRequestsPage() {
 
       {/* Success Message */}
       {successMessage && (
-        <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/60 p-4 shadow-sm">
+        <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-50 to-emerald-50 border border-emerald-200/60 p-4 shadow-sm">
           <div className="p-2 rounded-xl bg-emerald-100">
             <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -205,7 +205,7 @@ export function ResetRequestsPage() {
       )}
 
       {/* Pending Requests */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-100">
@@ -239,10 +239,10 @@ export function ResetRequestsPage() {
               {pendingRequests.map((request) => (
                 <div
                   key={request.id}
-                  className="group flex items-center justify-between p-5 rounded-2xl bg-gradient-to-r from-slate-50 to-white border border-slate-200/60 hover:border-amber-200 hover:shadow-lg hover:shadow-amber-100/50 transition-all duration-200"
+                  className="group flex items-center justify-between p-5 rounded-2xl bg-gradient-to-r from-slate-50 to-white border border-slate-200/60 hover:border-amber-200 hover:shadow-lg transition-all duration-200"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
                       <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                       </svg>
@@ -295,7 +295,7 @@ export function ResetRequestsPage() {
                     </Button>
                     <Button
                       size="sm"
-                      className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 shadow-lg shadow-emerald-500/20"
+                      className="bg-gradient-to-r from-emerald-500 to-emerald-500 hover:from-emerald-600 hover:to-emerald-600 shadow-lg"
                       onClick={() => openApproveDialog(request)}
                     >
                       <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -312,7 +312,7 @@ export function ResetRequestsPage() {
       </div>
 
       {/* Processed Requests History */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-slate-100">
@@ -489,7 +489,7 @@ export function ResetRequestsPage() {
         <DialogFooter>
           <Button variant="outline" onClick={closeDialog}>Cancel</Button>
           <Button
-            className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 shadow-lg shadow-emerald-500/20"
+            className="bg-gradient-to-r from-emerald-500 to-emerald-500 hover:from-emerald-600 hover:to-emerald-600 shadow-lg"
             onClick={handleProcess}
             disabled={isProcessing || !newPassword}
           >

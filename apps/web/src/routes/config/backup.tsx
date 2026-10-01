@@ -64,7 +64,7 @@ const FORMAT_OPTIONS: { value: BackupFormat; label: string; description: string;
     description: 'Full backup — schema AND data (pg_dump archive). The only format that can rebuild the database from nothing, and the only one pgAdmin\'s Restore accepts. Recommended.',
     icon: 'PG',
     ext: '.dump',
-    color: 'from-emerald-500 to-teal-600',
+    color: 'from-emerald-500 to-emerald-600',
   },
   {
     value: 'json',
@@ -72,7 +72,7 @@ const FORMAT_OPTIONS: { value: BackupFormat; label: string; description: string;
     description: 'Data only, with checksum verification. Restorable via this application into an already-migrated database.',
     icon: '{ }',
     ext: '.json',
-    color: 'from-blue-500 to-indigo-600',
+    color: 'from-brand-600 to-brand-700',
   },
   {
     value: 'bak',
@@ -80,7 +80,7 @@ const FORMAT_OPTIONS: { value: BackupFormat; label: string; description: string;
     description: 'Data only, gzip-compressed. Smallest file, restorable via this application.',
     icon: 'BAK',
     ext: '.bak',
-    color: 'from-violet-500 to-purple-600',
+    color: 'from-brand-600 to-brand-700',
   },
   {
     value: 'sql',
@@ -88,7 +88,7 @@ const FORMAT_OPTIONS: { value: BackupFormat; label: string; description: string;
     description: 'PostgreSQL INSERT statements. Can be restored via psql or any SQL client.',
     icon: 'SQL',
     ext: '.sql',
-    color: 'from-emerald-500 to-teal-600',
+    color: 'from-emerald-500 to-emerald-600',
   },
   {
     value: 'csv',
@@ -290,7 +290,7 @@ export function BackupRestorePage() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/25">
+        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
           </svg>
@@ -305,7 +305,7 @@ export function BackupRestorePage() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600">
+            <div className="p-2 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
@@ -342,7 +342,7 @@ export function BackupRestorePage() {
                   onClick={() => { setFormatTouched(true); setSelectedFormat(fmt.value); }}
                   className={`relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all ${
                     selectedFormat === fmt.value
-                      ? 'border-blue-500 bg-blue-50/50 shadow-md shadow-blue-500/10'
+                      ? 'border-blue-500 bg-blue-50/50 shadow-md'
                       : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
                   }`}
                 >
@@ -376,7 +376,7 @@ export function BackupRestorePage() {
               onClick={handleExport}
               disabled={exporting || !canExport}
               title={!canExport ? 'BACKUP_MANAGE permission required' : undefined}
-              className="gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="gap-2 bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -509,7 +509,7 @@ export function BackupRestorePage() {
                   </div>
                 </div>
                 <Badge className={csState === 'ok'
-                  ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0'
+                  ? 'bg-gradient-to-r from-emerald-400 to-emerald-400 text-white border-0'
                   : csState === 'fail' ? 'bg-gradient-to-r from-red-400 to-rose-400 text-white border-0'
                   : 'bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0'
                 }>
@@ -540,7 +540,7 @@ export function BackupRestorePage() {
               {/* Table summary */}
               <div className="bg-white/60 rounded-xl border border-slate-200/50 overflow-hidden">
                 <div className="px-4 py-2 bg-slate-50/80 border-b border-slate-200/50">
-                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Record Counts by Table</p>
+                  <p className="text-xs font-semibold text-slate-600">Record Counts by Table</p>
                 </div>
                 <div className="grid grid-cols-2 gap-px bg-slate-200/30">
                   {Object.entries(validation.tableSummary).map(([key, count]) => (
@@ -563,10 +563,10 @@ export function BackupRestorePage() {
                 return (
                   <div className={`rounded-xl border overflow-hidden ${anomalies > 0 ? 'border-amber-200' : 'border-slate-200/50'}`}>
                     <div className={`px-4 py-2 border-b flex items-center justify-between ${anomalies > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50/80 border-slate-200/50'}`}>
-                      <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Audit Trail Integrity</p>
+                      <p className="text-xs font-semibold text-slate-600">Audit Trail Integrity</p>
                       <Badge className={anomalies > 0
                         ? 'bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0'
-                        : 'bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0'}>
+                        : 'bg-gradient-to-r from-emerald-400 to-emerald-400 text-white border-0'}>
                         {anomalies > 0 ? 'ANOMALIES FOUND' : 'CHAIN INTACT'}
                       </Badge>
                     </div>
@@ -613,7 +613,7 @@ export function BackupRestorePage() {
                     onClick={() => setConfirmRestore(true)}
                     disabled={restoring || !canRestore}
                     title={!canRestore ? 'BACKUP_RESTORE permission required' : undefined}
-                    className="w-full gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-lg shadow-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -716,7 +716,7 @@ export function BackupRestorePage() {
                   type="checkbox"
                   checked={ackForce}
                   onChange={(e) => setAckForce(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                  className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-brand-600/15"
                 />
                 <span className="text-sm text-amber-800">
                   I have reviewed this and accept restoring audit history that cannot be proven intact.

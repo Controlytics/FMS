@@ -112,7 +112,7 @@ function MetricCard({
       <div className="p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className={`p-2.5 rounded-xl ${gradient} text-white shadow-lg`}>{icon}</div>
-          <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">{title}</h3>
+          <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
         </div>
         {children}
       </div>
@@ -143,7 +143,7 @@ export function SystemHealthPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-300 border-t-blue-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border border-slate-300 border-t-blue-600" />
           <p className="text-sm text-slate-500">Loading system metrics...</p>
         </div>
       </div>
@@ -200,25 +200,25 @@ export function SystemHealthPage() {
 
       {/* Top-level summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white shadow-lg">
-          <p className="text-blue-100 text-xs uppercase tracking-wider">OS Uptime</p>
+        <div className="rounded-xl bg-gradient-to-r from-brand-600 to-brand-700 p-5 text-white shadow-lg">
+          <p className="text-blue-100 text-xs">OS Uptime</p>
           <p className="text-2xl font-bold mt-1">{formatUptime(data.os.uptimeSeconds)}</p>
           <p className="text-blue-200 text-xs mt-1">{data.os.platform} {data.os.arch}</p>
         </div>
-        <div className="rounded-xl bg-gradient-to-r from-purple-500 to-pink-600 p-5 text-white shadow-lg">
-          <p className="text-purple-100 text-xs uppercase tracking-wider">API Requests</p>
+        <div className="rounded-xl bg-gradient-to-r from-brand-600 to-brand-700 p-5 text-white shadow-lg">
+          <p className="text-brand-100 text-xs">API Requests</p>
           <p className="text-2xl font-bold mt-1">{data.api.totalRequests.toLocaleString()}</p>
-          <p className="text-purple-200 text-xs mt-1">{data.api.requestsPerMinute} req/min</p>
+          <p className="text-brand-200 text-xs mt-1">{data.api.requestsPerMinute} req/min</p>
         </div>
         <div className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 p-5 text-white shadow-lg">
-          <p className="text-amber-100 text-xs uppercase tracking-wider">RAM Usage</p>
+          <p className="text-amber-100 text-xs">RAM Usage</p>
           <p className="text-2xl font-bold mt-1">{data.memory.usagePercent}%</p>
           <p className="text-amber-200 text-xs mt-1">
             {formatBytes(data.memory.usedBytes)} / {formatBytes(data.memory.totalBytes)}
           </p>
         </div>
-        <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 p-5 text-white shadow-lg">
-          <p className="text-emerald-100 text-xs uppercase tracking-wider">CPU Usage</p>
+        <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 p-5 text-white shadow-lg">
+          <p className="text-emerald-100 text-xs">CPU Usage</p>
           <p className="text-2xl font-bold mt-1">{data.cpu.usagePercent}%</p>
           <p className="text-emerald-200 text-xs mt-1">{data.cpu.cores} cores</p>
         </div>
@@ -260,7 +260,7 @@ export function SystemHealthPage() {
         {/* CPU */}
         <MetricCard
           title="CPU"
-          gradient="bg-gradient-to-r from-emerald-500 to-teal-600"
+          gradient="bg-gradient-to-r from-emerald-500 to-emerald-600"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
@@ -305,7 +305,7 @@ export function SystemHealthPage() {
         {/* Disk */}
         <MetricCard
           title="Disk"
-          gradient="bg-gradient-to-r from-blue-500 to-indigo-600"
+          gradient="bg-gradient-to-r from-brand-600 to-brand-700"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
@@ -336,7 +336,7 @@ export function SystemHealthPage() {
         {/* Database */}
         <MetricCard
           title="Database (PostgreSQL)"
-          gradient="bg-gradient-to-r from-violet-500 to-purple-600"
+          gradient="bg-gradient-to-r from-brand-600 to-brand-700"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
@@ -419,7 +419,7 @@ export function SystemHealthPage() {
         {/* API Requests */}
         <MetricCard
           title="API Requests"
-          gradient="bg-gradient-to-r from-purple-500 to-pink-600"
+          gradient="bg-gradient-to-r from-brand-600 to-brand-700"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -443,7 +443,7 @@ export function SystemHealthPage() {
 
       {/* OS Info footer */}
       <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-        <p className="text-xs text-slate-400 uppercase tracking-wider mb-2">System Information</p>
+        <p className="text-xs text-slate-500 mb-2">System Information</p>
         <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm text-slate-600">
           <span><span className="text-slate-400">Hostname:</span> {data.os.hostname}</span>
           <span><span className="text-slate-400">Platform:</span> {data.os.platform}</span>

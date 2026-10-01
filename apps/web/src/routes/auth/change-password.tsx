@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { AuthShell, AuthError } from '@/components/auth-shell';
 import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 
@@ -102,38 +102,32 @@ export function ChangePasswordPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Change Password</CardTitle>
-          <CardDescription>
-            {user?.isTemporaryPassword
-              ? 'You are using a temporary password. You must change it before continuing.'
-              : 'Update your password to continue.'}
-          </CardDescription>
-          {user?.username && (
-            <div className="mt-3 flex items-center gap-2 text-sm">
-              <span className="text-slate-500">User ID:</span>
-              <span className="font-semibold text-slate-700">{user.username}</span>
-            </div>
-          )}
-        </CardHeader>
+    <AuthShell
+      title="Change password"
+      description={user?.isTemporaryPassword
+        ? 'You are using a temporary password. Set a new one to continue.'
+        : 'Set a new password to continue.'}
+    >
         <form onSubmit={handleSubmit(onSubmit)}>
-          <CardContent className="space-y-4">
-            {error && (
-              <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>
+          <div className="space-y-4">
+            {user?.username && (
+              <p className="text-sm text-slate-500">
+                User ID <span className="ml-1 font-mono font-medium text-slate-800">{user.username}</span>
+              </p>
             )}
+            {error && <AuthError>{error}</AuthError>}
             {/* Only show current password field if NOT using temporary password */}
             {!user?.isTemporaryPassword && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Current Password</label>
+                <label className="block text-sm font-medium text-slate-700">Current Password</label>
                 <div className="relative">
                   <Input
+                    className="h-11 pr-16"
                     {...register('currentPassword')}
                     type={showPasswords.current ? 'text' : 'password'}
                     secureField
                   />
-                  <button type="button" className="absolute right-3 top-2.5 text-sm text-slate-500 hover:text-slate-700"
+                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500 hover:text-slate-800"
                     onClick={() => setShowPasswords(p => ({ ...p, current: !p.current }))} tabIndex={-1}>
                     {showPasswords.current ? 'Hide' : 'Show'}
                   </button>
@@ -142,14 +136,15 @@ export function ChangePasswordPage() {
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-sm font-medium">New Password</label>
+              <label className="block text-sm font-medium text-slate-700">New Password</label>
               <div className="relative">
                 <Input
+                  className="h-11 pr-16"
                   {...register('newPassword')}
                   type={showPasswords.new ? 'text' : 'password'}
                   secureField
                 />
-                <button type="button" className="absolute right-3 top-2.5 text-sm text-slate-500 hover:text-slate-700"
+                <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500 hover:text-slate-800"
                   onClick={() => setShowPasswords(p => ({ ...p, new: !p.new }))} tabIndex={-1}>
                   {showPasswords.new ? 'Hide' : 'Show'}
                 </button>
@@ -157,29 +152,29 @@ export function ChangePasswordPage() {
               {errors.newPassword && <p className="text-sm text-red-500">{errors.newPassword.message}</p>}
 
               {/* Policy-based strength indicators */}
-              <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <p className="text-xs font-semibold text-slate-600 mb-2">Password Requirements:</p>
+              <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <p className="text-xs font-semibold text-slate-700 mb-2">Password requirements</p>
                 <div className="space-y-1 text-xs">
-                  <p className={hasLength ? 'text-emerald-600' : 'text-slate-500'}>
+                  <p className={hasLength ? 'text-emerald-700' : 'text-slate-500'}>
                     {hasLength ? '✓' : '○'} At least {policy.minLength} characters
                   </p>
                   {policy.requireUppercase && (
-                    <p className={hasUpper ? 'text-emerald-600' : 'text-slate-500'}>
+                    <p className={hasUpper ? 'text-emerald-700' : 'text-slate-500'}>
                       {hasUpper ? '✓' : '○'} At least {policy.minUppercase} uppercase letter{policy.minUppercase > 1 ? 's' : ''}
                     </p>
                   )}
                   {policy.requireLowercase && (
-                    <p className={hasLower ? 'text-emerald-600' : 'text-slate-500'}>
+                    <p className={hasLower ? 'text-emerald-700' : 'text-slate-500'}>
                       {hasLower ? '✓' : '○'} At least {policy.minLowercase} lowercase letter{policy.minLowercase > 1 ? 's' : ''}
                     </p>
                   )}
                   {policy.requireNumbers && (
-                    <p className={hasNumber ? 'text-emerald-600' : 'text-slate-500'}>
+                    <p className={hasNumber ? 'text-emerald-700' : 'text-slate-500'}>
                       {hasNumber ? '✓' : '○'} At least {policy.minNumbers} number{policy.minNumbers > 1 ? 's' : ''}
                     </p>
                   )}
                   {policy.requireSpecialChars && (
-                    <p className={hasSpecial ? 'text-emerald-600' : 'text-slate-500'}>
+                    <p className={hasSpecial ? 'text-emerald-700' : 'text-slate-500'}>
                       {hasSpecial ? '✓' : '○'} At least {policy.minSpecialChars} special character{policy.minSpecialChars > 1 ? 's' : ''}
                     </p>
                   )}
@@ -192,14 +187,15 @@ export function ChangePasswordPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Confirm New Password</label>
+              <label className="block text-sm font-medium text-slate-700">Confirm New Password</label>
               <div className="relative">
                 <Input
+                  className="h-11 pr-16"
                   {...register('confirmPassword')}
                   type={showPasswords.confirm ? 'text' : 'password'}
                   secureField
                 />
-                <button type="button" className="absolute right-3 top-2.5 text-sm text-slate-500 hover:text-slate-700"
+                <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500 hover:text-slate-800"
                   onClick={() => setShowPasswords(p => ({ ...p, confirm: !p.confirm }))} tabIndex={-1}>
                   {showPasswords.confirm ? 'Hide' : 'Show'}
                 </button>
@@ -212,14 +208,11 @@ export function ChangePasswordPage() {
                 Note: Password cannot match any of your last {policy.preventReuseCount} passwords.
               </p>
             )}
-          </CardContent>
-          <CardFooter>
-            <Button type="submit" className="w-full" disabled={isSubmitting || !isValid}>
-              {isSubmitting ? 'Changing...' : 'Change Password'}
-            </Button>
-          </CardFooter>
+          </div>
+          <Button type="submit" className="mt-5 h-11 w-full" disabled={isSubmitting || !isValid}>
+            {isSubmitting ? 'Changing…' : 'Change password'}
+          </Button>
         </form>
-      </Card>
-    </div>
+    </AuthShell>
   );
 }

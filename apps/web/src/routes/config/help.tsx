@@ -317,7 +317,7 @@ export function HelpArticlesPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── Header ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-700 p-6 text-white shadow-2xl">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 text-white shadow-2xl">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -343,7 +343,7 @@ export function HelpArticlesPage() {
           </div>
           <div className="flex items-center gap-3">
             <div className="px-4 py-2 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10 text-center">
-              <p className="text-xs text-teal-100 uppercase tracking-wider">Articles</p>
+              <p className="text-xs text-teal-100">Articles</p>
               <p className="text-2xl font-bold">{articleList.length}</p>
             </div>
             <button
@@ -360,13 +360,13 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Filters ── */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-emerald-500 to-emerald-500" />
         <div className="p-5">
           <div className="flex items-center gap-4">
             {/* Search */}
             <div className="flex-1 relative group">
-              <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 blur-sm opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-emerald-500/20 to-emerald-500/20 blur-sm opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative">
                 <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-hover:text-emerald-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -376,7 +376,7 @@ export function HelpArticlesPage() {
                   placeholder="Search by title, key, or content..."
                   value={rawSearch}
                   onChange={(e) => setRawSearch(e.target.value)}
-                  className="w-full pl-12 pr-4 h-11 rounded-xl border-2 border-slate-200 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all"
+                  className="w-full pl-12 pr-4 h-11 rounded-xl border-2 border-slate-200 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all"
                 />
               </div>
             </div>
@@ -389,7 +389,7 @@ export function HelpArticlesPage() {
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="appearance-none pl-10 pr-9 h-11 rounded-xl border-2 border-slate-200 text-sm text-slate-700 font-medium bg-white focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all cursor-pointer min-w-[160px]"
+                className="appearance-none pl-10 pr-9 h-11 rounded-xl border-2 border-slate-200 text-sm text-slate-700 font-medium bg-white focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all cursor-pointer min-w-[160px]"
               >
                 <option value="">All Categories</option>
                 {CATEGORIES.map((cat) => (
@@ -423,10 +423,10 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
         {isLoading ? (
           <div className="p-16 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 mb-4 animate-pulse">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 mb-4 animate-pulse">
               <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -454,24 +454,24 @@ export function HelpArticlesPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-200">
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Title</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Key</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                  <th className="text-center px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Version</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Updated At</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500">Title</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500">Key</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500">Category</th>
+                  <th className="text-center px-6 py-4 text-xs font-semibold text-slate-500">Version</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500">Updated At</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {articleList.map((article) => (
                   <tr
                     key={article.id}
-                    className="group hover:bg-gradient-to-r hover:from-emerald-50/40 hover:to-teal-50/20 transition-all duration-200"
+                    className="group hover:bg-gradient-to-r hover:from-emerald-50/40 hover:to-emerald-50/20 transition-all duration-200"
                   >
                     {/* Title */}
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500/10 to-teal-500/10 flex items-center justify-center group-hover:from-emerald-500/20 group-hover:to-teal-500/20 transition-all">
+                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500/10 to-emerald-500/10 flex items-center justify-center group-hover:from-emerald-500/20 group-hover:to-emerald-500/20 transition-all">
                           <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
@@ -559,10 +559,10 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Info Banner ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 border border-emerald-100/50 p-5">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-full blur-3xl" />
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-50 to-emerald-50 border border-emerald-100/50 p-5">
+        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-emerald-500/10 to-emerald-500/10 rounded-full blur-3xl" />
         <div className="relative flex items-start gap-4">
-          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25">
+          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -604,7 +604,7 @@ export function HelpArticlesPage() {
       <Dialog open={showCreate} onClose={() => setShowCreate(false)} className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-md">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
@@ -628,7 +628,7 @@ export function HelpArticlesPage() {
           <Button
             onClick={handleCreate}
             disabled={saving}
-            className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white"
+            className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white"
           >
             {saving ? (
               <span className="flex items-center gap-2">
@@ -649,7 +649,7 @@ export function HelpArticlesPage() {
       <Dialog open={showEdit} onClose={() => setShowEdit(false)} className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-md">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-md">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
@@ -678,7 +678,7 @@ export function HelpArticlesPage() {
           <Button
             onClick={handleEdit}
             disabled={saving}
-            className="bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white"
+            className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white"
           >
             {saving ? (
               <span className="flex items-center gap-2">
@@ -699,7 +699,7 @@ export function HelpArticlesPage() {
       <Dialog open={showVersions} onClose={() => setShowVersions(false)} className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-md">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-md">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -738,7 +738,7 @@ export function HelpArticlesPage() {
                   <div className="flex items-center gap-2.5">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
                       idx === 0
-                        ? 'bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-sm'
+                        ? 'bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-sm'
                         : 'bg-slate-200 text-slate-600'
                     }`}>
                       v{v.version}
@@ -766,7 +766,7 @@ export function HelpArticlesPage() {
                 </div>
                 {v.content && (
                   <div className="mt-3 pl-10">
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1 font-medium">Content preview</p>
+                    <p className="text-xs text-slate-500 mb-1 font-medium">Content preview</p>
                     <div className="bg-white rounded-lg border border-slate-200 p-3 text-xs text-slate-600 font-mono max-h-24 overflow-y-auto whitespace-pre-wrap">
                       {v.content.slice(0, 300)}{v.content.length > 300 ? '…' : ''}
                     </div>
@@ -894,7 +894,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           className={`w-full h-10 px-3.5 rounded-xl border-2 text-sm font-mono text-slate-700 placeholder-slate-400 focus:outline-none transition-all ${
             keyReadOnly
               ? 'border-slate-200 bg-slate-50 text-slate-500 cursor-not-allowed'
-              : 'border-slate-200 bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10'
+              : 'border-slate-200 bg-white focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15'
           }`}
         />
         {!keyReadOnly && (
@@ -912,7 +912,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           value={form.title}
           onChange={(e) => set({ title: e.target.value })}
           placeholder="e.g. Getting Started with Entities"
-          className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all"
+          className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all"
         />
       </div>
 
@@ -923,7 +923,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
           <select
             value={form.category}
             onChange={(e) => set({ category: e.target.value })}
-            className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all appearance-none cursor-pointer"
+            className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all appearance-none cursor-pointer"
           >
             {CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
@@ -939,7 +939,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
             min={0}
             value={form.sortOrder}
             onChange={(e) => set({ sortOrder: parseInt(e.target.value) || 0 })}
-            className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all"
+            className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all"
           />
         </div>
       </div>
@@ -959,7 +959,7 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
               : 'Write article content here. Markdown formatting is supported...'
           }
           rows={8}
-          className="w-full px-3.5 py-3 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 font-mono leading-relaxed focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all resize-y min-h-[160px]"
+          className="w-full px-3.5 py-3 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 font-mono leading-relaxed focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all resize-y min-h-[160px]"
         />
       </div>
     </div>

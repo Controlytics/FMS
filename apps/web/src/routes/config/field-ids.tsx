@@ -20,13 +20,13 @@ interface FieldConfig {
 }
 
 const MODULE_COLORS: Record<string, { from: string; to: string; text: string; bg: string }> = {
-  'User Management': { from: 'from-blue-500', to: 'to-indigo-600', text: 'text-blue-700', bg: 'bg-blue-50' },
-  'Audit Trail': { from: 'from-indigo-500', to: 'to-purple-600', text: 'text-indigo-700', bg: 'bg-indigo-50' },
+  'User Management': { from: 'from-blue-500', to: 'to-brand-700', text: 'text-blue-700', bg: 'bg-blue-50' },
+  'Audit Trail': { from: 'from-brand-600', to: 'to-brand-700', text: 'text-brand-700', bg: 'bg-brand-50' },
   // 'Alarms' module removed 2026-05-17 (alarm subsystem retired; FLD_ALARM_001..011 seed rows dropped).
   'Asset Management': { from: 'from-emerald-500', to: 'to-teal-600', text: 'text-emerald-700', bg: 'bg-emerald-50' },
   'Notifications': { from: 'from-amber-500', to: 'to-orange-600', text: 'text-amber-700', bg: 'bg-amber-50' },
   'Telemetry': { from: 'from-cyan-500', to: 'to-blue-600', text: 'text-cyan-700', bg: 'bg-cyan-50' },
-  'Attributes': { from: 'from-violet-500', to: 'to-purple-600', text: 'text-violet-700', bg: 'bg-violet-50' },
+  'Attributes': { from: 'from-brand-600', to: 'to-brand-700', text: 'text-brand-700', bg: 'bg-brand-50' },
 };
 
 const MODULE_ICONS: Record<string, string> = {
@@ -163,7 +163,7 @@ export function FieldIdsPage() {
           onClick={() => setActiveModule(null)}
           className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
             !activeModule
-              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25'
+              ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-lg'
               : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
           }`}
         >
@@ -190,7 +190,7 @@ export function FieldIdsPage() {
 
       {/* Search Section */}
       <Card className="border-0 shadow-xl bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500" />
+        <div className="h-1 bg-gradient-to-r from-brand-600 to-brand-700" />
         <CardContent className="p-5">
           <div className="flex items-center gap-4">
             <div className="flex-1 relative group">
@@ -201,7 +201,7 @@ export function FieldIdsPage() {
                 placeholder="Search by field ID, display name, or module..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-12 h-12 rounded-xl border-slate-200 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all text-base"
+                className="pl-12 h-12 rounded-xl border-slate-200 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all text-base"
               />
             </div>
             {searchQuery && (
@@ -225,7 +225,7 @@ export function FieldIdsPage() {
       {isLoading ? (
         <Card className="border-0 shadow-xl overflow-hidden">
           <CardContent className="p-16 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 mb-4 animate-pulse">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-brand-600 to-brand-700 mb-4 animate-pulse">
               <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -264,10 +264,10 @@ export function FieldIdsPage() {
               <CardContent className="p-0">
                 <div className="divide-y divide-slate-100">
                   {moduleFields.map((field) => (
-                    <div key={field.fieldId} className="group flex items-center justify-between p-5 hover:bg-gradient-to-r hover:from-cyan-50/50 hover:to-blue-50/30 transition-all duration-200">
+                    <div key={field.fieldId} className="group flex items-center justify-between p-5 hover:bg-gradient-to-r hover:from-brand-50/50 hover:to-brand-50/30 transition-all duration-200">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-4">
-                          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 flex items-center justify-center group-hover:from-cyan-500/20 group-hover:to-blue-500/20 transition-all">
+                          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-brand-600/10 to-brand-700/10 flex items-center justify-center group-hover:from-brand-700/20 group-hover:to-brand-800/20 transition-all">
                             <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
                             </svg>
@@ -287,7 +287,7 @@ export function FieldIdsPage() {
                                 <Input
                                   value={editValue}
                                   onChange={(e) => setEditValue(e.target.value)}
-                                  className="max-w-xs h-10 rounded-lg border-cyan-300 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20"
+                                  className="max-w-xs h-10 rounded-lg border-cyan-300 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15"
                                   autoFocus
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') handleSave(field.fieldId);
@@ -356,10 +356,10 @@ export function FieldIdsPage() {
       )}
 
       {/* Info Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-cyan-50 via-blue-50 to-indigo-50 border border-cyan-100/50 p-5">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-full blur-3xl" />
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-50 to-brand-50 border border-cyan-100/50 p-5">
+        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-brand-600/10 to-brand-700/10 rounded-full blur-3xl" />
         <div className="relative flex items-start gap-4">
-          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
+          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>

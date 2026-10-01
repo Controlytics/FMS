@@ -27,6 +27,12 @@ describe('describeRequestSubject', () => {
     })).toBe('101020, role -> SUPERVISOR');
   });
 
+  it('3b. MODIFY_USER names the previous role when the request carries it', () => {
+    expect(describeRequestSubject('MODIFY_USER', {
+      username: '101020', modifyField: 'role', currentRole: 'OPERATOR', newValue: 'SUPERVISOR',
+    })).toBe('101020, role OPERATOR -> SUPERVISOR');
+  });
+
   it('4. account-state requests name the account being acted on', () => {
     for (const t of ['UNLOCK', 'ENABLE_ACCOUNT', 'DISABLE_ACCOUNT', 'FORGOT_PASSWORD']) {
       expect(describeRequestSubject(t, { username: '101020' })).toBe('101020');

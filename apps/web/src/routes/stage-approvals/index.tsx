@@ -343,7 +343,7 @@ export function StageApprovalsPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50/60 divide-y divide-slate-100">
                 {detailRows(dlg.item.detailsSnapshot).map((row) => (
                   <div key={row.label} className="flex items-center justify-between px-3 py-1.5">
-                    <span className="text-[11px] uppercase tracking-wider text-slate-400">{row.label}</span>
+                    <span className="text-xs text-slate-500">{row.label}</span>
                     <span className="text-[13px] font-medium text-slate-700">{row.value}</span>
                   </div>
                 ))}
@@ -356,9 +356,9 @@ export function StageApprovalsPage() {
                 </p>
               )}
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
+                <label className="text-xs font-semibold text-slate-500">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
                 <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15"
                   placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'Optional remarks'} />
               </div>
             </div>
@@ -397,9 +397,9 @@ export function StageApprovalsPage() {
                 </p>
               )}
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks {bulkDlg === 'reject' && <span className="text-rose-500">*</span>}</label>
+                <label className="text-xs font-semibold text-slate-500">Remarks {bulkDlg === 'reject' && <span className="text-rose-500">*</span>}</label>
                 <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15"
                   placeholder={bulkDlg === 'reject' ? 'Reason for rejection (required, applies to all)' : 'Optional remarks (applies to all)'} />
               </div>
             </div>

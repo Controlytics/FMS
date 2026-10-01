@@ -97,7 +97,7 @@ export function AhuFilterSetConfigPage() {
       {/* ─── Header ─── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 shadow-lg shadow-cyan-500/25">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
@@ -122,7 +122,7 @@ export function AhuFilterSetConfigPage() {
 
       {/* ─── Stat cards ─── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg shadow-cyan-500/20">
+        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg">
           <div className="text-2xl font-bold">{stats.total}</div>
           <div className="text-cyan-100 text-sm font-medium mt-0.5">Total AHUs</div>
         </div>
@@ -143,7 +143,7 @@ export function AhuFilterSetConfigPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search AHU name..."
-            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none"
+            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
           />
         </div>
         {success && (
@@ -191,10 +191,10 @@ export function AhuFilterSetConfigPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">AHU</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Filter Counts</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Schedule</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider w-72">Mode</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">AHU</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Filter Counts</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Schedule</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 w-72">Mode</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -253,7 +253,7 @@ export function AhuFilterSetConfigPage() {
                             disabled={isSaving || !canWrite}
                             title={!canWrite ? 'PM_UPDATE permission required' : undefined}
                             onChange={e => handleModeChange(a.ahuId, e.target.value as AhuMode)}
-                            className={`flex-1 px-3 py-2 border rounded-xl text-sm font-semibold outline-none transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${MODE_META[a.mode].bg} ${MODE_META[a.mode].text} ${MODE_META[a.mode].border} focus:ring-2 focus:ring-cyan-100`}
+                            className={`flex-1 px-3 py-2 border rounded-xl text-sm font-semibold outline-none transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${MODE_META[a.mode].bg} ${MODE_META[a.mode].text} ${MODE_META[a.mode].border} focus:ring-3 focus:ring-brand-600/15`}
                           >
                             <option value="BOTH">Both Sets (A + B)</option>
                             <option value="SET_A">Only Set A</option>

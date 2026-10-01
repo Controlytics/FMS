@@ -250,21 +250,21 @@ export function StageScanDialog({
 
               {/* Tag detected — show filter info + Continue / Remove */}
               {rfidDetected ? (
-                <div className="p-4 border-2 border-purple-300 bg-purple-50 rounded-xl space-y-3">
+                <div className="p-4 border-2 border-brand-300 bg-brand-50 rounded-xl space-y-3">
                   <div>
-                    <p className="text-xs text-purple-500 font-medium">Tag Detected</p>
-                    <p className="text-lg font-mono font-bold text-purple-800 mt-0.5">{rfidDetected}</p>
+                    <p className="text-xs text-brand-600 font-medium">Tag Detected</p>
+                    <p className="text-lg font-mono font-bold text-brand-800 mt-0.5">{rfidDetected}</p>
                   </div>
 
                   {/* Filter details from lookup */}
                   {lookingUp && (
                     <div className="flex items-center gap-2 text-xs text-slate-400">
-                      <div className="w-3 h-3 border-2 border-slate-300 border-t-transparent rounded-full animate-spin" />
+                      <div className="w-3 h-3 border border-slate-300 border-t-transparent rounded-full animate-spin" />
                       Looking up filter...
                     </div>
                   )}
                   {filterInfo && (
-                    <div className="bg-white rounded-lg p-3 border border-purple-200 space-y-1">
+                    <div className="bg-white rounded-lg p-3 border border-brand-200 space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-500">Filter</span>
                         <span className="text-sm font-semibold text-slate-800">{filterInfo.name}</span>
@@ -302,7 +302,7 @@ export function StageScanDialog({
                   <div>
                     <label className="text-sm font-medium text-slate-500 mb-1 block">Scan or Enter Filter Identifier</label>
                     <input type="text"
-                      className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl px-4 py-4 text-slate-800 text-center font-mono text-xl placeholder:text-slate-300 focus:border-cyan-500 outline-none"
+                      className="w-full bg-slate-50 border-2 border-slate-300 rounded-xl px-4 py-4 text-slate-800 text-center font-mono text-xl placeholder:text-slate-300 focus:border-brand-600 outline-none"
                       placeholder="Scan tag or type filter name"
                       value={scanValue}
                       onChange={e => handleScanInput(e.target.value)}
@@ -336,7 +336,7 @@ export function StageScanDialog({
               {queue.length > 0 && (
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
                   <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
                       {selectedIds && onSelectAll && (
                         <input type="checkbox" className="w-4 h-4 accent-green-600"
                           checked={queue.length > 0 && queue.every(q => selectedIds.has(q.filterId))}

@@ -209,7 +209,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[55] p-4">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
-        <div className={`bg-gradient-to-r ${isDryer ? 'from-amber-600 to-amber-700' : 'from-sky-600 to-sky-700'} px-6 py-4 shrink-0`}>
+        <div className={`bg-gradient-to-r ${isDryer ? 'from-amber-600 to-amber-700' : 'from-brand-600 to-brand-700'} px-6 py-4 shrink-0`}>
           <h2 className="text-lg font-bold text-white">
             {isDryer ? 'Dryer Temperature Reading' : 'Equipment & Pressure Readings'}
           </h2>
@@ -292,7 +292,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                           aria-readonly={isLocked(inst.id)}
                           title={isLocked(inst.id) ? 'Fetched from the instrument — not editable. Press Get Values to re-read.' : undefined}
                           placeholder={isWaiting ? 'Fetching…' : 'Enter or fetch value'}
-                          className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${isLocked(inst.id) ? 'bg-slate-100 text-slate-600 cursor-not-allowed border-slate-300' : 'bg-white text-slate-800'} ${outOfRange ? 'border-amber-400 focus:border-amber-500' : isLocked(inst.id) ? '' : 'border-slate-300 focus:border-cyan-500'}`}
+                          className={`w-full border rounded-lg px-3 py-2.5 text-sm outline-none ${isLocked(inst.id) ? 'bg-slate-100 text-slate-600 cursor-not-allowed border-slate-300' : 'bg-white text-slate-800'} ${outOfRange ? 'border-amber-400 focus:border-brand-600' : isLocked(inst.id) ? '' : 'border-slate-300 focus:border-brand-600'}`}
                         />
                         <span className="text-xs text-slate-400 shrink-0">{inst.uom}</span>
                       </div>
@@ -300,7 +300,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                       <select
                         value={val ?? ''}
                         onChange={e => setManualReading(inst.id, e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-slate-800 text-sm focus:border-cyan-500 outline-none">
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-slate-800 text-sm focus:border-brand-600 outline-none">
                         <option value="">Select value...</option>
                         {options.map((v) => (
                           <option key={v} value={v}>{formatByLeastCount(v, inst.leastCount)} {inst.uom}</option>

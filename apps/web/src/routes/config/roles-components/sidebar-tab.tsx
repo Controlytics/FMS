@@ -155,9 +155,9 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       const isEnabled = enabledItems.includes(item.id);
       return (
         <div key={item.id} onClick={() => toggleSidebarItem(item.id)} className={`relative p-4 rounded-xl border-2 transition-all cursor-pointer ${
-          isEnabled ? 'bg-violet-50 border-violet-300 shadow-md' : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
+          isEnabled ? 'bg-brand-50 border-brand-300 shadow-md' : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
         }`}>
-          <div className={`absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center transition-all ${isEnabled ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
+          <div className={`absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center transition-all ${isEnabled ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
             {isEnabled ? (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
             ) : (
@@ -167,8 +167,8 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
           <div className="flex items-start gap-3">
             <span className="text-2xl">{item.icon}</span>
             <div>
-              <h4 className={`font-semibold ${isEnabled ? 'text-violet-800' : 'text-slate-800'}`}>{item.label}</h4>
-              <p className={`text-sm mt-1 ${isEnabled ? 'text-violet-600' : 'text-slate-500'}`}>{item.description}</p>
+              <h4 className={`font-semibold ${isEnabled ? 'text-brand-800' : 'text-slate-800'}`}>{item.label}</h4>
+              <p className={`text-sm mt-1 ${isEnabled ? 'text-brand-700' : 'text-slate-500'}`}>{item.description}</p>
             </div>
           </div>
         </div>
@@ -179,11 +179,11 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       const isEnabled = enabledItems.includes(item.id);
       return (
         <div key={item.id} onClick={() => toggleSidebarItem(item.id)} className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all cursor-pointer ${
-          isEnabled ? 'bg-violet-50 border-violet-300 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
+          isEnabled ? 'bg-brand-50 border-brand-300 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'
         }`}>
           <span className="text-xl">{item.icon}</span>
-          <span className={`flex-1 font-medium text-sm ${isEnabled ? 'text-violet-800' : 'text-slate-600'}`}>{item.label}</span>
-          <div className={`w-5 h-5 rounded-full flex items-center justify-center ${isEnabled ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}>
+          <span className={`flex-1 font-medium text-sm ${isEnabled ? 'text-brand-800' : 'text-slate-600'}`}>{item.label}</span>
+          <div className={`w-5 h-5 rounded-full flex items-center justify-center ${isEnabled ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
             {isEnabled ? (
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
             ) : (
@@ -269,7 +269,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       return (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center gap-2">
-            <svg className="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" /></svg>
+            <svg className="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" /></svg>
             <h3 className="font-bold text-slate-700">Display Order</h3>
           </div>
           <p className="text-xs text-slate-500 mt-1 mb-3">Arrange how the enabled menu items appear in the sidebar for this role. Reports stay grouped — reorder the group as a whole, or its reports inside.</p>
@@ -310,13 +310,13 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
         {/* Inner tabs: Role / User */}
         <div className="flex border-b border-slate-200">
           <button onClick={() => handleSidebarSubTabChange('role')} className={`flex-1 px-6 py-4 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-            sidebarSubTab === 'role' ? 'bg-violet-50 text-violet-700 border-b-2 border-violet-500' : 'text-slate-600 hover:bg-slate-50'
+            sidebarSubTab === 'role' ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-600' : 'text-slate-600 hover:bg-slate-50'
           }`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
             Configure by Role
           </button>
           <button onClick={() => handleSidebarSubTabChange('user')} className={`flex-1 px-6 py-4 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-            sidebarSubTab === 'user' ? 'bg-violet-50 text-violet-700 border-b-2 border-violet-500' : 'text-slate-600 hover:bg-slate-50'
+            sidebarSubTab === 'user' ? 'bg-brand-50 text-brand-700 border-b-2 border-brand-600' : 'text-slate-600 hover:bg-slate-50'
           }`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
             Configure by User
@@ -327,12 +327,12 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
           {sidebarSubTab === 'role' ? (
             <div className="space-y-6">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Select Role</label>
+                <label className="block text-xs font-semibold text-slate-500 mb-3">Select Role</label>
                 <div className="flex flex-wrap gap-2">
                   {allRoles.map((role) => (
                     <button key={role.name} onClick={() => handleSidebarRoleChange(role.name)} disabled={isTransitioning}
                       className={`px-4 py-2 rounded-xl text-sm font-medium transition-all text-white shadow-md ${
-                        sidebarSelectedRole === role.name ? role.color + ' ring-2 ring-offset-2 ring-violet-400' : 'bg-slate-100 !text-slate-600 hover:bg-slate-200 !shadow-none'
+                        sidebarSelectedRole === role.name ? role.color + ' ring-2 ring-offset-2 ring-brand-500' : 'bg-slate-100 !text-slate-600 hover:bg-slate-200 !shadow-none'
                       } ${isTransitioning ? 'opacity-50 cursor-wait' : ''}`}>
                       {role.displayName}
                     </button>
@@ -342,7 +342,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
 
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
                 <div className="text-sm text-slate-600">
-                  <span className="font-semibold text-violet-600">{enabledItems.length}</span>
+                  <span className="font-semibold text-brand-700">{enabledItems.length}</span>
                   <span> / {SIDEBAR_ITEMS.length} items enabled for </span>
                   <span className="font-semibold">{allRoles.find(r => r.name === sidebarSelectedRole)?.displayName || sidebarSelectedRole}</span>
                 </div>
@@ -354,7 +354,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
 
               {sidebarIsLoading ? (
                 <div className="p-8 text-center">
-                  <svg className="w-6 h-6 animate-spin mx-auto mb-2 text-violet-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  <svg className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                   <p className="text-slate-500">Loading configuration...</p>
                 </div>
               ) : (
@@ -395,11 +395,11 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                     <div className="divide-y divide-slate-200">
                       {filteredUsers.map((u: User) => (
                         <div key={u.id} onClick={() => handleUserChange(u)} className={`p-3 cursor-pointer transition-colors ${
-                          selectedUser?.id === u.id ? 'bg-violet-100' : 'bg-white hover:bg-slate-50'
+                          selectedUser?.id === u.id ? 'bg-brand-100' : 'bg-white hover:bg-slate-50'
                         } ${isTransitioning ? 'opacity-50 cursor-wait' : ''}`}>
                           <div className="flex items-center gap-3">
                             <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${
-                              selectedUser?.id === u.id ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-600'
+                              selectedUser?.id === u.id ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-600'
                             }`}>{u.fullName.charAt(0).toUpperCase()}</div>
                             <div className="flex-1 min-w-0">
                               <p className="font-medium text-slate-800 truncate text-sm">{u.fullName}</p>
@@ -428,12 +428,12 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="p-4 bg-violet-50 rounded-xl border border-violet-200 flex items-center justify-between">
+                    <div className="p-4 bg-brand-50 rounded-xl border border-brand-200 flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-violet-500 text-white flex items-center justify-center font-bold">{selectedUser.fullName.charAt(0).toUpperCase()}</div>
+                        <div className="w-10 h-10 rounded-full bg-brand-600 text-white flex items-center justify-center font-bold">{selectedUser.fullName.charAt(0).toUpperCase()}</div>
                         <div>
-                          <p className="font-semibold text-violet-800">{selectedUser.fullName}</p>
-                          <p className="text-sm text-violet-600">{selectedUser.username} &bull; {allRoles.find(r => r.name === selectedUser.role)?.displayName || selectedUser.role}</p>
+                          <p className="font-semibold text-brand-800">{selectedUser.fullName}</p>
+                          <p className="text-sm text-brand-700">{selectedUser.username} &bull; {allRoles.find(r => r.name === selectedUser.role)?.displayName || selectedUser.role}</p>
                         </div>
                       </div>
                       <div className="flex gap-2">
@@ -445,7 +445,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
 
                     {sidebarIsLoading ? (
                       <div className="p-8 text-center">
-                        <svg className="w-6 h-6 animate-spin mx-auto mb-2 text-violet-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        <svg className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                         <p className="text-slate-500">Loading configuration...</p>
                       </div>
                     ) : (
@@ -470,7 +470,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                     </div>
 
                     <div className="text-sm text-slate-600">
-                      <span className="font-semibold text-violet-600">{enabledItems.length}</span>
+                      <span className="font-semibold text-brand-700">{enabledItems.length}</span>
                       <span> / {SIDEBAR_ITEMS.length} items enabled</span>
                       {enabledItems.length === 0 && <span className="text-slate-400 ml-2">(Using role defaults)</span>}
                     </div>

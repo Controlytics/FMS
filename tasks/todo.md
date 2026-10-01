@@ -1,3 +1,50 @@
+# UI redesign — all screens (started 2026-10-01)
+
+Operator ask: "update all the screens ui colors, cards, everything, fonts — more
+professional". 189 screen/component files, no shared page primitives, so the work
+is done from the foundation outwards. Light theme only; the 10 colour themes keep
+working; web and tablet share pages, so one change covers both.
+
+Direction ("the batch record"): paper-white surfaces, hairline borders instead of
+heavy shadows, tighter corners, ONE brand hue (the active theme) for actions and
+navigation, status colours reserved for status, identifiers / timestamps /
+readings in a mono face. IBM Plex Sans + IBM Plex Mono, self-hosted (air-gapped).
+
+## Phase 1 — foundation (touches ~20 files, changes every screen)
+- [x] P1.1 Self-host IBM Plex Sans (400/500/600/700) + IBM Plex Mono (400/500); drop Sora / Bricolage / JetBrains Mono
+- [x] P1.2 `app.css` tokens: font stacks, radius scale, shadow scale, `brand-*` / `accent-*` scales derived from the theme, `cyan-*` / `teal-*` remapped onto them (hardcoded cyan now follows the theme), focus ring, base table / form rules
+- [x] P1.3 `lib/themes.ts`: primaries that fail AA contrast with white text deepened (ocean, emerald, sunset, forest)
+- [x] P1.4 `components/ui/*`: button, card, badge, input, select, table, dialog, pagination, toast, message-dialog
+- [x] P1.5 Shell: sidebar, header, app-layout
+- [x] P1.6 Auth screens: login, contact-admin, forgot-password, change-password
+- [x] P1.7 Verify: before/after screenshots (desktop 1440 + tablet 800), console clean, web tsc + vitest
+
+## Phase 2 — page sweeps (per area, each verified by screenshot)
+- [~] P2.1 Page headers: rainbow gradient icon tiles -> brand DONE (codemod1 + header pass); a shared `PageHeader` primitive is NOT built
+- [ ] P2.2 Stat cards -> one `StatCard`
+- [ ] P2.3 Tables: density, header style, row actions (30 raw tables)
+- [ ] P2.4 Filter bars / form controls (raw inputs + selects)
+- [ ] P2.5 Dashboard
+- [ ] P2.6 Filter management (list, operations, status, traceability, retirement, replacement)
+- [~] P2.7 Config hub + 34 config pages — colours / labels / focus done by the codemods; no per-page layout work
+- [~] P2.8 Users, admin requests, audit, notifications, reports — colours / labels / focus done by the codemods; no per-page layout work
+- [ ] P2.9 Tablet wrapper (`/m`) touch targets re-checked
+- [ ] P2.10 Text below 11px raised (596 uses of 9-11px)
+
+## Done outside the original list
+- [x] Codemod 1 (gradients, glow shadows, ALL-CAPS labels, backdrops, 2px borders), codemod 2 (focus states), codemod 3 (decorative violet/indigo/purple -> brand). Scripts kept in the session scratchpad; rules + skip lists are described in `apps/web/CLAUDE.md` § Theme.
+- [x] `components/auth-shell.tsx` — all signed-out screens incl. tablet `/m/login`, `/m/forgot-password`
+- [x] Fixes: `use-rfid-guard` autofill crash; RFID Track Record 317px rows; wrapping in Cleaning Cycles + PM Schedules
+- [ ] Delete the unreferenced old fonts in `apps/web/public/fonts/` (11 woff2 + `fonts.css`) — needs operator OK
+- [ ] Tablet home / operations (`routes/mobile/*`) not restyled beyond the shared tokens — those files carry uncommitted 09-25 work
+
+## Constraints
+- No logic changes. Offline / sync surface is not touched.
+- Semantic colours stay semantic: emerald = active/done, amber = pending, red = rejected/terminated, stage colours on Filter Operations.
+- Uncommitted 09-25 work is still in the tree: Phase 1 files do not overlap it; Phase 2 does — commit before Phase 2.
+
+---
+
 # Stage Approvals: stage details on every request + SUPER_ADMIN edit (2026-09-05)
 
 Operator ask: (1) SUPER_ADMIN Edit on the Stage Approvals page; (2) a Wash Out

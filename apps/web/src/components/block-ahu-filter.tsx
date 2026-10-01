@@ -149,11 +149,11 @@ function ScopeSelect({ label, allLabel, value, options, onChange }: {
 }) {
   return (
     <div className="flex flex-col gap-1 min-w-[160px]">
-      <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{label}</label>
+      <label className="text-xs font-semibold text-slate-500">{label}</label>
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:bg-white outline-none transition-all"
+        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:bg-white outline-none transition-all"
       >
         <option value="">{allLabel}</option>
         {options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}

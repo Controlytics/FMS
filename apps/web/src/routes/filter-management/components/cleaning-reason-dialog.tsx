@@ -47,7 +47,7 @@ export function CleaningReasonDialog({ dialog, onClose, onSubmit, loading, error
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[55] p-4" onClick={onClose}>
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="bg-gradient-to-r from-cyan-600 to-blue-600 px-6 py-4">
+        <div className="bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-4">
           <h2 className="text-lg font-bold text-white">Select Cleaning Reason</h2>
           <p className="text-cyan-100 text-sm">{dialog.filterName} &rarr; {dialog.stage.label}</p>
         </div>

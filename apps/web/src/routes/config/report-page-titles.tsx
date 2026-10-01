@@ -45,7 +45,7 @@ export function ReportPageTitlesPage() {
     } finally { setSaving(false); }
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 disabled:bg-slate-50';
+  const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:bg-slate-50';
 
   const FIELDS = [
     { key: 'companyName' as const, label: 'Company name', brandingVal: branding.companyName },

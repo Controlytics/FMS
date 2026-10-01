@@ -349,7 +349,7 @@ export function CleaningCycleHistoryPage() {
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-600 to-cyan-700 shadow-lg shadow-cyan-600/10">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
@@ -376,38 +376,38 @@ export function CleaningCycleHistoryPage() {
         {/* Filters */}
         <div className="flex items-end gap-3 flex-wrap mb-3">
           <div className="min-w-[180px]">
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Search</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Search</label>
             <input type="text" value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="Filter name…"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500" />
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
           </div>
           <div className="min-w-[150px]">
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Block</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Block</label>
             <select value={blockId} onChange={e => { setBlockId(e.target.value); setAreaId(''); setAhuId(''); setPage(1); }}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500">
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
               <option value="">All Blocks</option>
               {blocks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           <div className="min-w-[150px]">
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Area</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Area</label>
             <select value={areaId} onChange={e => { setAreaId(e.target.value); setAhuId(''); setPage(1); }} disabled={!blockId}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:opacity-50 disabled:cursor-not-allowed">
               <option value="">{blockId ? 'All Areas' : 'Select block'}</option>
               {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
           <div className="min-w-[150px]">
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">AHU</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">AHU</label>
             <select value={ahuId} onChange={e => { setAhuId(e.target.value); setPage(1); }} disabled={!areaId}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:opacity-50 disabled:cursor-not-allowed">
               <option value="">{areaId ? 'All AHUs' : 'Select area'}</option>
               {ahus.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
             </select>
           </div>
           <div className="min-w-[180px]">
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Filter</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Filter</label>
             <select value={selectedFilter} onChange={e => { setSelectedFilter(e.target.value); setPage(1); }}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500">
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[13px] text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
               <option value="">All Filters</option>
               {filterInstances.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
@@ -468,7 +468,7 @@ export function CleaningCycleHistoryPage() {
             <thead className="sticky top-0 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 {[...ccHead, ''].map((h, i) => (
-                  <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  <th key={i} className="text-left px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -499,14 +499,14 @@ export function CleaningCycleHistoryPage() {
                       <td className="px-4 py-3 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * perPage + idx + 1}</td>
                       <td className="px-4 py-3"><div className="text-[13px] font-semibold text-slate-800">{c.filterName ?? '-'}</div></td>
                       <td className="px-4 py-3 text-[13px] text-slate-600">{mAttrs.filterSize ?? '-'}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums">-</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums">-</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums whitespace-nowrap">-</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums whitespace-nowrap">-</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('WASH_IN')}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('WASH_OUT')}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{performerLabel(c)}</td>
                       <td className="px-4 py-3 text-[13px] text-slate-400 whitespace-nowrap tabular-nums">-</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('DRY_IN')}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums">-</td>
+                      <td className="px-4 py-3 text-[13px] text-slate-400 font-mono tabular-nums whitespace-nowrap">-</td>
                       <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{manualCell('DRY_OUT')}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2.5 py-1 text-[11px] font-bold rounded-full whitespace-nowrap border ${mInfo.color}`}>{mInfo.label}</span>
@@ -581,14 +581,14 @@ export function CleaningCycleHistoryPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-[13px] text-slate-600">{attrs.filterSize ?? '-'}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{getReading(washReadings, 'air pressure')}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{getReading(washReadings, 'ro water')}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums whitespace-nowrap">{getReading(washReadings, 'air pressure')}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums whitespace-nowrap">{getReading(washReadings, 'ro water')}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_IN', washIn ? formatDateTime(washIn.time) : null, washIn?.manual)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('WASH_OUT', washOut ? formatDateTime(washOut.time) : null, washOut?.manual)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{washIn?.performedBy ?? washOut?.performedBy ?? '-'}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', fmtMinutes(dryerStart.minutes), dryIn?.manual)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_IN', dryerStart.time ? formatDateTime(dryerStart.time) : null, dryIn?.manual)}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums">{stageCell('DRY_IN', dryerTemp !== '-' ? dryerTemp : null, dryIn?.manual)}</td>
+                    <td className="px-4 py-3 text-[13px] text-slate-600 font-mono tabular-nums whitespace-nowrap">{stageCell('DRY_IN', dryerTemp !== '-' ? dryerTemp : null, dryIn?.manual)}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{stageCell('DRY_OUT', dryOut ? formatDateTime(dryOut.time) : null, dryOut?.manual)}</td>
                     {/* Who completed the dry — DRY_OUT first, falling back to DRY_IN. */}
                     <td className="px-4 py-3 text-[13px] text-slate-800 font-medium">{dryOut?.performedBy ?? dryIn?.performedBy ?? '-'}</td>

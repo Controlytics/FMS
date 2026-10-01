@@ -158,7 +158,7 @@ export function RemainingFiltersDialog({
               </div>
 
               <div className="flex items-center justify-between text-xs text-slate-500">
-                <span className="font-semibold uppercase tracking-wider">Filters under this AHU</span>
+                <span className="font-semibold">Filters under this AHU</span>
                 <span>{doneCount}/{ahu.filters.length} completed</span>
               </div>
 
@@ -194,7 +194,7 @@ export function RemainingFiltersDialog({
                           )}
                           <span className="font-medium text-slate-800 truncate">{f.name}</span>
                           {isCurrent && (
-                            <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                            <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-brand-100 text-brand-700">
                               this filter
                             </span>
                           )}

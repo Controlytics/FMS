@@ -170,7 +170,7 @@ export function UserIdConfigPage() {
       <ReauthPrompt reauth={reauth} />
       {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/25">
+        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
           </svg>
@@ -197,7 +197,7 @@ export function UserIdConfigPage() {
         <div className="lg:col-span-2 space-y-6">
           <Card className="p-6">
             <h2 className="text-lg font-semibold text-slate-800 mb-6 flex items-center gap-2">
-              <svg className="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
               </svg>
               Format Settings
@@ -352,7 +352,7 @@ export function UserIdConfigPage() {
                   checked={form.autoGenerate}
                   onChange={(e) => setForm({ ...form, autoGenerate: e.target.checked })}
                   disabled={!isSuperAdmin}
-                  className="w-5 h-5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  className="w-5 h-5 rounded border-slate-300 text-brand-700 focus:ring-brand-600/15"
                 />
                 <span className="text-sm font-medium text-slate-700">
                   Enable auto-generation of User IDs

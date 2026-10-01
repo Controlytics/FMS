@@ -123,7 +123,7 @@ export function UserUnlockDialog({
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button
-          className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+          className="bg-gradient-to-r from-emerald-500 to-emerald-500 hover:from-emerald-600 hover:to-emerald-600"
           onClick={onConfirm}
         >
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

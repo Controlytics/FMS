@@ -250,7 +250,7 @@ export function CleaningProfileAssignmentPage() {
           <select
             value={rule.matchValue}
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
           >
             <option value="">Select filter dimensions...</option>
             {available.map(s => (
@@ -266,7 +266,7 @@ export function CleaningProfileAssignmentPage() {
           <select
             value={rule.matchValue}
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
           >
             <option value="">Select filter...</option>
             {available.map(f => (
@@ -282,7 +282,7 @@ export function CleaningProfileAssignmentPage() {
           <select
             value={rule.matchValue}
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
           >
             <option value="">Select AHU...</option>
             {available.map(a => (
@@ -298,7 +298,7 @@ export function CleaningProfileAssignmentPage() {
           <select
             value={rule.matchValue}
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
           >
             <option value="">Select block / area...</option>
             {available.map(b => (
@@ -372,7 +372,7 @@ export function CleaningProfileAssignmentPage() {
                   value={opt.value}
                   checked={mode === opt.value}
                   onChange={() => handleModeChange(opt.value)}
-                  className="mt-0.5 w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                  className="mt-0.5 w-4 h-4 text-blue-600 border-slate-300 focus:ring-brand-600/15"
                 />
                 <div>
                   <div className="font-medium text-slate-800 text-sm">{opt.label}</div>
@@ -424,9 +424,9 @@ export function CleaningProfileAssignmentPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200">
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider pb-3 pr-4">{getMatchColumnLabel()}</th>
-                      <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider pb-3 pr-4">Cleaning Profile</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider pb-3 w-16">Actions</th>
+                      <th className="text-left text-xs font-semibold text-slate-500 pb-3 pr-4">{getMatchColumnLabel()}</th>
+                      <th className="text-left text-xs font-semibold text-slate-500 pb-3 pr-4">Cleaning Profile</th>
+                      <th className="text-right text-xs font-semibold text-slate-500 pb-3 w-16">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -439,7 +439,7 @@ export function CleaningProfileAssignmentPage() {
                           <select
                             value={rule.profileId}
                             onChange={e => updateRule(index, 'profileId', e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
                           >
                             <option value="">Select profile...</option>
                             {activeProfiles.map(p => (

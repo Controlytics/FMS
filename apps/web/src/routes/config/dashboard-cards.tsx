@@ -165,7 +165,7 @@ export default function DashboardCardsConfig() {
                         checked ? 'bg-cyan-50/50 border-cyan-200' : 'bg-white border-slate-200 hover:bg-slate-50'
                       }`}>
                       <input type="checkbox" checked={checked} onChange={() => toggleCard(roleIdx, card.key)}
-                        className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                        className="mt-0.5 rounded border-slate-300 text-cyan-600 focus:ring-brand-600/15" />
                       <div>
                         <div className="text-[13px] font-medium text-slate-800">{card.label}</div>
                         <div className="text-[11px] text-slate-400 mt-0.5 leading-tight">{card.description}</div>

@@ -29,7 +29,7 @@ export function FilterDiagNode({ filter: f, identifiersByAsset, onNavigate }: Fi
   return (
     <div className="flex flex-col items-center">
       <button onClick={() => onNavigate('filter', f.id, f.name)}
-        className="flex flex-col items-center px-3 py-2 rounded-xl border-2 border-slate-300 bg-white shadow-sm min-w-[100px] max-w-[130px] hover:border-[var(--theme-primary)] hover:bg-[var(--theme-primary-light)] hover:shadow-md cursor-pointer transition-all">
+        className="flex flex-col items-center px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm min-w-[100px] max-w-[130px] hover:border-[var(--theme-primary)] hover:bg-[var(--theme-primary-light)] hover:shadow-md cursor-pointer transition-all">
         <svg className="w-4 h-4 mb-0.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
         </svg>

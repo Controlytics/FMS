@@ -5,7 +5,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import type { PasswordPolicyConfig } from '@digilog/shared';
 
 const statusBadge: Record<string, string> = {
-  ENABLED: 'bg-gradient-to-r from-emerald-400 to-teal-400 text-white border-0',
+  ENABLED: 'bg-gradient-to-r from-emerald-400 to-emerald-400 text-white border-0',
   DISABLED: 'bg-gradient-to-r from-red-400 to-rose-400 text-white border-0',
   LOCKED: 'bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0',
   EXPIRED: 'bg-gradient-to-r from-slate-400 to-gray-400 text-white border-0',
@@ -72,7 +72,7 @@ export function UserTable({
   onUnlock,
 }: UserTableProps) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+    <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
@@ -83,7 +83,7 @@ export function UserTable({
                   checked={allSelected}
                   ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
                   onChange={toggleSelectAll}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-brand-600/15"
                 />
               </TableHead>
             )}
@@ -105,7 +105,7 @@ export function UserTable({
                       type="checkbox"
                       checked={selectedIds.has(user.id)}
                       onChange={() => toggleSelect(user.id)}
-                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-brand-600/15"
                     />
                   ) : (
                     <span className="w-4 h-4 block" />

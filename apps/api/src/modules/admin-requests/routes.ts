@@ -126,6 +126,8 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
             exists: { type: 'boolean' },
             username: { type: 'string' },
             fullName: { type: ['string', 'null'] },
+            role: { type: ['string', 'null'] },
+            roleDisplayName: { type: ['string', 'null'] },
           },
         },
       },
@@ -134,14 +136,28 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     const { username } = req.query as { username: string };
     const user = await prisma.user.findUnique({
       where: { username: username.trim() },
-      select: { username: true, fullName: true },
+      select: { username: true, fullName: true, role: true },
     });
-    if (!user) return { exists: false, username: username.trim(), fullName: null };
-    // Audit 2026-09-04 (Low #3): this is pre-login, so the full name is MASKED
-    // ('S***** M*******') - enough for the person to confirm they typed their own
-    // employee ID, useless for enumerating the directory. The submitted request
-    // gets the real name from the users table (admin-request.service.create).
-    return { exists: true, username: user.username, fullName: maskFullName(user.fullName) };
+    if (!user) return { exists: false, username: username.trim(), fullName: null, role: null, roleDisplayName: null };
+    // 2026-10-01 (operator request): a Modify User request may change ONLY the
+    // role, and the form shows the current role beside the new one. This
+    // partially reverses the May-16 H1 hardening above — a caller can learn an
+    // employee's role, rate-limited as before. Deliberately limited to the role:
+    // email / department / status stay private. A SUPER_ADMIN's role is never
+    // disclosed (SA is hidden from non-SA everywhere else too).
+    const isSa = user.role === 'SUPER_ADMIN';
+    const roleRow = isSa ? null : await prisma.role.findUnique({ where: { name: user.role }, select: { displayName: true } });
+    // Audit 2026-09-04 (Low #3) masked the full name here ('S***** M*******').
+    // 2026-10-01 (operator request): the form shows the REAL name again so the
+    // person can confirm they picked the right account — a deliberate reversal,
+    // rate-limited as before. A SUPER_ADMIN's name stays masked, like its role.
+    return {
+      exists: true,
+      username: user.username,
+      fullName: isSa ? maskFullName(user.fullName) : user.fullName,
+      role: isSa ? null : user.role,
+      roleDisplayName: isSa ? null : (roleRow?.displayName ?? user.role),
+    };
   });
 
   // 2. GET / — List all requests (admin only)

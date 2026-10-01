@@ -37,7 +37,7 @@ export function BlockChangeRequestDialog({
   const isApproval = mode === 'APPROVAL';
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
         <div className="h-1.5 bg-gradient-to-r from-amber-500 to-orange-500" />
         <div className="p-6">
@@ -75,9 +75,9 @@ export function BlockChangeRequestDialog({
                   This filter belongs to <span className="font-semibold">{dialog.homeBlockName}</span>. Cleaning it in{' '}
                   <span className="font-semibold text-amber-700">{dialog.requestedBlockName}</span> needs approval. Submit a request below.
                 </p>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Reason</label>
+                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Reason</label>
                 <textarea
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
                   rows={2}
                   value={reason}
                   onChange={(e) => onReasonChange(e.target.value)}
@@ -101,7 +101,7 @@ export function BlockChangeRequestDialog({
             <button
               onClick={onSubmit}
               disabled={submitting || (isApproval && !reason.trim())}
-              className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-cyan-500/25"
+              className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg"
             >
               {isApproval ? (submitting ? 'Submitting…' : 'Request approval') : 'Continue with cleaning'}
             </button>

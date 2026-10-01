@@ -131,12 +131,12 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
       case 'NUMERIC':
         return (
           <input type="number" value={value} onChange={e => onChange(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-500 outline-none" placeholder="Enter value" />
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none" placeholder="Enter value" />
         );
       case 'DROPDOWN':
         return (
           <select value={value} onChange={e => onChange(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-500 outline-none">
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none">
             <option value="">Select...</option>
             {(Array.isArray(q.options) ? q.options : []).map((opt: any, i: number) => (
               <option key={i} value={typeof opt === 'string' ? opt : opt.value}>{typeof opt === 'string' ? opt : opt.label}</option>
@@ -167,7 +167,7 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
       default:
         return (
           <textarea value={value} onChange={e => onChange(e.target.value)} rows={2}
-            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-cyan-500 outline-none" placeholder="Enter answer" />
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none" placeholder="Enter answer" />
         );
     }
   };
@@ -175,19 +175,19 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
-        <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4 flex items-center gap-3 shrink-0">
-          <svg className="w-7 h-7 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-4 flex items-center gap-3 shrink-0">
+          <svg className="w-7 h-7 text-brand-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
           </svg>
           <div>
             <h2 className="text-lg font-bold text-white">Checklist Required</h2>
-            <p className="text-purple-100 text-sm">{dialog.filterName}</p>
+            <p className="text-brand-100 text-sm">{dialog.filterName}</p>
           </div>
         </div>
         <div className="p-6 space-y-5 overflow-y-auto flex-1">
           {dialog.checklists.map((cl) => (
             <div key={cl.pipelineNodeId}>
-              <h3 className="text-sm font-semibold text-purple-700 uppercase tracking-wider mb-3">{cl.checklistProfileName}</h3>
+              <h3 className="text-sm font-semibold text-brand-700 mb-3">{cl.checklistProfileName}</h3>
               <div className="space-y-4">
                 {(!Array.isArray(cl.questions) || cl.questions.length === 0) && (
                   <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
@@ -200,7 +200,7 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
                   return (
                     <div key={q.id}>
                       {showSection && (
-                        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-2 mb-1 border-b border-slate-200 pb-1">{q.section}</div>
+                        <div className="text-xs font-semibold text-slate-500 mt-2 mb-1 border-b border-slate-200 pb-1">{q.section}</div>
                       )}
                       <div className="space-y-2">
                         <div className="flex items-start gap-2">
@@ -231,7 +231,7 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
             Cancel
           </button>
           <button onClick={handleSubmit} disabled={loading}
-            className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-purple-500 transition-colors">
+            className="flex-1 py-3 bg-brand-700 text-white rounded-xl font-bold disabled:opacity-40 flex items-center justify-center gap-2 hover:bg-brand-600 transition-colors">
             {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> :
               <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>Submit Checklist</>}
           </button>

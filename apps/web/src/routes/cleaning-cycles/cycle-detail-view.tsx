@@ -137,32 +137,32 @@ export function CycleDetailView({ cycle, fallback }: {
           {/* Info Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Cleaning Reason</div>
+              <div className="text-[11px] text-slate-500 mb-0.5">Cleaning Reason</div>
               <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${REASON_COLORS[cycle.cleaningReasonKey] ?? 'bg-slate-100 text-slate-600'}`}>
                 {cycle.cleaningReasonLabel || cycle.cleaningReasonKey || '—'}
               </span>
             </div>
             <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Block</div>
+              <div className="text-[11px] text-slate-500 mb-0.5">Block</div>
               <div className="text-sm text-slate-700 font-medium">{cycle.cleaningAreaName ?? '—'}</div>
             </div>
             <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Duration</div>
+              <div className="text-[11px] text-slate-500 mb-0.5">Duration</div>
               <div className="text-sm text-slate-700 font-medium">{durationStr}</div>
             </div>
             <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Started</div>
+              <div className="text-[11px] text-slate-500 mb-0.5">Started</div>
               <div className="text-sm text-slate-700">{formatDateTime(cycle.startedAt)}</div>
             </div>
             <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{endInfo.endLabel.replace('Cycle ', '')}</div>
+              <div className="text-[11px] text-slate-500 mb-0.5">{endInfo.endLabel.replace('Cycle ', '')}</div>
               <div className="text-sm text-slate-700">{eff === 'IN_PROGRESS' ? `${events.length} events` : endInfo.endTimeText}</div>
             </div>
             <div className="bg-slate-50/50 rounded-lg px-3 py-2.5">
               {/* "—" is honest: 12 live cycles were terminated DB-direct and no
                   terminator was ever recorded anywhere. Naming the last stage's
                   operator here would be a false statement about who ended it. */}
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{endInfo.byLabel}</div>
+              <div className="text-[11px] text-slate-500 mb-0.5">{endInfo.byLabel}</div>
               <div className="text-sm text-slate-700">{eff === 'IN_PROGRESS' ? '—' : (endInfo.by ?? '—')}</div>
             </div>
           </div>
@@ -186,12 +186,12 @@ export function CycleDetailView({ cycle, fallback }: {
           {/* Pinned versions (audit replay) — deep-link each to Version History. */}
           {(cycle.profileVersion !== undefined || cycle.equipmentGroupVersionPin || (cycle.checklistVersionPins && Object.keys(cycle.checklistVersionPins ?? {}).length > 0)) && (
             <div className="mt-3 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg">
-              <div className="text-[10px] text-indigo-700 uppercase tracking-wider mb-1.5 font-semibold">Pinned Versions</div>
+              <div className="text-[11px] text-indigo-700 mb-1.5 font-semibold">Pinned Versions</div>
               <div className="flex flex-wrap gap-2 items-center">
                 {cycle.profileVersion !== undefined && (
                   <button
                     onClick={() => navigate(`/version-history?entity=cleaning-profile&id=${cycle.profileId}&v=${cycle.profileVersion}`)}
-                    className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 rounded-md font-medium text-indigo-800 transition-colors"
+                    className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-slate-400 hover:bg-slate-50 rounded-md font-medium text-indigo-800 transition-colors"
                     title="Cleaning pipeline pinned at cycle start"
                   >
                     Pipeline v{cycle.profileVersion}
@@ -200,7 +200,7 @@ export function CycleDetailView({ cycle, fallback }: {
                 {cycle.equipmentGroupVersionPin !== undefined && cycle.equipmentGroupVersionPin !== null && cycle.equipmentGroupId && (
                   <button
                     onClick={() => navigate(`/version-history?entity=equipment-group&id=${cycle.equipmentGroupId}&v=${cycle.equipmentGroupVersionPin}`)}
-                    className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 rounded-md font-medium text-indigo-800 transition-colors"
+                    className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-slate-400 hover:bg-slate-50 rounded-md font-medium text-indigo-800 transition-colors"
                     title="Equipment group ranges pinned at cycle start (P1)"
                   >
                     Equipment v{cycle.equipmentGroupVersionPin}
@@ -210,7 +210,7 @@ export function CycleDetailView({ cycle, fallback }: {
                   <button
                     key={profileId}
                     onClick={() => navigate(`/version-history?entity=checklist-profile&id=${profileId}&v=${version}`)}
-                    className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 rounded-md font-medium text-indigo-800 transition-colors"
+                    className="text-xs px-2 py-1 bg-white border border-indigo-300 hover:border-slate-400 hover:bg-slate-50 rounded-md font-medium text-indigo-800 transition-colors"
                     title={`Checklist profile ${(profileId as string).slice(0, 8)}… pinned at cycle start`}
                   >
                     Checklist v{String(version)}
@@ -294,10 +294,10 @@ export function CycleDetailView({ cycle, fallback }: {
               {/* Timeline connector */}
               <div className="flex flex-col items-center w-5 shrink-0">
                 <div className={`w-4 h-4 rounded-full border-2 shrink-0 mt-1 ${
-                  event.eventType === 'CYCLE_STARTED' ? 'border-cyan-500 bg-cyan-500 shadow-sm shadow-cyan-500/30'
-                  : event.eventType === 'CYCLE_COMPLETED' ? 'border-green-500 bg-green-500 shadow-sm shadow-green-500/30'
-                  : event.eventType === 'BYPASS_DEVIATION' ? 'border-red-500 bg-red-500 shadow-sm shadow-red-500/30'
-                  : i === events.length - 1 && cycle.status === 'IN_PROGRESS' ? 'border-blue-400 bg-blue-400 animate-pulse shadow-sm shadow-blue-500/30'
+                  event.eventType === 'CYCLE_STARTED' ? 'border-cyan-500 bg-cyan-500 shadow-sm'
+                  : event.eventType === 'CYCLE_COMPLETED' ? 'border-green-500 bg-green-500 shadow-sm'
+                  : event.eventType === 'BYPASS_DEVIATION' ? 'border-red-500 bg-red-500 shadow-sm'
+                  : i === events.length - 1 && cycle.status === 'IN_PROGRESS' ? 'border-blue-400 bg-blue-400 animate-pulse shadow-sm'
                   : 'border-blue-500 bg-blue-500'
                 }`} />
                 {i < events.length - 1 && <div className="w-0.5 flex-1 bg-slate-100/80 min-h-[24px]" />}
@@ -395,7 +395,7 @@ export function CycleDetailView({ cycle, fallback }: {
                 {/* Instrument Readings */}
                 {hasReadings && (
                   <div className="mt-3 space-y-2">
-                    <div className="text-xs text-slate-400 uppercase tracking-wider font-medium">Instrument Readings</div>
+                    <div className="text-xs text-slate-500 font-medium">Instrument Readings</div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {instrumentReadings.map((reading: any, ri: number) => (
                         <div key={ri} className="bg-white border border-slate-200 rounded-lg px-3 py-2.5">
@@ -419,7 +419,7 @@ export function CycleDetailView({ cycle, fallback }: {
                 {/* Checklist Answers */}
                 {enrichedAnswers.length > 0 && (
                   <div className="mt-3 space-y-2">
-                    <div className="text-xs text-slate-400 uppercase tracking-wider font-medium">Checklist Responses</div>
+                    <div className="text-xs text-slate-500 font-medium">Checklist Responses</div>
                     <div className="space-y-1.5">
                       {enrichedAnswers.map((qa, qi) => (
                         <div key={qa.questionId} className="bg-white border border-slate-200 rounded-lg px-3 py-2.5 flex items-start gap-3">

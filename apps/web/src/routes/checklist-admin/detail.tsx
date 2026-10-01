@@ -191,15 +191,15 @@ export function ChecklistProfileDetailPage() {
                     <input type="text" value={editProfileForm.name}
                            onChange={e => setEditProfileForm(f => ({ ...f, name: e.target.value }))}
                            placeholder="Profile name"
-                           className="w-full px-3 py-2 text-base font-bold text-slate-800 border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                           className="w-full px-3 py-2 text-base font-bold text-slate-800 border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
                     <input type="text" value={editProfileForm.description}
                            onChange={e => setEditProfileForm(f => ({ ...f, description: e.target.value }))}
                            placeholder="Description (optional)"
-                           className="w-full px-3 py-1.5 text-sm text-slate-600 border border-slate-300 rounded-lg focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-100" />
+                           className="w-full px-3 py-1.5 text-sm text-slate-600 border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
                     <label className="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
                       <input type="checkbox" checked={editProfileForm.isActive}
                              onChange={e => setEditProfileForm(f => ({ ...f, isActive: e.target.checked }))}
-                             className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                             className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-brand-600/15" />
                       Active (available for use in cleaning profiles)
                     </label>
                     <div className="flex items-center gap-2 pt-1">
@@ -241,7 +241,7 @@ export function ChecklistProfileDetailPage() {
               {canViewHistory && id && (
                 <button
                   onClick={() => navigate(`/version-history?entity=checklist-profile&id=${id}`)}
-                  className="px-3 py-1.5 text-xs rounded-full font-semibold flex items-center gap-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300 transition-colors"
+                  className="px-3 py-1.5 text-xs rounded-full font-semibold flex items-center gap-1.5 bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 hover:border-slate-400 transition-colors"
                   title="View archived versions and diffs for this checklist profile"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -381,7 +381,7 @@ export function ChecklistProfileDetailPage() {
 
       {/* Add/Edit Question Modal */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setShowAdd(false); setEditingId(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onClick={() => { setShowAdd(false); setEditingId(null); }}>
           <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="h-1.5" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }} />
             <div className="p-5 border-b border-slate-100">
@@ -397,7 +397,7 @@ export function ChecklistProfileDetailPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Question *</label>
+                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Question *</label>
                 <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none" rows={2}
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                   onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
@@ -405,7 +405,7 @@ export function ChecklistProfileDetailPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Type</label>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Type</label>
                   <select className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none"
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
@@ -414,7 +414,7 @@ export function ChecklistProfileDetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Section</label>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Section</label>
                   <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none"
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
@@ -429,7 +429,7 @@ export function ChecklistProfileDetailPage() {
                 </label>
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Help Text</label>
+                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Help Text</label>
                 <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none"
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                   onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
@@ -438,7 +438,7 @@ export function ChecklistProfileDetailPage() {
 
               {TYPES_WITH_OPTIONS.includes(form.questionType) && (
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Options</label>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Options</label>
                   <div className="space-y-1.5 mb-2">
                     {form.options.map((opt, i) => (
                       <div key={i} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
@@ -460,17 +460,17 @@ export function ChecklistProfileDetailPage() {
               {TYPES_WITH_NUMERIC.includes(form.questionType) && (
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Min</label>
+                    <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Min</label>
                     <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm"
                       value={form.validation.min ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, min: e.target.value ? Number(e.target.value) : undefined } })} />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Max</label>
+                    <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Max</label>
                     <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm"
                       value={form.validation.max ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, max: e.target.value ? Number(e.target.value) : undefined } })} />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Unit</label>
+                    <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Unit</label>
                     <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm"
                       value={form.validation.unit ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, unit: e.target.value } })} placeholder="e.g. degC" />
                   </div>
@@ -479,7 +479,7 @@ export function ChecklistProfileDetailPage() {
 
               {form.questionType === 'CALCULATED' && (
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Expression</label>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Expression</label>
                   <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm font-mono"
                     value={form.validation.expression ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, expression: e.target.value } })} placeholder="e.g. q_1 + q_2" />
                 </div>

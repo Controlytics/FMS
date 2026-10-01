@@ -211,7 +211,13 @@ export function AdminRequestsPage() {
         fields.push(['User ID', rd.username || '(auto-generated)'], ['Full Name', rd.fullName], ['Email', rd.email], ['Department', rd.department || '-'], ['Requested Role', rd.requestedRole]);
         break;
       case 'MODIFY_USER':
-        fields.push(['Username', rd.username], ['Modify Field', rd.modifyField], ['New Value', rd.newValue]);
+        // Role-only requests (2026-10-01) carry the server-stamped currentRole;
+        // older requests for other fields keep the generic layout.
+        if (rd.modifyField === 'role') {
+          fields.push(['Username', rd.username], ['Current Role', rd.currentRole ?? '-'], ['New Role', rd.newValue]);
+        } else {
+          fields.push(['Username', rd.username], ['Modify Field', rd.modifyField], ['New Value', rd.newValue]);
+        }
         break;
       case 'UNLOCK':
       case 'FORGOT_PASSWORD':
@@ -224,7 +230,7 @@ export function AdminRequestsPage() {
       <div className="grid grid-cols-2 gap-3">
         {fields.map(([label, value]) => (
           <div key={label} className="space-y-0.5">
-            <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">{label}</div>
+            <div className="text-xs text-slate-500 font-medium">{label}</div>
             <div className="text-[13px] font-medium text-slate-800">{value}</div>
           </div>
         ))}
@@ -262,7 +268,7 @@ export function AdminRequestsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search requester or ID…"
-              className="w-full pl-9 pr-8 py-2 text-[13px] border border-slate-200 rounded-lg bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-400"
+              className="w-full pl-9 pr-8 py-2 text-[13px] border border-slate-200 rounded-lg bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
             />
             {search && (
               <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
@@ -325,7 +331,7 @@ export function AdminRequestsPage() {
                   // The last header is the empty action column — it labels no
                   // column of data, so it gets no scope (an unscoped empty th is
                   // announced as a stray column header by screen readers).
-                  <th key={i} scope={h ? 'col' : undefined} className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                  <th key={i} scope={h ? 'col' : undefined} className="text-left px-5 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -343,7 +349,7 @@ export function AdminRequestsPage() {
                   // `onClick`-only, which locked keyboard/AT users out of the
                   // approval queue entirely. role=button + tabIndex + Enter/Space
                   // is the standard non-native-control pattern.
-                  <tr key={req.id} className={`hover:bg-cyan-50/30 transition-colors group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-500 ${isPending ? 'bg-amber-50/20' : ''}`}
+                  <tr key={req.id} className={`hover:bg-cyan-50/30 transition-colors group cursor-pointer focus:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-brand-600/15 ${isPending ? 'bg-amber-50/20' : ''}`}
                     role="button"
                     tabIndex={0}
                     aria-label={`${isPending ? 'Review' : 'View'} ${tc.label} request from ${req.requesterName}`}
@@ -454,7 +460,7 @@ export function AdminRequestsPage() {
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
               {/* Requester */}
               <div>
-                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Requester</h4>
+                <h4 className="text-xs font-bold text-slate-500 mb-2">Requester</h4>
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
                   <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 font-bold text-sm">
                     {(selectedRequest.requesterName ?? '?')[0].toUpperCase()}
@@ -469,7 +475,7 @@ export function AdminRequestsPage() {
 
               {/* Request data */}
               <div>
-                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Details</h4>
+                <h4 className="text-xs font-bold text-slate-500 mb-2">Details</h4>
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
                   {renderRequestDetails(selectedRequest)}
                 </div>
@@ -477,7 +483,7 @@ export function AdminRequestsPage() {
 
               {/* Timestamps */}
               <div>
-                <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Timeline</h4>
+                <h4 className="text-xs font-bold text-slate-500 mb-2">Timeline</h4>
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 text-[13px]">
                     <div className="w-2 h-2 rounded-full bg-blue-400" />
@@ -504,7 +510,7 @@ export function AdminRequestsPage() {
               {/* Requester remarks */}
               {selectedRequest.remarks && (
                 <div>
-                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Requester's Reason</h4>
+                  <h4 className="text-xs font-bold text-slate-500 mb-2">Requester's Reason</h4>
                   <p className="text-[13px] text-slate-600 p-3 rounded-xl bg-slate-50 border border-slate-100 italic">{selectedRequest.remarks}</p>
                 </div>
               )}
@@ -512,7 +518,7 @@ export function AdminRequestsPage() {
               {/* Admin remarks (processed) */}
               {selectedRequest.adminRemarks && (
                 <div>
-                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Admin Notes</h4>
+                  <h4 className="text-xs font-bold text-slate-500 mb-2">Admin Notes</h4>
                   <p className="text-[13px] text-slate-600 p-3 rounded-xl bg-slate-50 border border-slate-100">{selectedRequest.adminRemarks}</p>
                 </div>
               )}
@@ -520,13 +526,13 @@ export function AdminRequestsPage() {
               {/* Admin response textarea */}
               {(canApprove || canReject) && selectedRequest.status === 'PENDING' && (
                 <div>
-                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Your Response <span className="text-red-500">*</span></h4>
+                  <h4 className="text-xs font-bold text-slate-500 mb-2">Your Response <span className="text-red-500">*</span></h4>
                   <textarea
                     value={adminRemarks}
                     onChange={e => setAdminRemarks(e.target.value)}
                     placeholder="Enter notes about your decision (required)..."
                     rows={3}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-[13px] text-slate-700 resize-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 bg-white"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-[13px] text-slate-700 resize-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 bg-white"
                   />
                 </div>
               )}
@@ -594,7 +600,7 @@ export function AdminRequestsPage() {
               aria-label="Request processed"
               className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden focus:outline-none"
             >
-              <div className="px-6 py-5 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
+              <div className="px-6 py-5 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -615,7 +621,7 @@ export function AdminRequestsPage() {
                 )}
                 {approvalResult.username && (
                   <div>
-                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Username</label>
+                    <label className="text-xs font-bold text-slate-500">Username</label>
                     <div className="mt-1 flex items-center gap-2">
                       <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.username}</code>
                       <button
@@ -632,7 +638,7 @@ export function AdminRequestsPage() {
                 )}
                 {approvalResult.temporaryPassword && (
                   <div>
-                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Temporary Password</label>
+                    <label className="text-xs font-bold text-slate-500">Temporary Password</label>
                     <div className="mt-1 flex items-center gap-2">
                       <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.temporaryPassword}</code>
                       <button

@@ -1,5 +1,92 @@
 # Changelog
 
+## [Unreleased] - UI redesign: one design system across every screen (2026-10-01)
+
+Operator: "update all the screens ui colors, cards, everything, fonts — more
+professional". Visual and wording only; no API, permission or workflow change.
+Verified by screenshots of 55 routes (zero console errors), the sign-in screens at
+desktop + tablet width, web `tsc`, the web suite (846/846) and `vite build`.
+
+**Foundation — `apps/web/src/app.css` is now the design system**
+- **Fonts:** IBM Plex Sans + IBM Plex Mono replace Sora / Bricolage Grotesque /
+  JetBrains Mono. Self-hosted (`public/fonts/plex/`, 16 woff2 + `plex.css`); the
+  app still makes no external request.
+- **`brand-*` / `accent-*` colour scales** derived from the selected theme. Tailwind's
+  `cyan-*` / `teal-*` are remapped onto them, so the ~900 class names that hardcoded
+  the Ocean hues now follow whichever theme is chosen (before, most screens stayed
+  cyan under every other theme).
+- **Theme presets (`lib/themes.ts`):** every primary and accent now clears WCAG AA
+  against white text — the -600 shades of cyan, emerald, orange and green did not, and
+  every primary button is white-on-primary. Gradients are tonal, sidebars a deep ink.
+- Radius scale tightened (8 / 10 / 12px), shadows lowered, focus ring in the theme
+  colour, native checkboxes/radios take the brand colour, `prefers-reduced-motion`
+  respected. The blanket `transition: all` on every control moved into the base layer
+  (unlayered, it had been overriding every `transition-*` utility).
+- **Table row lines:** tables use `border-collapse: separate`, where a border on `<tr>`
+  never paints — so no table in the app had row separators. A base rule now draws
+  them on the cells.
+
+**Shared components** — Button (default is the brand colour, was a hardcoded blue),
+Card (no hover lift), Badge, Input, Select, Table, Dialog, Pagination, Toast,
+MessageDialog. Button / Input / Select keep a 44px target on touch devices.
+
+**Shell** — sidebar (theme ink, compact rows, `aria-current`), top bar (role as text,
+not a gradient pill), layout background.
+
+**Signed-out screens** — new `components/auth-shell.tsx`: sign in, forgot password,
+change password, contact admin, guest request and the tablet's `/m/login` +
+`/m/forgot-password` share one two-panel frame.
+
+**Page sweep (3 scripted passes, 150+ files)**
+- 201 decorative multi-hue gradients → brand; 115 coloured glow shadows removed;
+  292 small ALL-CAPS tracked labels → sentence case, one size up, readable grey;
+  36 blurred black modal backdrops → flat scrim; 453 focus states → brand;
+  192 decorative violet / indigo / purple classes → brand.
+- **Deliberately NOT recoloured:** status and category colours (REPLACED purple,
+  Set A / Set B, Area, SMS channel, audit action groups), stage tiles, the SUPER_ADMIN
+  data console's red, stored role colours (`role-color-picker.tsx` — `roles.color`
+  holds Tailwind class strings), and the tablet home / operations screens.
+
+**Bugs found and fixed on the way**
+- `hooks/use-rfid-guard.ts` threw `Cannot read properties of undefined (reading
+  'length')` on every browser autofill (Chrome's synthetic keydown has no `key`).
+- RFID Track Record: rows were 317px tall — a sentence-long release reason was
+  squeezed into a 100px column by one long tag number.
+- Cleaning Cycles readings ("2.7 bar") and PM Schedules cells (AHU name, status,
+  action buttons) wrapped onto two lines.
+
+**Not done yet** (tracked in `tasks/todo.md`): shared `PageHeader` / `StatCard`
+primitives, table density per page, text still at 9–10px, the tablet home screen.
+The old font files in `public/fonts/` are unreferenced but not deleted.
+
+## [Unreleased] - Contact Admin: requester Employee ID is a plain text field (2026-10-01)
+
+Operator request. The "Your Employee ID" field on `/contact-admin` no longer has
+a Verify button, and Request Type is shown straight away. The lookup was never a
+security check: the endpoint is public, the server already records the submitter
+as `unverified:<id>` and resolves the stored full name itself when the ID matches
+an account, and a person asking for a NEW account had no ID to verify. The page
+now sends the Employee ID as `requesterName` (the API requires one; the server
+replaces it with the real name for a known ID). The target-user **Lookup** for
+Modify / Unlock / Enable / Disable / Forgot Password is unchanged.
+
+**Modify User is role-only** (operator request, same day). The form no longer
+offers "What to Modify"; after the lookup it shows the account's **Current Role**
+(read-only) and a **New Role** picker that excludes it. Enforced server-side in
+`admin-request.service.ts` `validateRoleChangeRequest`: `modifyField` must be
+`role`, the target must exist, the new role must be active, differ from the
+current one, and neither side may be SUPER_ADMIN (400 otherwise). The stored
+request carries `currentRole` read from the users table (a client-supplied one is
+discarded), so the approver's Admin Requests page shows Current Role → New Role and
+the audit subject reads `101020, role OPERATOR -> SUPERVISOR`. Older pending
+requests for other fields still approve as before.
+
+**Security trade-off, deliberate:** `GET /api/admin-requests/user-lookup` (public,
+20/15 min) now returns the **unmasked full name** and the **role**, partly
+reversing May-16 H1 and 2026-09-04 Low #3. Email, department and status stay
+private, and a SUPER_ADMIN account's name stays masked and its role is never
+returned. Locked by `e2e/admin-request-role-only.test.ts`.
+
 ## [Unreleased] - Strict-audit follow-up: every open item closed except the two the operator must decide (2026-09-25)
 
 Operator: "fix the open items one by one" (the list the 2026-09-24 audit left

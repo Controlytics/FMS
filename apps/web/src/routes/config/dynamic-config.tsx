@@ -327,7 +327,7 @@ export function DynamicConfigPage() {
                         type="checkbox"
                         checked={values[setting.key] ?? false}
                         onChange={e => handleChange(setting.key, e.target.checked)}
-                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-brand-600/15"
                       />
                       <span className="text-sm text-slate-600">{setting.description || `Enable ${setting.label.toLowerCase()}`}</span>
                     </label>
@@ -351,7 +351,7 @@ export function DynamicConfigPage() {
                           value={currentValue}
                           onChange={e => handleChange(setting.key, e.target.value)}
                           disabled={!!loading}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60 disabled:cursor-wait"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:opacity-60 disabled:cursor-wait"
                         >
                           <option value="">{loading ? 'Loading…' : 'Select...'}</option>
                           {!loading && finalOptions.length === 0 && (
@@ -390,7 +390,7 @@ export function DynamicConfigPage() {
                                 type="checkbox"
                                 checked={selected.includes(String(opt.value))}
                                 onChange={() => toggle(String(opt.value))}
-                                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-brand-600/15"
                               />
                               <span className="text-sm text-slate-600">{opt.label}</span>
                             </label>
@@ -406,7 +406,7 @@ export function DynamicConfigPage() {
                       max={setting.max}
                       onChange={e => handleChange(setting.key, e.target.value ? Number(e.target.value) : '')}
                       placeholder={setting.placeholder}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                     />
                   ) : setting.type === 'secret' ? (
                     <input
@@ -414,7 +414,7 @@ export function DynamicConfigPage() {
                       value={values[setting.key] ?? ''}
                       onChange={e => handleChange(setting.key, e.target.value)}
                       placeholder={setting.placeholder || '••••••••'}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                     />
                   ) : setting.type === 'textarea' || setting.type === 'json' ? (
                     <textarea
@@ -425,7 +425,7 @@ export function DynamicConfigPage() {
                       }}
                       rows={4}
                       placeholder={setting.placeholder}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                     />
                   ) : setting.type === 'color' ? (
                     <div className="flex items-center gap-2">
@@ -448,7 +448,7 @@ export function DynamicConfigPage() {
                       value={values[setting.key] ?? ''}
                       onChange={e => handleChange(setting.key, e.target.value)}
                       placeholder={setting.placeholder}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                     />
                   )}
 

@@ -135,7 +135,7 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4" data-testid="filter-approval-dialog">
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[55] p-4" data-testid="filter-approval-dialog">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl">
         <div className={`px-6 py-4 shrink-0 flex items-center justify-between ${headerCls}`}>
           <div className="min-w-0">
@@ -161,14 +161,14 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
             <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">Location</h3>
+              <h3 className="text-xs font-bold text-slate-500 mb-1">Location</h3>
               <Row label="Block" value={filter.blockName} />
               <Row label="Area" value={filter.areaName} />
               <Row label="AHU" value={filter.ahuName} />
               <Row label="AHU Type" value={filter.ahuType} />
             </div>
             <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">Filter</h3>
+              <h3 className="text-xs font-bold text-slate-500 mb-1">Filter</h3>
               <Row label="Filter Type" value={filter.filterType} />
               <Row label="Micron Size" value={filter.micronSize && filter.micronSize !== '-' ? `${filter.micronSize} µm` : null} />
               <Row label="Filter Size" value={filter.filterSize} />
@@ -181,7 +181,7 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
 
           {extraKeys.length > 0 && (
             <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">Other Fields</h3>
+              <h3 className="text-xs font-bold text-slate-500 mb-1">Other Fields</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
                 {extraKeys.map(k => (
                   <Row key={k} label={humanize(k)} value={attrs[k] !== undefined && attrs[k] !== null && attrs[k] !== '' && unitOf(k) ? `${attrs[k]} ${unitOf(k)}` : attrs[k]} />
@@ -191,7 +191,7 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
           )}
 
           <div>
-            <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">Workflow</h3>
+            <h3 className="text-xs font-bold text-slate-500 mb-1">Workflow</h3>
             {detail ? (
               <>
                 <Who label="Submitted by" name={detail.submittedByName} at={detail.submittedAt} />
@@ -214,7 +214,7 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
               <label className="block text-sm font-medium text-slate-700 mb-1">Remarks <span className="text-slate-400 font-normal">(optional)</span></label>
               <textarea value={remarks} onChange={e => setRemarks(e.target.value)} rows={2}
                 placeholder={mode === 'review' ? 'Anything the approver should know' : 'Approval remarks'}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[var(--theme-primary)] focus:border-[var(--theme-primary)]" />
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-[var(--theme-primary)] focus:border-[var(--theme-primary)]" />
             </div>
           )}
 
@@ -223,7 +223,7 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
               <label className="block text-sm font-medium text-red-800 mb-1">Rejection reason <span className="text-red-500">*</span></label>
               <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={2} autoFocus
                 placeholder="Why this filter is being rejected. It stays in the list as Rejected so it can be corrected and resubmitted."
-                className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-red-400 focus:border-red-400" />
+                className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-red-400 focus:border-red-400" />
             </div>
           )}
         </div>

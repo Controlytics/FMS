@@ -143,7 +143,7 @@ export function DateRangeFilter({
 
   const fieldCls = cn(
     'rounded-lg border border-slate-200 bg-slate-50 text-slate-700',
-    'focus:bg-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 focus:outline-none',
+    'focus:bg-white focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:outline-none',
     'hover:border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-slate-200',
     'transition-all [color-scheme:light]',
     s.field,
@@ -154,7 +154,7 @@ export function DateRangeFilter({
   return (
     <div className={cn('inline-flex flex-col', className)}>
       {label && (
-        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        <label className="mb-1 block text-xs font-semibold text-slate-500">
           {label}
         </label>
       )}
@@ -215,7 +215,7 @@ export function DateRangeFilter({
             title="Clear date range"
             className={cn(
               'shrink-0 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600',
-              'focus:outline-none focus:ring-2 focus:ring-cyan-100 transition-colors',
+              'focus:outline-none focus:ring-3 focus:ring-brand-600/15 transition-colors',
               s.pad,
             )}
           >

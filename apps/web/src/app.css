@@ -1,155 +1,225 @@
 @import "tailwindcss";
 
+/* ────────────────────────────────────────────────────────────────────────────
+   Design tokens (UI redesign 2026-10-01 — see tasks/todo.md).
+
+   Everything a page can reach through a Tailwind class is defined HERE, so a
+   look-and-feel change is one edit, not 189. Three rules the tokens encode:
+
+   1. ONE brand hue. `brand-*` / `accent-*` are derived from the active colour
+      theme (`--theme-*`, set at runtime by lib/themes.ts applyTheme). Tailwind's
+      `cyan-*` and `teal-*` are remapped onto them, because ~900 class names
+      across the pages hardcode the Ocean theme's hues — without the remap those
+      screens stay cyan whichever theme the operator picks.
+   2. Corners are tight (8–12px), surfaces are separated by hairline borders and
+      low shadows. The previous 12–16px radii and 40px shadows read as a consumer
+      app, not a GMP record.
+   3. Light theme only (CLAUDE.md). There is no dark variant of any token.
+   ──────────────────────────────────────────────────────────────────────────── */
+
 @theme {
-  /* Primary brand colors - Professional navy blue */
-  --color-primary: #1e3a5f;
+  /* Type. IBM Plex is self-hosted (public/fonts/plex.css) — the app runs in
+     air-gapped plants. The system stacks are the fallback if a face fails. */
+  --font-sans: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Cascadia Mono', 'Consolas', ui-monospace, Menlo, monospace;
+
+  /* Brand scale — follows the selected theme. 600 is the theme primary and is
+     guaranteed AA against white text (see lib/themes.ts). */
+  --color-brand-50: var(--theme-primary-light);
+  --color-brand-100: color-mix(in oklab, var(--theme-primary) 12%, white);
+  --color-brand-200: color-mix(in oklab, var(--theme-primary) 24%, white);
+  --color-brand-300: color-mix(in oklab, var(--theme-primary) 42%, white);
+  --color-brand-400: color-mix(in oklab, var(--theme-primary) 64%, white);
+  --color-brand-500: color-mix(in oklab, var(--theme-primary) 84%, white);
+  --color-brand-600: var(--theme-primary);
+  --color-brand-700: var(--theme-primary-dark);
+  --color-brand-800: color-mix(in oklab, var(--theme-primary-dark) 80%, black);
+  --color-brand-900: color-mix(in oklab, var(--theme-primary-dark) 62%, black);
+  --color-brand-950: color-mix(in oklab, var(--theme-primary-dark) 45%, black);
+
+  /* Accent scale — the theme's second hue (teal in Ocean). */
+  --color-accent-50: var(--theme-accent-light);
+  --color-accent-100: color-mix(in oklab, var(--theme-accent) 12%, white);
+  --color-accent-200: color-mix(in oklab, var(--theme-accent) 24%, white);
+  --color-accent-300: color-mix(in oklab, var(--theme-accent) 42%, white);
+  --color-accent-400: color-mix(in oklab, var(--theme-accent) 64%, white);
+  --color-accent-500: color-mix(in oklab, var(--theme-accent) 84%, white);
+  --color-accent-600: var(--theme-accent);
+  --color-accent-700: color-mix(in oklab, var(--theme-accent) 84%, black);
+  --color-accent-800: color-mix(in oklab, var(--theme-accent) 68%, black);
+  --color-accent-900: color-mix(in oklab, var(--theme-accent) 52%, black);
+  --color-accent-950: color-mix(in oklab, var(--theme-accent) 38%, black);
+
+  /* Legacy hue names → theme scales (rule 1 above). New code uses brand / accent. */
+  --color-cyan-50: var(--color-brand-50);
+  --color-cyan-100: var(--color-brand-100);
+  --color-cyan-200: var(--color-brand-200);
+  --color-cyan-300: var(--color-brand-300);
+  --color-cyan-400: var(--color-brand-400);
+  --color-cyan-500: var(--color-brand-500);
+  --color-cyan-600: var(--color-brand-600);
+  --color-cyan-700: var(--color-brand-700);
+  --color-cyan-800: var(--color-brand-800);
+  --color-cyan-900: var(--color-brand-900);
+  --color-cyan-950: var(--color-brand-950);
+  --color-teal-50: var(--color-accent-50);
+  --color-teal-100: var(--color-accent-100);
+  --color-teal-200: var(--color-accent-200);
+  --color-teal-300: var(--color-accent-300);
+  --color-teal-400: var(--color-accent-400);
+  --color-teal-500: var(--color-accent-500);
+  --color-teal-600: var(--color-accent-600);
+  --color-teal-700: var(--color-accent-700);
+  --color-teal-800: var(--color-accent-800);
+  --color-teal-900: var(--color-accent-900);
+  --color-teal-950: var(--color-accent-950);
+
+  /* Semantic colours */
+  --color-primary: var(--color-brand-600);
   --color-primary-foreground: #ffffff;
-
-  /* Secondary colors */
-  --color-secondary: #f0f4f8;
-  --color-secondary-foreground: #1e3a5f;
-
-  /* Accent - vibrant blue */
-  --color-accent: #3b82f6;
-  --color-accent-foreground: #ffffff;
-
-  /* Status colors */
-  --color-destructive: #ef4444;
+  --color-destructive: #dc2626;
   --color-destructive-foreground: #ffffff;
-  --color-success: #10b981;
+  --color-success: #059669;
   --color-success-foreground: #ffffff;
-  --color-warning: #f59e0b;
+  --color-warning: #d97706;
   --color-warning-foreground: #ffffff;
-
-  /* Neutral colors */
   --color-muted: #f1f5f9;
   --color-muted-foreground: #64748b;
   --color-border: #e2e8f0;
-  --color-input: #e2e8f0;
-  --color-ring: #3b82f6;
-
-  /* Background */
-  --color-background: #f8fafc;
+  --color-input: #cbd5e1;
+  --color-ring: var(--theme-focus-ring);
+  --color-background: #f6f8fa;
   --color-foreground: #0f172a;
-
-  /* Card */
   --color-card: #ffffff;
   --color-card-foreground: #1e293b;
 
-  /* Sidebar */
-  --color-sidebar: #1e3a5f;
-  --color-sidebar-foreground: #ffffff;
-  --color-sidebar-border: #2d4a6f;
-  --color-sidebar-accent: #2d4a6f;
-  --color-sidebar-muted: #94a3b8;
+  /* Corner radius — tight. `rounded-full` stays for avatars and status dots. */
+  --radius-xs: 0.125rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 1rem;
+  --radius-4xl: 1.25rem;
 
-  /* Border radius */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  /* Elevation — slate-tinted and low. Cards sit on a border, not on a shadow;
+     only menus, popovers and dialogs really float. */
+  --shadow-2xs: 0 1px 0 rgb(15 23 42 / 0.04);
+  --shadow-xs: 0 1px 1px rgb(15 23 42 / 0.04);
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.05);
+  --shadow-md: 0 2px 6px -1px rgb(15 23 42 / 0.07), 0 1px 2px rgb(15 23 42 / 0.04);
+  --shadow-lg: 0 6px 16px -4px rgb(15 23 42 / 0.1), 0 2px 4px -2px rgb(15 23 42 / 0.05);
+  --shadow-xl: 0 12px 28px -8px rgb(15 23 42 / 0.14), 0 4px 8px -4px rgb(15 23 42 / 0.06);
+  --shadow-2xl: 0 24px 56px -16px rgb(15 23 42 / 0.24), 0 8px 16px -8px rgb(15 23 42 / 0.08);
 }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 3px;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background-color: #94a3b8;
-}
-
-/* 2026-05-21 UI refresh font stack */
+/* Theme defaults (Ocean) so the first paint is right before applyTheme() runs.
+   Keep in step with THEMES[0] in lib/themes.ts. */
 :root {
-  --font-display: 'Bricolage Grotesque', 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-body: 'Sora', 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, monospace;
+  --theme-primary: #0e7490;
+  --theme-primary-light: #ecfeff;
+  --theme-primary-dark: #155e75;
+  --theme-accent: #0f766e;
+  --theme-accent-light: #f0fdfa;
+  --theme-gradient-from: #0e7490;
+  --theme-gradient-to: #155e75;
+  --theme-sidebar-bg: #0f3a4a;
+  --theme-sidebar-bg-end: #0b2a37;
+  --theme-login-bg-start: #0b1f2a;
+  --theme-login-bg-end: #0f3a4a;
+  --theme-focus-ring: #0891b2;
+
+  /* Kept for the two classes below and for inline styles that name them. */
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
 }
 
-body {
-  font-family: var(--font-body);
-  background-color: var(--color-background);
-  color: var(--color-foreground);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: 'ss01', 'cv11';
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
+  *::-webkit-scrollbar-thumb:hover { background-color: #94a3b8; }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Plex is drawn slightly loose at display sizes. */
+  h1, h2, h3 { letter-spacing: -0.012em; }
+
+  /* Numbers in a column must line up digit under digit. */
+  table { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+
+  /* Row hairlines live on the CELLS: with border-collapse: separate (needed for
+     sticky headers and rounded table boxes) a border on <tr> never paints, so
+     the `border-b` / `divide-y` the pages put on rows drew nothing and tables
+     had no row lines at all. Base layer, so any border utility on a cell wins. */
+  thead th { border-bottom: 1px solid var(--color-slate-200); }
+  tbody td { border-bottom: 1px solid var(--color-slate-100); }
+  tbody tr:last-child > td { border-bottom-width: 0; }
+
+  /* Native checkboxes, radios and range sliders take the brand colour. */
+  input[type='checkbox'], input[type='radio'], input[type='range'], progress { accent-color: var(--theme-primary); }
+
+  ::selection { background-color: color-mix(in oklab, var(--theme-primary) 22%, white); }
+
+  :focus-visible {
+    outline: 2px solid var(--theme-focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* In the base layer on purpose: an unlayered rule here would beat every
+     `transition-*` utility a component sets (it used to, with `transition: all`). */
+  button, a, input, select, textarea {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
-/* Distinctive display face for headings + operator-name. Bricolage Grotesque
-   has a slight editorial character (taller x-height, sharper terminals) that
-   reads as deliberate-design rather than "default sans". */
-.font-display { font-family: var(--font-display); font-feature-settings: 'ss01'; letter-spacing: -0.01em; }
-.font-mono-tab { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'zero', 'ss01'; }
-
-/* Professional focus styles */
-:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-/* Smooth transitions for interactive elements */
-button, a, input, select, textarea {
-  transition: all 0.2s ease;
-}
-
-/* Professional table styles */
-table {
-  border-collapse: separate;
-  border-spacing: 0;
-}
+/* Headings / operator name. Same family as the body, tighter tracking. */
+.font-display { font-family: var(--font-sans); letter-spacing: -0.012em; }
+/* Identifiers, timestamps, readings: fixed-width digits with a slashed zero. */
+.font-mono-tab { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'zero'; }
 
 /* Animation utilities */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-10px); }
+  from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+.animate-fade-in { animation: fadeIn 0.18s ease-out; }
 
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
-}
+/* Legacy shadow helpers, mapped onto the elevation scale. */
+.shadow-soft { box-shadow: var(--shadow-sm); }
+.shadow-elevated { box-shadow: var(--shadow-md); }
 
-/* Professional shadow utilities */
-.shadow-soft {
-  box-shadow: 0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04);
-}
-
-.shadow-elevated {
-  box-shadow: 0 10px 40px -10px rgba(30, 58, 95, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-}
-
-/* 2026-05-21 UI refresh — mobile-tablet helpers */
-
-/* Subtle dot-grid background pattern for the operator dashboard. Adds texture
-   without distracting from the data. Sized for 1200x1920 tablet at 240 dpi. */
+/* Tablet dashboard helpers */
 .bg-dot-grid {
   background-image: radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.07) 1px, transparent 0);
   background-size: 18px 18px;
 }
-
-/* Pipeline stage tile — used in the home-view cleaning pipeline visualization.
-   Hover/active lift is subtle so gloved operators don't feel "stuck". */
 .tile-lift {
   transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 180ms ease, border-color 180ms ease;
 }
-.tile-lift:active {
-  transform: scale(0.97);
-}
-
-/* Staggered fade-in for the home grid. Animation-delay applied inline per tile. */
+.tile-lift:active { transform: scale(0.97); }
 @keyframes mobileRise {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }

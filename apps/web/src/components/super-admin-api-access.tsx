@@ -62,7 +62,7 @@ export function SuperAdminLockdownScreen() {
             or log out so another administrator can take over.
           </p>
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Password</label>
+            <label className="block text-xs font-bold text-slate-500 mb-1.5">Password</label>
             <input
               type="password"
               value={password}
@@ -71,7 +71,7 @@ export function SuperAdminLockdownScreen() {
               autoFocus
               autoComplete="current-password"
               placeholder="Enter your password"
-              className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+              className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
             />
           </div>
           {error && <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}
@@ -155,7 +155,7 @@ export function SuperAdminApiAccessCard() {
             </div>
           )}
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Confirm with your password</label>
+            <label className="block text-xs font-bold text-slate-500 mb-1.5">Confirm with your password</label>
             <input
               type="password"
               value={password}
@@ -164,7 +164,7 @@ export function SuperAdminApiAccessCard() {
               autoFocus
               autoComplete="current-password"
               placeholder="Enter your password"
-              className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
             />
           </div>
           {error && <div className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{error}</div>}

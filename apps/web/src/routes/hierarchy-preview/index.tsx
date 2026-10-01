@@ -87,7 +87,7 @@ function AhuNode({ ahu }: { ahu: HierarchyAhu }) {
   return (
     <details className="ml-4 my-1 border-l border-slate-200 pl-3" open>
       <summary className="cursor-pointer flex flex-wrap items-center gap-2 py-1">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">AHU</span>
+        <span className="text-xs font-semibold text-slate-500">AHU</span>
         <span className="text-sm font-medium text-slate-800">{ahu.name}</span>
         <StatusBadge status={ahu.status} />
         <span className="text-xs text-slate-500">({ahu.filters.length} filter{ahu.filters.length === 1 ? '' : 's'})</span>
@@ -109,7 +109,7 @@ function AreaNode({ area }: { area: HierarchyArea }) {
   return (
     <details className="ml-4 my-1 border-l border-slate-200 pl-3" open>
       <summary className="cursor-pointer flex flex-wrap items-center gap-2 py-1">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Area</span>
+        <span className="text-xs font-semibold text-slate-500">Area</span>
         <span className="text-sm font-medium text-slate-800">{area.name}</span>
         <StatusBadge status={area.status} />
         <span className="text-xs text-slate-500">({area.ahus.length} AHU{area.ahus.length === 1 ? '' : 's'})</span>
@@ -127,7 +127,7 @@ function BlockNode({ block }: { block: HierarchyBlock }) {
   return (
     <details className="my-2 bg-white border border-slate-200 rounded-lg p-3 shadow-sm" open>
       <summary className="cursor-pointer flex flex-wrap items-center gap-2 py-1">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Block</span>
+        <span className="text-xs font-semibold text-slate-500">Block</span>
         <span className="text-base font-semibold text-slate-900">{block.name}</span>
         <StatusBadge status={block.status} />
         <span className="text-xs text-slate-500">

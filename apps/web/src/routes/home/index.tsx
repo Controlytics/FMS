@@ -138,14 +138,14 @@ export default function HomePage() {
         <>
           {/* Live role legend + step-type key */}
           <section className="mb-8 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Roles</h2>
+            <h2 className="mb-2 text-sm font-semibold text-slate-500">Roles</h2>
             <div className="flex flex-wrap gap-2">
               {roles.map((r) => (
                 <RoleLegendBadge key={r.name} role={r} />
               ))}
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-200 pt-3 text-xs text-slate-500">
-              <span className="font-semibold uppercase tracking-wide text-slate-400">Step type</span>
+              <span className="font-semibold text-slate-500">Step type</span>
               <span className="flex items-center gap-1.5"><span className="h-3 w-1 rounded bg-cyan-500" />Action</span>
               <span className="flex items-center gap-1.5"><span className="h-3 w-1 rounded bg-amber-400" />Decision</span>
               <span className="flex items-center gap-1.5"><span className="h-3 w-1 rounded bg-slate-400" />System / automatic</span>
@@ -161,7 +161,7 @@ export default function HomePage() {
             <>
               {/* Table of contents */}
               <nav className="mb-8 rounded-xl border border-slate-200 bg-white p-4">
-                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Modules</h2>
+                <h2 className="mb-3 text-sm font-semibold text-slate-500">Modules</h2>
                 {byCategory.map(({ cat, mods }) => (
                   <div key={cat} className="mb-3 last:mb-0">
                     <p className="text-xs font-semibold text-slate-400">{cat}</p>

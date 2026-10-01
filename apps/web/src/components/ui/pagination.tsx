@@ -65,7 +65,7 @@ export function Pagination({ page, pageSize, totalItems, onPageChange, onPageSiz
             <select
               value={pageSize}
               onChange={(e) => { onPageSizeChange(Number(e.target.value)); onPageChange(1); }}
-              className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+              className="border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700 bg-white focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15"
             >
               {sizeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
@@ -89,8 +89,8 @@ export function Pagination({ page, pageSize, totalItems, onPageChange, onPageSiz
                 <button
                   key={p}
                   onClick={() => onPageChange(p)}
-                  className={`min-w-8 h-8 px-2 rounded-lg text-sm font-semibold transition-colors ${
-                    p === safePage ? 'text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'
+                  className={`min-w-8 h-8 px-2 rounded-md text-sm font-medium tabular-nums transition-colors ${
+                    p === safePage ? 'text-white' : 'text-slate-600 hover:bg-slate-100'
                   }`}
                   style={p === safePage ? { backgroundColor: 'var(--theme-primary)' } : undefined}
                 >

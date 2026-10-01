@@ -122,7 +122,7 @@ export function ReauthDialog({
         <Button
           onClick={onConfirm}
           disabled={!password || isVerifying}
-          className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white"
+          className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white"
         >
           {isVerifying ? 'Verifying...' : 'Verify & Continue'}
         </Button>

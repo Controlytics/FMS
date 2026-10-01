@@ -126,11 +126,11 @@ export function ChecklistProfileListPage() {
           <div className="text-2xl font-bold">{allProfiles.length}</div>
           <div className="text-sm font-medium" style={{ color: 'var(--theme-primary-light)' }}>Total Checklists</div>
         </div>
-        <div className="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl p-4 text-white shadow-lg shadow-emerald-500/20">
+        <div className="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl p-4 text-white shadow-lg">
           <div className="text-2xl font-bold">{activeCount}</div>
           <div className="text-emerald-100 text-sm font-medium">Active</div>
         </div>
-        <div className="bg-gradient-to-br from-slate-400 to-slate-500 rounded-2xl p-4 text-white shadow-lg shadow-slate-400/20">
+        <div className="bg-gradient-to-br from-slate-400 to-slate-500 rounded-2xl p-4 text-white shadow-lg">
           <div className="text-2xl font-bold">{inactiveCount}</div>
           <div className="text-slate-200 text-sm font-medium">Inactive</div>
         </div>
@@ -256,7 +256,7 @@ export function ChecklistProfileListPage() {
 
       {/* Create Modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowCreate(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onClick={() => setShowCreate(false)}>
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="h-1.5" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }} />
             <div className="p-6">
@@ -271,7 +271,7 @@ export function ChecklistProfileListPage() {
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Name</label>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Name</label>
                   <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none"
                     style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as React.CSSProperties}
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
@@ -280,7 +280,7 @@ export function ChecklistProfileListPage() {
                     onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }} />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Description (optional)</label>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Description (optional)</label>
                   <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none" rows={3}
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}

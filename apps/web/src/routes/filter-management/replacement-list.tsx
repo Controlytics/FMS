@@ -200,7 +200,7 @@ export function ReplacementListPage() {
       <div className="p-6 space-y-6">
       {/* ─── Header ─── */}
       <div className="flex items-center gap-4">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 shadow-lg shadow-cyan-500/25">
+        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
@@ -215,14 +215,14 @@ export function ReplacementListPage() {
 
       {/* ─── Stat Cards ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg shadow-cyan-500/20">
+        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg">
           <div className="text-2xl font-bold">{stats.total}</div>
           <div className="text-cyan-100 text-sm font-medium mt-0.5">Total Replacements</div>
         </div>
         <StatCard label="This Month" value={stats.month} iconBg="bg-amber-50" iconColor="text-amber-600" icon={
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         } />
-        <StatCard label="This Week" value={stats.week} iconBg="bg-indigo-50" iconColor="text-indigo-600" icon={
+        <StatCard label="This Week" value={stats.week} iconBg="bg-brand-50" iconColor="text-brand-700" icon={
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         } />
         <StatCard label="Today" value={stats.today} iconBg="bg-emerald-50" iconColor="text-emerald-600" icon={
@@ -241,7 +241,7 @@ export function ReplacementListPage() {
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search by filter, AHU, block, performer, or remarks..."
-            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none transition-all"
+            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none transition-all"
           />
         </div>
         <BlockAhuFilter scope={scope} onChange={() => setPage(1)} />
@@ -309,14 +309,14 @@ export function ReplacementListPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider w-16">S.No</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">AHU / Block</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Old Filter ID</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">New Filter ID</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Replaced On</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Performed By</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Remarks</th>
-                  {isSuperAdmin && <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Edit</th>}
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 w-16">S.No</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">AHU / Block</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Old Filter ID</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">New Filter ID</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Replaced On</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Performed By</th>
+                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Remarks</th>
+                  {isSuperAdmin && <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

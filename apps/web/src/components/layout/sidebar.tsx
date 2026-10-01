@@ -332,15 +332,17 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
           'fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] flex-col transition-transform duration-300 md:static md:max-w-none md:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
-        style={{ background: `linear-gradient(180deg, ${branding.primaryColor} 0%, ${branding.loginBgStart} 100%)` }}
+        // Theme variables, not the colours copied into the branding row: the row
+        // only changes when the operator re-saves Branding, the theme is live.
+        style={{ background: 'linear-gradient(180deg, var(--theme-sidebar-bg) 0%, var(--theme-sidebar-bg-end) 100%)' }}
       >
       {/* Logo Section */}
-      <div className="flex flex-col items-center py-3 border-b border-white/10">
-        <Link to="/" className="flex flex-col items-center w-full px-3">
+      <div className="flex flex-col items-center px-3 pt-4 pb-3 border-b border-white/10">
+        <Link to="/" className="flex flex-col items-center w-full">
           {branding.logoUrl ? (
             // White rounded card so the logo's own background looks intentional
             // (and stays legible) on the coloured sidebar gradient.
-            <div className="bg-white rounded-xl px-3 py-2 shadow-sm max-w-full flex items-center justify-center">
+            <div className="bg-white rounded-lg px-3 py-2 max-w-full flex items-center justify-center">
               <img
                 src={branding.logoUrl}
                 alt={branding.appName}
@@ -349,19 +351,17 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
             </div>
           ) : (
             <div
-              className="flex h-12 w-12 items-center justify-center rounded-xl text-white text-sm font-bold shadow-lg"
-              style={{ background: `linear-gradient(135deg, ${branding.secondaryColor} 0%, ${branding.accentColor} 100%)` }}
+              className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/12 text-white text-sm font-semibold"
             >
               {branding.logoText}
             </div>
           )}
-          <span className="text-sm font-semibold text-white text-center leading-tight mt-2 px-1 break-words">{branding.appName}</span>
+          <span className="text-[13px] font-medium text-white/85 text-center leading-snug mt-2.5 px-1 break-words">{branding.appName}</span>
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
-        <p className="px-3 mb-3 text-xs font-semibold text-white/40 uppercase tracking-wider">Menu</p>
+      <nav className="flex-1 space-y-0.5 p-3 overflow-y-auto" aria-label="Main">
         {(() => {
           const renderFlatLink = (item: NavItem) => {
             const active = item.href === '/'
@@ -375,23 +375,16 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
                 key={item.href}
                 to={item.href}
                 onClick={onClose}
+                aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
-                  active
-                    ? 'bg-white/15 text-white shadow-lg backdrop-blur-sm'
-                    : 'text-white/70 hover:bg-white/10 hover:text-white',
+                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium [@media(pointer:coarse)]:py-3',
+                  active ? 'bg-white/12 text-white' : 'text-white/70 hover:bg-white/8 hover:text-white',
                 )}
               >
-                <span className={cn(
-                  'transition-colors',
-                  active ? 'text-white' : 'text-white/60'
-                )}>
+                <span className={active ? 'text-white' : 'text-white/55'}>
                   {item.icon}
                 </span>
                 {item.label}
-                {active && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />
-                )}
               </Link>
             );
           };
@@ -413,13 +406,12 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
                       onClick={() => setReportsOpen((o) => !o)}
                       aria-expanded={reportsOpen}
                       className={cn(
-                        'w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
-                        anyReportActive
-                          ? 'bg-white/15 text-white shadow-lg backdrop-blur-sm'
-                          : 'text-white/70 hover:bg-white/10 hover:text-white',
+                        'w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium [@media(pointer:coarse)]:py-3',
+                        // The open group is not itself the current page — only its child is.
+                        anyReportActive ? 'text-white' : 'text-white/70 hover:bg-white/8 hover:text-white',
                       )}
                     >
-                      <span className={cn('transition-colors', anyReportActive ? 'text-white' : 'text-white/60')}>
+                      <span className={anyReportActive ? 'text-white' : 'text-white/55'}>
                         {REPORTS_GROUP.icon}
                       </span>
                       {REPORTS_GROUP.label}
@@ -431,7 +423,7 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
                       </svg>
                     </button>
                     {reportsOpen && (
-                      <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
+                      <div className="mt-0.5 ml-5 pl-2 border-l border-white/10 space-y-0.5">
                         {reportsChildren.map((child) => {
                           const active = location.pathname.startsWith(child.href);
                           return (
@@ -439,18 +431,16 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
                               key={child.href}
                               to={child.href}
                               onClick={onClose}
+                              aria-current={active ? 'page' : undefined}
                               className={cn(
-                                'flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200',
-                                active
-                                  ? 'bg-white/15 text-white shadow-lg backdrop-blur-sm'
-                                  : 'text-white/70 hover:bg-white/10 hover:text-white',
+                                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium [@media(pointer:coarse)]:py-3',
+                                active ? 'bg-white/12 text-white' : 'text-white/70 hover:bg-white/8 hover:text-white',
                               )}
                             >
-                              <span className={cn('transition-colors', active ? 'text-white' : 'text-white/60')}>
+                              <span className={active ? 'text-white' : 'text-white/55'}>
                                 {child.icon}
                               </span>
                               {child.label}
-                              {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white" />}
                             </Link>
                           );
                         })}
@@ -469,11 +459,9 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-white/10">
-        <div className="rounded-xl bg-white/5 p-4 backdrop-blur-sm">
-          <p className="text-xs font-medium text-white/80">{branding.companyName}</p>
-          <p className="text-xs text-white/40 mt-1">21 CFR Part 11 Compliant</p>
-        </div>
+      <div className="px-5 py-3 border-t border-white/10">
+        <p className="text-xs font-medium text-white/75 truncate">{branding.companyName}</p>
+        <p className="text-[11px] text-white/45 mt-0.5">21 CFR Part 11 compliant</p>
       </div>
     </aside>
     </>

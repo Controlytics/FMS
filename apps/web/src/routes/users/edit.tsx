@@ -20,7 +20,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: string }> = {
-  ENABLED: { color: 'text-emerald-700', bg: 'bg-gradient-to-r from-emerald-400 to-teal-400', icon: 'M5 13l4 4L19 7' },
+  ENABLED: { color: 'text-emerald-700', bg: 'bg-gradient-to-r from-emerald-400 to-emerald-400', icon: 'M5 13l4 4L19 7' },
   DISABLED: { color: 'text-red-700', bg: 'bg-gradient-to-r from-red-400 to-rose-400', icon: 'M6 18L18 6M6 6l12 12' },
   LOCKED: { color: 'text-amber-700', bg: 'bg-gradient-to-r from-amber-400 to-orange-400', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
   EXPIRED: { color: 'text-slate-700', bg: 'bg-gradient-to-r from-slate-400 to-gray-400', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -170,7 +170,7 @@ export function EditUserPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-blue-500/25">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1e3a5f] to-[#3b82f6] flex items-center justify-center text-white text-xl font-bold shadow-lg">
             {userData.fullName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
           </div>
           <div>
@@ -192,7 +192,7 @@ export function EditUserPage() {
       </div>
 
       {/* Form Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
         <form onSubmit={handleSubmit(onSubmit)}>
           {/* Error Message */}
           {error && (
@@ -279,8 +279,8 @@ export function EditUserPage() {
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">{userLabels.role}</label>
                 <div className="relative group">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-purple-100 to-indigo-100 z-10 pointer-events-none">
-                    <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-brand-100 to-brand-100 z-10 pointer-events-none">
+                    <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                     </svg>
                   </div>
@@ -481,7 +481,7 @@ export function EditUserPage() {
           <Button
             onClick={handleGenerateTempPassword}
             disabled={isGenerating}
-            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg shadow-amber-500/20"
+            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg"
           >
             {isGenerating ? (
               <>

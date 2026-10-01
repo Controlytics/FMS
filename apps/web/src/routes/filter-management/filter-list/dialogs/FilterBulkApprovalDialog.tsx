@@ -61,7 +61,7 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
   const verb = isReview ? 'Complete Review' : 'Approve';
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[54] p-4" data-testid="filter-bulk-approval-dialog">
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[54] p-4" data-testid="filter-bulk-approval-dialog">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-6xl overflow-hidden flex flex-col shadow-2xl" style={{ maxHeight: '92vh' }}>
         <div className={`px-6 py-4 shrink-0 flex items-center justify-between ${headerCls}`}>
           <div className="min-w-0">
@@ -78,7 +78,7 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
         <div className="overflow-auto flex-1 min-h-0">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 sticky top-0 z-10">
-              <tr className="text-[11px] uppercase tracking-wide text-slate-500 [&>th]:px-3 [&>th]:py-2 [&>th]:text-left [&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-slate-200">
+              <tr className="text-xs text-slate-500 [&>th]:px-3 [&>th]:py-2 [&>th]:text-left [&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-slate-200">
                 <th className="w-8">
                   <input type="checkbox" checked={allPicked} onChange={toggleAll} aria-label="Select all"
                     className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
@@ -116,7 +116,7 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
                     <td className="text-slate-600">{dash(f.filterSize)}</td>
                     <td>
                       {f.filterSet ? (
-                        <span className={`text-[11px] px-2 py-0.5 rounded-md font-medium ${f.filterSet === 'SET_A' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                        <span className={`text-[11px] px-2 py-0.5 rounded-md font-medium ${f.filterSet === 'SET_A' ? 'bg-blue-50 text-blue-700' : 'bg-brand-50 text-brand-700'}`}>
                           {f.filterSet === 'SET_A' ? 'Set A' : f.filterSet === 'SET_B' ? 'Set B' : f.filterSet}
                         </span>
                       ) : <span className="text-slate-300">--</span>}
@@ -158,7 +158,7 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
               <label className="block text-xs font-medium text-slate-600 mb-1">Remarks <span className="text-slate-400 font-normal">(optional, recorded on every selected filter)</span></label>
               <input value={remarks} onChange={e => setRemarks(e.target.value)}
                 placeholder={isReview ? 'Anything the approver should know' : 'Approval remarks'}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[var(--theme-primary)] focus:border-[var(--theme-primary)]" />
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-[var(--theme-primary)] focus:border-[var(--theme-primary)]" />
             </div>
           ) : (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3">
@@ -167,7 +167,7 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
               </label>
               <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={2} autoFocus
                 placeholder="One reason recorded on every selected filter. They stay in the list as Rejected so they can be corrected and resubmitted."
-                className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-red-400 focus:border-red-400" />
+                className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-red-400 focus:border-red-400" />
             </div>
           )}
           <div className="flex items-center gap-3">

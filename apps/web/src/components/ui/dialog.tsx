@@ -43,15 +43,15 @@ export function Dialog({ open, onClose, children, className, priority }: DialogP
   return (
     <div className={cn('fixed inset-0 flex items-center justify-center p-4', zWrapper)}>
       <div
-        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in"
+        className="fixed inset-0 bg-slate-900/50 animate-fade-in"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
         onMouseDown={(e) => e.preventDefault()}
       />
       <div
         className={cn(
-          `relative w-full max-w-lg rounded-2xl bg-white p-6`,
+          `relative w-full max-w-lg rounded-xl bg-white p-6`,
           zContent,
-          'shadow-2xl border border-slate-200/60',
+          'shadow-2xl border border-slate-200',
           'animate-fade-in',
           'max-h-[90vh] overflow-y-auto',
           className
@@ -71,7 +71,7 @@ export function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHe
   return (
     <h2
       className={cn(
-        'text-xl font-semibold text-slate-800',
+        'text-lg font-semibold text-slate-900',
         className
       )}
       {...props}

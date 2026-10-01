@@ -25,7 +25,7 @@ const OPTIONS: {
   dot: string;
 }[] = [
   { value: 'SET_A', title: 'Set A', desc: 'Complete Set A filters (plus any unclassified). Set B is ignored.', accent: 'hover:border-blue-400 hover:ring-blue-100', dot: 'bg-blue-500' },
-  { value: 'SET_B', title: 'Set B', desc: 'Complete Set B filters (plus any unclassified). Set A is ignored.', accent: 'hover:border-purple-400 hover:ring-purple-100', dot: 'bg-purple-500' },
+  { value: 'SET_B', title: 'Set B', desc: 'Complete Set B filters (plus any unclassified). Set A is ignored.', accent: 'hover:border-slate-400 hover:ring-brand-100', dot: 'bg-brand-600' },
   { value: 'ALL', title: 'All Filters', desc: 'Every filter under the AHU must reach its final stage.', accent: 'hover:border-cyan-400 hover:ring-cyan-100', dot: 'bg-cyan-500' },
 ];
 

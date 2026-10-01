@@ -1,21 +1,24 @@
 import { type ButtonHTMLAttributes, forwardRef } from 'react';
 import { cn } from '@/lib/cn';
 
+// `default` is the theme's brand colour (was a hardcoded blue that ignored the
+// selected theme). Every filled variant clears AA contrast with its white label.
 const variants = {
-  default: 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg',
-  destructive: 'bg-red-600 text-white hover:bg-red-700 shadow-md hover:shadow-lg',
-  outline: 'border-2 border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 text-slate-700',
-  secondary: 'bg-slate-100 text-slate-700 hover:bg-slate-200',
+  default: 'bg-brand-600 text-white hover:bg-brand-700 shadow-xs',
+  destructive: 'bg-red-600 text-white hover:bg-red-700 shadow-xs',
+  outline: 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 shadow-xs',
+  secondary: 'bg-slate-100 text-slate-800 hover:bg-slate-200',
   ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-  link: 'text-[#3b82f6] underline-offset-4 hover:underline',
-  success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md hover:shadow-lg',
+  link: 'text-brand-700 underline-offset-4 hover:underline',
+  success: 'bg-emerald-700 text-white hover:bg-emerald-800 shadow-xs',
 } as const;
 
+// Touch devices (the tablet) keep a 44px target; a mouse gets the denser size.
 const sizes = {
-  default: 'h-11 px-5 py-2.5',
-  sm: 'h-9 px-4 text-sm',
-  lg: 'h-12 px-8 text-base',
-  icon: 'h-10 w-10',
+  default: 'h-10 px-4 [@media(pointer:coarse)]:h-11',
+  sm: 'h-8 px-3 text-[13px] [@media(pointer:coarse)]:h-10',
+  lg: 'h-11 px-6 text-base [@media(pointer:coarse)]:h-12',
+  icon: 'h-10 w-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11',
 } as const;
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -28,10 +31,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     <button
       ref={ref}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all duration-200',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6] focus-visible:ring-offset-2',
+        'inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium',
+        // Focus ring comes from the global :focus-visible rule (theme colour).
         'disabled:pointer-events-none disabled:opacity-50',
-        'active:scale-[0.98]',
         variants[variant],
         sizes[size],
         className,

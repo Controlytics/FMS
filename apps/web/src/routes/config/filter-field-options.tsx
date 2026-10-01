@@ -131,7 +131,7 @@ export function FilterFieldOptionsConfigPage() {
         {SECTIONS.map(({ key, title, placeholder }) => (
           <div key={key} className="px-5 py-5 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{title}</h2>
+              <h2 className="text-xs font-bold text-slate-500">{title}</h2>
               <span className="text-xs text-slate-400">{value[key].length} value{value[key].length === 1 ? '' : 's'}</span>
             </div>
 
@@ -158,7 +158,7 @@ export function FilterFieldOptionsConfigPage() {
                 onChange={e => setDraft({ ...draft, [key]: e.target.value })}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addValue(key); } }}
                 placeholder={placeholder}
-                className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:bg-slate-50" />
+                className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-transparent disabled:bg-slate-50" />
               <button disabled={!canWrite || !draft[key].trim()} onClick={() => addValue(key)}
                 className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium text-sm">
                 + Add

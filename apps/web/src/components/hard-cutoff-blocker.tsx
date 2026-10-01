@@ -119,7 +119,7 @@ export function HardCutoffBlocker() {
               type="button"
               onClick={handleRetry}
               disabled={retrying}
-              className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg shadow-cyan-500/25"
+              className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg"
             >
               {retrying ? 'Trying…' : 'Try to reconnect'}
             </button>

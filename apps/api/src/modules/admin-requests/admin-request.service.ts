@@ -36,7 +36,10 @@ export function describeRequestSubject(requestType: string, data: Record<string,
       const field = String(data?.modifyField ?? '').trim();
       const value = data?.newValue === undefined || data?.newValue === null ? '' : String(data.newValue).trim();
       if (!field) return username || '(no user ID)';
-      return `${username || '(no user ID)'}, ${field} -> ${value || '(blank)'}`;
+      // "101020, role OPERATOR -> SUPERVISOR"; older rows without currentRole
+      // keep the original "101020, role -> SUPERVISOR".
+      const from = data?.currentRole ? `${String(data.currentRole).trim()} ` : '';
+      return `${username || '(no user ID)'}, ${field} ${from}-> ${value || '(blank)'}`;
     }
     default:
       // UNLOCK / ENABLE_ACCOUNT / DISABLE_ACCOUNT / FORGOT_PASSWORD all act on
@@ -59,6 +62,7 @@ export function subjectFields(requestType: string, data: Record<string, any>) {
   }
   if (requestType === 'MODIFY_USER') {
     out.modifyField = String(data?.modifyField ?? '').trim() || null;
+    if (data?.currentRole) out.currentRole = data.currentRole;
     out.newValue = data?.newValue ?? null;
   }
   return out;
@@ -89,6 +93,36 @@ async function resolveRequesterRole(employeeId: string | null | undefined): Prom
   }
 }
 
+/**
+ * 2026-10-01 (operator request): a Modify User request changes the ROLE only.
+ * The public form offers nothing else, and the server refuses anything else, so
+ * a hand-crafted submission cannot ask for an email / name / status change.
+ *
+ * `currentRole` is stamped from the users table, never taken from the client,
+ * so the approver sees the real "from" role as it was when the request was made.
+ * Requests submitted before this change (other fields) can still be approved —
+ * executeApproval is unchanged.
+ */
+async function validateRoleChangeRequest(raw: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const username = String(raw.username ?? '').trim();
+  const newRole = String(raw.newValue ?? '').trim();
+  if (String(raw.modifyField ?? '').trim() !== 'role') {
+    throw new ValidationError('Only the role can be changed through a Modify User request');
+  }
+  if (!username) throw new ValidationError('Employee ID of the account to modify is required');
+  if (!newRole) throw new ValidationError('New role is required');
+  const user = await prisma.user.findUnique({ where: { username }, select: { role: true } });
+  if (!user) throw new ValidationError(`Employee ID "${username}" does not exist`);
+  // A SUPER_ADMIN account is never the subject of, nor the result of, a public request.
+  if (user.role === 'SUPER_ADMIN' || newRole === 'SUPER_ADMIN') {
+    throw new ValidationError('This role change cannot be requested here');
+  }
+  const role = await prisma.role.findUnique({ where: { name: newRole }, select: { isActive: true } });
+  if (!role?.isActive) throw new ValidationError(`Role "${newRole}" is not an active role`);
+  if (newRole === user.role) throw new ValidationError('The new role must differ from the current role');
+  return { username, modifyField: 'role', currentRole: user.role, newValue: newRole };
+}
+
 export const adminRequestService = {
   async create(data: {
     requestType: string;
@@ -106,6 +140,9 @@ export const adminRequestService = {
     if (data.requesterEmployeeId) {
       const known = await prisma.user.findUnique({ where: { username: stripHtml(data.requesterEmployeeId) }, select: { fullName: true } });
       if (known?.fullName) requesterName = known.fullName;
+    }
+    if (data.requestType === 'MODIFY_USER') {
+      data = { ...data, requestData: await validateRoleChangeRequest(data.requestData ?? {}) };
     }
     const request = await prisma.adminRequest.create({
       data: {

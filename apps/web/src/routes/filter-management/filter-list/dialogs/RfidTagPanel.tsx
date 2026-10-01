@@ -44,7 +44,7 @@ export function RfidTagPanel({
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {/* Current Tags */}
           <div>
-            <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Assigned Tags</h4>
+            <h4 className="text-xs font-bold text-slate-500 mb-3">Assigned Tags</h4>
             <div className="space-y-2">
               {rfidTags.length === 0 && otherTags.length === 0 && (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
@@ -90,7 +90,7 @@ export function RfidTagPanel({
 
           {/* Assign New Tag */}
           <div className="border-t border-slate-200 pt-5">
-            <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Assign New RFID Tag</h4>
+            <h4 className="text-xs font-bold text-slate-500 mb-3">Assign New RFID Tag</h4>
             <p className="text-[12px] text-slate-400 mb-3">Scan an RFID tag or enter the tag ID manually.</p>
             <div className="space-y-3">
               <div className="relative">
@@ -101,7 +101,7 @@ export function RfidTagPanel({
                   data-rfid="true"
                   placeholder="Scan RFID tag or type tag ID..."
                   autoFocus
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-800 font-mono bg-white focus:border-[var(--theme-primary)] focus:ring-2 focus:ring-[var(--theme-focus-ring)] outline-none pr-12"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-800 font-mono bg-white focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none pr-12"
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                   <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">

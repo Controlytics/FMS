@@ -272,7 +272,7 @@ export function UserListPage() {
               </svg>
               Password Reset Requests
               {pendingData && pendingData.count > 0 && (
-                <span className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center text-xs font-bold bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-full shadow-lg shadow-red-500/30">
+                <span className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center text-xs font-bold bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-full shadow-lg">
                   {pendingData.count}
                 </span>
               )}

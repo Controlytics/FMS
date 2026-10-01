@@ -106,7 +106,7 @@ export function BulkStatusUpdatePanel({
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">New Status <span className="text-red-500">*</span></label>
             <select value={state} onChange={e => onStateChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
               <option value="" disabled>Select status…</option>
               {LIFECYCLE_STATE_OPTIONS.map(opt => {
                 const count = validCount(opt.value);
@@ -143,7 +143,7 @@ export function BulkStatusUpdatePanel({
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Cleaning Reason <span className="text-red-500">*</span></label>
                 <select value={reasonKey} onChange={e => setReasonKey(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
                   <option value="" disabled>Select reason…</option>
                   {reasons.map(r => (
                     <option key={r.key} value={r.key}>{r.name}</option>
@@ -158,7 +158,7 @@ export function BulkStatusUpdatePanel({
                   <label className="block text-sm font-medium text-slate-600 mb-1">Justification <span className="text-red-500">*</span></label>
                   <textarea value={justification} onChange={e => setJustification(e.target.value)}
                     placeholder="Min 10 characters…" rows={3}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
                 </div>
               )}
             </>
@@ -168,7 +168,7 @@ export function BulkStatusUpdatePanel({
             <label className="block text-sm font-medium text-slate-600 mb-1">Remarks <span className="text-red-500">*</span></label>
             <textarea value={remarks} onChange={e => onRemarksChange(e.target.value)}
               placeholder="Enter reason for status change..." rows={4}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
           </div>
         </div>
         <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">

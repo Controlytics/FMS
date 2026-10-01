@@ -314,7 +314,7 @@ export function DeviationsPage() {
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
         <div className="flex items-center gap-3 mb-4">
-          <div className="p-2.5 rounded-xl bg-gradient-to-br from-rose-500 to-rose-600 shadow-lg shadow-rose-600/10">
+          <div className="p-2.5 rounded-xl bg-gradient-to-br from-rose-500 to-rose-600 shadow-lg">
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
@@ -330,7 +330,7 @@ export function DeviationsPage() {
 
         {/* Overdue severity legend */}
         <div className="flex items-center gap-4 mb-3 text-[11px]">
-          <span className="font-bold text-slate-400 uppercase tracking-wider">Overdue / Delay</span>
+          <span className="font-bold text-slate-500">Overdue / Delay</span>
           {SEVERITY_BANDS.map(b => (
             <span key={b.label} className="flex items-center gap-1.5 text-slate-500">
               <span className={`w-2.5 h-2.5 rounded-full ${b.dot}`} />{b.label}
@@ -362,7 +362,7 @@ export function DeviationsPage() {
                 Previously UNGATED (fail-open); now correctly hidden from users without PM_READ. */}
             {can('deviations.export') && (
               <ExportMenu surface="deviations" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm shadow-rose-600/20 disabled:opacity-50" />
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm disabled:opacity-50" />
             )}
             <SendForReviewButton buildSnapshot={buildDeviationsSnapshot}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
@@ -392,7 +392,7 @@ export function DeviationsPage() {
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {['Deviation #', 'AHU', 'Filters', 'Scheduled', 'Overdue', 'Status', 'Acknowledged By', 'Completed By', 'Completed', 'Delay', ...(isSuperAdmin ? ['Edit'] : [])].map((h, i) => (
-                    <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                    <th key={i} className="text-left px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>

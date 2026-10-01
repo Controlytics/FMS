@@ -2,7 +2,7 @@ import { cn } from '@/lib/cn';
 
 export function Table({ className, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-soft">
+    <div className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
       <div className="overflow-auto">
         <table className={cn('w-full caption-bottom text-sm', className)} {...props} />
       </div>
@@ -14,7 +14,7 @@ export function TableHeader({ className, ...props }: React.HTMLAttributes<HTMLTa
   return (
     <thead
       className={cn(
-        'bg-gradient-to-r from-slate-50 to-slate-100/50 border-b border-slate-200',
+        'bg-slate-50',
         className
       )}
       {...props}
@@ -30,8 +30,9 @@ export function TableRow({ className, ...props }: React.HTMLAttributes<HTMLTable
   return (
     <tr
       className={cn(
-        'border-b border-slate-100 transition-colors duration-150',
-        'hover:bg-slate-50/50',
+        // Row hairlines are drawn on the cells (app.css): the table uses
+        // border-collapse: separate, where a <tr> border never paints.
+        'transition-colors duration-100 hover:bg-slate-50',
         className
       )}
       {...props}
@@ -43,7 +44,7 @@ export function TableHead({ className, ...props }: React.ThHTMLAttributes<HTMLTa
   return (
     <th
       className={cn(
-        'h-14 px-5 text-left align-middle font-semibold text-slate-600 text-xs uppercase tracking-wider',
+        'h-10 px-4 text-left align-middle text-xs font-semibold text-slate-600',
         className
       )}
       {...props}
@@ -55,7 +56,7 @@ export function TableCell({ className, ...props }: React.TdHTMLAttributes<HTMLTa
   return (
     <td
       className={cn(
-        'px-5 py-4 align-middle text-slate-700',
+        'px-4 py-2.5 align-middle text-slate-700',
         className
       )}
       {...props}

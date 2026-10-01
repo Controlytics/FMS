@@ -92,7 +92,7 @@ export function AuditTable({
       <CardContent className="p-0">
         {isLoading ? (
           <div className="p-12 text-center">
-            <svg className="w-8 h-8 animate-spin mx-auto mb-3 text-indigo-500" fill="none" viewBox="0 0 24 24">
+            <svg className="w-8 h-8 animate-spin mx-auto mb-3 text-brand-600" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>
@@ -109,31 +109,31 @@ export function AuditTable({
                         type="checkbox"
                         checked={isAllSelected}
                         onChange={toggleSelectAll}
-                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        className="w-4 h-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600/15"
                       />
                     </TableHead>
                   )}
                   <TableHead>
-                    <button onClick={() => toggleSort('timestamp')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-indigo-600 transition-colors group">
+                    <button onClick={() => toggleSort('timestamp')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-brand-700 transition-colors group">
                       Timestamp
-                      <span className={`transition-colors ${sortBy === 'timestamp' ? 'text-indigo-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+                      <span className={`transition-colors ${sortBy === 'timestamp' ? 'text-brand-700' : 'text-slate-300 group-hover:text-slate-400'}`}>
                         {sortBy === 'timestamp' ? (sortOrder === 'asc' ? '\u2191' : '\u2193') : '\u2195'}
                       </span>
                     </button>
                   </TableHead>
                   <TableHead className="font-semibold text-slate-600">Description</TableHead>
                   <TableHead>
-                    <button onClick={() => toggleSort('action')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-indigo-600 transition-colors group">
+                    <button onClick={() => toggleSort('action')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-brand-700 transition-colors group">
                       Action
-                      <span className={`transition-colors ${sortBy === 'action' ? 'text-indigo-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+                      <span className={`transition-colors ${sortBy === 'action' ? 'text-brand-700' : 'text-slate-300 group-hover:text-slate-400'}`}>
                         {sortBy === 'action' ? (sortOrder === 'asc' ? '\u2191' : '\u2193') : '\u2195'}
                       </span>
                     </button>
                   </TableHead>
                   <TableHead>
-                    <button onClick={() => toggleSort('userId')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-indigo-600 transition-colors group">
+                    <button onClick={() => toggleSort('userId')} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-brand-700 transition-colors group">
                       Performed By
-                      <span className={`transition-colors ${sortBy === 'userId' ? 'text-indigo-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+                      <span className={`transition-colors ${sortBy === 'userId' ? 'text-brand-700' : 'text-slate-300 group-hover:text-slate-400'}`}>
                         {sortBy === 'userId' ? (sortOrder === 'asc' ? '\u2191' : '\u2193') : '\u2195'}
                       </span>
                     </button>
@@ -156,7 +156,7 @@ export function AuditTable({
                           type="checkbox"
                           checked={selectedIds.has(record.id)}
                           onChange={() => toggleSelect(record.id)}
-                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          className="w-4 h-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600/15 cursor-pointer"
                         />
                       </TableCell>
                     )}
@@ -310,7 +310,7 @@ export function AuditTable({
                           size="sm"
                           onClick={() => onViewRecord(record)}
                           title="View record details"
-                          className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                          className="text-brand-700 hover:text-brand-700 hover:bg-slate-50"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />

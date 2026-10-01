@@ -215,7 +215,7 @@ export function RfidTrackRecordPage() {
     } finally { setDownloading(false); }
   };
 
-  const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600';
 
   return (
     <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={totalPages} hideFooter>
@@ -277,9 +277,9 @@ export function RfidTrackRecordPage() {
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {headLabels.map((h, i) => (
-                    <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className="text-left px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
-                  {isSuperAdmin && <th className="text-right px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">Edit</th>}
+                  {isSuperAdmin && <th className="text-right px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -296,7 +296,10 @@ export function RfidTrackRecordPage() {
                     <td className="px-4 py-3 text-[13px] text-slate-700">{r.filterName ?? <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600">{r.ahuName ?? <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3 text-[13px] text-slate-600">{r.user ?? <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600">{r.reason ?? <span className="text-slate-300">—</span>}</td>
+                    {/* min-w: one very long tag number widens its own column and, in an
+                        overflowing table, squeezed this one to ~100px — a sentence-long
+                        release reason then wrapped into 14 lines (317px rows). */}
+                    <td className="px-4 py-3 text-[13px] text-slate-600 min-w-[18rem]">{r.reason ?? <span className="text-slate-300">—</span>}</td>
                     {isSuperAdmin && (
                       <td className="px-4 py-3 text-right">
                         <SuperAdminEditButton onClick={() => setEditRow(r)} />

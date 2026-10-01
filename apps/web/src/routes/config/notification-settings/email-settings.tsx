@@ -95,7 +95,7 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
           <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
@@ -272,7 +272,7 @@ function EmailTab() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Enable toggle */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-slate-800">Email Notifications</h3>
@@ -280,13 +280,13 @@ function EmailTab() {
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" {...register('enabled')} className="sr-only peer" />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-3 peer-focus:ring-brand-600/15 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
             </label>
           </div>
         </div>
 
         {/* Mail From */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">Mail From</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -302,7 +302,7 @@ function EmailTab() {
         </div>
 
         {/* SMTP Provider */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">SMTP Provider</h3>
           <div className="flex flex-wrap gap-2">
             {Object.entries(SMTP_PRESETS).map(([key]) => (
@@ -323,7 +323,7 @@ function EmailTab() {
         </div>
 
         {/* SMTP Server Settings */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">SMTP Server Settings</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
@@ -346,13 +346,13 @@ function EmailTab() {
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" {...register('secure')} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <input type="checkbox" {...register('secure')} className="rounded border-gray-300 text-blue-600 focus:ring-brand-600/15" />
             Enable TLS (use for port 465, leave unchecked for STARTTLS on port 587)
           </label>
         </div>
 
         {/* Authentication */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-5">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-5">
           <h3 className="font-semibold text-slate-800">Authentication</h3>
 
           {/* Auth Type Toggle */}
@@ -432,7 +432,7 @@ function EmailTab() {
                       onClick={() => setValue('oauth2Provider', p.value, { shouldDirty: true })}
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                         oauth2Provider === p.value
-                          ? 'bg-indigo-600 text-white shadow-md'
+                          ? 'bg-brand-700 text-white shadow-md'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -489,24 +489,24 @@ function EmailTab() {
               )}
 
               {(oauth2Provider === 'microsoft' || oauth2Provider === 'office365' || oauth2Provider === 'google') && (
-                <div className="mt-4 p-5 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl border border-indigo-200 space-y-4">
-                  <h4 className="font-semibold text-indigo-800 text-sm">OAuth2 Authorization Code Flow</h4>
+                <div className="mt-4 p-5 bg-gradient-to-r from-brand-50 to-brand-50 rounded-xl border border-brand-200 space-y-4">
+                  <h4 className="font-semibold text-brand-800 text-sm">OAuth2 Authorization Code Flow</h4>
 
                   <div>
-                    <label className="block text-xs font-medium text-indigo-700 mb-1">
-                      Redirect URI <span className="text-indigo-400">(copy this to your {oauth2Provider === 'google' ? 'Google Cloud Console' : 'Azure AD App Registration'})</span>
+                    <label className="block text-xs font-medium text-brand-700 mb-1">
+                      Redirect URI <span className="text-brand-500">(copy this to your {oauth2Provider === 'google' ? 'Google Cloud Console' : 'Azure AD App Registration'})</span>
                     </label>
                     <div className="flex gap-2">
                       <input
                         type="text"
                         readOnly
                         value={redirectData?.redirectUri ?? 'Loading...'}
-                        className="flex-1 px-3 py-2 bg-white border border-indigo-200 rounded-lg text-sm text-slate-700 font-mono"
+                        className="flex-1 px-3 py-2 bg-white border border-brand-200 rounded-lg text-sm text-slate-700 font-mono"
                       />
                       <button
                         type="button"
                         onClick={copyRedirectUri}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center gap-1"
+                        className="px-4 py-2 bg-brand-700 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors flex items-center gap-1"
                       >
                         {copied ? (
                           <>
@@ -550,14 +550,14 @@ function EmailTab() {
                     <button
                       type="button"
                       onClick={startOAuth2Flow}
-                      className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-lg text-sm font-semibold hover:from-indigo-700 hover:to-blue-700 transition-all shadow-md shadow-indigo-500/25 flex items-center gap-2"
+                      className="px-5 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-lg text-sm font-semibold hover:from-brand-700 hover:to-brand-800 transition-all shadow-md flex items-center gap-2"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
                       {oauth2Status?.configured ? 'Re-authorize OAuth2' : 'Get OAuth2 Token'}
                     </button>
-                    <p className="text-xs text-indigo-500">
+                    <p className="text-xs text-brand-600">
                       Opens a popup to authorize with {oauth2Provider === 'google' ? 'Google' : 'Microsoft'}. Save your configuration first!
                     </p>
                   </div>
@@ -576,7 +576,7 @@ function EmailTab() {
       </form>
 
       {/* Test Section */}
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
         <h3 className="font-semibold text-slate-800">Send Test Email</h3>
         <p className="text-sm text-slate-500">Enter a recipient email and send a test message to verify your configuration works.</p>
         <div className="flex gap-3 items-end">
@@ -601,7 +601,7 @@ function EmailTab() {
 
       {/* Setup Guides */}
       {authType === 'oauth2' && (oauth2Provider === 'microsoft' || oauth2Provider === 'office365') && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6">
+        <div className="bg-gradient-to-r from-brand-50 to-brand-50 rounded-2xl border border-blue-200 p-6">
           <h3 className="font-semibold text-blue-800 mb-3">Microsoft Azure AD OAuth2 Setup Guide</h3>
           <ol className="space-y-2 text-sm text-blue-700 list-decimal list-inside">
             <li>Go to <strong>Azure Portal</strong> &gt; Azure Active Directory &gt; App Registrations</li>
@@ -619,7 +619,7 @@ function EmailTab() {
       )}
 
       {authType === 'oauth2' && oauth2Provider === 'google' && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6">
+        <div className="bg-gradient-to-r from-brand-50 to-brand-50 rounded-2xl border border-blue-200 p-6">
           <h3 className="font-semibold text-blue-800 mb-3">Google OAuth2 Setup Guide</h3>
           <ol className="space-y-2 text-sm text-blue-700 list-decimal list-inside">
             <li>Go to <strong>Google Cloud Console</strong> &gt; APIs &amp; Services &gt; Credentials</li>
@@ -633,7 +633,7 @@ function EmailTab() {
       )}
 
       {authType === 'basic' && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6">
+        <div className="bg-gradient-to-r from-brand-50 to-brand-50 rounded-2xl border border-blue-200 p-6">
           <h3 className="font-semibold text-blue-800 mb-3">Provider Setup Guide</h3>
           <div className="grid gap-3 text-sm text-blue-700">
             <div><strong>Gmail:</strong> Use App Passwords (Settings &gt; Security &gt; App passwords). Host: smtp.gmail.com, Port: 587</div>
@@ -732,7 +732,7 @@ function SmsTab() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Enable toggle */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-slate-800">SMS Notifications</h3>
@@ -740,13 +740,13 @@ function SmsTab() {
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" {...register('enabled')} className="sr-only peer" />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-3 peer-focus:ring-brand-600/15 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
             </label>
           </div>
         </div>
 
         {/* Provider Selection */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">SMS Provider</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {SMS_PROVIDERS.map((p) => (
@@ -765,7 +765,7 @@ function SmsTab() {
         </div>
 
         {/* Common Settings */}
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
           <h3 className="font-semibold text-slate-800">Common Settings</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -781,7 +781,7 @@ function SmsTab() {
 
         {/* Provider-specific settings */}
         {provider === 'twilio' && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-800">Twilio Settings</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -804,7 +804,7 @@ function SmsTab() {
             AWS SNS use the HTTP Gateway pointed at the SNS REST endpoint. */}
 
         {provider === 'vonage' && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-800">Vonage (Nexmo) Settings</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -824,7 +824,7 @@ function SmsTab() {
         )}
 
         {provider === 'http-gateway' && (
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-800">HTTP Gateway Settings</h3>
             <div className="space-y-4">
               <div>
@@ -868,7 +868,7 @@ function SmsTab() {
       </form>
 
       {/* Test Section */}
-      <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 shadow-sm space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
         <h3 className="font-semibold text-slate-800">Test SMS Configuration</h3>
         <p className="text-sm text-slate-500">Send a test SMS to verify your settings.</p>
         <div className="flex gap-3 items-end">

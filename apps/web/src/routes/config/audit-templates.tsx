@@ -144,16 +144,16 @@ export function AuditTemplatesConfigPage() {
   };
 
   const categoryGradients: Record<string, string> = {
-    'User Management': 'from-blue-500 to-indigo-600',
-    'Authentication': 'from-emerald-500 to-teal-600',
-    'Configuration': 'from-purple-500 to-violet-600',
+    'User Management': 'from-brand-600 to-brand-700',
+    'Authentication': 'from-emerald-500 to-emerald-600',
+    'Configuration': 'from-brand-600 to-brand-700',
     'Hierarchy & Filters': 'from-orange-500 to-amber-600',
-    'Role Management': 'from-violet-500 to-purple-600',
-    'Backup': 'from-teal-500 to-emerald-600',
+    'Role Management': 'from-brand-600 to-brand-700',
+    'Backup': 'from-emerald-500 to-emerald-600',
     'Data & Approvals': 'from-rose-500 to-pink-600',
-    'Filter Operations': 'from-sky-500 to-blue-600',
+    'Filter Operations': 'from-brand-600 to-brand-700',
     'Cleaning Profiles': 'from-teal-500 to-cyan-600',
-    'Filter Profiles': 'from-indigo-500 to-violet-600',
+    'Filter Profiles': 'from-brand-600 to-brand-700',
     'Equipment Groups': 'from-amber-500 to-yellow-600',
     'PM Schedules': 'from-rose-500 to-pink-600',
   };

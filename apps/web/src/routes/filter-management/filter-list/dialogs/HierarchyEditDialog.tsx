@@ -12,7 +12,7 @@ type Props = {
 
 export function HierarchyEditDialog({ node, name, error, submitting, onNameChange, onClose, onSubmit }: Props) {
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[55] p-4">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
         <div className="px-6 py-4 shrink-0 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500">
           <div>
@@ -30,7 +30,7 @@ export function HierarchyEditDialog({ node, name, error, submitting, onNameChang
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Name <span className="text-red-500">*</span></label>
             <input type="text" value={name} onChange={e => onNameChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
           </div>
         </div>
         <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">

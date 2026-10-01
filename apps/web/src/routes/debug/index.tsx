@@ -196,7 +196,7 @@ export function DebugTracesPage() {
       {/* Page Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
             </svg>
@@ -241,9 +241,9 @@ export function DebugTracesPage() {
       <StatsCards stats={stats} total={total} />
 
       {/* Filters Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
         <div className="flex items-center gap-2 mb-4">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600">
+          <div className="p-2 rounded-lg bg-gradient-to-br from-brand-600 to-brand-700">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
@@ -259,7 +259,7 @@ export function DebugTracesPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* Status */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Status</label>
+            <label className="text-xs font-semibold text-slate-500 mb-2 block">Status</label>
             <Select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -276,7 +276,7 @@ export function DebugTracesPage() {
 
           {/* Transport */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Transport</label>
+            <label className="text-xs font-semibold text-slate-500 mb-2 block">Transport</label>
             <Select
               value={transportFilter}
               onChange={(e) => setTransportFilter(e.target.value)}
@@ -293,7 +293,7 @@ export function DebugTracesPage() {
 
           {/* Error Code */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Error Code</label>
+            <label className="text-xs font-semibold text-slate-500 mb-2 block">Error Code</label>
             <Input
               type="text"
               placeholder="e.g. ENTITY_NOT_FOUND"
@@ -305,7 +305,7 @@ export function DebugTracesPage() {
 
           {/* Entity Search */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Entity</label>
+            <label className="text-xs font-semibold text-slate-500 mb-2 block">Entity</label>
             <Input
               type="text"
               placeholder="Entity ID or name..."
@@ -348,20 +348,20 @@ export function DebugTracesPage() {
       </div>
 
       {/* Traces Table Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gradient-to-r from-slate-50 to-slate-100/80 border-b border-slate-200">
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs w-8" />
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Time</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Entity</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Type</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Transport</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Pipeline</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Status</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Error Code</th>
-                <th className="text-right px-5 py-4 font-semibold text-slate-600 uppercase tracking-wider text-xs">Duration</th>
+                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs w-8" />
+                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Time</th>
+                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Entity</th>
+                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Type</th>
+                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Transport</th>
+                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Pipeline</th>
+                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Status</th>
+                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Error Code</th>
+                <th className="text-right px-5 py-4 font-semibold text-slate-600 text-xs">Duration</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -590,7 +590,7 @@ export function DebugTracesPage() {
 
       {/* Top Errors Panel (shown when stats available) */}
       {stats && stats.topErrors.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
           <div className="flex items-center gap-2 mb-4">
             <div className="p-2 rounded-lg bg-gradient-to-br from-red-500 to-rose-600">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -637,9 +637,9 @@ export function DebugTracesPage() {
 
       {/* Transport Breakdown (shown when stats available) */}
       {stats && Object.keys(stats.byTransport).length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 p-6">
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
           <div className="flex items-center gap-2 mb-4">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-brand-600 to-brand-700">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>

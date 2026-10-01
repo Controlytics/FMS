@@ -172,7 +172,7 @@ export function CleaningProfileListPage() {
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:ring-2"
+          <input className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:ring-3"
             style={{ '--tw-ring-color': 'color-mix(in srgb, var(--theme-primary) 20%, transparent)' } as React.CSSProperties}
             onFocus={e => e.currentTarget.style.borderColor = 'var(--theme-primary-light)'}
             onBlur={e => e.currentTarget.style.borderColor = ''}
@@ -299,7 +299,7 @@ export function CleaningProfileListPage() {
         onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={() => { reauth.cancel(); setDeleting(false); }} />
 
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4"
              onClick={() => !deleting && setDeleteConfirm(null)}>
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
                onClick={e => e.stopPropagation()}>
@@ -325,7 +325,7 @@ export function CleaningProfileListPage() {
                 Cancel
               </button>
               <button type="button" onClick={submitDelete} disabled={deleting}
-                      className="flex-1 py-2.5 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-semibold hover:from-red-400 hover:to-rose-400 shadow-lg shadow-red-500/25 disabled:opacity-50">
+                      className="flex-1 py-2.5 bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-xl text-sm font-semibold hover:from-red-400 hover:to-rose-400 shadow-lg disabled:opacity-50">
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>

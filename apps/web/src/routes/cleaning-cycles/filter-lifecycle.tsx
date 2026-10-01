@@ -434,7 +434,7 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
               )); })()}
               {lifecycle.length > 0 && (
                 <div className="pt-1 space-y-2">
-                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">Lifecycle Events</div>
+                  <div className="text-xs font-semibold text-slate-500 px-1">Lifecycle Events</div>
                   {lifecycle.map((ev, i) => <LifecycleEventRow key={i} ev={ev} formatDateTime={formatDateTime} />)}
                 </div>
               )}
@@ -870,7 +870,7 @@ export function FilterLifecycleReportPage() {
 
   // h-9, not py-2: DateRangeFilter's `md` size is h-9, and a padding-derived
   // ~38px next to a fixed 36px left the row's controls on different baselines.
-  const selectCls = 'w-full px-3 h-9 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 disabled:bg-slate-50 disabled:text-slate-400';
+  const selectCls = 'w-full px-3 h-9 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:bg-slate-50 disabled:text-slate-400';
   const singleFilter = filtersInScope.length === 1;
 
   return (
@@ -880,7 +880,7 @@ export function FilterLifecycleReportPage() {
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-600 to-cyan-700 shadow-lg shadow-cyan-600/10">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-6m4 6V7m4 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
               </svg>
@@ -904,28 +904,28 @@ export function FilterLifecycleReportPage() {
         {/* Cascade selectors + period */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Block</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Block</label>
             <select className={selectCls} value={blockId} onChange={(e) => onBlock(e.target.value)}>
               <option value="">All Blocks</option>
               {[...allBlocks].sort((a, b) => a.name.localeCompare(b.name)).map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
             </select>
           </div>
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Area</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Area</label>
             <select className={selectCls} value={areaId} onChange={(e) => onArea(e.target.value)}>
               <option value="">All Areas</option>
               {areaOptions.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
             </select>
           </div>
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">AHU</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">AHU</label>
             <select className={selectCls} value={ahuId} onChange={(e) => onAhu(e.target.value)}>
               <option value="">All AHUs</option>
               {ahuOptions.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
             </select>
           </div>
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Filter</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Filter</label>
             <select className={selectCls} value={filterId} onChange={(e) => setFilterId(e.target.value)}>
               <option value="">All in scope</option>
               {filterOptions.map((f) => (<option key={f.id} value={f.id}>{f.name}{f.retired ? ' (Retired)' : ''}</option>))}
@@ -939,7 +939,7 @@ export function FilterLifecycleReportPage() {
               the component's built-in `label` renders text-slate-400 against the
               text-slate-500 used here, which read as a second misalignment. */}
           <div className="col-span-2">
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Date Range</label>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">Date Range</label>
             <DateRangeFilter
               from={fromDate}
               to={toDate}

@@ -39,7 +39,7 @@ export function UploadValidationResult({ importedCount, errors, importedLabel = 
       </div>
       {hasErrors ? (
         <div>
-          <div className="text-xs font-semibold text-rose-600 uppercase tracking-wider mb-2">Rows with errors — fix and re-upload</div>
+          <div className="text-xs font-semibold text-rose-600 mb-2">Rows with errors — fix and re-upload</div>
           <div className="space-y-1 max-h-56 overflow-y-auto">
             {errors.map((e, i) => (
               <div key={`${e.row}-${i}`} className="flex items-start gap-2 text-sm px-3 py-2 bg-rose-50 border border-rose-100 rounded-lg">

@@ -63,7 +63,7 @@ export function BulkUploadDialog({
   const validPreviewRows = rows.length - invalidPreviewRows;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[55] p-4">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 shrink-0 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
@@ -93,7 +93,7 @@ export function BulkUploadDialog({
                     Area <span className="text-slate-400 font-normal">(Optional)</span>
                   </label>
                   <select value={area} onChange={e => onAreaChange(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]">
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]">
                     <option value="">All / Any</option>
                     {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
@@ -110,7 +110,7 @@ export function BulkUploadDialog({
                   <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">{ahus[0].name}</div>
                 ) : (
                   <select value={ahu} onChange={e => onAhuChange(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]">
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]">
                     <option value="">Select AHU...</option>
                     {ahus.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
                   </select>

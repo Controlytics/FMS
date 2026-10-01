@@ -55,7 +55,7 @@ type Props = {
   superAdmin?: EditFilterSuperAdminProps;
 };
 
-const selectCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500';
+const selectCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600';
 
 export function EditFilterDialog({
   name, filterSet, error, submitting,
@@ -68,7 +68,7 @@ export function EditFilterDialog({
   const reasonOk = !sa || sa.reason.trim().length >= 5;
   const lifecycleChanged = !!sa && sa.lifecycleState !== sa.currentLifecycleState;
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[55] p-4">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
         <div className="px-6 py-4 shrink-0 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500">
           <div>
@@ -86,7 +86,7 @@ export function EditFilterDialog({
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Filter Name <span className="text-red-500">*</span></label>
             <input type="text" value={name} onChange={e => onNameChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
           </div>
 
           {sa && sa.showHierarchy && (
@@ -166,13 +166,13 @@ export function EditFilterDialog({
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">RFID tag</label>
                 <input type="text" value={sa.rfid} onChange={e => sa.onRfidChange(e.target.value)} placeholder="Blank = no tag"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
                 <p className="mt-1 text-[11px] text-slate-500">Changing it removes the current tag and assigns this one; both steps appear on the RFID Track Record.</p>
               </div>
               <div className="pt-3 border-t border-slate-200">
                 <label className="block text-sm font-medium text-slate-700 mb-1">Reason for this change <span className="text-red-500">*</span></label>
                 <textarea value={sa.reason} onChange={e => sa.onReasonChange(e.target.value)} rows={2} placeholder="At least 5 characters - recorded on the audit row"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
               </div>
             </>
           )}

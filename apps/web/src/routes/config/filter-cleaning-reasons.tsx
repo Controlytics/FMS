@@ -128,7 +128,7 @@ export function CleaningReasonsConfigPage() {
           </button>
           <button onClick={save} disabled={saving || !canWrite || !dirty}
             title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-            className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 transition-all shadow-sm font-medium text-sm">
+            className="px-4 py-2 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-lg hover:from-brand-700 hover:to-brand-800 disabled:opacity-50 transition-all shadow-sm font-medium text-sm">
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
@@ -177,7 +177,7 @@ export function CleaningReasonsConfigPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={r.isActive} disabled={r.key === 'PM'}
                     onChange={e => setReasons(reasons.map(x => x.key === r.key ? { ...x, isActive: e.target.checked } : x))}
-                    className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                    className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-brand-600/15" />
                   <span className="text-sm text-slate-500">Active</span>
                 </label>
                 <button onClick={() => openEdit(r)}
@@ -192,7 +192,7 @@ export function CleaningReasonsConfigPage() {
 
       {/* Edit / Add Modal */}
       {editing && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => { setEditing(null); setModalError(null); }}>
+        <div className="fixed inset-0 bg-slate-900/30 flex items-center justify-center z-50" onClick={() => { setEditing(null); setModalError(null); }}>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 w-full max-w-md space-y-4 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-800">{isNewReason ? 'Add Reason' : 'Edit Reason'}</h2>
 
@@ -209,7 +209,7 @@ export function CleaningReasonsConfigPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Name</label>
                 <input
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-transparent"
                   placeholder="e.g. Scheduled Cleaning"
                   value={editing.name}
                   onChange={e => setEditing({
@@ -224,7 +224,7 @@ export function CleaningReasonsConfigPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Key</label>
                 <input
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-mono placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-mono placeholder-slate-400 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-transparent"
                   placeholder="e.g. SCHEDULED_CLEANING"
                   value={editing.key}
                   onChange={e => setEditing({ ...editing, key: e.target.value })}
@@ -237,7 +237,7 @@ export function CleaningReasonsConfigPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Description</label>
                 <textarea
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent resize-none"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-transparent resize-none"
                   placeholder="Describe when this reason should be used"
                   rows={2}
                   value={editing.description}
@@ -247,7 +247,7 @@ export function CleaningReasonsConfigPage() {
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={editing.requiresJustification}
                   onChange={e => setEditing({ ...editing, requiresJustification: e.target.checked })}
-                  className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+                  className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-brand-600/15" />
                 <span className="text-sm text-slate-600">Requires Justification</span>
               </label>
             </div>
@@ -257,7 +257,7 @@ export function CleaningReasonsConfigPage() {
                 Cancel
               </button>
               <button onClick={handleModalSave}
-                className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-lg hover:from-cyan-500 hover:to-blue-500 transition-all font-medium text-sm">
+                className="flex-1 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-lg hover:from-brand-700 hover:to-brand-800 transition-all font-medium text-sm">
                 {isNewReason ? 'Add' : 'Update'}
               </button>
             </div>

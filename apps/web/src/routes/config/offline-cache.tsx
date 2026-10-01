@@ -36,7 +36,7 @@ export function OfflineCacheConfigPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
           <h2 className="text-lg font-semibold text-amber-900">SUPER_ADMIN only</h2>
           <p className="text-sm text-amber-700 mt-1">Offline cache settings can only be changed by the system owner.</p>
-          <Link to="/config" className="text-sm text-indigo-600 hover:text-indigo-700 mt-3 inline-block">← Back to Configuration</Link>
+          <Link to="/config" className="text-sm text-brand-700 hover:text-brand-700 mt-3 inline-block">← Back to Configuration</Link>
         </div>
       </div>
     );
@@ -93,14 +93,14 @@ export function OfflineCacheConfigPage() {
           </div>
 
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">cacheStalenessHours</span>
+            <span className="text-xs font-semibold text-slate-500">cacheStalenessHours</span>
             <input
               type="number"
               step="0.01"
               min={0.01}
               max={168}
               {...register('cacheStalenessHours', { valueAsNumber: true })}
-              className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none"
+              className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
             />
             <span className="text-xs text-slate-400 mt-1 block">Range 0.01–168 (one week). Default 24. Current: {staleness}h.</span>
             {errors.cacheStalenessHours && <span className="text-xs text-red-600 mt-1 block">{errors.cacheStalenessHours.message}</span>}
@@ -116,14 +116,14 @@ export function OfflineCacheConfigPage() {
           </div>
 
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">cacheHardCutoffHours</span>
+            <span className="text-xs font-semibold text-slate-500">cacheHardCutoffHours</span>
             <input
               type="number"
               step="0.01"
               min={0.01}
               max={168}
               {...register('cacheHardCutoffHours', { valueAsNumber: true })}
-              className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none"
+              className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
             />
             <span className="text-xs text-slate-400 mt-1 block">Range 0.01–168 (one week). Default 24. Current: {hardCutoff}h.</span>
             {errors.cacheHardCutoffHours && <span className="text-xs text-red-600 mt-1 block">{errors.cacheHardCutoffHours.message}</span>}

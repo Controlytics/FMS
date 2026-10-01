@@ -280,7 +280,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     summary: 'Public self-service intake for create-user / modify-user / unlock / forgot-password requests, routed to an admin for approval or rejection.',
     steps: [
       { label: 'Submit a request (public, unauthenticated)', kind: 'action', gate: [], access: 'public',
-        description: 'No auth required (skipAuth route, rate-limited by IP); a guest picks CREATE_USER / MODIFY_USER / UNLOCK / FORGOT_PASSWORD and supplies their name + employee ID. A companion public lookup endpoint confirms an employee ID exists without leaking any other user data.' },
+        description: 'No auth required (skipAuth route, rate-limited by IP); a guest picks CREATE_USER / MODIFY_USER / UNLOCK / FORGOT_PASSWORD and supplies their name + employee ID. A companion public lookup endpoint confirms an employee ID exists and returns only its full name and role (never email, department or status; a SUPER_ADMIN stays masked). Modify User changes the role only.' },
       { label: 'View pending requests / count', kind: 'system', gate: ['ADMIN_REQUEST_APPROVE', 'ADMIN_REQUEST_REJECT'],
         description: 'List and pending-count endpoints accept either permission (requireAnyPermission).' },
       { label: 'Approve request', kind: 'decision', gate: ['ADMIN_REQUEST_APPROVE'],

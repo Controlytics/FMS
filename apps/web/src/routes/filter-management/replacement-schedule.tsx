@@ -36,7 +36,7 @@ function AhuFiltersRow({ ahuId, identMap }: { ahuId: string; identMap: Map<strin
     <div className="px-8 py-3 bg-slate-50/70">
       <table className="w-full text-[12px]">
         <thead>
-          <tr className="[&>th]:text-left [&>th]:px-2 [&>th]:py-1 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:uppercase [&>th]:tracking-wider">
+          <tr className="[&>th]:text-left [&>th]:px-2 [&>th]:py-1 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500">
             <th>Filter</th><th>RFID</th><th>Micron</th><th>Filter Dimensions</th><th>Status</th>
           </tr>
         </thead>
@@ -337,7 +337,7 @@ export function ReplacementSchedulePage() {
           <div className="overflow-auto max-h-[calc(100vh-22rem)]">
             <table className="w-full border-collapse">
               <thead className="sticky top-0 z-10">
-                <tr className="bg-slate-50 [&>th]:bg-slate-100 [&>th]:border [&>th]:border-slate-300 [&>th]:whitespace-nowrap [&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:uppercase [&>th]:tracking-wider">
+                <tr className="bg-slate-50 [&>th]:bg-slate-100 [&>th]:border [&>th]:border-slate-300 [&>th]:whitespace-nowrap [&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-600">
                   <th className="w-12 text-center">S.No</th>
                   <th>AHU Name</th>
                   <th className="text-center">Filter Micron</th>
@@ -414,7 +414,7 @@ export function ReplacementSchedulePage() {
 
       {/* Upload dialog */}
       {open && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[55] p-4">
           <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
             <div className="px-6 py-4 shrink-0 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
               <div>
@@ -494,12 +494,12 @@ export function ReplacementSchedulePage() {
 
       {/* Reject dialog (review or approval stage) */}
       {rejectFor && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[56] p-4">
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[56] p-4">
           <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-5 shadow-2xl">
             <h3 className="text-lg font-bold text-slate-800 mb-1">Reject Entry</h3>
             <p className="text-sm text-slate-500 mb-3">Remarks are required (min 3 characters).</p>
             <textarea value={rejectRemarks} onChange={(e) => setRejectRemarks(e.target.value)} rows={3}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30" placeholder="Reason for rejection…" />
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15" placeholder="Reason for rejection…" />
             <div className="flex gap-2 mt-3">
               <button onClick={() => setRejectFor(null)} className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200">Cancel</button>
               <button onClick={submitReject} disabled={busy || rejectRemarks.trim().length < 3}

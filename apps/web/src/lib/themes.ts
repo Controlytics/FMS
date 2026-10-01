@@ -26,195 +26,204 @@ export interface Theme {
   colors: ThemeColors;
 }
 
+/**
+ * The 10 colour themes. Redesign 2026-10-01:
+ *  - `primary`, `primaryDark` and `accent` all clear WCAG AA (4.5:1) against white
+ *    text — the previous -600 shades of cyan, emerald, orange and green did not,
+ *    and every primary button is white-on-primary.
+ *  - Gradients are TONAL (primary -> primaryDark), not two different hues.
+ *  - Sidebars are a deep, low-chroma ink of the theme hue.
+ * app.css derives the `brand-*` / `accent-*` Tailwind scales from these values.
+ */
 export const THEMES: Theme[] = [
   {
     id: 'ocean',
     name: 'Ocean',
-    description: 'Cyan & Teal — Clean and modern',
+    description: 'Deep cyan — calm and clinical',
     colors: {
-      primary: '#0891b2',       // cyan-600
-      primaryLight: '#ecfeff',  // cyan-50
-      primaryDark: '#0e7490',   // cyan-700
-      accent: '#0d9488',        // teal-600
-      accentLight: '#f0fdfa',   // teal-50
-      gradientFrom: '#0891b2',  // cyan-600
-      gradientTo: '#2563eb',    // blue-600
-      sidebarBg: '#164e63',     // cyan-900
-      sidebarBgEnd: '#1e3a5f',
-      loginBgStart: '#0f172a',
-      loginBgEnd: '#164e63',
-      focusRing: '#06b6d4',     // cyan-400
+      primary: '#0e7490',
+      primaryLight: '#ecfeff',
+      primaryDark: '#155e75',
+      accent: '#0f766e',
+      accentLight: '#f0fdfa',
+      gradientFrom: '#0e7490',
+      gradientTo: '#155e75',
+      sidebarBg: '#0f3a4a',
+      sidebarBgEnd: '#0b2a37',
+      loginBgStart: '#0b1f2a',
+      loginBgEnd: '#0f3a4a',
+      focusRing: '#0891b2',
     },
   },
   {
     id: 'sapphire',
     name: 'Sapphire',
-    description: 'Blue & Indigo — Corporate and formal',
+    description: 'Blue & indigo — corporate and formal',
     colors: {
-      primary: '#2563eb',       // blue-600
-      primaryLight: '#eff6ff',  // blue-50
-      primaryDark: '#1d4ed8',   // blue-700
-      accent: '#4f46e5',        // indigo-600
-      accentLight: '#eef2ff',   // indigo-50
-      gradientFrom: '#2563eb',
-      gradientTo: '#4f46e5',
-      sidebarBg: '#1e3a8a',     // blue-900
-      sidebarBgEnd: '#312e81',  // indigo-900
-      loginBgStart: '#0f172a',
-      loginBgEnd: '#1e3a8a',
-      focusRing: '#3b82f6',     // blue-500
+      primary: '#1d4ed8',
+      primaryLight: '#eff6ff',
+      primaryDark: '#1e40af',
+      accent: '#4338ca',
+      accentLight: '#eef2ff',
+      gradientFrom: '#1d4ed8',
+      gradientTo: '#1e40af',
+      sidebarBg: '#172554',
+      sidebarBgEnd: '#111a3d',
+      loginBgStart: '#0b1020',
+      loginBgEnd: '#172554',
+      focusRing: '#3b82f6',
     },
   },
   {
     id: 'emerald',
     name: 'Emerald',
-    description: 'Green & Emerald — Fresh and natural',
+    description: 'Emerald green — fresh and clean',
     colors: {
-      primary: '#059669',       // emerald-600
-      primaryLight: '#ecfdf5',  // emerald-50
-      primaryDark: '#047857',   // emerald-700
-      accent: '#0d9488',        // teal-600
-      accentLight: '#f0fdfa',   // teal-50
-      gradientFrom: '#059669',
-      gradientTo: '#0d9488',
-      sidebarBg: '#064e3b',     // emerald-900
-      sidebarBgEnd: '#134e4a',  // teal-900
-      loginBgStart: '#022c22',
-      loginBgEnd: '#064e3b',
-      focusRing: '#10b981',     // emerald-500
+      primary: '#047857',
+      primaryLight: '#ecfdf5',
+      primaryDark: '#065f46',
+      accent: '#0f766e',
+      accentLight: '#f0fdfa',
+      gradientFrom: '#047857',
+      gradientTo: '#065f46',
+      sidebarBg: '#073b2e',
+      sidebarBgEnd: '#052a21',
+      loginBgStart: '#03201a',
+      loginBgEnd: '#073b2e',
+      focusRing: '#10b981',
     },
   },
   {
     id: 'amethyst',
     name: 'Amethyst',
-    description: 'Purple & Violet — Modern and creative',
+    description: 'Violet — modern and distinctive',
     colors: {
-      primary: '#7c3aed',       // violet-600
-      primaryLight: '#f5f3ff',  // violet-50
-      primaryDark: '#6d28d9',   // violet-700
-      accent: '#db2777',        // pink-600
-      accentLight: '#fdf2f8',   // pink-50
-      gradientFrom: '#7c3aed',
-      gradientTo: '#db2777',
-      sidebarBg: '#4c1d95',     // violet-900
-      sidebarBgEnd: '#581c87',  // purple-900
-      loginBgStart: '#1e1b4b',
-      loginBgEnd: '#4c1d95',
-      focusRing: '#8b5cf6',     // violet-500
+      primary: '#6d28d9',
+      primaryLight: '#f5f3ff',
+      primaryDark: '#5b21b6',
+      accent: '#be185d',
+      accentLight: '#fdf2f8',
+      gradientFrom: '#6d28d9',
+      gradientTo: '#5b21b6',
+      sidebarBg: '#2e1065',
+      sidebarBgEnd: '#200b47',
+      loginBgStart: '#150730',
+      loginBgEnd: '#2e1065',
+      focusRing: '#8b5cf6',
     },
   },
   {
     id: 'sunset',
     name: 'Sunset',
-    description: 'Orange & Amber — Warm and energetic',
+    description: 'Burnt orange — warm and energetic',
     colors: {
-      primary: '#ea580c',       // orange-600
-      primaryLight: '#fff7ed',  // orange-50
-      primaryDark: '#c2410c',   // orange-700
-      accent: '#d97706',        // amber-600
-      accentLight: '#fffbeb',   // amber-50
-      gradientFrom: '#ea580c',
-      gradientTo: '#d97706',
-      sidebarBg: '#7c2d12',     // orange-900
-      sidebarBgEnd: '#78350f',  // amber-900
-      loginBgStart: '#431407',
-      loginBgEnd: '#7c2d12',
-      focusRing: '#f97316',     // orange-500
+      primary: '#c2410c',
+      primaryLight: '#fff7ed',
+      primaryDark: '#9a3412',
+      accent: '#b45309',
+      accentLight: '#fffbeb',
+      gradientFrom: '#c2410c',
+      gradientTo: '#9a3412',
+      sidebarBg: '#431407',
+      sidebarBgEnd: '#2e0e05',
+      loginBgStart: '#220a03',
+      loginBgEnd: '#431407',
+      focusRing: '#f97316',
     },
   },
   {
     id: 'slate',
     name: 'Slate',
-    description: 'Gray & Slate — Minimal and neutral',
+    description: 'Slate grey — minimal and neutral',
     colors: {
-      primary: '#475569',       // slate-600
-      primaryLight: '#f8fafc',  // slate-50
-      primaryDark: '#334155',   // slate-700
-      accent: '#0891b2',        // cyan-600
-      accentLight: '#ecfeff',   // cyan-50
-      gradientFrom: '#475569',
-      gradientTo: '#334155',
-      sidebarBg: '#1e293b',     // slate-800
-      sidebarBgEnd: '#0f172a',  // slate-900
-      loginBgStart: '#0f172a',
+      primary: '#334155',
+      primaryLight: '#f1f5f9',
+      primaryDark: '#1e293b',
+      accent: '#0e7490',
+      accentLight: '#ecfeff',
+      gradientFrom: '#334155',
+      gradientTo: '#1e293b',
+      sidebarBg: '#1e293b',
+      sidebarBgEnd: '#0f172a',
+      loginBgStart: '#0b1120',
       loginBgEnd: '#1e293b',
-      focusRing: '#64748b',     // slate-500
+      focusRing: '#64748b',
     },
   },
   {
     id: 'ruby',
     name: 'Ruby',
-    description: 'Red & Rose — Bold and attention-grabbing',
+    description: 'Deep red — bold and attention-grabbing',
     colors: {
-      primary: '#dc2626',       // red-600
-      primaryLight: '#fef2f2',  // red-50
-      primaryDark: '#b91c1c',   // red-700
-      accent: '#e11d48',        // rose-600
-      accentLight: '#fff1f2',   // rose-50
-      gradientFrom: '#dc2626',
-      gradientTo: '#e11d48',
-      sidebarBg: '#7f1d1d',     // red-900
-      sidebarBgEnd: '#881337',  // rose-900
-      loginBgStart: '#450a0a',
-      loginBgEnd: '#7f1d1d',
-      focusRing: '#ef4444',     // red-500
+      primary: '#b91c1c',
+      primaryLight: '#fef2f2',
+      primaryDark: '#991b1b',
+      accent: '#be123c',
+      accentLight: '#fff1f2',
+      gradientFrom: '#b91c1c',
+      gradientTo: '#991b1b',
+      sidebarBg: '#450a0a',
+      sidebarBgEnd: '#300707',
+      loginBgStart: '#220505',
+      loginBgEnd: '#450a0a',
+      focusRing: '#ef4444',
     },
   },
   {
     id: 'forest',
     name: 'Forest',
-    description: 'Green & Lime — Earthy and organic',
+    description: 'Forest green — earthy and grounded',
     colors: {
-      primary: '#16a34a',       // green-600
-      primaryLight: '#f0fdf4',  // green-50
-      primaryDark: '#15803d',   // green-700
-      accent: '#65a30d',        // lime-600
-      accentLight: '#f7fee7',   // lime-50
-      gradientFrom: '#16a34a',
-      gradientTo: '#65a30d',
-      sidebarBg: '#14532d',     // green-900
-      sidebarBgEnd: '#365314',  // lime-900
-      loginBgStart: '#052e16',
-      loginBgEnd: '#14532d',
-      focusRing: '#22c55e',     // green-500
+      primary: '#15803d',
+      primaryLight: '#f0fdf4',
+      primaryDark: '#166534',
+      accent: '#4d7c0f',
+      accentLight: '#f7fee7',
+      gradientFrom: '#15803d',
+      gradientTo: '#166534',
+      sidebarBg: '#052e16',
+      sidebarBgEnd: '#04200f',
+      loginBgStart: '#03180b',
+      loginBgEnd: '#052e16',
+      focusRing: '#22c55e',
     },
   },
   {
     id: 'midnight',
     name: 'Midnight',
-    description: 'Navy & Sky — Deep and professional',
+    description: 'Navy & sky — deep and professional',
     colors: {
-      primary: '#1e40af',       // blue-800
-      primaryLight: '#eff6ff',  // blue-50
-      primaryDark: '#1e3a8a',   // blue-900
-      accent: '#0284c7',        // sky-600
-      accentLight: '#f0f9ff',   // sky-50
+      primary: '#1e40af',
+      primaryLight: '#eff6ff',
+      primaryDark: '#1e3a8a',
+      accent: '#0369a1',
+      accentLight: '#f0f9ff',
       gradientFrom: '#1e40af',
-      gradientTo: '#0284c7',
-      sidebarBg: '#172554',     // blue-950
-      sidebarBgEnd: '#0c4a6e',  // sky-900
-      loginBgStart: '#020617',
-      loginBgEnd: '#172554',
-      focusRing: '#3b82f6',     // blue-500
+      gradientTo: '#1e3a8a',
+      sidebarBg: '#111c44',
+      sidebarBgEnd: '#0a1230',
+      loginBgStart: '#060b1f',
+      loginBgEnd: '#111c44',
+      focusRing: '#3b82f6',
     },
   },
   {
     id: 'coral',
     name: 'Coral',
-    description: 'Pink & Rose — Soft and friendly',
+    description: 'Rose pink — soft and friendly',
     colors: {
-      primary: '#db2777',       // pink-600
-      primaryLight: '#fdf2f8',  // pink-50
-      primaryDark: '#be185d',   // pink-700
-      accent: '#ea580c',        // orange-600
-      accentLight: '#fff7ed',   // orange-50
-      gradientFrom: '#db2777',
-      gradientTo: '#ea580c',
-      sidebarBg: '#831843',     // pink-900
-      sidebarBgEnd: '#7c2d12',  // orange-900
-      loginBgStart: '#500724',
-      loginBgEnd: '#831843',
-      focusRing: '#ec4899',     // pink-500
+      primary: '#be185d',
+      primaryLight: '#fdf2f8',
+      primaryDark: '#9d174d',
+      accent: '#c2410c',
+      accentLight: '#fff7ed',
+      gradientFrom: '#be185d',
+      gradientTo: '#9d174d',
+      sidebarBg: '#500724',
+      sidebarBgEnd: '#38051a',
+      loginBgStart: '#280312',
+      loginBgEnd: '#500724',
+      focusRing: '#ec4899',
     },
   },
 ];

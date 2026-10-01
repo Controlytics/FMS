@@ -37,17 +37,17 @@ const themeGradient = 'linear-gradient(to right, var(--theme-gradient-from), var
 function StatCard({ title, value, icon, href, delay = '0ms' }: StatCardProps) {
   return (
     <Link to={href} className="group" style={{ animationDelay: delay }}>
-      <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200/60 shadow-soft hover:shadow-elevated transition-all duration-300 hover:-translate-y-1">
+      <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200/60 shadow-soft hover:shadow-elevated transition-all duration-300">
         {/* Gradient accent bar */}
         <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundImage: themeGradient }} />
 
         <div className="p-6">
           <div className="flex items-start justify-between">
             <div className="space-y-3">
-              <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">{title}</p>
+              <p className="text-sm font-medium text-slate-500">{title}</p>
               <p className="text-4xl font-bold text-slate-800">{value}</p>
             </div>
-            <div className="p-3 rounded-xl text-white shadow-lg group-hover:scale-110 transition-transform duration-300" style={{ backgroundImage: themeGradient }}>
+            <div className="p-3 rounded-xl text-white shadow-lg transition-transform duration-300" style={{ backgroundImage: themeGradient }}>
               {icon}
             </div>
           </div>
@@ -122,12 +122,12 @@ export function DashboardPage() {
         {/* Quick stats in welcome banner */}
         <div className="relative z-10 mt-6 pt-6 border-t border-white/20 flex items-center gap-8">
           <div>
-            <p className="text-white/70 text-xs uppercase tracking-wider">Role</p>
+            <p className="text-white/70 text-xs">Role</p>
             <p className="text-lg font-semibold">{user?.role?.replace('_', ' ')}</p>
           </div>
           <div className="h-10 w-px bg-white/20" />
           <div>
-            <p className="text-white/70 text-xs uppercase tracking-wider">Today</p>
+            <p className="text-white/70 text-xs">Today</p>
             <p className="text-lg font-semibold">
               {formatDate(new Date())}
             </p>
@@ -355,7 +355,7 @@ function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value
   const fmt = (iso: string | null) => (iso ? (formatDate(iso) || '—') : '—');
   const setLabel = (s: string | null) => s === 'SET_A' ? 'Set A' : s === 'SET_B' ? 'Set B' : '—';
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
           <div>
@@ -435,7 +435,7 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
         <div className="flex items-center gap-2.5">
           <h2 className="text-lg font-semibold text-slate-800">Filter Cleaning Analytics</h2>
           {/* Live indicator — the data auto-refreshes every 20s (SWR refreshInterval). */}
-          <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
@@ -452,31 +452,31 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
       {/* Summary cards row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {showCard('total_filters') && <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Total Filters</div>
+          <div className="text-xs text-slate-500 font-medium">Total Filters</div>
           <div className="text-2xl font-bold text-slate-800 mt-1">{totalFilters}</div>
         </div>}
         {showCard('active_cycles') && <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Active Cycles</div>
+          <div className="text-xs text-slate-500 font-medium">Active Cycles</div>
           <div className="text-2xl font-bold text-blue-600 mt-1">{activeCycles}</div>
         </div>}
         {showCard('completed_today') && <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Completed Today</div>
+          <div className="text-xs text-slate-500 font-medium">Completed Today</div>
           <div className="text-2xl font-bold text-green-600 mt-1">{completedToday}</div>
         </div>}
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Total Cycles</div>
+          <div className="text-xs text-slate-500 font-medium">Total Cycles</div>
           <div className="text-2xl font-bold text-slate-800 mt-1">{totalCyclesAll}</div>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Completed (30d)</div>
+          <div className="text-xs text-slate-500 font-medium">Completed (30d)</div>
           <div className="text-2xl font-bold text-emerald-600 mt-1">{completed30}</div>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Avg Cycle</div>
+          <div className="text-xs text-slate-500 font-medium">Avg Cycle</div>
           <div className="text-2xl font-bold text-slate-800 mt-1">{avgCycleHours}<span className="text-sm font-medium text-slate-400 ml-1">h</span></div>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Deviations (30d)</div>
+          <div className="text-xs text-slate-500 font-medium">Deviations (30d)</div>
           <div className={`text-2xl font-bold mt-1 ${deviations30 > 0 ? 'text-rose-600' : 'text-slate-800'}`}>{deviations30}</div>
         </div>
       </div>
@@ -568,7 +568,7 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
           {monthlyFormatted.length === 0 ? (
             <div className="text-center py-8 text-sm text-slate-400">No data</div>
           ) : (
-            <BarChart data={monthlyFormatted} labelKey="label" valueKey="count" color="bg-indigo-500" />
+            <BarChart data={monthlyFormatted} labelKey="label" valueKey="count" color="bg-brand-600" />
           )}
         </div>}
       </div>
@@ -576,14 +576,14 @@ function FilterAnalytics({ stats, showCard }: { stats: any; showCard: (key: stri
       {/* Filter data breakdowns (2026-06-11). Click a row to drill into the
           actual filters behind that segment. */}
       <div className="grid lg:grid-cols-3 gap-4">
-        <MiniBreakdown title="Filters by Set" items={filterSetItems} color="bg-violet-500" emptyText="No filters" onItemClick={(it) => openDrill('set', it)} />
+        <MiniBreakdown title="Filters by Set" items={filterSetItems} color="bg-brand-600" emptyText="No filters" onItemClick={(it) => openDrill('set', it)} />
         <MiniBreakdown title="Filters by Status" items={filterStatusItems} color="bg-teal-500" emptyText="No filters" onItemClick={(it) => openDrill('status', it)} />
         <MiniBreakdown title="Top Cleaning Reasons" items={cleaningReasons} color="bg-cyan-500" emptyText="No cycles yet" />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
         <MiniBreakdown title="Filters by Type" items={filterTypeCounts} color="bg-amber-500" emptyText="No filter-type data" onItemClick={(it) => openDrill('type', it)} />
-        <MiniBreakdown title="Filters by Micron Size" items={micronCounts} color="bg-fuchsia-500" emptyText="No micron data" onItemClick={(it) => openDrill('micron', it)} />
+        <MiniBreakdown title="Filters by Micron Size" items={micronCounts} color="bg-brand-600" emptyText="No micron data" onItemClick={(it) => openDrill('micron', it)} />
       </div>
 
       {drill && <FilterDrillDown drill={drill} onClose={() => setDrill(null)} />}

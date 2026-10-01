@@ -24,7 +24,7 @@ export function DryerDurationDialog({ open, filterName, loading, error, onClose,
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="w-full max-w-sm rounded-lg bg-white shadow-xl">
-        <div className="rounded-t-lg bg-gradient-to-r from-blue-600 to-blue-500 px-5 py-4 text-white">
+        <div className="rounded-t-lg bg-gradient-to-r from-brand-600 to-brand-700 px-5 py-4 text-white">
           <h2 className="text-lg font-semibold">Set Dryer Duration</h2>
           <p className="text-sm opacity-90">{filterName}</p>
         </div>
@@ -34,7 +34,7 @@ export function DryerDurationDialog({ open, filterName, loading, error, onClose,
             <select
               value={minutes}
               onChange={(e) => setMinutes(Number(e.target.value))}
-              className="w-full rounded border border-slate-300 px-3 py-2 text-slate-800 focus:border-blue-500 focus:outline-none"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-slate-800 focus:border-brand-600 focus:outline-none"
               disabled={loading}
             >
               {DURATION_OPTIONS.map((m) => (

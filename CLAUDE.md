@@ -128,6 +128,11 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   /64 for an unlimited budget. (DEP-5, 2026-08-18.)
 - Capacitor APK uses **HTTPS** baked at build via `VITE_API_URL` (cert install required on tablet)
 - Light theme only — `bg-white`, `bg-slate-50`, `border-slate-200`, gradient dialog headers OK
+- **Design system = `apps/web/src/app.css`** (UI redesign 2026-10-01): IBM Plex Sans/Mono
+  self-hosted, `brand-*` / `accent-*` scales derived from the selected theme (`cyan-*` /
+  `teal-*` are remapped onto them), tight radii, low shadows, sentence-case labels. Use
+  `brand-*` for anything brand-coloured; status colours stay semantic. Rules + the list of
+  what must NOT be recoloured: `apps/web/CLAUDE.md` § "Theme / design system".
 - **Sidebar RBAC redesign (2026-06-30, branch RFID):** `packages/shared/src/types/permission-tree.ts`
   (`PERMISSION_TREE`) is the **single source of truth** — a Sidebar→Page→Action catalog. Each node
   carries `permissions` (grant-expansion set = the role-config toggle), `gate` (the *discriminating*

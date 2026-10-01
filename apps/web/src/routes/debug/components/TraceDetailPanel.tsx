@@ -12,21 +12,21 @@ export function TraceDetailPanel({ trace }: { trace: PipelineTrace }) {
       {/* Meta grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
         <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Message ID</p>
+          <p className="text-xs font-semibold text-slate-500 mb-0.5">Message ID</p>
           <p className="text-xs font-mono text-slate-600 truncate">{trace.messageId}</p>
         </div>
         <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Payload Size</p>
+          <p className="text-xs font-semibold text-slate-500 mb-0.5">Payload Size</p>
           <p className="text-sm font-semibold text-slate-700">
             {trace.payloadSize != null ? `${trace.payloadSize.toLocaleString()} B` : '—'}
           </p>
         </div>
         <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Total Duration</p>
+          <p className="text-xs font-semibold text-slate-500 mb-0.5">Total Duration</p>
           <p className="text-sm font-semibold text-slate-700">{formatDuration(trace.totalDurationMs)}</p>
         </div>
         <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Stages Run</p>
+          <p className="text-xs font-semibold text-slate-500 mb-0.5">Stages Run</p>
           <p className="text-sm font-semibold text-slate-700">{trace.stages.length} / 11</p>
         </div>
       </div>
@@ -56,7 +56,7 @@ export function TraceDetailPanel({ trace }: { trace: PipelineTrace }) {
       {/* Warnings summary */}
       {trace.warnings && trace.warnings.length > 0 && (
         <div className="mb-5 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
-          <p className="text-xs font-semibold text-amber-700 mb-2 uppercase tracking-wider">Warnings ({trace.warnings.length})</p>
+          <p className="text-xs font-semibold text-amber-700 mb-2">Warnings ({trace.warnings.length})</p>
           <ul className="space-y-1">
             {trace.warnings.map((w, i) => (
               <li key={i} className="text-xs text-amber-600 flex items-start gap-1.5">
@@ -72,7 +72,7 @@ export function TraceDetailPanel({ trace }: { trace: PipelineTrace }) {
 
       {/* Stage Timeline */}
       <div>
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Pipeline Stages</p>
+        <p className="text-xs font-semibold text-slate-500 mb-3">Pipeline Stages</p>
         <StageTimeline stages={trace.stages} />
       </div>
     </div>

@@ -39,7 +39,7 @@ export function CreateFilterDialog({
   onClose, onSubmit,
 }: Props) {
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4">
+    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[55] p-4">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
         <div className="px-6 py-4 shrink-0 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
           <div>
@@ -65,7 +65,7 @@ export function CreateFilterDialog({
                 Area <span className="text-slate-400 font-normal">(Optional)</span>
               </label>
               <select value={area} onChange={e => onAreaChange(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
                 <option value="">All / Any</option>
                 {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
@@ -74,7 +74,7 @@ export function CreateFilterDialog({
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">AHU <span className="text-red-500">*</span></label>
             <select value={ahu} onChange={e => onAhuChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
               <option value="">Select AHU...</option>
               {ahus.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
@@ -83,7 +83,7 @@ export function CreateFilterDialog({
             <label className="block text-sm font-medium text-slate-700 mb-1">Filter Name <span className="text-red-500">*</span></label>
             <input type="text" value={name} onChange={e => onNameChange(e.target.value)}
               placeholder="e.g., Pre-Filter-01"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Filter Set <span className="text-red-500">*</span></label>

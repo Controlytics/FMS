@@ -70,13 +70,10 @@ export function AppLayout() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-[#1e3a5f] to-[#3b82f6] animate-pulse" />
-            <div className="absolute inset-0 w-12 h-12 rounded-xl bg-gradient-to-r from-[#1e3a5f] to-[#3b82f6] animate-ping opacity-20" />
-          </div>
-          <p className="text-sm text-slate-500 font-medium">Loading...</p>
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3" role="status">
+          <div className="w-8 h-8 rounded-full border-[3px] border-slate-200 border-t-brand-600 animate-spin" />
+          <p className="text-sm text-slate-500">Loading…</p>
         </div>
       </div>
     );
@@ -100,17 +97,12 @@ export function AppLayout() {
       <div
         className="flex h-screen items-center justify-center p-8"
         style={{
-          background: `linear-gradient(to bottom right, ${branding.loginBgStart}, ${branding.loginBgEnd}, ${branding.loginBgStart})`
+          background: 'linear-gradient(to bottom right, var(--theme-login-bg-start), var(--theme-login-bg-end))'
         }}
       >
         <div className="w-full max-w-md">
-          <div className="relative bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl overflow-hidden">
-            <div
-              className="h-2"
-              style={{
-                background: `linear-gradient(to right, ${branding.gradientStart}, ${branding.gradientMiddle}, ${branding.gradientEnd})`
-              }}
-            />
+          <div className="relative bg-white rounded-xl shadow-2xl overflow-hidden">
+            <div className="h-1 bg-brand-600" />
             <div className="p-8 text-center">
               <div className={`w-20 h-20 rounded-full ${isDifferentUser ? 'bg-red-100' : 'bg-amber-100'} flex items-center justify-center mx-auto mb-6`}>
                 <svg className={`w-10 h-10 ${isDifferentUser ? 'text-red-600' : 'text-amber-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -122,7 +114,7 @@ export function AppLayout() {
                 <>
                   <h2 className="text-2xl font-bold text-slate-800 mb-3">Another User is Logged In</h2>
                   <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 mb-6">
-                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-3">Active Session</p>
+                    <p className="text-xs text-slate-500 font-semibold mb-3">Active Session</p>
                     <div className="flex items-center justify-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center">
                         <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -192,11 +184,11 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen bg-background">
       <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
-        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-gradient-to-br from-slate-50 to-slate-100/50">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-background">
           <Outlet />
         </main>
       </div>

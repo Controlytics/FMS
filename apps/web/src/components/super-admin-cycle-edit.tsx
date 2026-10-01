@@ -27,7 +27,7 @@ import { MIN_REASON_LEN } from '@/components/super-admin-record-edit';
 
 const STATES = ['INSTALLED', 'WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT', 'IN_USE', 'CLEANING_CYCLE_COMPLETED'];
 const CYCLE_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'TERMINATED'];
-const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500';
+const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600';
 const labelCls = 'block text-[12px] font-medium text-slate-600 mb-1';
 
 /** SWR keys that render cycle / event data anywhere in the app. Over-invalidate on purpose. */
@@ -154,7 +154,7 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[55] p-4" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[55] p-4" role="dialog" aria-modal="true" aria-label={title}>
         <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl">
           <div className="px-6 py-4 shrink-0 flex items-center justify-between bg-gradient-to-r from-amber-500 to-orange-500">
             <div>
@@ -171,7 +171,7 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
 
             {c && cycle && (
               <section className="space-y-3">
-                <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Cycle {cycle.cycleCode ? `· ${cycle.cycleCode}` : ''}</h3>
+                <h3 className="text-xs font-bold text-slate-500">Cycle {cycle.cycleCode ? `· ${cycle.cycleCode}` : ''}</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className={labelCls}>Status</label>
                     <select value={c.status} onChange={(e) => setCycleField('status', e.target.value)} className={inputCls}>
@@ -190,7 +190,7 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
             )}
 
             <section className="space-y-3">
-              <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Stage events ({events.length})</h3>
+              <h3 className="text-xs font-bold text-slate-500">Stage events ({events.length})</h3>
               {events.length === 0 && <p className="text-sm text-slate-400">This record has no stage events.</p>}
               {events.map((e, i) => {
                 const d = ev[i]; if (!d) return null;

@@ -24,17 +24,12 @@
     <link id="app-favicon" rel="icon" type="image/png" href="/pwa-192x192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-    <!-- 2026-05-21 UI refresh: distinctive font stack. Bricolage Grotesque for
-         display (operator-name, headings), Sora for body, JetBrains Mono for
-         numbers/timestamps. Tablet operators are gloved + working under bright
-         fluorescent light; these faces stay legible while giving the dashboard
-         a deliberate, instrument-grade feel.
-         2026-07-25: fonts SELF-HOSTED (public/fonts/*.woff2 + fonts.css) so the
-         app renders identically with NO Internet access — this is deployed into
-         air-gapped manufacturing plants. The former Google Fonts CDN <link>s
-         were removed; app.css still carries a system-sans fallback if a face
-         ever fails to load. -->
-    <link rel="stylesheet" href="/fonts/fonts.css" />
+    <!-- Fonts (UI redesign 2026-10-01): IBM Plex Sans for everything, IBM Plex
+         Mono for identifiers / timestamps / readings. SELF-HOSTED
+         (public/fonts/plex/*.woff2 + plex.css) so the app renders identically
+         with NO Internet access — it is deployed into air-gapped plants. Never
+         add a CDN font link. app.css carries a system-font fallback. -->
+    <link rel="stylesheet" href="/fonts/plex.css" />
   </head>
   <body>
     <div id="root"></div>

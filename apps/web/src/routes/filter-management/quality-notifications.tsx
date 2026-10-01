@@ -163,7 +163,7 @@ export function QualityNotificationsPage() {
     } finally { setDownloading(false); }
   };
 
-  const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600';
 
   if (vis && !vis.visible) {
     return (
@@ -223,9 +223,9 @@ export function QualityNotificationsPage() {
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {headLabels.map((h, i) => (
-                    <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className="text-left px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
-                  {isSuperAdmin && <th className="text-right px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap bg-slate-50">Edit</th>}
+                  {isSuperAdmin && <th className="text-right px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">

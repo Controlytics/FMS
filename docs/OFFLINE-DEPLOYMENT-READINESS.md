@@ -303,6 +303,14 @@ degrade.
 
 ---
 
+### Resolution log — 2026-10-01 (fonts changed, still self-hosted)
+
+- The UI redesign replaced the three faces with **IBM Plex Sans + IBM Plex Mono**.
+  They are served from `apps/web/public/fonts/plex/` (16 `.woff2`, Latin + Latin-ext)
+  via `public/fonts/plex.css`; `index.html` loads `/fonts/plex.css`. Still no external
+  reference. The previous faces' files (`public/fonts/*.woff2` + `fonts.css`) are no
+  longer referenced and can be deleted.
+
 ## 12. Recommended Changes (to reach a perfectly clean air-gapped deployment)
 
 1. ✅ **DONE (2026-07-25) — Self-hosted the three fonts.** The `.woff2` files for

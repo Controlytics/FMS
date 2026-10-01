@@ -59,7 +59,7 @@ export function PasswordPolicyPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
             </svg>
@@ -112,7 +112,7 @@ export function PasswordPolicyPage() {
         )}
 
         {/* General Settings Section */}
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600">
@@ -151,7 +151,7 @@ export function PasswordPolicyPage() {
               <label className="flex items-center gap-3 cursor-pointer group">
                 <div className="relative">
                   <input type="checkbox" {...register('autoLogoutEnabled')} className="sr-only peer" />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:ring-4 peer-focus:ring-indigo-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 transition-colors"></div>
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:ring-3 peer-focus:ring-brand-600/15 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-700 transition-colors"></div>
                 </div>
                 <div>
                   <span className="text-sm font-semibold text-slate-700 group-hover:text-slate-900">Enable Auto-Logout on Idle</span>
@@ -184,10 +184,10 @@ export function PasswordPolicyPage() {
         </div>
 
         {/* Password Settings Section */}
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/40 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700">
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
@@ -202,8 +202,8 @@ export function PasswordPolicyPage() {
             {/* Length Settings */}
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-6 h-6 rounded-lg bg-brand-100 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-brand-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
                   </svg>
                 </div>
@@ -232,15 +232,15 @@ export function PasswordPolicyPage() {
             {/* Character Requirements */}
             <div>
               <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-purple-100 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-6 h-6 rounded-lg bg-brand-100 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-brand-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 Character Requirements
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 space-y-2">
+                <div className="p-4 rounded-xl bg-gradient-to-br from-brand-50 to-brand-50 border border-blue-200 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-blue-800">Uppercase</span>
                     <span className="text-lg font-bold text-blue-600">A-Z</span>
@@ -248,7 +248,7 @@ export function PasswordPolicyPage() {
                   <label className="text-xs text-blue-600">Minimum required</label>
                   <Input {...register('minUppercase', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
                 </div>
-                <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 space-y-2">
+                <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-50 border border-emerald-200 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-emerald-800">Lowercase</span>
                     <span className="text-lg font-bold text-emerald-600">a-z</span>
@@ -337,14 +337,14 @@ export function PasswordPolicyPage() {
               </h3>
               <div className="space-y-3">
                 <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
-                  <input type="checkbox" {...register('cannotBeUserId')} className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                  <input type="checkbox" {...register('cannotBeUserId')} className="w-5 h-5 rounded border-slate-300 text-brand-700 focus:ring-brand-600/15" />
                   <div>
                     <span className="text-sm font-medium text-slate-700">Password cannot be same as User ID</span>
                     <p className="text-xs text-slate-500">Prevents users from using their username as password</p>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
-                  <input type="checkbox" {...register('cannotContainUserId')} className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                  <input type="checkbox" {...register('cannotContainUserId')} className="w-5 h-5 rounded border-slate-300 text-brand-700 focus:ring-brand-600/15" />
                   <div>
                     <span className="text-sm font-medium text-slate-700">Password cannot contain User ID</span>
                     <p className="text-xs text-slate-500">Prevents passwords that include the username</p>
