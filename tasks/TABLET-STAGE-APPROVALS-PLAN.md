@@ -117,3 +117,13 @@ not been watched to fire.
 and the backend then 403s the submit. Pre-existing, unrelated to this change,
 flagged for the operator to decide: either drop the tablet feature or grant the
 permission.
+
+## 2026-10-01 — superseded: the tab renders the web page
+
+The card-based tablet copy described above was deleted. `/m` now renders
+`StageApprovalsPage` (`routes/stage-approvals/index.tsx`) for this tab, so the
+tablet has select-all and bulk approve / reject like the web. What survives from
+this plan: the `stage_approvals` tablet-access key, the bottom-nav tab, the
+online-only rule, and the server-side `selfRequested` flag. See CHANGELOG
+"Tablet Stage Approvals is the web page".
+

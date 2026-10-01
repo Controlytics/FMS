@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
@@ -41,7 +41,19 @@ const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', SUPERSEDED: 'Closed (not decided)',
 };
 
-export function StageApprovalsPage() {
+interface StageApprovalsPageProps {
+  /**
+   * Tablet only. The /m wrapper renders THIS page for its Stage Approvals tab
+   * (one implementation — a separate tablet copy drifted from the web page).
+   * The wrapper owns the Android back button, the page owns its dialogs, so the
+   * page publishes a "close my topmost dialog" function here. It returns true
+   * when it closed something (or a signed request is in flight and back must
+   * not abandon it), false when there was nothing open.
+   */
+  overlayBackRef?: MutableRefObject<(() => boolean) | null>;
+}
+
+export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps = {}) {
   const { toast } = useToast();
   const reauth = useReauth();
   const { formatDate } = useDatetimeFormat();
@@ -229,7 +241,7 @@ export function StageApprovalsPage() {
         <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleOne(r.id)}
           disabled={r.selfRequested}
           aria-label={`Select ${r.detailsSnapshot?.filterName ?? r.filterId}`}
-          className="w-4 h-4 accent-teal-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40" />
+          className="w-4 h-4 accent-teal-600 [@media(pointer:coarse)]:w-6 [@media(pointer:coarse)]:h-6 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40" />
       )}
       <div>
         <div className="text-[14px] font-medium text-slate-800">{r.detailsSnapshot?.filterName ?? r.filterId}</div>
@@ -250,7 +262,7 @@ export function StageApprovalsPage() {
       </div>
       <div className="flex items-center gap-2 justify-end">
         <button onClick={() => toggleExpanded(r.id)} aria-expanded={expanded.has(r.id)}
-          className="px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50">
+          className="px-2.5 py-1.5 rounded-lg text-[12px] [@media(pointer:coarse)]:min-h-10 font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50">
           {expanded.has(r.id) ? 'Hide details' : 'Details'}
         </button>
         {isSuperAdmin && <SuperAdminEditButton onClick={() => setSaEditRow(r)} title="Edit approval record (Super Admin)" />}
@@ -265,10 +277,10 @@ export function StageApprovalsPage() {
           ) : (
           <>
             {can('stage_approvals.approve') && (
-              <button onClick={() => openDlg(r, 'approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Verify & Approve</button>
+              <button onClick={() => openDlg(r, 'approve')} className="px-3 py-1.5 rounded-lg text-[12px] [@media(pointer:coarse)]:min-h-10 font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Verify & Approve</button>
             )}
             {can('stage_approvals.reject') && (
-              <button onClick={() => openDlg(r, 'reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject</button>
+              <button onClick={() => openDlg(r, 'reject')} className="px-3 py-1.5 rounded-lg text-[12px] [@media(pointer:coarse)]:min-h-10 font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject</button>
             )}
           </>
           )
@@ -287,16 +299,31 @@ export function StageApprovalsPage() {
   const list = tab === 'queue' ? queue : all;
   const bulkCount = decidable.filter((q) => selected.has(q.id)).length;
 
+  // Re-published every render so the function always sees current state.
+  if (overlayBackRef) {
+    overlayBackRef.current = () => {
+      if (reauth.isOpen) { reauth.cancel(); setBusy(false); return true; }
+      if (busy) return true;
+      // The two SUPER_ADMIN editors close through their own controls (they hold
+      // unsaved input); back is swallowed rather than dropping out to Home.
+      if (saEditRow || cycleEdit) return true;
+      if (dlg) { setDlg(null); return true; }
+      if (bulkDlg) { setBulkDlg(null); return true; }
+      return false;
+    };
+  }
+  useEffect(() => () => { if (overlayBackRef) overlayBackRef.current = null; }, [overlayBackRef]);
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold text-slate-800">Stage Approvals</h1>
       <p className="text-sm text-slate-500 mt-1 mb-5">Cleaning stages (Wash Out / Dry Out) paused at the QA interlock. Verify the filter details, then approve to release the operator or reject to send it back for re-cleaning. Your password is your signature.</p>
 
       <div className="flex items-center gap-2 mb-4">
-        <button onClick={() => switchTab('queue')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'queue' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600' : 'text-slate-600 bg-slate-100'}`}>
+        <button onClick={() => switchTab('queue')} className={`px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 ${tab === 'queue' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600' : 'text-slate-600 bg-slate-100'}`}>
           To Action {queue.length > 0 && <span className="ml-1 px-1.5 rounded-full bg-white/30 text-[11px]">{queue.length}</span>}
         </button>
-        <button onClick={() => switchTab('all')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'all' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600' : 'text-slate-600 bg-slate-100'}`}>All</button>
+        <button onClick={() => switchTab('all')} className={`px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 ${tab === 'all' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600' : 'text-slate-600 bg-slate-100'}`}>All</button>
       </div>
 
       {/* Bulk selection toolbar — queue tab only (only PENDING items are actionable). */}
@@ -305,18 +332,18 @@ export function StageApprovalsPage() {
           <label className="flex items-center gap-2 text-[13px] text-slate-600 cursor-pointer select-none">
             <input type="checkbox" checked={allSelected}
               ref={(el) => { if (el) el.indeterminate = bulkCount > 0 && !allSelected; }}
-              onChange={toggleAll} className="w-4 h-4 accent-teal-600 cursor-pointer" />
+              onChange={toggleAll} className="w-4 h-4 accent-teal-600 [@media(pointer:coarse)]:w-6 [@media(pointer:coarse)]:h-6 cursor-pointer" />
             {bulkCount > 0 ? `${bulkCount} selected` : 'Select all'}
           </label>
           {bulkCount > 0 && (
             <div className="flex items-center gap-2 sm:ml-auto">
               {can('stage_approvals.approve') && (
-                <button onClick={() => openBulk('approve')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Approve Selected ({bulkCount})</button>
+                <button onClick={() => openBulk('approve')} className="px-3 py-1.5 rounded-lg text-[12px] [@media(pointer:coarse)]:min-h-10 font-semibold text-white bg-emerald-600 hover:bg-emerald-700">Approve Selected ({bulkCount})</button>
               )}
               {can('stage_approvals.reject') && (
-                <button onClick={() => openBulk('reject')} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject Selected ({bulkCount})</button>
+                <button onClick={() => openBulk('reject')} className="px-3 py-1.5 rounded-lg text-[12px] [@media(pointer:coarse)]:min-h-10 font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50">Reject Selected ({bulkCount})</button>
               )}
-              <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-slate-500 hover:bg-slate-100">Clear</button>
+              <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 rounded-lg text-[12px] [@media(pointer:coarse)]:min-h-10 font-semibold text-slate-500 hover:bg-slate-100">Clear</button>
             </div>
           )}
         </div>
@@ -363,9 +390,9 @@ export function StageApprovalsPage() {
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-2 shrink-0">
-              <button onClick={() => setDlg(null)} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+              <button onClick={() => setDlg(null)} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 text-slate-600 hover:bg-slate-100">Cancel</button>
               <button onClick={submit} disabled={busy}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${dlg.action === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                className={`px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 text-white disabled:opacity-50 ${dlg.action === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
                 {busy ? 'Working…' : (dlg.action === 'reject' ? 'Reject' : 'Approve')}
               </button>
             </div>
@@ -404,9 +431,9 @@ export function StageApprovalsPage() {
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-2">
-              <button onClick={() => setBulkDlg(null)} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+              <button onClick={() => setBulkDlg(null)} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 text-slate-600 hover:bg-slate-100">Cancel</button>
               <button onClick={submitBulk} disabled={busy}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${bulkDlg === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                className={`px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 text-white disabled:opacity-50 ${bulkDlg === 'reject' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
                 {busy ? 'Working…' : (bulkDlg === 'reject' ? `Reject ${bulkCount}` : `Approve ${bulkCount}`)}
               </button>
             </div>

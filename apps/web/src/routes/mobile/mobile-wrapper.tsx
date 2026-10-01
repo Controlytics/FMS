@@ -25,8 +25,7 @@ import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../lib/filter-constants';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
-import { prettyStage, detailRows, type StageApprovalSummary } from '@/lib/stage-approval';
-import { StageApprovalDetailsCard } from '@/components/stage-approval-details';
+import { StageApprovalsPage } from '../stage-approvals';
 
 type View = 'home' | 'status' | 'my-tasks' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications' | 'stage-approvals';
 
@@ -435,86 +434,18 @@ export function MobileWrapperPage() {
   const replaceScan = useRfidScanField();
   const [replaceScanError, setReplaceScanError] = useState('');
 
-  // ── Stage Approvals (QA interlock) — bottom-nav tab, ONLINE-ONLY (2026-09-02) ──
-  // A shift officer verifies the frozen snapshot of a filter held after Wash Out
-  // / Dry Out and signs the decision with their password. Online-only by nature,
-  // not by omission: the queue is live server state (another approver may take a
-  // row at any moment) and the signature IS a re-auth round trip. Queueing a
-  // decision offline would let an operator sign a stage that had already been
-  // decided, so there is deliberately no offline cache here.
-  const { data: saQueueData, mutate: mutateSaQueue } = useSWR<{ data: StageApprovalSummary[] }>(
-    online && view === 'stage-approvals' ? '/api/stage-approvals/queue' : null,
-    { refreshInterval: 30000 },
-  );
-  const { data: saAllData, mutate: mutateSaAll } = useSWR<{ data: StageApprovalSummary[] }>(
-    online && view === 'stage-approvals' ? '/api/stage-approvals' : null,
-  );
-  const saQueue = saQueueData?.data ?? [];
-  const saAll = saAllData?.data ?? [];
-  const [saTab, setSaTab] = useState<'queue' | 'all'>('queue');
-  const [saDlg, setSaDlg] = useState<{ item: StageApprovalSummary; action: 'approve' | 'reject' } | null>(null);
-  const [saRemarks, setSaRemarks] = useState('');
-  const [saBusy, setSaBusy] = useState(false);
-  // Errors from a decision must render INSIDE the dialog. The screen's shared
-  // error banner sits above the content scroller, so while this modal's
-  // `fixed inset-0 bg-black/40` backdrop is up it is completely hidden — a
-  // failed reject would look like the button simply did nothing, and the
-  // realistic failures here are not rare: CONCURRENT_DECISION (two shift
-  // officers, one gate), SELF_APPROVAL_FORBIDDEN, and the stale-gate 409.
-  const [saError, setSaError] = useState('');
-  // Per-card "Details" expander (2026-09-05): the Wash In / Wash Out or Dry In /
-  // Dry Out times, readings, reason and users the server derives for each
-  // request. Read-only on the tablet; the SUPER_ADMIN edit lives on the desktop page.
-  const [saExpanded, setSaExpanded] = useState<Set<string>>(new Set());
-  const toggleSaExpanded = (id: string) =>
-    setSaExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-
-  const openSaDlg = (item: StageApprovalSummary, action: 'approve' | 'reject') => {
-    setSaDlg({ item, action });
-    setSaRemarks('');
-    setSaError('');
-  };
-
-  const submitSaDecision = () => {
-    if (!saDlg) return;
-    const { item, action } = saDlg;
-    if (action === 'reject' && saRemarks.trim().length < 3) {
-      setSaError('Rejection remarks are required (at least 3 characters).');
-      return;
-    }
-    setSaError('');
-    const url = `/api/stage-approvals/${item.id}/${action}`;
-    const body: Record<string, unknown> = { remarks: saRemarks.trim() || undefined };
-    const reauthAction = action === 'approve' ? 'APPROVE_CLEANING_STAGE' : 'REJECT_CLEANING_STAGE';
-
-    setSaBusy(true);
-    // The wrapper shares ONE ReauthDialog across RFID / replace / approvals, so
-    // set the label before opening it — otherwise the prompt says "RFID Tag".
-    setReauthLabel(action === 'approve' ? 'Approve Cleaning Stage' : 'Reject Cleaning Stage');
-    // The callback can run TWICE: first with pw=undefined (the always-on reauth
-    // gate 401s the whole request before any decision is made, and the REAUTH
-    // error re-throws to pop the password dialog), then with pw set. Idempotent
-    // because the passwordless pass decides nothing.
-    reauth.execute(reauthAction, async (pw?: string) => {
-      if (pw) await apiClient.postWithReauth(url, body, pw);
-      else await apiClient.post(url, body);
-    }, {
-      onSuccess: () => {
-        setSuccess(action === 'approve' ? 'Cleaning stage approved' : 'Cleaning stage rejected');
-        setSaDlg(null);
-        setSaBusy(false);
-        mutateSaQueue();
-        mutateSaAll();
-      },
-      onError: (e: any) => {
-        // The dialog stays OPEN on failure — the approver must see why, and a
-        // CONCURRENT_DECISION means reloading, not retrying.
-        setSaError(e?.message ?? 'Action failed');
-        setSaBusy(false);
-        mutateSaQueue();
-      },
-    });
-  };
+  // ── Stage Approvals (QA interlock) — bottom-nav tab, ONLINE-ONLY ──
+  // 2026-10-01: the tab renders the WEB page itself (`StageApprovalsPage`), not a
+  // tablet copy. The copy that lived here (cards, single decisions only) had
+  // drifted from the web page — no select-all, no bulk approve / reject — and
+  // the operator asked for the two to be exactly the same. One component means
+  // they cannot drift again. Still online-only by nature, not by omission: the
+  // queue is live server state (another approver may take a row at any moment)
+  // and the signature IS a re-auth round trip, so there is no offline cache.
+  //
+  // The page owns its dialogs; this ref lets the Android back button close the
+  // topmost one instead of dropping the approver out to Home.
+  const stageApprovalsBack = useRef<(() => boolean) | null>(null);
 
   // ── Replacement Schedule tasks (separate tile → own page, online-only) ──
   // /tasks returns EVERY approved entry with live AHU-filter progress (a task
@@ -974,16 +905,12 @@ export function MobileWrapperPage() {
       setRfidSubmitting(false);
       setReplaceSubmitting(false);
       setReplTaskSubmitting(false);
-      setSaBusy(false);
       return;
     }
-    // 1b. Stage-approval verify dialog — back closes the dialog and keeps the
-    //     approver on their queue, rather than dropping them out to Home.
-    if (saDlg) {
-      setSaDlg(null);
-      setSaBusy(false);
-      return;
-    }
+    // 1b. Stage Approvals (the embedded web page) — back closes its topmost
+    //     dialog and keeps the approver on their queue, rather than dropping
+    //     them out to Home. The page reports whether it had anything to close.
+    if (view === 'stage-approvals' && stageApprovalsBack.current?.()) return;
     // 2. Filter-lookup scan modal.
     if (scanRfidOpen) {
       setScanRfidOpen(false);
@@ -997,7 +924,6 @@ export function MobileWrapperPage() {
       setReplaceSelectedFilter(null);
       setSelectedCycleId(null);
       setActiveReplTask(null);
-      setSaDlg(null);
       return;
     }
     // 4. Already Home — stop here. No exit, no minimise, no logout.
@@ -1920,125 +1846,26 @@ export function MobileWrapperPage() {
           </div>
         )}
 
-        {/* === STAGE APPROVALS VIEW (2026-09-02) ===
-            The shift officer's tablet copy of the desktop /stage-approvals page.
-            Same endpoints, same re-auth signature, same frozen snapshot — laid
-            out one card at a time instead of as a table, and single-decision
-            only (no bulk: a 5-inch queue is the wrong place to sign for many
-            filters at once). */}
+        {/* === STAGE APPROVALS VIEW ===
+            The web /stage-approvals page, rendered as-is (2026-10-01) — same
+            list, same select-all + bulk approve / reject, same dialogs, same
+            re-auth signature. Only the offline notice is the tablet's own. */}
         {view === 'stage-approvals' && (
-          <div className="p-4 space-y-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-800">Stage Approvals</h2>
-              <p className="text-[12px] text-slate-500 mt-0.5 leading-snug">
-                Cleaning stages paused at the Wash Out / Dry Out QA gate. Verify the filter,
-                then approve to release the operator or reject to send it back. Your password is your signature.
-              </p>
+          !online ? (
+            // Deliberately worded as OFFLINE, never as "not permitted" — the
+            // tablet-access fetch is skipped offline, so hasFeature() lets this
+            // tab through for every role. Both the queue and the signature need
+            // the server, so say exactly that.
+            <div className="flex flex-col items-center justify-center px-4 py-16 gap-2 text-center">
+              <svg className="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728m9.9 9.9a5 5 0 010-7.072m-7.072 0a5 5 0 010 7.072M13 12a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
+              <span className="text-[13px] text-slate-500 font-semibold">Approvals need a connection</span>
+              <span className="text-[12px] text-slate-400 max-w-[260px]">
+                An approval is signed with your password, which has to be checked against the server. Reconnect to review the queue.
+              </span>
             </div>
-
-            {!online ? (
-              // Deliberately worded as OFFLINE, never as "not permitted" — the
-              // tablet-access fetch is skipped offline, so hasFeature() lets this
-              // tab through for every role. Both the queue and the signature need
-              // the server, so say exactly that.
-              <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
-                <svg className="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728m9.9 9.9a5 5 0 010-7.072m-7.072 0a5 5 0 010 7.072M13 12a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
-                <span className="text-[13px] text-slate-500 font-semibold">Approvals need a connection</span>
-                <span className="text-[12px] text-slate-400 max-w-[260px]">
-                  An approval is signed with your password, which has to be checked against the server. Reconnect to review the queue.
-                </span>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setSaTab('queue')}
-                    className={`flex-1 px-3 py-2 rounded-xl text-[13px] font-semibold transition-colors ${saTab === 'queue' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm' : 'text-slate-600 bg-slate-100'}`}>
-                    To Action{saQueue.length > 0 ? ` (${saQueue.length})` : ''}
-                  </button>
-                  <button onClick={() => setSaTab('all')}
-                    className={`flex-1 px-3 py-2 rounded-xl text-[13px] font-semibold transition-colors ${saTab === 'all' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm' : 'text-slate-600 bg-slate-100'}`}>
-                    All
-                  </button>
-                </div>
-
-                {(saTab === 'queue' ? saQueue : saAll).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 gap-2">
-                    <svg className="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d="M9 12l2 2 4-4M12 3l7 4v5c0 4.5-3 8.3-7 9-4-.7-7-4.5-7-9V7l7-4z" /></svg>
-                    <span className="text-[13px] text-slate-400 font-medium">
-                      {saTab === 'queue' ? 'Nothing awaiting your approval' : 'No stage approvals yet'}
-                    </span>
-                  </div>
-                ) : (
-                  (saTab === 'queue' ? saQueue : saAll).map((r) => {
-                    const pending = r.status === 'PENDING';
-                    const chip = r.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : r.status === 'REJECTED' ? 'bg-rose-50 text-rose-700 border-rose-200'
-                      : r.status === 'SUPERSEDED' ? 'bg-slate-100 text-slate-600 border-slate-300'
-                      : 'bg-amber-50 text-amber-700 border-amber-200';
-                    const chipLabel = r.status === 'SUPERSEDED' ? 'Closed (not decided)'
-                      : r.status === 'PENDING' ? 'Verify now'
-                      : r.status === 'APPROVED' ? 'Approved' : 'Rejected';
-                    return (
-                      <div key={r.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-[14px] font-semibold text-slate-800 truncate">
-                              {r.detailsSnapshot?.filterName ?? r.filterId}
-                            </div>
-                            <div className="text-[11px] text-slate-400 mt-0.5">
-                              {prettyStage(r.stageKey)} · {[r.detailsSnapshot?.block, r.detailsSnapshot?.ahu].filter(Boolean).join(' / ') || '—'}
-                            </div>
-                          </div>
-                          <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${chip}`}>{chipLabel}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-2">
-                          By <span className="font-mono">{r.requestedByName}</span> · {formatDateTime(r.requestedAt)}
-                        </div>
-                        {r.decidedByName && (
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            {r.status === 'APPROVED' ? 'Approved' : 'Rejected'} by <span className="font-mono">{r.decidedByName}</span>
-                          </div>
-                        )}
-                        {r.status === 'REJECTED' && r.decisionRemarks && (
-                          <div className="text-[11px] text-rose-500 mt-1">{r.decisionRemarks}</div>
-                        )}
-                        <button onClick={() => toggleSaExpanded(r.id)} aria-expanded={saExpanded.has(r.id)}
-                          className="mt-2 w-full py-2 rounded-xl text-[12px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 active:bg-slate-100">
-                          {saExpanded.has(r.id) ? 'Hide details' : `Show ${prettyStage(r.stageKey) === 'Wash Out' ? 'wash' : 'dry'} details`}
-                        </button>
-                        {saExpanded.has(r.id) && (
-                          <div className="mt-2">
-                            <StageApprovalDetailsCard stageKey={r.stageKey} details={r.stageDetails} compact />
-                          </div>
-                        )}
-                        {pending && saTab === 'queue' && (
-                          r.selfRequested ? (
-                            // Segregation of duties, decided by the server. Both
-                            // endpoints would 403 AFTER the password was accepted,
-                            // so offer an explanation, not a doomed button.
-                            <div className="mt-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                              You performed this stage — another {r.approverRole} must sign it off.
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 mt-3">
-                              <button onClick={() => openSaDlg(r, 'approve')}
-                                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 active:bg-emerald-700">
-                                Verify &amp; Approve
-                              </button>
-                              <button onClick={() => openSaDlg(r, 'reject')}
-                                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-rose-600 border border-rose-200 bg-white active:bg-rose-50">
-                                Reject
-                              </button>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </>
-            )}
-          </div>
+          ) : (
+            <StageApprovalsPage overlayBackRef={stageApprovalsBack} />
+          )
         )}
 
         {/* === OPERATIONS VIEW (renders MobileOperationsPage with proper offline support) === */}
@@ -3455,65 +3282,6 @@ export function MobileWrapperPage() {
         </div>
       )}
 
-      {/* Stage-approval verify + decide dialog. Shows the FROZEN snapshot taken
-          when the filter reached the gate — not live filter data — because that
-          is what the approver is signing for. */}
-      {saDlg && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
-          onClick={() => !saBusy && setSaDlg(null)}>
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 rounded-t-2xl text-white shrink-0"
-              style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-              <h3 className="font-bold text-[15px]">{saDlg.action === 'approve' ? 'Verify & approve stage' : 'Reject stage'}</h3>
-              <p className="text-white/80 text-[12px] mt-0.5">
-                {prettyStage(saDlg.item.stageKey)} — {saDlg.item.detailsSnapshot?.filterName ?? saDlg.item.filterId}
-              </p>
-            </div>
-            <div className="p-5 space-y-4 overflow-y-auto">
-              <div className="rounded-xl border border-slate-200 bg-slate-50/60 divide-y divide-slate-100">
-                {detailRows(saDlg.item.detailsSnapshot).map((row) => (
-                  <div key={row.label} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <span className="text-[10px] uppercase tracking-wider text-slate-400 shrink-0">{row.label}</span>
-                    <span className="text-[13px] font-medium text-slate-700 text-right">{row.value}</span>
-                  </div>
-                ))}
-              </div>
-              {/* What the stage actually recorded — same server-derived card as the desktop page. */}
-              <StageApprovalDetailsCard stageKey={saDlg.item.stageKey} details={saDlg.item.stageDetails} compact />
-              {saDlg.action === 'reject' && (
-                <p className="text-[12px] text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
-                  Rejecting sends this filter back to <b>{prettyStage(saDlg.item.rejectToStateKey)}</b> for re-cleaning.
-                </p>
-              )}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                  Remarks {saDlg.action === 'reject' && <span className="text-rose-500">*</span>}
-                </label>
-                <textarea value={saRemarks} onChange={(e) => setSaRemarks(e.target.value)} rows={3}
-                  className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-[14px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                  placeholder={saDlg.action === 'reject' ? 'Reason for rejection (required)' : 'Optional remarks'} />
-              </div>
-              {saError && (
-                <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-[12px] text-red-700">
-                  {saError}
-                </div>
-              )}
-            </div>
-            <div className="px-5 py-4 bg-slate-50 rounded-b-2xl flex gap-2 shrink-0">
-              <button onClick={() => setSaDlg(null)} disabled={saBusy}
-                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-slate-600 bg-white border border-slate-200 active:bg-slate-100 disabled:opacity-50">
-                Cancel
-              </button>
-              <button onClick={submitSaDecision} disabled={saBusy}
-                className={`flex-1 py-2.5 rounded-xl text-[13px] font-semibold text-white disabled:opacity-50 ${saDlg.action === 'reject' ? 'bg-rose-600 active:bg-rose-700' : 'bg-emerald-600 active:bg-emerald-700'}`}>
-                {saBusy ? 'Working…' : (saDlg.action === 'reject' ? 'Reject' : 'Approve')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <ReauthDialog
         open={reauth.isOpen}
         password={reauth.password}
@@ -3521,7 +3289,7 @@ export function MobileWrapperPage() {
         isVerifying={reauth.isVerifying}
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
-        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setReplaceSubmitting(false); setReplTaskSubmitting(false); setSaBusy(false); }}
+        onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setReplaceSubmitting(false); setReplTaskSubmitting(false); }}
         actionLabel={reauthLabel}
       />
       {/* W4: read-only blocker overlay when hard-cutoff window elapsed */}
