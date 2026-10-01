@@ -108,6 +108,8 @@ export function FieldIdsPage() {
       {
         onSuccess: () => {
           mutate('/api/config/field-ids');
+          // The labels every page reads (useFieldLabels) live under /current.
+          mutate('/api/config/field-ids/current');
           setEditingField(null);
           setSaving(false);
         },

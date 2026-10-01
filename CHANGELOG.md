@@ -51,15 +51,57 @@ Submit retries the start; (c) no-cycle filter at Storage In → "cannot start cy
 Storage In — start at WASH IN", no reason dialog, zero requests. `tsc` clean, web suite
 860/860 incl. `routes/mobile/__tests__/cycle-start-refusal.test.ts`.
 
-**Not exercised:** a real start on live data, the batch missed-PM retry (code-read
-only), offline replay, and the APK (needs a rebuild).
+**Follow-up the same day — the untested cases, tested; the open items, closed.**
 
-**Still open.** (1) A cycle start whose FIRST stage has a mandatory checklist goes
-through the shared core's deferred op (`use-core.ts`, `start-and-advance-with-checklist`);
-it shows the server's refusal but has no missed-PM question. (2) The web page's legacy
-single-filter Wash In branch has no missed-PM question either (the batch branch, which
-the page actually uses, does). (3) The API's error log line carries the HTTP status but
-not the `AppError` code — it would have named this refusal outright.
+*Server log names the refusal.* Every refused request now logs its code and sentence:
+`POST …/start-cycle → 409 PM_PREVIOUS_TASK_PENDING`, with `errorCode=` / `errorMessage=`
+on the http, error and security lines. Read from the response body in an `onSend` hook
+(`lib/refusal-log.ts`) because the auth / rbac / re-auth gates answer directly and never
+reach the error handler; `details` is never logged. Verified live (403 `FORBIDDEN`, 401
+`INVALID_CREDENTIALS`).
+
+*Tested for real (test filter Pre-Filter-80, block MUPS; cycles terminated afterwards):*
+- **Cycle start through the tablet's readings dialog** — nothing faked: `start-cycle 201`,
+  `advance 200`, dialog closed, "Pre-Filter-80 → WASH IN".
+- **Tablet Stage Approvals, real decisions as shift officer 101014** — bulk "Reject
+  Selected (1)" and single "Verify & Approve", each through the password prompt (401 then
+  200). The operator's own pending row (MUPS/RCB/SA/17-01) was never selected and is
+  still pending.
+- **Roles & Access → Permissions as SUPER_ADMIN** — "View Retirement List" and "View
+  Replacement List" are there, first in their groups; counter reads `/ 87`. No save made.
+
+*Tested with the server's answers faked in the browser (zero writes):*
+- **Batch missed-PM** — two filters, both refused; ONE question listing AHU-90's real
+  outstanding visit; the retry re-sent both with the answers attached.
+- **Offline missed-PM** — tablet offline, question answered from the cached map, op
+  queued as `start-and-advance` with `pmSkips` in its start payload; "→ WASH IN (queued)".
+
+*Closed while testing:*
+- **Offline replay** (`sync-engine.ts`): only a bare `start-cycle` op marked its filter
+  when the start was refused. The tablet queues Wash In as ONE compound
+  `start-and-advance` op, so a refused start let the filter's later queued steps fire and
+  each fail with "No active cleaning cycle" — the offline twin of this bug. The start
+  half is now tagged (`markStartRefused`) and the dependents are skipped with "the
+  cleaning cycle was never started". A compound op that started the cycle and failed on
+  its advance half is NOT tagged, so its dependents are still tried. 4 new tests.
+- **First-stage checklist + missed PM**: a checklist on the first stage parks the whole
+  start on the checklist dialog, so the 409 arrived there with no question. The page now
+  asks and re-submits with the answers on the start half
+  (`SubmitChecklistArgs.extraCycleFields`), tablet (offline + online) and web. Unit-tested
+  in `use-core.test.ts`; NOT driven in a browser — no live block's profile has a
+  checklist on its first stage (probed MF3, CWH, FD, MFA2).
+- **Field labels 403 for every operator** — found because the log now names refusals: the
+  tablet logged `GET /api/config/field-ids → 403 FORBIDDEN` every ~10 seconds. That list
+  has needed `CONFIG_READ` since 2026-05-26 and the `/current` its own comment promised
+  was never added, so `useFieldLabels` failed for every role without it and an admin's
+  renamed labels never reached operators. New `GET /api/config/field-ids/current`
+  (signed-in users; `fieldId` + `displayName` only); the hook and the tablet read it.
+
+**Suites:** web 865/865, shared 344/344, API 1547 passed / 12 skipped (149 files) incl. `refusal-log`,
+`field-ids-current`. **Still not exercised:** the Android back button on a real device.
+
+**Still open.** The web page's legacy single-filter Wash In branch (not the batch branch
+the page actually uses) has no missed-PM question.
 
 ## [Unreleased] - Tablet Stage Approvals is the web page (2026-10-01)
 

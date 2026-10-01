@@ -1344,6 +1344,58 @@ describe('useFilterOperationsCore — dialog-first cycle start', () => {
     );
   });
 
+  // 2026-10-01: the missed-PM 409 arrives on THIS submit when the first stage
+  // has a checklist (the whole start is parked on the dialog). The page asks the
+  // operator and re-submits; the answers must ride on the START half.
+  it('a refused start (missed PM) is re-thrown for the page to answer, and the retry carries the answers on the start', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    const refusal: any = new Error('An earlier scheduled PM was not carried out.');
+    refusal.code = 'PM_PREVIOUS_TASK_PENDING';
+    refusal.connectionInfo = { pendingPmTasks: [{ entryId: 'e1' }], minReasonLength: 5 };
+    mockExecuteOrQueue.mockRejectedValueOnce(refusal);
+
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: CYCLE, advancePayload: ADV,
+        targetState: 'WASH_IN',
+      });
+    });
+
+    let thrown: any = null;
+    await act(async () => {
+      try {
+        await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
+      } catch (e) { thrown = e; }
+    });
+    expect(thrown?.code).toBe('PM_PREVIOUS_TASK_PENDING');
+    // A question for the operator, not an error parked in the hook's state…
+    expect(result.current.error).toBeNull();
+    // …and the dialog (with the parked start) is still there for the retry.
+    expect(result.current.dialogState.kind).toBe('awaiting_checklist');
+
+    const pmSkips = [{ entryId: 'e1', reason: 'line was down' }];
+    await act(async () => {
+      await result.current.submitChecklist({
+        filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' }, extraCycleFields: { pmSkips },
+      });
+    });
+
+    expect(mockExecuteOrQueue).toHaveBeenCalledTimes(2);
+    expect(mockExecuteOrQueue).toHaveBeenLastCalledWith(
+      'start-and-advance-with-checklist',
+      'f1',
+      'F-1',
+      expect.objectContaining({
+        cyclePayload: { ...CYCLE, pmSkips },
+        advancePayload: expect.objectContaining({ targetState: 'WASH_IN', answers: { q1: 'YES' } }),
+      }),
+      'WASH_IN',
+      undefined,
+    );
+  });
+
   // cycleStarted=true or the next offline scan sees no cycle in progress and
   // offers to start a SECOND one.
   it('recomputes the cache WITH the cycle stub when the compound op queues', async () => {

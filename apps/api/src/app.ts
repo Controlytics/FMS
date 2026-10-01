@@ -64,6 +64,7 @@ import { sweepOverdueDeviations } from './modules/pm-schedules/pm-deviations.js'
 import { sweepExpiredSessions } from './modules/auth/session-sweep.js';
 import { sweepPasswordExpiryNotifications } from './modules/auth/password-expiry-sweep.js';
 import { AppError } from './lib/errors.js';
+import { extractRefusal, type Refusal } from './lib/refusal-log.js';
 import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
@@ -479,9 +480,23 @@ const securityLog = getLogger('access', 'security');
 // skip only applies while the response is 2xx.
 const QUIET_PATHS = new Set(['/api/health']);
 
+// WHY a request was refused (2026-10-01). Captured from the response body as it
+// is sent — the one place every refusal passes through, since the auth / rbac /
+// re-auth gates answer directly and never reach the error handler. See
+// lib/refusal-log.ts. Only error responses are parsed; a 2xx costs one compare.
+const REFUSAL = Symbol('refusal');
+app.addHook('onSend', (req, reply, payload, done) => {
+  if (reply.statusCode >= 400) {
+    const refusal = extractRefusal(payload);
+    if (refusal) (req as unknown as Record<symbol, Refusal>)[REFUSAL] = refusal;
+  }
+  done(null, payload);
+});
+
 app.addHook('onResponse', (req, reply, done) => {
   const status = reply.statusCode;
   const durationMs = Math.round(reply.elapsedTime);
+  const refusal = (req as unknown as Record<symbol, Refusal | undefined>)[REFUSAL];
   // NOTE: `req.user` is DECLARED non-optional (plugins/auth.ts) but is genuinely
   // undefined on every unauthenticated request — the declaration describes the
   // post-auth state, not this hook's. The guards below are load-bearing at
@@ -494,15 +509,21 @@ app.addHook('onResponse', (req, reply, done) => {
     method: req.method,
     url: req.url,
     status,
+    // The refusal code + sentence the client was given. Without them a 409 on
+    // /start-cycle names none of the six rules that can produce it.
+    ...(refusal?.errorCode ? { errorCode: refusal.errorCode } : {}),
+    ...(refusal?.errorMessage ? { errorMessage: refusal.errorMessage } : {}),
     durationMs,
     ...(user ? { user: user.username, userId: user.sub, role: user.role } : {}),
     ip: req.ip,
   };
+  // On the headline too, so it survives a grep for the status alone.
+  const outcome = refusal?.errorCode ? `${status} ${refusal.errorCode}` : String(status);
 
   if (status >= 500) {
-    httpLog.error(base, `${req.method} ${req.url} → ${status}`);
+    httpLog.error(base, `${req.method} ${req.url} → ${outcome}`);
   } else if (status >= 400) {
-    httpLog.warn(base, `${req.method} ${req.url} → ${status}`);
+    httpLog.warn(base, `${req.method} ${req.url} → ${outcome}`);
   } else if (!QUIET_PATHS.has(req.routeOptions?.url ?? req.url)) {
     httpLog.info(base, `${req.method} ${req.url} → ${status}`);
   }

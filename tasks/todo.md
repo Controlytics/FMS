@@ -6,8 +6,13 @@
 - [x] Batch: `retryBulkStartsForMissedPm` (both /bulk-operate start paths)
 - [x] First-stage check before a start, online (tablet single + cold-cache queue, web batch)
 - [x] Browser-verified with faked server answers (3 scenarios, zero writes); guard test; tsc; web suite
-- [ ] OPEN: missed-PM question for the deferred first-stage-checklist start (`use-core.ts`)
-- [ ] OPEN: log the AppError code on the http/error log line (would have named the 409)
+- [x] Missed-PM question for the deferred first-stage-checklist start (`extraCycleFields`; unit-tested)
+- [x] Refusal code + message on the http / error / security log lines (`lib/refusal-log.ts`)
+- [x] Offline replay: a refused compound start skips the filter's dependents (`markStartRefused`)
+- [x] `GET /api/config/field-ids/current` — field labels 403'd for every operator
+- [x] Tested for real: tablet cycle start, tablet bulk reject + single approve, Permissions tab (SA)
+- [x] Tested with faked answers: batch missed-PM retry, offline missed-PM question
+- [ ] Android back button on a real device (cannot be driven from here)
 - [ ] APK rebuild to carry this and the Stage Approvals change
 
 # Tablet Stage Approvals = the web page (2026-10-01)

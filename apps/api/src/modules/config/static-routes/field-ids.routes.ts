@@ -37,6 +37,41 @@ export async function fieldIdsRoutes(app: FastifyInstance) {
     return configService.listFieldIds();
   });
 
+  // The labels themselves, for every signed-in user (2026-10-01).
+  //
+  // The 2026-05-26 fix above gated the full list on CONFIG_READ and its comment
+  // says the pattern is "a separate `/current` for everyone" — but that
+  // `/current` was never added. So `useFieldLabels` (and the tablet's label
+  // warm-up) called the gated list: every role without CONFIG_READ got a 403 on
+  // each page load, and an admin's renamed labels never reached operators, who
+  // kept seeing the built-in defaults. Found when the http log started naming
+  // refusals — the tablet was logging one 403 every ~10 seconds.
+  //
+  // Returns only what a label needs: the field id and its display name. No
+  // module, description, timestamps or editor — those stay behind CONFIG_READ.
+  app.get('/field-ids/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Field labels for the signed-in user',
+      description: 'The display name of every field id. Authenticated; no permission required. The full records need CONFIG_READ (GET /field-ids).',
+      response: {
+        200: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              fieldId: { type: 'string' },
+              displayName: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  }, async () => {
+    const all = await configService.listFieldIds();
+    return all.map((f: { fieldId: string; displayName: string }) => ({ fieldId: f.fieldId, displayName: f.displayName }));
+  });
+
   app.put('/field-ids/:fieldId', {
     preHandler: [app.requirePermission('FIELD_ID_UPDATE')],
     schema: {

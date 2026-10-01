@@ -519,7 +519,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // B.13 — Cache branding/field-ids/datetime config so offline app restart doesn't
   // flash defaults or break field labels until reconnect.
   const { data: brandingData } = useSWR(online ? '/api/config/branding' : null);
-  const { data: fieldIdsData } = useSWR(online ? '/api/config/field-ids' : null);
+  const { data: fieldIdsData } = useSWR(online ? '/api/config/field-ids/current' : null);
   const { data: datetimeData } = useSWR(online ? '/api/config/datetime/current' : null);
   // B.14 — Cache approved block-change requests so an APPROVED status from a
   // recent server-side approval is visible offline before the cycle starts.
@@ -3310,14 +3310,26 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
 
       try {
-        const { executed } = await core.submitChecklist({
+        const submitOnce = (extraCycleFields: Record<string, any> = {}) => core.submitChecklist({
           filterId: checklistDialog.filterId,
           filterName: checklistDialog.filterName,
           answers: checklistAnswers,
           expectedProfileVersions,
           filterSet: ahuSetChoiceRef.current ?? undefined,
           password,
+          ...(Object.keys(extraCycleFields).length > 0 ? { extraCycleFields } : {}),
         });
+        // A checklist on the FIRST stage parks the whole cycle START on this
+        // dialog, so this submit is where the start actually happens — and
+        // where the missed-PM question has to be answered (2026-10-01).
+        let executed: boolean;
+        if (checklistDialog.deferredAdvance?.cyclePayload) {
+          const started = await startWithPmGate(checklistDialog.filterId, submitOnce);
+          if (started.cancelled) return; // offline question dismissed — nothing sent or queued
+          executed = started.result.executed;
+        } else {
+          executed = (await submitOnce()).executed;
+        }
         setSuccess(`Checklist submitted${executed ? '' : ' (queued)'}`);
         setChecklistAnswers({});
         setRemarks(''); // B1/B2: clear remarks after a checklist-gated submit too

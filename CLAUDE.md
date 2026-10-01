@@ -181,7 +181,14 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   single-filter start goes through `startWithPmGate` (missed-PM question, offline + online), a batch
   start through `retryBulkStartsForMissedPm`, and the start payload is cleared only on success.
   "No active cleaning cycle" in the field usually means an EARLIER start was refused — look for the
-  409 just before it in `logs/app/http`.
+  409 just before it in `logs/app/http` (the line now names the refusal code). The same holds offline:
+  `sync-engine.ts` marks a filter when a queued start is refused — including the START half of a compound
+  `start-and-advance` op (`markStartRefused`) — and skips its later queued steps instead of sending them.
+  A start parked behind a first-stage checklist asks the missed-PM question on checklist submit
+  (`SubmitChecklistArgs.extraCycleFields`).
+- **Field labels: `GET /api/config/field-ids/current`** (any signed-in user, `{fieldId, displayName}` only).
+  `useFieldLabels` and the tablet read this; the bare `/field-ids` list needs `CONFIG_READ` and 403'd for
+  every operator on every page from 2026-05-26 until 2026-10-01.
 
 ## Phase Snapshots (history is in `CHANGELOG.md`)
 
@@ -592,7 +599,7 @@ Nothing that is a §11 record may ever live only here.
 |---|---|---|---|
 | 1 | *(fan-in of every warn+)* | `error/` | "something broke — what?" |
 | 2 | `application` | `application/` | boot, resolved config, shutdown, crash |
-| 3 | `http` | `http/` | one line/request: method, url, status, ms, user, IP, reqId |
+| 3 | `http` | `http/` | one line/request: method, url, status, **errorCode + errorMessage on a refusal**, ms, user, IP, reqId |
 | 4 | `database` | `database/` | connect/disconnect, Prisma errors, slow queries (>`SLOW_QUERY_MS`, default 500) |
 | 5 | *(Postgres itself)* | `<DataRoot>/db/log/` | the DB refusing connections — see `provision-db.ps1` |
 | 6 | `services` | `services/` | cron ticks, notifications, LDAP, SMTP, backup |
@@ -647,6 +654,11 @@ one-time warning rather than being dropped.
   attempted username is the point. A 401 with **no** Authorization header is
   deliberately NOT a security event — the auth hook runs before routing, so
   every scanner probe and typo answers 401 and would flood the channel.
+- **A refused request logs WHY (2026-10-01).** `→ 409 PM_PREVIOUS_TASK_PENDING`, plus `errorCode=` /
+  `errorMessage=` fields, on the http, error and security lines. Captured in an `onSend` hook from the
+  response BODY (`lib/refusal-log.ts`), not in the error handler — the auth / rbac / re-auth gates answer
+  directly and never reach it. `details` is never logged. Before this a 409 on `/start-cycle` named none
+  of the six rules that produce it.
 - No config def for log level — `LOG_LEVEL` / `LOG_RETENTION_DAYS` are env vars.
 - `scripts/collect-logs.ps1` zips all four sources (app, WinSW, Postgres, Windows
   Event Log) plus a live snapshot. Read-only; safe to run while services are up.

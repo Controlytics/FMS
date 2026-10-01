@@ -149,7 +149,8 @@ GET /api/config/action-reauth/check?action=CREATE_USER
 GET /api/config/action-reauth/my-actions
 GET /api/config/tablet-access/my-features
 GET /api/config/registry/manifest
-GET /api/config/field-ids
+GET /api/config/field-ids           — full records; requires CONFIG_READ
+GET /api/config/field-ids/current   — {fieldId, displayName}[] for any signed-in user (what useFieldLabels reads)
 ```
 
 ### Role & User Config

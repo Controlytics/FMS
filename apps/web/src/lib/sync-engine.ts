@@ -255,7 +255,7 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
     } catch (e: any) {
       const code = e?.code || e?.error || '';
       // CYCLE_ACTIVE is a benign race — start succeeded earlier, continue.
-      if (code !== 'CYCLE_ACTIVE') throw e;
+      if (code !== 'CYCLE_ACTIVE') throw markStartRefused(e);
     }
     // The stored tapeVersion is pre-start-cycle and meaningless; derive a fresh
     // one, same as the start-and-advance leg below.
@@ -288,7 +288,7 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
     } catch (e: any) {
       const code = e?.code || e?.error || '';
       // CYCLE_ACTIVE is a benign race — start succeeded earlier, just continue with advance
-      if (code !== 'CYCLE_ACTIVE') throw e;
+      if (code !== 'CYCLE_ACTIVE') throw markStartRefused(e);
     }
     // Phase 8.7 cutover (Wave 2 — server commit f8fae1d): /advance now
     // requires `tapeVersion`. The op row's stored tapeVersion (if any) is
@@ -316,6 +316,22 @@ async function executeOperation(op: { type: string; filterId: string; payload: R
     : `/api/filters/${op.filterId}/${op.type}`;
 
   await apiClient.post(url, { ...op.payload, ...tapeVersion, offlinePerformedAt: offlineTime, clientOpId: op.clientOpId }, headers);
+}
+
+/**
+ * Tag an error as "the START half of a compound op was refused" (2026-10-01).
+ *
+ * `start-and-advance` / `start-and-advance-with-checklist` are ONE queued op
+ * each, so the drain loop cannot tell from `op.type` whether the cycle exists
+ * after a failure: the start may have been refused (no cycle), or the start may
+ * have succeeded and the advance failed (cycle exists). Only the first case
+ * makes the filter's later queued steps pointless, and this flag is how the
+ * loop knows which one it was. Best-effort: a frozen error object stays
+ * untagged and the loop simply behaves as before.
+ */
+function markStartRefused(e: any): any {
+  try { if (e && typeof e === 'object') e.startRefused = true; } catch { /* frozen — leave untagged */ }
+  return e;
 }
 
 /**
@@ -640,8 +656,17 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       // the short-circuit at the top of the loop). This stops the cross-block
       // "start rejected → advance fires → NO_CYCLE" cascade. CYCLE_ACTIVE is
       // excluded: the cycle already exists, so dependents remain valid.
+      //
+      // 2026-10-01: a compound op whose START half was refused is the same
+      // situation and was missed — the tablet queues Wash In as ONE
+      // `start-and-advance` op, so a refused start left the filter's later
+      // queued steps (Wash Out, …) to fire and each fail with the misleading
+      // "No active cleaning cycle". `startRefused` is set only when the refusal
+      // came from the start half (see markStartRefused); a compound op that
+      // started the cycle and failed on its ADVANCE half is not tagged, because
+      // the cycle exists and the dependents must still be tried.
       if (
-        op.type === 'start-cycle'
+        (op.type === 'start-cycle' || e?.startRefused === true)
         && op.filterId
         && e?.code !== 'CYCLE_ACTIVE'
         && e?.error !== 'CYCLE_ACTIVE'

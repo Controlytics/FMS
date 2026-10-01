@@ -71,6 +71,8 @@ const PREFERRED_ORDER = [
   'method',
   'url',
   'status',
+  'errorCode',
+  'errorMessage',
   'durationMs',
   'user',
   'userId',

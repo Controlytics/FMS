@@ -1721,14 +1721,30 @@ export function FilterOperationsPage() {
       }
 
       try {
-        const { executed } = await core.submitChecklist({
+        const submitOnce = (extraCycleFields?: Record<string, unknown>) => core.submitChecklist({
           filterId: checklistDialog.filterId,
           filterName: checklistDialog.filterName,
           answers: submitPayload.answers,
           expectedProfileVersions: submitPayload.expectedProfileVersions,
           filterSet: ahuSetChoiceRef.current ?? undefined,
           password,
+          ...(extraCycleFields ? { extraCycleFields } : {}),
         });
+        // A checklist on the FIRST stage parks the whole cycle START on this
+        // dialog, so the missed-PM 409 arrives here. Ask, then re-submit with the
+        // answers riding on the start (2026-10-01).
+        let submitted: { executed: boolean };
+        try {
+          submitted = await submitOnce();
+        } catch (startErr: any) {
+          const code = startErr?.error ?? startErr?.code;
+          const pendingPm = startErr?.connectionInfo?.pendingPmTasks;
+          if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pendingPm) || pendingPm.length === 0) throw startErr;
+          const answers = await askPmSkipReasons(pendingPm, startErr?.connectionInfo?.minReasonLength ?? 5);
+          if (!answers) throw startErr; // cancelled — the cleaning does not start
+          submitted = await submitOnce({ pmSkips: answers });
+        }
+        const { executed } = submitted;
         // Dialog close + offline cache-clear + batch walking handled by core.submitChecklist.
         setToast({ type: 'success', message: executed ? 'Checklist submitted successfully' : 'Checklist queued for sync' });
         refreshFilters();

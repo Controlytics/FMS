@@ -1,12 +1,9 @@
 import useSWR from 'swr';
 
+/** One row of `GET /api/config/field-ids/current` — the label and nothing else. */
 interface FieldConfig {
-  id: string;
   fieldId: string;
-  defaultName: string;
   displayName: string;
-  module: string;
-  description?: string;
 }
 
 // Default field labels (fallback)
@@ -31,7 +28,10 @@ const defaultLabels: Record<string, string> = {
 };
 
 export function useFieldLabels() {
-  const { data, error, isLoading, mutate } = useSWR<FieldConfig[]>('/api/config/field-ids', {
+  // `/current` is readable by every signed-in user. The bare list needs
+  // CONFIG_READ, so reading it here 403'd for operators on every page and their
+  // labels silently stayed on the defaults below (fixed 2026-10-01).
+  const { data, error, isLoading, mutate } = useSWR<FieldConfig[]>('/api/config/field-ids/current', {
     revalidateOnFocus: false,
     revalidateOnMount: true, dedupingInterval: 5000, // Cache for 5 minutes
   });

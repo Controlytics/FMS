@@ -162,6 +162,14 @@ export interface SubmitChecklistArgs {
    * pre-popup chooser showed. Omitted = ALL (legacy behavior).
    */
   filterSet?: 'ALL' | 'SET_A' | 'SET_B';
+  /**
+   * Extra fields for the START half of a parked cycle start (2026-10-01) —
+   * today only `pmSkips`, the operator's answers to the missed-PM question.
+   * A checklist on the FIRST stage parks the whole start on this dialog, so the
+   * server's 409 PM_PREVIOUS_TASK_PENDING arrives here, on submit; the page asks
+   * and re-submits with the answers. Ignored unless the parked op is a start.
+   */
+  extraCycleFields?: Record<string, unknown>;
 }
 
 /**
@@ -230,6 +238,9 @@ const PROPAGATED_ERROR_CODES = new Set([
   'REAUTH_FAILED',
   'OFFLINE_CACHE_RECOMPUTE_FAILED',
   'BLOCK_CHANGE_REQUIRED',
+  // The page answers this one (missed-PM question) and retries — it is a
+  // question for the operator, not an error to park in the hook's state.
+  'PM_PREVIOUS_TASK_PENDING',
 ]);
 
 function isReauthOrRecompute(e: unknown): boolean {
@@ -655,7 +666,10 @@ export function useFilterOperationsCore(
               'start-and-advance-with-checklist',
               args.filterId,
               args.filterName,
-              { cyclePayload: deferred.cyclePayload, advancePayload: combinedAdvanceBody } as any,
+              {
+                cyclePayload: { ...deferred.cyclePayload, ...(args.extraCycleFields ?? {}) },
+                advancePayload: combinedAdvanceBody,
+              } as any,
               deferred.targetState,
               args.password,
             )

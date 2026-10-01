@@ -540,6 +540,94 @@ describe('sync-engine — Phase 8.3 tape-version handling', () => {
   });
 });
 
+// ── 2026-10-01: a refused cycle START must not let the filter's later queued
+// steps fire. The tablet queues Wash In as ONE compound `start-and-advance` op;
+// only the bare `start-cycle` type used to mark the filter, so a refused start
+// was followed by an advance that the server answered "No active cleaning
+// cycle" — the misleading message the operator reported.
+describe('sync-engine — refused start skips the filter\'s dependent ops', () => {
+  const refuse = (code: string, status: number, message: string) => {
+    const err: any = new Error(message);
+    err.code = code; err.status = status;
+    return err;
+  };
+
+  for (const type of ['start-and-advance', 'start-and-advance-with-checklist'] as const) {
+    it(`${type}: start refused → the queued Wash Out is skipped, never sent`, async () => {
+      const start = queueOp({
+        type, filterId: 'filter-9',
+        payload: { cyclePayload: { cleaningReasonKey: 'PM' }, advancePayload: { targetState: 'WASH_IN' } },
+        tapeVersion: null,
+      });
+      const washOut = queueOp({ type: 'advance', filterId: 'filter-9', payload: { targetState: 'WASH_OUT' } });
+      const other = queueOp({ type: 'advance', filterId: 'filter-2', payload: { targetState: 'WASH_OUT' } });
+
+      mockApiClient.post.mockImplementation(async (url: string) => {
+        if (url === '/api/auth/refresh') return { token: 'fresh' };
+        if (url.includes('/start-cycle')) throw refuse('INVALID_REASON', 400, 'Invalid cleaning reason: PM');
+        return { ok: true };
+      });
+
+      await syncPendingOperations();
+
+      const urls = mockApiClient.post.mock.calls.map(([u]: any[]) => String(u));
+      // The dependent op for filter-9 never reached the network…
+      expect(urls.filter(u => u.includes('/filters/filter-9/advance'))).toEqual([]);
+      // …and says why, instead of the server's "No active cleaning cycle".
+      expect(washOut.status).toBe('failed');
+      expect((washOut as any).error).toMatch(/never started/);
+      // The start op itself carries the server's real reason.
+      expect((start as any).error).toMatch(/Invalid cleaning reason/);
+      // Another filter's work is untouched.
+      expect(urls.some(u => u.includes('/filters/filter-2/advance'))).toBe(true);
+      expect(other.status).toBe('synced');
+    });
+  }
+
+  it('start OK but the ADVANCE half fails → the cycle exists, so dependents are still tried', async () => {
+    queueOp({
+      type: 'start-and-advance', filterId: 'filter-9',
+      payload: { cyclePayload: { cleaningReasonKey: 'PM' }, advancePayload: { targetState: 'WASH_IN' } },
+      tapeVersion: null,
+    });
+    queueOp({ type: 'advance', filterId: 'filter-9', payload: { targetState: 'WASH_OUT' } });
+
+    let advanceCalls = 0;
+    mockApiClient.post.mockImplementation(async (url: string) => {
+      if (url === '/api/auth/refresh') return { token: 'fresh' };
+      if (url.includes('/start-cycle')) return { id: 'cyc-1' };
+      if (url.includes('/advance')) {
+        advanceCalls++;
+        if (advanceCalls === 1) throw refuse('VALIDATION_ERROR', 400, 'instrumentReadings required');
+      }
+      return { ok: true };
+    });
+
+    await syncPendingOperations();
+
+    // Both advances were sent: the compound op's own, and the dependent one.
+    expect(advanceCalls).toBe(2);
+  });
+
+  it('CYCLE_ACTIVE on the start half is still benign — the advance goes out', async () => {
+    const op = queueOp({
+      type: 'start-and-advance', filterId: 'filter-9',
+      payload: { cyclePayload: { cleaningReasonKey: 'PM' }, advancePayload: { targetState: 'WASH_IN' } },
+      tapeVersion: null,
+    });
+    mockApiClient.post.mockImplementation(async (url: string) => {
+      if (url === '/api/auth/refresh') return { token: 'fresh' };
+      if (url.includes('/start-cycle')) throw refuse('CYCLE_ACTIVE', 409, 'Filter already has an active cleaning cycle');
+      return { ok: true };
+    });
+
+    const result = await syncPendingOperations();
+
+    expect(result.synced).toBe(1);
+    expect(op.status).toBe('synced');
+  });
+});
+
 describe('sync-engine — per-op replay timeout (hung-request hardening)', () => {
   it('withReplayTimeout resolves a fast promise and clears its timer', async () => {
     await expect(withReplayTimeout(Promise.resolve('ok'), 1000, 'F')).resolves.toBe('ok');
