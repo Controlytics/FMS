@@ -24,8 +24,8 @@ import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { stripHtml } from '../../../lib/sanitize.js';
 import { AppError } from '../../../lib/errors.js';
-import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
-import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
+import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle, withClientOpId } from '../../../lib/idempotency.js';
+import { validateOfflinePerformedAt, assertOfflineReplayPayload, latestEventAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum, collectChecklistsAfterStage, prettyStageLabel, toLocalDateString } from '../helpers.js';
@@ -72,6 +72,13 @@ export interface AdvancePlan {
   interlockApproverRole: string | null;
   /** advance's OWN completion. False when a checklist defers it (composed or not). */
   completesCycle: boolean;
+  /**
+   * Gates this write skipped BECAUSE it is an offline replay (2026-09-25). Empty
+   * for online work. Persisted on the event (`attributes.replayExemptGates`) and
+   * the STATE_TRANSITION audit row so a skipped QA interlock / AHU completion /
+   * re-auth is a visible fact in the §11 record, not a silent one.
+   */
+  replayExemptGates: string[];
 }
 
 export type AdvancePrep =
@@ -117,6 +124,11 @@ export async function prepareAdvance(
   // cycle-write into the same input-sanitization contract.
   const remarks = typeof data.remarks === "string" ? stripHtml(data.remarks) : data.remarks;
   const clientOpId: string | null = data.clientOpId ?? null;
+  // A request presenting the replay grant must look like a replay (2026-09-25).
+  assertOfflineReplayPayload(ctx.isOfflineReplay === true, data);
+  // Gates skipped because this is a replay — recorded, never silent.
+  const replayExemptGates: string[] = [];
+  if (ctx.isOfflineReplay) replayExemptGates.push('REAUTH');
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
   const { ctx: localCtx, cp, rawCycle: cycle, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
@@ -125,9 +137,14 @@ export async function prepareAdvance(
   // for the same cycle is a no-op success; the same opId across different
   // cycles cannot collide. Run AFTER loadLocalContext so we have the
   // current cycle id; same pattern as submit-checklist.ts.
-  if (!opts.skipDedup && clientOpId && filterCurrentCycleId
-    && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
-    return { kind: 'dedup' };
+  // F15 (2026-09-25): with NO current cycle, the op may be a retry of the
+  // advance that COMPLETED the cycle — check the latest cycle before falling
+  // through to NO_CYCLE, or the tablet reports recorded work as lost.
+  if (!opts.skipDedup && clientOpId) {
+    const seen = filterCurrentCycleId
+      ? await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)
+      : await findExistingByClientOpIdInLatestCycle(filterId, clientOpId);
+    if (seen) return { kind: 'dedup' };
   }
   throwIfFailed(executor.assertCycleActive(localCtx));
 
@@ -147,6 +164,8 @@ export async function prepareAdvance(
   const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
     isReplay: ctx.isOfflineReplay === true,
     cycleStartedAt: cycle.startedAt,
+    // C-F10 (2026-09-25): not earlier than the cycle's latest recorded event.
+    previousEventAt: latestEventAt(localCtx.events),
   });
 
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
@@ -186,6 +205,8 @@ export async function prepareAdvance(
       targetState,
       config: interlockConfig,
     });
+  } else if (interlockConfig.enabled && currentState && isInterlockStage(currentState)) {
+    replayExemptGates.push('INTERLOCK_LEAVE');
   }
 
   // Compute reachable stages + END detection from pipeline graph.
@@ -397,52 +418,10 @@ export async function prepareAdvance(
   // anchor, the subsequent op compares two offline timestamps and the
   // half-time guard passes for cycles the operator actually waited out.
   const dryerStartedAt = dryerAction === 'SET_DURATION' ? (offlineTime ?? new Date()) : null;
-  const eventAttributes = withClientOpId({
-    ...(parameters ?? {}),
-    ...(validatedReadings ? { instrumentReadings: validatedReadings } : {}),
-    ...(dryerAction === 'SET_DURATION' ? { action: 'DRYER_STARTED', dryerDurationMinutes, dryerStartedAt: dryerStartedAt!.toISOString() } : {}),
-    ...(dryerAction === 'SUBMIT_READINGS' ? { action: 'DRYER_READINGS_SUBMITTED' } : {}),
-    // 2026-07-10 (per user): durably mark a stage-entry performed OFFLINE. The
-    // stage interlock never gates offline work, so the self-heal in
-    // current-state.ts reads this to avoid manufacturing a PENDING approval when
-    // an online poll catches a filter that reached a gated stage offline.
-    // Reserved key (double-underscore) so it can never collide with a free-form
-    // admin-configured PARAM_CAPTURE parameter key.
-    ...(offlineTime ? { __offlineEntry: true } : {}),
-  }, clientOpId);
-
-  // Dryer-readings submission is recorded as a STATE_TRANSITION row but
-  // the filter never actually leaves DRY_IN (isDryerInPlace). Storing
-  // fromState=toState=DRY_IN reads as "DRY_IN → DRY_IN" in the audit UI,
-  // which misleads inspectors into thinking a transition happened. Set
-  // fromState=null when no transition actually occurs.
-  //
-  // 🔴 The original of this comment ended "...the `action` attribute already
-  // labels the event correctly." **No renderer ever read `action`** — every event
-  // timeline hit its genesis fallback and printed the readings row as
-  // "To Be Cleaned → Dry In", claiming the filter was awaiting its first clean
-  // in the middle of its own drying step. Strictly worse than the DRY_IN →
-  // DRY_IN this null was chosen to avoid. Operator report 2026-09-04.
-  //
-  // The stored null STAYS — it is the truthful value, no transition occurred,
-  // and 289 rows already carry it in an immutable §11 table. The labelling now
-  // happens where it belongs, at render, in `transitionEndpoints()`
-  // (apps/web/src/lib/cleaning-cycle-report.ts): "Wash Out → Dry In (Started)"
-  // then "Dry In → Dry In (Ended)". If you change the shape written here,
-  // change that helper and its tests with it.
-  const persistedFromState = isDryerInPlace ? null : fromState;
-  const eventData = {
-    filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
-    fromState: persistedFromState, toState: targetState,
-    performedBy: ctx.userSub,
-    cleaningAreaId: cleaningAreaId ?? null,
-    equipmentId: equipmentId ?? null,
-    attributes: eventAttributes,
-    remarks: dryerAction === 'SET_DURATION'
-      ? (remarks ?? `Dryer started for ${dryerDurationMinutes} minute(s)`)
-      : (remarks ?? null),
-  };
-  const checksum = computeChecksum(eventData);
+  // NOTE (2026-09-25): the event row + checksum are built AFTER the interlock /
+  // AHU gates below, because on a replay those gates contribute
+  // `replayExemptGates` to the event attributes and the checksum must cover
+  // the attributes as written. See `buildEventData` at the end of prepare.
 
   // Check if target stage leads to END (walking through any CHECKLIST nodes).
   // Cross-cutting cleanup: was an inline recursive `checkEnd` walker; replaced
@@ -498,12 +477,15 @@ export async function prepareAdvance(
   // than complete without the required approval (21 CFR §11). An admin must add a
   // stage after the interlock point or disable the interlock. Offline replay is
   // exempt (offline work is never gated — same carve-out as `enteringInterlock`).
-  if (interlockConfig.enabled && isInterlockStage(targetState) && cycleWillComplete && !ctx.isOfflineReplay) {
-    throw new AppError(
-      422,
-      'INTERLOCK_TERMINAL_STAGE',
-      `This cleaning cycle would complete directly out of ${prettyStageLabel(targetState)}, but the QA stage interlock is enabled for that stage — a filter cannot complete a cycle without the required QA approval. An administrator must add a stage after ${prettyStageLabel(targetState)} or disable the stage interlock.`,
-    );
+  if (interlockConfig.enabled && isInterlockStage(targetState) && cycleWillComplete) {
+    if (!ctx.isOfflineReplay) {
+      throw new AppError(
+        422,
+        'INTERLOCK_TERMINAL_STAGE',
+        `This cleaning cycle would complete directly out of ${prettyStageLabel(targetState)}, but the QA stage interlock is enabled for that stage — a filter cannot complete a cycle without the required QA approval. An administrator must add a stage after ${prettyStageLabel(targetState)} or disable the stage interlock.`,
+      );
+    }
+    replayExemptGates.push('INTERLOCK_TERMINAL');
   }
 
   // ── AHU completion interlock (2026-08-10) ───────────────────────────────────
@@ -533,7 +515,8 @@ export async function prepareAdvance(
       data.filterSet === 'SET_A' || data.filterSet === 'SET_B' || data.filterSet === 'ALL'
         ? data.filterSet
         : undefined;
-    await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
+    const ahuGate = await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
+    if (ahuGate?.exempt) replayExemptGates.push('AHU_COMPLETION');
   }
 
   // Offline exemption (see leave-gate note above): don't raise the gate for an
@@ -541,6 +524,9 @@ export async function prepareAdvance(
   // creating a PENDING approval would leave a stuck request no operator can clear.
   const enteringInterlock =
     interlockConfig.enabled && isInterlockStage(targetState) && !cycleWillComplete && !ctx.isOfflineReplay;
+  if (ctx.isOfflineReplay && interlockConfig.enabled && isInterlockStage(targetState) && !cycleWillComplete) {
+    replayExemptGates.push('INTERLOCK_ENTRY');
+  }
   let interlockSnapshot: FilterApprovalDetails | null = null;
   const interlockApproverRole: string | null = enteringInterlock
     ? getApproverRoleForStage(targetState, interlockConfig)
@@ -548,6 +534,55 @@ export async function prepareAdvance(
   if (enteringInterlock) {
     interlockSnapshot = await collectFilterApprovalDetails(filterId);
   }
+
+  const eventAttributes = withClientOpId({
+    ...(parameters ?? {}),
+    ...(validatedReadings ? { instrumentReadings: validatedReadings } : {}),
+    ...(dryerAction === 'SET_DURATION' ? { action: 'DRYER_STARTED', dryerDurationMinutes, dryerStartedAt: dryerStartedAt!.toISOString() } : {}),
+    ...(dryerAction === 'SUBMIT_READINGS' ? { action: 'DRYER_READINGS_SUBMITTED' } : {}),
+    // 2026-07-10 (per user): durably mark a stage-entry performed OFFLINE. The
+    // stage interlock never gates offline work, so the self-heal in
+    // current-state.ts reads this to avoid manufacturing a PENDING approval when
+    // an online poll catches a filter that reached a gated stage offline.
+    // Reserved key (double-underscore) so it can never collide with a free-form
+    // admin-configured PARAM_CAPTURE parameter key.
+    ...(offlineTime ? { __offlineEntry: true } : {}),
+    // 2026-09-25: which gates this replay skipped (see AdvancePlan.replayExemptGates).
+    ...(replayExemptGates.length ? { replayExemptGates } : {}),
+  }, clientOpId);
+
+  // Dryer-readings submission is recorded as a STATE_TRANSITION row but
+  // the filter never actually leaves DRY_IN (isDryerInPlace). Storing
+  // fromState=toState=DRY_IN reads as "DRY_IN → DRY_IN" in the audit UI,
+  // which misleads inspectors into thinking a transition happened. Set
+  // fromState=null when no transition actually occurs.
+  //
+  // 🔴 The original of this comment ended "...the `action` attribute already
+  // labels the event correctly." **No renderer ever read `action`** — every event
+  // timeline hit its genesis fallback and printed the readings row as
+  // "To Be Cleaned → Dry In", claiming the filter was awaiting its first clean
+  // in the middle of its own drying step. Strictly worse than the DRY_IN →
+  // DRY_IN this null was chosen to avoid. Operator report 2026-09-04.
+  //
+  // The stored null STAYS — it is the truthful value, no transition occurred,
+  // and 289 rows already carry it in an immutable §11 table. The labelling now
+  // happens where it belongs, at render, in `transitionEndpoints()`
+  // (apps/web/src/lib/cleaning-cycle-report.ts): "Wash Out → Dry In (Started)"
+  // then "Dry In → Dry In (Ended)". If you change the shape written here,
+  // change that helper and its tests with it.
+  const persistedFromState = isDryerInPlace ? null : fromState;
+  const eventData = {
+    filterId, cycleId: cycle.id, eventType: 'STATE_TRANSITION' as const,
+    fromState: persistedFromState, toState: targetState,
+    performedBy: ctx.userSub,
+    cleaningAreaId: cleaningAreaId ?? null,
+    equipmentId: equipmentId ?? null,
+    attributes: eventAttributes,
+    remarks: dryerAction === 'SET_DURATION'
+      ? (remarks ?? `Dryer started for ${dryerDurationMinutes} minute(s)`)
+      : (remarks ?? null),
+  };
+  const checksum = computeChecksum(eventData);
 
   return {
     kind: 'plan',
@@ -572,6 +607,7 @@ export async function prepareAdvance(
       interlockSnapshot,
       interlockApproverRole,
       completesCycle,
+      replayExemptGates,
     },
   };
 }
@@ -716,7 +752,10 @@ export async function executeAdvanceTx(tx: TxClient, plan: AdvancePlan): Promise
     userId: ctx.userId, userRole: ctx.userRole, action: 'STATE_TRANSITION',
     targetType: 'filter', targetId: filterId,
     beforeValue: { state: fromState },
-    afterValue: { state: targetState },
+    afterValue: {
+      state: targetState,
+      ...(plan.replayExemptGates?.length ? { offlineReplay: true, replayExemptGates: plan.replayExemptGates } : {}),
+    },
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
   }, tx);
 

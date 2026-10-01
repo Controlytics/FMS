@@ -258,6 +258,8 @@ export function verifyAuditChecksum(record: {
   userAgent?: string | null;
   sessionId?: string | null;
   signatureMeaning?: string | null;
+  /** 2026-09-25: e-signature link. Hashed only when present (see audit.ts). */
+  signatureAuditId?: string | null;
   checksum: string;
   previousChecksum?: string | null;
   redactedAt?: Date | string | null;
@@ -308,6 +310,9 @@ export function verifyAuditChecksum(record: {
     userAgent: record.userAgent ?? undefined,
     sessionId: record.sessionId ?? undefined,
     signatureMeaning: record.signatureMeaning ?? undefined,
+    // Present ONLY on signed rows — an always-present key would hash as null
+    // and break every row written before the column existed (audit.ts mirrors).
+    ...(record.signatureAuditId ? { signatureAuditId: record.signatureAuditId } : {}),
   };
   // REDUCED field set — the original formula. Every row written before the
   // field-coverage expansion verifies via this set (accepted limitation: the extra

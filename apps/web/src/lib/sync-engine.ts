@@ -357,9 +357,13 @@ async function syncTombstones(): Promise<void> {
         const tapeVersionField = t.tapeVersion !== null && t.tapeVersion !== undefined
           ? { tapeVersion: t.tapeVersion }
           : {};
+        // 2026-09-25: a grant-bearing write must carry offlinePerformedAt (the
+        // server now refuses a replay without it — OFFLINE_REPLAY_FIELDS_REQUIRED).
+        // The tombstone's createdAt IS when the operator terminated offline; the
+        // queued-operation path has always sent its own createdAt the same way.
         await apiClient.post(
           `/api/filters/${t.payload?.filterId ?? ''}/terminate-cycle`,
-          { justification, ...tapeVersionField, clientOpId: t.clientOpId },
+          { justification, ...tapeVersionField, clientOpId: t.clientOpId, offlinePerformedAt: t.createdAt },
           headers,
         );
       } else if (t.entityType === 'block-change-request') {

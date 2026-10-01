@@ -57,7 +57,10 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
   5. `npx prisma migrate resolve --applied <name>` on existing populated DBs (dev/test) so they don't re-run it.
 
 ## Key Libs (`apps/api/src/lib/`)
-- `audit.ts` — hash-chained audit logger. Unkeyed SHA-256 by default (V1/V2); when
+- `request-store.ts` — per-request `AsyncLocalStorage` (2026-09-25). Filled by the re-auth gate
+  with the `REAUTH_SUCCESS` row id; `auditLog()` reads it to stamp `signature_audit_id` on every
+  row a signed handler writes. Undefined outside a request (cron, tests) = unsigned.
+- `audit.ts` — hash-chained audit logger; returns the new row's id. Unkeyed SHA-256 by default (V1/V2); when
   `AUDIT_CHAIN_KEY` is set it writes a keyed HMAC-SHA256 (V3, `audit_trail.checksum_version=3`)
   so a DB-level actor can't forge the chain. Verifier requires the key for v3 rows; legacy rows
   keep the unkeyed fallback. See `lib/hash-chain.ts`.

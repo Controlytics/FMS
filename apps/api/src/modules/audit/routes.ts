@@ -80,6 +80,9 @@ export default async function auditRoutes(app: FastifyInstance) {
                   afterValue: { type: 'object', additionalProperties: true, nullable: true },
                   reason: { type: 'string', nullable: true },
                   signatureMeaning: { type: 'string', nullable: true },
+                  // 2026-09-25: id of the REAUTH_SUCCESS row (the e-signature) this
+                  // row was written under; null for unsigned actions.
+                  signatureAuditId: { type: 'string', nullable: true },
                   ipAddress: { type: 'string', nullable: true },
                   timestamp: { type: 'string', format: 'date-time' },
                   integrityValid: { type: 'boolean', description: 'Whether the checksum integrity verification passed' },
@@ -406,6 +409,7 @@ export default async function auditRoutes(app: FastifyInstance) {
             sessionId: { type: 'string', nullable: true },
             checksum: { type: 'string' },
             signatureMeaning: { type: 'string', nullable: true },
+            signatureAuditId: { type: 'string', nullable: true },
             previousChecksum: { type: 'string', nullable: true },
             timestamp: { type: 'string', format: 'date-time' },
             integrityValid: { type: 'boolean', description: 'Whether the checksum integrity verification passed' },

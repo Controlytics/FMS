@@ -61,9 +61,10 @@ describe('auditLog — C3 chain', () => {
     });
 
     expect(mockTransaction).toHaveBeenCalledTimes(1);
-    // executeRaw is called twice (lock + insert); queryRaw once (select prior).
-    expect(mockTxExecuteRaw).toHaveBeenCalledTimes(2);
-    expect(mockTxQueryRaw).toHaveBeenCalledTimes(1);
+    // executeRaw once (advisory lock); queryRaw twice (select prior row, then
+    // the INSERT ... RETURNING id — 2026-09-25, auditLog returns the row id).
+    expect(mockTxExecuteRaw).toHaveBeenCalledTimes(1);
+    expect(mockTxQueryRaw).toHaveBeenCalledTimes(2);
     expect(mockComputeChainedChecksum).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'admin',
@@ -116,14 +117,14 @@ describe('auditLog — C3 chain', () => {
       action: 'PASSWORD_CHANGED',
       signatureMeaning: 'User changed password',
     });
-    // signatureMeaning is in the executeRaw template; verify both calls
-    // (lock + insert) ran, then check the insert's bind values include the
-    // signatureMeaning. Tagged-template arguments come through as a Sql
+    // signatureMeaning is in the INSERT template (a $queryRaw since 2026-09-25,
+    // INSERT ... RETURNING id). Tagged-template arguments come through as a Sql
     // template object; vitest captures them as `[strings, ...values]`.
-    expect(mockTxExecuteRaw).toHaveBeenCalledTimes(2);
-    // The 2nd executeRaw call is the INSERT — its values array should
-    // contain the signatureMeaning string.
-    const insertCall = mockTxExecuteRaw.mock.calls[1];
+    expect(mockTxExecuteRaw).toHaveBeenCalledTimes(1);
+    expect(mockTxQueryRaw).toHaveBeenCalledTimes(2);
+    // The 2nd queryRaw call is the INSERT — its values array should contain
+    // the signatureMeaning string.
+    const insertCall = mockTxQueryRaw.mock.calls[1];
     const valuesContain = JSON.stringify(insertCall).includes('User changed password');
     expect(valuesContain).toBe(true);
   });

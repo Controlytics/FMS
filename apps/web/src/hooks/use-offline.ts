@@ -317,11 +317,16 @@ export function useOffline() {
       // own /current-state fetch above.
       try {
         const { cacheServerStateResponse } = await import('../lib/offline-cache');
-        if (type === 'advance' || type === 'submit-checklist' || type === 'bypass' || type === 'terminate') {
+        // Audit 2026-09-24 (web F6, closed 2026-09-25): the two `-with-checklist`
+        // kinds were missing here, so the composed op left the cached tapeVersion
+        // stale and the NEXT cycle-bound write on that filter hit 409 STALE_TAPE.
+        // advance-with-checklist returns the full current-state (has tapeVersion);
+        // start-and-advance-with-checklist re-fetches like its sibling.
+        if (type === 'advance' || type === 'advance-with-checklist' || type === 'submit-checklist' || type === 'bypass' || type === 'terminate') {
           if (result && typeof result.tapeVersion === 'number') {
             await cacheServerStateResponse(filterId, result);
           }
-        } else if (type === 'start-cycle' || type === 'start-and-advance') {
+        } else if (type === 'start-cycle' || type === 'start-and-advance' || type === 'start-and-advance-with-checklist') {
           const fresh = await apiClient.get<any>(`/api/filters/${filterId}/current-state`);
           if (fresh && typeof fresh.tapeVersion === 'number') {
             await cacheServerStateResponse(filterId, fresh);

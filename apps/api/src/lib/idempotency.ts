@@ -70,6 +70,30 @@ export async function findExistingStartByClientOpId(
 }
 
 /**
+ * Audit 2026-09-24 (F15, closed 2026-09-25): a replay whose FIRST attempt
+ * completed or terminated the cycle can no longer be deduped by the
+ * cycle-scoped helper — `filter_details.current_cycle_id` is null by then, so
+ * the caller fell through to NO_CYCLE and the tablet told the operator their
+ * work "no longer applies" when it had in fact been recorded.
+ *
+ * Scoped to the filter's MOST RECENT cycle only (never the whole history —
+ * the §1.10 reasoning above still holds), and only consulted when there is no
+ * current cycle. A hit means the op already landed on the cycle it ended.
+ */
+export async function findExistingByClientOpIdInLatestCycle(
+  filterId: string,
+  clientOpId: string,
+): Promise<boolean> {
+  const latest = await prisma.cleaningCycle.findFirst({
+    where: { filterId },
+    orderBy: { startedAt: 'desc' },
+    select: { id: true },
+  });
+  if (!latest) return false;
+  return findExistingByClientOpId(filterId, clientOpId, latest.id);
+}
+
+/**
  * Embed clientOpId into the attributes JSON for a FilterEvent write so that
  * future replays of the same op can detect the duplicate.
  */

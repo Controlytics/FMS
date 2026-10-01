@@ -4,7 +4,11 @@ export const identifierRepository = {
   async findMany(where: Record<string, unknown>) {
     return prisma.assetIdentifier.findMany({
       where: where as any,
-      include: { asset: { select: { id: true, name: true } } },
+      // approvalStatus / status / isActive (2026-09-25): the scan surfaces build
+      // their tag → filter map from this list and must refuse a tag on a
+      // filter that is still in the creation workflow BEFORE queueing it —
+      // audit web F3 (the gate lived only on the write, as a 409 after scan).
+      include: { asset: { select: { id: true, name: true, approvalStatus: true, status: true, isActive: true } } },
       orderBy: { createdAt: 'desc' },
     });
   },

@@ -56,19 +56,39 @@ import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
 
 type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'cycles';
 
-// Build identifier→filter map from identifiers list
-function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string }> {
+// Build identifier→filter map from identifiers list. Carries the filter's
+// creation-workflow status (2026-09-25, audit web F3) so a scan can refuse a
+// tag on a filter that is not yet APPROVED — offline too, from this cache.
+type IdentifierMapEntry = { filterId: string; filterName: string; approvalStatus?: string | null };
+function buildIdentifierMap(identifiers: any[]): Record<string, IdentifierMapEntry> {
   const list = Array.isArray(identifiers) ? identifiers : [];
-  const map: Record<string, { filterId: string; filterName: string }> = {};
+  const map: Record<string, IdentifierMapEntry> = {};
   for (const ident of list) {
     if (ident.identifierValue && ident.assetId) {
-      const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
+      const entry: IdentifierMapEntry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId, approvalStatus: ident.asset?.approvalStatus ?? null };
       map[ident.identifierValue] = entry;
       map[ident.identifierValue.toUpperCase()] = entry;
       map[ident.identifierValue.toLowerCase()] = entry;
     }
   }
   return map;
+}
+
+/**
+ * Audit 2026-09-24 (web F3, closed 2026-09-25): the creation-workflow gate
+ * lived only on the server write (409 FILTER_NOT_APPROVED after the scan was
+ * queued and submitted). Mirror it at scan time: a filter that is still
+ * pending review / approval, or rejected, is refused with the same wording
+ * the server uses, and never enters the queue. `null`/`undefined` (older
+ * cache rows, non-workflow rows) is NOT a block — only an explicit non-APPROVED
+ * value is.
+ */
+function approvalBlockMessage(filterName: string, approvalStatus: string | null | undefined): string | null {
+  if (approvalStatus == null || approvalStatus === 'APPROVED') return null;
+  const why = approvalStatus === 'REJECTED'
+    ? 'was rejected and must be corrected and re-submitted'
+    : 'is still awaiting review/approval';
+  return `Filter "${filterName}" ${why}, so it cannot be cleaned yet.`;
 }
 
 
@@ -806,15 +826,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // lacks the new one). A genuinely-offline call throws (or returns the SPA
     // shell) and falls through to the cached map. 404 / network error are
     // non-fatal and intentionally silent.
+    let approvalStatus: string | null | undefined;
     try {
       const l = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(sv)}`);
       if (l?.asset?.id) {
-        filterId = l.asset.id; filterName = l.asset.name;
+        filterId = l.asset.id; filterName = l.asset.name; approvalStatus = l.asset.approvalStatus ?? null;
         // Self-heal the offline cache so a later OFFLINE scan of this (possibly
         // just-reassigned) tag resolves to the CURRENT filter, not a stale one.
         try {
-          const m = (await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map')) || {};
-          const entry = { filterId: filterId as string, filterName: filterName as string };
+          const m = (await getCache<Record<string, IdentifierMapEntry>>('identifier-map')) || {};
+          const entry: IdentifierMapEntry = { filterId: filterId as string, filterName: filterName as string, approvalStatus };
           m[sv] = entry; m[sv.toUpperCase()] = entry; m[sv.toLowerCase()] = entry;
           await cache('identifier-map', m);
         } catch { /* best-effort cache write */ }
@@ -824,16 +845,32 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     // Try cached identifier map (works both online and offline)
     if (!filterId) {
       try {
-        const map = await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map');
+        const map = await getCache<Record<string, IdentifierMapEntry>>('identifier-map');
         if (map) {
           const match = map[sv] || map[sv.toUpperCase()] || map[sv.toLowerCase()] || map[source.trim()];
-          if (match) { filterId = match.filterId; filterName = match.filterName; }
+          if (match) { filterId = match.filterId; filterName = match.filterName; approvalStatus = match.approvalStatus; }
         }
       } catch { /* IDB read failed — fall through to name match below */ }
     }
+    // Creation-workflow gate at scan time (web F3) — the cached instances list
+    // carries approvalStatus too, for the name-match fallback below.
+    if (filterId && approvalStatus === undefined) {
+      approvalStatus = (instances.find((i: any) => i.id === filterId) as any)?.approvalStatus ?? null;
+    }
+    if (filterId) {
+      const blocked = approvalBlockMessage(filterName ?? sv, approvalStatus);
+      if (blocked) { setError(blocked); return null; }
+    }
 
     // Fallback: match by filter name in cached instances
-    if (!filterId) { const m = allFilters.find((a: any) => a.name?.toLowerCase() === sv.toLowerCase()); if (m) { filterId = m.id; filterName = m.name; } }
+    if (!filterId) {
+      const m = allFilters.find((a: any) => a.name?.toLowerCase() === sv.toLowerCase());
+      if (m) {
+        const blocked = approvalBlockMessage(m.name, (m as any).approvalStatus);
+        if (blocked) { setError(blocked); return null; }
+        filterId = m.id; filterName = m.name;
+      }
+    }
     if (!filterId && sv.match(/^[0-9a-f]{8}-/i)) { filterId = sv; filterName = sv.slice(0, 8); }
     if (!filterId) {
       // Show the exact value we looked up (normalized + raw if different) so a

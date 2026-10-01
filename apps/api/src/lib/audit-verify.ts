@@ -174,6 +174,8 @@ interface AuditRow {
   user_agent: string | null;
   session_id: string | null;
   signature_meaning: string | null;
+  /** 2026-09-25: e-signature link (nullable uuid). */
+  signature_audit_id?: string | null;
   checksum: string;
   previous_checksum: string | null;
   redacted_at: Date | null;
@@ -257,6 +259,8 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
       userAgent: row.user_agent,
       sessionId: row.session_id,
       signatureMeaning: row.signature_meaning,
+      // 2026-09-25: e-signature link is inside the checksum envelope.
+      signatureAuditId: row.signature_audit_id ?? null,
       checksum: row.checksum,
       previousChecksum: row.previous_checksum,
       // #audit-2: plumb redacted_at so verifyAuditChecksum's redaction

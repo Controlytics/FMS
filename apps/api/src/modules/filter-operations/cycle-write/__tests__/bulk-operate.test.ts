@@ -201,7 +201,7 @@ describe('bulkOperate — advance-with-checklist kind', () => {
         clientOpId: 'a',
         filterId: uuid(1),
         kind: 'advance-with-checklist',
-        payload: { targetState: 'S2', answers: { q1: 'YES' } },
+        payload: { targetState: 'S2', answers: { q1: 'YES' }, tapeVersion: 7 },
       },
     ];
     const out = await bulkOperate(service, {} as any, items);
@@ -210,7 +210,7 @@ describe('bulkOperate — advance-with-checklist kind', () => {
     expect(service.advanceWithChecklist).toHaveBeenCalledWith(
       expect.anything(),
       uuid(1),
-      { targetState: 'S2', answers: { q1: 'YES' } },
+      { targetState: 'S2', answers: { q1: 'YES' }, tapeVersion: 7 },
     );
     // The two-call shape is exactly what re-opens the orphan window.
     expect(service.advance).not.toHaveBeenCalled();
@@ -225,12 +225,25 @@ describe('bulkOperate — advance-with-checklist kind', () => {
       .mockResolvedValueOnce({ currentState: 'S2' });
 
     const items: BulkOpItem[] = [
-      { clientOpId: 'a', filterId: uuid(1), kind: 'advance-with-checklist', payload: { targetState: 'S2' } },
-      { clientOpId: 'b', filterId: uuid(2), kind: 'advance-with-checklist', payload: { targetState: 'S2' } },
+      { clientOpId: 'a', filterId: uuid(1), kind: 'advance-with-checklist', payload: { targetState: 'S2', tapeVersion: 7 } },
+      { clientOpId: 'b', filterId: uuid(2), kind: 'advance-with-checklist', payload: { targetState: 'S2', tapeVersion: 7 } },
     ];
     const out = await bulkOperate(service, {} as any, items);
 
     expect(out.results[0]).toMatchObject({ status: 'failed', error: { code: 'ALREADY_SUBMITTED' } });
     expect(out.results[1]).toMatchObject({ status: 'ok' });
+  });
+
+  it('refuses a cycle-bound item with no tapeVersion, per item (C-F11, 2026-09-25)', async () => {
+    const service = makeStubService();
+    service.advanceWithChecklist.mockResolvedValue({ currentState: 'S2' });
+    const items: BulkOpItem[] = [
+      { clientOpId: 'a', filterId: uuid(1), kind: 'advance-with-checklist', payload: { targetState: 'S2' } },
+      { clientOpId: 'b', filterId: uuid(2), kind: 'advance-with-checklist', payload: { targetState: 'S2', tapeVersion: 3 } },
+    ];
+    const out = await bulkOperate(service, {} as any, items);
+    expect(out.results[0]).toMatchObject({ status: 'failed', error: { code: 'TAPE_VERSION_REQUIRED' } });
+    expect(out.results[1]).toMatchObject({ status: 'ok' });
+    expect(service.advanceWithChecklist).toHaveBeenCalledTimes(1);
   });
 });

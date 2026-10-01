@@ -14,7 +14,7 @@ import { auditLog } from '../../../lib/audit.js';
 import { stripHtml } from '../../../lib/sanitize.js';
 import { AppError } from '../../../lib/errors.js';
 import { findExistingStartByClientOpId } from '../../../lib/idempotency.js';
-import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
+import { validateOfflinePerformedAt, assertOfflineReplayPayload } from '../../../lib/offline-time-window.js';
 import { computeChecksum } from '../helpers.js';
 import {
   getFilter,
@@ -84,6 +84,11 @@ export async function startCycleImpl(
   // the value (future-skew, max-staleness, replay-only) so a forged client
   // can't back-date forged audit records (audit 2026-05-04 fix — C2).
   // start-cycle has no prior cycle so cycleStartedAt is omitted.
+  // A request presenting the replay grant must look like a replay (2026-09-25).
+  assertOfflineReplayPayload(ctx.isOfflineReplay === true, data);
+  // Gates skipped because this is a replay — recorded on the CYCLE_STARTED
+  // event + audit row, never silent.
+  const replayExemptGates: string[] = ctx.isOfflineReplay ? ['REAUTH'] : [];
   const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
     isReplay: ctx.isOfflineReplay === true,
   });
@@ -128,11 +133,14 @@ export async function startCycleImpl(
   // (mirrors validateBlockChange): the offline client already gated this at scan
   // time, and re-checking on replay could strand a legitimately-queued start. The
   // online start is authoritative here.
-  if (!ctx.isOfflineReplay) {
+  {
     const { isFilterBlockedForCleaning } = await import('../../replacement-schedule/service.js');
     if (await isFilterBlockedForCleaning(filterId)) {
-      throw new AppError(409, 'AHU_REPLACEMENT_OVERDUE',
-        'This filter’s AHU has an overdue replacement. Replace the filter before starting a cleaning cycle.');
+      if (!ctx.isOfflineReplay) {
+        throw new AppError(409, 'AHU_REPLACEMENT_OVERDUE',
+          'This filter’s AHU has an overdue replacement. Replace the filter before starting a cleaning cycle.');
+      }
+      replayExemptGates.push('AHU_REPLACEMENT_OVERDUE');
     }
   }
 
@@ -140,6 +148,7 @@ export async function startCycleImpl(
   // APPROVAL) and online-only — validateBlockChange auto-passes offline replays so a
   // queued offline start syncs rather than stranding the rest of the cycle's ops.
   const blockClearance = await validateBlockChange(filterId, cleaningAreaId, ctx, data.acknowledgeBlockChange === true);
+  if (blockClearance.replayExempt) replayExemptGates.push('BLOCK_CHANGE');
 
   const reasons = await getCleaningReasons(resolvedProfileIdForCycle);
   if (!cleaningReasonKey) {
@@ -168,7 +177,7 @@ export async function startCycleImpl(
   let pmSkipsToApply: Array<{ entryId: string; reason: string }> = [];
   let pmPendingForSkips: Awaited<ReturnType<typeof getPendingEarlierPmTasks>> = [];
 
-  if (!ctx.isOfflineReplay && (await isPmReasonKey(cleaningReasonKey))) {
+  if (await isPmReasonKey(cleaningReasonKey)) {
     const pending = await getPendingEarlierPmTasks(filterId);
     if (pending.length > 0) {
       const given = new Map<string, string>();
@@ -180,7 +189,7 @@ export async function startCycleImpl(
       const unanswered = pending.filter(
         (t) => !given.has(t.entryId) || (given.get(t.entryId) ?? '').length < MIN_SKIP_REASON,
       );
-      if (unanswered.length > 0) {
+      if (unanswered.length > 0 && !ctx.isOfflineReplay) {
         // 409 carries the full list so the client can render the dialog without
         // a second round trip.
         throw new AppError(
@@ -191,8 +200,17 @@ export async function startCycleImpl(
           { pendingPmTasks: pending, minReasonLength: MIN_SKIP_REASON },
         );
       }
-      pmPendingForSkips = pending;
-      pmSkipsToApply = pending.map((t) => ({ entryId: t.entryId, reason: given.get(t.entryId)! }));
+      // 2026-09-25: the replay is exempt from being ASKED, but the answers the
+      // tablet collected at scan time ride in the payload and must be applied —
+      // this whole block used to be skipped on replay, so every offline
+      // write-off was silently dropped and the cleaning then credited the
+      // missed visit (the exact false record the gate exists to prevent). A
+      // visit the tablet could not ask about (newly overdue since its last
+      // cache refresh) is recorded as an exempted gate, not written off.
+      if (unanswered.length > 0) replayExemptGates.push('MISSED_PM');
+      const answered = pending.filter((t) => (given.get(t.entryId) ?? '').length >= MIN_SKIP_REASON);
+      pmPendingForSkips = answered;
+      pmSkipsToApply = answered.map((t) => ({ entryId: t.entryId, reason: given.get(t.entryId)! }));
     }
   }
 
@@ -362,7 +380,13 @@ export async function startCycleImpl(
       data: {
         filterId, cycleId: newCycle.id, eventType: 'CYCLE_STARTED',
         performedBy: ctx.userSub, cleaningAreaId: cleaningAreaId ?? null,
-        attributes: { cleaningReasonKey, cleaningReasonLabel: reason.name, ...(clientOpId ? { clientOpId } : {}) },
+        attributes: {
+          cleaningReasonKey, cleaningReasonLabel: reason.name,
+          ...(clientOpId ? { clientOpId } : {}),
+          // 2026-09-25: which gates this replay skipped (REAUTH, BLOCK_CHANGE,
+          // AHU_REPLACEMENT_OVERDUE, MISSED_PM) — visible, not silent.
+          ...(replayExemptGates.length ? { replayExemptGates } : {}),
+        },
         remarks: cleaningJustification ?? null,
         checksum: computeChecksum({ filterId, cycleId: newCycle.id, eventType: 'CYCLE_STARTED', performedBy: ctx.userSub }),
         ipAddress: ctx.ipAddress, telemetrySnapshot: {},
@@ -400,6 +424,7 @@ export async function startCycleImpl(
         cleaningReasonLabel: reason.name,
         filterId,
         filterName: filter.name,
+        ...(replayExemptGates.length ? { offlineReplay: true, replayExemptGates } : {}),
       },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     }, tx);

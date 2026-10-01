@@ -509,7 +509,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
     it('assertAhuInterlockSatisfied passes on offline replay regardless of mode', async () => {
       // isOfflineReplay = true → immediate return, no DB reads.
       await expect(assertAhuInterlockSatisfied({ filterId: filterAId, isOfflineReplay: true }))
-        .resolves.toBeUndefined();
+        .resolves.toMatchObject({ exempt: expect.any(Boolean) });
     });
 
     it('assertAhuInterlockSatisfied passes when mode is NONE', async () => {
@@ -520,7 +520,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       });
       try {
         await expect(assertAhuInterlockSatisfied({ filterId: filterAId, isOfflineReplay: false }))
-          .resolves.toBeUndefined();
+          .resolves.toEqual({ exempt: false });
       } finally {
         // Restore INTERLOCK for the throw test below.
         await prisma.systemConfig.updateMany({
@@ -1078,7 +1078,7 @@ describe('AHU completion — NONE / POPUP / INTERLOCK with 10 filters (CWH)', ()
   it('NONE: never blocks submission, even with an idle sibling (no server gate)', async () => {
     await setMode('NONE');
     await setIdle(fids[9]);
-    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toBeUndefined();
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toEqual({ exempt: false });
     await setDone(fids[9]);
   });
 
@@ -1086,7 +1086,7 @@ describe('AHU completion — NONE / POPUP / INTERLOCK with 10 filters (CWH)', ()
     await setMode('POPUP');
     await setIdle(fids[9]);
     // POPUP has no server enforcement — the gate is a no-op...
-    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toBeUndefined();
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toEqual({ exempt: false });
     // ...but the status the client reads to render the warning DOES flag it.
     const status = await computeAhuCompletionStatus(ahu10, fids[0]);
     expect(status.allAtFinal).toBe(false);
@@ -1106,7 +1106,7 @@ describe('AHU completion — NONE / POPUP / INTERLOCK with 10 filters (CWH)', ()
   it('INTERLOCK: passes once all 10 filters have reached final', async () => {
     await setMode('INTERLOCK');
     // fids[9] restored to done above → all 10 completed.
-    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toBeUndefined();
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toEqual({ exempt: false });
   });
 
   it('INTERLOCK: 422 details carry the AHU name + full 10-filter roster + the pending one', async () => {
@@ -1127,7 +1127,9 @@ describe('AHU completion — NONE / POPUP / INTERLOCK with 10 filters (CWH)', ()
   it('INTERLOCK: offline replay is never blocked (best-effort, D2)', async () => {
     await setMode('INTERLOCK');
     await setIdle(fids[9]);
-    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: true })).resolves.toBeUndefined();
+    // 2026-09-25: still never blocked, and the gate now REPORTS that it would
+    // have applied (mode INTERLOCK + AHU parent) so the replay records it.
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: true })).resolves.toEqual({ exempt: true });
     await setDone(fids[9]);
   });
 });

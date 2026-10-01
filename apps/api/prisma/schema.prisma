@@ -304,6 +304,11 @@ model AuditTrail {
   redactedAt       DateTime? @map("redacted_at") @db.Timestamptz
   redactedBy       String?   @map("redacted_by") @db.VarChar(100)
   redactionReason  String?   @map("redaction_reason")
+  // 2026-09-25 (audit compliance F2): the REAUTH_SUCCESS row (electronic
+  // signature) this row was written under. NULL = not a signed action. Inside
+  // the row checksum when present (lib/audit.ts / lib/hash-chain.ts), so the
+  // link between a signature and what it signed is tamper-evident.
+  signatureAuditId String?   @map("signature_audit_id") @db.Uuid
 
   @@index([timestamp(sort: Desc)])
   @@index([userId])
@@ -312,6 +317,7 @@ model AuditTrail {
   @@index([sessionId])
   @@index([userId, timestamp(sort: Desc)])
   @@index([chainPosition])
+  @@index([signatureAuditId])
   @@map("audit_trail")
 }
 

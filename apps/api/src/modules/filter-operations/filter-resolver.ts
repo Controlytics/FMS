@@ -76,7 +76,12 @@ export async function getFilterHomeBlock(filterId: string, cache?: BatchReadCach
  * it inside its own transaction (see start-cycle) — an approval is single-use.
  * Every other path (no block change, NONE, CONFIRM, offline replay) returns {}.
  */
-export type BlockChangeClearance = { consumeApproval?: { filterId: string; toBlockId: string } };
+export type BlockChangeClearance = {
+  consumeApproval?: { filterId: string; toBlockId: string };
+  /** 2026-09-25: an offline replay of a CROSS-BLOCK start under a mode that
+   * would have gated it online. The caller records it on the event. */
+  replayExempt?: boolean;
+};
 
 export async function validateBlockChange(
   filterId: string,
@@ -89,16 +94,17 @@ export async function validateBlockChange(
   if (!homeBlock) return {};
   if (homeBlock.blockId === cleaningAreaId) return {};
 
+  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
+  const mode = await blockChangeService.getMode();
+
   // 2026-06-09: cross-block handling is CONFIGURABLE (config `block-change-approval.mode`)
   // and gates ONLINE ONLY. Offline never blocks — the FE shows an informational notice
   // and proceeds, and the queued op replays here with isOfflineReplay set, which we pass.
   // An offline replay never consumes an approval either — it was never gated on
   // one, so spending one here would silently burn an approval the operator has
-  // not used yet.
-  if (ctx?.isOfflineReplay) return {};
-
-  const { blockChangeService } = await import('../block-change-requests/block-change.service.js');
-  const mode = await blockChangeService.getMode();
+  // not used yet. Since 2026-09-25 the pass is reported back (`replayExempt`)
+  // whenever the mode would have gated the start online.
+  if (ctx?.isOfflineReplay) return mode === 'NONE' ? {} : { replayExempt: true };
   // NONE: no cross-block check at all — any filter may be cleaned in any block,
   // nothing shown or asked. (Cycle-integrity is still enforced separately by
   // validateAdvanceBlock: a cycle can't span blocks once started.)

@@ -5,6 +5,7 @@ import { prisma } from './prisma.js';
 // recursively, not just top-level). Verifier tries V2 first, falls back to V1
 // for historical rows. See lib/hash-chain.ts for the full versioning story.
 import { computeChainedChecksumV2, computeChainedChecksumV3, getAuditChainKey } from './hash-chain.js';
+import { getRequestStore } from './request-store.js';
 
 export interface AuditEntry {
   userId?: string;
@@ -32,6 +33,14 @@ export interface AuditEntry {
    * real-world event carries that event's date.
    */
   timestamp?: Date | string;
+  /**
+   * id of the REAUTH_SUCCESS audit row (the electronic signature) this row was
+   * written under. Normally NOT passed: `auditLog` reads it from the per-request
+   * store the re-auth gate filled (lib/request-store.ts). Pass it explicitly
+   * only when writing on behalf of a request from outside its async context.
+   * Covered by the row checksum, so the link cannot be rewritten unnoticed.
+   */
+  signatureAuditId?: string;
 }
 
 /**
@@ -105,7 +114,8 @@ const AUDIT_CHAIN_LOCK_ID = 7421151037n;
  * pre-chain row IF one exists, or NULL otherwise. That single bridge step
  * means a deletion of the last pre-chain row is detectable too.
  */
-export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
+/** Returns the new row's id (used by the re-auth gate to publish the signature id). */
+export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<string> {
   // 21 CFR §11.10(e): every state-changing action must identify the
   // individual responsible. Reject calls that omit userId unless the
   // action is on the explicit system allow-list.
@@ -147,15 +157,22 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<void> {
     signatureMeaning: entry.signatureMeaning ?? undefined,
   } as Record<string, unknown>;
 
+  // Electronic-signature link (2026-09-25). Included in the checksum ONLY when
+  // present: every key in baseFields is hashed (undefined canonicalises to
+  // null), so an always-present key would change the hash of every row and
+  // invalidate the whole existing chain. Absent key = unsigned row = today's
+  // formula, byte for byte. hash-chain.ts:verifyAuditChecksum mirrors this.
+  const signatureAuditId = entry.signatureAuditId ?? getRequestStore()?.reauthAuditId;
+  if (signatureAuditId) baseFields.signatureAuditId = signatureAuditId;
+
   if (tx) {
     // Transactional mode — write inside caller's tx.
-    await writeAuditRow(tx, entry, timestamp, baseFields, beforeValueClean, afterValueClean);
-  } else {
-    // Standalone mode — open our own tx.
-    await prisma.$transaction(async (txInner) => {
-      await writeAuditRow(txInner, entry, timestamp, baseFields, beforeValueClean, afterValueClean);
-    });
+    return writeAuditRow(tx, entry, timestamp, baseFields, beforeValueClean, afterValueClean, signatureAuditId ?? null);
   }
+  // Standalone mode — open our own tx.
+  return prisma.$transaction(async (txInner) => {
+    return writeAuditRow(txInner, entry, timestamp, baseFields, beforeValueClean, afterValueClean, signatureAuditId ?? null);
+  });
 
   // (operation-tracer per-action debug trace removed with data-ingestion removal.
   // To be re-implemented against filter_events / pm_executions in the
@@ -169,7 +186,8 @@ async function writeAuditRow(
   baseFields: Record<string, unknown>,
   beforeValueClean: unknown,
   afterValueClean: unknown,
-): Promise<void> {
+  signatureAuditId: string | null,
+): Promise<string> {
   // Acquire the advisory lock. Released automatically on tx commit/rollback.
   // Using $executeRaw because pg_advisory_xact_lock returns void; $queryRaw
   // expects rows and Prisma's deserializer rejects 'void' column type.
@@ -198,12 +216,13 @@ async function writeAuditRow(
   // depending on a regenerated Prisma client (the dev server may be
   // holding the engine DLL when migration runs). chain_position is
   // BIGSERIAL so DEFAULT auto-fills it.
-  await tx.$executeRaw`
+  const inserted = await tx.$queryRaw<Array<{ id: string }>>`
     INSERT INTO audit_trail (
       timestamp, user_id, user_name, user_role, action,
       target_type, target_id, before_value, after_value,
       reason, ip_address, user_agent, session_id,
-      checksum, previous_checksum, signature_meaning, checksum_version
+      checksum, previous_checksum, signature_meaning, checksum_version,
+      signature_audit_id
     ) VALUES (
       ${timestamp},
       ${entry.userId ?? null},
@@ -221,7 +240,10 @@ async function writeAuditRow(
       ${checksum},
       ${previousChecksum},
       ${entry.signatureMeaning ?? null},
-      ${checksumVersion}
+      ${checksumVersion},
+      ${signatureAuditId}::uuid
     )
+    RETURNING id
   `;
+  return inserted[0]?.id ?? '';
 }

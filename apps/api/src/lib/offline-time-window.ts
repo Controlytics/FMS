@@ -43,7 +43,9 @@ export class OfflineTimeError extends Error {
       | 'OFFLINE_TIME_FUTURE'
       | 'OFFLINE_TIME_TOO_STALE'
       | 'OFFLINE_TIME_BEFORE_CYCLE'
-      | 'OFFLINE_TIME_INVALID',
+      | 'OFFLINE_TIME_BEFORE_PREVIOUS_EVENT'
+      | 'OFFLINE_TIME_INVALID'
+      | 'OFFLINE_REPLAY_FIELDS_REQUIRED',
     message: string,
     public readonly details?: Record<string, unknown>,
   ) {
@@ -52,6 +54,21 @@ export class OfflineTimeError extends Error {
   }
 }
 
+/**
+ * Per-event floor tolerance (audit 2026-09-24 C-F10, closed 2026-09-25).
+ *
+ * A replayed op may not be stamped EARLIER than the latest event already on
+ * its cycle — the queue replays in order, so a later op carrying an earlier
+ * time is either a forged back-date or a tablet whose clock jumped. The
+ * tolerance exists for the one honest case: the previous event was written
+ * ONLINE with the SERVER clock and this one carries the TABLET clock. The two
+ * clocks may disagree by the same drift the future-skew check already allows,
+ * so the floor is `previousEventAt - FUTURE_SKEW_TOLERANCE_MS`, never the raw
+ * previous time — a strict floor would strand a legitimately queued op behind
+ * a five-minute clock difference.
+ */
+const PREVIOUS_EVENT_TOLERANCE_MS = FUTURE_SKEW_TOLERANCE_MS;
+
 interface ValidateOptions {
   /** Must be true for offlinePerformedAt to be accepted. Online requests must
    * not pass a client-side timestamp. */
@@ -59,7 +76,42 @@ interface ValidateOptions {
   /** Lower bound from the cycle-write context (cycle.startedAt). When supplied,
    * offlinePerformedAt cannot be earlier than this. */
   cycleStartedAt?: Date | null;
+  /** Lower bound from the cycle's latest event (performedAt of the last row on
+   * the cycle). Applied with PREVIOUS_EVENT_TOLERANCE_MS of slack — see above. */
+  previousEventAt?: Date | string | null;
   now?: Date; // injectable for tests
+}
+
+/**
+ * Audit 2026-09-24 (design gap, closed 2026-09-25): the offline-replay grant
+ * header proves the holder knew the password at issuance, NOT that the call
+ * is a replay of work done offline. An online caller could attach it to an
+ * ordinary `/api/filters/*` write and inherit every replay exemption (stage
+ * interlock, AHU completion, block change, missed-PM, re-auth).
+ *
+ * Two things every genuine replay carries and an ordinary online call never
+ * does: the tablet's `offlinePerformedAt` (the sync engine sets it on every
+ * queued op and every tombstone) and the queue's `clientOpId`. A request that
+ * presents the grant without BOTH is not a replay and is refused outright,
+ * before any gate is evaluated. This does not make the header a proof of
+ * offline-ness — a determined caller can fabricate both fields — but it
+ * closes the "web page plus a header" path, and every gate a replay does skip
+ * is now RECORDED on the event and its audit row (`replayExemptGates`) so the
+ * bypass is visible to an inspector rather than silent.
+ */
+export function assertOfflineReplayPayload(
+  isReplay: boolean,
+  data: { offlinePerformedAt?: unknown; clientOpId?: unknown },
+): void {
+  if (!isReplay) return;
+  const hasTime = typeof data.offlinePerformedAt === 'string' && data.offlinePerformedAt.trim() !== '';
+  const hasOpId = typeof data.clientOpId === 'string' && data.clientOpId.trim() !== '';
+  if (hasTime && hasOpId) return;
+  throw new OfflineTimeError(
+    'OFFLINE_REPLAY_FIELDS_REQUIRED',
+    'An offline-replay request must carry offlinePerformedAt and clientOpId. Send the request without the replay grant header if this is online work.',
+    { missing: [...(hasTime ? [] : ['offlinePerformedAt']), ...(hasOpId ? [] : ['clientOpId'])] },
+  );
 }
 
 /**
@@ -122,7 +174,31 @@ export function validateOfflinePerformedAt(
     );
   }
 
+  // 5. Per-event floor (C-F10): not earlier than the cycle's latest event,
+  //    less the clock-drift tolerance (see PREVIOUS_EVENT_TOLERANCE_MS).
+  if (opts.previousEventAt) {
+    const prev = opts.previousEventAt instanceof Date ? opts.previousEventAt : new Date(opts.previousEventAt);
+    if (!Number.isNaN(prev.getTime()) && t.getTime() < prev.getTime() - PREVIOUS_EVENT_TOLERANCE_MS) {
+      throw new OfflineTimeError(
+        'OFFLINE_TIME_BEFORE_PREVIOUS_EVENT',
+        'offlinePerformedAt is earlier than the latest recorded event on this cleaning cycle',
+        { raw, previousEventAt: prev.toISOString(), toleranceMs: PREVIOUS_EVENT_TOLERANCE_MS },
+      );
+    }
+  }
+
   return t;
+}
+
+/** performedAt of the latest event in a cycle's event list (or null when empty). */
+export function latestEventAt(events: ReadonlyArray<{ performedAt: Date | string }>): Date | null {
+  let max: Date | null = null;
+  for (const e of events) {
+    const d = e.performedAt instanceof Date ? e.performedAt : new Date(e.performedAt);
+    if (Number.isNaN(d.getTime())) continue;
+    if (!max || d.getTime() > max.getTime()) max = d;
+  }
+  return max;
 }
 
 // `validateOfflinePerformedAtFromHeaders` was deleted 2026-05-13. It read

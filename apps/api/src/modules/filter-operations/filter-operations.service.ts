@@ -849,6 +849,14 @@ export class FilterOperationsService {
       where: { OR: [{ sourceAssetId: filterId }, { targetAssetId: filterId }] },
     });
 
+    // The RFID tag stays bound to the retired filter ON PURPOSE — see
+    // e2e/retire-replace-identifier-invariant.test.ts (2026-07-15): replace()
+    // moves the rows after this returns, unretire restores a tagged filter, and
+    // the binding is §11 evidence of what was physically installed. The
+    // "stranded tag" the 2026-09-24 audit found (a retired filter is hidden from
+    // every RFID surface, so its tag could not be reused) is closed on the
+    // RE-ASSIGNMENT path instead: identifier.service.create() releases a tag
+    // held by a retired / deactivated filter, audited, when it is assigned again.
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'FILTER_RETIRED',

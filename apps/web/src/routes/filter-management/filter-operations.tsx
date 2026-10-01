@@ -427,34 +427,55 @@ export function FilterOperationsPage() {
     }
     if (!trimmed) return null;
 
+    // Audit 2026-09-24 (web F3, closed 2026-09-25): mirror the server's
+    // creation-workflow gate at scan time — a filter that is not APPROVED is
+    // refused here, with the server's wording, instead of entering the queue
+    // and failing the submit with 409 FILTER_NOT_APPROVED. Only an EXPLICIT
+    // non-APPROVED value blocks; a missing value (older cache rows) does not.
+    type Resolved = { filterId: string; filterName: string; approvalStatus?: string | null };
+    const gate = (r: Resolved): Resolved => {
+      const st = r.approvalStatus ?? (instances.find((a: any) => a.id === r.filterId) as any)?.approvalStatus ?? null;
+      if (st != null && st !== 'APPROVED') {
+        const why = st === 'REJECTED' ? 'was rejected and must be corrected and re-submitted' : 'is still awaiting review/approval';
+        throw new Error(`Filter "${r.filterName}" ${why}, so it cannot be cleaned yet.`);
+      }
+      return { filterId: r.filterId, filterName: r.filterName };
+    };
+
     // 1. Try API lookup (works when online) — authoritative for reassigned tags.
     try {
       const lookup = await apiClient.get<any>(`/api/assets/identifiers/lookup/${encodeURIComponent(trimmed)}`);
       if (lookup?.asset?.id) {
-        const resolved = { filterId: lookup.asset.id as string, filterName: lookup.asset.name as string };
+        const resolved: Resolved = { filterId: lookup.asset.id as string, filterName: lookup.asset.name as string, approvalStatus: lookup.asset.approvalStatus ?? null };
         // Self-heal the offline cache so a later offline scan of this (possibly
         // just-reassigned) tag resolves to the CURRENT filter, not a stale one.
         try {
-          const m = (await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map')) || {};
+          const m = (await getCache<Record<string, Resolved>>('identifier-map')) || {};
           m[trimmed] = resolved; m[trimmed.toUpperCase()] = resolved; m[trimmed.toLowerCase()] = resolved;
           await cache('identifier-map', m);
         } catch { /* best-effort cache write */ }
-        return resolved;
+        return gate(resolved);
       }
-    } catch { /* offline or network error — fall through */ }
+    } catch (e: any) {
+      if (e instanceof Error && /cannot be cleaned yet/.test(e.message)) throw e;
+      /* offline or network error — fall through */
+    }
 
     // 2. Try cached identifier map (works offline — built from identifiers API and stored in IndexedDB)
     try {
-      const identifierMap = await getCache<Record<string, { filterId: string; filterName: string }>>('identifier-map');
+      const identifierMap = await getCache<Record<string, Resolved>>('identifier-map');
       if (identifierMap) {
         const entry = identifierMap[trimmed] || identifierMap[trimmed.toUpperCase()] || identifierMap[trimmed.toLowerCase()];
-        if (entry) return entry;
+        if (entry) return gate(entry);
       }
-    } catch { /* IndexedDB error — fall through */ }
+    } catch (e: any) {
+      if (e instanceof Error && /cannot be cleaned yet/.test(e.message)) throw e;
+      /* IndexedDB error — fall through */
+    }
 
     // 3. Try matching by filter name
     const match = instances.find((a: any) => a.name?.toLowerCase() === trimmed.toLowerCase());
-    if (match) return { filterId: match.id, filterName: match.name };
+    if (match) return gate({ filterId: match.id, filterName: match.name, approvalStatus: (match as any).approvalStatus ?? null });
     return null;
   };
 

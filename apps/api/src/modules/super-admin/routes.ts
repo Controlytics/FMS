@@ -488,6 +488,24 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       }
     }
 
+    // 2026-09-25 (strict audit A-F4 root cause): the saved parent may have been
+    // deactivated since the retirement. Restoring under it re-created the live
+    // orphan the audit found (Pre-Filter-21 under a soft-deleted AHU): the row
+    // vanished from every AHU-scoped read and the mirror NULLed filters.ahu_id.
+    // Refuse, and ask for an active AHU explicitly.
+    if (restoreParentId) {
+      const parent = await prisma.assetInstance.findUnique({
+        where: { id: restoreParentId },
+        select: { name: true, isActive: true },
+      });
+      if (!parent || !parent.isActive) {
+        return reply.code(409).send({
+          error: 'PARENT_INACTIVE',
+          message: `The AHU this filter was under ("${parent?.name ?? restoreParentId}") is deactivated. Pass the id of an active AHU as parentId to restore the filter under it.`,
+        });
+      }
+    }
+
     // Clean up the saved pre-retirement data from customAttributes
     const cleanedCustom = { ...customAttrs };
     delete cleanedCustom._preRetireParentId;

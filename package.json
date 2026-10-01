@@ -23,6 +23,7 @@
     "turbo": "^2.4.0"
   },
   "overrides": {
+    "uuid": "^11.1.1",
     "tar": "^7.5.22",
     "postcss": "^8.5.26",
     "serialize-javascript": "^7.1.0",

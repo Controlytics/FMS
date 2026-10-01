@@ -28,15 +28,47 @@ export const identifierService = {
     if (existingForAsset.length > 0) throw new ConflictError('This entity already has an identifier. Remove the existing one first.', 'ENTITY_HAS_IDENTIFIER');
 
     const existingIdent = await identifierRepository.findByIdentifierValue(data.identifierValue);
-    if (existingIdent) throw new ConflictError('Identifier value already exists on another entity', 'DUPLICATE_IDENTIFIER_VALUE');
+    // Audit 2026-09-24 DB finding (closed 2026-09-25): a tag stays bound to a
+    // retired filter on purpose (§11 evidence; replace()/unretire depend on it —
+    // see e2e/retire-replace-identifier-invariant.test.ts), but a retired or
+    // deactivated filter is hidden from every RFID surface, so its tag could
+    // never be freed and the physical tag became unusable. Re-assignment is the
+    // documented place to free it: when the current holder is retired or
+    // inactive, release the old binding (audited, so the Track Record shows the
+    // REMOVE) in the same transaction as the new one. A tag on a LIVE filter is
+    // still a conflict.
+    let released: { id: string; assetId: string; identifierType: string; identifierValue: string; holderName: string | null } | null = null;
+    if (existingIdent) {
+      const holder = await prisma.assetInstance.findUnique({ where: { id: existingIdent.assetId }, select: { name: true, status: true, isActive: true } });
+      const holderGone = !holder || holder.status === 'Retired' || holder.isActive === false;
+      if (!holderGone) throw new ConflictError('Identifier value already exists on another entity', 'DUPLICATE_IDENTIFIER_VALUE');
+      released = { id: existingIdent.id, assetId: existingIdent.assetId, identifierType: existingIdent.identifierType, identifierValue: existingIdent.identifierValue, holderName: holder?.name ?? null };
+    }
 
-    const identifier = await identifierRepository.create({
-      assetId: data.assetId,
-      identifierType: data.identifierType,
-      identifierValue: data.identifierValue,
-      label: data.label,
-      isPrimary: data.isPrimary,
-      createdBy: ctx.userId,
+    const identifier = await prisma.$transaction(async (tx) => {
+      if (released) {
+        await tx.assetIdentifier.delete({ where: { id: released.id } });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'ASSET_IDENTIFIER_DELETED',
+          targetType: 'asset_identifier', targetId: released.id,
+          beforeValue: { assetId: released.assetId, identifierType: released.identifierType, identifierValue: released.identifierValue, filterName: released.holderName },
+          afterValue: { deleted: true, reassignedTo: data.assetId },
+          reason: `Reassigned to "${asset.name}": previous holder "${released.holderName ?? released.assetId}" is retired or deactivated`,
+          signatureMeaning: `Identifier "${released.identifierValue}" released from retired/deactivated "${released.holderName ?? released.assetId}" on reassignment`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      }
+      return tx.assetIdentifier.create({
+        data: {
+          assetId: data.assetId,
+          identifierType: data.identifierType,
+          identifierValue: data.identifierValue,
+          label: data.label,
+          isPrimary: data.isPrimary,
+          createdBy: ctx.userId,
+        },
+      });
     });
 
     await auditLog({

@@ -1,4 +1,5 @@
 import fp from 'fastify-plugin';
+import { runWithRequestStore } from '../lib/request-store.js';
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { verifyToken, type JwtPayload } from '../lib/jwt.js';
 import { prisma } from '../lib/prisma.js';
@@ -193,6 +194,16 @@ const PUBLIC_PATHS = [
 const PUBLIC_GET_PATHS = ['/api/config/branding', '/api/config/datetime/current', '/uploads/photos/', '/uploads/branding/', '/api/roles/active', '/api/admin-requests/user-lookup'];
 
 async function authPlugin(app: FastifyInstance) {
+  // Per-request ambient store (2026-09-25): carries the e-signature row id from
+  // the re-auth gate to every audit row the handler writes (lib/request-store.ts).
+  // Lives in THIS plugin, not app.ts, so every composed app that authenticates —
+  // the production app and each e2e test app — gets it. `als.run(store, done)`
+  // in a callback-style hook is what makes the context reach later hooks and
+  // the handler (verified for both inject and real HTTP).
+  app.addHook('onRequest', (_req, _reply, done) => {
+    runWithRequestStore({}, done);
+  });
+
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     // Fully public paths (all methods). Segment-boundary match, not bare prefix.
     if (matchesPublicPath(req.url, PUBLIC_PATHS)) return;

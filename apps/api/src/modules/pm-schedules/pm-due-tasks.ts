@@ -83,8 +83,12 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
   // customAttributes.pmFilterSetMode is the per-AHU knob added in the
   // filter-set config UI: BOTH / SET_A / SET_B / DISABLED (default BOTH).
   const ahuIds = Array.from(new Set(entries.map(e => e.schedule.entityId)));
+  // Audit 2026-09-24 (A-F7, closed 2026-09-25): a soft-deleted AHU keeps its PM
+  // schedule (a record), but its filters are deactivated with it, so every
+  // entry produced a task with 0 filters that went DUE → MISSED forever. An
+  // inactive AHU produces no task (`if (!ahu) continue` below).
   const ahus = await prisma.assetInstance.findMany({
-    where: { id: { in: ahuIds } },
+    where: { id: { in: ahuIds }, isActive: true },
     select: { id: true, name: true, customAttributes: true, parentId: true },
   });
   const ahuById = new Map(ahus.map(a => [a.id, a]));

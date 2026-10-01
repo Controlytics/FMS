@@ -9,8 +9,8 @@ import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { stripHtml } from '../../../lib/sanitize.js';
-import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
-import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
+import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle, withClientOpId } from '../../../lib/idempotency.js';
+import { validateOfflinePerformedAt, assertOfflineReplayPayload, latestEventAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum } from '../helpers.js';
@@ -24,6 +24,9 @@ export async function terminateCycleImpl(
   data: { justification: string; clientOpId?: string; tapeVersion?: number; offlinePerformedAt?: string },
 ) {
   const clientOpId: string | null = data.clientOpId ?? null;
+  // A request presenting the replay grant must look like a replay (2026-09-25).
+  assertOfflineReplayPayload(ctx.isOfflineReplay === true, data);
+  const replayExemptGates: string[] = ctx.isOfflineReplay ? ['REAUTH'] : [];
 
   // Server-only: full HTML sanitization (sanitize-html via stripHtml) before
   // guards. See advance.ts:29 rationale — canonical contract used by the
@@ -34,14 +37,20 @@ export async function terminateCycleImpl(
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
   const { ctx: localCtx, filterCurrentCycleId, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
-  throwIfFailed(executor.assertCycleActive(localCtx));
 
   // Cycle-scoped clientOpId dedup (audit §1.10): a terminate replay on the
   // same cycle returns current state; the same opId from a prior cycle
-  // cannot collide.
-  if (clientOpId && filterCurrentCycleId && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
-    return service.getCurrentState(ctx, filterId);
+  // cannot collide. F15 (2026-09-25): runs BEFORE assertCycleActive — the
+  // retry of the terminate that ENDED the cycle has no current cycle any more
+  // and used to answer NO_CYCLE, so the tablet told the operator their
+  // termination "no longer applies" when it had been recorded.
+  if (clientOpId) {
+    const seen = filterCurrentCycleId
+      ? await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)
+      : await findExistingByClientOpIdInLatestCycle(filterId, clientOpId);
+    if (seen) return service.getCurrentState(ctx, filterId);
   }
+  throwIfFailed(executor.assertCycleActive(localCtx));
 
   // Audit 2026-05-04 fix C2 parity: validate offlinePerformedAt with
   // cycle.startedAt floor (terminate inherits the floor from the cycle
@@ -49,6 +58,8 @@ export async function terminateCycleImpl(
   const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
     isReplay: ctx.isOfflineReplay === true,
     cycleStartedAt: cycle?.startedAt ?? null,
+    // C-F10 (2026-09-25): not earlier than the cycle's latest recorded event.
+    previousEventAt: latestEventAt(localCtx.events),
   });
 
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
@@ -87,7 +98,8 @@ export async function terminateCycleImpl(
     });
     const eventData = {
       filterId, cycleId: filterCurrentCycleId!, eventType: 'CYCLE_TERMINATED' as const,
-      performedBy: ctx.userSub, attributes: withClientOpId({ justification }, clientOpId),
+      performedBy: ctx.userSub,
+      attributes: withClientOpId({ justification, ...(replayExemptGates.length ? { replayExemptGates } : {}) }, clientOpId),
       remarks: justification,
     };
     await tx.filterEvent.create({
@@ -104,7 +116,10 @@ export async function terminateCycleImpl(
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_TERMINATED',
       targetType: 'filter', targetId: filterId,
-      afterValue: { cycleId: filterCurrentCycleId, justification },
+      afterValue: {
+        cycleId: filterCurrentCycleId, justification,
+        ...(replayExemptGates.length ? { offlineReplay: true, replayExemptGates } : {}),
+      },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     }, tx);
   });

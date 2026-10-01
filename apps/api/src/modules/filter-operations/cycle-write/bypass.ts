@@ -10,13 +10,13 @@ import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { stripHtml } from '../../../lib/sanitize.js';
 import { AppError } from '../../../lib/errors.js';
-import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
-import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
+import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle, withClientOpId } from '../../../lib/idempotency.js';
+import { validateOfflinePerformedAt, assertOfflineReplayPayload, latestEventAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum } from '../helpers.js';
 import { lockAndVerifyFilterState } from './locking.js';
-import { assertStageApprovedToLeave } from '../stage-interlock.js';
+import { assertStageApprovedToLeave, getInterlockConfig, isInterlockStage } from '../stage-interlock.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
 /** @param data - Validated by Fastify JSON schema before reaching this method */
@@ -35,15 +35,23 @@ export async function bypassImpl(
     ? stripHtml(data.justification)
     : data.justification;
   const clientOpId: string | null = data.clientOpId ?? null;
+  // A request presenting the replay grant must look like a replay (2026-09-25).
+  assertOfflineReplayPayload(ctx.isOfflineReplay === true, data);
+  const replayExemptGates: string[] = [];
+  if (ctx.isOfflineReplay) replayExemptGates.push('REAUTH');
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
   const { ctx: localCtx, cp, filterCurrentCycleId, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
 
   // Cycle-scoped clientOpId dedup (audit §1.10): scope by current cycle so a
   // clientOpId reused from a prior (completed/terminated) cycle cannot
-  // silently no-op a fresh bypass.
-  if (clientOpId && filterCurrentCycleId && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
-    return service.getCurrentState(ctx, filterId);
+  // silently no-op a fresh bypass. F15 (2026-09-25): with no current cycle,
+  // check the latest one — the op may be the retry of a bypass that ended it.
+  if (clientOpId) {
+    const seen = filterCurrentCycleId
+      ? await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)
+      : await findExistingByClientOpIdInLatestCycle(filterId, clientOpId);
+    if (seen) return service.getCurrentState(ctx, filterId);
   }
   throwIfFailed(executor.assertCycleActive(localCtx));
 
@@ -54,6 +62,8 @@ export async function bypassImpl(
   const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
     isReplay: ctx.isOfflineReplay === true,
     cycleStartedAt: cycle?.startedAt ?? null,
+    // C-F10 (2026-09-25): not earlier than the cycle's latest recorded event.
+    previousEventAt: latestEventAt(localCtx.events),
   });
 
   throwIfFailed(executor.assertTapeVersionFresh(localCtx, data.tapeVersion));
@@ -86,6 +96,10 @@ export async function bypassImpl(
       fromState,
       targetState,
     });
+  } else if (filterCurrentCycleId && ctx.isOfflineReplay && fromState && isInterlockStage(fromState)) {
+    // 2026-09-25: record the skipped leave-gate when it would have applied.
+    const interlockConfig = await getInterlockConfig();
+    if (interlockConfig.enabled) replayExemptGates.push('INTERLOCK_LEAVE');
   }
 
   const eventData = {
@@ -96,7 +110,11 @@ export async function bypassImpl(
     // 2026-07-10 (per user): mark an OFFLINE bypass into a gated stage so the
     // interlock self-heal (current-state.ts) exempts it — same carve-out as the
     // advance path. Reserved key so it can't collide with an admin param key.
-    attributes: withClientOpId({ ...(parameters ?? {}), ...(offlineTime ? { __offlineEntry: true } : {}) }, clientOpId),
+    attributes: withClientOpId({
+      ...(parameters ?? {}),
+      ...(offlineTime ? { __offlineEntry: true } : {}),
+      ...(replayExemptGates.length ? { replayExemptGates } : {}),
+    }, clientOpId),
     deviationDetails: { type: 'BYPASS', fromState, toState: targetState, justification },
     remarks: justification,
   };
@@ -132,7 +150,10 @@ export async function bypassImpl(
       userId: ctx.userId, userRole: ctx.userRole, action: 'BYPASS_DEVIATION',
       targetType: 'filter', targetId: filterId,
       beforeValue: { state: fromState },
-      afterValue: { state: targetState, justification },
+      afterValue: {
+        state: targetState, justification,
+        ...(replayExemptGates.length ? { offlineReplay: true, replayExemptGates } : {}),
+      },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     }, tx);
   });

@@ -103,12 +103,14 @@ function effectiveLastCleaned(cycleAt: string | undefined | null, attrs: any): s
   return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
 }
 
-function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string }> {
+// Same shape as mobile-operations.tsx's map: carries approvalStatus (2026-09-25,
+// audit web F3) so an offline scan can refuse a not-yet-approved filter.
+function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string; approvalStatus?: string | null }> {
   const list = Array.isArray(identifiers) ? identifiers : [];
-  const map: Record<string, { filterId: string; filterName: string }> = {};
+  const map: Record<string, { filterId: string; filterName: string; approvalStatus?: string | null }> = {};
   for (const ident of list) {
     if (ident.identifierValue && ident.assetId) {
-      const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
+      const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId, approvalStatus: ident.asset?.approvalStatus ?? null };
       map[ident.identifierValue] = entry;
       map[ident.identifierValue.toUpperCase()] = entry;
       map[ident.identifierValue.toLowerCase()] = entry;

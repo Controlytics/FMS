@@ -1,5 +1,140 @@
 # Changelog
 
+## [Unreleased] - Strict-audit follow-up: every open item closed except the two the operator must decide (2026-09-25)
+
+Operator: "fix the open items one by one" (the list the 2026-09-24 audit left
+open). Every item is closed in code or in the live data except the two that
+destroy audit rows (chain test fixtures, the 174 deleted chain positions),
+which wait for an explicit decision. Verified with the affected API suites,
+the full web suite, the migration drift guard (PASS) and live API calls.
+
+**Offline replay — the grant header had to look like a replay**
+- The offline-replay grant proved the holder knew the password, not that the
+  call replayed offline work; an online caller could attach it to any
+  `/api/filters/*` write and inherit every replay exemption. Two things every
+  genuine replay carries and an ordinary online call never does are now
+  REQUIRED whenever the grant is presented: `offlinePerformedAt` and
+  `clientOpId` (`assertOfflineReplayPayload`, 400
+  `OFFLINE_REPLAY_FIELDS_REQUIRED`, checked before any gate on start-cycle,
+  advance, advance-with-checklist, submit-checklist, bypass, terminate). This
+  does not make the header a proof of offline-ness — a determined caller can
+  fabricate both — so every gate a replay DOES skip is now recorded on the
+  event (`attributes.replayExemptGates`) and its audit row
+  (`afterValue.replayExemptGates` + `offlineReplay: true`): `REAUTH`,
+  `INTERLOCK_LEAVE`, `INTERLOCK_ENTRY`, `INTERLOCK_TERMINAL`,
+  `AHU_COMPLETION`, `AHU_REPLACEMENT_OVERDUE`, `BLOCK_CHANGE`, `MISSED_PM` —
+  only when the gate would actually have applied. A skipped QA interlock is a
+  visible fact in the §11 record, not a silent one.
+  `assertAhuInterlockSatisfied` returns `{ exempt }`; `validateBlockChange`
+  returns `replayExempt`.
+- 🔴 Found while wiring it: on replay the tablet's missed-PM write-off answers
+  were NEVER applied — the whole block sat behind the online check, so every
+  offline write-off was dropped and the cleaning then silently credited the
+  missed visit (the false record the gate exists to prevent). Replay now
+  applies the answered write-offs inside the cycle's transaction and records
+  `MISSED_PM` as an exempted gate only for visits it could not ask about.
+- C-F10: `offlinePerformedAt` has a per-event floor — not earlier than the
+  cycle's latest recorded event, less the same 5-minute drift tolerance the
+  future-skew check allows (the previous event may carry the server clock,
+  this one the tablet's). 400 `OFFLINE_TIME_BEFORE_PREVIOUS_EVENT`.
+- F15: a retry of the op that COMPLETED or TERMINATED the cycle now dedups
+  against the filter's latest cycle instead of answering NO_CYCLE, so the
+  tablet no longer tells the operator recorded work "no longer applies".
+- C-F11: `POST /api/filters/bulk-operate` refuses a cycle-bound item
+  (advance / submit-checklist / advance-with-checklist) with no `tapeVersion`,
+  per item (400 `TAPE_VERSION_REQUIRED`); the single routes always required it
+  and the shared guard treated "absent" as "no check". start-and-advance's
+  advance half stays exempt (the cycle is created in the same request).
+
+**Electronic signature ↔ signed record (compliance F2)**
+- `audit_trail.signature_audit_id` (migration
+  `20260925090000_audit_signature_link`, additive, indexed) carries the id of
+  the `REAUTH_SUCCESS` row written by the re-auth gate for the same request,
+  on every audit row the gated handler writes. Plumbed through a per-request
+  `AsyncLocalStorage` (`lib/request-store.ts`, `app.ts` onRequest hook) so no
+  call site changed; `auditLog()` now returns the new row's id. The link is
+  INSIDE the row checksum — only when present, so every existing row hashes
+  exactly as before (an always-present key would have invalidated the whole
+  chain). Verifier, verify-chain, backup chain check and the audit list/detail
+  responses all carry it.
+
+**Restore never destroys audit rows (compliance F5)**
+- JSON/BAK restore parks the live `audit_trail` rows the backup does not
+  carry in a temp table before the TRUNCATE and re-inserts them after the
+  load; the pg_dump restore does the same through a `digilog_keep` schema that
+  survives the public reset. A kept row whose `chain_position` collides with a
+  restored one (different lineage) is renumbered past both sets, in order.
+  `BACKUP_RESTORED.afterValue.auditRowsPreserved` records the count.
+
+**Hierarchy integrity (A-F4 / A-F7)**
+- `validateParent` refuses a deactivated parent on every path, and a FILTER
+  may only sit under an AHU. The legacy `PUT /api/assets/instances/:id` on a
+  filter runs the master-data validator on `attributes` (the FILTER template's
+  attributeSchema is empty, so it validated nothing) and refuses `parentId:
+  null`. Unretire refuses to restore a filter under a parent that has been
+  deactivated (409 `PARENT_INACTIVE`) — that is how one of the two live
+  orphans was made.
+- Soft-deleting a Block/AHU deactivates its equipment groups in the same
+  transaction (they cannot be removed by hand first — the group service
+  refuses to delete a block's last group). PM schedules and replacement
+  entries are records and stay; their task readers now ignore inactive AHUs,
+  so a deleted AHU no longer produces a 0/0 task stuck DUE → MISSED. The
+  `ASSET_DELETED` row joins the delete transaction (§1.1).
+- F8: `FILTER_LIFECYCLE_STATE_CHANGED` is written inside its transaction.
+
+**A tag on a retired filter can be reused** — `retire()` deliberately keeps
+the tag bound (2026-07-15 decision: §11 evidence of what was installed;
+`replace()` moves it, unretire restores a tagged filter — the characterization
+test `retire-replace-identifier-invariant` stands). But a retired or
+deactivated filter is hidden from every RFID surface, so its tag could never
+be freed and became unusable (12 live). Re-assignment is now the documented
+release: `POST /api/assets/identifiers` for a value held by a retired or
+inactive filter releases the old binding with an audited
+`ASSET_IDENTIFIER_DELETED` (reason names the new holder) in the same
+transaction as the new one; a tag on a LIVE filter is still a 409.
+
+**Scan surfaces mirror the creation-workflow gate (web F3)** — the tablet
+and the web Filter Operations page refuse a tag on a filter that is not
+APPROVED at scan time, with the server's wording, instead of queueing it and
+failing the submit with 409. The identifier list and the instance list expose
+`approvalStatus`; the cached identifier map carries it, so it holds offline.
+The cycle-terminate tombstone replay now sends the tombstone's `createdAt` as
+`offlinePerformedAt` (one line in `lib/sync-engine.ts`) — without it the new
+replay-field rule would have refused every offline termination.
+**web F6** — `use-offline.ts` refreshes the cached tape after the two
+`-with-checklist` kinds (it did not, so the next write on that filter hit
+409 STALE_TAPE).
+
+**Live data (all through audited endpoints, `digilog_db`)**
+- Phantom roles `PROJECT_LEADER` / `VIEWER` stripped from 63 re-auth actions.
+- `L8/AHU-89/SA/00-00` re-attached to AHU-89: on 2026-07-08 a replace failed
+  after retiring it and the pre-F9 rollback re-activated the row without its
+  AHU. `Pre-Filter-21` (test residue under an AHU deactivated on 2026-05-21)
+  soft-deleted. Orphan cycle `CC-ZZ-WF-TEST-REJ-001-20260904` (its test filter
+  was hard-deleted) closed TERMINATED. 12 stranded tags released.
+- 12 accounts hard-deleted in the 2026-08-19 wipe, still named as performer
+  on 5,567 filter events, restored under their ORIGINAL ids as DISABLED
+  (random unusable password, change forced), identity taken from their
+  `USER_CREATED` rows, one `MANUAL_RECORD_CREATED` row each. Cleaning records
+  render the performer again.
+- `asset_instances_active_name_key` — partial unique index on
+  `lower(name) WHERE is_active` (migration `20260925091000_active_name_unique`;
+  the service check already refused duplicates, the database now does too).
+  Drift guard PASS.
+
+**Dependencies** — root `overrides` pins `uuid` to `^11.1.1` (exceljs declared
+`^8`, the advisory's only "fix" was a downgrade to exceljs 3); `esbuild`
+0.27.3 → 0.27.7. 7 advisories remain and every one needs a MAJOR bump:
+`prisma` 6 → 7 (`@prisma/config` pins `deepmerge-ts` 7.1.5 exactly), `vitest`
+3 → 5 (+ `@vitest/coverage-v8`), and `esbuild` 0.28 (tsx pins `~0.27`). All
+three are development tooling, none ships in the served application.
+
+**Left for the operator** — the 141 `CHAIN_TEST_*` / `INTACT_*` test rows in
+the live audit chain and the 174 deleted chain positions with no deletion
+record: both can only be addressed by destroying or annotating audit rows.
+Also unchanged: cycle `CC-L8/AHU-89/SA/00-00-001-20260708` on the re-attached
+filter is still IN_PROGRESS at WASH_OUT since 2026-07-08.
+
 ## [Unreleased] - Strict whole-application audit: 45 findings fixed (2026-09-24)
 
 Operator: "do a proper strict audit for entire application, db and apis

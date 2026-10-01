@@ -457,12 +457,18 @@ export async function assertAhuInterlockSatisfied(params: {
   filterId: string;
   isOfflineReplay: boolean;
   set?: FilterSetChoice;
-}): Promise<void> {
-  if (params.isOfflineReplay) return;
-  if ((await getAhuCompletionMode()) !== 'INTERLOCK') return;
+}): Promise<{ exempt: boolean }> {
+  // 2026-09-25: a replay is still exempt, but the caller now learns WHETHER
+  // the gate would have applied (mode INTERLOCK + an AHU parent), so the
+  // exemption is recorded on the event instead of vanishing silently.
+  if (params.isOfflineReplay) {
+    const wouldGate = (await getAhuCompletionMode()) === 'INTERLOCK' && !!(await resolveAhuId(params.filterId));
+    return { exempt: wouldGate };
+  }
+  if ((await getAhuCompletionMode()) !== 'INTERLOCK') return { exempt: false };
 
   const ahuId = await resolveAhuId(params.filterId);
-  if (!ahuId) return; // not under an AHU → don't gate
+  if (!ahuId) return { exempt: false }; // not under an AHU → don't gate
 
   const { allAtFinal, pending, ahuName, filters } = await computeAhuCompletionStatus(ahuId, params.filterId, params.set);
   if (!allAtFinal) {
@@ -479,4 +485,5 @@ export async function assertAhuInterlockSatisfied(params: {
       { pendingFilters: pending, ahuName, filters, currentFilterId: params.filterId },
     );
   }
+  return { exempt: false };
 }

@@ -196,3 +196,52 @@ Live data changed through the API: 4 audit rows redacted (plaintext password),
 `PROCESS_RESET_REQUEST` + 4 PM re-auth rows set. Open: grant-header ≠ proof of
 offline (design), non-SA backup restore, 2 orphan FILTER parents, AHU soft-delete
 orphans, bulk tapeVersion optional, offline timestamp floors.
+
+## 2026-09-25 — Close the items the 09-24 audit left open
+
+Operator: "fix the open items one by one". Order = code first, then live data,
+then dependencies. Destructive data steps (chain test rows, 174 gaps) need
+explicit operator confirmation before they run.
+
+- [x] 1 Offline-grant header ≠ proof of offline — replay calls must carry
+      `offlinePerformedAt` + `clientOpId`; every gate a replay skips is recorded
+      on the event + audit row (`replayExemptGates`) so an inspector can see it.
+      Retroactive PENDING approvals at replay = follow-up needing the operator.
+- [x] 2 A-F4 `PUT /api/assets/instances/:id` on a FILTER: parent must be an
+      active AHU; attributes go through the filter master-data validator.
+      Repair the 2 live rows (L8/AHU-89/SA/00-00 parent NULL, Pre-Filter-21 →
+      inactive AHU "PC").
+- [x] 3 A-F7 AHU/Block soft-delete orphans — consumers ignore inactive AHUs
+      (PM due tasks, replacement tasks); equipment groups deactivated in the tx.
+- [x] 4 C-F10 offline timestamp per-event floor (≥ latest event in the cycle).
+- [x] 5 C-F11 bulk `tapeVersion` required for cycle-bound kinds.
+- [x] 6 web F3 approval gate on scan surfaces (tablet + web ops).
+- [x] 7 web F6 `use-offline.ts` cache refresh for the `-with-checklist` kinds.
+- [x] 8 compliance F2 e-signature row ↔ signed row: `signature_audit_id` column,
+      stamped from the REAUTH_SUCCESS row via AsyncLocalStorage; in the checksum.
+- [x] 9 compliance F5 restore must never destroy post-backup audit rows —
+      live rows absent from the backup are re-inserted after the load (JSON/BAK
+      and pg_dump paths).
+- [x] 10 filter-ops F15 terminate replay dedup before `assertCycleActive`;
+      F8 lifecycle-state audit inside its tx.
+- [x] 11 Stranded tags: retire() KEEPS the tag (2026-07-15 invariant kept); re-assignment
+      releases a tag held by a retired/deactivated filter, audited. The 12 live ones released
+      through `DELETE /api/assets/identifiers/:id`.
+- [x] 12 Phantom roles PROJECT_LEADER / VIEWER stripped from action-reauth.
+- [x] 13 Live data: orphan IN_PROGRESS cycle 0c71d6e8 (filter hard-deleted);
+      12 deleted performers restored as DISABLED users (old ids, audited);
+      12 stranded tags released; unique index on active names (migration).
+- [ ] 14 Chain test rows (141) + 174 gaps — OPERATOR DECISION before any delete (asked 2026-09-25, still open).
+- [x] 15 npm: uuid pinned ^11.1.1 via root override (exceljs advisory gone), esbuild 0.27.7;
+      7 advisories remain, ALL major bumps (prisma 7, vitest 5, esbuild 0.28 blocked by tsx ~0.27) — reported.
+- [x] 16 Tests + tsc + docs + memory. NOT committed — operator did not ask.
+
+### Audit log (2026-09-25)
+Items 1–13 closed; see CHANGELOG "Strict-audit follow-up". Extra defect found
+and fixed on the way: offline replay never applied the tablet's missed-PM
+write-offs. Live data changed through audited endpoints only (12 tag releases,
+1 filter re-parented, 1 filter soft-deleted, 1 orphan cycle terminated, 12
+disabled user rows restored under their original ids, re-auth policy
+de-phantomed). Two migrations, both additive; drift guard PASS. Tests updated
+where they asserted the old behaviour (audit insert shape, AHU gate return
+value, replay payload fields, bulk tapeVersion, delete-tx mock).

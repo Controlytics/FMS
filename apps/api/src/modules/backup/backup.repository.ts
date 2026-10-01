@@ -448,6 +448,8 @@ export async function verifyBackupAuditChain(
       userAgent: row.user_agent ?? null,
       sessionId: row.session_id ?? null,
       signatureMeaning: row.signature_meaning ?? null,
+      // 2026-09-25: e-signature link is inside the checksum envelope.
+      signatureAuditId: row.signature_audit_id ?? null,
       checksum: row.checksum,
       previousChecksum: row.previous_checksum ?? null,
       // Redacted rows can't be recomputed (payloads are NULLed by design);
@@ -499,7 +501,8 @@ export function describeChainReport(r: BackupChainReport): string {
   );
 }
 
-export async function restoreFromBackup(backup: BackupData, opts: { force?: boolean } = {}): Promise<void> {
+/** Resolves to the number of live audit rows the backup lacked and that were kept (F5). */
+export async function restoreFromBackup(backup: BackupData, opts: { force?: boolean } = {}): Promise<number> {
   // Normalize older camelCase-keyed backups to snake_case
   const data = normalizeBackupKeys(backup.data);
   const dbTables = await getAllTables();
@@ -550,7 +553,7 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     );
   }
 
-  await prisma.$transaction(async (tx: any) => {
+  return prisma.$transaction(async (tx: any): Promise<number> => {
     // Disable EVERY user trigger on the tables we're about to rewrite, not just
     // audit_trail's. This used to name audit_trail's two triggers explicitly,
     // which left the asset/filter mirror triggers armed during restore:
@@ -610,6 +613,23 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     const curHist: any[] = await tx.$queryRawUnsafe(`SELECT id, password_hash FROM "password_history"`);
     for (const h of curHist) currentPasswordHistory.set(h.id, h.password_hash);
 
+    // Audit 2026-09-24 (compliance F5, closed 2026-09-25): a restore must never
+    // DESTROY audit rows. The TRUNCATE below wipes the live trail and the backup
+    // brings back only what it carries — every row written after the backup
+    // was taken (or absent from it) was gone for good, with no record that it
+    // ever existed. `audit_trail` is the one table whose rows are retained
+    // permanently, so the live rows the backup does NOT contain are parked in
+    // a temp table here and re-inserted after the load (see below). An id
+    // present in the backup is the backup's copy — restore is still a restore.
+    const backupAuditIds: string[] = Array.isArray(data.audit_trail)
+      ? data.audit_trail.map((r: Record<string, any>) => String(r.id)).filter((id: string) => /^[0-9a-f-]{36}$/i.test(id))
+      : [];
+    await tx.$executeRawUnsafe(
+      `CREATE TEMP TABLE audit_trail_keep ON COMMIT DROP AS
+         SELECT * FROM "audit_trail" WHERE NOT (id = ANY($1::uuid[]))`,
+      backupAuditIds,
+    );
+
     // Truncate every DB table in one statement — CASCADE handles all FKs in a single pass
     for (const t of dbTables) assertSafeIdentifier(t);
     await tx.$executeRawUnsafe(
@@ -657,6 +677,15 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
       }
     }
 
+    // Bring back the live audit rows the backup did not carry (F5, above).
+    // A kept row whose chain_position collides with a restored row (a backup
+    // from a different lineage) is renumbered past everything, in its original
+    // order; the chain link of such a row was already broken by the restore
+    // and stays so — the ROW survives, which is the point. Every other kept
+    // row keeps its position. Runs while the immutability triggers are still
+    // disabled and before the sequences are realigned.
+    const preserved = await preserveUnbackedAuditRows(tx, 'audit_trail_keep');
+
     // Re-enable every trigger we disabled. (A rollback would restore trigger
     // state anyway, since ALTER TABLE is transactional here.)
     for (const t of triggers) {
@@ -672,8 +701,78 @@ export async function restoreFromBackup(backup: BackupData, opts: { force?: bool
     //   - audit_trail.chain_position: new rows get positions that sort INTO the
     //     middle of restored history, so the hash-chain walker links the wrong
     //     rows and verification breaks permanently.
-    await resyncSequencesAfterRestore(tx, restoreTables);
+    // audit_trail is always in the resync set: the preserved rows exist even
+    // when the backup carried no audit_trail at all.
+    await resyncSequencesAfterRestore(tx, [...new Set([...restoreTables, 'audit_trail'])]);
+    return preserved;
   }, { timeout: 300_000, maxWait: 30_000 });
+}
+
+/**
+ * Re-insert audit rows parked in `keepTable` (same column set as audit_trail)
+ * that are absent from the freshly restored table. Returns how many came back.
+ * Shared by the JSON/BAK restore (temp table) and the pg_dump restore
+ * (`digilog_keep.audit_trail`, a real schema that survives the public reset).
+ *
+ * Columns are matched BY NAME across both tables, so a backup taken before a
+ * column existed (or after one was dropped) still restores; a column the
+ * parked rows have and the restored table lacks is dropped from the insert.
+ */
+export async function preserveUnbackedAuditRows(tx: any, keepTable: string): Promise<number> {
+  const [keepSchema, keepName] = keepTable.includes('.') ? keepTable.split('.') : [null, keepTable];
+  assertSafeIdentifier(keepName);
+  if (keepSchema) assertSafeIdentifier(keepSchema);
+  const keepRef = keepSchema ? `"${keepSchema}"."${keepName}"` : `"${keepName}"`;
+
+  const liveCols: { column_name: string }[] = await tx.$queryRawUnsafe(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'audit_trail'`,
+  );
+  const keepCols: { column_name: string }[] = keepSchema
+    ? await tx.$queryRawUnsafe(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
+        keepSchema, keepName,
+      )
+    : await tx.$queryRawUnsafe(
+        // A temp table lives in a pg_temp_N schema; match on name + temp-ness.
+        `SELECT a.attname AS column_name
+           FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relname = $1 AND n.nspname LIKE 'pg_temp%' AND a.attnum > 0 AND NOT a.attisdropped`,
+        keepName,
+      );
+  const live = new Set(liveCols.map(c => c.column_name));
+  const cols = keepCols.map(c => c.column_name).filter(c => live.has(c));
+  for (const c of cols) assertSafeIdentifier(c);
+  if (!cols.includes('id')) return 0;
+  const colList = cols.map(c => `"${c}"`).join(', ');
+
+  // Rows the restored table already has (same id) are the backup's copy.
+  await tx.$executeRawUnsafe(
+    `DELETE FROM ${keepRef} k WHERE EXISTS (SELECT 1 FROM "audit_trail" a WHERE a.id = k.id)`,
+  );
+  if (cols.includes('chain_position')) {
+    // Renumber only colliding positions, past the max of both sets, in order.
+    await tx.$executeRawUnsafe(
+      `WITH mx AS (
+         SELECT GREATEST(
+           (SELECT COALESCE(MAX(chain_position), 0) FROM "audit_trail"),
+           (SELECT COALESCE(MAX(chain_position), 0) FROM ${keepRef})
+         ) AS m
+       ), coll AS (
+         SELECT k.id, row_number() OVER (ORDER BY k.chain_position) AS rn
+           FROM ${keepRef} k
+          WHERE EXISTS (SELECT 1 FROM "audit_trail" a WHERE a.chain_position = k.chain_position)
+       )
+       UPDATE ${keepRef} k SET chain_position = mx.m + coll.rn FROM coll, mx WHERE k.id = coll.id`,
+    );
+  }
+  const countRows: Array<{ n: number }> = await tx.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM ${keepRef}`);
+  const n = Number(countRows[0]?.n ?? 0);
+  if (n > 0) {
+    await tx.$executeRawUnsafe(
+      `INSERT INTO "audit_trail" (${colList}) SELECT ${colList} FROM ${keepRef} ORDER BY ${cols.includes('chain_position') ? '"chain_position"' : '"id"'}`,
+    );
+  }
+  return n;
 }
 
 /**

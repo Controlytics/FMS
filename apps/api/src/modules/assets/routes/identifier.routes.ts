@@ -34,7 +34,7 @@ export default async function identifierRoutes(app: FastifyInstance) {
               label: { type: 'string' },
               isPrimary: { type: 'boolean' },
               createdAt: { type: 'string' },
-              asset: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } } },
+              asset: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, approvalStatus: { type: 'string', nullable: true }, status: { type: 'string', nullable: true }, isActive: { type: 'boolean', nullable: true } } },
             },
           },
         },

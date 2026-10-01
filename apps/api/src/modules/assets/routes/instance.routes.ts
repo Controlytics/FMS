@@ -67,6 +67,10 @@ export default async function instanceRoutes(app: FastifyInstance) {
                   templateId: { type: 'string' },
                   templateVersion: { type: 'integer' },
                   status: { type: 'string' },
+                  // 2026-09-25 (audit web F3): the scan surfaces cache this list
+                  // for offline name-match and need the creation-workflow status
+                  // to refuse a not-yet-approved filter at scan time.
+                  approvalStatus: { type: 'string', nullable: true },
                   attributes: { type: 'object', additionalProperties: true },
                   parentId: { type: ['string', 'null'], nullable: true },
                   isActive: { type: 'boolean' },

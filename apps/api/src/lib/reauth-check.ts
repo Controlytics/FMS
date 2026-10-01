@@ -5,6 +5,7 @@ import { applyFailedPasswordAttempt } from '../modules/auth/auth.service.js';
 import type { ActionReauthConfig } from '@digilog/shared';
 import { getLogger } from './logger.js';
 import { auditLog } from './audit.js';
+import { getRequestStore } from './request-store.js';
 
 const reauthLog = getLogger('reauth', 'security');
 
@@ -67,13 +68,20 @@ async function verifyReauthPassword(
   if (user.failedLoginAttempts > 0) {
     await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0 } });
   }
-  await auditLog({
+  const signatureAuditId = await auditLog({
     userId: user.username, userRole: user.role, action: 'REAUTH_SUCCESS',
     targetType: 'user', targetId: user.id,
     afterValue: { username: user.username, reauthAction: action },
     signatureMeaning: `Electronic signature applied for ${action}`,
     ipAddress: req.ip, userAgent, sessionId: req.user.sessionId,
   });
+  // 2026-09-25 (audit compliance F2): publish the signature row's id to the
+  // request's ambient store, so every audit row the gated handler now writes
+  // carries `signature_audit_id` = this row — the signed record points at its
+  // signature instead of merely sitting next to it in the chain.
+  const store = getRequestStore();
+  if (store) store.reauthAuditId = signatureAuditId;
+  (req as any)._reauthAuditId = signatureAuditId;
   return null;
 }
 

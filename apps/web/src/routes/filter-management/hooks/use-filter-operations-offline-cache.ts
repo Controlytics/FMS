@@ -234,10 +234,12 @@ export function useFilterOperationsOfflineCache(
   useEffect(() => {
     if (!identifiersData) return;
     const list = Array.isArray(identifiersData) ? identifiersData : [];
-    const map: Record<string, { filterId: string; filterName: string }> = {};
+    // approvalStatus (2026-09-25, audit web F3): lets an OFFLINE scan refuse a
+    // tag on a filter still in the creation workflow (see resolveFilter).
+    const map: Record<string, { filterId: string; filterName: string; approvalStatus?: string | null }> = {};
     for (const ident of list) {
       if (ident.identifierValue && ident.assetId) {
-        const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
+        const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId, approvalStatus: ident.asset?.approvalStatus ?? null };
         map[ident.identifierValue] = entry;
         map[ident.identifierValue.toUpperCase()] = entry;
         map[ident.identifierValue.toLowerCase()] = entry;

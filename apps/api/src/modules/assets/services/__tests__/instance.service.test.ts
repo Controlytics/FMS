@@ -64,6 +64,8 @@ const {
       // findMany: M27 - delete() refuses while any filter in the cascade is mid-cycle.
       cleaningCycle: { groupBy: vi.fn().mockResolvedValue([]), findMany: vi.fn().mockResolvedValue([]) },
       filter: { findMany: vi.fn().mockResolvedValue([]) },
+      // delete() deactivates the block's equipment groups inside the tx (A-F7, 2026-09-25).
+      equipmentGroup: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     };
     type Tx = typeof tx;
     return {
@@ -273,7 +275,7 @@ describe('instanceService', () => {
       const delOrder = mockPrisma.assetIdentifier.deleteMany.mock.invocationCallOrder[0];
       expect(readOrder).toBeLessThan(delOrder);
 
-      // The single ASSET_DELETED summary row still fires, after the tx.
+      // The single ASSET_DELETED summary row still fires (inside the tx since 2026-09-25).
       expect(mockAuditLog.mock.calls.filter(([e]) => e.action === 'ASSET_DELETED')).toHaveLength(1);
     });
 

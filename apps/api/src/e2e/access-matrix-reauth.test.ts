@@ -101,13 +101,30 @@ describe('PUT /api/config/access-matrix requires a signature', () => {
 
     const rows = await prisma.auditTrail.findMany({
       where: { timestamp: { gte: at }, action: { in: ['REAUTH_SUCCESS', 'CONFIG_CHANGED'] } },
-      select: { action: true, targetId: true },
+      select: { id: true, action: true, targetId: true, signatureAuditId: true },
+      orderBy: { chainPosition: 'asc' },
     });
 
     // The signature is its own row (2026-09-03) — before that a re-auth wrote
     // nothing at all, so a signed config change looked identical to an unsigned one.
     expect(rows.some((r) => r.action === 'REAUTH_SUCCESS')).toBe(true);
     expect(rows.some((r) => r.action === 'CONFIG_CHANGED' && r.targetId === 'access-matrix')).toBe(true);
+
+    // 2026-09-25 (audit compliance F2): the signed row POINTS at its signature —
+    // signature_audit_id is the REAUTH_SUCCESS row's id, not merely the row
+    // before it in the chain. Two signed PUTs above → two pairs; every
+    // CONFIG_CHANGED row must name a REAUTH_SUCCESS row from this test.
+    const signatureIds = new Set(rows.filter((r) => r.action === 'REAUTH_SUCCESS').map((r) => r.id));
+    const changes = rows.filter((r) => r.action === 'CONFIG_CHANGED' && r.targetId === 'access-matrix');
+    expect(changes.length).toBeGreaterThan(0);
+    for (const c of changes) {
+      expect(c.signatureAuditId).toBeTruthy();
+      expect(signatureIds.has(c.signatureAuditId as string)).toBe(true);
+    }
+    // The signature row itself is not "signed by" anything.
+    for (const sig of rows.filter((r) => r.action === 'REAUTH_SUCCESS')) {
+      expect(sig.signatureAuditId).toBeNull();
+    }
   });
 
   it('still serves the matrix on GET without a password', async () => {

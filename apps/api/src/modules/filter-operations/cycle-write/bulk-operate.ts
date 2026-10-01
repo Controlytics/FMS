@@ -88,6 +88,20 @@ export async function bulkOperate(
   const results: BulkOpResult[] = [];
   for (const item of items) {
     try {
+      // Audit 2026-09-24 (C-F11, closed 2026-09-25): the single-filter routes
+      // REQUIRE tapeVersion on every cycle-bound write (409 STALE_TAPE guards
+      // a stale screen); the batch schema left it optional, and the shared
+      // guard treats "absent" as "no check". Same rule here, per item — the
+      // other items in the batch still run. start-and-advance's advance half is
+      // exempt: the cycle is created in this same request, so the client cannot
+      // know its tape and staleness is not possible.
+      if (
+        (item.kind === 'advance' || item.kind === 'submit-checklist' || item.kind === 'advance-with-checklist')
+        && typeof item.payload?.tapeVersion !== 'number'
+      ) {
+        throw new AppError(400, 'TAPE_VERSION_REQUIRED',
+          'tapeVersion is required for a cycle-bound batch item. Re-scan the filter to refresh its state and submit again.');
+      }
       let snapshot: any;
       if (item.kind === 'advance') {
         snapshot = await service.advance(ctx, item.filterId, item.payload);

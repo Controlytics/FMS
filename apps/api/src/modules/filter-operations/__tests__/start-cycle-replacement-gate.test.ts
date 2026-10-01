@@ -241,8 +241,12 @@ describe('POST /:id/start-cycle — AHU overdue-replacement gate', () => {
       isOfflineReplay: true,
     };
 
+    // 2026-09-25: a replay must look like one — the sync engine always sends
+    // both fields; a grant-bearing request without them is refused outright.
     const cycle = await startCycleImpl(service, ctx, blockedFilterId, {
       cleaningReasonKey: REASON_KEY,
+      offlinePerformedAt: new Date().toISOString(),
+      clientOpId: randomUUID(),
     });
 
     expect(cycle).toBeTruthy();

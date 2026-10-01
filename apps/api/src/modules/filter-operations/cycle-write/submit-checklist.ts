@@ -29,9 +29,9 @@ import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
-import { findExistingByClientOpId, withClientOpId } from '../../../lib/idempotency.js';
+import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle, withClientOpId } from '../../../lib/idempotency.js';
 import { lockAndVerifyFilterState } from './locking.js';
-import { validateOfflinePerformedAt } from '../../../lib/offline-time-window.js';
+import { validateOfflinePerformedAt, assertOfflineReplayPayload, latestEventAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import {
@@ -62,6 +62,8 @@ export interface ChecklistPlan {
   clientOpId: string | null;
   answerCount: number;
   profileCount: number;
+  /** Gates skipped because this write is an offline replay (2026-09-25). */
+  replayExemptGates: string[];
 }
 
 export type ChecklistPrep =
@@ -95,20 +97,29 @@ export async function prepareChecklist(
   // versions to detect schema drift between cache and current state.
   const expectedProfileVersions: Record<string, number> | null = data.expectedProfileVersions ?? null;
 
+  // A request presenting the replay grant must look like a replay (2026-09-25).
+  assertOfflineReplayPayload(ctx.isOfflineReplay === true, data);
+  const replayExemptGates: string[] = [];
+  if (ctx.isOfflineReplay) replayExemptGates.push('REAUTH');
+
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
   const { ctx: localCtx, cp, rawCycle: cycle, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
 
-  // Server-only: cycle exists guard (covers `NO_CYCLE`).
-  throwIfFailed(executor.assertCycleActive(localCtx));
-
   // Cycle-scoped clientOpId dedup: a replay with the same opId for the same cycle
   // is a no-op success (returns current state); the same opId across different
-  // cycles cannot collide. Run AFTER the no-cycle guard so we throw NO_CYCLE
-  // rather than trying to dedup against a missing cycle.
-  if (!opts.skipDedup && clientOpId && filterCurrentCycleId
-    && await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)) {
-    return { kind: 'dedup' };
+  // cycles cannot collide. F15 (2026-09-25): runs BEFORE the no-cycle guard —
+  // a retry of the checklist that COMPLETED the cycle has no current cycle any
+  // more, and used to fall through to NO_CYCLE ("work no longer applies") when
+  // it had in fact been recorded. With no current cycle the latest one is checked.
+  if (!opts.skipDedup && clientOpId) {
+    const seen = filterCurrentCycleId
+      ? await findExistingByClientOpId(filterId, clientOpId, filterCurrentCycleId)
+      : await findExistingByClientOpIdInLatestCycle(filterId, clientOpId);
+    if (seen) return { kind: 'dedup' };
   }
+
+  // Server-only: cycle exists guard (covers `NO_CYCLE`).
+  throwIfFailed(executor.assertCycleActive(localCtx));
 
   // Server-only: cycle must be IN_PROGRESS (live state — separate from
   // `assertCycleActive`'s "filter has currentCycleId" check).
@@ -124,6 +135,8 @@ export async function prepareChecklist(
   const offlineTime = validateOfflinePerformedAt(data.offlinePerformedAt, {
     isReplay: ctx.isOfflineReplay === true,
     cycleStartedAt: cycle.startedAt,
+    // C-F10 (2026-09-25): not earlier than the cycle's latest recorded event.
+    previousEventAt: latestEventAt(localCtx.events),
   });
 
   // Phase 8.3/8.5 staleness guard. In the composed path the advance half asserts
@@ -200,24 +213,9 @@ export async function prepareChecklist(
     };
   });
 
-  // Record CHECKLIST_COMPLETED event. Attributes shape:
-  //   { afterStage, answers (flat merged — backward compat for cycle-history reader),
-  //     checklists[] (per-profile snapshot — A6), clientOpId (A2), offlinePerformedAt (A1) }
-  const eventData = {
-    filterId,
-    cycleId: cycle.id,
-    eventType: 'CHECKLIST_COMPLETED' as const,
-    performedBy: ctx.userSub,
-    attributes: {
-      afterStage: stageKey,
-      answers,
-      checklists: checklistsSnapshot,
-      ...(clientOpId ? { clientOpId } : {}),
-      ...(offlineTime ? { offlinePerformedAt: offlineTime.toISOString() } : {}),
-    },
-    remarks: `Checklist completed after ${stageKey}`,
-  };
-  const checksum = computeChecksum(eventData);
+  // The CHECKLIST_COMPLETED event + checksum are built AFTER the gates below
+  // (2026-09-25): on a replay they contribute `replayExemptGates` to the
+  // attributes, and the checksum must cover the attributes as written.
 
   // Auto-complete the cycle when this checklist is the last node before END.
   // advance() defers completion in that case (pipelines like
@@ -244,10 +242,14 @@ export async function prepareChecklist(
   // DRY_OUT → CHECKLIST → END), the bare two-request path used to finish the
   // cycle with the approval still PENDING (later closed SUPERSEDED). Same rule
   // as advance(): online only — offline work is never gated.
-  if (shouldComplete && stageKey && !ctx.isOfflineReplay) {
+  if (shouldComplete && stageKey) {
     const interlockConfig = await getInterlockConfig();
     if (interlockConfig.enabled && isInterlockStage(stageKey)) {
-      await assertStageApprovedToLeave({ cycleId: cycle.id, fromState: stageKey, targetState: 'END', config: interlockConfig });
+      if (!ctx.isOfflineReplay) {
+        await assertStageApprovedToLeave({ cycleId: cycle.id, fromState: stageKey, targetState: 'END', config: interlockConfig });
+      } else {
+        replayExemptGates.push('INTERLOCK_LEAVE');
+      }
     }
   }
 
@@ -263,8 +265,30 @@ export async function prepareChecklist(
       data.filterSet === 'SET_A' || data.filterSet === 'SET_B' || data.filterSet === 'ALL'
         ? data.filterSet
         : undefined;
-    await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
+    const ahuGate = await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
+    if (ahuGate?.exempt) replayExemptGates.push('AHU_COMPLETION');
   }
+
+  // Record CHECKLIST_COMPLETED event. Attributes shape:
+  //   { afterStage, answers (flat merged — backward compat for cycle-history reader),
+  //     checklists[] (per-profile snapshot — A6), clientOpId (A2), offlinePerformedAt (A1),
+  //     replayExemptGates (2026-09-25, replay only) }
+  const eventData = {
+    filterId,
+    cycleId: cycle.id,
+    eventType: 'CHECKLIST_COMPLETED' as const,
+    performedBy: ctx.userSub,
+    attributes: {
+      afterStage: stageKey,
+      answers,
+      checklists: checklistsSnapshot,
+      ...(clientOpId ? { clientOpId } : {}),
+      ...(offlineTime ? { offlinePerformedAt: offlineTime.toISOString() } : {}),
+      ...(replayExemptGates.length ? { replayExemptGates } : {}),
+    },
+    remarks: `Checklist completed after ${stageKey}`,
+  };
+  const checksum = computeChecksum(eventData);
 
   return {
     kind: 'plan',
@@ -281,6 +305,7 @@ export async function prepareChecklist(
       clientOpId,
       answerCount: Object.keys(answers ?? {}).length,
       profileCount: checklistsSnapshot.length,
+      replayExemptGates,
     },
   };
 }
@@ -398,7 +423,10 @@ export async function executeChecklistTx(tx: TxClient, plan: ChecklistPlan): Pro
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole, action: 'CHECKLIST_COMPLETED',
     targetType: 'filter', targetId: filterId,
-    afterValue: { stage: stageKey, answerCount: plan.answerCount, profileCount: plan.profileCount },
+    afterValue: {
+      stage: stageKey, answerCount: plan.answerCount, profileCount: plan.profileCount,
+      ...(plan.replayExemptGates?.length ? { offlineReplay: true, replayExemptGates: plan.replayExemptGates } : {}),
+    },
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
   }, tx);
 }

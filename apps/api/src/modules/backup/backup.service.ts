@@ -20,6 +20,7 @@ import { runPgDump, runPgRestore } from './pg-tools.js';
 const MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
 
 import { auditLog } from '../../lib/audit.js';
+import { prisma } from '../../lib/prisma.js';
 import type { RequestContext } from '../../types/context.js';
 import {
   fetchAllTablesRaw,
@@ -31,6 +32,7 @@ import {
   getUserTriggerState,
   getServerMajorVersion,
   resetPublicSchema,
+  preserveUnbackedAuditRows,
   type BackupChainReport,
 } from './backup.repository.js';
 import {
@@ -628,16 +630,30 @@ export async function restoreDump(
   // operator's data — the cleanup below must not delete it.
   let preserveDir = false;
 
+  let auditRowsPreserved = 0;
   try {
     await writeFile(archivePath, fileBuffer);
 
     // 1. Safety net before anything destructive.
     await runPgDump(safetyPath, { serverMajor });
 
+    // 1b. Audit 2026-09-24 (compliance F5, closed 2026-09-25): park the live
+    // audit trail in a schema the public reset does not touch, so rows the
+    // archive does not carry come back after the load instead of being
+    // destroyed (the trail is the one table retained permanently).
+    await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`);
+    await prisma.$executeRawUnsafe(`CREATE SCHEMA digilog_keep`);
+    await prisma.$executeRawUnsafe(`CREATE TABLE digilog_keep.audit_trail AS SELECT * FROM public.audit_trail`);
+
     // 2 + 3. Empty, then load.
     try {
       await resetPublicSchema();
       await runPgRestore(archivePath);
+      auditRowsPreserved = await prisma.$transaction(
+        async (tx: unknown) => preserveUnbackedAuditRows(tx, 'digilog_keep.audit_trail'),
+        { timeout: 300_000, maxWait: 30_000 },
+      );
+      await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`);
     } catch (restoreErr: any) {
       // 4. Put the database back the way we found it.
       let rollbackNote = '';
@@ -666,7 +682,7 @@ export async function restoreDump(
       action: 'BACKUP_RESTORED',
       targetType: 'system',
       targetId: 'database_restore',
-      afterValue: { format: 'dump', timestamp, bytes: fileBuffer.length },
+      afterValue: { format: 'dump', timestamp, bytes: fileBuffer.length, auditRowsPreserved },
       signatureMeaning: 'Database restored from pg_dump archive by administrator (full schema + data)',
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
@@ -974,7 +990,7 @@ export async function restore(
   // a tampered audit_trail chain is refused unless the operator explicitly
   // overrides. Force is itself audited in the BACKUP_RESTORED row below
   // (afterValue.forced=true).
-  await restoreFromBackup(backup, { force: opts.force });
+  const auditRowsPreserved = await restoreFromBackup(backup, { force: opts.force });
 
   // Audit log the restore
   await auditLog({
@@ -989,6 +1005,8 @@ export async function restore(
       backupChecksum: backup.metadata.checksum,
       generatedBy: backup.metadata.generatedBy,
       forced: opts.force === true,
+      // F5 (2026-09-25): live audit rows the backup lacked, kept through the restore.
+      auditRowsPreserved,
     },
     signatureMeaning: opts.force
       ? 'Database restored from backup by administrator (audit-chain verification BYPASSED)'

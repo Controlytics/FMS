@@ -424,13 +424,22 @@ export async function executeReplacement(entryId: string, oldFilterId: string, r
   };
 }
 
+/** Ids of the AHUs that are still active (A-F7, 2026-09-25): a soft-deleted AHU produces no task. */
+async function activeAhuIds(): Promise<string[]> {
+  const rows = await prisma.ahu.findMany({ where: { isActive: true }, select: { id: true } });
+  return rows.map((r) => r.id);
+}
+
 export async function listDueEntries() {
   const today = todayUtcDateOnly();
   const todayDate = new Date(`${today}T00:00:00Z`);
   const entries = await prisma.replacementScheduleEntry.findMany({
     // Only APPROVED entries become due tasks (workflow ON gates this; when OFF,
     // entries default to APPROVED so behaviour is unchanged).
-    where: { approvalStatus: 'APPROVED', windowStart: { lte: todayDate }, windowEnd: { gte: todayDate } },
+    // Audit 2026-09-24 (A-F7, closed 2026-09-25): an entry whose AHU was
+    // soft-deleted is a record, not a task — its filters went inactive with the
+    // AHU, so it would sit at 0/0 DUE → MISSED forever.
+    where: { approvalStatus: 'APPROVED', windowStart: { lte: todayDate }, windowEnd: { gte: todayDate }, ahuId: { in: await activeAhuIds() } },
     orderBy: [{ windowEnd: 'asc' }],
   });
   return entries
@@ -595,7 +604,8 @@ export async function isFilterBlockedForCleaning(filterId: string): Promise<bool
 export async function listTaskEntries() {
   const today = todayUtcDateOnly();
   const entries = await prisma.replacementScheduleEntry.findMany({
-    where: { approvalStatus: 'APPROVED' },
+    // A-F7 (2026-09-25): see listDueEntries — no task for a soft-deleted AHU.
+    where: { approvalStatus: 'APPROVED', ahuId: { in: await activeAhuIds() } },
     orderBy: [{ windowEnd: 'asc' }, { slNo: 'asc' }],
   });
   if (entries.length === 0) return [];

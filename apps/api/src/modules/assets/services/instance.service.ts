@@ -19,11 +19,18 @@ import { computeChecksum } from '../../filter-operations/helpers.js';
 import { getFilterStageRules, classifyMove, moveStartsCycle, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
 import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole, assertFilterOperable } from '../filter-workflow.js';
 import { resolveManualCycleReason, breakActiveCycleTx, startManualCycleTx } from '../../filter-operations/manual-cycle.js';
+import { validateAndBuildFilterAttributes, FILTER_ATTRIBUTE_FIELDS, type FilterFieldInput } from './filter-fields.service.js';
 // uns / device-credential / connectivity provisioning removed with data-ingestion removal.
 
 async function validateParent(parentId: string, childTemplateId: string, childId?: string) {
   const parent = await instanceRepository.findByIdSimple(parentId);
   if (!parent) throw new ValidationError('Parent entity instance not found');
+  // Audit 2026-09-24 (A-F4, closed 2026-09-25): a soft-deleted parent is not a
+  // parent. Attaching to one hid the child from every tree read and, for a
+  // filter, NULLed `filters.ahu_id` through the mirror trigger.
+  if ((parent as any).isActive === false) {
+    throw new ValidationError('Parent entity is deactivated and cannot receive children');
+  }
 
   if (childId && parentId === childId) {
     throw new ValidationError('Cannot set self as parent');
@@ -36,6 +43,13 @@ async function validateParent(parentId: string, childTemplateId: string, childId
   }
 
   const parentTemplate = await templateRepository.findById(parent.templateId);
+  // A-F4: the typed filter path only ever creates filters under an AHU, but this
+  // legacy path accepted a Block / Area as the parent, after which the mirror
+  // trigger set `filters.ahu_id = NULL` and the filter vanished from every
+  // AHU-scoped read (2 live rows). Same rule on every path now.
+  if ((template as any)?.templateKind === 'FILTER' && (parentTemplate as any)?.templateKind !== 'AHU') {
+    throw new ValidationError('A filter must be placed under an AHU');
+  }
   const parentMax = (parentTemplate as any)?.maxConnections ?? 10;
   if (parentMax > 0) {
     // #assets-1 fix: count CONTAINS children only, not every relationship sourced at
@@ -233,14 +247,34 @@ export const instanceService = {
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
 
+    const template = await templateRepository.findById(existing.templateId);
+    const isFilterKind = (template as any)?.templateKind === 'FILTER';
+
     if (data.attributes) {
-      const template = await templateRepository.findById(existing.templateId);
       if (template) {
         const attrSchema = (template as any).attributeSchema as any[] | undefined;
         if (attrSchema && attrSchema.length > 0) {
           const attrErrors = validateAttributeValues(data.attributes, attrSchema);
           if (attrErrors.length > 0) throw new ValidationError('ATTRIBUTE_VALIDATION_ERROR', attrErrors);
         }
+      }
+      // Audit 2026-09-24 (A-F4, closed 2026-09-25): the FILTER template's
+      // attributeSchema is empty, so the check above validated nothing and this
+      // legacy PUT wrote any value (`micronSize: "banana"`) straight into
+      // `filters.attributes`, which the replacement-schedule matcher reads. Run
+      // the SAME master-data validator the typed filter path uses and overlay
+      // the validated values; keys outside the five filter fields pass through.
+      if (isFilterKind && typeof data.attributes === 'object') {
+        const { attributes: validated, errors } = await validateAndBuildFilterAttributes(data.attributes as FilterFieldInput);
+        if (errors.length > 0) throw new ValidationError('One or more filter fields are invalid', errors as any);
+        const merged: Record<string, unknown> = { ...(data.attributes as Record<string, unknown>) };
+        for (const field of FILTER_ATTRIBUTE_FIELDS) {
+          if (field in merged) {
+            if (field in validated) merged[field] = validated[field];
+            else delete merged[field]; // sent blank → clear, mirrors filter.service.update
+          }
+        }
+        data.attributes = merged;
       }
     }
 
@@ -251,6 +285,13 @@ export const instanceService = {
     };
 
     const parentIdChanging = data.parentId !== undefined && data.parentId !== existing.parentId;
+
+    // A-F4: a filter always belongs to an AHU — detaching it (parentId: null)
+    // would NULL `filters.ahu_id` through the mirror and orphan it. Retire or
+    // move it instead.
+    if (isFilterKind && parentIdChanging && !data.parentId) {
+      throw new ValidationError('A filter cannot be detached from its AHU. Move it to another AHU or retire it.');
+    }
 
     if (parentIdChanging && data.parentId) {
       await validateParent(data.parentId, existing.templateId, id);
@@ -568,26 +609,28 @@ export const instanceService = {
       });
 
       await tx.assetInstance.update({ where: { id }, data: { updatedBy: ctx.userId } });
+
+      // Audit 2026-09-24 (F8, closed 2026-09-25): the audit row joins the
+      // business transaction (§1.1) — it used to be written after the commit,
+      // so a failure in between left a moved filter with no record (§11.10(e)).
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'FILTER_LIFECYCLE_STATE_CHANGED',
+        targetType: 'asset_instance', targetId: id,
+        beforeValue: { currentLifecycleState: beforeState },
+        afterValue: {
+          currentLifecycleState: newState,
+          ...(forceCompletedCycle ? { cycleForceCompleted: true } : {}),
+          ...(restartedCycle ? { cycleBrokenAndRestarted: true } : {}),
+          ...(resolvedReason ? { newCycleReason: resolvedReason.key } : {}),
+        },
+        reason: `Lifecycle state: "${beforeState ?? 'None'}" → "${newState}"${forceCompletedCycle ? ' (active cleaning cycle force-completed)' : ''}${restartedCycle ? ' (active cleaning cycle interrupted/broken; new cycle started)' : resolvedReason ? ' (new cleaning cycle started)' : ''} — ${remarks}`,
+        signatureMeaning: `Filter "${(existing as any)?.name}" lifecycle state manually changed from "${beforeState ?? 'None'}" to "${newState}"${forceCompletedCycle ? ' and its active cleaning cycle was force-completed' : ''}${restartedCycle ? ' — its in-progress cleaning cycle was interrupted (broken) and a new cycle was started' : resolvedReason ? ' — a new cleaning cycle was started' : ''}`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
 
     const instance = await instanceRepository.findByIdSimple(id);
-
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'FILTER_LIFECYCLE_STATE_CHANGED',
-      targetType: 'asset_instance', targetId: id,
-      beforeValue: { currentLifecycleState: beforeState },
-      afterValue: {
-        currentLifecycleState: newState,
-        ...(forceCompletedCycle ? { cycleForceCompleted: true } : {}),
-        ...(restartedCycle ? { cycleBrokenAndRestarted: true } : {}),
-        ...(resolvedReason ? { newCycleReason: resolvedReason.key } : {}),
-      },
-      reason: `Lifecycle state: "${beforeState ?? 'None'}" → "${newState}"${forceCompletedCycle ? ' (active cleaning cycle force-completed)' : ''}${restartedCycle ? ' (active cleaning cycle interrupted/broken; new cycle started)' : resolvedReason ? ' (new cleaning cycle started)' : ''} — ${remarks}`,
-      signatureMeaning: `Filter "${(instance as any)?.name}" lifecycle state manually changed from "${beforeState ?? 'None'}" to "${newState}"${forceCompletedCycle ? ' and its active cleaning cycle was force-completed' : ''}${restartedCycle ? ' — its in-progress cleaning cycle was interrupted (broken) and a new cycle was started' : resolvedReason ? ' — a new cleaning cycle was started' : ''}`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
-
     return instance;
   },
 
@@ -671,16 +714,31 @@ export const instanceService = {
       // removed with data-ingestion removal — tables no longer exist.
       // qrCode / latestTelemetry cascades removed 2026-07-01 — both orphaned
       // tables dropped (QR module gone 2026-06-06; telemetry pipeline gone Phase 7).
-    });
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'ASSET_DELETED',
-      targetType: 'asset_instance', targetId: id,
-      beforeValue: { name: existing.name, status: existing.status, isActive: existing.isActive, templateKind: delKind },
-      afterValue: { isActive: false, cascadeDeactivated: descendantIds.length, templateKind: delKind },
-      signatureMeaning: `${delKind ?? 'Record'} "${existing.name}" and ${descendantIds.length} under it deactivated`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      // Audit 2026-09-24 (A-F7, closed 2026-09-25): equipment groups are
+      // CONFIGURATION of a block, not evidence, and they cannot be deleted
+      // first by hand (the group service refuses to remove a block's last
+      // active group) — so deactivate them with the block. PM schedules and
+      // replacement entries are RECORDS and are deliberately left in place;
+      // their task readers now ignore inactive AHUs instead.
+      const groups = await tx.equipmentGroup.updateMany({
+        where: { blockId: { in: allIds }, isActive: true },
+        data: { isActive: false },
+      });
+
+      // §1.1: the audit row joins the transaction that deactivates the rows.
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'ASSET_DELETED',
+        targetType: 'asset_instance', targetId: id,
+        beforeValue: { name: existing.name, status: existing.status, isActive: existing.isActive, templateKind: delKind },
+        afterValue: {
+          isActive: false, cascadeDeactivated: descendantIds.length, templateKind: delKind,
+          ...(groups.count > 0 ? { equipmentGroupsDeactivated: groups.count } : {}),
+        },
+        signatureMeaning: `${delKind ?? 'Record'} "${existing.name}" and ${descendantIds.length} under it deactivated`,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
 
     return allIds.length;
