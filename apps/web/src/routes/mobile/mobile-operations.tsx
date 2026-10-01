@@ -30,6 +30,7 @@ import {
 // in lib/filter-ops so the two pages cannot drift again.
 import {
   validateOfflineGate,
+  firstStagesFromGraph,
   resolvePendingChecklistDialog,
   resolveChecklistForTargetStage,
   findNextPendingChecklist,
@@ -974,6 +975,54 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     return { results: resp.results, actionsByFilter, okCount, failures };
   };
 
+  type BulkOutcome = Exclude<Awaited<ReturnType<typeof runBulkOnline>>, string>;
+
+  /**
+   * Missed-PM question for a BATCH cycle start (2026-10-01).
+   *
+   * /bulk-operate reports each refused start with a code + message only — no
+   * task list — so a batch that hit PM_PREVIOUS_TASK_PENDING used to end on
+   * "give a reason for each outstanding visit" with nowhere to give one. The
+   * outstanding visits come from the same map the offline path uses (refreshed
+   * first, since we are online); the operator answers ONCE and only the refused
+   * items are re-sent with the answers attached. Anything else is returned
+   * unchanged, so every other failure keeps its own message.
+   */
+  const retryBulkStartsForMissedPm = async (
+    ops: BulkClientItem[],
+    first: BulkOutcome,
+    reauthAction: string | string[],
+  ): Promise<BulkOutcome> => {
+    const refusedIds = new Set(
+      first.results.flatMap(r => (r.status === 'failed' && r.error?.code === 'PM_PREVIOUS_TASK_PENDING' ? [r.filterId] : [])),
+    );
+    if (refusedIds.size === 0) return first;
+    await refreshPmPendingCache();
+    const tasksById = new Map<string, PendingPmTask>();
+    for (const fid of refusedIds) {
+      for (const t of await getCachedPendingPmTasksForFilter(fid)) tasksById.set(t.entryId, t);
+    }
+    // Nothing to ask about (map unavailable to this role) — leave the server's message.
+    if (tasksById.size === 0) return first;
+    const answers = await askPmSkipReasons([...tasksById.values()], 5);
+    if (!answers) return first; // cancelled — those cleanings do not start
+    const retryOps = ops
+      .filter(o => refusedIds.has(o.filterId))
+      .map(o => ({ ...o, clientOpId: crypto.randomUUID(), cyclePayload: { ...(o.cyclePayload ?? {}), pmSkips: answers } }));
+    const second = await runBulkOnline(retryOps, reauthAction);
+    if (typeof second === 'string') return first;
+    await forgetCachedPmTasks(answers.map(a => a.entryId));
+    const secondById = new Map(second.results.map(r => [r.filterId, r]));
+    const results = first.results.map(r => secondById.get(r.filterId) ?? r);
+    const actionsByFilter = new Map([...first.actionsByFilter, ...second.actionsByFilter]);
+    return {
+      results,
+      actionsByFilter,
+      okCount: results.filter(r => r.status === 'ok').length,
+      failures: results.flatMap(r => (r.status === 'failed' ? [`${r.filterId}: ${r.error?.message ?? 'failed'}`] : [])),
+    };
+  };
+
   // Submit all queued filters for the active stage (batch advance for mid-cycle stages).
   // Each item is validated against the cached pipeline graph + block assignment BEFORE
   // being queued — this is the same strict offline gate applied in handleSubmit.
@@ -1049,7 +1098,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     for (const item of batchQueue) {
       try {
         const cached = cachedFilterById.get(item.filterId);
-        const cachedState = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
+        let cachedState = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
+        // 2026-10-01: a filter this tablet has never opened (newly created, or not
+        // cleaned since the last cache wipe) has no cached pipeline, so the "a new
+        // cycle starts at the FIRST stage" rule in the gate below had nothing to
+        // check. A wrong-stage scan then asked for a cleaning reason, started the
+        // cycle, and only the advance was refused. Online, read the state once so
+        // the operator is told the right stage BEFORE anything is started.
+        if (online && !cachedState.pipelineGraph?.stages && !(cachedState.currentCycle?.id || cached?.currentCycleId)) {
+          try {
+            const cs = await apiClient.get<any>(
+              `/api/filters/${item.filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`,
+            );
+            if (cs) { await cacheServerStateResponse(item.filterId, cs); cachedState = cs; }
+          } catch { /* transient read failure — fall through with what is cached */ }
+        }
         const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
         const cycleInProgress = !!(cachedState.currentCycle?.id || cached?.currentCycleId);
 
@@ -2000,6 +2063,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       // Check if there's an active cycle — no cycle means we need to start one (reason dialog)
       const hasActiveCycle = !!state.currentCycle;
       if (!hasActiveCycle) {
+        // A new cycle starts at the pipeline's FIRST stage. The offline gate
+        // above already enforces this; online it was left to the server, which
+        // only refuses the ADVANCE — after the reason was asked and the cycle
+        // started. Say it here instead, the same way a wrong-stage scan of a
+        // running cycle names the right stage (2026-10-01).
+        const firstStages = firstStagesFromGraph(state.pipelineGraph);
+        if (firstStages.length > 0 && !firstStages.includes(activeStage.key)) {
+          setError(
+            `${filterName || state.filterName || 'This filter'} has no cleaning cycle yet. ` +
+            `Start it at ${firstStages.map((s: string) => s.replace(/_/g, ' ')).join(', ')}, not ${activeStage.label}.`,
+          );
+          setLoading(false); return;
+        }
         // Don't silently auto-start PM. Open the reason picker; for a PM-due
         // filter, pre-select PM + flag it so the picker shows the PM banner.
         // Operator confirms PM (completes the My Tasks PM task) or picks another
@@ -2070,6 +2146,55 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // Pending cycle payload — saved when reason is selected, used by equipment dialog for offline compound queue
   const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
 
+  /**
+   * Start a cleaning cycle through `run`, answering the missed-PM question when
+   * it comes up. ONE implementation for every single-filter start on this page
+   * (2026-10-01): the question used to live only in the no-equipment branch of
+   * handleReasonSubmit, so a start that went through the Equipment Readings
+   * dialog was refused by the server (409 PM_PREVIOUS_TASK_PENDING) with no way
+   * to answer it.
+   *
+   *   offline — there is no 409 to react to, so the question is answered from
+   *             the cached map and the reasons ride in the queued payload (the
+   *             server exempts offline replay from re-asking);
+   *   online  — the server's 409 carries the outstanding visits; ask, then
+   *             retry the same start with the answers attached.
+   *
+   * `cancelled: true` = the operator dismissed the OFFLINE question: nothing was
+   * started or queued, and there is no error to show. Dismissing the ONLINE
+   * question re-throws the server's refusal, which the caller must display.
+   */
+  const startWithPmGate = async <T,>(
+    filterId: string,
+    run: (extraCycleFields: Record<string, any>) => Promise<T>,
+  ): Promise<{ cancelled: true } | { cancelled: false; result: T }> => {
+    let offlineSkips: Array<{ entryId: string; reason: string }> | null = null;
+    if (!online) {
+      const cachedPending = await getCachedPendingPmTasksForFilter(filterId);
+      if (cachedPending.length > 0) {
+        const answers = await askPmSkipReasons(cachedPending, 5);
+        if (!answers) return { cancelled: true };
+        offlineSkips = answers;
+        // Don't ask again for these in the same offline session.
+        await forgetCachedPmTasks(answers.map((a) => a.entryId));
+      }
+    }
+    try {
+      return { cancelled: false, result: await run(offlineSkips ? { pmSkips: offlineSkips } : {}) };
+    } catch (startErr: any) {
+      const code = startErr?.error ?? startErr?.code;
+      const pending = startErr?.connectionInfo?.pendingPmTasks;
+      if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pending) || pending.length === 0) throw startErr;
+      const answers = await askPmSkipReasons(pending, startErr?.connectionInfo?.minReasonLength ?? 5);
+      if (!answers) throw startErr; // cancelled — the cleaning does not start
+      const result = await run({ pmSkips: answers });
+      // Keep the offline map in step with what the server just cleared,
+      // otherwise going offline right after would re-ask for the same visits.
+      await forgetCachedPmTasks(answers.map((a) => a.entryId));
+      return { cancelled: false, result };
+    }
+  };
+
   const handleReasonSubmit = async () => {
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
@@ -2132,9 +2257,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             cyclePayload,
             advancePayload: advanceFor(f.filterName),
           }));
-          const out = await runBulkOnline(ops, withStageAction(['START_CLEANING_CYCLE'], batchTargetState(ops)));
-          if (out === 'cancelled') { setLoading(false); return; }
-          if (out === 'transport_error') { setError('Could not reach the server to start the cycles. Please try again.'); setLoading(false); return; }
+          const startAction = withStageAction(['START_CLEANING_CYCLE'], batchTargetState(ops));
+          const firstOut = await runBulkOnline(ops, startAction);
+          if (firstOut === 'cancelled') { setLoading(false); return; }
+          if (firstOut === 'transport_error') { setError('Could not reach the server to start the cycles. Please try again.'); setLoading(false); return; }
+          const out = await retryBulkStartsForMissedPm(ops, firstOut, startAction);
           for (const [fid, actions] of out.actionsByFilter) cycleStartActions.set(fid, actions);
           for (const r of out.results) {
             if (r.status === 'ok') setRecentOps(prev => [{ stage: reasonDialog.stage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 200));
@@ -2216,37 +2343,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           password,
         });
 
-      // OFFLINE pre-check. There is no 409 to react to when disconnected, so the
-      // same question is answered from the cached map and the reasons ride in
-      // the queued payload. The server exempts offline replay from the gate, so
-      // it accepts them without re-asking.
-      let offlineSkips: Array<{ entryId: string; reason: string }> | null = null;
-      if (!online) {
-        const cachedPending = await getCachedPendingPmTasksForFilter(reasonDialog.filterId);
-        if (cachedPending.length > 0) {
-          const answers = await askPmSkipReasons(cachedPending, 5);
-          if (!answers) return; // cancelled — no cycle, nothing queued
-          offlineSkips = answers;
-          // Don't ask again for these in the same offline session.
-          await forgetCachedPmTasks(answers.map((a) => a.entryId));
-        }
-      }
-
-      let startResult;
-      try {
-        startResult = await runStart(offlineSkips ? { pmSkips: offlineSkips } : {});
-      } catch (startErr: any) {
-        const code = startErr?.error ?? startErr?.code;
-        const pending = startErr?.connectionInfo?.pendingPmTasks;
-        if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pending) || pending.length === 0) throw startErr;
-        const answers = await askPmSkipReasons(pending, startErr?.connectionInfo?.minReasonLength ?? 5);
-        if (!answers) throw startErr; // cancelled — the cleaning does not start
-        startResult = await runStart({ pmSkips: answers });
-        // Keep the offline map in step with what the server just cleared,
-        // otherwise going offline right after would re-ask for the same visits.
-        await forgetCachedPmTasks(answers.map((a) => a.entryId));
-      }
-      const { executed: cycleExecuted, deferred: cycleDeferred } = startResult;
+      // Missed-PM question (offline from the cached map, online from the 409).
+      const started = await startWithPmGate(reasonDialog.filterId, runStart);
+      if (started.cancelled) return; // offline question dismissed — no cycle, nothing queued
+      const { executed: cycleExecuted, deferred: cycleDeferred } = started.result;
 
       // Dialog-first (2026-07-16): the first stage has a mandatory checklist, so
       // NOTHING was written — not even the cycle start. The dialog is open and
@@ -2546,15 +2646,17 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${f.filterName}`,
             },
           }));
-          const out = await runBulkOnline(ops, withStageAction(['START_CLEANING_CYCLE'], batchTargetState(ops)));
+          const startAction = withStageAction(['START_CLEANING_CYCLE'], batchTargetState(ops));
+          const firstOut = await runBulkOnline(ops, startAction);
           // Operator declined reauth — keep the dialog + state, no error banner.
-          if (out === 'cancelled') { setLoading(false); return; }
+          if (firstOut === 'cancelled') { setLoading(false); return; }
           // Wholesale transport failure — keep state so the operator can retry.
-          if (out === 'transport_error') {
+          if (firstOut === 'transport_error') {
             setError('Could not reach the server to start the cycles. Please try again.');
             setLoading(false);
             return;
           }
+          const out = await retryBulkStartsForMissedPm(ops, firstOut, startAction);
           setPendingCyclePayload(null);
           // `executed` gates the instances mutate below: true if ANY filter
           // succeeded. The first-filter success toast is keyed separately on that
@@ -2588,11 +2690,21 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           // as the multi-filter DRY_IN SET_DURATION path (handleSubmitQueue
           // line ~890). For single-filter, no batchRest, normal dispatch.
           const useUnifiedBatch = batchRest.length > 0;
+          // 🔴 2026-10-01 — a REFUSED start used to vanish here. `reauth.execute`
+          // hands a failure to `onError` and does not re-throw; with no handler
+          // the server's reason was never shown, and the line after it cleared
+          // `pendingCyclePayload` regardless. The dialog stayed open, so the next
+          // Submit took the plain-advance branch below against a filter that has
+          // no cycle — the operator saw "No active cleaning cycle" on every
+          // retry and could not get out of it. Now: the real reason is shown, and
+          // the start payload is only spent once the start has actually happened.
+          let startFailed = false;
+          let startCancelled = false;
           await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], targetState), async (password?) => {
-            const res = await core.startAndAdvance({
+            const started = await startWithPmGate(equipFiltId, (extraCycleFields) => core.startAndAdvance({
               filterId: equipFiltId,
               filterName: equipFiltName,
-              cyclePayload: cyclePayloadSnap,
+              cyclePayload: { ...cyclePayloadSnap, ...extraCycleFields },
               advancePayload: {
                 targetState,
                 cleaningAreaId: selectedBlock?.id,
@@ -2605,7 +2717,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
               cleaningAreaId: selectedBlock?.id,
               password,
               skipChecklistDispatch: useUnifiedBatch,
-            });
+            }));
+            if (started.cancelled) { startCancelled = true; return; }
+            const res = started.result;
+            // The cycle exists (or its start is queued) — only now is the start
+            // payload spent. A deferred start (first-stage checklist) carries it
+            // inside the checklist dialog's parked op, so clearing is right there too.
+            setPendingCyclePayload(null);
             executed = res.executed;
             dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
             // Cycle-start deferred behind its first-stage checklist: nothing was
@@ -2617,11 +2735,35 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             if (useUnifiedBatch && executed && Array.isArray((res.result as any)?.actions)) {
               cycleStartActionsByFilter.set(equipFiltId, (res.result as any).actions);
             }
+          }, {
+            onError: (e: any) => {
+              startFailed = true;
+              if ((e?.code === 'BLOCK_CHANGE_CONFIRM' || e?.code === 'BLOCK_CHANGE_REQUIRED') && e?.connectionInfo) {
+                core.dispatch({ type: 'close' }); // close equip dialog first (allowed → none)
+                core.dispatch({
+                  type: 'open_block_change',
+                  filterId: e.connectionInfo.filterId,
+                  filterName: equipFiltName,
+                  homeBlockId: e.connectionInfo.homeBlockId,
+                  homeBlockName: e.connectionInfo.homeBlockName,
+                  requestedBlockId: e.connectionInfo.requestedBlockId,
+                  requestedBlockName: e.connectionInfo.requestedBlockName,
+                });
+                setBlockChangeReason('');
+                setSelectedEquipGroup(null); setReadings({});
+                setPendingCyclePayload(null);
+              } else {
+                // The dialog and its start payload are kept: fix the cause and
+                // Submit again, and it is still a cycle START.
+                setError(`${equipFiltName}: ${e?.message ?? 'The cleaning cycle could not be started.'}`);
+              }
+              setLoading(false);
+            },
           });
-          setPendingCyclePayload(null);
-          // If reauth dialog was cancelled or failed, `executed` stays undefined —
-          // bail out without proceeding into the post-advance state mgmt below.
-          if (typeof executed !== 'boolean') {
+          // Refused, question dismissed, or the password prompt is still open
+          // (`executed` unset) — nothing was started, so none of the "stage
+          // reached" bookkeeping below applies.
+          if (startFailed || startCancelled || typeof executed !== 'boolean') {
             setLoading(false);
             return;
           }

@@ -831,6 +831,16 @@ export function FilterOperationsPage() {
       // operator confirms PM (completes the My Tasks PM task) or picks another
       // reason (which leaves the PM task pending). No more silent PM auto-start.
       if (!state.currentCycle) {
+        // A new cycle starts at the pipeline's FIRST stage. The offline gate
+        // above already says so; online it was left to the server, which only
+        // refuses the ADVANCE — after the reason was asked and the cycle started
+        // (2026-10-01).
+        const firstStagesForStart = firstStagesFromGraph(state.pipelineGraph);
+        if (firstStagesForStart.length > 0 && !firstStagesForStart.includes(activeStage.key)) {
+          setPopupError(`${first.filterName} has no cleaning cycle yet. Start it at ${firstStagesForStart.map((s: string) => s.replace(/_/g, ' ')).join(', ')}, not ${activeStage.label}.`);
+          setLoading(false); setSubmitting(false);
+          return;
+        }
         const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
         setPendingBatch(batch);
         setPmReasonCtx(state.isPmDue && state.pmReasonKey ? { pmDue: true, defaultReasonKey: state.pmReasonKey } : { pmDue: false });

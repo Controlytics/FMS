@@ -1,5 +1,163 @@
 # Changelog
 
+## [Unreleased] - Tablet: a refused cycle start no longer turns into "No active cleaning cycle" (2026-10-01)
+
+Operator (tablet): "when a filter has no cycle and I scan it the first time it shows *no
+active cycle* … why was that coming, and unable to submit".
+
+**What the API log showed** (2026-10-01 17:31, filter L9/AHU-90/SA/00-06, no cycle):
+`POST …/start-cycle → 409`, then `POST …/advance → 400`, then `…/advance → 400` again.
+The start was REFUSED; the two advances are what produced "No active cleaning cycle".
+
+**Cause — three faults in one path** (`mobile-operations.tsx`, `handleEquipSubmit`,
+single filter). Wash In on a block with an equipment group goes reason → Equipment
+Readings → Submit:
+1. `reauth.execute` hands a failure to `onError` and does not re-throw. This call passed
+   no `onError`, so the server's actual reason was never shown.
+2. The next line cleared `pendingCyclePayload` unconditionally — the dialog stayed open
+   but no longer knew it was starting a cycle.
+3. Every further Submit therefore took the plain-advance branch against a filter with no
+   cycle: "No active cleaning cycle", with no way out except cancelling the dialog.
+
+**Fix.**
+- The refusal is shown with its real reason (`<filter>: <server message>`), the dialog
+  and its start payload are kept, and the next Submit is a cycle START again. The payload
+  is cleared only once the start has actually happened.
+- **Missed-PM question in this path.** It existed only in the no-equipment branch, so a
+  PM-reason start through the readings dialog was refused (409
+  `PM_PREVIOUS_TASK_PENDING`) with nowhere to answer. One helper, `startWithPmGate`, now
+  serves both single-filter starts (offline from the cached map, online from the 409).
+- **Batch starts** (`/bulk-operate`, both the readings-dialog batch and the
+  no-equipment batch): a start refused for a missed PM now asks once and re-sends only
+  the refused items with the answers (`retryBulkStartsForMissedPm`). The bulk result
+  carries no task list, so the visits come from the pending-PM map, refreshed first.
+- **First stage is checked before anything is started, online too.** A filter with no
+  cycle scanned at a later stage is told "has no cleaning cycle yet. Start it at WASH IN"
+  — single scan on the tablet and the web batch path. Before, online, the reason was
+  asked and the cycle STARTED, and only the advance was refused. The tablet's queue path
+  already had this rule but only for filters whose pipeline was cached; a never-opened
+  (e.g. newly created) filter is now read once so the rule has something to check.
+
+**Which refusal the operator hit.** The log records the 409, not its code. Ruled out
+live: no overdue replacement (`blocked-filters` empty), block-change mode is `NONE`, no
+active cycle. AHU-90 does have an earlier PM visit outstanding, so the missed-PM check on
+a PM-reason start is the likely one — inferred, not proven.
+
+**Verified** in a browser against the tablet page as operator 101012, with every filter
+POST answered by a fake in the browser so nothing was written: (a) start refused → real
+reason shown, second Submit sends `start-cycle` again, zero `advance` requests; (b)
+missed-PM 409 → the question opens over the readings dialog, Cancel shows the refusal,
+Submit retries the start; (c) no-cycle filter at Storage In → "cannot start cycle at
+Storage In — start at WASH IN", no reason dialog, zero requests. `tsc` clean, web suite
+860/860 incl. `routes/mobile/__tests__/cycle-start-refusal.test.ts`.
+
+**Not exercised:** a real start on live data, the batch missed-PM retry (code-read
+only), offline replay, and the APK (needs a rebuild).
+
+**Still open.** (1) A cycle start whose FIRST stage has a mandatory checklist goes
+through the shared core's deferred op (`use-core.ts`, `start-and-advance-with-checklist`);
+it shows the server's refusal but has no missed-PM question. (2) The web page's legacy
+single-filter Wash In branch has no missed-PM question either (the batch branch, which
+the page actually uses, does). (3) The API's error log line carries the HTTP status but
+not the `AppError` code — it would have named this refusal outright.
+
+## [Unreleased] - Tablet Stage Approvals is the web page (2026-10-01)
+
+Operator: "in tab application stage approvals are different, in web is different, i need
+exactly same as web in tab also".
+
+**Cause.** The tablet (`/m`) carried its own copy of the screen inside
+`mobile-wrapper.tsx` (2026-09-02): cards instead of the list, single decisions only — no
+select-all, no "Approve Selected / Reject Selected", a different details button, date
++ time where the web shows the date. Two implementations of one screen, drifted.
+
+**Change.** The tablet tab now renders the web `StageApprovalsPage` itself. The copy is
+deleted (wrapper 3,531 → 3,300 lines): its queue/all requests, state, cards and decision
+dialog. Same list, same select-all + bulk approve / reject, same Details card, same
+dialogs, same re-auth signature. Only two things are the tablet's own:
+- the **offline notice** — approvals are online-only (live queue + a server-checked
+  signature), so offline the tab says so instead of mounting the page;
+- the **Android back button** — the wrapper owns it, the page owns its dialogs, so the
+  page publishes a "close my topmost dialog" function (`overlayBackRef`) and back closes
+  the dialog instead of dropping the approver out to Home.
+
+**Touch sizing (applies to web on a touch screen too).** The page's raw buttons were 32px
+tall and its checkboxes 16px. Under `pointer: coarse` they are now 40–44px and 24px, the
+same rule the shared Button / Input already follow. With a mouse nothing changes.
+
+**Lost on purpose:** the tablet copy showed a failed decision inside the dialog; the web
+page shows it as the standard error toast (drawn above the dialog), with the dialog left
+open. The shared tablet re-auth prompt no longer needs a "Cleaning Stage" label — the page
+uses its own prompt, as on web.
+
+**Verified.** Web at 1440 and the tablet tab at 1280×800, 800×1280 and 600×960 as shift
+officer 101014: identical heading, tabs, select-all, row actions and Details card; no
+sideways scroll, no console or API errors. Single and bulk dialogs opened and CANCELLED
+on the tablet (0 decision requests sent). `tsc` clean, web suite 854/854 incl. the new
+`stage-approvals-single-implementation.test.ts` guard.
+
+**Not exercised:** an actual approve / reject from the tablet (the one PENDING row,
+MUPS/RCB/SA/17-01 Wash Out, is the operator's to decide), the Android back button on a
+real device, and the APK — it has to be rebuilt to carry this.
+
+## [Unreleased] - Retirement List / Replacement List get their own View permission (2026-10-01)
+
+Operator: "in roles & access configuration, in permissions, retirement list view
+permission was not there" — "and also same for replacement list".
+
+**Cause.** Both pages rode on "View Filters" (`assets.view` → `ASSET_VIEW` /
+`ASSET_READ`). Their own View nodes (`retirement.view`, `replacement.view`) existed in
+`PERMISSION_TREE` but were enforced-only, so the Permissions tab listed Export for each
+page and no View.
+
+**Change.**
+- +2 permission constants `RETIREMENT_LIST_VIEW`, `REPLACEMENT_LIST_VIEW` (104 → 106);
+  both nodes are now configurable toggles — "View Retirement List" / "View Replacement
+  List" (feature privileges 85 → 87), listed first under their page.
+- Each toggle grants its ONE permission and no read dependency. Sidebar visibility ORs
+  over the grant set, so `ASSET_READ` in there would have shown the menu to every role
+  and left the toggle doing nothing.
+- Sidebar + route guard follow the new permission: `/filter-retirements` =
+  `RETIREMENT_LIST_VIEW`; `/filter-replacements` = `REPLACEMENT_LIST_VIEW` or any
+  `REPLACEMENT_SCHEDULE_*`. A role holding only schedule permissions gets the Schedule
+  tab alone (the List tab and its request are not rendered).
+- `GET /api/filters/retirements` / `/replacements` accept the new permission **or**
+  `ASSET_READ`, so a role granted only the toggle can load its page.
+- Home → Module Guide shows the two view steps against the new permissions.
+
+**Existing roles keep what they had** — data migration
+`20261001090000_list_view_permissions` (no schema change; drift guard PASS). A role gets
+the permission exactly when it could see the page before: it holds an asset read
+permission AND its sidebar allow-list does not exclude the page. The same migration
+writes the two keys into every stored `role_configs.permissions` map, so the toggle shows
+the true state and a later save does not strip it. Applied to `digilog_db` and
+`digilog_test_db`; pre-change snapshot in
+`tasks/role-privileges-baseline/before-2026-10-01.json`. Live result: Retirement List →
+SUPERVISOR, MANAGER, SHIFTOFFICER; Replacement List → SUPERVISOR, QA, MANAGER, OPERATOR,
+SHIFTOFFICER; ADMIN neither (all unchanged from before). `default-roles.ts` carries both
+permissions for fresh installs.
+
+**Behaviour that did change.** Typing `/filter-retirements` used to work for any role
+with `ASSET_READ` / `FILTER_RETIRE`, menu entry or not (QA, OPERATOR). It is now refused
+without the View permission — the URL follows the same rule as the menu.
+
+**Honest limits.**
+- The toggle hides the PAGE. It does not seal the data: `ASSET_READ` still opens both
+  feeds, because the Filter Lifecycle Report, the cycle timeline and the tablet read them.
+- A role with the View permission but no `ASSET_VIEW` gets the list, but the page's
+  Block / AHU filter stays empty (`/api/hierarchy/*` gate on `ASSET_VIEW`). No live role
+  is in that state.
+- The role changes were written by a migration, so they have no `ROLE_UPDATED` audit
+  row. Effective access is unchanged; the before-snapshot is the record.
+- The Permissions tab itself was not screenshotted (it needs SUPER_ADMIN and the
+  operator's session was live); it is covered by `permissions-tab-coverage.test.ts`.
+
+**Verified.** shared 344/344, web 849/849, full API suite 1538 passed / 12 skipped
+(147 files) including the new `list-view-permissions.test.ts` 5/5
+(permission isolation both ways, `ASSET_READ` alternate, view ≠ retire/replace), web +
+API `tsc`, drift guard, and live as MANAGER / QA / OPERATOR / ADMIN (menu entry, page,
+direct URL; no console or API errors).
+
 ## [Unreleased] - UI redesign: one design system across every screen (2026-10-01)
 
 Operator: "update all the screens ui colors, cards, everything, fonts — more

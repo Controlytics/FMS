@@ -1,3 +1,42 @@
+# Tablet: refused cycle start -> "No active cleaning cycle" (2026-10-01)
+
+- [x] Root cause from the API log (start-cycle 409, advance 400 x2) + `handleEquipSubmit`
+- [x] Refusal shown; start payload kept; next Submit is a START (`mobile-operations.tsx`)
+- [x] `startWithPmGate` shared by the reason path and the readings-dialog path
+- [x] Batch: `retryBulkStartsForMissedPm` (both /bulk-operate start paths)
+- [x] First-stage check before a start, online (tablet single + cold-cache queue, web batch)
+- [x] Browser-verified with faked server answers (3 scenarios, zero writes); guard test; tsc; web suite
+- [ ] OPEN: missed-PM question for the deferred first-stage-checklist start (`use-core.ts`)
+- [ ] OPEN: log the AppError code on the http/error log line (would have named the 409)
+- [ ] APK rebuild to carry this and the Stage Approvals change
+
+# Tablet Stage Approvals = the web page (2026-10-01)
+
+Operator: the tablet's Stage Approvals differed from web; wants them exactly the same.
+
+- [x] `/m` Stage Approvals tab renders the web `StageApprovalsPage`; the tablet copy in `mobile-wrapper.tsx` deleted
+- [x] Android back closes the page's dialog (`overlayBackRef`); offline notice kept
+- [x] Touch sizing on the page under `pointer: coarse` (buttons 40–44px, checkboxes 24px)
+- [x] Guard test `routes/mobile/__tests__/stage-approvals-single-implementation.test.ts`
+- [x] Verified web vs tablet at 4 sizes; dialogs opened + cancelled; tsc + web suite
+- [ ] Operator: decide the PENDING Wash Out on MUPS/RCB/SA/17-01 from the tablet (real approve / reject not exercised)
+- [ ] APK rebuild to carry it (blank `VITE_API_URL`); back button on a real device
+
+# Retirement / Replacement List View permissions (2026-10-01)
+
+Operator: the Permissions tab had no View toggle for the Retirement List or the
+Replacement List (both rode on "View Filters").
+
+- [x] `RETIREMENT_LIST_VIEW` / `REPLACEMENT_LIST_VIEW` constants; `retirement.view` / `replacement.view` configurable (single-permission grant); snapshot + count tests (106 / 87)
+- [x] Sidebar visibility + route guards on the new permissions; Replacement List tab gated; Module Guide steps
+- [x] `GET /api/filters/{retirements,replacements}` accept the new permission or `ASSET_READ`
+- [x] Data migration `20261001090000_list_view_permissions` (dev + test DB applied; before-snapshot saved); `default-roles.ts`
+- [x] Tests: shared, web (sidebar + Permissions-tab grouping), API e2e; tsc; drift guard
+- [x] Live check as MANAGER / QA / OPERATOR / ADMIN
+- [x] Docs: CHANGELOG, CLAUDE (root + shared), role-matrix note, count sweep
+- [ ] Operator to confirm on the Permissions tab (SUPER_ADMIN screen not screenshotted — session was live)
+- [ ] OPEN (found on the way, NOT changed): `prisma/seed.ts` upsert overwrites `roles.permissions` for the 6 default roles, and `scripts/apply-schema.ps1` runs the seed on upgrade — a customer upgrade would reset ADMIN / SUPERVISOR / OPERATOR to the shipped defaults. Needs an operator decision.
+
 # UI redesign — all screens (started 2026-10-01)
 
 Operator ask: "update all the screens ui colors, cards, everything, fonts — more
