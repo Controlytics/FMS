@@ -20,9 +20,10 @@ interface AuthShellProps {
  * password, contact admin, guest request), so they read as one product.
  *
  * Two panels from `lg` up: the theme's ink on the left carries the identity
- * (logo, application name, company, compliance line), the form sits on white.
- * Below `lg` the ink panel collapses into a header band and the company line
- * moves under the form.
+ * (logo, application name, then company + compliance line beneath it), the
+ * form sits on white. Both panels are centre-aligned, horizontally and
+ * vertically. Below `lg` the ink panel collapses into a header band and the
+ * company line moves under the form.
  */
 export function AuthShell({ title, description, backToLogin, wide, children }: AuthShellProps) {
   const { branding } = useBranding();
@@ -30,25 +31,23 @@ export function AuthShell({ title, description, backToLogin, wide, children }: A
   return (
     <div className="flex min-h-screen flex-col lg:flex-row bg-white">
       <aside
-        className="flex flex-col justify-between px-8 py-8 text-white lg:w-[42%] lg:max-w-xl lg:px-12 lg:py-12"
+        className="flex flex-col items-center justify-center px-8 py-8 text-center text-white lg:w-[42%] lg:max-w-xl lg:px-12 lg:py-12"
         style={{ background: 'linear-gradient(160deg, var(--theme-login-bg-end) 0%, var(--theme-login-bg-start) 100%)' }}
       >
-        <div>
-          {branding.logoUrl ? (
-            <div className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-3">
-              <img src={branding.logoUrl} alt={branding.companyName} className="max-h-12 w-auto object-contain lg:max-h-14" />
-            </div>
-          ) : (
-            <div className="inline-flex h-14 w-14 items-center justify-center rounded-lg bg-white/12 text-xl font-semibold">
-              {branding.logoText}
-            </div>
-          )}
-          <p className="mt-6 text-2xl font-semibold leading-tight lg:mt-10 lg:text-4xl">{branding.appName}</p>
-          {branding.appTagline && (
-            <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/70 lg:text-base">{branding.appTagline}</p>
-          )}
-        </div>
-        <div className="mt-8 hidden text-sm text-white/60 lg:block">
+        {branding.logoUrl ? (
+          <div className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-3">
+            <img src={branding.logoUrl} alt={branding.companyName} className="max-h-12 w-auto object-contain lg:max-h-14" />
+          </div>
+        ) : (
+          <div className="inline-flex h-14 w-14 items-center justify-center rounded-lg bg-white/12 text-xl font-semibold">
+            {branding.logoText}
+          </div>
+        )}
+        <p className="mt-6 text-2xl font-semibold leading-tight lg:mt-8 lg:text-4xl">{branding.appName}</p>
+        {branding.appTagline && (
+          <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/70 lg:text-base">{branding.appTagline}</p>
+        )}
+        <div className="mt-8 hidden w-full max-w-xs border-t border-white/15 pt-6 text-sm text-white/60 lg:block">
           <p className="font-medium text-white/80">{branding.companyName}</p>
           <p className="mt-1">21 CFR Part 11 compliant electronic records</p>
           <p className="mt-1 font-mono text-xs">Version {branding.version}</p>
@@ -57,20 +56,22 @@ export function AuthShell({ title, description, backToLogin, wide, children }: A
 
       <main className="flex flex-1 items-center justify-center px-6 py-10 sm:px-10">
         <div className={cn('w-full', wide ? 'max-w-lg' : 'max-w-sm')}>
-          {backToLogin && (
-            <Link
-              to={typeof backToLogin === 'string' ? backToLogin : '/login'}
-              replace
-              className="mb-5 inline-flex items-center gap-1.5 py-1 text-sm font-medium text-slate-500 hover:text-slate-800"
-            >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              Back to sign in
-            </Link>
-          )}
-          <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
-          {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+          <div className="text-center">
+            {backToLogin && (
+              <Link
+                to={typeof backToLogin === 'string' ? backToLogin : '/login'}
+                replace
+                className="mb-5 inline-flex items-center gap-1.5 py-1 text-sm font-medium text-slate-500 hover:text-slate-800"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Back to sign in
+              </Link>
+            )}
+            <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
+            {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+          </div>
 
           <div className="mt-6">{children}</div>
 

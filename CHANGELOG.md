@@ -36,6 +36,12 @@ not a gradient pill), layout background.
 **Signed-out screens** — new `components/auth-shell.tsx`: sign in, forgot password,
 change password, contact admin, guest request and the tablet's `/m/login` +
 `/m/forgot-password` share one two-panel frame.
+- **Centre-aligned (same day, operator request):** logo, application name and the
+  company / compliance / version lines now sit as one centred stack in the ink panel
+  (the company block moved from the panel's bottom-left to directly under the title),
+  and the form heading, description and "Back to sign in" link are centred above the
+  form. Field labels stay left-aligned with their inputs. `auth-shell.tsx` only, so
+  all 7 screens follow; measured at 1440 / 800 / 390px (offset 0px, no console errors).
 
 **Page sweep (3 scripted passes, 150+ files)**
 - 201 decorative multi-hue gradients → brand; 115 coloured glow shadows removed;
