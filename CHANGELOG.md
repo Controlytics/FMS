@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - docs: Audit Trail SQL Reference (2026-10-03)
+
+New [`docs/AUDIT_TRAIL_SQL_REFERENCE.md`](docs/AUDIT_TRAIL_SQL_REFERENCE.md), written at the
+operator's request ("give me SQL commands to change audit trail records"). It documents every
+`audit_trail` column (type, writer, whether it is inside the checksum), how `auditLog()` seals a row
+(sorted canonical JSON, `previous_checksum`, HMAC-SHA256 under `AUDIT_CHAIN_KEY` = `checksum_version 3`),
+and the exact SQL for create / modify / delete / redact with what each does to the chain
+(`PER_ROW_CHECKSUM_MISMATCH`, `CHAIN_LINK_MISMATCH`, `CHAIN_POSITION_GAP`, `KEYED_ERA_DOWNGRADE`),
+plus every page that reads each column and the verification queries. The checksum helper it
+describes is deliberately kept OUT of the repository: it can mint rows that pass verification.
+Baseline recorded from `verify-chain` the same day: 62 gaps, 44 link mismatches, 17 per-row
+mismatches on the dev database. No code changed.
+
+**Same day, data only (no commit):** the whole filter hierarchy on the dev database was wiped and
+rebuilt through the API — 4 blocks (CWH / MUPS / PFI / FD) x 3 AHUs x 20 filters, 4 cleaning
+profiles assigned BY_BLOCK, 4 equipment groups; pre-reset dump in `backups/`. The Replacement List
+and RFID Track Record still show historic rows because they read `audit_trail`, which was kept.
+
 ## [Unreleased] - Tablet: a refused cycle start no longer turns into "No active cleaning cycle" (2026-10-01)
 
 Operator (tablet): "when a filter has no cycle and I scan it the first time it shows *no

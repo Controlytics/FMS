@@ -40,6 +40,7 @@ For a top-down view, prefer the docs at the repo root:
 - [Roles & Permissions](administration/roles/roles-and-permissions.md)
 - [System Configuration](administration/configuration/system-configuration.md)
 - [Audit Trail](administration/audit/audit-trail.md)
+- [Audit Trail SQL Reference](AUDIT_TRAIL_SQL_REFERENCE.md) — every `audit_trail` column, how the checksum/chain is computed, and what SQL create / modify / delete / redact does to it
 - [Email Integration](administration/notifications/email-integration.md)
 - [SMS Integration](administration/notifications/sms-integration.md)
 - [Security](administration/security/security.md)
