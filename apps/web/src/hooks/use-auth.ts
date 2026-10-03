@@ -130,13 +130,11 @@ export function useAuth() {
       navigate('/change-password', { replace: true });
     } else {
       await mutate();
-      // Navigate to returnUrl if present (e.g., from QR code scan), otherwise home
-      // Validate returnUrl is internal pathname only (prevent open redirect)
-      const params = new URLSearchParams(window.location.search);
-      const returnUrl = params.get("returnUrl");
-      const isSafeReturnUrl = returnUrl && returnUrl.startsWith('/') && !returnUrl.startsWith('//') && !returnUrl.includes(':');
-      navigate(isSafeReturnUrl ? returnUrl : "/", { replace: true });
-
+      // Every login lands on the dashboard. There is deliberately NO
+      // returnUrl: logout and the 401 handler used to stamp the page the
+      // previous user was on, so the NEXT user (often a different role) was
+      // sent to that page and met "Access denied" (2026-10-03).
+      navigate('/', { replace: true });
     }
 
     return res;

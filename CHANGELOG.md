@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] - Every login lands on the dashboard; `returnUrl` removed (2026-10-03)
+
+Operator: "I logged in, went to some page and logged out from there. Then I logged in as a
+different role and it opened the page I logged out from — if that page is allowed for both it
+shows, otherwise *Access denied*. After every login the user should come to the dashboard."
+
+**Cause.** The login page honoured a `returnUrl` query parameter (added long ago for a QR-scan
+flow that no longer exists). Two things wrote the previous user's page into it:
+1. `logout()` in `hooks/use-auth.ts` clears the user from SWR BEFORE it navigates, so for one
+   render `AppLayout`'s guard ran on the old page and emitted
+   `<Navigate to="/login?returnUrl=<that page>">`.
+2. Any poll (header notifications 30 s, dashboard 20 s, …) that answered 401 after the server
+   session died hit the `api-client.ts` handler, which did a hard
+   `window.location.href = /login?returnUrl=<page>`.
+The next sign-in — a different role — then navigated to that page and met the route guard.
+
+**Fix.** `returnUrl` is gone from all five places: `use-auth.ts` `login()` and `routes/auth/login.tsx`
+always navigate to `/`; `app-layout.tsx` and `api-client.ts` redirect to a bare `/login` (the tablet
+already went to a bare `/m/login`). The now-unused `useSearchParams` / `useLocation` imports went
+with it. Session expiry therefore also lands on the dashboard rather than the page you were on —
+that is the operator's stated requirement ("dont redirect to other pages"). The S4 open-redirect
+guard from the 2026-07-25 security audit is moot now that the parameter is not read at all.
+
+**Verified in the browser** (`.playwright-mcp/login-lands-on-dashboard.js`, `login-401-path.js`):
+superadmin → `/config` → Logout → URL is exactly `/login`; OPERATOR `101012` signs in → `/`, no
+"Access denied". Same for the 401 path (server session killed under an open `/config`, next request
+redirects to a bare `/login`, OPERATOR lands on `/`). `tsc --noEmit` clean. Docs: `apps/web/CLAUDE.md`
+Auth Flow, `FRONTEND_GUIDE.md` step 7.
+
 ## [Unreleased] - docs: Audit Trail SQL Reference (2026-10-03)
 
 New [`docs/AUDIT_TRAIL_SQL_REFERENCE.md`](docs/AUDIT_TRAIL_SQL_REFERENCE.md), written at the

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Outlet, Navigate, useLocation } from 'react-router-dom';
+import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/use-auth';
 import { useSession } from '@/hooks/use-session';
 import { useSingleTab } from '@/hooks/use-single-tab';
@@ -31,7 +31,6 @@ export function AppLayout() {
   // we replace the whole app with the lockdown screen below (the only escape
   // routes are re-enable-with-password or logout, both still allowed server-side).
   const { isSuperAdmin, enabled: superAdminApiEnabled } = useSuperAdminLock();
-  const location = useLocation();
   const { branding } = useBranding();
   const { data: passwordPolicy } = useSWR(isAuthenticated ? '/api/config/password-policy/current' : null, { revalidateOnMount: true, dedupingInterval: 5000 });
   // Extract session settings from consolidated password policy config
@@ -80,7 +79,10 @@ export function AppLayout() {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to={`/login?returnUrl=${encodeURIComponent(location.pathname)}`} replace />;
+    // No returnUrl: logout clears the user BEFORE it navigates, so this
+    // guard fires while the old page is still mounted and used to stamp that
+    // page onto the login URL — sending the NEXT user there (2026-10-03).
+    return <Navigate to="/login" replace />;
   }
 
   // Force password change redirect

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@digilog/shared';
 import { useAuth } from '@/hooks/use-auth';
@@ -13,7 +13,6 @@ import { checkExistingUserSession, type ActiveSessionInfo } from '@/hooks/use-si
 
 export function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
-  const [searchParams] = useSearchParams();
 
   // All hooks must be called unconditionally before any early return
   const { formatDateTime } = useDatetimeFormat();
@@ -52,12 +51,8 @@ export function LoginPage() {
   // If already authenticated, redirect to home — prevents back-button to login.
   // This must appear AFTER all hook calls to satisfy React Rules of Hooks.
   if (!isLoading && isAuthenticated) {
-    // Validate returnUrl is an internal pathname only (prevent open redirect).
-    // Mirrors the guard in hooks/use-auth.ts:137 — reject protocol-relative
-    // (//evil.com) and absolute (https://evil.com) targets.
-    const raw = searchParams.get("returnUrl");
-    const isSafeReturnUrl = raw && raw.startsWith('/') && !raw.startsWith('//') && !raw.includes(':');
-    return <Navigate to={isSafeReturnUrl ? raw : "/"} replace />;
+    // Always the dashboard — no returnUrl (see hooks/use-auth.ts login()).
+    return <Navigate to="/" replace />;
   }
 
   const onSubmit = async (data: LoginInput) => {

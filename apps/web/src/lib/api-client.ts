@@ -95,12 +95,9 @@ class ApiClient {
           const isMobile = window.location.pathname.startsWith('/m');
           const loginPath = isMobile ? '/m/login' : '/login';
           if (!window.location.pathname.startsWith(loginPath)) {
-            if (isMobile) {
-              window.location.href = '/m/login';
-            } else {
-              const returnPath = window.location.pathname + window.location.search;
-              window.location.href = returnPath !== '/' ? `/login?returnUrl=${encodeURIComponent(returnPath)}` : '/login';
-            }
+            // No returnUrl: a poll that 401s right after logout used to
+            // stamp the old page onto the login URL for the next user.
+            window.location.href = isMobile ? '/m/login' : '/login';
           }
         }
         // Attach status + code so callers (and the SWR onError 401-suppressor

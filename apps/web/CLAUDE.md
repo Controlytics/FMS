@@ -60,7 +60,7 @@ cd apps/web && npx vitest run src/routes/version-history/__tests__/diff.test.ts
 
 ## Auth Flow
 - Token stored in sessionStorage (not localStorage — for shared workstation security)
-- Auto-redirect to `/` (dashboard) after login, or returnUrl from query param
+- Always redirect to `/` (dashboard) after login. No `returnUrl` (removed 2026-10-03: logout + the 401 handler stamped the previous user's page onto the login URL, so the next role landed on it or on "Access denied")
 - 30-minute JWT refresh cycle
 - Session timeout warning dialog
 - Single-tab enforcement per user (BroadcastChannel)

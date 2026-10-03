@@ -279,7 +279,7 @@ React 19 SPA built with Vite 6, styled with Tailwind CSS 4. The built `apps/web/
 4. Token stored in sessionStorage (+ localStorage backup)
 5. If forcePasswordChange → redirect to /change-password
 6. Fetch /api/auth/me → get user profile + permissions
-7. Navigate to returnUrl or / (dashboard)
+7. Navigate to / (dashboard) — always; no returnUrl (removed 2026-10-03)
 8. Token auto-refreshes every 30 minutes
 9. Idle timeout (configurable, default 15 min) → warning → auto-logout
 10. Single-tab enforcement: heartbeat every 1s, 3s timeout detection
