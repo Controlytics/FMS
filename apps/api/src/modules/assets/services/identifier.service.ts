@@ -19,13 +19,31 @@ export const identifierService = {
     return identifier;
   },
 
-  async create(data: { assetId: string; identifierType: string; identifierValue: string; label?: string; isPrimary?: boolean }, ctx: RequestContext) {
+  async create(data: { assetId: string; identifierType: string; identifierValue: string; label?: string; isPrimary?: boolean; replaceExisting?: boolean }, ctx: RequestContext) {
     const asset = await instanceRepository.findByIdSimple(data.assetId);
     if (!asset) throw new ValidationError('Entity instance not found');
 
-    // Only one identifier per entity
+    // Only one identifier per entity. 2026-10-05: re-tagging is a real field
+    // operation (a damaged or lost tag, or a tag scanned onto the wrong filter
+    // during commissioning). The operator used to be refused with "already has
+    // an identifier" and had to find the Remove button first — on 2026-10-05
+    // four refusals in 15 s on one filter. With `replaceExisting` the tag the
+    // filter holds is released in the SAME transaction as the new binding,
+    // audited as ASSET_IDENTIFIER_DELETED whose reason names the new tag, so
+    // the RFID Track Record shows REMOVE then ASSIGN. Without the flag the
+    // refusal stands: both UIs send it only after a confirm step.
     const existingForAsset = await identifierRepository.findMany({ assetId: data.assetId });
-    if (existingForAsset.length > 0) throw new ConflictError('This entity already has an identifier. Remove the existing one first.', 'ENTITY_HAS_IDENTIFIER');
+    const sameTagAlreadyHere = existingForAsset.find((i) => i.identifierValue === data.identifierValue);
+    if (sameTagAlreadyHere) {
+      throw new ConflictError(`Tag ${data.identifierValue} is already assigned to "${asset.name}".`, 'IDENTIFIER_ALREADY_ON_ENTITY');
+    }
+    if (existingForAsset.length > 0 && !data.replaceExisting) {
+      throw new ConflictError(
+        `"${asset.name}" already has tag ${existingForAsset[0].identifierValue}. Remove it first, or confirm the replacement.`,
+        'ENTITY_HAS_IDENTIFIER',
+      );
+    }
+    const replaced = data.replaceExisting ? existingForAsset : [];
 
     const existingIdent = await identifierRepository.findByIdentifierValue(data.identifierValue);
     // Audit 2026-09-24 DB finding (closed 2026-09-25): a tag stays bound to a
@@ -46,6 +64,19 @@ export const identifierService = {
     }
 
     const identifier = await prisma.$transaction(async (tx) => {
+      for (const old of replaced) {
+        await tx.assetIdentifier.delete({ where: { id: old.id } });
+        await auditLog({
+          userId: ctx.userId, userRole: ctx.userRole,
+          action: 'ASSET_IDENTIFIER_DELETED',
+          targetType: 'asset_identifier', targetId: old.id,
+          beforeValue: { assetId: old.assetId, identifierType: old.identifierType, identifierValue: old.identifierValue, filterName: asset.name },
+          afterValue: { deleted: true, replacedBy: data.identifierValue },
+          reason: `Replaced by tag ${data.identifierValue} on "${asset.name}"`,
+          signatureMeaning: `Identifier "${old.identifierValue}" released from "${asset.name}" — replaced by "${data.identifierValue}"`,
+          ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+        }, tx);
+      }
       if (released) {
         await tx.assetIdentifier.delete({ where: { id: released.id } });
         await auditLog({

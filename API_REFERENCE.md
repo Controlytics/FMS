@@ -202,7 +202,7 @@ DELETE /api/assets/relationships/:id   Permission: ASSET_RELATIONSHIP_DELETE, Re
 ### Identifiers (RFID, QR, Barcode)
 ```
 GET    /api/assets/identifiers         Permission: ASSET_VIEW
-POST   /api/assets/identifiers         Permission: ASSET_IDENTIFIER_CREATE, Reauth
+POST   /api/assets/identifiers         Permission: ASSET_IDENTIFIER_CREATE, Reauth — one identifier per entity; `replaceExisting: true` swaps the held tag (released + audited in the same tx), else 409 ENTITY_HAS_IDENTIFIER
 DELETE /api/assets/identifiers/:id     Permission: ASSET_IDENTIFIER_DELETE, Reauth
 ```
 

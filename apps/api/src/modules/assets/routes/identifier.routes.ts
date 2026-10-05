@@ -113,7 +113,7 @@ export default async function identifierRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entity Identifiers'],
       summary: 'Create entity identifier',
-      description: 'Attach a physical identifier (QR, barcode, RFID, NFC, manual) to an entity.',
+      description: 'Attach a physical identifier (QR, barcode, RFID, NFC, manual) to an entity. An entity holds one identifier: a second one is refused (409 ENTITY_HAS_IDENTIFIER) unless `replaceExisting` is true, in which case the current identifier is released (audited) in the same transaction.',
       body: {
         type: 'object',
         required: ['assetId', 'identifierType', 'identifierValue'],
@@ -123,6 +123,7 @@ export default async function identifierRoutes(app: FastifyInstance) {
           identifierValue: { type: 'string' },
           label: { type: 'string' },
           isPrimary: { type: 'boolean' },
+          replaceExisting: { type: 'boolean' },
         },
       },
       response: {

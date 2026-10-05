@@ -125,6 +125,66 @@ describe('identifierService', () => {
       expect(released![1]).toBeDefined(); // inside the tx
       expect(mockAuditLog.mock.calls.some(([e]) => e.action === 'ASSET_IDENTIFIER_CREATED')).toBe(true);
     });
+
+    /**
+     * 2026-10-05: re-tagging a filter. Without `replaceExisting` a second tag is
+     * still refused (409 ENTITY_HAS_IDENTIFIER, message names the held tag). With
+     * it, the held tag is released inside the same transaction, audited as a
+     * removal whose reason names the new tag — the RFID Track Record shows
+     * REMOVE then ASSIGN. Re-scanning the tag the filter already holds is a
+     * distinct refusal so the operator is not told to "replace" a tag with itself.
+     */
+    it('refuses a second tag without replaceExisting, naming the held tag', async () => {
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'FD/AHU-02/20-00' });
+      mockIdentRepo.findMany.mockResolvedValue([{ id: 'held', assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000BF8' }]);
+
+      await expect(identifierService.create({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000CF3' }, ctx))
+        .rejects.toMatchObject({ code: 'ENTITY_HAS_IDENTIFIER', message: expect.stringContaining('CA000BF8') });
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+
+    it('refuses re-assigning the tag the filter already holds, even with replaceExisting', async () => {
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'FD/AHU-02/20-00' });
+      mockIdentRepo.findMany.mockResolvedValue([{ id: 'held', assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000BF8' }]);
+
+      await expect(identifierService.create({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000BF8', replaceExisting: true }, ctx))
+        .rejects.toMatchObject({ code: 'IDENTIFIER_ALREADY_ON_ENTITY' });
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('replaceExisting releases the held tag (audited, reason names the new tag) and binds the new one in one transaction', async () => {
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'FD/AHU-02/20-00' });
+      mockIdentRepo.findMany.mockResolvedValue([{ id: 'held', assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000BF8' }]);
+      mockIdentRepo.findByIdentifierValue.mockResolvedValue(null);
+      mockPrisma.assetIdentifier.create.mockResolvedValue({ id: 'i3', assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000CF3' });
+
+      const result = await identifierService.create({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000CF3', replaceExisting: true }, ctx);
+      expect(result.id).toBe('i3');
+      expect(mockPrisma.assetIdentifier.delete).toHaveBeenCalledWith({ where: { id: 'held' } });
+
+      const removed = mockAuditLog.mock.calls.find(([e]) => e.action === 'ASSET_IDENTIFIER_DELETED');
+      expect(removed).toBeDefined();
+      expect(removed![0].targetId).toBe('held');
+      expect(removed![0].beforeValue).toEqual({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000BF8', filterName: 'FD/AHU-02/20-00' });
+      expect(removed![0].afterValue).toEqual({ deleted: true, replacedBy: 'CA000CF3' });
+      expect(removed![0].reason).toContain('CA000CF3');
+      expect(removed![1]).toBeDefined(); // written inside the tx, like the retired-holder release
+      const created = mockAuditLog.mock.calls.find(([e]) => e.action === 'ASSET_IDENTIFIER_CREATED');
+      expect(created![0].afterValue).toEqual(expect.objectContaining({ identifierValue: 'CA000CF3', filterName: 'FD/AHU-02/20-00' }));
+    });
+
+    it('replaceExisting still refuses a tag that is live on ANOTHER filter', async () => {
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'FD/AHU-02/20-00' });
+      mockIdentRepo.findMany.mockResolvedValue([{ id: 'held', assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000BF8' }]);
+      mockIdentRepo.findByIdentifierValue.mockResolvedValue({ id: 'elsewhere', assetId: 'a2', identifierType: 'RFID', identifierValue: 'CA00C3F0' });
+      mockPrisma.assetInstance.findUnique.mockResolvedValue({ name: 'FD/AHU-02/19-00', status: 'Active', isActive: true });
+
+      await expect(identifierService.create({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA00C3F0', replaceExisting: true }, ctx))
+        .rejects.toMatchObject({ code: 'DUPLICATE_IDENTIFIER_VALUE' });
+      // Nothing was released: the refusal happens before the transaction.
+      expect(mockPrisma.assetIdentifier.delete).not.toHaveBeenCalled();
+    });
   });
 
   describe('delete', () => {

@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - Re-tagging a filter replaces its RFID tag after a confirm (2026-10-05)
+
+Operator: "when I'm adding tags to filters those showing already assigned". The http log had
+four `POST /api/assets/identifiers → 409 ENTITY_HAS_IDENTIFIER` in 15 s on `FD/AHU-02/20-00`
+that morning — each a new tag scanned onto a filter that still held one. The server's answer
+("This entity already has an identifier. Remove the existing one first.") was correct and
+useless: both screens kept the scan input live under the held tag, so the natural field action
+(scan the replacement tag) always ended in that refusal.
+
+**Fix.** A filter still holds exactly ONE tag; re-tagging is now a first-class action.
+- `POST /api/assets/identifiers` accepts `replaceExisting: true` (shared zod schema + route
+  schema). With it, the held tag is released INSIDE the same transaction as the new binding,
+  audited as `ASSET_IDENTIFIER_DELETED` with `afterValue.replacedBy` and a reason naming the
+  new tag — the RFID Track Record shows REMOVE then ASSIGN, same shape as the 2026-09-25
+  retired-holder release. Without the flag the 409 stands, its message now naming the held
+  tag. Re-scanning the tag the filter already holds is a distinct 409
+  `IDENTIFIER_ALREADY_ON_ENTITY`, so nobody is asked to replace a tag with itself. A tag live
+  on ANOTHER filter is still refused (`DUPLICATE_IDENTIFIER_VALUE`) before anything is released.
+- Tablet RFID Assign and the web Filters page tag panel: the button reads **Replace Tag** when a
+  tag is held; pressing it shows an inline amber confirm ("X already has tag A. Replace it with
+  B?") and only Replace sends the flag. Cancel clears the scan. Re-scanning the held tag shows
+  the notice inline (tablet) / as a toast (web) with no request.
+- Tests: 4 new unit cases (`identifier.service.test.ts`), 1 new e2e round-trip
+  (`phase3-rfid-offline.test.ts` 4b: 201, old row gone, audit reason names the new tag).
+  Verified on the running server with two refused (no-write) calls and both screens driven
+  in the browser with zero writes. The 757 pre-reset RFID Track Record rows were NOT touched —
+  that hard-delete remains the open operator decision from 2026-10-03.
+
 ## [Unreleased] - Every login lands on the dashboard; `returnUrl` removed (2026-10-03)
 
 Operator: "I logged in, went to some page and logged out from there. Then I logged in as a

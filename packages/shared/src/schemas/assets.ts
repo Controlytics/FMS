@@ -242,6 +242,12 @@ export const createAssetIdentifierSchema = z.object({
   identifierValue: z.string().min(1).max(255),
   label: z.string().max(100).optional(),
   isPrimary: z.boolean().default(false),
+  // 2026-10-05: a filter holds ONE tag. Without this flag a second tag is
+  // refused (409 ENTITY_HAS_IDENTIFIER). With it, the tag the filter already
+  // holds is released (audited as ASSET_IDENTIFIER_DELETED, reason names the
+  // new tag) in the same transaction as the new binding — the "re-tag a
+  // filter" flow both UIs offer behind a confirm step.
+  replaceExisting: z.boolean().optional(),
 });
 
 export type CreateAssetIdentifierInput = z.infer<typeof createAssetIdentifierSchema>;

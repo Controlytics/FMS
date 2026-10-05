@@ -231,6 +231,44 @@ describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)
   });
 
   // =========================================================================
+  // 4b. Re-tagging: replaceExisting swaps the held tag in one transaction
+  // =========================================================================
+  it('POST /api/assets/identifiers with replaceExisting releases the held tag (audited) and binds the new one (201)', async () => {
+    const identValueA2 = `RFID-${SUFFIX}-A2`;
+    const res = await authPost(
+      app,
+      '/api/assets/identifiers',
+      adminToken,
+      {
+        assetId: assetA,
+        identifierType: 'RFID',
+        identifierValue: identValueA2,
+        replaceExisting: true,
+      },
+      ADMIN_PASSWORD,
+    );
+    expect(res.statusCode).toBe(201);
+    const created = JSON.parse(res.body).data;
+    expect(created.identifierValue).toBe(identValueA2);
+
+    // The old binding is gone and the filter holds exactly the new tag.
+    const held = await prisma.assetIdentifier.findMany({ where: { assetId: assetA } });
+    expect(held.map((h) => h.identifierValue)).toEqual([identValueA2]);
+
+    // The release is a real audit row whose reason names the new tag.
+    const removal = await prisma.auditTrail.findFirst({
+      where: { action: 'ASSET_IDENTIFIER_DELETED', targetId: identifierA },
+      orderBy: { timestamp: 'desc' },
+    });
+    expect(removal).toBeTruthy();
+    expect(removal!.reason).toContain(identValueA2);
+    expect((removal!.afterValue as any)?.replacedBy).toBe(identValueA2);
+
+    // Test 5 deletes whatever assetA holds now.
+    identifierA = created.id;
+  });
+
+  // =========================================================================
   // 5. Identifier delete round-trip
   // =========================================================================
   it('DELETE /api/assets/identifiers/:id removes the identifier (200)', async () => {

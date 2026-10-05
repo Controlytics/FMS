@@ -132,6 +132,8 @@ export function FilterListPage() {
   const [rfidPanel, setRfidPanel] = useState<FilterRef | null>(null);
   const [rfidTagValue, setRfidTagValue] = useState('');
   const [rfidSubmitting, setRfidSubmitting] = useState(false);
+  // 2026-10-05: new tag value awaiting "replace the tag this filter holds?"
+  const [rfidReplaceConfirm, setRfidReplaceConfirm] = useState<string | null>(null);
 
   // Multi-select
   const [selectedFilterIds, setSelectedFilterIds] = useState<Set<string>>(new Set());
@@ -631,18 +633,34 @@ export function FilterListPage() {
     setRfidPanel(filter);
     setRfidTagValue('');
   };
-  const closeRfidPanel = () => { setRfidPanel(null); setRfidTagValue(''); setRfidSubmitting(false); };
+  const closeRfidPanel = () => { setRfidPanel(null); setRfidTagValue(''); setRfidSubmitting(false); setRfidReplaceConfirm(null); };
 
-  const handleAssignRfid = async () => {
+  const handleAssignRfid = async (opts: { replace?: boolean } = {}) => {
     if (!rfidPanel || !rfidTagValue.trim()) return;
+    const tagValue = rfidTagValue.trim();
+    // 2026-10-05: a filter holds one RFID tag. Assigning onto a filter that
+    // already has one asks for confirmation in the panel and then sends
+    // `replaceExisting`, instead of surfacing the server's 409 as a toast.
+    const heldRfid = (identifiersByAsset.get(rfidPanel.id) ?? []).filter((t: any) => t.identifierType === 'RFID');
+    if (heldRfid.length > 0 && !opts.replace) {
+      if (heldRfid.some((t: any) => t.identifierValue === tagValue)) {
+        toast.error('Already assigned', `Tag "${tagValue}" is already assigned to ${rfidPanel.name}`);
+        return;
+      }
+      setRfidReplaceConfirm(tagValue);
+      return;
+    }
+    setRfidReplaceConfirm(null);
     setRfidSubmitting(true);
+    const replacedValue = opts.replace ? heldRfid[0]?.identifierValue : undefined;
     reauth.execute('CREATE_ASSET_IDENTIFIER', async (password?: string) => {
-      const body = { assetId: rfidPanel.id, identifierType: 'RFID', identifierValue: rfidTagValue.trim(), isPrimary: true };
+      const body = { assetId: rfidPanel.id, identifierType: 'RFID', identifierValue: tagValue, isPrimary: true, ...(opts.replace ? { replaceExisting: true } : {}) };
       if (password) await api.postWithReauth('/api/assets/identifiers', body, password);
       else await api.post('/api/assets/identifiers', body);
     }, {
       onSuccess: () => {
-        toast.success('RFID Assigned', `Tag "${rfidTagValue.trim()}" assigned to ${rfidPanel!.name}`);
+        if (replacedValue) toast.success('RFID Replaced', `Tag "${replacedValue}" replaced by "${tagValue}" on ${rfidPanel!.name}`);
+        else toast.success('RFID Assigned', `Tag "${tagValue}" assigned to ${rfidPanel!.name}`);
         setRfidTagValue(''); setRfidSubmitting(false);
         mutate('/api/assets/identifiers');
       },
@@ -2290,9 +2308,12 @@ export function FilterListPage() {
           tags={identifiersByAsset.get(rfidPanel.id) ?? []}
           tagValue={rfidTagValue}
           submitting={rfidSubmitting}
-          onTagValueChange={setRfidTagValue}
+          replaceConfirm={rfidReplaceConfirm}
+          onTagValueChange={(v) => { setRfidTagValue(v); if (rfidReplaceConfirm) setRfidReplaceConfirm(null); }}
           onClose={closeRfidPanel}
-          onAssign={handleAssignRfid}
+          onAssign={() => handleAssignRfid()}
+          onConfirmReplace={() => handleAssignRfid({ replace: true })}
+          onCancelReplace={() => { setRfidReplaceConfirm(null); setRfidTagValue(''); }}
           onUnassign={handleUnassignRfid}
         />
       )}

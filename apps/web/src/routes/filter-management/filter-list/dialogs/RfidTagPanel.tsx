@@ -6,18 +6,23 @@ type Props = {
   tags: any[]; // identifiers for this filter (RFID + other types)
   tagValue: string;
   submitting: boolean;
+  /** 2026-10-05: the new tag value waiting for "replace the held tag?" — null when nothing is pending. */
+  replaceConfirm: string | null;
   onTagValueChange: (v: string) => void;
   onClose: () => void;
   onAssign: () => void;
+  onConfirmReplace: () => void;
+  onCancelReplace: () => void;
   onUnassign: (identifierId: string) => void;
 };
 
 export function RfidTagPanel({
-  filter, tags, tagValue, submitting,
-  onTagValueChange, onClose, onAssign, onUnassign,
+  filter, tags, tagValue, submitting, replaceConfirm,
+  onTagValueChange, onClose, onAssign, onConfirmReplace, onCancelReplace, onUnassign,
 }: Props) {
   const rfidTags = tags.filter((t: any) => t.identifierType === 'RFID');
   const otherTags = tags.filter((t: any) => t.identifierType !== 'RFID');
+  const heldRfid = rfidTags[0]?.identifierValue as string | undefined;
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
@@ -109,14 +114,39 @@ export function RfidTagPanel({
                   </svg>
                 </div>
               </div>
-              <button
-                onClick={onAssign}
-                disabled={submitting || !tagValue.trim()}
-                className="w-full py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg hover:opacity-90 transition-all"
-                style={themeButton}
-              >
-                {submitting ? 'Assigning...' : 'Assign Tag'}
-              </button>
+              {replaceConfirm ? (
+                /* 2026-10-05: the filter already holds a tag. Confirm the swap here
+                   instead of surfacing the server's "already has an identifier" 409.
+                   Replace releases the old tag (audited) and binds the new one in a
+                   single server transaction. */
+                <div data-testid="rfid-replace-confirm" className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-3">
+                  <div className="text-sm text-amber-900">
+                    <span className="font-semibold">{filter.name}</span> already has tag{' '}
+                    <span className="font-mono font-semibold">{heldRfid}</span>. Replace it with{' '}
+                    <span className="font-mono font-semibold">{replaceConfirm}</span>?
+                  </div>
+                  <div className="text-[11px] text-amber-800">The old tag is released and both steps are recorded in the RFID Track Record.</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={onCancelReplace} disabled={submitting}
+                      className="py-2 rounded-xl text-sm font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 disabled:opacity-50">
+                      Cancel
+                    </button>
+                    <button onClick={onConfirmReplace} disabled={submitting}
+                      className="py-2 rounded-xl text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50">
+                      {submitting ? 'Replacing...' : 'Replace Tag'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={onAssign}
+                  disabled={submitting || !tagValue.trim()}
+                  className="w-full py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg hover:opacity-90 transition-all"
+                  style={themeButton}
+                >
+                  {submitting ? 'Assigning...' : heldRfid ? 'Replace Tag' : 'Assign Tag'}
+                </button>
+              )}
             </div>
           </div>
         </div>

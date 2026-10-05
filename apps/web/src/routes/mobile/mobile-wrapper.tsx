@@ -378,6 +378,11 @@ export function MobileWrapperPage() {
   const [rfidSubmitting, setRfidSubmitting] = useState(false);
   const [rfidError, setRfidError] = useState('');
   const [rfidSuccess, setRfidSuccess] = useState('');
+  // 2026-10-05: the new tag value waiting for the operator to confirm that it
+  // REPLACES the tag the selected filter already holds. The server refuses a
+  // second tag (409 ENTITY_HAS_IDENTIFIER) unless the request carries
+  // `replaceExisting`, which this screen sends only after that confirm.
+  const [rfidReplaceConfirm, setRfidReplaceConfirm] = useState<string | null>(null);
 
   // 2026-05-26: Filter Status → Scan RFID modal state. Operator taps
   // "Scan RFID" on the Status view, scans a tag, sees the mapped
@@ -629,6 +634,7 @@ export function MobileWrapperPage() {
     rfidScan.setValue('');
     setRfidError('');
     setRfidSuccess('');
+    setRfidReplaceConfirm(null);
     setScanRfidOpen(false);
     setScanRfidValue('');
     setScanRfidError('');
@@ -658,7 +664,7 @@ export function MobileWrapperPage() {
   // assets/hooks/use-asset-mutations.ts already wrap in reauth — tablet path
   // had drifted. CREATE_ASSET_IDENTIFIER / DELETE_ASSET_IDENTIFIER actions
   // already declared in packages/shared/src/types/reauth-actions.ts:47-48.
-  const assignRfid = () => {
+  const assignRfid = (opts: { replace?: boolean } = {}) => {
     if (!rfidSelectedFilter || !rfidScan.value.trim()) {
       setRfidError('Enter or scan a tag value.');
       return;
@@ -668,10 +674,28 @@ export function MobileWrapperPage() {
     // same physical scan twice within ~1s. Silent skip — the operator
     // already saw a success toast from the first submit.
     if (rfidScan.isDuplicate(tagValue)) return;
+    // 2026-10-05: a filter holds one tag. Scanning a new one onto a filter
+    // that already has a tag used to end in the server's "already has an
+    // identifier" refusal with no way forward but hunting for Remove. Now it
+    // asks once — "replace X with Y?" — and sends `replaceExisting` on yes.
+    // Re-scanning the tag the filter already holds is pointed out, not sent.
+    const heldTag = currentRfidTags[0];
+    if (heldTag && !opts.replace) {
+      if (currentRfidTags.some((t: any) => t.identifierValue === tagValue)) {
+        setRfidError(`Tag ${tagValue} is already assigned to this filter.`);
+        return;
+      }
+      setRfidError('');
+      setRfidSuccess('');
+      setRfidReplaceConfirm(tagValue);
+      return;
+    }
+    setRfidReplaceConfirm(null);
     setRfidSubmitting(true);
     setRfidError('');
     setRfidSuccess('');
     const filterName = rfidSelectedFilter.name;
+    const replacedValue = opts.replace ? heldTag?.identifierValue : undefined;
     setReauthLabel('Assign RFID Tag');
     reauth.execute(
       'CREATE_ASSET_IDENTIFIER',
@@ -680,6 +704,7 @@ export function MobileWrapperPage() {
           assetId: rfidSelectedFilter!.id,
           identifierType: 'RFID',
           identifierValue: tagValue,
+          ...(opts.replace ? { replaceExisting: true } : {}),
         };
         if (password) {
           await api.postWithReauth('/api/assets/identifiers', body, password);
@@ -689,7 +714,9 @@ export function MobileWrapperPage() {
       },
       {
         onSuccess: async () => {
-          setRfidSuccess(`Tag assigned to "${filterName}"`);
+          setRfidSuccess(replacedValue
+            ? `Tag ${replacedValue} replaced by ${tagValue} on "${filterName}"`
+            : `Tag assigned to "${filterName}"`);
           rfidScan.setValue('');
           await mutateIdentifiers();
           setRfidSubmitting(false);
@@ -2487,7 +2514,7 @@ export function MobileWrapperPage() {
                       <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap ${rfidSelStage ? `${rfidSelStage.bg} ${rfidSelStage.text} ${rfidSelStage.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
                         {rfidSelFilter?.currentLifecycleState?.replace(/_/g, ' ') ?? 'To Be Cleaned'}
                       </span>
-                      <button onClick={() => { setRfidSelectedFilter(null); rfidScan.setValue(''); setRfidError(''); setRfidSuccess(''); }}
+                      <button onClick={() => { setRfidSelectedFilter(null); rfidScan.setValue(''); setRfidError(''); setRfidSuccess(''); setRfidReplaceConfirm(null); }}
                         className="text-xs font-semibold text-violet-600">Change</button>
                     </div>
                   </div>
@@ -2551,15 +2578,40 @@ export function MobileWrapperPage() {
                         assignRfid();
                       }
                     }}
-                    onChange={rfidScan.onChange}
+                    onChange={(e) => { rfidScan.onChange(e); if (rfidReplaceConfirm) setRfidReplaceConfirm(null); }}
                     placeholder="Scan or enter tag value..."
                     autoFocus
                     className="w-full px-3 py-3 border border-slate-200 rounded-xl text-base font-mono bg-white focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
                   />
-                  <button onClick={assignRfid} disabled={rfidSubmitting || !rfidScan.value.trim()}
-                    className="w-full mt-3 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-600 shadow-lg shadow-violet-500/20 active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed">
-                    {rfidSubmitting ? 'Assigning...' : 'Assign Tag'}
-                  </button>
+                  {rfidReplaceConfirm ? (
+                    /* 2026-10-05: the filter already holds a tag — confirm the swap
+                       instead of letting the server refuse with "already has an
+                       identifier". Replace releases the old tag (audited) and binds
+                       the new one in a single server transaction. */
+                    <div data-testid="rfid-replace-confirm" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-3">
+                      <div className="text-sm text-amber-900">
+                        <span className="font-semibold">{rfidSelectedFilter.name}</span> already has tag{' '}
+                        <span className="font-mono font-semibold">{currentRfidTags[0]?.identifierValue}</span>.
+                        Replace it with <span className="font-mono font-semibold">{rfidReplaceConfirm}</span>?
+                      </div>
+                      <div className="text-[11px] text-amber-800">The old tag is released and both steps are recorded in the RFID Track Record.</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => { setRfidReplaceConfirm(null); rfidScan.setValue(''); }} disabled={rfidSubmitting}
+                          className="py-2.5 rounded-xl text-sm font-semibold text-slate-700 bg-white border border-slate-300 active:bg-slate-100 disabled:opacity-50">
+                          Cancel
+                        </button>
+                        <button onClick={() => assignRfid({ replace: true })} disabled={rfidSubmitting}
+                          className="py-2.5 rounded-xl text-sm font-semibold text-white bg-amber-600 active:bg-amber-700 disabled:opacity-50">
+                          {rfidSubmitting ? 'Replacing...' : 'Replace Tag'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => assignRfid()} disabled={rfidSubmitting || !rfidScan.value.trim()}
+                      className="w-full mt-3 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-600 shadow-lg shadow-violet-500/20 active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed">
+                      {rfidSubmitting ? 'Assigning...' : currentRfidTags.length > 0 ? 'Replace Tag' : 'Assign Tag'}
+                    </button>
+                  )}
                 </div>
               </>
             )}
