@@ -4,7 +4,7 @@
 - [x] `GET /api/config/cleaning-profile-assignment/current` (no permission) + tablet reads it; e2e
 - [x] Tablet polls block changes only when the role holds BLOCK_CHANGE_REQUEST / _APPROVE
 - [x] Browser check: Status popup resolves `ca000c07ca000c07` → FD/AHU-02/20-00 (`.playwright-mcp/status-scan-rfid.js`)
-- [ ] APK rebuild
+- [x] APK rebuild (zip verified, bundle == dist) — NOT installed, no tablet attached
 
 # Dry In as the FIRST stage: no dryer duration (2026-10-06)
 
