@@ -5,7 +5,7 @@ Navigate to your DigiLog instance and login:
 - **URL:** http://34.232.224.0 (or your instance IP)
 - **Username:** superadmin
 - **Password:** Admin@123
-- **Swagger:** http://34.232.224.0/docs
+- **Swagger:** https://localhost:3000/docs (served only when `API_DOCS=on` is set in `apps/api/.env`)
 
 ## 2. Create an Entity Template
 1. Go to **Assets > Templates**

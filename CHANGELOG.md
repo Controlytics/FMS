@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] - Swagger brought up to date (2026-10-05)
+
+The live spec at `/docs` (API_DOCS=on) had 428 operations under 43 tags, but `lib/swagger.ts`
+defined only 17 of them — the whole filter-management surface (PM Schedules, Filter Operations,
+Replacement Schedule, Hierarchy, Cleaning Profiles, Stage Approvals, …) rendered unordered and
+undescribed. Two modules were also split across duplicate tags: the 27 dynamic config routes
+carried `Configuration` beside the 73 `Config` ones, and `POST /api/auth/refresh` carried
+`Authentication` beside the 9 `Auth` ones.
+
+- All 41 tags now defined, grouped (platform → notifications → master data → cleaning
+  operations → PM/replacement → super admin) with one-line descriptions of what each module does.
+- `dynamic-routes.ts` → `Config`; `auth/routes.ts` refresh → `Auth`. 41 tags, zero undefined.
+- Header text corrected: the roles table listed MAINTENANCE and VIEWER (not in the live role set)
+  and claimed SUPER_ADMIN actions are "not audited" — they are audited and hidden from
+  non-SUPER_ADMIN readers. Now lists the seven live roles, explains `_currentPassword`
+  re-authentication, and states the `API_DOCS=on` gate.
+- `docs/getting-started/hello-world.md` pointed at a dead EC2 IP for Swagger; now localhost.
+
 ## [Unreleased] - Re-tagging a filter replaces its RFID tag after a confirm (2026-10-05)
 
 Operator: "when I'm adding tags to filters those showing already assigned". The http log had

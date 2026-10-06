@@ -135,7 +135,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/refresh', {
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     schema: {
-      tags: ['Authentication'],
+      tags: ['Auth'],
       summary: 'Refresh JWT token',
       description: 'Issue a new JWT token if the current session is still valid. Call this periodically to prevent token expiry.',
       response: {

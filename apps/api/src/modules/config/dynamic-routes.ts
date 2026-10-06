@@ -12,7 +12,7 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
   // ── Manifest endpoint — frontend reads this to build config UI ──
   app.get('/registry/manifest', {
     schema: {
-      tags: ['Configuration'],
+      tags: ['Config'],
       summary: 'Get config module manifest for dynamic UI rendering',
       description: 'Returns all registered config modules visible to the current user, including their settings schema for dynamic form generation.',
     },
@@ -40,7 +40,7 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
         ? [app.requireRole(def.requiredRole)]
         : [app.requirePermission(def.permissions.read)],
       schema: {
-        tags: ['Configuration'],
+        tags: ['Config'],
         summary: `Get ${def.moduleName} config`,
       },
     }, async (req) => {
@@ -66,7 +66,7 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
         ? [app.requireRole(def.requiredRole)]
         : [app.requirePermission(def.permissions.write)],
       schema: {
-        tags: ['Configuration'],
+        tags: ['Config'],
         summary: `Update ${def.moduleName} config`,
       },
     }, async (req, reply) => {
