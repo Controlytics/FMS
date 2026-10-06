@@ -1,3 +1,21 @@
+# Dry In as the FIRST stage: no dryer duration (2026-10-06)
+
+Operator (2026-10-05): "duration selection is not coming in Dry In" on the CWH block, whose
+profile (DRY STORAGE) begins with Dry In. The cycle entered Dry In with no duration and the
+dryer phase was skipped silently (executor, server, tablet, web).
+
+- [x] Executor: at DRY_IN with no dryer start the tape offers ONLY `SET_DRYER_DURATION` in place (`actions.ts`)
+- [x] Server: entering DRY_IN needs `SET_DURATION` unless the dryer runs (guard #28, `dryer.ts` + `advance.ts`)
+- [x] Server: leaving DRY_IN with the dryer never started is refused (`DRYER_DURATION_REQUIRED`), no longer a silent pass
+- [x] Tablet: every start-and-advance payload for a DRY_IN start carries the duration from the queue header
+- [x] Web: single + batch start payloads carry the duration; cache primed like the mid-pipeline dryer start
+- [x] Core hook: a QUEUED SET_DURATION writes the dryer timing to the cache row BEFORE the tape recompute (offline Dry Out scan was going to be refused otherwise)
+- [x] Tests: executor (11), server e2e (6), core hook
+- [x] Existing Dry In suites green (phase2-filter-operations, bulk-operate x2, concurrent-operator, ahu-completion-gate x2) — 91 tests
+- [x] Browser check: tablet + web Dry In start send `dryerAction: SET_DURATION` + header minutes (faked writes, zero rows; `.playwright-mcp/dry-in-start-*.js`); live tape of stuck CWH/AHU-02/18-00 = `SET_DRYER_DURATION→DRY_IN` only
+- [x] CHANGELOG + CLAUDE.md note + memory
+- [ ] APK rebuild (blank `VITE_API_URL`)
+
 # Tablet: refused cycle start -> "No active cleaning cycle" (2026-10-01)
 
 - [x] Root cause from the API log (start-cycle 409, advance 400 x2) + `handleEquipSubmit`

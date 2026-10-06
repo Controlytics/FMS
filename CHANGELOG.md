@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] - Dry In as the FIRST stage: the dryer duration is required (2026-10-06)
+
+Operator (2026-10-05): "duration selection is not coming in Dry In" on the CWH block. Its profile
+(DRY STORAGE) begins with Dry In. Every old profile began with Wash In, so a cycle had never
+ENTERED Dry In as its first stage before, and three layers each assumed it could not happen:
+
+- the executor emitted `SET_DRYER_DURATION` only for a filter at a stage BEFORE Dry In - a
+  filter already AT Dry In with no dryer got a plain "Advance to Dry Out";
+- the server required nothing on the way in, and every leaving-Dry-In guard was a no-op when
+  `dryerStartedAt` was null - the cycle completed with no dryer time and no temperature (a
+  Part 11 gap);
+- the tablet and web built every start-and-advance payload without dryer fields.
+
+Fix, all four layers:
+
+- **Executor** (`pipeline-executor/actions.ts`): at DRY_IN with no dryer start the tape offers
+  ONLY `SET_DRYER_DURATION` targeting DRY_IN itself (the server's dryer-in-place path, which
+  already accepted it). No advance until the duration is set; bypass stays available as the
+  justified escape. This also recovers any cycle the bug left at Dry In.
+- **Server** (`pipeline-executor/dryer.ts`, `cycle-write/advance.ts`): guard #28 - entering
+  DRY_IN without `dryerAction: 'SET_DURATION'` is refused (400 `DRYER_DURATION_REQUIRED`)
+  unless the dryer already runs; leaving DRY_IN with the dryer never started is refused with
+  the same code instead of being waved through. Both apply to online writes, bulk-operate and
+  offline replay (a queued entry without the duration is missing data, not a timing question).
+- **Tablet + web**: a cycle START whose first stage is Dry In sends the duration chosen in the
+  queue header on the advance half (single, batch, online, offline, checklist-first), and the
+  web page primes the dryer cache for that start exactly as the mid-pipeline dryer start does.
+- **Core hook** (`lib/filter-ops/use-core.ts`): a QUEUED `SET_DURATION` writes the dryer
+  timing onto the filter's cache row BEFORE the tape is recomputed from it. The pages used to
+  write it after the core returned - too late: the recomputed cached tape would now say "set
+  the duration" and the next offline Dry Out scan would be refused as a wrong stage.
+
+Tests: `dry-in-first-stage.test.ts` (executor + guards, 11), `dry-in-first-stage-duration.test.ts`
+(server e2e on a START -> DRY_IN -> DRY_OUT -> END profile, 6), core-hook cache-order tests. The
+existing Dry In suites (phase2-filter-operations, bulk-operate x2, concurrent-operator,
+ahu-completion-gate) are unchanged and green.
+
 ## [Unreleased] - Swagger brought up to date (2026-10-05)
 
 The live spec at `/docs` (API_DOCS=on) had 428 operations under 43 tags, but `lib/swagger.ts`

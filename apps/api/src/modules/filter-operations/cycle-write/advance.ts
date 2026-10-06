@@ -254,6 +254,10 @@ export async function prepareAdvance(
 
   // Dryer guards (pure).
   throwIfFailed(executor.assertDryerActionValid(localCtx, dryerAction, targetState));
+  // 2026-10-06: entering DRY_IN needs the duration (guard #28). Covers the
+  // start-and-advance of a profile whose FIRST stage is DRY_IN, bulk-operate and
+  // offline replay — all reach prepareAdvance.
+  throwIfFailed(executor.assertDryerDurationSetBeforeEnteringDryIn(localCtx.cycle, targetState, dryerAction));
   if (dryerAction === 'SET_DURATION') {
     throwIfFailed(executor.assertDryerDurationValid(localCtx, dryerDurationMinutes));
   }

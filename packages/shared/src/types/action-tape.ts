@@ -185,7 +185,12 @@ export interface SubmitDryerReadingsAction {
   };
 }
 
-/** SET_DRYER_DURATION — fires when next stage is DRY_IN and dryer not yet started. */
+/**
+ * SET_DRYER_DURATION — fires when the next stage is DRY_IN and the dryer has not
+ * started, and (2026-10-06) IN PLACE when the filter already sits at DRY_IN with
+ * the dryer never started (a profile whose first stage is DRY_IN, or a bypass
+ * into it). In place it is the only onward action on the tape.
+ */
 export interface SetDryerDurationAction {
   type: 'SET_DRYER_DURATION';
   label: string;

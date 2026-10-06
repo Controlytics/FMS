@@ -186,6 +186,17 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   `start-and-advance` op (`markStartRefused`) — and skips its later queued steps instead of sending them.
   A start parked behind a first-stage checklist asks the missed-PM question on checklist submit
   (`SubmitChecklistArgs.extraCycleFields`).
+- 🔴 **A cycle may only ENTER Dry In with the dryer running (2026-10-06).** `advance` into
+  `DRY_IN` needs `dryerAction: 'SET_DURATION'` unless `dryerStartedAt` is already set (guard #28,
+  400 `DRYER_DURATION_REQUIRED`), and leaving `DRY_IN` with the dryer never started is refused with
+  the same code — both on online writes, bulk-operate and offline replay. The executor offers
+  `SET_DRYER_DURATION` IN PLACE (target = current stage) for a cycle sitting at Dry In without a
+  dryer, so such a cycle recovers by scanning Dry In again. The live "DRY STORAGE" profile begins
+  with Dry In, which is how a cycle entered the stage with no duration and completed with no dryer
+  time. Every START payload for a Dry In first stage carries the queue-header duration
+  (`dryerFieldsForStart` on both pages); a QUEUED `SET_DURATION` writes the dryer timing onto the
+  cache row BEFORE the tape recompute (`rememberQueuedDryerStart`, `use-core.ts`) or the next
+  offline Dry Out scan is refused as a wrong stage.
 - **Field labels: `GET /api/config/field-ids/current`** (any signed-in user, `{fieldId, displayName}` only).
   `useFieldLabels` and the tablet read this; the bare `/field-ids` list needs `CONFIG_READ` and 403'd for
   every operator on every page from 2026-05-26 until 2026-10-01.

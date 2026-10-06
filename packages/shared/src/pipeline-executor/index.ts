@@ -9,7 +9,7 @@
  * Module layout (per inventory § "Proposed Shared Module Layout"):
  *   transitions.ts   — cycle / profile / target-state guards (15)
  *   checklist.ts     — schema-drift + answer-shape guards (3)
- *   dryer.ts         — dryer SET_DURATION + SUBMIT_READINGS gates (6)
+ *   dryer.ts         — dryer SET_DURATION + SUBMIT_READINGS gates (7)
  *   instruments.ts   — equipment-group + reading-validation guards (8)
  *   bypass.ts        — bypass flow guards (3)
  *   justification.ts — bypass + terminate justification (1, used twice)
@@ -88,6 +88,7 @@ export {
   assertDryerHalfTimeElapsed,
   assertDryerHalfTimeBeforeLeavingDryIn,
   assertDryerReadingsSubmittedBeforeLeavingDryIn,
+  assertDryerDurationSetBeforeEnteringDryIn,
 } from './dryer.js';
 
 // ── Instruments + Equipment Group ────────────────────────────────────────

@@ -265,7 +265,24 @@ export function computeNextActions(
   }
 
   // 4. Advance / SET_DRYER_DURATION / COMPLETE.
-  if (!blockedByDryerHalfTime) {
+  //
+  // 2026-10-06: a filter that SITS at DRY_IN with the dryer never started — a
+  // profile whose FIRST stage is DRY_IN (live "DRY STORAGE"), or a bypass into
+  // it — must set the duration IN PLACE before anything else. The only onward
+  // action the tape offers is SET_DRYER_DURATION targeting DRY_IN itself (the
+  // server's dryer-in-place path, which already accepted it). Before this the
+  // tape offered a plain "Advance to Dry Out" and the cycle completed with no
+  // dryer time and no temperature reading. Bypass (section 5) stays available:
+  // it is the justified escape, recorded as a deviation.
+  const dryerNotStartedAtDryIn = state === 'DRY_IN' && !cycle.dryerStartedAt;
+  if (dryerNotStartedAtDryIn) {
+    const setDurInPlace: SetDryerDurationAction = {
+      type: 'SET_DRYER_DURATION',
+      label: 'Set Dryer Duration',
+      params: { targetState: 'DRY_IN', minMinutes: 1, maxMinutes: 1440 },
+    };
+    actions.push(setDurInPlace);
+  } else if (!blockedByDryerHalfTime) {
     for (const r of reachableStages) {
       if (r.stateKey === 'DRY_IN' && state !== 'DRY_IN' && !cycle.dryerStartedAt) {
         const setDur: SetDryerDurationAction = {

@@ -2195,11 +2195,26 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     }
   };
 
+  /**
+   * Dryer fields for the ADVANCE half of a cycle START whose first stage is
+   * DRY_IN (2026-10-06). A profile that begins with Dry In (live "DRY STORAGE")
+   * used to start straight into the stage with no duration: every start payload
+   * on this page was built without dryer fields, the server accepted the entry,
+   * and the dryer phase was skipped silently. The duration comes from the queue
+   * header (ONE value for the selection, mirrored per filter in `dryerDurations`
+   * when the row was scanned on the Dry In stage). Empty for any other stage.
+   */
+  const dryerFieldsForStart = (stage: string, filterId: string): Record<string, any> => {
+    if (stage !== 'DRY_IN') return {};
+    const minutes = dryerDurations[filterId] ?? dryerBatchDuration;
+    return { dryerAction: 'SET_DURATION', dryerDurationMinutes: minutes };
+  };
+
   const handleReasonSubmit = async () => {
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
     const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(reasonDialog.filterId) };
-    const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}` };
+    const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}`, ...dryerFieldsForStart(reasonDialog.stage, reasonDialog.filterId) };
 
     // Check for equipment groups BEFORE executing — works for both online and offline.
     // No API mutation yet, no reauth needed here.
@@ -2245,7 +2260,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       const stageLabel = reasonDialog.stage.replace(/_/g, ' ');
       const nameById = new Map(allFilters.map(f => [f.filterId, f.filterName]));
       const cycleStartActions = new Map<string, any[]>();
-      const advanceFor = (fname: string) => ({ targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${stageLabel} - ${fname}` });
+      const advanceFor = (fname: string, fid: string) => ({ targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${stageLabel} - ${fname}`, ...dryerFieldsForStart(reasonDialog.stage, fid) });
       try {
         if (online) {
           // ONE /bulk-operate covering every filter (no readings for a
@@ -2255,7 +2270,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
             filterId: f.filterId,
             kind: 'start-and-advance' as const,
             cyclePayload,
-            advancePayload: advanceFor(f.filterName),
+            advancePayload: advanceFor(f.filterName, f.filterId),
           }));
           const startAction = withStageAction(['START_CLEANING_CYCLE'], batchTargetState(ops));
           const firstOut = await runBulkOnline(ops, startAction);
@@ -2278,7 +2293,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                 filterId: f.filterId,
                 filterName: f.filterName,
                 cyclePayload,
-                advancePayload: advanceFor(f.filterName),
+                advancePayload: advanceFor(f.filterName, f.filterId),
                 targetState: reasonDialog.stage,
                 cleaningAreaId: selectedBlock?.id,
                 skipChecklistDispatch: true,

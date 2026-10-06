@@ -269,6 +269,58 @@ function buildAdvancePayload(args: AdvanceArgs): Record<string, any> {
 }
 
 /**
+ * A SET_DURATION that was QUEUED offline: write the dryer timing onto the
+ * filter's cache row BEFORE the tape is recomputed from it (2026-10-06).
+ *
+ * The executor now offers SET_DRYER_DURATION in place whenever a cycle sits at
+ * DRY_IN with no dryer start on record. `recomputeAndCacheFilterState` derives
+ * the cached tape from this very row, so if the row still says "no dryer" at
+ * that moment the cached tape reads "set the duration" — and the next offline
+ * scan on Dry Out is refused as a wrong stage, although the duration was just
+ * queued. The pages used to write these fields AFTER the core returned (too
+ * late for the tape), and only on their mid-pipeline dryer paths — a Dry In
+ * START never wrote them at all. Online, the server snapshot carries the real
+ * `dryerStartedAt`; this is the offline mirror.
+ *
+ * `cycleStarted` — the queued op also started the cycle: give the row the same
+ * stub the recompute would create, or `cycleInProgress` (keyed on the id)
+ * stays false and the next offline scan offers to start a second cycle.
+ */
+async function rememberQueuedDryerStart(
+  filterId: string,
+  payload: Record<string, any> | null | undefined,
+  cleaningAreaId: string | null | undefined,
+  cycleStarted: boolean,
+): Promise<void> {
+  if (!payload || payload.dryerAction !== 'SET_DURATION') return;
+  const minutes = Number(payload.dryerDurationMinutes);
+  if (!Number.isFinite(minutes) || minutes < 1) return;
+  try {
+    const cached = (await getCachedData<Record<string, any>>(`filter-state-${filterId}`)) ?? {};
+    const current = (cached.currentCycle ?? null) as Record<string, any> | null;
+    await cacheData(
+      `filter-state-${filterId}`,
+      {
+        ...cached,
+        currentState: 'DRY_IN',
+        currentCycle: {
+          ...(current ?? {}),
+          ...(current?.id || !cycleStarted ? {} : { id: `offline-${Date.now()}` }),
+          status: 'IN_PROGRESS',
+          dryerDurationMinutes: minutes,
+          dryerStartedAt: new Date().toISOString(),
+          dryerReadingsSubmitted: false,
+          cleaningAreaId: cleaningAreaId ?? current?.cleaningAreaId ?? null,
+        },
+      },
+      OFFLINE_TTL_MS,
+    );
+  } catch {
+    /* cache mirror only — the queued op itself is already safe in the queue */
+  }
+}
+
+/**
  * Resolve the post-advance checklist dialog and dispatch it. Centralizes the
  * decision: this filter has a gate → open dialog with batchRemainder; this
  * filter is clean but batch has more → walk the queue; nothing pending →
@@ -444,6 +496,7 @@ export function useFilterOperationsCore(
         );
 
         if (!executed) {
+          await rememberQueuedDryerStart(args.filterId, payload, args.cleaningAreaId, false);
           await recomputeAndCacheFilterState(
             args.filterId,
             args.targetState,
@@ -565,6 +618,7 @@ export function useFilterOperationsCore(
         );
 
         if (!executed) {
+          await rememberQueuedDryerStart(args.filterId, args.advancePayload, args.cleaningAreaId, true);
           await recomputeAndCacheFilterState(
             args.filterId,
             args.targetState,
@@ -708,6 +762,7 @@ export function useFilterOperationsCore(
           if (executed && result) {
             await cacheServerStateResponse(args.filterId, result);
           } else {
+            await rememberQueuedDryerStart(args.filterId, deferred.payload, deferred.cleaningAreaId, !!deferred.cyclePayload);
             await recomputeAndCacheFilterState(
               args.filterId,
               deferred.targetState,

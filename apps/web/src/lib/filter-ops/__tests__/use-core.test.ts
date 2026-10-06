@@ -1478,3 +1478,112 @@ describe('useFilterOperationsCore — dialog-first cycle start', () => {
     );
   });
 });
+
+describe('useFilterOperationsCore — queued SET_DURATION writes the dryer timing BEFORE the tape recompute (2026-10-06)', () => {
+  // The executor offers SET_DRYER_DURATION in place whenever the cache row says
+  // "at DRY_IN, no dryer start". recomputeAndCacheFilterState derives the cached
+  // tape from that row, so the dryer fields must be on it first — otherwise the
+  // next offline Dry Out scan reads "set the duration" and is refused.
+  const DRYER = { targetState: 'DRY_IN', dryerAction: 'SET_DURATION', dryerDurationMinutes: 30 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecuteOrQueue.mockResolvedValue({ executed: false, result: undefined });
+    mockResolvePending.mockResolvedValue(null);
+    mockFindNext.mockResolvedValue(null);
+    mockRecomputeCache.mockResolvedValue(undefined);
+    mockAppendCompletion.mockResolvedValue(undefined);
+    mockGetCachedData.mockResolvedValue({ currentCycle: { id: 'cyc-1', status: 'IN_PROGRESS' } });
+    mockCacheData.mockResolvedValue(undefined);
+    mockGetCurrentActions.mockResolvedValue([]);
+    mockResolveForTarget.mockResolvedValue([]);
+    mockCacheServerState.mockResolvedValue(undefined);
+    onlineRef.current = false;
+  });
+
+  function dryerWrite() {
+    return mockCacheData.mock.calls.find(
+      ([key, row]) => key === 'filter-state-f1' && row?.currentCycle?.dryerDurationMinutes === 30,
+    );
+  }
+
+  it('advance() queued offline: dryer fields land on the row, and before recomputeAndCacheFilterState', async () => {
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'DRY_IN', cleaningAreaId: 'blk1',
+        dryerAction: 'SET_DURATION', dryerDurationMinutes: 30,
+      });
+    });
+    const write = dryerWrite();
+    expect(write).toBeDefined();
+    expect(write![1].currentState).toBe('DRY_IN');
+    expect(write![1].currentCycle).toMatchObject({ id: 'cyc-1', status: 'IN_PROGRESS', dryerDurationMinutes: 30, cleaningAreaId: 'blk1' });
+    expect(typeof write![1].currentCycle.dryerStartedAt).toBe('string');
+    const writeOrder = mockCacheData.mock.invocationCallOrder[mockCacheData.mock.calls.indexOf(write!)];
+    expect(writeOrder).toBeLessThan(mockRecomputeCache.mock.invocationCallOrder[0]);
+  });
+
+  it('startAndAdvance() queued offline for a Dry-In-first profile: same write, with a cycle stub when the row has none', async () => {
+    mockGetCachedData.mockResolvedValue({});
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: { cleaningReasonKey: 'ROUTINE' }, advancePayload: DRYER,
+        targetState: 'DRY_IN', cleaningAreaId: 'blk1',
+      });
+    });
+    const write = dryerWrite();
+    expect(write).toBeDefined();
+    expect(String(write![1].currentCycle.id)).toMatch(/^offline-/);
+    expect(mockRecomputeCache).toHaveBeenCalledWith('f1', 'DRY_IN', true, 'blk1');
+    const writeOrder = mockCacheData.mock.invocationCallOrder[mockCacheData.mock.calls.indexOf(write!)];
+    expect(writeOrder).toBeLessThan(mockRecomputeCache.mock.invocationCallOrder[0]);
+  });
+
+  it('submitChecklist() for a parked Dry-In-first start, queued offline: the compound payload carries the duration and the row is written first', async () => {
+    onlineRef.current = true; // dialog-first resolves the checklist
+    mockResolveForTarget.mockResolvedValue([{ checklistProfileId: 'cp1', questions: [{ id: 'q1', question: 'Ok?', questionType: 'YES_NO' }] }]);
+    mockGetCachedData.mockResolvedValue({});
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.startAndAdvance({
+        filterId: 'f1', filterName: 'F-1',
+        cyclePayload: { cleaningReasonKey: 'ROUTINE' }, advancePayload: DRYER,
+        targetState: 'DRY_IN', cleaningAreaId: 'blk1',
+      });
+    });
+    expect(result.current.dialogState.kind).toBe('awaiting_checklist');
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
+    });
+    const call = mockExecuteOrQueue.mock.calls.find(([type]) => type === 'start-and-advance-with-checklist');
+    expect(call).toBeDefined();
+    expect(call![3].advancePayload).toMatchObject({ dryerAction: 'SET_DURATION', dryerDurationMinutes: 30 });
+    const write = dryerWrite();
+    expect(write).toBeDefined();
+    const writeOrder = mockCacheData.mock.invocationCallOrder[mockCacheData.mock.calls.indexOf(write!)];
+    expect(writeOrder).toBeLessThan(mockRecomputeCache.mock.invocationCallOrder[0]);
+  });
+
+  it('a plain advance (no dryer action) writes no dryer timing', async () => {
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'WASH_OUT' });
+    });
+    expect(dryerWrite()).toBeUndefined();
+  });
+
+  it('an EXECUTED (online) SET_DURATION leaves the row to the server snapshot', async () => {
+    mockExecuteOrQueue.mockResolvedValue({ executed: true, result: { actions: [] } });
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'DRY_IN',
+        dryerAction: 'SET_DURATION', dryerDurationMinutes: 30,
+      });
+    });
+    expect(dryerWrite()).toBeUndefined();
+  });
+});

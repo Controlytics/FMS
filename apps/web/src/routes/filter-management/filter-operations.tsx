@@ -1061,6 +1061,8 @@ export function FilterOperationsPage() {
               // See advanceBatch: scopes the server INTERLOCK gate to the roster
               // the AHU pre-flight showed. Absent when the pre-flight didn't run.
               ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
+              // A cycle that STARTS at Dry In enters it with the dryer running (2026-10-06).
+              ...dryerFieldsForStart(stage.key),
             }, stage.key, sig.password);
             success++;
             newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
@@ -1085,6 +1087,9 @@ export function FilterOperationsPage() {
         }
         recordSubmission(newSubs);
         refreshFilters();
+        // A Dry In START: the dryer runs from this moment — remember its timing
+        // offline exactly as the mid-pipeline dryer start does (2026-10-06).
+        if (stage.key === 'DRY_IN') await primeDryerCacheForBatch(batch, dryerBatchDuration, blockId);
         core.dispatch({ type: 'close' }); // close reason dialog
         setPendingBatch(null);
         if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
@@ -1102,7 +1107,7 @@ export function FilterOperationsPage() {
 
     try {
       const cycleBody = { cleaningReasonKey: reasonKey, cleaningJustification: justification || undefined, cleaningAreaId: reasonBlock?.id };
-      const advBody = { targetState: dialogCapture.stage.key, cleaningAreaId: reasonBlock?.id, remarks: remarks || `${dialogCapture.stage.label} - ${dialogCapture.filterName}` };
+      const advBody = { targetState: dialogCapture.stage.key, cleaningAreaId: reasonBlock?.id, remarks: remarks || `${dialogCapture.stage.label} - ${dialogCapture.filterName}`, ...dryerFieldsForStart(dialogCapture.stage.key) };
 
       // For WASH_IN: check equipment groups before advancing (online only)
       if (dialogCapture.stage.key === 'WASH_IN' && reasonBlock?.id && online) {
@@ -1237,6 +1242,52 @@ export function FilterOperationsPage() {
     setLoading(false); setSubmitting(false);
   };
 
+  /**
+   * Remember dryer timing + the block's equipment group on each filter's cache
+   * row (offline countdown, temperature dropdown, navigation persistence).
+   * Shared by the mid-pipeline dryer start and, since 2026-10-06, a cycle START
+   * whose first stage is DRY_IN.
+   */
+  const primeDryerCacheForBatch = async (batch: Array<{ filterId: string }>, minutes: number, blockId: string | undefined) => {
+    const dryerStartedAt = new Date().toISOString();
+    // Resolve equipment group for offline temperature dropdown
+    let batchEqGroup: any = null;
+    if (blockId) {
+      try {
+        const allGroups = await getCache<any[]>('equipment-groups') ?? [];
+        const blockGroups = allGroups.filter((g: any) => g.blockId === blockId);
+        if (blockGroups.length === 1) batchEqGroup = blockGroups[0];
+      } catch { /* IDB read failed — batchEqGroup stays null and each item resolves its own */ }
+    }
+    for (const item of batch) {
+      try {
+        const cached = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
+        cache(`filter-state-${item.filterId}`, {
+          ...cached,
+          currentState: 'DRY_IN',
+          equipmentGroup: cached.equipmentGroup ?? batchEqGroup,
+          currentCycle: {
+            ...(cached.currentCycle ?? {}),
+            status: 'IN_PROGRESS',
+            dryerDurationMinutes: minutes,
+            dryerStartedAt,
+            cleaningAreaId: blockId ?? cached.currentCycle?.cleaningAreaId ?? null,
+          },
+        }, 24 * 60 * 60 * 1000);
+      } catch { /* ignore cache errors */ }
+    }
+  };
+
+  /**
+   * Dryer fields for the ADVANCE half of a cycle START whose first stage is
+   * DRY_IN (2026-10-06). The start payloads on this page carried no dryer
+   * fields, so a profile that begins with Dry In entered the stage with no
+   * duration and the dryer phase was skipped silently. ONE duration for the
+   * batch, from the queue header. Empty for any other stage.
+   */
+  const dryerFieldsForStart = (stageKey: string): Record<string, any> =>
+    stageKey === 'DRY_IN' ? { dryerAction: 'SET_DURATION', dryerDurationMinutes: dryerBatchDuration } : {};
+
   // Dry In multi-select (2026-09-04): start the dryer for a batch with ONE duration.
   // Shared by the queue-header path (no dialog) and the legacy dialog path.
   const startDryerForBatch = async (batch: Array<{ filterId: string; filterName: string }>, minutes: number) => {
@@ -1264,33 +1315,7 @@ export function FilterOperationsPage() {
       recordSubmission(newSubs);
       refreshFilters();
       // Cache dryer timing + equipmentGroup for each filter (offline + navigation persistence)
-      const dryerStartedAt = new Date().toISOString();
-      // Resolve equipment group for offline temperature dropdown
-      let batchEqGroup: any = null;
-      if (blockId) {
-        try {
-          const allGroups = await getCache<any[]>('equipment-groups') ?? [];
-          const blockGroups = allGroups.filter((g: any) => g.blockId === blockId);
-          if (blockGroups.length === 1) batchEqGroup = blockGroups[0];
-        } catch { /* IDB read failed — batchEqGroup stays null and each item resolves its own */ }
-      }
-      for (const item of batch) {
-        try {
-          const cached = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
-          cache(`filter-state-${item.filterId}`, {
-            ...cached,
-            currentState: 'DRY_IN',
-            equipmentGroup: cached.equipmentGroup ?? batchEqGroup,
-            currentCycle: {
-              ...(cached.currentCycle ?? {}),
-              status: 'IN_PROGRESS',
-              dryerDurationMinutes: minutes,
-              dryerStartedAt,
-              cleaningAreaId: blockId ?? cached.currentCycle?.cleaningAreaId ?? null,
-            },
-          }, 24 * 60 * 60 * 1000);
-        } catch { /* ignore cache errors */ }
-      }
+      await primeDryerCacheForBatch(batch, minutes, blockId);
       // Update offline cache (action tape + reachable-target mirrors) per filter when queued.
       // Deep-review fix D3: blockId pulled from selectedBlock via wrapper default.
       for (const item of batch) {

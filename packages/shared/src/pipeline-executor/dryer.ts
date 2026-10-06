@@ -145,13 +145,55 @@ export function assertDryerReadingsSubmittedBeforeLeavingDryIn(
 ): GuardResult {
   if (currentLifecycleState !== 'DRY_IN') return { ok: true };
   if (targetState === 'DRY_IN') return { ok: true };
-  // Pipeline doesn't use the dryer at all → no readings to require.
-  if (!cycle.dryerStartedAt) return { ok: true };
+  // 2026-10-06: this used to pass when `dryerStartedAt` was null ("pipeline
+  // doesn't use the dryer"). A pipeline without a dryer has no DRY_IN stage, so
+  // the filter is never AT DRY_IN here — the only way to reach this line with
+  // no dryer start is a cycle that entered DRY_IN without SET_DURATION (a
+  // profile whose first stage is DRY_IN, or a bypass into it). Letting it leave
+  // completed the cycle with no dryer time and no temperature: refuse, the tape
+  // offers SET_DRYER_DURATION in place to recover.
+  if (!cycle.dryerStartedAt) {
+    return {
+      ok: false,
+      code: 'DRYER_DURATION_REQUIRED',
+      message: 'Set the dryer duration and submit the readings before leaving DRY_IN.',
+    };
+  }
   if (cycle.dryerReadingsSubmitted) return { ok: true };
   return {
     ok: false,
     code: 'DRYER_READINGS_REQUIRED',
     message: 'Submit dryer temperature readings before leaving DRY_IN.',
+  };
+}
+
+/**
+ * Guard #28 (2026-10-06): entering DRY_IN requires `dryerAction: 'SET_DURATION'`
+ * unless the dryer is already running on this cycle.
+ *
+ * Nothing used to require the duration on the way IN — the clients always sent
+ * it because the tape told them to, until a profile whose FIRST stage is DRY_IN
+ * started the cycle straight into it through the start-and-advance payloads,
+ * which carried no dryer fields. The cycle then sat at DRY_IN with no dryer and
+ * every leaving-DRY_IN guard was a no-op. This closes the entry: the server
+ * refuses, online and on offline replay alike (a queued entry without the
+ * duration is missing data the operator never gave, not a timing question).
+ *
+ * `dryerStartedAt` set = a dryer-in-place op on a running dryer (SUBMIT_READINGS),
+ * or a re-entry; both are legitimate without a new duration.
+ */
+export function assertDryerDurationSetBeforeEnteringDryIn(
+  cycle: CycleSlice,
+  targetState: string | null | undefined,
+  dryerAction: string | null | undefined,
+): GuardResult {
+  if (targetState !== 'DRY_IN') return { ok: true };
+  if (dryerAction === 'SET_DURATION') return { ok: true };
+  if (cycle.dryerStartedAt && cycle.dryerDurationMinutes) return { ok: true };
+  return {
+    ok: false,
+    code: 'DRYER_DURATION_REQUIRED',
+    message: 'Set the dryer duration to enter DRY_IN.',
   };
 }
 
