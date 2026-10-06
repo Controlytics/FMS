@@ -14,7 +14,7 @@ dryer phase was skipped silently (executor, server, tablet, web).
 - [x] Existing Dry In suites green (phase2-filter-operations, bulk-operate x2, concurrent-operator, ahu-completion-gate x2) — 91 tests
 - [x] Browser check: tablet + web Dry In start send `dryerAction: SET_DURATION` + header minutes (faked writes, zero rows; `.playwright-mcp/dry-in-start-*.js`); live tape of stuck CWH/AHU-02/18-00 = `SET_DRYER_DURATION→DRY_IN` only
 - [x] CHANGELOG + CLAUDE.md note + memory
-- [ ] APK rebuild (blank `VITE_API_URL`)
+- [x] APK rebuild (blank `VITE_API_URL`; zip verified, bundle == dist; sha256 dee0d81e…) — NOT installed, no tablet attached
 
 # Tablet: refused cycle start -> "No active cleaning cycle" (2026-10-01)
 
