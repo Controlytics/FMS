@@ -4,7 +4,7 @@
 DigiLog (21cfrlogbook) — IoT data logging platform with 21 CFR Part 11 compliance and an integrated Digital Filter Management System for pharmaceutical cleanrooms.
 
 ## Repository
-- **Remote:** github.com/pankajexa/21cfrlogbook.git
+- **Remote:** github.com/Controlytics/FMS.git (private; `origin`). Mirrored from github.com/pankajexa/21cfrlogbook 2026-10-06, kept locally as remote `pankajexa`.
 - **Active branch:** `RFID` (feature work) → merges to `DigitalFMS` → `main`
 
 ## Monorepo Structure

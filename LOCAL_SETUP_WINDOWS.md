@@ -38,7 +38,7 @@ this section entirely — there is nothing to install for the pub/sub layer.
 ## 2. Clone the Repository
 
 ```bash
-git clone https://github.com/pankajexa/21cfrlogbook.git
+git clone https://github.com/Controlytics/FMS.git
 cd 21cfrlogbook
 git checkout DigitalFMS
 ```
@@ -355,7 +355,7 @@ npm run build
 
 | Field | Value |
 |-------|-------|
-| Repository | https://github.com/pankajexa/21cfrlogbook.git |
+| Repository | https://github.com/Controlytics/FMS.git |
 | Branch | DigitalFMS |
 
 ---

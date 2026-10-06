@@ -131,7 +131,7 @@ Pharmaceutical factories use air handling units (AHUs) with filters that must be
 
 ## Team & Development
 
-- **Repository**: github.com/pankajexa/21cfrlogbook.git
+- **Repository**: github.com/Controlytics/FMS.git
 - **Active Branch**: RFID (development), main (stable)
 - **Build System**: Turborepo monorepo with Vite (frontend) + tsc (backend)
 - **Testing**: Vitest unit tests, manual E2E test cases (25 test suites)

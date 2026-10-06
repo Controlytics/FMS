@@ -104,7 +104,7 @@ Detailed in `PHASE_5_RECENT_WORK.md`:
 
 ```bash
 # Clone
-git clone https://github.com/pankajexa/21cfrlogbook.git
+git clone https://github.com/Controlytics/FMS.git
 cd 21cfrlogbook
 git checkout DigitalFMS
 npm install
