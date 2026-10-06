@@ -12,6 +12,7 @@ import { ReauthDialog } from '../../components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { withStageAction, batchTargetState } from '../../lib/stage-reauth';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
+import { normalizeRfidScan } from '@/lib/rfid-scan';
 // Dry In multi-select (2026-09-04): the Currently Drying panel is SHARED with the desktop page.
 import { DryingFiltersPanel } from '../filter-management/components/drying-filters-panel';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
@@ -508,7 +509,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: equipGroupsData } = useSWR(online ? '/api/equipment-groups' : null);
   // B.5 — Cache cleaning-profile-assignment + active profiles so offline scans of
   // a brand-new filter (no filter-state-{id} cache yet) can still resolve a pipeline.
-  const { data: cleaningAssignmentData } = useSWR(online ? '/api/config/cleaning-profile-assignment' : null);
+  // 2026-10-06: the `/current` read needs no permission — the CONFIG_READ list
+  // 403'd for every operator and left the offline map empty.
+  const { data: cleaningAssignmentData } = useSWR(online ? '/api/config/cleaning-profile-assignment/current' : null);
   const { data: activeProfilesData } = useSWR(online ? '/api/filter-cleaning-profiles?status=ACTIVE&expand=stages,connections' : null);
   const { data: checklistProfilesData } = useSWR(online ? '/api/checklist-profiles?expand=questions' : null);
   // Task 5: cache the server's blocked-filter set (AHU replacement overdue) so
@@ -523,7 +526,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const { data: datetimeData } = useSWR(online ? '/api/config/datetime/current' : null);
   // B.14 — Cache approved block-change requests so an APPROVED status from a
   // recent server-side approval is visible offline before the cycle starts.
-  const { data: approvedBlockChangesData } = useSWR(online ? `/api/block-change-requests?status=APPROVED&limit=${ALL_ROWS}` : null);
+  // 2026-10-06: the list is gated on BLOCK_CHANGE_REQUEST / BLOCK_CHANGE_APPROVE.
+  // A role without either (OPERATOR) cannot request a block change, so an
+  // approval can never apply to it — polling only produced a 403 every few
+  // seconds. Fetch it only for roles that can act on it.
+  const canReadBlockChanges =
+    user?.role === 'SUPER_ADMIN'
+    || (user?.permissions ?? []).some((p: string) => p === 'BLOCK_CHANGE_REQUEST' || p === 'BLOCK_CHANGE_APPROVE');
+  const { data: approvedBlockChangesData } = useSWR(online && canReadBlockChanges ? `/api/block-change-requests?status=APPROVED&limit=${ALL_ROWS}` : null);
   // B.11 — Cache reauth scope for current user so offline ops know which actions
   // need a queued password vs. immediate dialog.
   const { data: myReauthActionsData } = useSWR(online && user ? '/api/config/action-reauth/my-actions' : null);
@@ -808,16 +818,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     let filterId = ''; let filterName = '';
     const source = rawValue ?? scanValue;
 
-    // Deduplicate RFID scan value (reader may repeat tag ID)
-    let sv = source.trim().toUpperCase();
-    if (sv.length >= 6 && sv.length % 2 === 0) {
-      const half = sv.length / 2;
-      if (sv.substring(0, half) === sv.substring(half)) sv = sv.substring(0, half);
-    }
-    if (sv.length >= 9 && sv.length % 3 === 0) {
-      const third = sv.length / 3;
-      if (sv.substring(0, third) === sv.substring(third, third * 2) && sv.substring(0, third) === sv.substring(third * 2)) sv = sv.substring(0, third);
-    }
+    // Upper-case + de-duplicate the reader burst — ONE rule for every scan path (lib/rfid-scan.ts).
+    const sv = normalizeRfidScan(source);
 
     // Identifier lookup API — FIRST of three fallback strategies. Do NOT gate on
     // the `online` flag: navigator.onLine is unreliable on Android WebViews, so a

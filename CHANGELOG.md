@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] - Tablet leftovers: Status "Scan RFID" normalisation, operator 403 polls (2026-10-06)
+
+Two findings from the 2026-10-05 tablet session, both operator-visible:
+
+- **Status view → "Scan RFID" read a real tag as "Tag Not Assigned".** The popup compared the raw
+  scanned text against the stored tag; the Operations scan upper-cases and collapses a doubled /
+  tripled EPC. ONE normaliser now serves every scan path - `lib/rfid-scan.ts`
+  (`normalizeRfidScan`, `rfidValuesMatch`) replaces the four hand-rolled copies (tablet
+  operations, tablet status popup, web operations page, web scan dialog). Unit-tested.
+- **OPERATOR logged a 403 every few seconds from the tablet** on two polls:
+  - `GET /api/config/cleaning-profile-assignment` needs CONFIG_READ, which no operator role holds,
+    so the offline block → profile map was never cached either. New
+    `GET /api/config/cleaning-profile-assignment/current` returns the same map to any signed-in
+    user (same pattern as `/field-ids/current`); editing stays behind CONFIG_UPDATE + re-auth. The
+    tablet reads `/current`. e2e: `cleaning-profile-assignment-current.test.ts`.
+  - `GET /api/block-change-requests?status=APPROVED` is gated on BLOCK_CHANGE_REQUEST /
+    BLOCK_CHANGE_APPROVE. A role with neither cannot request a block change, so an approval can
+    never apply to it - the tablet now polls only when the role holds one of the two.
+
 ## [Unreleased] - Dry In as the FIRST stage: the dryer duration is required (2026-10-06)
 
 Operator (2026-10-05): "duration selection is not coming in Dry In" on the CWH block. Its profile

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { getCachedData } from '@/lib/offline-store';
+import { normalizeRfidScan } from '@/lib/rfid-scan';
 
 interface QueueItem {
   filterId: string;
@@ -149,25 +150,9 @@ export function StageScanDialog({
     // After 300ms of no new input, tag is complete
     if (rfidTimerRef.current) clearTimeout(rfidTimerRef.current);
     rfidTimerRef.current = setTimeout(() => {
-      let tag = value.trim().toUpperCase();
+      // Upper-case + de-duplicate the reader burst — ONE rule for every scan path (lib/rfid-scan.ts).
+      const tag = normalizeRfidScan(value);
       if (tag.length < 3) return;
-
-      // Deduplicate: if the reader scanned the same tag multiple times rapidly,
-      // the value will be the tag ID repeated (e.g., "ABCD1234ABCD1234").
-      // Detect this by checking if the first half equals the second half.
-      if (tag.length >= 6 && tag.length % 2 === 0) {
-        const half = tag.length / 2;
-        if (tag.substring(0, half) === tag.substring(half)) {
-          tag = tag.substring(0, half);
-        }
-      }
-      // Also handle 3x repeated
-      if (tag.length >= 9 && tag.length % 3 === 0) {
-        const third = tag.length / 3;
-        if (tag.substring(0, third) === tag.substring(third, third * 2) && tag.substring(0, third) === tag.substring(third * 2)) {
-          tag = tag.substring(0, third);
-        }
-      }
 
       setRfidDetected(tag);
       onScanValueChange(tag);

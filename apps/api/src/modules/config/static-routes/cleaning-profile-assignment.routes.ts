@@ -17,6 +17,24 @@ export async function cleaningProfileAssignmentRoutes(app: FastifyInstance) {
     return row?.configValue ?? { mode: 'BY_ENTITY', rules: [] };
   });
 
+  // 2026-10-06: the tablet caches this map so an OFFLINE scan can resolve the
+  // block's cleaning profile, but the list above needs CONFIG_READ, which no
+  // operator role holds — every tablet session logged a 403 on it and the
+  // offline cache went unfilled. Same shape as /field-ids/current: any
+  // signed-in user may read the map (block → profile ids, nothing sensitive);
+  // editing stays behind CONFIG_UPDATE + re-auth.
+  app.get('/cleaning-profile-assignment/current', {
+    schema: {
+      tags: ['Config'],
+      summary: 'Cleaning profile assignment for the signed-in user',
+      description: 'The block/AHU/filter → cleaning-profile assignment rules. Authenticated; no permission required. Editing needs CONFIG_UPDATE (PUT /cleaning-profile-assignment).',
+      response: { 200: { type: 'object', additionalProperties: true } },
+    },
+  }, async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'cleaning-profile-assignment' } });
+    return row?.configValue ?? { mode: 'BY_ENTITY', rules: [] };
+  });
+
   app.put('/cleaning-profile-assignment', {
     preHandler: [app.requirePermission('CONFIG_UPDATE')],
     schema: {

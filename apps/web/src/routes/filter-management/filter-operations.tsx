@@ -10,6 +10,7 @@ import { StageScanDialog } from './components/stage-scan-dialog';
 import { CleaningReasonDialog } from './components/cleaning-reason-dialog';
 import { EquipmentDialog } from './components/equipment-dialog';
 import { DryerDurationDialog } from './components/dryer-duration-dialog';
+import { normalizeRfidScan } from '@/lib/rfid-scan';
 import { ChecklistDialog } from './components/checklist-dialog';
 import { BlockChangeRequestDialog } from './components/block-change-request-dialog';
 import { DryingFiltersPanel } from './components/drying-filters-panel';
@@ -415,16 +416,8 @@ export function FilterOperationsPage() {
   // Resolve a tag/name → filterId+name
   // Uses API when online, cached identifier map when offline
   const resolveFilter = async (tagOrName: string): Promise<{ filterId: string; filterName: string } | null> => {
-    let trimmed = tagOrName.trim().toUpperCase();
-    // RFID dedup: reader may send the same tag 2x or 3x concatenated
-    if (trimmed.length >= 6 && trimmed.length % 2 === 0) {
-      const half = trimmed.length / 2;
-      if (trimmed.substring(0, half) === trimmed.substring(half)) trimmed = trimmed.substring(0, half);
-    }
-    if (trimmed.length >= 9 && trimmed.length % 3 === 0) {
-      const third = trimmed.length / 3;
-      if (trimmed.substring(0, third) === trimmed.substring(third, third * 2) && trimmed.substring(0, third) === trimmed.substring(third * 2)) trimmed = trimmed.substring(0, third);
-    }
+    // Upper-case + de-duplicate the reader burst — ONE rule for every scan path (lib/rfid-scan.ts).
+    const trimmed = normalizeRfidScan(tagOrName);
     if (!trimmed) return null;
 
     // Audit 2026-09-24 (web F3, closed 2026-09-25): mirror the server's

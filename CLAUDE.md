@@ -198,6 +198,9 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   cache row BEFORE the tape recompute (`rememberQueuedDryerStart`, `use-core.ts`) or the next
   offline Dry Out scan is refused as a wrong stage.
 - **Field labels: `GET /api/config/field-ids/current`** (any signed-in user, `{fieldId, displayName}` only).
+  Same pattern (2026-10-06): `GET /api/config/cleaning-profile-assignment/current` — the tablet's
+  offline block→profile map; the CONFIG_READ list 403'd for every operator. **Every RFID scan path
+  normalises through `apps/web/src/lib/rfid-scan.ts`** (upper-case + doubled/tripled EPC collapse).
   `useFieldLabels` and the tablet read this; the bare `/field-ids` list needs `CONFIG_READ` and 403'd for
   every operator on every page from 2026-05-26 until 2026-10-01.
 

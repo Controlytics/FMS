@@ -26,6 +26,7 @@ import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../lib/filter-constants';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { StageApprovalsPage } from '../stage-approvals';
+import { normalizeRfidScan, rfidValuesMatch } from '@/lib/rfid-scan';
 
 type View = 'home' | 'status' | 'my-tasks' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications' | 'stage-approvals';
 
@@ -2888,7 +2889,10 @@ export function MobileWrapperPage() {
             - input set, identifier + filter both resolve → details
               card. */}
       {scanRfidOpen && (() => {
-        const tag = scanRfidValue.trim();
+        // 2026-10-06: same normalisation as the Operations scan (upper-case,
+        // doubled/tripled EPC collapsed) and a case-insensitive compare. The
+        // raw compare below read a real, assigned tag as "Tag Not Assigned".
+        const tag = normalizeRfidScan(scanRfidValue);
         const instByIdLookup = new Map((instances as any[]).map((i: any) => [i.id, i] as [string, any]));
         const filterTemplateIdsLookup = new Set(
           templates.filter((t: any) => t.templateKind === 'FILTER').map((t: any) => t.id),
@@ -2902,7 +2906,7 @@ export function MobileWrapperPage() {
         let result: LookupResult = { kind: 'idle' };
         if (tag) {
           const ident = allIdentifiers.find(
-            (i: any) => i.identifierType === 'RFID' && i.identifierValue === tag,
+            (i: any) => i.identifierType === 'RFID' && rfidValuesMatch(i.identifierValue, tag),
           );
           if (!ident) {
             result = { kind: 'not_found' };
