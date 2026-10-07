@@ -110,7 +110,7 @@ export function ProfilePage() {
       const formDataUpload = new FormData();
       formDataUpload.append('file', file);
 
-      const token = localStorage.getItem('access_token');
+      const token = sessionStorage.getItem('access_token');
       const response = await fetch(`${getApiBase()}/api/uploads/photo`, {
         method: 'POST',
         headers: {

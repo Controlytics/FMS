@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - Profile photo upload sent `Bearer null` (2026-10-07)
+
+- **Profile → Upload Photo always failed with 401.** `routes/profile/index.tsx` read the token
+  from `localStorage`, but the app keeps it in `sessionStorage` (`access_token`), so the upload
+  went out as `Authorization: Bearer null`. It now reads `sessionStorage`, like the other
+  multipart uploads (backup, replacement schedule). The only wrong-storage token read in
+  `apps/web/src`. Verified: `Bearer null` → 401, a real token → 200 + `photoUrl`.
+
 ## [Unreleased] - Tablet leftovers: Status "Scan RFID" normalisation, operator 403 polls (2026-10-06)
 
 Two findings from the 2026-10-05 tablet session, both operator-visible:
