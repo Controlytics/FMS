@@ -177,10 +177,11 @@ describe('Filter replace — duplicate-name guard', () => {
     expect(active91).toBe(1);
   });
 
-  // Audit 2026-09-24 (F1): the replacement inherits the old filter's approval
-  // state. It used to take the column default (APPROVED), so replacing a
-  // PENDING_REVIEW filter minted an operable one with no review or approval.
-  it('a replacement inherits the old filter\'s approval status (no workflow bypass)', async () => {
+  // Audit 2026-09-24 (F1) let a PENDING_REVIEW filter be replaced as long as
+  // the replacement inherited the pending state. 2026-10-08 (operator): a filter
+  // that has not passed review + approval cannot be replaced at all — the
+  // tablet was replacing them. Refused, and nothing is retired or created.
+  it('a filter still pending review cannot be replaced (409 FILTER_NOT_APPROVED)', async () => {
     const a = await prisma.assetInstance.findUniqueOrThrow({ where: { id: filterA } });
     const aDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: filterA } });
     const pending = await prisma.assetInstance.create({
@@ -200,12 +201,11 @@ describe('Filter replace — duplicate-name guard', () => {
       headers: { authorization: `Bearer ${token}`, 'x-reauth-password': TEST_PASSWORD },
       payload: { remarks: 'replace a filter that is still pending review' },
     });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    const created = await prisma.assetInstance.findUniqueOrThrow({ where: { id: body.newFilterId } });
-    expect(created.name).toBe(`${PREFIX}-81`);
-    expect(created.approvalStatus).toBe('PENDING_REVIEW');
-    expect(created.submittedByName).toBe(TEST_USERNAME);
-    expect(created.approvedAt).toBeNull();
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).error).toBe('FILTER_NOT_APPROVED');
+    const still = await prisma.assetInstance.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(still.isActive).toBe(true);
+    expect(still.status).toBe('Active');
+    expect(await prisma.assetInstance.count({ where: { name: `${PREFIX}-81` } })).toBe(0);
   });
 });

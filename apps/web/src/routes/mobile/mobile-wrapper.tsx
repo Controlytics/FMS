@@ -576,6 +576,11 @@ export function MobileWrapperPage() {
     (filterTemplateIds.has(f.templateId) || f.template?.templateKind === 'FILTER') &&
     f.isActive !== false && f.status !== 'Retired',
   );
+  // Filters that have passed review + approval (2026-10-08, operator). Only
+  // these may be RFID-tagged or replaced — the server refuses the rest
+  // (FILTER_NOT_APPROVED), so the pick-lists never offer them. Viewing lists
+  // (Status, Cycles) keep `allFilters`.
+  const operableFilters = allFilters.filter((f: any) => f.approvalStatus == null || f.approvalStatus === 'APPROVED');
 
   // NOTE: stage counts are NOT computed here. They must be derived from the
   // same cascade-scoped array the Status list renders, or the tiles report
@@ -2292,7 +2297,7 @@ export function MobileWrapperPage() {
               return true;
             })
             .sort(byName);
-          const rfidFilterOptions = (allFilters as any[])
+          const rfidFilterOptions = (operableFilters as any[])
             .filter((f: any) => {
               const a = rfidFilterAncestors.get(f.id);
               if (!a) return false;
@@ -2302,7 +2307,7 @@ export function MobileWrapperPage() {
               return true;
             })
             .slice().sort(byName);
-          const rfidVisibleFilters = (allFilters as any[]).filter((f: any) => {
+          const rfidVisibleFilters = (operableFilters as any[]).filter((f: any) => {
             const a = rfidFilterAncestors.get(f.id);
             if (!a) return false;
             if (rfidBlockId !== 'all' && a.blockId !== rfidBlockId) return false;
@@ -2650,8 +2655,8 @@ export function MobileWrapperPage() {
             if (replaceAhuId !== 'all' && a.ahuId !== replaceAhuId) return false;
             return true;
           };
-          const repFilterOptions = (allFilters as any[]).filter(matchesCascade).slice().sort(byName);
-          const repVisibleFilters = (allFilters as any[]).filter((f: any) => {
+          const repFilterOptions = (operableFilters as any[]).filter(matchesCascade).slice().sort(byName);
+          const repVisibleFilters = (operableFilters as any[]).filter((f: any) => {
             if (!matchesCascade(f)) return false;
             if (replaceFilterId !== 'all' && f.id !== replaceFilterId) return false;
             if (replaceSearch && !f.name?.toLowerCase().includes(replaceSearch.toLowerCase())) return false;
@@ -3210,7 +3215,7 @@ export function MobileWrapperPage() {
               // replacedNewFilterIds) drops off the list — what's left is exactly the
               // "still to replace" set. Name search narrows further.
               const replacedSet = new Set<string>(activeReplTask.replacedNewFilterIds ?? []);
-              const ahuFilters = (allFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId && !replacedSet.has(f.id));
+              const ahuFilters = (operableFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId && !replacedSet.has(f.id));
               const q = replTaskSearch.trim().toLowerCase();
               const candidates = (q ? ahuFilters.filter((f: any) => (f.name ?? '').toLowerCase().includes(q)) : ahuFilters)
                 .slice().sort((a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? '')));

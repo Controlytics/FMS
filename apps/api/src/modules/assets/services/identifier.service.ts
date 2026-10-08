@@ -1,6 +1,7 @@
 import type { RequestContext } from '../../../types/context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError, NotFoundError, ValidationError, ConflictError } from '../../../lib/errors.js';
+import { assertFilterOperable } from '../filter-workflow.js';
 import { identifierRepository } from '../repositories/identifier.repository.js';
 import { instanceRepository } from '../repositories/instance.repository.js';
 import { prisma } from '../../../lib/prisma.js';
@@ -22,6 +23,10 @@ export const identifierService = {
   async create(data: { assetId: string; identifierType: string; identifierValue: string; label?: string; isPrimary?: boolean; replaceExisting?: boolean }, ctx: RequestContext) {
     const asset = await instanceRepository.findByIdSimple(data.assetId);
     if (!asset) throw new ValidationError('Entity instance not found');
+    // 2026-10-08 (operator): a filter that has not passed review + approval
+    // cannot be tagged — the web Filters page hid the control, but the tablet
+    // RFID-assign page and the API did not. Non-filter assets carry APPROVED.
+    assertFilterOperable((asset as any).approvalStatus, asset.name);
 
     // Only one identifier per entity. 2026-10-05: re-tagging is a real field
     // operation (a damaged or lost tag, or a tag scanned onto the wrong filter

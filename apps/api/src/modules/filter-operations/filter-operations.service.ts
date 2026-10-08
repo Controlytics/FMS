@@ -6,6 +6,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { assertFilterOperable } from '../assets/filter-workflow.js';
 import { computeChecksum } from './helpers.js';
 import {
   getFilter,
@@ -765,6 +766,12 @@ export class FilterOperationsService {
   async retire(ctx: RequestContext, filterId: string, remarks: string, terminationReason: string = 'RETIRED') {
     const filter = await getFilter(filterId, ctx);
 
+    // 2026-10-08 (operator): a filter still in the creation workflow cannot be
+    // retired or replaced — only the web page hid those controls; the tablet
+    // and the API accepted them.
+    const wf = await prisma.assetInstance.findUnique({ where: { id: filterId }, select: { approvalStatus: true } });
+    assertFilterOperable(wf?.approvalStatus, filter.name);
+
     // Already retired?
     if (filter.currentLifecycleState === 'RETIRED') {
       throw new AppError(400, 'ALREADY_RETIRED', 'Filter is already retired');
@@ -874,6 +881,8 @@ export class FilterOperationsService {
       where: { id: filterId },
     });
     if (!instance) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
+    // 2026-10-08 (operator): only an APPROVED filter can be replaced (see retire()).
+    assertFilterOperable(instance.approvalStatus, instance.name);
 
     // Calculate new name: increment suffix
     const oldName = instance.name;
