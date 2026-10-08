@@ -6,7 +6,9 @@ import { buildContext } from '../../../lib/build-context.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
 import { createAssetInstanceSchema, updateAssetInstanceSchema, assetQuerySchema } from '@digilog/shared';
 import { instanceService } from '../services/instance.service.js';
-import { bulkUploadFilters } from '../services/bulk-upload-filter.service.js';
+import { bulkUploadFilters, type UploadScope } from '../services/bulk-upload-filter.service.js';
+import { getRolePerms } from '../../../plugins/rbac.js';
+import { hasEffectivePermission } from '@digilog/shared';
 import { buildFilterUploadTemplate } from '../services/filter-upload-template.service.js';
 import { prisma } from '../../../lib/prisma.js';
 import {
@@ -311,43 +313,48 @@ export default async function instanceRoutes(app: FastifyInstance) {
   // GET /instances/filter-upload-template.xlsx — Download the bulk-upload
   // template (.xlsx with live Excel data-validation dropdowns). Dropdown
   // values reflect the current filter-field-options master data.
+  //
+  // The columns follow WHERE the upload was started (2026-10-08):
+  //   ahuId   → no ahu / area columns (every filter goes into that AHU)
+  //   areaId  → `ahu` column, suggesting the area's AHUs
+  //   blockId → optional `area` + `ahu` columns, suggesting the block's ones
+  // The AHU / Area dropdowns SUGGEST; a new name may be typed and the upload
+  // creates it. An empty block is therefore fine — no NO_AHUS refusal.
   app.get('/instances/filter-upload-template.xlsx', {
     preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_BULK_UPLOAD')],
     schema: {
       tags: ['Entities'],
       summary: 'Download the filter bulk-upload .xlsx template',
-      description: 'Streams an .xlsx workbook with Excel data-validation dropdowns (ahu, filterSet, ahuType, filterType, micronSize, filterSize) populated from live data. `blockId` is REQUIRED: the `ahu` dropdown lists the AHUs in that block as they stand at download time.',
+      description: 'Streams an .xlsx workbook with Excel data-validation dropdowns populated from live data. Pass ONE scope: `ahuId` (no ahu/area columns), `areaId` (ahu column) or `blockId` (optional area column + ahu column). The ahu/area dropdowns list what exists at download time; typing a new name is allowed — the upload creates it.',
       querystring: {
         type: 'object',
-        required: ['blockId'],
-        properties: { blockId: { type: 'string', format: 'uuid' } },
+        properties: {
+          blockId: { type: 'string', format: 'uuid' },
+          areaId: { type: 'string', format: 'uuid' },
+          ahuId: { type: 'string', format: 'uuid' },
+        },
       },
     },
   }, async (req, reply) => {
-    // blockId is REQUIRED (2026-09-04). Without it the sheet would carry an
-    // `ahu` column with no dropdown — free text feeding a name-resolution path,
-    // which looks like the feature while silently not being it.
-    const { blockId } = req.query as { blockId: string };
-    // An AHU hangs off the block directly OR off an area in it, so both are
-    // collected — the same union the Filters page cascade uses.
-    const areaIds = (await prisma.area.findMany({
-      where: { blockId, isActive: true }, select: { id: true },
-    })).map(a => a.id);
-    const ahus = await prisma.ahu.findMany({
-      where: {
-        isActive: true,
-        OR: [{ blockId }, ...(areaIds.length ? [{ areaId: { in: areaIds } }] : [])],
-      },
-      select: { name: true },
-      orderBy: { name: 'asc' },
-    });
-    if (ahus.length === 0) {
-      return reply.code(400).send({
-        error: 'NO_AHUS',
-        message: 'This block has no AHUs yet. Create an AHU before bulk-uploading filters into it.',
+    const { blockId, areaId, ahuId } = req.query as { blockId?: string; areaId?: string; ahuId?: string };
+    let buf: Buffer;
+    if (ahuId) {
+      buf = await buildFilterUploadTemplate({ scope: 'ahu' });
+    } else if (areaId) {
+      const ahus = await prisma.ahu.findMany({ where: { areaId, isActive: true }, select: { name: true }, orderBy: { name: 'asc' } });
+      buf = await buildFilterUploadTemplate({ scope: 'area', ahuNames: ahus.map(a => a.name) });
+    } else if (blockId) {
+      // An AHU hangs off the block directly OR off an area in it, so both are
+      // collected — the same union the Filters page cascade uses.
+      const areas = await prisma.area.findMany({ where: { blockId, isActive: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+      const ahus = await prisma.ahu.findMany({
+        where: { isActive: true, OR: [{ blockId }, ...(areas.length ? [{ areaId: { in: areas.map(a => a.id) } }] : [])] },
+        select: { name: true }, orderBy: { name: 'asc' },
       });
+      buf = await buildFilterUploadTemplate({ scope: 'block', ahuNames: ahus.map(a => a.name), areaNames: areas.map(a => a.name) });
+    } else {
+      return reply.code(400).send({ error: 'VALIDATION', message: 'Pass blockId, areaId or ahuId — the template columns depend on where the upload goes.' });
     }
-    const buf = await buildFilterUploadTemplate(ahus.map(a => a.name));
     return reply
       .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       .header('Content-Disposition', 'attachment; filename="filter-upload-template.xlsx"')
@@ -378,8 +385,54 @@ export default async function instanceRoutes(app: FastifyInstance) {
         },
       },
       rows: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      newAreas: { type: 'array', items: { type: 'string' } },
+      newAhus: { type: 'array', items: { type: 'string' } },
     },
   };
+
+  // Reads the multipart body shared by upload + validate. `scope` is the level
+  // the dialog was opened from (blockId / areaId / ahuId).
+  async function readBulkUploadParts(req: any) {
+    let fileBuffer: Buffer | null = null;
+    let fileTruncated = false;
+    const scope: UploadScope = {};
+    // 2026-05-22: dialog-level fallback when a row has no `filterSet`.
+    let defaultFilterSet: 'SET_A' | 'SET_B' | undefined;
+    for await (const part of req.parts()) {
+      if (part.type === 'file' && part.fieldname === 'file') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of part.file) chunks.push(chunk);
+        fileBuffer = Buffer.concat(chunks);
+        if ((part.file as any).truncated) fileTruncated = true;
+      } else if (part.type === 'field' && (part.fieldname === 'ahuId' || part.fieldname === 'areaId' || part.fieldname === 'blockId')) {
+        const v = String(part.value ?? '').trim();
+        if (v) scope[part.fieldname as keyof UploadScope] = v;
+      } else if (part.type === 'field' && part.fieldname === 'defaultFilterSet') {
+        const raw = String(part.value ?? '').toUpperCase().trim();
+        if (raw === 'A' || raw === 'SET_A') defaultFilterSet = 'SET_A';
+        else if (raw === 'B' || raw === 'SET_B') defaultFilterSet = 'SET_B';
+      }
+    }
+    return { fileBuffer, fileTruncated, scope, defaultFilterSet };
+  }
+
+  // Creating an AHU / Area from the sheet needs what the Structure-view create
+  // gates on (filters.hierarchy_create, or the broad ASSET_CREATE) — never just
+  // FILTER_BULK_UPLOAD, or the upload would hand out hierarchy creation.
+  async function canCreateHierarchy(req: any): Promise<boolean> {
+    const role = req.user?.role;
+    if (!role) return false;
+    if (role === 'SUPER_ADMIN') return true;
+    const perms = await getRolePerms(role);
+    return ['FILTER_HIERARCHY_CREATE', 'ASSET_CREATE'].some(p => hasEffectivePermission(perms, p));
+  }
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  function badScope(scope: UploadScope): string | null {
+    if (!scope.blockId && !scope.areaId && !scope.ahuId) return 'blockId, areaId or ahuId is required';
+    for (const v of Object.values(scope)) if (v && !UUID_RE.test(v)) return 'blockId / areaId / ahuId must be a UUID';
+    return null;
+  }
 
   // POST /instances/bulk-upload-filters — Bulk create filters from an .xlsx file
   app.post('/instances/bulk-upload-filters', {
@@ -387,62 +440,33 @@ export default async function instanceRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entities'],
       summary: 'Bulk upload filters from .xlsx',
-      description: 'Upload the .xlsx template to create multiple filters under an AHU. Columns: name, filterSet (A/B), ahuType, filterType, micronSize, filterSize, lastCleaningDate, filterProfileId. Dropdown values validated against the live filter-field-options config.',
+      description: 'Upload the .xlsx template. Multipart fields: `file` plus ONE scope — `ahuId` (all filters into that AHU), `areaId` (each row names its AHU; missing AHUs are created in the area) or `blockId` (each row names its AHU and optionally its Area; missing ones are created in the block). Creating an AHU/Area needs FILTER_HIERARCHY_CREATE or ASSET_CREATE. No row limit; the file is bounded at 5 MB. Partial success: valid rows are created, invalid rows are reported.',
       consumes: ['multipart/form-data'],
       response: { 200: bulkResultsSchema, ...errorResponses },
     },
   }, async (req, reply) => {
     // Reauth must run BEFORE multipart consumption — req.body is undefined for
-    // multipart routes, so enforceReauth's body-extraction path is dead. The
-    // FE sends the password via the x-reauth-password header (FormData can't
-    // carry a JSON _currentPassword field), which the helper accepts.
-    const { ok } = await enforceReauth('BULK_UPLOAD_FILTERS', req, reply);
+    // multipart routes. The FE sends the password via the x-reauth-password
+    // header. CREATE_ASSET rides along (2026-10-08): the upload may create
+    // AHUs / Areas, which on the Structure view sign CREATE_ASSET — an
+    // enabled CREATE_ASSET row must not be bypassable through the upload.
+    const { ok } = await enforceReauth(['BULK_UPLOAD_FILTERS', 'CREATE_ASSET'], req, reply);
     if (!ok) return;
 
     try {
-      let fileBuffer: Buffer | null = null;
-      let fileTruncated = false;
-      let ahuId = '';
-      let blockId = '';
-      // 2026-05-22: dialog-level fallback when a CSV row has no `filterSet`
-      // column. Normalized A/B → SET_A/SET_B before forwarding to the service.
-      let defaultFilterSet: 'SET_A' | 'SET_B' | undefined;
-
-      const parts = req.parts();
-      for await (const part of parts) {
-        if (part.type === 'file' && part.fieldname === 'file') {
-          const chunks: Buffer[] = [];
-          for await (const chunk of part.file) {
-            chunks.push(chunk);
-          }
-          fileBuffer = Buffer.concat(chunks);
-          if ((part.file as any).truncated) fileTruncated = true;
-        } else if (part.type === 'field' && part.fieldname === 'ahuId') {
-          ahuId = (part.value as string) ?? '';
-        } else if (part.type === 'field' && part.fieldname === 'blockId') {
-          blockId = (part.value as string) ?? '';
-        } else if (part.type === 'field' && part.fieldname === 'defaultFilterSet') {
-          const raw = ((part.value as string) ?? '').toUpperCase().trim();
-          if (raw === 'A' || raw === 'SET_A') defaultFilterSet = 'SET_A';
-          else if (raw === 'B' || raw === 'SET_B') defaultFilterSet = 'SET_B';
-          // anything else stays undefined — the service falls back to the
-          // per-row hard error so the operator sees what's wrong.
-        }
-      }
-
-      // #low-batch: see /validate handler — detect the silent 5 MB truncation
-      // loudly instead of letting a corrupt buffer fail deep in the parser.
+      const { fileBuffer, fileTruncated, scope, defaultFilterSet } = await readBulkUploadParts(req);
+      // #low-batch: @fastify/multipart silently TRUNCATES at the 5 MB limit —
+      // detect it loudly instead of failing deep in the xlsx parser.
       if (fileTruncated) {
         return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' });
       }
       if (!fileBuffer || fileBuffer.length === 0) {
         return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
       }
-      if (!ahuId) {
-        return reply.code(400).send({ error: 'VALIDATION', message: 'ahuId is required' });
-      }
+      const scopeErr = badScope(scope);
+      if (scopeErr) return reply.code(400).send({ error: 'VALIDATION', message: scopeErr });
 
-      const result = await bulkUploadFilters(fileBuffer, ahuId, blockId || undefined, defaultFilterSet, buildContext(req));
+      const result = await bulkUploadFilters(fileBuffer, scope, defaultFilterSet, buildContext(req), { canCreateHierarchy: await canCreateHierarchy(req) });
       return { success: true, ...result };
     } catch (err: any) {
       if (err.statusCode === 415 || err.message?.includes('multipart')) {
@@ -462,51 +486,23 @@ export default async function instanceRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Entities'],
       summary: 'Validate a bulk-upload .xlsx without creating (dry-run)',
-      description: 'Parses + validates the uploaded .xlsx against the live master data and returns row/column/value errors plus the parsed rows for the preview. Creates nothing.',
+      description: 'Parses + validates the uploaded .xlsx against the live master data and returns row/column/value errors, the parsed rows (with the resolved area/AHU and whether each is new) and the AHUs/Areas the upload WOULD create. Creates nothing.',
       consumes: ['multipart/form-data'],
       response: { 200: bulkResultsSchema, ...errorResponses },
     },
   }, async (req, reply) => {
     try {
-      let fileBuffer: Buffer | null = null;
-      let fileTruncated = false;
-      let ahuId = '';
-      let blockId = '';
-      let defaultFilterSet: 'SET_A' | 'SET_B' | undefined;
-
-      const parts = req.parts();
-      for await (const part of parts) {
-        if (part.type === 'file' && part.fieldname === 'file') {
-          const chunks: Buffer[] = [];
-          for await (const chunk of part.file) chunks.push(chunk);
-          fileBuffer = Buffer.concat(chunks);
-          if ((part.file as any).truncated) fileTruncated = true;
-        } else if (part.type === 'field' && part.fieldname === 'ahuId') {
-          ahuId = (part.value as string) ?? '';
-        } else if (part.type === 'field' && part.fieldname === 'blockId') {
-          blockId = (part.value as string) ?? '';
-        } else if (part.type === 'field' && part.fieldname === 'defaultFilterSet') {
-          const raw = ((part.value as string) ?? '').toUpperCase().trim();
-          if (raw === 'A' || raw === 'SET_A') defaultFilterSet = 'SET_A';
-          else if (raw === 'B' || raw === 'SET_B') defaultFilterSet = 'SET_B';
-        }
-      }
-
-      // #low-batch: @fastify/multipart silently TRUNCATES at the global 5 MB
-      // fileSize limit rather than throwing, so an oversized upload becomes a
-      // corrupt buffer that fails deep in the xlsx parser with a confusing error.
-      // Detect it loudly (mirrors uploads/pm-schedules routes).
+      const { fileBuffer, fileTruncated, scope, defaultFilterSet } = await readBulkUploadParts(req);
       if (fileTruncated) {
         return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' });
       }
       if (!fileBuffer || fileBuffer.length === 0) {
         return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
       }
-      if (!ahuId) {
-        return reply.code(400).send({ error: 'VALIDATION', message: 'ahuId is required' });
-      }
+      const scopeErr = badScope(scope);
+      if (scopeErr) return reply.code(400).send({ error: 'VALIDATION', message: scopeErr });
 
-      const result = await bulkUploadFilters(fileBuffer, ahuId, blockId || undefined, defaultFilterSet, buildContext(req), { validateOnly: true });
+      const result = await bulkUploadFilters(fileBuffer, scope, defaultFilterSet, buildContext(req), { validateOnly: true, canCreateHierarchy: await canCreateHierarchy(req) });
       return { success: true, ...result };
     } catch (err: any) {
       if (err.statusCode === 415 || err.message?.includes('multipart')) {

@@ -3,11 +3,19 @@
 // viewer's permissions.
 //
 // The operator's rule: a filter that is not yet APPROVED shows its details
-// only. No edit / delete / status / retire / RFID controls, no bulk checkbox.
+// only. No edit / delete / status / retire / RFID controls.
 // The ONE thing it offers is the next workflow step, inline on the row, to the
 // role that owns that step: Review (PENDING_REVIEW → reviewer) or Approve
 // (PENDING_APPROVAL → approver). Both open the details popup; the decision is
-// taken there. A REJECTED filter is the exception: the creator must be able to
+// taken there.
+//
+// Bulk (2026-10-08, operator): a pending row DOES get a checkbox for the viewer
+// who owns its step, so several can be ticked and reviewed / approved at once.
+// The ticked rows still open the bulk popup, which lists each record before the
+// decision — a selection never decides on its own. Ticked pending rows are
+// never fed to Update Status / Retire / Replace (see `operable`).
+//
+// A REJECTED filter is the exception: the creator must be able to
 // correct it (Edit), resubmit it, or give up on it (Delete).
 //
 // Sequence is enforced here as well as on the server: an approver looking at a
@@ -28,7 +36,8 @@ export type WorkflowPerms = {
 export type WorkflowRowActions = {
   /** APPROVED (or unknown/legacy) — the ordinary action cluster and checkbox apply. */
   operable: boolean;
-  /** Bulk checkbox shown. Never for a filter still in the workflow. */
+  /** Bulk checkbox shown: an operable row, or a pending row whose step THIS
+   *  viewer owns (it can then be ticked for bulk Review / Approve). */
   selectable: boolean;
   /** Read-only details popup for anyone who can see the row. Always on — an
    *  approved filter's popup is where its review/approval record is read. */
@@ -64,7 +73,7 @@ export function workflowRowActions(
 
   if (s === 'PENDING_REVIEW') {
     return {
-      operable: false, selectable: false, showDetails: true,
+      operable: false, selectable: perms.canReview, showDetails: true,
       primary: perms.canReview ? 'review' : null,
       showResubmit: false, showEdit: false, showDelete: false,
     };
@@ -72,7 +81,7 @@ export function workflowRowActions(
 
   if (s === 'PENDING_APPROVAL') {
     return {
-      operable: false, selectable: false, showDetails: true,
+      operable: false, selectable: perms.canApprove, showDetails: true,
       primary: perms.canApprove ? 'approve' : null,
       showResubmit: false, showEdit: false, showDelete: false,
     };

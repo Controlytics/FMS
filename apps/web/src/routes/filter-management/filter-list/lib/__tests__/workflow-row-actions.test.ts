@@ -32,8 +32,11 @@ describe('workflowRowActions', () => {
     expect(a.selectable).toBe(false);
   });
 
-  it('PENDING_REVIEW: details for everyone, Review only for the reviewer, never a checkbox', () => {
+  it('PENDING_REVIEW: details for everyone; Review + a bulk checkbox only for the reviewer', () => {
     expect(workflowRowActions('PENDING_REVIEW', none)).toMatchObject({ operable: false, selectable: false, showDetails: true, primary: null });
+    // 2026-10-08: the reviewer can tick several and review them in one popup.
+    expect(workflowRowActions('PENDING_REVIEW', reviewer)).toMatchObject({ operable: false, selectable: true });
+    expect(workflowRowActions('PENDING_REVIEW', approver).selectable).toBe(false);
     expect(workflowRowActions('PENDING_REVIEW', reviewer).primary).toBe('review');
     // Sequence: an approver must wait for the review step even though the
     // endpoint would accept an approve on PENDING_REVIEW.
@@ -44,7 +47,8 @@ describe('workflowRowActions', () => {
   it('PENDING_APPROVAL: Approve only for the approver; the reviewer is done', () => {
     expect(workflowRowActions('PENDING_APPROVAL', reviewer).primary).toBeNull();
     expect(workflowRowActions('PENDING_APPROVAL', approver).primary).toBe('approve');
-    expect(workflowRowActions('PENDING_APPROVAL', approver).selectable).toBe(false);
+    expect(workflowRowActions('PENDING_APPROVAL', approver)).toMatchObject({ operable: false, selectable: true });
+    expect(workflowRowActions('PENDING_APPROVAL', reviewer).selectable).toBe(false);
   });
 
   it('pending rows never expose edit / delete / resubmit, whoever looks', () => {

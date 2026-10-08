@@ -66,9 +66,6 @@ const APPROVAL_BADGE: Record<string, { label: string; cls: string; title: string
   },
 };
 
-// Permission-free probe for the selection rule: `selectable` depends only on
-// the status, so any perms give the same answer.
-const WF_NO_PERMS = { canReview: false, canApprove: false, canEdit: false, canDelete: false, canSubmit: false };
 
 
 // A-01 T2.2: flatten the typed /api/hierarchy/tree (blocks → areas → ahus →
@@ -228,13 +225,9 @@ export function FilterListPage() {
   const [createFilterProfile, setCreateFilterProfile] = useState('');
   const [createFilterSubmitting, setCreateFilterSubmitting] = useState(false);
   const [createFilterError, setCreateFilterError] = useState('');
-  const [bulkUploadAhu, setBulkUploadAhu] = useState('');
-  // Optional Area pre-filter for the AHU dropdown in the bulk upload dialog.
-  // Empty = no filter (show all AHUs in block). Selecting an Area narrows
-  // the AHU list to AHUs under that area. Mirrors createFilterArea exactly.
-  const [bulkUploadArea, setBulkUploadArea] = useState('');
-  // Dialog-level fallback Set for CSV rows that omit `filterSet` column.
-  // CSV row value still wins when present.
+  // AHUs / Areas the upload creates (preview: WOULD create), from the server.
+  const [bulkUploadNewAreas, setBulkUploadNewAreas] = useState<string[]>([]);
+  const [bulkUploadNewAhus, setBulkUploadNewAhus] = useState<string[]>([]);
   const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
   const [bulkUploadStep, setBulkUploadStep] = useState<'select' | 'preview' | 'uploading' | 'results'>('select');
   const [bulkUploadRows, setBulkUploadRows] = useState<any[]>([]);
@@ -713,10 +706,16 @@ export function FilterListPage() {
     });
   };
 
-  // A filter still in the creation workflow has no bulk checkbox (2026-09-24):
-  // it offers its details and its next workflow step, nothing else. Same rule
-  // as the per-row cluster — see workflowRowActions.
-  const selectableFilters = blockFilters.filter(f => f.currentState !== 'RETIRED' && workflowRowActions(f.approvalStatus, WF_NO_PERMS).selectable);
+  // The viewer's workflow permissions — one object for the selection rule and
+  // the per-row cluster, so they cannot disagree.
+  const wfPerms = {
+    canReview: canReviewFilters, canApprove: canApproveFilters,
+    canEdit: canEditFilter, canDelete: canDeleteFilter,
+    canSubmit: canCreateFilter || canBulkUpload,
+  };
+  // Which rows get a checkbox — see workflowRowActions. Since 2026-10-08 that
+  // includes a pending row whose step the viewer owns (bulk Review / Approve).
+  const selectableFilters = blockFilters.filter(f => f.currentState !== 'RETIRED' && workflowRowActions(f.approvalStatus, wfPerms).selectable);
   const allSelected = selectableFilters.length > 0 && selectableFilters.every(f => selectedFilterIds.has(f.id));
 
   // The filters a bulk action will actually touch: the selection Set narrowed to
@@ -724,13 +723,26 @@ export function FilterListPage() {
   // outlives those narrowings, so acting on it raw hit invisible filters. Every
   // bulk surface — action, dialog list, dialog count, toolbar count — reads this
   // one value so they can never disagree.
-  const visibleSelectedFilters = useMemo(
+  const visibleSelectedAll = useMemo(
     () => resolveBulkTargets(selectedFilterIds, blockFilters),
     [selectedFilterIds, blockFilters],
   );
+  // Update Status / Retire / Replace act on APPROVED filters only: a ticked
+  // pending filter is there for Review / Approve and must never reach them.
+  const visibleSelectedFilters = useMemo(
+    // `operable` depends on the status alone, never on the viewer's perms.
+    () => visibleSelectedAll.filter(f => workflowRowActions(f.approvalStatus, wfPerms).operable),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleSelectedAll],
+  );
+  // Ticked rows waiting on the viewer's step (2026-10-08).
+  const selectedForReview = canReviewFilters
+    ? visibleSelectedAll.filter(f => f.approvalStatus === 'PENDING_REVIEW' && f.currentState !== 'RETIRED') : [];
+  const selectedForApprove = canApproveFilters
+    ? visibleSelectedAll.filter(f => f.approvalStatus === 'PENDING_APPROVAL' && f.currentState !== 'RETIRED') : [];
   // Selected but currently filtered off-screen — surfaced in the bulk bar so the
   // operator knows they exist instead of silently losing them.
-  const hiddenSelectedCount = selectedFilterIds.size - visibleSelectedFilters.length;
+  const hiddenSelectedCount = selectedFilterIds.size - visibleSelectedAll.length;
 
   const toggleSelectAll = () => {
     if (allSelected) {
@@ -751,6 +763,13 @@ export function FilterListPage() {
   // Bulk step over every filter of the block waiting on the viewer (a bulk
   // upload creates up to 200 at once). Same endpoints, one array of ids.
   const [bulkApprovalMode, setBulkApprovalMode] = useState<BulkMode | null>(null);
+  // true = the popup lists the TICKED rows; false = every pending row of the
+  // block (toolbar "Review (n)" / "Approve (n)").
+  const [bulkApprovalFromSelection, setBulkApprovalFromSelection] = useState(false);
+  const openBulkApproval = (mode: BulkMode, fromSelection: boolean) => {
+    setBulkApprovalFromSelection(fromSelection);
+    setBulkApprovalMode(mode);
+  };
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
 
   const openApprovalDialog = (f: any, mode: ApprovalDialogMode) => {
@@ -764,7 +783,11 @@ export function FilterListPage() {
     () => pendingWorkflowSteps(blockFilters, { canReview: canReviewFilters, canApprove: canApproveFilters }),
     [blockFilters, canReviewFilters, canApproveFilters],
   );
-  const bulkTargets = bulkApprovalMode === 'review' ? pendingSteps.review : bulkApprovalMode === 'approve' ? pendingSteps.approve : [];
+  const bulkTargets = bulkApprovalMode === 'review'
+    ? (bulkApprovalFromSelection ? selectedForReview : pendingSteps.review)
+    : bulkApprovalMode === 'approve'
+      ? (bulkApprovalFromSelection ? selectedForApprove : pendingSteps.approve)
+      : [];
 
   // Row shape the popups read; the list row lacks block name + RFID.
   const toDialogFilter = (f: any) => ({
@@ -794,6 +817,8 @@ export function FilterListPage() {
         setApprovalSubmitting(false);
         setApprovalDialog(null);
         setBulkApprovalMode(null);
+        // Decided rows leave the selection: they changed step.
+        setSelectedFilterIds(prev => { const next = new Set(prev); for (const id of ids) next.delete(id); return next; });
         toast.success(`${subject} ${verb.toLowerCase()}`,
           kind === 'review' ? 'Sent for approval.'
             : kind === 'approve' ? (ids.length === 1 ? 'It can now be cleaned.' : 'They can now be cleaned.')
@@ -1055,31 +1080,21 @@ export function FilterListPage() {
     return filtered.map(({ id, name }) => ({ id, name }));
   }, [selectedBlock, treeData, createFilterArea]);
 
-  // Areas in the selected block — for the Bulk Upload dialog's optional
-  // Area dropdown. Same shape as createFilterAreas; separate memo so it
-  // stays scoped to the bulk-upload flow.
-  const bulkUploadAreas = useMemo(() => {
-    if (!selectedBlock) return [];
-    const blockTree = treeData.find((b: any) => b.id === selectedBlock);
-    if (!blockTree) return [];
-    return blockTree.areas.map((a: any) => ({ id: a.id, name: a.name }));
-  }, [selectedBlock, treeData]);
+  // Where Bulk Upload lands (2026-10-08): the level the operator is looking at.
+  // AHU → every filter into that AHU; Area / Block → each row names its AHU
+  // (and, from a block, optionally its Area) and missing ones are created.
+  // No AHU picker: the sheet decides, the server resolves.
+  const bulkUploadScope = useMemo((): { kind: 'block' | 'area' | 'ahu'; id: string; name: string } | null => {
+    if (diagramFilter?.type === 'ahu') return { kind: 'ahu', id: diagramFilter.id, name: diagramFilter.name };
+    if (diagramFilter?.type === 'area') return { kind: 'area', id: diagramFilter.id, name: diagramFilter.name };
+    return selectedBlock ? { kind: 'block', id: selectedBlock, name: selectedBlockName } : null;
+  }, [diagramFilter, selectedBlock, selectedBlockName]);
 
-  // AHUs visible in the Bulk Upload dialog — filtered by the selected
-  // bulkUploadArea (empty = show all AHUs from `bulkUploadAhus`, which
-  // already respects diagramFilter scope). When an Area is picked, we
-  // restrict to AHUs whose parent is that Area. Kept separate from
-  // `bulkUploadAhus` so any other consumer of that list (the diagram
-  // create-AHU flow, etc.) keeps seeing the unfiltered list.
-  const bulkUploadAhusVisible = useMemo(() => {
-    if (!bulkUploadArea) return bulkUploadAhus;
-    if (!selectedBlock) return [];
-    const blockTree = treeData.find((b: any) => b.id === selectedBlock);
-    if (!blockTree) return [];
-    const area = blockTree.areas.find((a: any) => a.id === bulkUploadArea);
-    if (!area) return [];
-    return area.ahus.map((h: any) => ({ id: h.id, name: h.name }));
-  }, [bulkUploadArea, bulkUploadAhus, selectedBlock, treeData]);
+  const appendBulkUploadScope = (fd: FormData) => {
+    if (!bulkUploadScope) return;
+    fd.append(`${bulkUploadScope.kind}Id`, bulkUploadScope.id);
+    if (bulkUploadScope.kind !== 'block' && selectedBlock) fd.append('blockId', selectedBlock);
+  };
 
   // ── Hierarchy edit/delete helpers ──
   const openHierarchyEdit = (node: { id: string; name: string; entityType: string }) => {
@@ -1336,9 +1351,8 @@ export function FilterListPage() {
   const openBulkUpload = () => {
     setBulkUploadOpen(true);
     setBulkUploadStep('select');
-    // Reset the picker so a previous session's choice doesn't leak in.
-    setBulkUploadArea('');
-    setBulkUploadAhu(bulkUploadAhus.length === 1 ? bulkUploadAhus[0].id : '');
+    setBulkUploadNewAreas([]);
+    setBulkUploadNewAhus([]);
     setBulkUploadFile(null);
     setBulkUploadRows([]);
     setBulkUploadError('');
@@ -1355,7 +1369,7 @@ export function FilterListPage() {
     setBulkUploadFile(f);
     setBulkUploadError('');
     setBulkUploadResults([]);
-    if (!bulkUploadAhu) { setBulkUploadError('Select a Target AHU before uploading the file.'); return; }
+    if (!bulkUploadScope) { setBulkUploadError('Select a block first.'); return; }
 
     // Server-side dry-run: parse + validate the .xlsx against the live master
     // data and return parsed rows + per-cell row/column/value errors. Binary
@@ -1364,8 +1378,7 @@ export function FilterListPage() {
     try {
       const formData = new FormData();
       formData.append('file', f);
-      formData.append('ahuId', bulkUploadAhu);
-      if (selectedBlock) formData.append('blockId', selectedBlock);
+      appendBulkUploadScope(formData);
       const token = sessionStorage.getItem('access_token');
       const res = await fetch(apiUrl('/api/assets/instances/bulk-upload-filters/validate'), {
         method: 'POST',
@@ -1378,6 +1391,8 @@ export function FilterListPage() {
       if (rows.length === 0) { setBulkUploadError(data.results?.[0]?.error || 'No data rows found in the file'); return; }
       setBulkUploadRows(rows);
       setBulkUploadResults(data.results || []);
+      setBulkUploadNewAreas(data.newAreas || []);
+      setBulkUploadNewAhus(data.newAhus || []);
       setBulkUploadStep('preview');
     } catch (err: any) {
       setBulkUploadError(err?.message || 'Failed to read the .xlsx file');
@@ -1385,7 +1400,7 @@ export function FilterListPage() {
   };
 
   const handleBulkUploadSubmit = async () => {
-    if (!bulkUploadFile || !bulkUploadAhu) return;
+    if (!bulkUploadFile || !bulkUploadScope) return;
 
     // Bulk upload is multipart/form-data, so we cannot use api.postWithReauth
     // (which JSON-stringifies the body). Keep raw fetch + attach the reauth
@@ -1395,8 +1410,10 @@ export function FilterListPage() {
     // prompt. Submission errors are surfaced through the existing inline
     // results panel rather than the reauth dialog so the user sees per-row
     // feedback instead of a generic "failed".
+    // CREATE_ASSET rides along: the upload may create AHUs / Areas, which the
+    // server signs with the same action as a Structure-view create.
     await reauth.execute(
-      'BULK_UPLOAD_FILTERS',
+      ['BULK_UPLOAD_FILTERS', 'CREATE_ASSET'],
       async (password?: string) => {
         // Enter the spinner only once the request is actually in flight, and
         // fall back to 'preview' on any throw. Setting it before
@@ -1407,8 +1424,7 @@ export function FilterListPage() {
         try {
           const formData = new FormData();
           formData.append('file', bulkUploadFile);
-          formData.append('ahuId', bulkUploadAhu);
-          if (selectedBlock) formData.append('blockId', selectedBlock);
+          appendBulkUploadScope(formData);
           const token = sessionStorage.getItem('access_token');
           const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
           if (password) headers['x-reauth-password'] = password;
@@ -1434,8 +1450,10 @@ export function FilterListPage() {
           setBulkUploadResults(data.results || []);
           setBulkUploadCreated(data.created || 0);
           setBulkUploadFailed(data.failed || 0);
+          setBulkUploadNewAreas(data.newAreas || []);
+          setBulkUploadNewAhus(data.newAhus || []);
           setBulkUploadStep('results');
-          if (data.created > 0) mutate('/api/hierarchy/tree');
+          if (data.created > 0 || data.newAhus?.length || data.newAreas?.length) mutate('/api/hierarchy/tree');
         } catch (err) {
           // Reauth re-prompt: leave the operator on the preview behind the
           // password dialog. Transport errors fall through to onError, which
@@ -1462,14 +1480,14 @@ export function FilterListPage() {
     // and no stale client copy.
     try {
       const token = sessionStorage.getItem('access_token');
-      // blockId is REQUIRED (2026-09-04): it decides which AHUs the sheet's `ahu`
-      // dropdown offers, read fresh on every download — so an AHU created since
-      // the last download appears in the next one.
-      if (!selectedBlock) {
-        toast.error('Template download failed', 'Select a block first — the AHU dropdown is built from it.');
+      // The scope decides the columns (2026-10-08): from an AHU the sheet has no
+      // ahu / area columns; from an area, an `ahu` column; from a block, an
+      // optional `area` + an `ahu` column. Dropdowns are read fresh per download.
+      if (!bulkUploadScope) {
+        toast.error('Template download failed', 'Select a block first.');
         return;
       }
-      const res = await fetch(apiUrl(`/api/assets/instances/filter-upload-template.xlsx?blockId=${encodeURIComponent(selectedBlock)}`), {
+      const res = await fetch(apiUrl(`/api/assets/instances/filter-upload-template.xlsx?${bulkUploadScope.kind}Id=${encodeURIComponent(bulkUploadScope.id)}`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -1828,14 +1846,14 @@ export function FilterListPage() {
               {/* Bulk workflow step: every filter in the block waiting on the
                   viewer's role, in one popup. Rendered only when there is one. */}
               {pendingSteps.review.length > 0 && (
-                <button onClick={() => setBulkApprovalMode('review')} title="Review every filter waiting for review in this block"
+                <button onClick={() => openBulkApproval('review', false)} title="Review every filter waiting for review in this block"
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 shadow-sm transition-all">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                   Review ({pendingSteps.review.length})
                 </button>
               )}
               {pendingSteps.approve.length > 0 && (
-                <button onClick={() => setBulkApprovalMode('approve')} title="Approve every reviewed filter waiting in this block"
+                <button onClick={() => openBulkApproval('approve', false)} title="Approve every reviewed filter waiting in this block"
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-green-600 hover:bg-green-700 shadow-sm transition-all">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                   Approve ({pendingSteps.approve.length})
@@ -1875,31 +1893,42 @@ export function FilterListPage() {
           {selectedFilterIds.size > 0 && (
             <div className="rounded-xl px-5 py-3 flex items-center justify-between" style={{ backgroundColor: 'var(--theme-primary-light)', border: '1px solid var(--theme-primary)' }}>
               <span className="text-sm font-medium" style={{ color: 'var(--theme-primary-dark)' }}>
-                {visibleSelectedFilters.length} filter(s) selected
+                {visibleSelectedAll.length} filter(s) selected
                 {hiddenSelectedCount > 0 && (
                   <span className="font-normal text-slate-600"> — {hiddenSelectedCount} hidden by the current search and excluded</span>
                 )}
               </span>
               <div className="flex items-center gap-2">
-                {/* Creation-workflow decisions (Review / Approve / Reject) are
-                    NOT here any more (2026-09-24): a pending filter has no
-                    checkbox, and its step is taken from the row, inside the
-                    details popup. */}
-                {canStatusUpdate && (
+                {/* Creation-workflow step over the TICKED pending rows
+                    (2026-10-08). Opens the bulk popup, which lists each record
+                    before the decision (and offers Reject there). */}
+                {selectedForReview.length > 0 && (
+                  <button onClick={() => openBulkApproval('review', true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition-colors">
+                    Review selected ({selectedForReview.length})
+                  </button>
+                )}
+                {selectedForApprove.length > 0 && (
+                  <button onClick={() => openBulkApproval('approve', true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors">
+                    Approve selected ({selectedForApprove.length})
+                  </button>
+                )}
+                {canStatusUpdate && visibleSelectedFilters.length > 0 && (
                   <button onClick={openBulkStatusPanel} disabled={visibleSelectedFilters.length === 0}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 13.5V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m12-3V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m-6-9V3.75m0 3.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 9.75V10.5" /></svg>
                     Update Status
                   </button>
                 )}
-                {canRetire && (
+                {canRetire && visibleSelectedFilters.length > 0 && (
                   <button onClick={() => openBulkRetirePanel('retire')} disabled={visibleSelectedFilters.length === 0}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                     Retire
                   </button>
                 )}
-                {canReplace && (
+                {canReplace && visibleSelectedFilters.length > 0 && (
                   <button onClick={() => openBulkRetirePanel('replace')} disabled={visibleSelectedFilters.length === 0}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white text-xs font-semibold rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -1974,11 +2003,7 @@ export function FilterListPage() {
                       const isRetired = f.currentState === 'RETIRED';
                       // Creation workflow (2026-09-24): a filter not yet APPROVED
                       // shows details + its next step only. See workflow-row-actions.ts.
-                      const wf = workflowRowActions(f.approvalStatus, {
-                        canReview: canReviewFilters, canApprove: canApproveFilters,
-                        canEdit: canEditFilter, canDelete: canDeleteFilter,
-                        canSubmit: canCreateFilter || canBulkUpload,
-                      }, { isRetired });
+                      const wf = workflowRowActions(f.approvalStatus, wfPerms, { isRetired });
                       return (
                         <tr key={f.id} className={`transition-colors [&>td]:whitespace-nowrap ${isSelected ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50/50'}`}>
                           <td className="w-10 px-2 py-2">
@@ -2478,27 +2503,21 @@ export function FilterListPage() {
       {bulkUploadOpen && (
         <BulkUploadDialog
           step={bulkUploadStep}
-          ahu={bulkUploadAhu}
-          area={bulkUploadArea}
-          ahus={bulkUploadAhusVisible}
-          areas={bulkUploadAreas}
+          scope={bulkUploadScope?.kind ?? 'block'}
+          scopeName={bulkUploadScope?.name ?? ''}
           file={bulkUploadFile}
           rows={bulkUploadRows}
           error={bulkUploadError}
           results={bulkUploadResults}
           created={bulkUploadCreated}
           failed={bulkUploadFailed}
+          newAreas={bulkUploadNewAreas}
+          newAhus={bulkUploadNewAhus}
           fieldOptions={fieldOptions}
-          diagramFilter={diagramFilter}
-          selectedBlockName={selectedBlockName}
-          onAhuChange={setBulkUploadAhu}
-          // When Area changes, the previously-picked AHU may no longer be
-          // in the narrowed list — clear it so operator picks fresh.
-          onAreaChange={(v) => { setBulkUploadArea(v); setBulkUploadAhu(''); }}
           onFileSelect={handleBulkUploadFileSelect}
           onSubmit={handleBulkUploadSubmit}
           onClose={closeBulkUpload}
-          onChangeFile={() => { setBulkUploadStep('select'); setBulkUploadFile(null); setBulkUploadRows([]); }}
+          onChangeFile={() => { setBulkUploadStep('select'); setBulkUploadFile(null); setBulkUploadRows([]); setBulkUploadNewAreas([]); setBulkUploadNewAhus([]); }}
           onDownloadTemplate={downloadBulkTemplate}
         />
       )}

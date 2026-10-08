@@ -1,25 +1,24 @@
 import { Fragment } from 'react';
 import { themeButton } from '@/lib/theme-styles';
 import { UploadValidationResult } from '@/components/upload-validation-result';
-import type { AhuOption, BulkUploadStep, DiagramFilterState, FilterFieldOptions } from '../types';
+import type { BulkUploadStep, FilterFieldOptions } from '../types';
+
+/** Where the upload was started — decides the sheet's columns (2026-10-08). */
+export type BulkUploadScopeKind = 'block' | 'area' | 'ahu';
 
 type Props = {
   step: BulkUploadStep;
-  ahu: string;
-  area: string;
-  ahus: AhuOption[];
-  areas: AhuOption[];
+  scope: BulkUploadScopeKind;
+  scopeName: string;
   file: File | null;
   rows: any[];
   error: string;
   results: any[];
   created: number;
   failed: number;
+  newAreas: string[];
+  newAhus: string[];
   fieldOptions: FilterFieldOptions;
-  diagramFilter: DiagramFilterState;
-  selectedBlockName: string;
-  onAhuChange: (v: string) => void;
-  onAreaChange: (v: string) => void;
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSubmit: () => void;
   onClose: () => void;
@@ -30,9 +29,10 @@ type Props = {
 // Fixed column model — mirrors the Single Filter Creation fields (no
 // templateId / attributeSchema). Dropdown columns list their LIVE master-data
 // values so the operator knows what the Excel dropdowns will offer.
-const fieldColumns = (opts: FilterFieldOptions) => [
+const fieldColumns = (opts: FilterFieldOptions, scope: BulkUploadScopeKind) => [
   { key: 'name', label: 'name', hint: 'Filter Name — required, must be unique' },
-  { key: 'ahu', label: 'ahu', hint: 'Dropdown of the AHUs in this block — blank uses the AHU selected above' },
+  ...(scope === 'block' ? [{ key: 'area', label: 'area', hint: 'Optional — an existing area, or a new name to create it in this block' }] : []),
+  ...(scope !== 'ahu' ? [{ key: 'ahu', label: 'ahu', hint: `Required — an existing AHU, or a new name to create it in this ${scope}` }] : []),
   { key: 'filterSet', label: 'filterSet', hint: 'A or B (required — set per row in the Excel column)' },
   { key: 'ahuType', label: 'ahuType', hint: opts.ahuType.join(', ') || '—' },
   { key: 'filterType', label: 'filterType', hint: opts.filterType.join(', ') || '—' },
@@ -41,20 +41,29 @@ const fieldColumns = (opts: FilterFieldOptions) => [
   { key: 'lastCleaningDate', label: 'lastCleaningDate', hint: 'YYYY-MM-DD or NA' },
 ];
 
-// Columns rendered in the preview table.
-// `ahu` is second so the operator sees WHERE each filter lands right next to
-// its name — confirming a 200-row import without that is confirming blind. The
-// server sends the RESOLVED name, so a blank cell shows the dialog AHU rather
-// than an empty box.
-const PREVIEW_KEYS = ['name', 'ahu', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate'] as const;
+// Columns rendered in the preview table. `area` / `ahu` sit next to the name
+// so the operator sees WHERE each filter lands — the server sends the RESOLVED
+// names, flagged "new" when the upload will create them.
+const PREVIEW_KEYS = ['name', 'area', 'ahu', 'filterSet', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate'] as const;
+
+const SCOPE_LABEL: Record<BulkUploadScopeKind, string> = { block: 'block', area: 'area', ahu: 'AHU' };
+
+function NewList({ label, names }: { label: string; names: string[] }) {
+  if (names.length === 0) return null;
+  return (
+    <div className="text-sm text-slate-700">
+      <span className="font-medium">{label} ({names.length}):</span> {names.join(', ')}
+    </div>
+  );
+}
 
 export function BulkUploadDialog({
-  step, ahu, area, ahus, areas, file, rows, error, results, created, failed, fieldOptions,
-  diagramFilter, selectedBlockName,
-  onAhuChange, onAreaChange,
+  step, scope, scopeName, file, rows, error, results, created, failed, newAreas, newAhus, fieldOptions,
   onFileSelect, onSubmit, onClose, onChangeFile, onDownloadTemplate,
 }: Props) {
-  const cols = fieldColumns(fieldOptions);
+  const cols = fieldColumns(fieldOptions, scope);
+  // The AHU scope's sheet has no area / ahu columns: every row lands in it.
+  const previewKeys = scope === 'ahu' ? PREVIEW_KEYS.filter(k => k !== 'area' && k !== 'ahu') : PREVIEW_KEYS;
   // Validation errors carried from the dry-run (status === 'error').
   const validationErrors = (results ?? []).filter((r: any) => r.status === 'error');
   // Spreadsheet row numbers are 2-based (header = row 1); preview row i maps to row i+2.
@@ -69,11 +78,7 @@ export function BulkUploadDialog({
         <div className="px-6 py-4 shrink-0 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
           <div>
             <h2 className="text-lg font-bold text-white">Bulk Upload Filters</h2>
-            <p className="text-white/70 text-sm">
-              {diagramFilter?.type === 'ahu' ? `Into ${diagramFilter.name}`
-                : diagramFilter?.type === 'area' ? `Into ${diagramFilter.name} area`
-                : `Into ${selectedBlockName}`}
-            </p>
+            <p className="text-white/70 text-sm">Into {SCOPE_LABEL[scope]} {scopeName}</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 text-white/80 hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -83,45 +88,17 @@ export function BulkUploadDialog({
         {/* Content */}
         <div className="p-6 space-y-4 overflow-y-auto flex-1">
 
-          {/* Picker block — Area / AHU / Default Set. Rendered on both `select`
-              and `preview` so the operator can fix the AHU after parsing. */}
-          {(step === 'select' || step === 'preview') && (
-            <>
-              {areas.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    Area <span className="text-slate-400 font-normal">(Optional)</span>
-                  </label>
-                  <select value={area} onChange={e => onAreaChange(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]">
-                    <option value="">All / Any</option>
-                    {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">Target AHU <span className="text-red-500">*</span></label>
-                {ahus.length === 0 ? (
-                  <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                    No AHUs found in this scope. Create an AHU first in the Structure view (or clear the Area filter above).
-                  </div>
-                ) : ahus.length === 1 ? (
-                  <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">{ahus[0].name}</div>
-                ) : (
-                  <select value={ahu} onChange={e => onAhuChange(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]">
-                    <option value="">Select AHU...</option>
-                    {ahus.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-                  </select>
-                )}
-              </div>
-            </>
-          )}
-
           {/* Step: Select — template download + file upload */}
           {step === 'select' && (
             <>
+              <p className="text-sm text-slate-600">
+                {scope === 'ahu'
+                  ? <>Every filter in the file goes into AHU <strong>{scopeName}</strong>.</>
+                  : scope === 'area'
+                    ? <>Each row names its AHU. An AHU that is not in area <strong>{scopeName}</strong> yet is created there.</>
+                    : <>Each row names its AHU, and optionally its area. Any AHU or area that is not in block <strong>{scopeName}</strong> yet is created there.</>}
+              </p>
+
               {/* Excel column reference — dropdown columns show their live values */}
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                 <h4 className="text-sm font-medium text-slate-600 mb-2">Excel Columns <span className="text-slate-400 font-normal">(the downloaded template has built-in dropdowns)</span></h4>
@@ -160,10 +137,22 @@ export function BulkUploadDialog({
           {step === 'preview' && (
             <>
               <div className="flex items-center justify-between">
-                <p className="text-sm text-slate-600">Review before import — the <strong>ahu</strong> column shows where each filter will land (blank cells default to <strong>{ahus.find(h => h.id === ahu)?.name ?? '—'}</strong>)</p>
+                <p className="text-sm text-slate-600">
+                  {scope === 'ahu'
+                    ? <>Review before import — every filter goes into AHU <strong>{scopeName}</strong></>
+                    : <>Review before import — the <strong>area</strong> / <strong>ahu</strong> columns show where each filter will land</>}
+                </p>
                 <button onClick={onChangeFile}
                   className="text-xs hover:opacity-80 font-medium text-theme-primary">Change file</button>
               </div>
+
+              {(newAreas.length > 0 || newAhus.length > 0) && (
+                <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg space-y-1">
+                  <div className="text-sm font-medium text-amber-800">This upload will also create:</div>
+                  <NewList label="New areas" names={newAreas} />
+                  <NewList label="New AHUs" names={newAhus} />
+                </div>
+              )}
 
               <UploadValidationResult
                 importedCount={validPreviewRows}
@@ -176,7 +165,7 @@ export function BulkUploadDialog({
                   <thead className="bg-slate-50 sticky top-0">
                     <tr>
                       <th className="text-left px-3 py-2 text-slate-500 font-medium">S.No</th>
-                      {PREVIEW_KEYS.map(k => (
+                      {previewKeys.map(k => (
                         <th key={k} className="text-left px-3 py-2 text-slate-500 font-medium">{k}</th>
                       ))}
                     </tr>
@@ -187,8 +176,13 @@ export function BulkUploadDialog({
                       return (
                         <tr key={i} className={`border-t border-slate-100 ${bad ? 'bg-red-50' : ''}`}>
                           <td className="px-3 py-1.5 text-slate-400">{i + 1}</td>
-                          {PREVIEW_KEYS.map(k => (
-                            <td key={k} className={`px-3 py-1.5 ${bad ? 'text-red-600' : 'text-slate-600'}`}>{r[k] || '--'}</td>
+                          {previewKeys.map(k => (
+                            <td key={k} className={`px-3 py-1.5 ${bad ? 'text-red-600' : 'text-slate-600'}`}>
+                              {r[k] || '--'}
+                              {((k === 'ahu' && r.ahuStatus === 'new') || (k === 'area' && r.areaStatus === 'new')) && (
+                                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold">new</span>
+                              )}
+                            </td>
                           ))}
                         </tr>
                       );
@@ -224,6 +218,12 @@ export function BulkUploadDialog({
                   </div>
                 )}
               </div>
+              {(newAreas.length > 0 || newAhus.length > 0) && (
+                <div className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
+                  <NewList label="Areas created" names={newAreas} />
+                  <NewList label="AHUs created" names={newAhus} />
+                </div>
+              )}
               <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 sticky top-0">
@@ -266,7 +266,7 @@ export function BulkUploadDialog({
             <>
               <button onClick={onClose} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-lg font-medium hover:bg-slate-200 transition-colors">Cancel</button>
               {step === 'preview' && (
-                <button onClick={onSubmit} disabled={!ahu || validPreviewRows === 0}
+                <button onClick={onSubmit} disabled={validPreviewRows === 0}
                   className="flex-1 py-2.5 text-white rounded-lg font-semibold disabled:opacity-50 hover:opacity-90 transition-all flex items-center justify-center gap-2"
                   style={themeButton}>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>

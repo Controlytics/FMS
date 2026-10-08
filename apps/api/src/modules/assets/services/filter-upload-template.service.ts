@@ -13,29 +13,42 @@ interface TemplateColumn {
   header: string;
   options?: string[];
   note?: string;
+  // true = the dropdown only SUGGESTS (AHU / Area names): a typed value that is
+  // not in the list is accepted, because the upload creates it. false = strict.
+  suggestOnly?: boolean;
 }
 
+export type FilterTemplateScope =
+  | { scope: 'ahu' }
+  | { scope: 'area'; ahuNames: string[] }
+  | { scope: 'block'; ahuNames: string[]; areaNames: string[] };
+
 /**
- * `ahuNames` are the AHUs under the block the operator is uploading into, read
- * at DOWNLOAD time — so the dropdown reflects the block as it stands right then,
- * and an AHU added later needs a fresh template (same contract the field-option
- * dropdowns already have).
- *
- * The list is REQUIRED, not optional: a template with an `ahu` column but no
- * dropdown would look like this feature while silently accepting free text into
- * a name-resolution path. The route 400s rather than emit one.
+ * Columns follow where the upload was started (2026-10-08):
+ *  - AHU   → no ahu / area columns: every filter goes into that AHU.
+ *  - Area  → `ahu` column (required), suggesting the area's AHUs.
+ *  - Block → `area` column (optional) + `ahu` column (required), suggesting the
+ *            block's Areas / AHUs.
+ * Names are read at DOWNLOAD time; a new name may be typed — the upload
+ * matches existing ones (ignoring case / extra spaces) and creates the rest.
  */
-export async function buildFilterUploadTemplate(ahuNames: string[]): Promise<Buffer> {
+export async function buildFilterUploadTemplate(target: FilterTemplateScope): Promise<Buffer> {
   const opts = await loadFilterFieldOptions();
+
+  const hierarchy: TemplateColumn[] = [];
+  if (target.scope === 'block') {
+    hierarchy.push({ key: 'area', header: 'area', options: target.areaNames, suggestOnly: true,
+      note: 'Optional. The area the AHU sits in. Pick an existing one or type a new name — a new area is created in this block. Leave blank for an AHU directly under the block (or to use an existing AHU wherever it is).' });
+  }
+  if (target.scope !== 'ahu') {
+    hierarchy.push({ key: 'ahu', header: 'ahu', options: target.ahuNames, suggestOnly: true,
+      note: `Required. The AHU this filter goes into. Pick an existing one or type a new name — a new AHU is created in this ${target.scope}.` });
+  }
 
   const columns: TemplateColumn[] = [
     { key: 'name', header: 'name', note: 'Required. Unique filter ID / name.' },
-    // Per-row AHU (2026-09-04). One upload can now span every AHU in the block.
-    // Blank falls back to the AHU picked in the dialog, mirroring how filterSet
-    // falls back to the dialog default.
-    { key: 'ahu', header: 'ahu', options: ahuNames,
-      note: 'AHU this filter belongs to. Pick from the dropdown (the AHUs in this block). Leave blank to use the AHU selected in the upload dialog.' },
-    { key: 'filterSet', header: 'filterSet', options: ['A', 'B'], note: 'A or B. Leave blank to use the dialog Default Filter Set.' },
+    ...hierarchy,
+    { key: 'filterSet', header: 'filterSet', options: ['A', 'B'], note: 'A or B. Required.' },
     { key: 'ahuType', header: 'ahuType', options: opts.ahuType },
     { key: 'filterType', header: 'filterType', options: opts.filterType },
     { key: 'micronSize', header: 'micronSize', options: opts.micronSize, note: 'Micron size (µm).' },
@@ -75,7 +88,9 @@ export async function buildFilterUploadTemplate(ahuNames: string[]): Promise<Buf
           type: 'list',
           allowBlank: true,
           formulae: [ref],
-          showErrorMessage: true,
+          // A suggest-only list must not block a typed new name; Excel only
+          // enforces the list when the error message is shown.
+          showErrorMessage: !col.suggestOnly,
           errorStyle: 'error',
           errorTitle: 'Invalid value',
           error: `Choose a value from the ${col.header} dropdown (reflects the current master data).`,
