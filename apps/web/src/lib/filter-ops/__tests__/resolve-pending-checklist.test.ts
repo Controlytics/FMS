@@ -21,11 +21,19 @@ vi.mock('@/lib/action-tape', () => ({
 vi.mock('@/lib/offline-cache', () => ({
   dialogChecklistsFromActions: vi.fn(),
   getCachedPendingChecklists: vi.fn(),
+  resolvePendingChecklistForStage: vi.fn(),
 }));
+vi.mock('@/lib/offline-store', () => ({
+  cacheData: vi.fn(),
+  getCachedData: vi.fn(),
+  OFFLINE_TTL_MS: 1000,
+}));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn() } }));
 
-import { resolvePendingChecklistDialog } from '../resolve-pending-checklist';
+import { resolvePendingChecklistDialog, resolveChecklistForTargetStage } from '../resolve-pending-checklist';
 import { getCurrentActions } from '@/lib/action-tape';
-import { dialogChecklistsFromActions, getCachedPendingChecklists } from '@/lib/offline-cache';
+import { dialogChecklistsFromActions, getCachedPendingChecklists, resolvePendingChecklistForStage } from '@/lib/offline-cache';
+import { getCachedData } from '@/lib/offline-store';
 
 const SUBMIT_ACTION = { type: 'SUBMIT_CHECKLIST', label: 'Submit Checklist: X', params: {} } as any;
 
@@ -72,5 +80,43 @@ describe('resolvePendingChecklistDialog — questions invariant', () => {
     (getCurrentActions as any).mockResolvedValue([{ type: 'ADVANCE_TO_STAGE', label: 'x', params: {} }]);
     const rows = await resolvePendingChecklistDialog('filter-1');
     expect(rows).toBeNull();
+  });
+});
+
+/**
+ * Dialog-first vs the QA stage interlock (2026-10-08). Profile
+ * WASH_OUT -> CHECKLIST -> END with the stage interlock on: answering the
+ * checklist up front sent "enter Wash Out + complete the cycle" in one write,
+ * which needs the approval that entering Wash Out only just requested — refused
+ * STAGE_APPROVAL_PENDING every time. Online, such a stage is entered on its own.
+ */
+describe('resolveChecklistForTargetStage — interlock-gated terminal stage', () => {
+  const checklist = { pipelineNodeId: 'n', checklistProfileId: 'p', checklistProfileName: 'Final', questions: [] };
+  const withLookup = (entry: Record<string, unknown>) =>
+    (getCachedData as any).mockResolvedValue({ stageLookup: { WASH_OUT: entry } });
+
+  beforeEach(() => {
+    (resolvePendingChecklistForStage as any).mockResolvedValue({ checklists: [checklist], expectedIds: ['p'] });
+  });
+
+  it('online: a gated stage whose checklist completes the cycle is NOT answered up front', async () => {
+    withLookup({ interlockGated: true, leadsToEnd: true, nextStages: [] });
+    expect(await resolveChecklistForTargetStage('f1', 'WASH_OUT', true)).toEqual([]);
+    expect(resolvePendingChecklistForStage).not.toHaveBeenCalled();
+  });
+
+  it('offline: unchanged — offline work is never gated, so the checklist is asked first', async () => {
+    withLookup({ interlockGated: true, leadsToEnd: true, nextStages: [] });
+    expect(await resolveChecklistForTargetStage('f1', 'WASH_OUT', false)).toHaveLength(1);
+  });
+
+  it('a gated stage whose checklist is followed by more stages is still answered up front', async () => {
+    withLookup({ interlockGated: true, leadsToEnd: false, nextStages: ['DRY_IN'] });
+    expect(await resolveChecklistForTargetStage('f1', 'WASH_OUT', true)).toHaveLength(1);
+  });
+
+  it('interlock off: unchanged', async () => {
+    withLookup({ interlockGated: false, leadsToEnd: true, nextStages: [] });
+    expect(await resolveChecklistForTargetStage('f1', 'WASH_OUT', true)).toHaveLength(1);
   });
 });

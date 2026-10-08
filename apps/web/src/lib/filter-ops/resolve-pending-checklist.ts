@@ -45,7 +45,7 @@ import {
   getCachedPendingChecklists,
   resolvePendingChecklistForStage,
 } from '@/lib/offline-cache';
-import { cacheData, OFFLINE_TTL_MS } from '@/lib/offline-store';
+import { cacheData, getCachedData, OFFLINE_TTL_MS } from '@/lib/offline-store';
 import { apiClient } from '@/lib/api-client';
 import type { PendingChecklist } from './types';
 
@@ -77,6 +77,19 @@ export async function resolveChecklistForTargetStage(
   targetState: string,
   online: boolean,
 ): Promise<PendingChecklist[]> {
+  // 2026-10-08: a QA-gated stage (stage interlock: Wash Out / Dry Out) whose
+  // checklist COMPLETES the cycle must not be answered up front. Completing the
+  // cycle leaves the stage, and leaving needs the approval that entering it only
+  // just requested — so the combined advance + checklist was refused
+  // STAGE_APPROVAL_PENDING and rolled back (approval request included), every
+  // time. Online, enter the stage on its own; the checklist is offered once the
+  // approver has approved (the server withholds it until then). Offline work is
+  // never gated, so the offline dialog-first path is unchanged.
+  if (online) {
+    const cached = (await getCachedData<any>(`filter-state-${filterId}`)) ?? {};
+    const here = cached.stageLookup?.[targetState];
+    if (here?.interlockGated && here.leadsToEnd && (here.nextStages?.length ?? 0) === 0) return [];
+  }
   const first = await resolvePendingChecklistForStage(filterId, targetState);
   if (first.checklists.length > 0) return withQuestions(first.checklists as PendingChecklist[]);
   // No checklist fires after this stage at all — nothing to defer.

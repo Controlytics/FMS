@@ -741,11 +741,20 @@ export async function getCurrentStateImpl(
   // the instant approval lands. The server gate (advance/bypass) is the backstop;
   // the offline client relies on stageLookup.interlockGated instead.
   if (interlockBlocksLeaving) {
+    // 2026-10-08: a checklist that COMPLETES the cycle (gated stage → CHECKLIST
+    // → END) is a leave too — submit-checklist refuses it until approval
+    // (STAGE_APPROVAL_PENDING). Offering it anyway opened a checklist the
+    // operator could fill in but never submit. Withheld until APPROVED, like
+    // the advance; a checklist with more stages after it is not a leave and
+    // stays available.
+    const here = stageLookup[interlockStateKey as string];
+    const checklistCompletesCycle = !!here && here.leadsToEnd && here.nextStages.length === 0;
     actions = actions.filter(
       (a: any) =>
         !(
-          (a.type === 'ADVANCE_TO_STAGE' || a.type === 'BYPASS_STAGE') &&
-          a.params?.targetState !== interlockStateKey
+          ((a.type === 'ADVANCE_TO_STAGE' || a.type === 'BYPASS_STAGE') &&
+            a.params?.targetState !== interlockStateKey) ||
+          (a.type === 'SUBMIT_CHECKLIST' && checklistCompletesCycle)
         ),
     );
   }

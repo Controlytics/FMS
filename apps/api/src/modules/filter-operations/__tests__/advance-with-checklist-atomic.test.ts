@@ -541,4 +541,64 @@ describe('POST /:id/advance-with-checklist — atomic advance + checklist', () =
       expect(cycle!.status).toBe('COMPLETED');
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 5. The flow the clients use instead (2026-10-08)
+  //
+  // Online, the tablet/web no longer answer a terminal checklist up front at a
+  // QA-gated stage (the op above can never succeed there). They enter the stage
+  // alone, which requests the approval; the checklist is WITHHELD from the tape
+  // until it is approved — it used to be offered, filled in, and then refused
+  // STAGE_APPROVAL_PENDING on submit.
+  // ───────────────────────────────────────────────────────────────────────────
+  describe('QA stage interlock at a terminal WASH_OUT — enter, approve, then checklist', () => {
+    let filterId = '';
+    let cycleId = '';
+
+    const actions = async () => {
+      const res = await app.inject({ method: 'GET', url: `/api/filters/${filterId}/current-state`, headers: authHeaders });
+      expect(res.statusCode).toBe(200);
+      return (res.json().actions ?? []) as Array<{ type: string }>;
+    };
+    const submitChecklist = async () => app.inject({
+      method: 'POST', url: `/api/filters/${filterId}/submit-checklist`, headers: authHeaders,
+      payload: { answers: { [questionId]: 'YES' }, tapeVersion: await freshTape(filterId), _currentPassword: AWC_PASSWORD },
+    });
+
+    beforeAll(async () => {
+      filterId = await makeFilter(fpC, 'interlock2');
+      cycleId = await startCycle(filterId);
+      expect((await bareAdvance(filterId, 'WASH_IN')).statusCode).toBe(200);
+    }, 30_000);
+
+    afterAll(() => { interlockCfg.enabled = false; });
+
+    it('entering WASH_OUT alone succeeds and requests the approval', async () => {
+      interlockCfg.enabled = true;
+      expect((await bareAdvance(filterId, 'WASH_OUT')).statusCode).toBe(200);
+      const approval = await prisma.cleaningStageApproval.findFirst({ where: { cycleId, stageKey: 'WASH_OUT' } });
+      expect(approval?.status).toBe('PENDING');
+    });
+
+    it('while PENDING the completing checklist is not offered, and is refused if sent', async () => {
+      interlockCfg.enabled = true;
+      expect((await actions()).some((a) => a.type === 'SUBMIT_CHECKLIST')).toBe(false);
+      const res = await submitChecklist();
+      expect(res.statusCode).toBe(423);
+      expect(res.json().error).toBe('STAGE_APPROVAL_PENDING');
+    });
+
+    it('once APPROVED the checklist is offered and completes the cycle', async () => {
+      interlockCfg.enabled = true;
+      await prisma.cleaningStageApproval.updateMany({
+        where: { cycleId, stageKey: 'WASH_OUT', status: 'PENDING' },
+        data: { status: 'APPROVED', decidedAt: new Date() },
+      });
+      expect((await actions()).some((a) => a.type === 'SUBMIT_CHECKLIST')).toBe(true);
+      const res = await submitChecklist();
+      expect(res.statusCode).toBe(200);
+      const cycle = await prisma.cleaningCycle.findUnique({ where: { id: cycleId } });
+      expect(cycle!.status).toBe('COMPLETED');
+    });
+  });
 });

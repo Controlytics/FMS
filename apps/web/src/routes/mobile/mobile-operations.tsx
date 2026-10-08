@@ -250,6 +250,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // checklist dialog walks to 'none'. Without this, the per-filter SET_DURATION
   // advances never fire — operator saw no countdowns after batch DRY_IN.
   const pendingBatchReplayRef = useRef(false);
+  // Stage readings for a QUEUE of mid-cycle filters (2026-10-08). A cycle that
+  // did not START at Wash In (e.g. Dry In -> Dry Out -> Wash In) reaches it
+  // mid-cycle, and only the cycle-START path used to ask for the equipment
+  // readings - so the whole batch was refused WASH_IN_READINGS_REQUIRED.
+  // `queueReadingsModeRef` = the open equipment dialog is collecting readings
+  // for the queue (submit stashes them instead of advancing one filter);
+  // `queueReadingsRef` = the readings the next handleSubmitQueue run applies to
+  // every mid-cycle advance at that stage.
+  const queueReadingsModeRef = useRef(false);
+  const queueReadingsRef = useRef<{ stage: string; equipmentGroupId: string; instrumentReadings: Record<string, number> } | null>(null);
   const prevDialogKindRef = useRef<string>('none');
 
   // Dialogs (compat aliases — see blockChangeDialog above)
@@ -1028,6 +1038,32 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // Submit all queued filters for the active stage (batch advance for mid-cycle stages).
   // Each item is validated against the cached pipeline graph + block assignment BEFORE
   // being queued — this is the same strict offline gate applied in handleSubmit.
+  /**
+   * Does a MID-CYCLE advance into `stageKey` need equipment readings? Mirrors
+   * the server: a cycle with a bound group needs them for any stage that group
+   * has instruments for; with no bound group, Wash In needs them whenever the
+   * block has an active group (advance.ts WASH_IN_READINGS_REQUIRED). Dry In has
+   * its own two-step dryer flow and is excluded. Returns what the equipment
+   * dialog should offer, or null.
+   */
+  const stageReadingsNeed = async (stageKey: string, st: any): Promise<{ cycleGroup?: any; groups: any[] } | null> => {
+    if (stageKey === 'DRY_IN') return null;
+    const bound = st?.equipmentGroup ?? null;
+    if (bound) {
+      const insts = (bound.instruments ?? []).filter((i: any) => i.stageKey === stageKey);
+      return insts.length > 0 ? { cycleGroup: bound, groups: [] } : null;
+    }
+    if (stageKey !== 'WASH_IN' || !selectedBlock?.id) return null;
+    let groups: any[] = [];
+    if (online) {
+      try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch { /* fall back to cache */ }
+    }
+    if (groups.length === 0) {
+      try { groups = ((await getCache<any[]>('equipment-groups')) ?? []).filter((g: any) => g.blockId === selectedBlock.id); } catch { /* none cached */ }
+    }
+    return groups.length > 0 ? { groups } : null;
+  };
+
   const handleSubmitQueue = async () => {
     // Dry In multi-select (2026-09-04): only the ticked rows are submitted.
     const batchQueue = scanQueue.filter(q => selectedQueueIds.has(q.filterId));
@@ -1097,6 +1133,33 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         activeStage.key,
       )) === 'blocked'
     ) return;
+    // Stage readings for the batch (2026-10-08): ask ONCE, before any advance,
+    // when the queue holds a mid-cycle filter whose advance into this stage needs
+    // equipment readings. Submit stashes them in queueReadingsRef and re-runs
+    // this function; every mid-cycle advance below then carries them. Filters
+    // still needing a cycle START keep the reason -> equipment flow.
+    if (queueReadingsRef.current?.stage !== activeStage.key) {
+      let probe: any = null;
+      for (const q of batchQueue) {
+        const cs = await getCache<any>(`filter-state-${q.filterId}`) ?? {};
+        if (cs.currentCycle?.id || cachedFilterById.get(q.filterId)?.currentCycleId) { probe = cs; break; }
+      }
+      const need = probe ? await stageReadingsNeed(activeStage.key, probe) : null;
+      if (need) {
+        queueReadingsModeRef.current = true;
+        core.dispatch({
+          type: 'open_equipment',
+          filterId: batchQueue[0].filterId,
+          filterName: batchQueue.length > 1 ? `${batchQueue.length} filter(s)` : batchQueue[0].filterName,
+          stage: activeStage.key,
+          groups: need.groups,
+          cycleGroup: need.cycleGroup,
+        });
+        setSelectedEquipGroup(need.cycleGroup ?? null); setReadings({});
+        return; // finally clears loading; the queue stays for the re-run
+      }
+    }
+    const stageReadings = queueReadingsRef.current?.stage === activeStage.key ? queueReadingsRef.current : null;
     for (const item of batchQueue) {
       try {
         const cached = cachedFilterById.get(item.filterId);
@@ -1460,6 +1523,8 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           // INTERLOCK gate to the roster the popup showed (mirrors the
           // submit-checklist payload). Absent when the pre-flight didn't run.
           ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
+          // Readings collected once for the queue (see stageReadings above).
+          ...(stageReadings ? { equipmentGroupId: stageReadings.equipmentGroupId, instrumentReadings: stageReadings.instrumentReadings } : {}),
         };
         const preChecklists = await resolveChecklistForTargetStage(
           item.filterId,
@@ -1754,8 +1819,16 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       }
     } finally {
       setLoading(false);
+      // Readings apply to ONE submit of the queue; the next submit asks again.
+      if (!queueReadingsModeRef.current) queueReadingsRef.current = null;
     }
   };
+
+  // The equipment dialog closed without a queue-readings submit (Cancel) - the
+  // next Submit must ask again rather than stash into a stale mode.
+  useEffect(() => {
+    if (core.dialogState.kind !== 'awaiting_equipment') queueReadingsModeRef.current = false;
+  }, [core.dialogState.kind]);
 
   // 2026-05-20: batch-replay effect. When handleSubmitQueue's pre-DRY_IN
   // checklist gate opens a dialog, it sets pendingBatchReplayRef=true and
@@ -2111,6 +2184,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         if (state.equipmentGroup) {
           core.dispatch({ type: 'open_equipment', filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup });
           setSelectedEquipGroup(state.equipmentGroup); setReadings({}); setLoading(false); return;
+        }
+      } else {
+        // Mid-cycle advance into a stage that needs equipment readings (Wash In
+        // reached after Dry In / Dry Out, 2026-10-08) - ask for them first; the
+        // equipment submit then advances this filter with them.
+        const need = await stageReadingsNeed(activeStage.key, state);
+        if (need) {
+          core.dispatch({ type: 'open_equipment', filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups: need.groups, cycleGroup: need.cycleGroup });
+          setSelectedEquipGroup(need.cycleGroup ?? null); setReadings({}); setLoading(false); return;
         }
       }
 
@@ -2594,6 +2676,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     if (oos.length > 0) {
       const lines = oos.map((i: any) => `• ${i.description}: ${readings[i.id]} ${i.uom} (range ${i.operatingMin}–${i.operatingMax})`).join('\n');
       if (!window.confirm(`These readings are OUTSIDE the operating range:\n\n${lines}\n\nSubmit anyway?`)) return;
+    }
+    // Queue readings mode (2026-10-08): the dialog was opened by
+    // handleSubmitQueue for a batch of mid-cycle filters. Stash the readings and
+    // re-run the queue submit, which applies them to every advance (online bulk,
+    // offline queue, and checklist-deferred alike).
+    if (queueReadingsModeRef.current) {
+      queueReadingsModeRef.current = false;
+      queueReadingsRef.current = { stage: equipDialog.stage, equipmentGroupId: selectedEquipGroup.id, instrumentReadings: { ...readings } };
+      core.dispatch({ type: 'close' });
+      setSelectedEquipGroup(null); setReadings({});
+      setTimeout(() => { handleSubmitQueue(); }, 0);
+      return;
     }
     setLoading(true); setError('');
     // Snapshot equip dialog fields before any async dispatch that clears the state

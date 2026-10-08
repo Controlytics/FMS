@@ -294,10 +294,17 @@ export async function prepareAdvance(
     const hasReadings = !!instrumentReadings && typeof instrumentReadings === 'object'
       && Object.keys(instrumentReadings).length > 0;
     if (!hasReadings) {
-      const hasGroup = (equipmentGroupId || cycle.equipmentGroupId)
-        ? true
+      // 2026-10-08: "has a group" now means "has a group with a WASH_IN
+      // instrument". A group whose instruments are all for other stages has
+      // nothing to read at Wash In; demanding readings there made the cycle
+      // impossible to advance (the dialog offers no field to fill).
+      const boundGroupId = equipmentGroupId || cycle.equipmentGroupId;
+      const hasGroup = boundGroupId
+        ? (await prisma.equipmentGroupInstrument.count({ where: { groupId: boundGroupId, stageKey: 'WASH_IN' } })) > 0
         : cycle.cleaningAreaId
-          ? (await prisma.equipmentGroup.count({ where: { blockId: cycle.cleaningAreaId, isActive: true } })) > 0
+          ? (await prisma.equipmentGroup.count({
+              where: { blockId: cycle.cleaningAreaId, isActive: true, instruments: { some: { stageKey: 'WASH_IN' } } },
+            })) > 0
           : false;
       if (hasGroup) {
         throw new AppError(400, 'WASH_IN_READINGS_REQUIRED',

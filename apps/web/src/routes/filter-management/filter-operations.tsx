@@ -899,6 +899,28 @@ export function FilterOperationsPage() {
           setLoading(false); setSubmitting(false);
           return;
         }
+      } else if (activeStage.key === 'WASH_IN' && selectedBlock?.id) {
+        // 2026-10-08: a cycle that did NOT start at Wash In (e.g. a Dry In →
+        // Dry Out → Wash In profile) reaches Wash In mid-cycle, possibly with no
+        // equipment group bound yet. The server still requires the readings
+        // whenever the block has an active group (WASH_IN_READINGS_REQUIRED), so
+        // ask for them here — the dialog lets the operator pick the group.
+        let groups: any[] = [];
+        if (online) {
+          try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch { /* fall back to cache */ }
+        }
+        if (groups.length === 0) {
+          try { groups = ((await getCache<any[]>('equipment-groups')) ?? []).filter((g: any) => g.blockId === selectedBlock.id); } catch { /* none cached */ }
+        }
+        if (groups.length > 0) {
+          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          setPendingBatch(batch);
+          clearScanState();
+          core.dispatch({ type: 'open_equipment', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key, groups });
+          setEquipmentError('');
+          setLoading(false); setSubmitting(false);
+          return;
+        }
       }
 
       // No dialog needed → advance the whole batch

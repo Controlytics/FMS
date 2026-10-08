@@ -114,6 +114,15 @@ export function DryingFiltersPanel({
   const readyRows = useMemo(() => filters.map((f: any) => rows[f.id]).filter((r): r is RowState => !!r && r.ready && !r.submitted), [filters, rows]);
   const allReadySelected = readyRows.length > 0 && readyRows.every(r => selected.has(r.filterId));
 
+  // One ready filter = nothing to choose between (2026-10-08, operator): tick it
+  // so the temperature box and Submit work without a selection step. With two
+  // or more ready, the operator still picks which ones to submit.
+  const singleReadyId = readyRows.length === 1 ? readyRows[0].filterId : null;
+  useEffect(() => {
+    if (singleReadyId && !selected.has(singleReadyId)) setSelected(new Set([singleReadyId]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [singleReadyId]);
+
   const toggle = (id: string) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => setSelected(allReadySelected ? new Set() : new Set(readyRows.map(r => r.filterId)));
 
