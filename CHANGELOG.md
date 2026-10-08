@@ -1,5 +1,209 @@
 # Changelog
 
+## [Unreleased] - QA-gated Wash Out / Dry Out followed by the final checklist; one ready Dry In filter auto-ticked (2026-10-08)
+
+**Approval + final checklist.** Operator: on the tablet, at an OUT stage followed by a checklist,
+the checklist came up, and submitting it showed an approval error. The stage interlock is on
+(Wash Out / Dry Out approved by SHIFTOFFICER), and profile CWH/RDU/01 ends
+`WASH_OUT → CHECKLIST → END`.
+- **Cause (always, online):** dialog-first asked the checklist BEFORE entering Wash Out and sent
+  one `advance-with-checklist`. That checklist completes the cycle, which leaves Wash Out, which
+  needs the approval that entering it only just requested. The server refused with
+  `INTERLOCK_TERMINAL_STAGE` and rolled the whole op back, approval request included, so the
+  filter could never get past it.
+- **Second half:** the two-request path offered the completing checklist while the approval was
+  still PENDING. It could be filled in, but submit refused it with `STAGE_APPROVAL_PENDING`.
+- **Fix, client** (`resolveChecklistForTargetStage`, shared by tablet + web): online, a target
+  stage with `stageLookup.interlockGated && leadsToEnd && nextStages.length === 0` is entered on
+  its own. Offline is unchanged: offline work is never gated.
+- **Fix, server** (`current-state.ts`): while the approval blocks leaving, `SUBMIT_CHECKLIST` is
+  withheld too when that checklist completes the cycle. A checklist followed by more stages
+  stays available.
+- **Flow now:** enter Wash Out → approver approves → scan at Wash Out → checklist → cycle
+  complete.
+- **Tests:**
+  - `advance-with-checklist-atomic.test.ts` covers enter / withheld while PENDING (submit 423) /
+    offered after APPROVED, which completes the cycle. Verified red without the server change.
+  - `resolve-pending-checklist.test.ts` covers the gated-terminal, offline, non-terminal and
+    interlock-off cases.
+
+**Dry In temperature, one filter.** Operator: with a single filter in "Currently Drying", the
+temperature box and Submit stayed disabled until its checkbox was ticked. `DryingFiltersPanel`
+(tablet + web) now ticks the row automatically when exactly ONE filter is ready. With two or more
+ready, the operator still chooses. Test: `drying-filters-panel.test.tsx` (verified red without
+the change).
+
+## [Unreleased] - Wash In reached mid-cycle asks for the equipment readings (2026-10-08)
+
+Operator: on a profile Dry In → Dry Out → Wash In → Wash Out, submitting Wash In was refused with
+"Wash In requires the equipment-group instrument readings to be submitted before it can be
+completed" (`WASH_IN_READINGS_REQUIRED`), and nothing on screen asked for them.
+
+**Why.** The server requires the Wash In readings for any cycle in a block with an equipment
+group. The clients only asked for them when a cycle STARTED at Wash In:
+- Tablet: the single-scan mid-cycle path asked only at Dry In. The queue / Submit-All path
+  never asked; it sent a bare advance for every filter through `/bulk-operate`, and each one
+  was refused.
+- Web Filter Operations asked mid-cycle only when the cycle already had a bound group.
+
+**Fix.**
+- Tablet (`mobile-operations.tsx`): `stageReadingsNeed()` mirrors the server rule. A cycle with
+  a bound group needs readings for any stage its group has instruments for. With no bound
+  group, Wash In needs them when the block has an active group. Single scan opens the readings
+  dialog. A queue opens it ONCE, before any advance (`queueReadingsModeRef`). Submit stashes
+  the readings (`queueReadingsRef`) and re-runs the queue submit, so every mid-cycle advance
+  carries them: online bulk, offline queue, and checklist-deferred. Cancel resets the mode.
+- Web (`filter-operations.tsx`): a mid-cycle Wash In with no bound group fetches the block's
+  groups (cache when offline) and opens the same dialog for the batch.
+- Server (`advance.ts`): "the block has a group" now means "has a group with a WASH_IN
+  instrument". A group whose instruments are all for other stages used to make Wash In
+  impossible: readings demanded, no field to fill.
+- Test: `filter-operations/__tests__/wash-in-readings-mid-cycle.test.ts`. A mid-cycle Wash In
+  is refused without readings and accepted with them (the group is lazily bound), and allowed
+  when the only group has no Wash In instrument.
+
+## [Unreleased] - Unapproved filters cannot be tagged / retired / replaced; tablet login shows the configured branding (2026-10-08)
+
+Operator: on the tablet, filters still waiting for review / approval could be RFID-assigned and
+replaced, and the tablet sign-in page showed a different title from the web one.
+
+**Approval gate.** The 2026-09-24 rule is "a filter that is not APPROVED shows its details only".
+The web Filters page hid those controls, but the server only enforced it for cleaning steps and
+manual status moves. Now `assertFilterOperable` (409 `FILTER_NOT_APPROVED`) also runs in:
+- `identifier.service.create`: RFID assign, including re-tag (`replaceExisting`). Non-filter
+  assets carry APPROVED, so they are unaffected.
+- `filter-operations.service` `retire()` and `replace()`. This also covers the replacement-schedule
+  task execute path, which calls `replace()`.
+- This **reverses audit 2026-09-24 F1's allowance**: a PENDING_REVIEW filter could be replaced
+  as long as the copy inherited the pending state. The F1 inheritance code stays, for the
+  REJECTED-then-resubmitted path.
+- Tablet: the RFID Assign, Replace and replacement-task pick-lists offer only APPROVED filters
+  (`operableFilters` in `mobile-wrapper.tsx`). The Status and Cycles views still list every filter.
+- Tests: new `e2e/pending-filter-not-operable.test.ts` (tag / retire / replace refused for a
+  pending filter, writes nothing; an approved filter still tags).
+  `filter-replace-duplicate-name.test.ts` now expects the 409.
+
+**Tablet login title.** `useBranding` fetched `/api/config/branding` with a bare relative
+`fetch()`. In the APK the WebView answers that with `index.html`, so the parse failed and every
+tablet showed the built-in defaults: "DigiLog", the default logo and the Ocean theme. The web
+login showed the configured "Filter Management System" branding. The fetch now goes through
+`apiUrl()`, refuses a non-2xx, and caches the last good branding in `localStorage`
+(`digilog.branding`), so an offline tablet or app restart shows the site's branding too.
+
+## [Unreleased] - Filters page: tick several pending filters and review / approve them at once (2026-10-08)
+
+Operator: "unable to select multiple filters to review or approve at once". Since 2026-09-24 a
+filter still in the creation workflow had NO checkbox, so the only bulk path was the toolbar
+"Review (n)" / "Approve (n)" button, which always took every pending filter of the block. On a
+block where every filter was pending, the select-all box did nothing.
+
+- A pending row now has a checkbox **for the viewer who owns its step**: PENDING_REVIEW for a
+  reviewer, PENDING_APPROVAL for an approver (`workflowRowActions().selectable`). Nobody else
+  sees it, and REJECTED / unknown statuses still have none.
+- The bulk bar offers **Review selected (n)** / **Approve selected (n)**. These open the existing
+  bulk popup with just the ticked filters, which shows each record and offers Reject, so a tick
+  never decides on its own. Decided filters leave the selection.
+- Update Status / Retire / Replace take only the ticked APPROVED filters, and are hidden when
+  none is ticked. A ticked pending filter can never reach them; the server refuses it anyway.
+- The toolbar "Review (n)" / "Approve (n)" (every pending filter of the block) is unchanged.
+- No server change: `/api/assets/instances/{review,approve,reject}` already take an array.
+
+Files: web `filter-list.tsx`, `filter-list/lib/workflow-row-actions.ts` (+ its test).
+
+## [Unreleased] - Bulk filter upload: no row cap; the sheet decides the AHU / Area, missing ones are created (2026-10-08)
+
+Operator: a 20-row file was refused as "Maximum 200 filters", and uploading from a block still
+asked for a Target AHU.
+
+**Why 20 rows read as more than 200.** The parse pre-check (VAPT-4, 2026-08-18) refused a sheet
+whose `rowCount` exceeded 260. `rowCount` counts rows that hold only formatting, and the
+downloaded template puts a dropdown on rows 2–1001. Once Excel saves the file it writes all 1000
+of those rows, so the operator's 20-row file reported 1001 rows (measured: `rowCount 1001`,
+`actualRowCount 21`). **Every template-based upload saved in Excel was refused.** The 200 cap and
+the pre-check are both removed (operator request). The only bound now is the 5 MB multipart
+limit (413). That reopens the VAPT-4 memory concern: a 5 MB sheet can still allocate per-row
+objects.
+
+**Where the filters land comes from WHERE the upload was opened** (`blockId` / `areaId` /
+`ahuId` multipart field; `badScope` 400s on none or a non-UUID). There is no AHU or Area picker
+in the dialog any more.
+
+| Opened from | Template columns | Rows resolve to |
+|---|---|---|
+| AHU | no `ahu` / `area` | that AHU. A stray `ahu` / `area` value that differs is a row error, never overridden |
+| Area | `ahu` (required) | an AHU in that area. A missing one is **created in the area** |
+| Block | `area` (optional) + `ahu` (required) | an existing AHU / Area in the block, or a **new** one created there |
+
+- Matching ignores case and extra spaces. A blank `area` means "not specified": it matches an
+  existing AHU wherever it sits in the block. A new AHU with a blank area goes directly under
+  the block.
+- **Refused per row, never guessed:**
+  - an AHU that exists under a DIFFERENT area than the row says (it is not moved);
+  - one new AHU placed under two different areas;
+  - a name already used by any active entity outside the block (names are site-unique,
+    `asset_instances_active_name_key`), or used as a filter name in the same file;
+  - a parent that would exceed its template's `max_connections`. This is predicted in the
+    dry-run so the preview does not promise rows the upload then refuses.
+- **Creation goes through `instanceService.create`**, the Structure-view path, so each new
+  AHU / Area gets the same parent checks and its own `ASSET_CREATED` audit row. Only an AHU /
+  Area that a VALID filter row needs is created.
+- **Permission:** creating an AHU / Area needs `FILTER_HIERARCHY_CREATE` or `ASSET_CREATE`
+  (SUPER_ADMIN bypasses). `FILTER_BULK_UPLOAD` alone can only fill existing AHUs; those rows
+  say so. **Re-auth:** the upload signs `['BULK_UPLOAD_FILTERS', 'CREATE_ASSET']` on the
+  server and in `reauth.execute`, so an enabled CREATE_ASSET row cannot be bypassed through the
+  upload.
+- **Template:** the `ahu` / `area` dropdowns only suggest names (`showErrorMessage: false`), so
+  a new name can be typed. Master-data dropdowns stay strict. An empty block or area now gets a
+  template (the `NO_AHUS` 400 is gone).
+- **Responses** carry `newAreas` / `newAhus` (dry-run: what WOULD be created). Preview rows
+  carry `area` / `ahu` with `areaStatus` / `ahuStatus` = `new` | `existing`. The dialog shows a
+  "This upload will also create" box and a `new` badge.
+- **Audit:** the `BULK_FILTER_UPLOAD` summary targets the scope entity and records
+  `scope`, `scopeName`, `blockName`, `createdAhus` and `createdAreas` (`ahuName` is kept for
+  AHU scope).
+
+Files: `assets/services/bulk-upload-filter.service.ts`, `filter-upload-template.service.ts`,
+`assets/routes/instance.routes.ts`, web `filter-list.tsx` and `filter-list/dialogs/BulkUploadDialog.tsx`.
+Tests: new `bulk-upload-filter-scope.e2e.test.ts` (10 tests, real DB: an Excel-saved 20-row
+template, 250 rows, each scope, conflicts, no-permission, only-needed creation, dry-run writes
+nothing); new `e2e/bulk-upload-scope-route.test.ts` (3 tests through the HTTP route: SUPER_ADMIN
+creates a missing AHU, a FILTER_BULK_UPLOAD-only role fills an existing AHU but cannot create one,
+missing / non-UUID scope = 400); `filter-upload-template.service.test.ts` rewritten per scope.
+
+## [Unreleased] - Every temporary password is the policy's minimum length (2026-10-07)
+
+Operator: approving a Contact Admin user-creation request showed a 14-character temporary
+password, but resetting one from the Users page showed 8. Two generators:
+
+- **Admin Requests approval** (CREATE_USER, UNLOCK, FORGOT_PASSWORD) used a private API
+  generator, `generateTempPassword()` in `admin-request.service.ts`: always 14 characters,
+  never read the password policy. A policy needing more than 14, or more than one character of
+  a class, would have failed every approval.
+- **Users pages** (create, reset, unlock, reset-request approval) used `generatePassword(policy)`
+  in `apps/web/src/lib/password-utils.ts`: `max(minLength, required + 4)` characters.
+
+Now ONE generator, `generatePassword` in `@digilog/shared` (`src/password/generate-password.ts`,
+CSPRNG + Fisher-Yates, as before). Length is **exactly `minLength`**, longer only when the
+per-class minimums alone exceed it. The API reads the live policy for each approval; a missing
+flag in a sparse stored policy counts as required. `password-utils.ts` re-exports it, so the web
+import paths are unchanged. Tests: web `password-utils.test.ts` (exact length, minimums,
+sparse policy) and e2e `admin-request-temp-password-length.test.ts` (approval issues 8, then 12
+after the policy changes).
+
+**The Users pages read the policy from `/api/config/password-policy/current`** (create, edit →
+reset password, list → unlock, reset-request approval). They read the bare
+`/api/config/password-policy`, which needs CONFIG_READ: a role granted user management without
+it got a 403 and silently generated at `DEFAULT_PASSWORD_POLICY` (8), not the configured
+length - the change-password page had the same bug earlier. `/current` is readable by any
+signed-in user and is already loaded by `app-layout.tsx`, so it is normally cached before the
+Reset / Unlock / Approve click. Guard: `lib/__tests__/password-policy-source.test.ts` (only the
+policy editor may read the bare endpoint; verified red against the old pages).
+
+Full sweep of password generation: these 4 Users-page flows + the 3 Admin Requests approvals are the only
+places a temporary password is made. Not temporary passwords: the installer's
+`superadmin` password (typed by the installer operator, seed never generates one), LDAP users
+(no local password), and `install.ps1`'s `NewSecret` (DB / JWT secrets, not user passwords).
+
 ## [Unreleased] - Profile photo upload sent `Bearer null` (2026-10-07)
 
 - **Profile → Upload Photo always failed with 401.** `routes/profile/index.tsx` read the token
