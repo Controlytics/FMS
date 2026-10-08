@@ -54,7 +54,7 @@ export function EditUserPage() {
   const reauth = useReauth();
 
   // Fetch password policy
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
+  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy/current', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Fetch roles that current user can create

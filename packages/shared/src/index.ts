@@ -73,6 +73,9 @@ export { brandingConfigSchema, passwordPolicySchema, loginSecuritySchema, sessio
 export type { BackupFormatValue, BackupFormatConfig } from './schemas/config.js';
 export type { BrandingConfig, PasswordPolicyConfig, LoginSecurityConfig, SessionConfig, DatetimeConfig, UserIdConfig, AuditTemplatesConfig, PaginationConfig, OfflineCacheConfig, ExportLimitConfig } from './schemas/config.js';
 
+export { generatePassword } from './password/generate-password.js';
+export type { PasswordGeneratorPolicy } from './password/generate-password.js';
+
 export { auditQuerySchema } from './schemas/audit.js';
 export type { AuditQueryInput } from './schemas/audit.js';
 

@@ -19,9 +19,27 @@ describe('generatePassword — policy compliance', () => {
     }
   });
 
-  it('respects minLength', () => {
+  // 2026-10-07: every temporary password is exactly the policy minimum — the
+  // Admin Requests path used to issue 14 characters while these pages issued 8.
+  it('is exactly minLength', () => {
     for (const minLength of [8, 16, 32]) {
-      expect(generatePassword({ ...policy, minLength }).length).toBeGreaterThanOrEqual(minLength);
+      expect(generatePassword({ ...policy, minLength }).length).toBe(minLength);
+    }
+  });
+
+  it('grows past minLength only when the per-class minimums need it', () => {
+    const p = generatePassword({ ...policy, minLength: 8, minUppercase: 4, minLowercase: 3, minNumbers: 2, minSpecialChars: 1 });
+    expect(p.length).toBe(10);
+  });
+
+  it('treats a missing flag as required (a sparse stored policy row)', () => {
+    for (let i = 0; i < 100; i++) {
+      const p = generatePassword({ minLength: 8 });
+      expect(p.length).toBe(8);
+      expect(p).toMatch(/[A-Z]/);
+      expect(p).toMatch(/[a-z]/);
+      expect(p).toMatch(/[0-9]/);
+      expect(p).toMatch(/[^A-Za-z0-9]/);
     }
   });
 

@@ -39,6 +39,10 @@ import { PERMISSIONS, loginSchema, createUserSchema } from '@digilog/shared';
 - `sessionConfigSchema` — Session config validation
 - `datetimeConfigSchema` — Date/time format validation
 
+### Password
+- `generatePassword(policy)` (`src/password/generate-password.ts`, 2026-10-07) — the ONE
+  temporary-password generator for web and API; exactly the policy's `minLength`.
+
 ### Types
 - Role hierarchy types
 - Notification event types

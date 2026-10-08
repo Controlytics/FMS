@@ -1,11 +1,12 @@
 import { PrismaClient } from '@prisma/client';
-import { randomInt } from 'node:crypto';
 import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { userService, assertCanManageTarget } from '../users/user.service.js';
 import { userRepository } from '../users/user.repository.js';
-import { updateUserSchema } from '@digilog/shared';
+import { updateUserSchema, generatePassword } from '@digilog/shared';
+import type { PasswordGeneratorPolicy } from '@digilog/shared';
+import { authRepository } from '../auth/auth.repository.js';
 import type { RequestContext } from '../../types/context.js';
 
 const prisma = new PrismaClient();
@@ -352,7 +353,7 @@ async function executeApproval(
       } else {
         username = await generateUniqueUsername(email);
       }
-      const temporaryPassword = generateTempPassword();
+      const temporaryPassword = await generateTempPassword();
 
       await userService.create(
         {
@@ -390,7 +391,7 @@ async function executeApproval(
               : ''),
         };
       }
-      const temporaryPassword = generateTempPassword();
+      const temporaryPassword = await generateTempPassword();
       await userService.unlock(user.id, temporaryPassword, ctx);
       return { username: targetUsername, temporaryPassword, actionTaken: true, message: `Account "${targetUsername}" unlocked.` };
     }
@@ -432,7 +433,7 @@ async function executeApproval(
       if (!targetUsername) throw new ValidationError('Request is missing username');
       const user = await userRepository.findByUsername(targetUsername);
       if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
-      const temporaryPassword = generateTempPassword();
+      const temporaryPassword = await generateTempPassword();
       await userService.resetPassword(user.id, temporaryPassword, ctx);
       return { username: targetUsername, temporaryPassword, message: `Password reset for "${targetUsername}".` };
     }
@@ -508,24 +509,15 @@ async function generateUniqueUsername(email: string): Promise<string> {
   throw new ValidationError('Could not generate a unique username — please create user manually');
 }
 
-function generateTempPassword(): string {
-  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const lower = 'abcdefghjkmnpqrstuvwxyz';
-  const digit = '23456789';
-  const special = '!@#$%&*';
-  const all = upper + lower + digit + special;
-  const chars = [
-    upper[randomInt(0, upper.length)],
-    lower[randomInt(0, lower.length)],
-    digit[randomInt(0, digit.length)],
-    special[randomInt(0, special.length)],
-  ];
-  for (let i = 0; i < 10; i++) chars.push(all[randomInt(0, all.length)]);
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = randomInt(0, i + 1);
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join('');
+/**
+ * Temporary password for an approved CREATE_USER / UNLOCK / FORGOT_PASSWORD
+ * request: the shared generator, at the live policy's minimum length — the same
+ * rule as every temporary password issued from the Users pages. This used to be
+ * a fixed 14 characters that never read the policy (2026-10-07).
+ */
+async function generateTempPassword(): Promise<string> {
+  const policy = await authRepository.getPasswordPolicyConfig();
+  return generatePassword(policy as PasswordGeneratorPolicy);
 }
 
 function formatRequestType(type: string): string {

@@ -31,7 +31,7 @@ export function ResetRequestsPage() {
   const { formatDate, formatTime, formatDateTime } = useDatetimeFormat();
   const reauth = useReauth();
   const { data, mutate } = useSWR<{ data: ResetRequest[] }>('/api/users/reset-requests');
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
+  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy/current', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   const [selectedRequest, setSelectedRequest] = useState<ResetRequest | null>(null);

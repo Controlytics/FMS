@@ -79,7 +79,7 @@ export function UserListPage() {
   const { data: rawData, mutate } = useSWR(`${apiBase}/users?${params}`);
   const { data: pendingData } = useSWR<PendingCount>('/api/users/reset-requests/pending');
   const { data: userStatsData, mutate: mutateStats } = useSWR<{ total: number; enabled: number; disabled: number; locked: number; expired: number }>('/api/users/stats');
-  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy', { revalidateOnMount: true, dedupingInterval: 5000 });
+  const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy/current', { revalidateOnMount: true, dedupingInterval: 5000 });
   const policy = { ...DEFAULT_PASSWORD_POLICY, ...policyData };
 
   // Server already filters out higher-privilege roles (SUPER_ADMIN/ADMIN) per caller's role
