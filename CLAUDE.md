@@ -126,6 +126,11 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
 - **Rate limiters must use `rateLimitKeyGenerator`** (`apps/api/src/lib/rate-limit-key.ts`).
   Keying on `req.ip` alone lets an IPv6 attacker rotate the host portion of their
   /64 for an unlimited budget. (DEP-5, 2026-08-18.)
+- 🔴 **Only THREE rate limits exist (2026-10-10, operator decision):** `POST /api/auth/login`
+  (100/min), `/verify` (50/min), `/change-password` (50/min). No app-wide limit
+  (`global: false` in `app.ts`); every other route/public endpoint is unlimited. They are the
+  only brake on guessing the SUPER_ADMIN password (SA is exempt from lockout) — don't remove
+  them without asking. Locked by `lib/__tests__/rate-limit-policy.test.ts`.
 - Capacitor APK uses **HTTPS** baked at build via `VITE_API_URL` (cert install required on tablet)
 - Light theme only — `bg-white`, `bg-slate-50`, `border-slate-200`, gradient dialog headers OK
 - **Design system = `apps/web/src/app.css`** (UI redesign 2026-10-01): IBM Plex Sans/Mono

@@ -252,17 +252,19 @@ app.addHook('onSend', async (_req, reply, payload) => {
   reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   return payload;
 });
-// 2026-07-03: raised 500 → 5000/min. A single actively-used tablet fires bursts
-// of SWR fetches + per-filter /current-state primes; hitting the old 500 ceiling
-// returned 429s, which the client treated as "offline" and retried — a
-// self-reinforcing storm that piled up failed HTTPS requests and OOM-crashed the
-// WebView. Auth routes keep their own tighter per-route limits below.
+// History: global limit was 500/min, raised to 5000/min 2026-07-03 (tablet SWR
+// bursts hit 500 → 429s read as "offline" → retry storm → WebView OOM).
 // DEP-5 (security assessment 2026-08-17): key on the /64 for IPv6 so an
 // attacker rotating the host portion of their prefix cannot mint a fresh
 // budget per request. IPv4 stays exact. See lib/rate-limit-key.ts.
+// 2026-10-10 (operator decision): NO global limit and no per-route limits,
+// EXCEPT the three password endpoints (/api/auth/login, /verify,
+// /change-password), which keep their own `config.rateLimit`. `global: false`
+// makes the plugin enforce only routes that declare one. Those three are the
+// only brake on guessing the SUPER_ADMIN password — it is exempt from account
+// lockout — so do not remove them without that decision being made again.
 await app.register(rateLimit, {
-  max: 5000,
-  timeWindow: '1 minute',
+  global: false,
   keyGenerator: rateLimitKeyGenerator,
 });
 await app.register(multipart, {

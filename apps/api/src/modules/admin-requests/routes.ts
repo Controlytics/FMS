@@ -4,7 +4,6 @@ import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { adminRequestService } from './admin-request.service.js';
 import { prisma } from '../../lib/prisma.js';
-import { rateLimitKeyGenerator } from '../../lib/rate-limit-key.js';
 
 /** 'Siva Munnangi' -> 'S*** M*******': first letter of each word, length preserved. */
 export function maskFullName(name: string | null | undefined): string | null {
@@ -35,9 +34,6 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
   app.post('/', {
     config: {
       skipAuth: true,
-      // Audit 2026-09-24 (api #4): every accepted submission appends an immutable
-      // audit row — the global 5000/min limit is no throttle for that.
-      rateLimit: { max: 20, timeWindow: '15 minutes', keyGenerator: rateLimitKeyGenerator },
     },
     // Audit 2026-09-24 (F11): public endpoint whose `requestData` is stored
     // verbatim — cap it well below the 10 MB global limit.
@@ -98,16 +94,9 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
   //   2. Sensitive fields (email, department, role, status) are dropped.
   //      They were used for FE auto-fill on MODIFY_USER; FE now asks the
   //      operator to type the new values (safer UX too).
-  // Rate limit kept at 20/15min (rate-limiting alone wasn't enough — the
-  // shape of the response leaked info even at 1 req/min).
   app.get('/user-lookup', {
     config: {
       skipAuth: true,
-      rateLimit: {
-        max: 20,
-        timeWindow: '15 minutes',
-        keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
-      },
     },
     schema: {
       tags: ['Admin Requests'],

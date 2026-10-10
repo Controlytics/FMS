@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - Rate limits removed except password endpoints; "Test setup" label; duplicate User ID message (2026-10-10)
+
+**Rate limits (operator decision).** 14 limits existed; 11 are gone, 3 kept and raised.
+- Removed: the app-wide 5000/min limit (`app.ts` now registers `@fastify/rate-limit`
+  with `global: false`), and the route limits on `/api/auth/{refresh,forgot-password,offline-grant}`,
+  `POST /api/admin-requests`, `GET /api/admin-requests/user-lookup`,
+  `POST /api/{users,audit,notifications}/bulk-delete`, `POST /api/uploads/photo`, plus the
+  hand-written in-memory throttle on `POST /api/guest/cleaning-request`.
+- Kept, raised: `POST /api/auth/login` 10→100/min, `/verify` 5→50/min, `/change-password`
+  5→50/min. SUPER_ADMIN is exempt from account lockout, so these are the only brake on
+  guessing its password.
+- What it costs: the three public endpoints (forgot-password, admin-requests, guest request)
+  each append notification/audit rows and can now be called without limit by anyone who can
+  reach the server; any signed-in user can upload photos without limit (no quota, no GC).
+- Locked by `lib/__tests__/rate-limit-policy.test.ts` (exactly three route limits, all in
+  `auth/routes.ts`; no global limit; plugin behaviour with `global: false`).
+
+**"Test setup" label** — amber badge on the left of the web top bar (`components/layout/header.tsx`).
+Fixed text: it shows in every build made from this code, including a customer installer.
+
+**Create user — duplicate message.** `username already exists` → `User ID "<id>" already exists`
+(the `username` column is the User ID; Full Name is a separate field). Duplicate email →
+`Email already exists`.
+
 ## [Unreleased] - QA-gated Wash Out / Dry Out followed by the final checklist; one ready Dry In filter auto-ticked (2026-10-08)
 
 **Approval + final checklist.** Operator: on the tablet, at an OUT stage followed by a checklist,

@@ -120,8 +120,12 @@ export const userService = {
     // Check uniqueness (email probed only when provided — see note above)
     const existing = await userRepository.findByUsernameOrEmail(data.username, email ?? '');
     if (existing) {
-      const field = existing.username === data.username ? 'username' : 'email';
-      throw new ConflictError(`${field} already exists`);
+      // Name the field as the form labels it: the `username` column IS the User ID
+      // (Full Name is a separate field), so "username already exists" read as if
+      // the person's name were taken.
+      throw new ConflictError(existing.username === data.username
+        ? `User ID "${data.username}" already exists`
+        : 'Email already exists');
     }
 
     // Validate password complexity against active policy

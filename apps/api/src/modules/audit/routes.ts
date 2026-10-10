@@ -878,7 +878,6 @@ export default async function auditRoutes(app: FastifyInstance) {
   // POST /api/audit/bulk-delete — physically delete multiple audit records (AUDIT_DELETE).
   app.post('/bulk-delete', {
     preHandler: [app.requirePermission('AUDIT_DELETE')],
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       tags: ['Audit'],
       summary: 'Permanently delete selected audit records',

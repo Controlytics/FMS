@@ -178,7 +178,16 @@ describe('userService', () => {
       mockUserRepo.findByUsernameOrEmail.mockResolvedValue({ username: 'dup' });
 
       await expect(userService.create({ username: 'dup', fullName: 'T', email: 't@t.com', role: 'ADMIN', password: 'p' }, ctx))
-        .rejects.toThrow('already exists');
+        .rejects.toThrow('User ID "dup" already exists');
+    });
+
+    it('rejects duplicate email, naming the email field', async () => {
+      mockValidateUserId.mockResolvedValue({ valid: true, errors: [] });
+      mockUserRepo.findRole.mockResolvedValue({ name: 'ADMIN', hierarchyLevel: 5, isActive: true });
+      mockUserRepo.findByUsernameOrEmail.mockResolvedValue({ username: 'someoneelse', email: 't@t.com' });
+
+      await expect(userService.create({ username: 'newuser', fullName: 'T', email: 't@t.com', role: 'ADMIN', password: 'p' }, ctx))
+        .rejects.toThrow('Email already exists');
     });
 
     it('rejects creating higher hierarchy role', async () => {

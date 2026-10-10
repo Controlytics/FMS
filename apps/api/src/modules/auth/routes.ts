@@ -20,8 +20,11 @@ export default async function authRoutes(app: FastifyInstance) {
     // Audit API-6: tight per-route bodyLimit — 4 KB is plenty for username+password JSON
     bodyLimit: 4096,
     config: {
+      // 2026-10-10 (operator): raised 10 → 100. One of the three limits KEPT when
+      // every other rate limit was removed — SUPER_ADMIN is exempt from account
+      // lockout, so this is the only brake on guessing its password.
       rateLimit: {
-        max: 10,
+        max: 100,
         timeWindow: '1 minute',
         keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
       },
@@ -133,7 +136,6 @@ export default async function authRoutes(app: FastifyInstance) {
 
   // POST /api/auth/refresh — Refresh JWT token (extends session)
   app.post('/refresh', {
-    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     schema: {
       tags: ['Auth'],
       summary: 'Refresh JWT token',
@@ -288,7 +290,8 @@ export default async function authRoutes(app: FastifyInstance) {
 
   // POST /api/auth/change-password
   app.post('/change-password', {
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    // 2026-10-10: raised 5 → 50 (kept — password-guessing brake, see /login).
+    config: { rateLimit: { max: 50, timeWindow: '1 minute', keyGenerator: rateLimitKeyGenerator } },
     schema: {
       tags: ['Auth'],
       summary: 'Change password',
@@ -321,8 +324,9 @@ export default async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/verify (re-authentication for sensitive ops)
   app.post('/verify', {
     config: {
+      // 2026-10-10: raised 5 → 50 (kept — password-guessing brake, see /login).
       rateLimit: {
-        max: 5,
+        max: 50,
         timeWindow: '1 minute',
         keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
       },
@@ -355,11 +359,6 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/forgot-password', {
     config: {
       skipAuth: true,
-      rateLimit: {
-        max: 3,
-        timeWindow: '15 minutes',
-        keyGenerator: rateLimitKeyGenerator,  // DEP-5: /64 bucket, not exact IPv6
-      },
     },
     schema: {
       tags: ['Auth'],
@@ -413,7 +412,6 @@ export default async function authRoutes(app: FastifyInstance) {
   // what that trades away. The legacy `x-offline-replay: true` header is still
   // rejected upstream in plugins/auth.ts.
   app.post('/offline-grant', {
-    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
     schema: {
       tags: ['Auth'],
       summary: 'Issue offline-replay grant',

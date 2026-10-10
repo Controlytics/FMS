@@ -41,17 +41,19 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-6">
-      {/* Left side - Hamburger menu (mobile only) */}
-      <button
-        onClick={onMenuToggle}
-        className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 lg:hidden"
-        aria-label="Toggle menu"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
-      <div className="hidden lg:block" /> {/* Spacer for desktop */}
+      {/* Left side - Hamburger menu (mobile only) + environment label */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onMenuToggle}
+          className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 lg:hidden"
+          aria-label="Toggle menu"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <Badge variant="warning" className="text-sm font-semibold">Test setup</Badge>
+      </div>
       {/* Right side - User info */}
       <div className="flex items-center gap-3">
         {user && (

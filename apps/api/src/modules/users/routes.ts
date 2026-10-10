@@ -80,7 +80,6 @@ export default async function userRoutes(app: FastifyInstance) {
   // POST /api/users/bulk-delete — Requires SUPER_ADMIN
   app.post('/bulk-delete', {
     preHandler: [app.requireSuperAdmin()], // M3 (2026-06-30): delete is SUPER_ADMIN-only (matches UI); was USER_DELETE
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       tags: ['Users'],
       summary: 'Bulk delete users',

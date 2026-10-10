@@ -160,7 +160,6 @@ export default async function notificationRoutes(app: FastifyInstance) {
   // POST /api/notifications/bulk-delete — delete multiple (requires NOTIFICATION_DELETE)
   app.post('/bulk-delete', {
     preHandler: [app.requirePermission('NOTIFICATION_DELETE')], // 2026-07-01: delete is a grantable perm again (SUPER_ADMIN still bypasses)
-    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       tags: ['Notifications'],
       summary: 'Delete selected notifications',

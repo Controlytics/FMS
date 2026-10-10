@@ -39,11 +39,6 @@ describe('POST /api/uploads/photo — permission gate', () => {
     expect(app.requirePermission).not.toHaveBeenCalled();
     expect(app.requireAnyPermission).not.toHaveBeenCalled();
   });
-
-  // Auth-only widened who can spend disk on a route that never unlinks and has
-  // no quota, so the loop must stay bounded.
-  it('bounds upload frequency with a route rate limit', () => {
-    const photo = routes.find((r) => r.url === '/photo');
-    expect(photo!.opts.config?.rateLimit).toMatchObject({ max: 30, timeWindow: '1 hour' });
-  });
+  // The 30/hour route rate limit was removed 2026-10-10 (operator decision);
+  // the rate-limit policy is locked in lib/__tests__/rate-limit-policy.test.ts.
 });

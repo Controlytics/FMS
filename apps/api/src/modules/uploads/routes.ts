@@ -32,15 +32,10 @@ export default async function uploadRoutes(app: FastifyInstance) {
   // allowlist; only GET /uploads/photos/ is, so images render in <img>).
   app.post('/photo', {
     // Nothing here ever unlinks a file and there is no quota, so each call
-    // permanently costs up to MAX_FILE_SIZE of disk. Dropping the permission
-    // gate above widened who can spend that from USER_UPDATE-holders to every
-    // authenticated user, so bound the loop: 30/hour is far above real use
-    // (a photo is set occasionally) and far below a disk-exhaustion rate.
-    // Keyed by IP, not user — @fastify/rate-limit registers its onRequest hook
-    // before the auth plugin's, so req.user isn't populated when the key is
-    // computed. This bounds the surface; it is not the orphan-file GC, which
-    // remains a separate open finding.
-    config: { rateLimit: { max: 30, timeWindow: '1 hour' } },
+    // permanently costs up to MAX_FILE_SIZE of disk. The 30/hour route limit
+    // that bounded this was removed 2026-10-10 (operator decision: no rate
+    // limits except the three password endpoints) — any signed-in user can
+    // now upload without limit. The orphan-file GC remains an open finding.
     schema: {
       tags: ['Uploads'],
       summary: 'Upload a profile photo',
