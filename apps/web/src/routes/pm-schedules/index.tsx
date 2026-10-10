@@ -464,7 +464,7 @@ export function PmScheduleListPage() {
   };
 
   const submitReject = () => {
-    if (!rejectDialog || !rejectRemarks.trim()) return;
+    if (!rejectDialog || rejectRemarks.trim().length < 3) return;
     const ids = rejectDialog;
     const stage = rejectStage;
     setProcessing(true);
@@ -677,12 +677,30 @@ export function PmScheduleListPage() {
   const toggleSelect = (id: string) => {
     setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   };
-  const pendingEntries = entries.filter(e => e.approvalStatus === 'PENDING');
-  const allPendingSelected = pendingEntries.length > 0 && pendingEntries.every(e => selected.has(e.id));
+  // Bulk selection (2026-10-08). A row is selectable when the viewer can take
+  // ITS next step: Review for PENDING_REVIEW (reviewer), Approve/Reject for
+  // PENDING_APPROVAL (approver). The legacy PENDING status follows the same
+  // split as the per-row buttons. Entries the viewer uploaded — or, at approval,
+  // reviewed — are not selectable: the server's separation check
+  // (SELF_APPROVAL_FORBIDDEN) refuses the WHOLE batch if one is included.
+  const me = user?.username ?? null;
+  const isReviewable = (e: ScheduleEntry) =>
+    canReview && (e.approvalStatus === 'PENDING_REVIEW' || (workflowOn && e.approvalStatus === 'PENDING'))
+    && e.submittedByName !== me;
+  const isApprovable = (e: ScheduleEntry) =>
+    isApprover && (e.approvalStatus === 'PENDING_APPROVAL' || (!workflowOn && e.approvalStatus === 'PENDING'))
+    && e.submittedByName !== me && e.reviewedByName !== me;
+  const isSelectable = (e: ScheduleEntry) => isReviewable(e) || isApprovable(e);
+  const selectableEntries = entries.filter(isSelectable);
+  const allPendingSelected = selectableEntries.length > 0 && selectableEntries.every(e => selected.has(e.id));
   const toggleSelectAll = () => {
     if (allPendingSelected) setSelected(new Set());
-    else setSelected(new Set(pendingEntries.map(e => e.id)));
+    else setSelected(new Set(selectableEntries.map(e => e.id)));
   };
+  // The ticked rows, split by the step they are waiting on.
+  const selectedForReview = entries.filter(e => selected.has(e.id) && isReviewable(e)).map(e => e.id);
+  const selectedForApproval = entries.filter(e => selected.has(e.id) && isApprovable(e)).map(e => e.id);
+  const showSelectColumn = canReview || isApprover;
 
   // (instancesData fetched earlier — used by both the AHU-dropdown create
   // dialog and the filter-name lookup below.)
@@ -726,7 +744,7 @@ export function PmScheduleListPage() {
   const approvedCount = entries.filter(e => e.approvalStatus === 'APPROVED').length;
   const pendingInView = entries.filter(e => e.approvalStatus === 'PENDING' || e.approvalStatus === 'PENDING_REVIEW' || e.approvalStatus === 'PENDING_APPROVAL').length;
   const rejectedInView = entries.filter(e => e.approvalStatus === 'REJECTED').length;
-  const colCount = (isApprover ? 1 : 0) + 8;
+  const colCount = (showSelectColumn ? 1 : 0) + 8;
 
   return (
     <div className="p-6 space-y-6">
@@ -825,24 +843,41 @@ export function PmScheduleListPage() {
         </div>
       </div>
 
-      {/* ─── Bulk Actions (QA only) ─── */}
-      {isApprover && selected.size > 0 && (
+      {/* ─── Bulk Actions — reviewer and/or approver (2026-10-08) ─── */}
+      {showSelectColumn && selected.size > 0 && (
         <div className="flex items-center gap-3 px-5 py-3 rounded-xl border" style={{ backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>
           <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--theme-primary-light)' }}>
             <span className="text-sm font-bold" style={{ color: 'var(--theme-primary-dark)' }}>{selected.size}</span>
           </div>
           <span className="text-sm font-medium" style={{ color: 'var(--theme-primary-dark)' }}>entries selected</span>
-          <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => handleApprove([...selected])} disabled={processing}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-              Approve
-            </button>
-            <button onClick={() => handleReject([...selected])} disabled={processing}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50 shadow-sm transition-all">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              Reject
-            </button>
+          <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+            {selectedForReview.length > 0 && (
+              <>
+                <button onClick={() => handleReviewApprove(selectedForReview)} disabled={processing}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 disabled:opacity-50 shadow-sm transition-all">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  Review selected ({selectedForReview.length})
+                </button>
+                <button onClick={() => handleReject(selectedForReview, 'review')} disabled={processing}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-red-700 border border-red-300 text-xs font-semibold rounded-lg hover:bg-red-50 disabled:opacity-50 transition-all">
+                  Reject at review ({selectedForReview.length})
+                </button>
+              </>
+            )}
+            {selectedForApproval.length > 0 && (
+              <>
+                <button onClick={() => handleApprove(selectedForApproval)} disabled={processing}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  Approve selected ({selectedForApproval.length})
+                </button>
+                <button onClick={() => handleReject(selectedForApproval, 'approval')} disabled={processing}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50 shadow-sm transition-all">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  Reject ({selectedForApproval.length})
+                </button>
+              </>
+            )}
             <button onClick={() => setSelected(new Set())} className="px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 rounded-lg hover:bg-white/50 transition-all">Clear</button>
           </div>
         </div>
@@ -868,9 +903,10 @@ export function PmScheduleListPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  {isApprover && (
+                  {showSelectColumn && (
                     <th className="w-10 px-3 py-3.5">
-                      <input type="checkbox" checked={allPendingSelected} onChange={toggleSelectAll}
+                      <input type="checkbox" checked={allPendingSelected} onChange={toggleSelectAll} disabled={selectableEntries.length === 0}
+                        title="Select every entry waiting on your step"
                         className="w-3.5 h-3.5 rounded border-slate-300 cursor-pointer" style={{ accentColor: 'var(--theme-primary)' }} />
                     </th>
                   )}
@@ -898,9 +934,9 @@ export function PmScheduleListPage() {
 
                       return (
                         <tr key={entry.id} className={`transition-colors hover:bg-slate-50/50 ${entry.approvalStatus === 'PENDING' ? 'bg-amber-50/15' : entry.approvalStatus === 'REJECTED' ? 'bg-red-50/15' : ''}`}>
-                          {isApprover && (
+                          {showSelectColumn && (
                             <td className="w-10 px-3 py-3">
-                              {entry.approvalStatus === 'PENDING' && (
+                              {isSelectable(entry) && (
                                 <input type="checkbox" checked={selected.has(entry.id)} onChange={() => toggleSelect(entry.id)}
                                   className="w-3.5 h-3.5 rounded border-slate-300 cursor-pointer" style={{ accentColor: 'var(--theme-primary)' }} />
                               )}
@@ -1095,7 +1131,7 @@ export function PmScheduleListPage() {
                 rows={3} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-red-400 focus:ring-3 focus:ring-red-100 outline-none" />
               <div className="flex gap-3 mt-4">
                 <button onClick={() => setRejectDialog(null)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">Cancel</button>
-                <button onClick={submitReject} disabled={processing || !rejectRemarks.trim()}
+                <button onClick={submitReject} disabled={processing || rejectRemarks.trim().length < 3}
                   className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
                   {processing ? 'Rejecting...' : 'Reject'}
                 </button>

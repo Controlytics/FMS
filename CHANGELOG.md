@@ -24,6 +24,47 @@ Fixed text: it shows in every build made from this code, including a customer in
 (the `username` column is the User ID; Full Name is a separate field). Duplicate email →
 `Email already exists`.
 
+## [Unreleased] - Bulk review/approve for PM + replacement schedules; bulk replace on the tablet (2026-10-08)
+
+**PM Schedules (web).** Bulk selection existed but only rendered for the legacy `PENDING`
+status, which no upload creates with the workflow on, so it never appeared. There was also no
+bulk Review, and reviewers who were not approvers got no checkbox column.
+- A row is selectable when the viewer owns its step: Review for `PENDING_REVIEW`,
+  Approve/Reject for `PENDING_APPROVAL`.
+- The bar offers **Review selected / Reject at review / Approve selected / Reject**, each with
+  its own count and stage. Select-all takes every entry waiting on the viewer.
+- Entries the viewer uploaded, or reviewed when approving, are not selectable: the server's
+  `SELF_APPROVAL_FORBIDDEN` refuses the whole batch if one is included.
+- Reject now enforces the server's 3-character minimum client-side.
+
+**Replacement Schedule (web).** Same checkboxes, select-all (across pages) and bulk bar. The
+handlers take a list of ids, and toasts use the server's `processed` count.
+- Server `workflow.ts` gains PM's user-level segregation (`assertNotOwnEntry`): the uploader may
+  not review or approve, and the reviewer may not approve.
+- Bulk actions tag each QNN `[batch B-…, n of N across …]`, as PM does.
+
+**Executing a replacement task** (`executeReplacement`) now refuses:
+- an entry that is not APPROVED (`409 ENTRY_NOT_APPROVED`, parity with PM's execute);
+- a filter outside the task's AHU (`409 FILTER_NOT_IN_TASK_AHU`; a scanned tag from another AHU
+  was replaced and counted against this task).
+Both are checked before the replace runs.
+
+**Tablet.**
+- **Replace Filter:** a checkbox per row plus Select all. One remarks box, then
+  **Replace N selected** with one signature. It loops `POST /api/filters/:id/replace`; a
+  per-filter refusal (e.g. `DUPLICATE_FILTER_NAME`) is reported and never aborts the rest.
+  Narrowing the list clears the ticks, so a hidden filter is never replaced.
+- **Replacement Tasks:** adds Select all (up to the remaining count), an optional remarks box
+  (blank keeps the standard text), and a success line on the task list.
+- **Replace tile:** now shown only for `FILTER_REPLACE`, which matches the server. A
+  cleaning-only role saw it and got a 403.
+- **Header and footer:** use the configured branding; they were hard-coded "DL" /
+  "DigiLog v1.0".
+
+Test: `replacement-schedule/__tests__/bulk-workflow.test.ts` covers a bulk review+approve with
+QNN batch tags, partial success, self-review / reviewer-approves refused with nothing written,
+and execute refusing an unapproved entry and a filter from another AHU.
+
 ## [Unreleased] - QA-gated Wash Out / Dry Out followed by the final checklist; one ready Dry In filter auto-ticked (2026-10-08)
 
 **Approval + final checklist.** Operator: on the tablet, at an OUT stage followed by a checklist,

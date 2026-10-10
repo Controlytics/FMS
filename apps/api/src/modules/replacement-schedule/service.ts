@@ -376,6 +376,19 @@ const filterOps = new FilterOperationsService();
 export async function executeReplacement(entryId: string, oldFilterId: string, remarks: string, ctx: RequestContext) {
   const entry = await prisma.replacementScheduleEntry.findUnique({ where: { id: entryId } });
   if (!entry) throw new AppError(404, 'NOT_FOUND', 'Replacement entry not found');
+  // 2026-10-08: only an APPROVED entry is a task. The task lists already showed
+  // approved entries only, but this write accepted any entry id — PM refuses the
+  // same case (ENTRY_NOT_APPROVED in pm-executions.ts).
+  if (entry.approvalStatus !== 'APPROVED') {
+    throw new AppError(409, 'ENTRY_NOT_APPROVED', 'Only an approved replacement schedule entry can be carried out.');
+  }
+  // The filter must belong to the task's AHU. A scanned tag from another AHU was
+  // accepted and replaced, then counted against this AHU's task.
+  const oldFilter = await prisma.assetInstance.findUnique({ where: { id: oldFilterId }, select: { parentId: true, name: true } });
+  if (!oldFilter) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
+  if (oldFilter.parentId !== entry.ahuId) {
+    throw new AppError(409, 'FILTER_NOT_IN_TASK_AHU', `Filter "${oldFilter.name}" is not in AHU "${entry.ahuName}" — this task covers that AHU's filters only.`);
+  }
 
   // All-AHU-filters model (2026-06-15, per user): the task targets EVERY active
   // filter under the AHU and is complete only when none remain unreplaced. The

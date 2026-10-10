@@ -116,7 +116,9 @@ export function ReplacementSchedulePage() {
   const canApprove = isSuperAdmin || perms.includes('REPLACEMENT_SCHEDULE_APPROVE');
   const reauth = useReauth();
   const [busy, setBusy] = useState(false);
-  const [rejectFor, setRejectFor] = useState<{ id: string; stage: 'review' | 'approval' } | null>(null);
+  const [rejectFor, setRejectFor] = useState<{ ids: string[]; stage: 'review' | 'approval' } | null>(null);
+  // Bulk selection (2026-10-08) — entry ids, across pages.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
@@ -142,34 +144,59 @@ export function ReplacementSchedulePage() {
   // sorted in AHU → Micron → dimensions order, so buildMergeGroups just tags it.
   const groupedRows = buildMergeGroups(pageEntries);
 
+  // ─── Bulk selection (2026-10-08) ───
+  // A row is selectable when the viewer can take ITS next step. Entries the
+  // viewer uploaded — or, at approval, reviewed — are excluded: the server's
+  // separation check (SELF_APPROVAL_FORBIDDEN) refuses the whole batch if one
+  // is included.
+  const me = user?.username ?? null;
+  const isReviewable = (e: any) => canReview && e.approvalStatus === 'PENDING_REVIEW' && e.submittedByName !== me;
+  const isApprovable = (e: any) => canApprove && (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING')
+    && e.submittedByName !== me && e.reviewedByName !== me;
+  const isSelectable = (e: any) => isReviewable(e) || isApprovable(e);
+  const selectableEntries = allEntries.filter(isSelectable);
+  const allSelectableSelected = selectableEntries.length > 0 && selectableEntries.every((e: any) => selected.has(e.id));
+  const toggleSelect = (id: string) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleSelectAll = () => setSelected(allSelectableSelected ? new Set() : new Set(selectableEntries.map((e: any) => e.id)));
+  const selectedForReview = allEntries.filter((e: any) => selected.has(e.id) && isReviewable(e)).map((e: any) => e.id as string);
+  const selectedForApproval = allEntries.filter((e: any) => selected.has(e.id) && isApprovable(e)).map((e: any) => e.id as string);
+  const showSelectColumn = canReview || canApprove;
+  const plural = (n: number) => `${n} entr${n === 1 ? 'y' : 'ies'}`;
+  const done = (title: string, msg: string) => { toast.success(title, msg); setSelected(new Set()); mutate('/api/replacement-schedules'); setBusy(false); };
+  const onActionError = (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setBusy(false); };
+
   // ─── Workflow actions (reuse the PM workflow config; reauth-gated) ───
-  const reviewApprove = (id: string) => {
+  // Each takes a LIST of entry ids — one row or a bulk selection, one signature.
+  const reviewApprove = (ids: string[]) => {
     setBusy(true);
+    let processed = ids.length;
     reauth.execute('REVIEW_REPLACEMENT_SCHEDULE', async (pw?: string) => {
-      const body = { entryIds: [id], action: 'approve' as const };
-      if (pw) await apiClient.postWithReauth('/api/replacement-schedules/entries/review', body, pw);
-      else await apiClient.post('/api/replacement-schedules/entries/review', body);
-    }, { onSuccess: () => { toast.success('Reviewed', 'Sent for approval'); mutate('/api/replacement-schedules'); setBusy(false); }, onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setBusy(false); } });
+      const body = { entryIds: ids, action: 'approve' as const };
+      const res: any = pw ? await apiClient.postWithReauth('/api/replacement-schedules/entries/review', body, pw) : await apiClient.post('/api/replacement-schedules/entries/review', body);
+      if (typeof res?.processed === 'number') processed = res.processed;
+    }, { onSuccess: () => done('Reviewed', `${plural(processed)} sent for approval`), onError: onActionError });
   };
-  const approve = (id: string) => {
+  const approve = (ids: string[]) => {
     setBusy(true);
+    let processed = ids.length;
     reauth.execute('APPROVE_REPLACEMENT_SCHEDULE', async (pw?: string) => {
-      const body = { entryIds: [id] };
-      if (pw) await apiClient.postWithReauth('/api/replacement-schedules/entries/approve', body, pw);
-      else await apiClient.post('/api/replacement-schedules/entries/approve', body);
-    }, { onSuccess: () => { toast.success('Approved', 'Entry approved'); mutate('/api/replacement-schedules'); setBusy(false); }, onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setBusy(false); } });
+      const body = { entryIds: ids };
+      const res: any = pw ? await apiClient.postWithReauth('/api/replacement-schedules/entries/approve', body, pw) : await apiClient.post('/api/replacement-schedules/entries/approve', body);
+      if (typeof res?.processed === 'number') processed = res.processed;
+    }, { onSuccess: () => done('Approved', `${plural(processed)} approved`), onError: onActionError });
   };
   const submitReject = () => {
     if (!rejectFor || rejectRemarks.trim().length < 3) return;
-    const { id, stage } = rejectFor;
+    const { ids, stage } = rejectFor;
     setBusy(true);
+    let processed = ids.length;
     const action = stage === 'review' ? 'REVIEW_REPLACEMENT_SCHEDULE' : 'REJECT_REPLACEMENT_SCHEDULE';
     reauth.execute(action, async (pw?: string) => {
       const url = stage === 'review' ? '/api/replacement-schedules/entries/review' : '/api/replacement-schedules/entries/reject';
-      const body = stage === 'review' ? { entryIds: [id], action: 'reject' as const, remarks: rejectRemarks.trim() } : { entryIds: [id], remarks: rejectRemarks.trim() };
-      if (pw) await apiClient.postWithReauth(url, body, pw);
-      else await apiClient.post(url, body);
-    }, { onSuccess: () => { toast.success('Rejected', 'Entry rejected'); setRejectFor(null); mutate('/api/replacement-schedules'); setBusy(false); }, onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setBusy(false); } });
+      const body = stage === 'review' ? { entryIds: ids, action: 'reject' as const, remarks: rejectRemarks.trim() } : { entryIds: ids, remarks: rejectRemarks.trim() };
+      const res: any = pw ? await apiClient.postWithReauth(url, body, pw) : await apiClient.post(url, body);
+      if (typeof res?.processed === 'number') processed = res.processed;
+    }, { onSuccess: () => { setRejectFor(null); done('Rejected', `${plural(processed)} rejected`); }, onError: onActionError });
   };
 
   const exportExcel = async () => {
@@ -330,6 +357,26 @@ export function ReplacementSchedulePage() {
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+          {showSelectColumn && selected.size > 0 && (selectedForReview.length > 0 || selectedForApproval.length > 0) && (
+            <div className="px-4 py-2.5 border-b border-slate-200 flex items-center gap-2 flex-wrap" style={{ backgroundColor: 'var(--theme-primary-light)' }}>
+              <span className="text-sm font-medium" style={{ color: 'var(--theme-primary-dark)' }}>{plural(selectedForReview.length + selectedForApproval.length)} selected</span>
+              <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+                {selectedForReview.length > 0 && (
+                  <>
+                    <button onClick={() => reviewApprove(selectedForReview)} disabled={busy} className="px-3 py-1.5 bg-sky-600 text-white text-xs font-semibold rounded-lg hover:bg-sky-700 disabled:opacity-50">Review selected ({selectedForReview.length})</button>
+                    <button onClick={() => { setRejectFor({ ids: selectedForReview, stage: 'review' }); setRejectRemarks(''); }} disabled={busy} className="px-3 py-1.5 bg-white text-red-700 border border-red-300 text-xs font-semibold rounded-lg hover:bg-red-50 disabled:opacity-50">Reject at review ({selectedForReview.length})</button>
+                  </>
+                )}
+                {selectedForApproval.length > 0 && (
+                  <>
+                    <button onClick={() => approve(selectedForApproval)} disabled={busy} className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">Approve selected ({selectedForApproval.length})</button>
+                    <button onClick={() => { setRejectFor({ ids: selectedForApproval, stage: 'approval' }); setRejectRemarks(''); }} disabled={busy} className="px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50">Reject ({selectedForApproval.length})</button>
+                  </>
+                )}
+                <button onClick={() => setSelected(new Set())} className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800">Clear</button>
+              </div>
+            </div>
+          )}
           <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
             <div className="text-sm font-semibold text-slate-700">Replacement Schedule <span className="text-slate-400 font-normal">· {allEntries.length} entr{allEntries.length === 1 ? 'y' : 'ies'}</span></div>
             {schedules[0] && <div className="text-[11px] text-slate-400">last upload by {schedules[0].uploadedByName ?? '—'} · {formatDate(schedules[0].createdAt)}</div>}
@@ -338,6 +385,12 @@ export function ReplacementSchedulePage() {
             <table className="w-full border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 [&>th]:bg-slate-100 [&>th]:border [&>th]:border-slate-300 [&>th]:whitespace-nowrap [&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-600">
+                  {showSelectColumn && (
+                    <th className="w-10 text-center">
+                      <input type="checkbox" checked={allSelectableSelected} onChange={toggleSelectAll} disabled={selectableEntries.length === 0}
+                        title="Select every entry waiting on your step" className="w-4 h-4 accent-cyan-600 cursor-pointer disabled:opacity-40" />
+                    </th>
+                  )}
                   <th className="w-12 text-center">S.No</th>
                   <th>AHU Name</th>
                   <th className="text-center">Filter Micron</th>
@@ -353,7 +406,14 @@ export function ReplacementSchedulePage() {
               <tbody>
                 {groupedRows.map(({ e, firstOfAhu, lastOfAhu, firstOfMicron, ahuSpan, micronSpan, ahuOrdinal }: any) => (
                   <Fragment key={e.id}>
-                  <tr className="[&>td]:border [&>td]:border-slate-200 [&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm hover:bg-slate-50/40">
+                  <tr className={`[&>td]:border [&>td]:border-slate-200 [&>td]:whitespace-nowrap [&>td]:px-3 [&>td]:py-2 [&>td]:text-sm ${selected.has(e.id) ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50/40'}`}>
+                    {showSelectColumn && (
+                      <td className="text-center">
+                        {isSelectable(e) && (
+                          <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="w-4 h-4 accent-cyan-600 cursor-pointer" />
+                        )}
+                      </td>
+                    )}
                     {firstOfAhu && (
                       <td rowSpan={ahuSpan} className="text-center text-slate-500 font-medium align-top bg-slate-50/50">{ahuOrdinal}</td>
                     )}
@@ -380,14 +440,14 @@ export function ReplacementSchedulePage() {
                       <div className="inline-flex items-center gap-1.5 justify-end">
                         {canReview && e.approvalStatus === 'PENDING_REVIEW' && (
                           <>
-                            <button onClick={() => reviewApprove(e.id)} disabled={busy} className="px-2.5 py-1 bg-sky-500 text-white text-[11px] font-semibold rounded-md hover:bg-sky-600 disabled:opacity-50">Review ✓</button>
-                            <button onClick={() => { setRejectFor({ id: e.id, stage: 'review' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
+                            <button onClick={() => reviewApprove([e.id])} disabled={busy} className="px-2.5 py-1 bg-sky-500 text-white text-[11px] font-semibold rounded-md hover:bg-sky-600 disabled:opacity-50">Review ✓</button>
+                            <button onClick={() => { setRejectFor({ ids: [e.id], stage: 'review' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
                           </>
                         )}
                         {canApprove && (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING') && (
                           <>
-                            <button onClick={() => approve(e.id)} disabled={busy} className="px-2.5 py-1 bg-emerald-500 text-white text-[11px] font-semibold rounded-md hover:bg-emerald-600 disabled:opacity-50">Approve</button>
-                            <button onClick={() => { setRejectFor({ id: e.id, stage: 'approval' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
+                            <button onClick={() => approve([e.id])} disabled={busy} className="px-2.5 py-1 bg-emerald-500 text-white text-[11px] font-semibold rounded-md hover:bg-emerald-600 disabled:opacity-50">Approve</button>
+                            <button onClick={() => { setRejectFor({ ids: [e.id], stage: 'approval' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
                           </>
                         )}
                         {e.approvalStatus === 'REJECTED' && e.approvalRemarks && (
@@ -398,7 +458,7 @@ export function ReplacementSchedulePage() {
                   </tr>
                   {filtersEnabled && lastOfAhu && expanded.has(e.ahuId) && e.ahuId && (
                     <tr>
-                      <td colSpan={10} className="p-0">
+                      <td colSpan={showSelectColumn ? 11 : 10} className="p-0">
                         <AhuFiltersRow ahuId={e.ahuId} identMap={identMap} />
                       </td>
                     </tr>
@@ -496,7 +556,7 @@ export function ReplacementSchedulePage() {
       {rejectFor && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[56] p-4">
           <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-5 shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-800 mb-1">Reject Entry</h3>
+            <h3 className="text-lg font-bold text-slate-800 mb-1">Reject {rejectFor.ids.length === 1 ? 'Entry' : `${rejectFor.ids.length} Entries`}</h3>
             <p className="text-sm text-slate-500 mb-3">Remarks are required (min 3 characters).</p>
             <textarea value={rejectRemarks} onChange={(e) => setRejectRemarks(e.target.value)} rows={3}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15" placeholder="Reason for rejection…" />

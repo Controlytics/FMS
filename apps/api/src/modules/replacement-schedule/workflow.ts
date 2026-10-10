@@ -10,7 +10,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { getReplacementWorkflowConfig, assertPmRole, generateQnn, type QnnAction } from '../pm-schedules/pm-workflow.js';
+import { getReplacementWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from '../pm-schedules/pm-workflow.js';
 
 const MS_DAY = 86400000;
 const windowsFor = (planned: Date, tol: number) => ({
@@ -39,14 +39,37 @@ const entryDetail = (e: any) => ({
   qty: e.qty,
 });
 
-async function mintQnn(action: QnnAction, entry: any, ctx: RequestContext, note: string) {
+async function mintQnn(action: QnnAction, entry: any, ctx: RequestContext, note: string, batchTag = '') {
   return generateQnn(action, {
     pmScheduleEntryId: entry.id, // soft uuid column; holds the replacement entry id
     scheduleId: entry.scheduleId,
     ahuName: entry.ahuName,
     subject: 'Replacement Schedule',
-    message: `${note} — ${entry.ahuName}${entry.filterSize ? ` · ${entry.filterSize}` : ''}${entry.filterMicron ? ` · ${entry.filterMicron}µ` : ''} · qty ${entry.qty}`,
+    message: `${note} — ${entry.ahuName}${entry.filterSize ? ` · ${entry.filterSize}` : ''}${entry.filterMicron ? ` · ${entry.filterMicron}µ` : ''} · qty ${entry.qty}${batchTag}`,
   }, ctx);
+}
+
+/**
+ * Segregation of duties by USER (2026-10-08, mirrors PM's assertNotOwnEntry,
+ * audit 2026-09-24 C-F9): the uploader may not review or approve their own
+ * entries, and the reviewer may not also approve or reject at approval. Checked
+ * over the whole batch BEFORE any write, so one own entry refuses the call.
+ */
+function assertNotOwnEntry(
+  ctx: RequestContext,
+  entries: Array<{ submittedBy: string | null; reviewedBy: string | null }>,
+  step: 'review' | 'approve' | 'reject',
+) {
+  if (!ctx.userSub) return;
+  const own = entries.some((e) => e.submittedBy === ctx.userSub || (step !== 'review' && e.reviewedBy === ctx.userSub));
+  if (own) {
+    throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', `You cannot ${step} a replacement schedule entry you uploaded or reviewed yourself. A different user must sign off.`);
+  }
+}
+
+/** Batch reference + AHU list for a bulk action (one QNN per entry, tagged "n of N"). */
+function batchFor(rows: Array<{ ahuName: string }>) {
+  return { ref: rows.length > 1 ? newQnnBatchRef() : null, total: rows.length, ahus: [...new Set(rows.map((r) => r.ahuName))] };
 }
 
 /** Review step: approve → PENDING_APPROVAL, reject → REJECTED (stage REVIEW). */
@@ -58,22 +81,24 @@ export async function reviewEntries(ctx: RequestContext, entryIds: string[], act
   }
   const entries = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: entryIds } } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
+  const actionable = entries.filter((e) => e.approvalStatus === 'PENDING_REVIEW');
+  assertNotOwnEntry(ctx, actionable, 'review');
+  const batch = batchFor(actionable);
   const qnns: string[] = [];
-  for (const entry of entries) {
-    if (entry.approvalStatus !== 'PENDING_REVIEW') continue;
+  for (const entry of actionable) {
     if (action === 'approve') {
       await prisma.replacementScheduleEntry.update({
         where: { id: entry.id },
         data: { approvalStatus: 'PENDING_APPROVAL', reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(), reviewRemarks: remarks?.trim() || null },
       });
-      qnns.push(await mintQnn('REVIEW', entry, ctx, 'Reviewed (sent for approval)'));
+      qnns.push(await mintQnn('REVIEW', entry, ctx, 'Reviewed (sent for approval)', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_REVIEWED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), remarks }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     } else {
       await prisma.replacementScheduleEntry.update({
         where: { id: entry.id },
         data: { approvalStatus: 'REJECTED', rejectionStage: 'REVIEW', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(), approvalRemarks: remarks!.trim() },
       });
-      qnns.push(await mintQnn('REJECT', entry, ctx, 'Rejected at review'));
+      qnns.push(await mintQnn('REJECT', entry, ctx, 'Rejected at review', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_REJECTED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), stage: 'REVIEW', remarks: remarks!.trim() }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     }
   }
@@ -86,14 +111,16 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
   assertPmRole(ctx.userRole, cfg.approvalRole, 'approve', 'replacement schedules');
   const entries = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: entryIds } } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
+  const actionable = entries.filter((e) => e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING');
+  assertNotOwnEntry(ctx, actionable, 'approve');
+  const batch = batchFor(actionable);
   const qnns: string[] = [];
-  for (const entry of entries) {
-    if (entry.approvalStatus !== 'PENDING_APPROVAL' && entry.approvalStatus !== 'PENDING') continue;
+  for (const entry of actionable) {
     await prisma.replacementScheduleEntry.update({
       where: { id: entry.id },
       data: { approvalStatus: 'APPROVED', approvalRemarks: comment ?? null, approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(), rejectionStage: null, rejectedBy: null, rejectedByName: null, rejectedAt: null },
     });
-    qnns.push(await mintQnn('APPROVE', entry, ctx, 'Approved'));
+    qnns.push(await mintQnn('APPROVE', entry, ctx, 'Approved', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_APPROVED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), comment }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   }
   return { processed: qnns.length, qnns };
@@ -106,14 +133,16 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
   if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 characters)');
   const entries = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: entryIds } } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
+  const actionable = entries.filter((e) => e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING');
+  assertNotOwnEntry(ctx, actionable, 'reject');
+  const batch = batchFor(actionable);
   const qnns: string[] = [];
-  for (const entry of entries) {
-    if (entry.approvalStatus !== 'PENDING_APPROVAL' && entry.approvalStatus !== 'PENDING') continue;
+  for (const entry of actionable) {
     await prisma.replacementScheduleEntry.update({
       where: { id: entry.id },
       data: { approvalStatus: 'REJECTED', rejectionStage: 'APPROVAL', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(), approvalRemarks: remarks.trim() },
     });
-    qnns.push(await mintQnn('REJECT', entry, ctx, 'Rejected at approval'));
+    qnns.push(await mintQnn('REJECT', entry, ctx, 'Rejected at approval', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_REJECTED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), stage: 'APPROVAL', remarks: remarks.trim() }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   }
   return { processed: qnns.length, qnns };

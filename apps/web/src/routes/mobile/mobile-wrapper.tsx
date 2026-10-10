@@ -4,6 +4,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
+import { useBranding } from '@/hooks/use-branding';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
 import { useReauth } from '@/hooks/use-reauth';
@@ -121,6 +122,7 @@ function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: stri
 
 export function MobileWrapperPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
+  const { branding } = useBranding();
   const { formatTime, formatDate, formatDateTime, formatDayMonth, config: datetimeConfig } = useDatetimeFormat();
   // W2: mobile entry point bypasses AppLayout, so wire the offline-cache
   // config bootstrap here too. The hook is a no-op when the user isn't
@@ -439,6 +441,14 @@ export function MobileWrapperPage() {
   // it via the identifier→filter map and pre-selects it for the confirm step.
   const replaceScan = useRfidScanField();
   const [replaceScanError, setReplaceScanError] = useState('');
+  // Bulk replace (2026-10-08): filters ticked in the list. A row tap still opens
+  // the single-filter confirm panel; the checkbox builds a batch instead.
+  const [replaceMulti, setReplaceMulti] = useState<Set<string>>(new Set());
+  const [replaceBulkRemarks, setReplaceBulkRemarks] = useState('');
+  const replaceBulkResultRef = useRef<{ done: number; tags: number; failed: string[] } | null>(null);
+  // A batch only ever holds filters the operator can SEE: narrowing the list
+  // (cascade or search) clears the ticks, so a hidden filter is never replaced.
+  useEffect(() => { setReplaceMulti(new Set()); }, [replaceBlockId, replaceAreaId, replaceAhuId, replaceFilterId, replaceSearch]);
 
   // ── Stage Approvals (QA interlock) — bottom-nav tab, ONLINE-ONLY ──
   // 2026-10-01: the tab renders the WEB page itself (`StageApprovalsPage`), not a
@@ -476,6 +486,10 @@ export function MobileWrapperPage() {
   const [replTaskSelected, setReplTaskSelected] = useState<Set<string>>(new Set());
   const [replTaskSearch, setReplTaskSearch] = useState('');
   const replBatchResultRef = useRef<{ done: number; failed: string[] } | null>(null);
+  // Operator remarks for a task replacement (blank = the standard text) and the
+  // result line shown on the task list after a batch (2026-10-08).
+  const [replTaskRemarks, setReplTaskRemarks] = useState('');
+  const [replTaskSuccess, setReplTaskSuccess] = useState('');
 
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
 
@@ -764,16 +778,17 @@ export function MobileWrapperPage() {
   };
 
   // ─── Replace-filter handler ───
-  // Backend gates POST /:id/replace with requireAnyPermission(FILTER_OPERATE,
-  // FILTER_REPLACE); mirror that here so the tile/view only appear for roles
-  // the server will actually accept. SUPER_ADMIN bypasses (project rule).
+  // Backend gates POST /:id/replace with requirePermission('FILTER_REPLACE') —
+  // the FILTER_OPERATE alternate was dropped 2026-06-30, so a cleaning-only role
+  // saw this tile and got a 403 on submit (fixed 2026-10-08). SUPER_ADMIN
+  // bypasses (project rule).
   const replacePerms = user?.permissions ?? [];
-  const canReplace = user?.role === 'SUPER_ADMIN'
-    || replacePerms.includes('FILTER_REPLACE')
-    || replacePerms.includes('FILTER_OPERATE');
+  const canReplace = user?.role === 'SUPER_ADMIN' || replacePerms.includes('FILTER_REPLACE');
 
   const closeReplace = () => {
     setReplaceSelectedFilter(null);
+    setReplaceMulti(new Set());
+    setReplaceBulkRemarks('');
     setReplaceRemarks('');
     setReplaceError('');
     setReplaceSuccess('');
@@ -814,14 +829,17 @@ export function MobileWrapperPage() {
     const taskId = activeReplTask.id;
     const ahuName = activeReplTask.ahuName;
     setReauthLabel('Replace Filter');
+    const remarks = replTaskRemarks.trim() || `Replaced via schedule task (AHU ${ahuName})`;
+    setReplTaskSuccess('');
     reauth.execute('REPLACE_FILTER', async (password?: string) => {
-      const body = { oldFilterId: hit.filterId, remarks: `Replaced via schedule task (AHU ${ahuName})` };
+      const body = { oldFilterId: hit.filterId, remarks };
       if (password) await api.postWithReauth(`/api/replacement-schedules/entries/${taskId}/execute`, body, password);
       else await api.post(`/api/replacement-schedules/entries/${taskId}/execute`, body);
     }, {
       onSuccess: async () => {
         // Feedback = the task list refreshes (qty decrements / task clears).
-        replTaskScan.setValue(''); setReplTaskSubmitting(false); setActiveReplTask(null);
+        replTaskScan.setValue(''); setReplTaskSubmitting(false); setActiveReplTask(null); setReplTaskRemarks('');
+        setReplTaskSuccess(`${hit.filterName} replaced (AHU ${ahuName}) · tag carried over`);
         await mutateReplDue();
         if (online) { await mutate('/api/assets/instances'); await mutateIdentifiers(); }
       },
@@ -840,13 +858,16 @@ export function MobileWrapperPage() {
     const ids = [...replTaskSelected];
     const taskId = activeReplTask.id;
     const ahuName = activeReplTask.ahuName;
-    setReplTaskSubmitting(true); setReplTaskError('');
+    setReplTaskSubmitting(true); setReplTaskError(''); setReplTaskSuccess('');
     setReauthLabel('Replace Filter');
+    const remarks = replTaskRemarks.trim() || `Replaced via schedule task (AHU ${ahuName})`;
     reauth.execute('REPLACE_FILTER', async (password?: string) => {
+      // Counters are reset INSIDE the callback: it re-runs from the top when the
+      // server asks for the password mid-way (REAUTH_REQUIRED).
       let done = 0; const failed: string[] = [];
       for (const fid of ids) {
         try {
-          const body = { oldFilterId: fid, remarks: `Replaced via schedule task (AHU ${ahuName})` };
+          const body = { oldFilterId: fid, remarks };
           if (password) await api.postWithReauth(`/api/replacement-schedules/entries/${taskId}/execute`, body, password);
           else await api.post(`/api/replacement-schedules/entries/${taskId}/execute`, body);
           done++;
@@ -872,10 +893,57 @@ export function MobileWrapperPage() {
           setReplTaskError(`Replaced ${res.done}, ${res.failed.length} failed — ${res.failed.join('; ')}`);
         } else {
           setActiveReplTask(null);
+          setReplTaskRemarks('');
+          setReplTaskSuccess(`${res?.done ?? ids.length} filter${(res?.done ?? ids.length) === 1 ? '' : 's'} replaced (AHU ${ahuName}) · tags carried over`);
         }
         replBatchResultRef.current = null;
       },
       onError: (e: any) => { setReplTaskError(e?.message ?? 'Failed to replace filters'); setReplTaskSubmitting(false); },
+    });
+  };
+
+  // Bulk replace (2026-10-08): the ticked filters, one remarks, one signature.
+  // Same endpoint as the single replace; loops so each filter gets its own
+  // retire + create + audit row and its tag moves to its own replacement.
+  // A per-filter refusal (e.g. 409 DUPLICATE_FILTER_NAME) is reported, never
+  // aborts the rest; REAUTH errors escape so the password dialog handles them.
+  const handleBulkReplaceSubmit = () => {
+    const ids = [...replaceMulti];
+    if (ids.length === 0 || !replaceBulkRemarks.trim()) return;
+    const remarks = replaceBulkRemarks.trim();
+    setReplaceSubmitting(true); setReplaceError(''); setReplaceSuccess('');
+    setReauthLabel('Replace Filter');
+    reauth.execute('REPLACE_FILTER', async (password?: string) => {
+      let done = 0; let tags = 0; const failed: string[] = [];
+      for (const fid of ids) {
+        try {
+          const body = { remarks };
+          const res: any = password
+            ? await api.postWithReauth(`/api/filters/${fid}/replace`, body, password)
+            : await api.post(`/api/filters/${fid}/replace`, body);
+          done++;
+          if (res?.identifiersMoved) tags++;
+        } catch (e: any) {
+          const code = e?.error ?? e?.code;
+          if (code === 'REAUTH_FAILED' || code === 'REAUTH_REQUIRED') throw e;
+          const fname = (allFilters as any[]).find((f: any) => f.id === fid)?.name ?? 'a filter';
+          failed.push(`${fname}: ${e?.message ?? 'failed'}`);
+        }
+      }
+      replaceBulkResultRef.current = { done, tags, failed };
+    }, {
+      onSuccess: async () => {
+        const res = replaceBulkResultRef.current ?? { done: 0, tags: 0, failed: [] };
+        replaceBulkResultRef.current = null;
+        setReplaceSubmitting(false);
+        if (res.done > 0) setReplaceSuccess(`${res.done} filter${res.done === 1 ? '' : 's'} replaced${res.tags ? ` · ${res.tags} tag${res.tags === 1 ? '' : 's'} carried over` : ''}`);
+        if (res.failed.length > 0) setReplaceError(`${res.failed.length} not replaced — ${res.failed.join('; ')}`);
+        setReplaceMulti(new Set());
+        if (res.failed.length === 0) setReplaceBulkRemarks('');
+        if (online) { await mutate('/api/assets/instances'); await mutateIdentifiers(); }
+      },
+      onError: (err: any) => { setReplaceError(err?.message ?? 'Failed to replace filters'); setReplaceSubmitting(false); },
+      onCancel: () => setReplaceSubmitting(false),
     });
   };
 
@@ -1016,8 +1084,15 @@ export function MobileWrapperPage() {
               <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
           )}
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xs font-extrabold shadow-lg shadow-cyan-500/20">DL</div>
-          <div className="font-display text-sm font-semibold text-slate-800 leading-tight">DigiLog</div>
+          {/* Configured branding (2026-10-08) — was hard-coded "DL" / "DigiLog". */}
+          {branding.logoUrl ? (
+            <div className="h-9 px-1.5 rounded-xl bg-white border border-slate-200 flex items-center justify-center">
+              <img src={branding.logoUrl} alt={branding.companyName} className="max-h-7 w-auto object-contain" />
+            </div>
+          ) : (
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xs font-extrabold shadow-lg shadow-cyan-500/20">{branding.logoText}</div>
+          )}
+          <div className="font-display text-sm font-semibold text-slate-800 leading-tight">{branding.appName}</div>
         </div>
         <div className="flex items-center gap-2">
           {/* Notification bell + unread badge */}
@@ -1283,7 +1358,7 @@ export function MobileWrapperPage() {
 
               {/* === Footer build tag === */}
               <div className="pt-2 pb-1 text-center font-mono-tab text-[9px] tracking-[0.2em] text-slate-300 uppercase">
-                DigiLog v1.0 &middot; 21 CFR Part 11
+                {branding.appName} v{branding.version} &middot; 21 CFR Part 11
               </div>
             </div>
           </div>
@@ -2783,8 +2858,19 @@ export function MobileWrapperPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <div className="text-[11px] text-slate-500 font-mono-tab px-1">
-                    showing <span className="text-slate-800 font-semibold">{repVisibleFilters.length}</span> of {repVisibleFilters.length}
+                  <div className="flex items-center justify-between px-1">
+                    <div className="text-[11px] text-slate-500 font-mono-tab">
+                      showing <span className="text-slate-800 font-semibold">{repVisibleFilters.length}</span> of {repVisibleFilters.length}
+                    </div>
+                    {repVisibleFilters.length > 0 && (() => {
+                      const allTicked = repVisibleFilters.every((f: any) => replaceMulti.has(f.id));
+                      return (
+                        <button onClick={() => setReplaceMulti(allTicked ? new Set() : new Set(repVisibleFilters.map((f: any) => f.id)))}
+                          className="text-[11px] text-amber-700 font-semibold underline active:text-amber-800">
+                          {allTicked ? 'Clear selection' : `Select all (${repVisibleFilters.length})`}
+                        </button>
+                      );
+                    })()}
                   </div>
                   {repVisibleFilters.length === 0 && (
                     <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">No filters match.</div>
@@ -2792,9 +2878,18 @@ export function MobileWrapperPage() {
                   {repVisibleFilters.map((f: any) => {
                     const tags = rfidTagsByFilter.get(f.id) ?? [];
                     const firstTag = tags[0]?.identifierValue ?? '';
+                    const ticked = replaceMulti.has(f.id);
                     return (
-                      <button key={f.id} onClick={() => { setReplaceSelectedFilter({ id: f.id, name: f.name }); setReplaceRemarks(''); setReplaceError(''); setReplaceSuccess(''); }}
-                        className="tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between active:bg-slate-50 transition-colors">
+                      <div key={f.id} className={`tile-lift w-full rounded-xl border flex items-stretch transition-colors ${ticked ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                      {/* Checkbox = add to the batch; the rest of the row = open this filter alone. */}
+                      <button onClick={() => setReplaceMulti(prev => { const n = new Set(prev); if (n.has(f.id)) n.delete(f.id); else n.add(f.id); return n; })}
+                        aria-label={`Select ${f.name}`} className="pl-3 pr-1 flex items-center">
+                        <span className={`w-5 h-5 rounded-md border flex items-center justify-center ${ticked ? 'bg-amber-500 border-amber-500' : 'border-slate-300 bg-white'}`}>
+                          {ticked && <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                        </span>
+                      </button>
+                      <button onClick={() => { setReplaceSelectedFilter({ id: f.id, name: f.name }); setReplaceRemarks(''); setReplaceError(''); setReplaceSuccess(''); }}
+                        className="flex-1 min-w-0 p-3 text-left flex items-center justify-between active:bg-slate-50 rounded-r-xl">
                         <div className="min-w-0 flex-1">
                           <div className="font-display text-[13px] font-semibold text-slate-900 truncate leading-tight">{f.name}</div>
                           <div className="text-[10.5px] text-slate-400 mt-0.5 truncate">
@@ -2803,9 +2898,32 @@ export function MobileWrapperPage() {
                         </div>
                         <svg className="w-4 h-4 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                       </button>
+                      </div>
                     );
                   })}
                 </div>
+
+                {/* ── Bulk replace panel — shown once a filter is ticked ── */}
+                {replaceMulti.size > 0 && (
+                  <div className="sticky bottom-0 bg-white rounded-2xl border border-amber-300 shadow-lg p-4 space-y-3">
+                    <div className="text-sm font-semibold text-slate-900">{replaceMulti.size} filter{replaceMulti.size === 1 ? '' : 's'} selected for replacement</div>
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-2.5 text-[11px]">
+                      Each filter is retired and a replacement is created with the same details, its RFID tag, and an incremented ID suffix. Permanent.
+                    </div>
+                    <textarea value={replaceBulkRemarks} onChange={e => setReplaceBulkRemarks(e.target.value)} rows={2}
+                      placeholder="Reason for replacement (applies to every selected filter) *"
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white resize-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => setReplaceMulti(new Set())} disabled={replaceSubmitting}
+                        className="flex-1 px-4 py-3 border border-slate-300 rounded-xl text-sm font-semibold text-slate-600 active:bg-slate-100 disabled:opacity-50">Clear</button>
+                      <button onClick={handleBulkReplaceSubmit} disabled={!replaceBulkRemarks.trim() || replaceSubmitting || !online}
+                        className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold text-white bg-amber-600 active:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                        {replaceSubmitting ? 'Replacing…' : `Replace ${replaceMulti.size} selected`}
+                      </button>
+                    </div>
+                    {!online && <div className="text-[11px] text-rose-500 text-center">Offline — replacement needs a connection.</div>}
+                  </div>
+                )}
               </>
             ) : (
               /* ── Confirm panel for the chosen filter ── */
@@ -3163,6 +3281,9 @@ export function MobileWrapperPage() {
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg> Home
             </button>
             <h2 className="font-display text-[20px] font-semibold text-slate-900">Replacement Tasks</h2>
+            {replTaskSuccess && !activeReplTask && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm font-medium">{replTaskSuccess}</div>
+            )}
 
             {!activeReplTask ? (
               <>
@@ -3229,7 +3350,7 @@ export function MobileWrapperPage() {
               });
               return (
               <div className="space-y-4">
-                <button onClick={() => { setActiveReplTask(null); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); }} className="text-[12px] text-slate-500 font-medium flex items-center gap-1">
+                <button onClick={() => { setActiveReplTask(null); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); setReplTaskRemarks(''); }} className="text-[12px] text-slate-500 font-medium flex items-center gap-1">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg> back to tasks
                 </button>
                 <div className="bg-white border border-slate-200 rounded-2xl p-4">
@@ -3255,7 +3376,19 @@ export function MobileWrapperPage() {
                     <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-500 font-semibold">
                       Filters in {activeReplTask.ahuName}
                     </label>
-                    <span className="text-[10.5px] text-slate-400">select up to {remaining}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10.5px] text-slate-400">select up to {remaining}</span>
+                      {candidates.length > 0 && (() => {
+                        const pickable = candidates.slice(0, remaining).map((f: any) => f.id);
+                        const allPicked = pickable.length > 0 && pickable.every((id: string) => replTaskSelected.has(id));
+                        return (
+                          <button onClick={() => setReplTaskSelected(allPicked ? new Set() : new Set(pickable))}
+                            className="text-[11px] text-rose-600 font-semibold underline">
+                            {allPicked ? 'Clear' : `Select all (${pickable.length})`}
+                          </button>
+                        );
+                      })()}
+                    </div>
                   </div>
                   <input type="text" value={replTaskSearch} onChange={e => setReplTaskSearch(e.target.value)}
                     placeholder="Search by filter name…"
@@ -3295,6 +3428,13 @@ export function MobileWrapperPage() {
                       })}
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-500 font-semibold mb-1">Remarks <span className="normal-case tracking-normal font-normal text-slate-400">(optional — applies to every filter replaced)</span></label>
+                  <textarea value={replTaskRemarks} onChange={e => setReplTaskRemarks(e.target.value)} rows={2}
+                    placeholder={`Replaced via schedule task (AHU ${activeReplTask.ahuName})`}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white resize-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
                 </div>
 
                 {replTaskError && <div className="text-[12px] text-rose-700 font-medium">{replTaskError}</div>}
