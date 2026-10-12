@@ -32,6 +32,7 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import type { RequestContext } from '../../types/context.js';
 import { assertFilterOperable } from '../assets/filter-workflow.js';
+import { loadDisabledChecklistProfileIds } from './helpers.js';
 
 /**
  * Output of the loader. The bundled `cp` (raw Prisma profile row, with
@@ -271,6 +272,8 @@ export async function loadLocalContext(
     ahu: null,
   };
 
+  const disabledChecklistProfileIds = cp ? await loadDisabledChecklistProfileIds(cp.stages) : [];
+
   const localCtx: LocalContext = {
     profile: profileSlice,
     cycle: cycleSlice,
@@ -279,6 +282,7 @@ export async function loadLocalContext(
     filter: filterSlice,
     equipmentGroup: null, // resolved per-method when needed
     checklistProfile: null, // resolved per-method when needed
+    disabledChecklistProfileIds,
     assetTemplate: null, // not read by write-method guards
     user: {
       id: ctx.userSub ?? ctx.userId ?? '',

@@ -353,3 +353,41 @@ describe('loadLocalContextFromCache — Phase 8.6 FE loader', () => {
     expect(advance).toBeUndefined();
   });
 });
+
+// 2026-10-12: a disabled checklist is skipped — the offline gate must skip
+// exactly the checklists the server skips, read from the cached response.
+describe('loadLocalContextFromCache — disabled checklists', () => {
+  const cached = (extra: Record<string, unknown>) => ({
+    pipelineGraph: profileWithChecklistAfterWashIn,
+    currentState: 'WASH_IN',
+    currentCycle: { id: 'cyc-1', profileId: 'cp-1', status: 'IN_PROGRESS' },
+    // Non-empty pending → the loader does NOT synthesize a completion, so only
+    // the disabled list can clear the gate.
+    pendingChecklist: [{ checklistProfileId: 'cl-prof-1', questions: [{ id: 'q1' }] }],
+    ...extra,
+  });
+
+  it('carries the cached disabled ids into the context, and the gate then passes', async () => {
+    mockGetCachedData.mockImplementation(async (key: string) =>
+      (key.startsWith('filter-state-') ? cached({ disabledChecklistProfileIds: ['cl-prof-1'] }) : null) as any);
+    mockGetCachedFilters.mockResolvedValue([{ id: 'filter-1', name: 'F-1' } as any]);
+
+    const ctx = await loadLocalContextFromCache('filter-1');
+    expect(ctx.disabledChecklistProfileIds).toEqual(['cl-prof-1']);
+    const { assertChecklistGatePassed } = await import('@digilog/shared');
+    expect(assertChecklistGatePassed(ctx, ctx.profile, 'WASH_IN')).toEqual({ ok: true });
+    const tape = computeNextActions(ctx);
+    expect(tape.actions.some(a => a.type === 'SUBMIT_CHECKLIST')).toBe(false);
+  });
+
+  it('a cache row written before the field existed keeps the old behaviour (gate blocks)', async () => {
+    mockGetCachedData.mockImplementation(async (key: string) =>
+      (key.startsWith('filter-state-') ? cached({}) : null) as any);
+    mockGetCachedFilters.mockResolvedValue([{ id: 'filter-1', name: 'F-1' } as any]);
+
+    const ctx = await loadLocalContextFromCache('filter-1');
+    expect(ctx.disabledChecklistProfileIds).toEqual([]);
+    const { assertChecklistGatePassed } = await import('@digilog/shared');
+    expect(assertChecklistGatePassed(ctx, ctx.profile, 'WASH_IN')).toMatchObject({ ok: false, code: 'CHECKLIST_PENDING' });
+  });
+});

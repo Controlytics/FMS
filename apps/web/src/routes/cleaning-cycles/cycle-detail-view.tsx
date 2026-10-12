@@ -416,6 +416,20 @@ export function CycleDetailView({ cycle, fallback }: {
                   </div>
                 )}
 
+                {/* Checklists skipped because they were disabled (2026-10-12) —
+                    says why this stage has no checklist answers. */}
+                {Array.isArray(attrs.skippedChecklists) && attrs.skippedChecklists.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {attrs.skippedChecklists.map((s: any, si: number) => (
+                      <div key={si} className="px-3 py-1.5 text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800">
+                        Checklist skipped: <span className="font-semibold">{s.checklistProfileName ?? 'unknown checklist'}</span>
+                        {s.afterStage && <> after {STAGE_LABELS[s.afterStage] ?? String(s.afterStage).replace(/_/g, ' ')}</>}
+                        {' '}— it was disabled
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Checklist Answers */}
                 {enrichedAnswers.length > 0 && (
                   <div className="mt-3 space-y-2">

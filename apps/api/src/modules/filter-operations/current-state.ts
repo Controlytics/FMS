@@ -17,6 +17,7 @@ import type { TapeChecklistProfile } from './tape/types.js';
 import {
   collectChecklistsAfterStage,
   resolveChecklistQuestions,
+  loadDisabledChecklistProfileIds,
 } from './helpers.js';
 import {
   getFilter,
@@ -350,6 +351,20 @@ export async function getCurrentStateImpl(
     ? await (cache ? cache.memo(`pipeline:${profileIdForRender}`, loadPipeline) : loadPipeline())
     : null; // getCurrentState shows pipeline even if disabled
 
+  // 2026-10-12: a DISABLED checklist is skipped wherever it sits. Read live,
+  // once, and applied to the pending checklist, the stage lookup the offline
+  // tablet caches, and the tape — so all three agree with advance().
+  const disabledChecklistProfileIds: string[] = cp
+    ? await (cache
+        ? cache.memo(`disabled-checklists:${cp.id}`, () => loadDisabledChecklistProfileIds(cp.stages))
+        : loadDisabledChecklistProfileIds(cp.stages))
+    : [];
+  const disabledChecklistSet = new Set(disabledChecklistProfileIds);
+  const isEnabledChecklistNode = (n: any) => {
+    const id = (n.configuration as any)?.checklistProfileId;
+    return Boolean(id) && !disabledChecklistSet.has(id);
+  };
+
   if (cp) {
         profile = { name: cp.name, flowMode: cp.flowMode };
 
@@ -381,12 +396,13 @@ export async function getCurrentStateImpl(
                 // Checklists pending — resolve via cycle's pinned versions (Phase A.1).
                 // currentCycle is in scope here.
                 const pins = (currentCycle?.checklistVersionPins ?? null) as Record<string, number> | null;
-                pendingChecklist = await resolveChecklistQuestions(checklistNodes, pins);
+                pendingChecklist = await resolveChecklistQuestions(checklistNodes.filter(isEnabledChecklistNode), pins);
                 if (pendingChecklist.length > 0) {
                   // Active checklists pending — block until completed
                   nextAllowedStages = [];
                 } else {
-                  // All checklist profiles disabled — skip checklists, show next stages
+                  // Every checklist here is disabled (or its record is gone) —
+                  // skip them, show next stages
                   for (const cl of checklistNodes) {
                     nextAllowedStages.push(...getNextStageKeys(cl.id, cp.stages, cp.connections));
                   }
@@ -584,7 +600,8 @@ export async function getCurrentStateImpl(
       collectStagesPast(s.id, new Set());
       stageLookup[s.stateKey] = {
         nextStages: [...nextSet],
-        pendingChecklistProfileIds: checklistNodes.map((n: any) => (n.configuration as any)?.checklistProfileId).filter(Boolean),
+        // Disabled checklists are skipped, so they are not pending (2026-10-12).
+        pendingChecklistProfileIds: checklistNodes.filter(isEnabledChecklistNode).map((n: any) => (n.configuration as any).checklistProfileId),
         leadsToEnd,
         // Static interlock flag — the OFFLINE client uses this to stop at a gated
         // stage (WASH_OUT/DRY_OUT) since it can't reach an approver offline.
@@ -725,6 +742,7 @@ export async function getCurrentStateImpl(
         }
       : null,
     pinnedChecklistProfiles,
+    disabledChecklistProfileIds,
     recentChecklistEvents: recentChecklistEvents.map((e: any) => ({
       eventType: 'CHECKLIST_COMPLETED' as const,
       attributes: (e.attributes ?? {}) as { afterStage?: string | null;[k: string]: unknown },
@@ -780,6 +798,9 @@ export async function getCurrentStateImpl(
     profileSyncWarning,
     equipmentGroupSyncWarning, // L3 (2026-05-02)
     stageLookup,
+    // 2026-10-12: cached by the tablet so its offline gate skips the same
+    // disabled checklists the server does.
+    disabledChecklistProfileIds,
     interlock, // stage interlock display state (null unless current stage is gated)
     actions,
     tapeVersion,

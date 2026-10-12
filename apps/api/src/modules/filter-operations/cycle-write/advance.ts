@@ -28,7 +28,7 @@ import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle, withCl
 import { validateOfflinePerformedAt, assertOfflineReplayPayload, latestEventAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
-import { computeChecksum, collectChecklistsAfterStage, prettyStageLabel, toLocalDateString } from '../helpers.js';
+import { computeChecksum, collectChecklistsAfterStage, describeSkippedChecklists, prettyStageLabel, toLocalDateString } from '../helpers.js';
 import { lockAndVerifyFilterState } from './locking.js';
 import { validateAdvanceBlock } from '../filter-resolver.js';
 import {
@@ -546,8 +546,18 @@ export async function prepareAdvance(
     interlockSnapshot = await collectFilterApprovalDetails(filterId);
   }
 
+  // 2026-10-12: a DISABLED checklist is skipped, not asked. Name each one this
+  // transition passes over on the event, so the record says why no answers
+  // exist — after the stage being LEFT, and (when this advance completes the
+  // cycle) after the stage being entered.
+  const skippedChecklists = await describeSkippedChecklists(localCtx, [
+    ...(currentState && targetState !== currentState ? [currentState] : []),
+    ...(leadsToEnd && !hasMoreStages ? [targetState] : []),
+  ]);
+
   const eventAttributes = withClientOpId({
     ...(parameters ?? {}),
+    ...(skippedChecklists.length ? { skippedChecklists } : {}),
     ...(validatedReadings ? { instrumentReadings: validatedReadings } : {}),
     ...(dryerAction === 'SET_DURATION' ? { action: 'DRYER_STARTED', dryerDurationMinutes, dryerStartedAt: dryerStartedAt!.toISOString() } : {}),
     ...(dryerAction === 'SUBMIT_READINGS' ? { action: 'DRYER_READINGS_SUBMITTED' } : {}),

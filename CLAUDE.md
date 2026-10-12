@@ -279,6 +279,14 @@ GET  /api/config/password-policy/current — Password policy (public endpoint)
 - Server-side enforcement: `advance()` blocks if pending checklist not completed
 - Cycle auto-completes when last STAGE leads to END node
 - Stage chain may include multiple consecutive CHECKLIST nodes — server uses `stageLookup` to resolve
+- 🔴 **A DISABLED checklist is skipped wherever it sits (2026-10-12)** — mid-pipeline and before END
+  alike, read live (not pinned at cycle start). One rule: `enabledChecklistNodes()` (shared
+  `transitions.ts`) over `LocalContext.disabledChecklistProfileIds`, filled by
+  `loadDisabledChecklistProfileIds` and shipped to the tablet in the current-state response. The
+  advance names each skip in `attributes.skippedChecklists`. Disabling a checklist a non-archived
+  cleaning profile uses is refused (409 `CHECKLIST_IN_USE`), and a profile cannot be saved/activated
+  pointing at a disabled one (400 `CHECKLIST_DISABLED`). Never re-add a checklist gate that ignores
+  the disabled list — that is how mid-pipeline and end-of-pipeline behaved differently.
 ## Filter Data Management - audit-trail retrofit (2026-08-27)
 
 Config -> Filter Data Management is no longer a silent-edit console. Every

@@ -129,8 +129,9 @@ export function latestEntryIntoStage(events: Array<{ eventType: string; toState:
  * `CHECKLIST_COMPLETED` event with `attributes.afterStage === currentState`
  * exists in the cycle's events, advance is blocked.
  *
- * Mirrors `advance()` filter-operations.service.ts:1199-1215 — gates frozen at
- * cycle start (A5), no `isActive` filter on profiles.
+ * Question versions are frozen at cycle start (A5). A checklist that is
+ * DISABLED now (`ctx.disabledChecklistProfileIds`) does not gate — a disabled
+ * checklist is skipped wherever it sits in the pipeline (2026-10-12).
  */
 export function assertChecklistGatePassed(
   ctx: LocalContext,
@@ -141,8 +142,10 @@ export function assertChecklistGatePassed(
   const currentStage = cp.nodes.find(s => s.stateKey === currentState);
   if (!currentStage) return { ok: true };
 
-  const pendingCLNodes = collectChecklistsAfterStageInternal(currentStage, cp.nodes, cp.edges)
-    .filter(n => Boolean((n.configuration as { checklistProfileId?: unknown })?.checklistProfileId));
+  const pendingCLNodes = enabledChecklistNodes(
+    collectChecklistsAfterStageInternal(currentStage, cp.nodes, cp.edges),
+    ctx.disabledChecklistProfileIds,
+  );
 
   if (pendingCLNodes.length === 0) return { ok: true };
 
@@ -274,6 +277,29 @@ export function collectChecklistsAfterStage(
   connections: ProfileEdge[],
 ): ProfileNode[] {
   return collectChecklistsAfterStageInternal(stage, allStages, connections);
+}
+
+/** The checklistProfileId a CHECKLIST node points at, or null when unset. */
+export function checklistNodeProfileId(node: ProfileNode): string | null {
+  const id = (node.configuration as { checklistProfileId?: unknown })?.checklistProfileId;
+  return typeof id === 'string' && id ? id : null;
+}
+
+/**
+ * CHECKLIST nodes that actually gate: they name a checklist profile and that
+ * profile is not disabled. The ONE definition of "is this checklist asked?"
+ * shared by the server and the offline tablet (2026-10-12: a disabled
+ * checklist is skipped everywhere — mid-pipeline and before END alike).
+ */
+export function enabledChecklistNodes(
+  nodes: ProfileNode[],
+  disabledChecklistProfileIds?: readonly string[] | null,
+): ProfileNode[] {
+  const disabled = new Set(disabledChecklistProfileIds ?? []);
+  return nodes.filter(n => {
+    const id = checklistNodeProfileId(n);
+    return id !== null && !disabled.has(id);
+  });
 }
 
 function collectChecklistsAfterStageInternal(

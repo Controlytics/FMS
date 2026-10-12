@@ -93,6 +93,7 @@ export class CleaningProfileService {
     // A connection insert that failed (unknown toStageId → FK) used to leave an
     // ACTIVE profile with zero connections — the exact state validatePipeline exists to refuse.
     const profile = await prisma.$transaction(async (tx) => {
+    await this.assertChecklistsEnabled(tx, stages);
     const created = await tx.filterCleaningProfile.create({
       data: {
         lineageId: randomUUID(),
@@ -167,6 +168,7 @@ export class CleaningProfileService {
 
     // Wrap entire versioning in a transaction for consistency
     const result = await prisma.$transaction(async (tx) => {
+    await this.assertChecklistsEnabled(tx, data.stages ?? existing.stages);
     // Mark old version as ARCHIVED
     await tx.filterCleaningProfile.update({
       where: { id },
@@ -290,6 +292,8 @@ export class CleaningProfileService {
         throw new AppError(409, 'CONFLICT', `Cannot deactivate: ${activeProfiles} active filter profile(s) reference this cleaning profile`);
       }
     }
+
+    if (newStatus === 'ACTIVE') await this.assertChecklistsEnabled(prisma, existing.stages);
 
     await prisma.filterCleaningProfile.update({
       where: { id },
@@ -453,6 +457,39 @@ export class CleaningProfileService {
       toIndex: idToIndex.get(c.toStageId) ?? -1,
       label: c.label,
     }));
+  }
+
+  /**
+   * 2026-10-12 (operator decision): a live cleaning profile may only use
+   * ENABLED checklists — the reverse of checklist-profile.service's
+   * CHECKLIST_IN_USE guard. Without it the API (or an editor tab opened before
+   * the checklist was switched off) could still build the state that guard
+   * exists to prevent. Unknown ids are left to the FK-less config as before.
+   */
+  private async assertChecklistsEnabled(
+    db: Pick<typeof prisma, 'checklistProfile'>,
+    stages: any[] | null | undefined,
+  ) {
+    const ids = [...new Set(
+      (stages ?? [])
+        .filter((s: any) => s.nodeType === 'CHECKLIST')
+        .map((s: any) => s.configuration?.checklistProfileId)
+        .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0),
+    )];
+    if (ids.length === 0) return;
+    const disabled = await db.checklistProfile.findMany({
+      where: { id: { in: ids }, isActive: false },
+      select: { name: true },
+    });
+    if (disabled.length > 0) {
+      const names = disabled.map(d => `"${d.name}"`).join(', ');
+      throw new AppError(
+        400,
+        'CHECKLIST_DISABLED',
+        `This cleaning profile uses disabled checklist${disabled.length === 1 ? '' : 's'} ${names}. Enable ${disabled.length === 1 ? 'it' : 'them'} or remove ${disabled.length === 1 ? 'it' : 'them'} from the profile.`,
+        { checklists: disabled.map(d => d.name) },
+      );
+    }
   }
 
   private validatePipeline(stages: any[], connections: any[]) {

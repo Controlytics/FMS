@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] - Disabled checklist is skipped everywhere; in-use checklist cannot be disabled (2026-10-12)
+
+Operator decision ("A and C"). Before: a disabled checklist BETWEEN two stages was still demanded
+(`CHECKLIST_PENDING`; questions still shown), while the same checklist right before END was skipped
+and the cycle completed. The offline tablet only cached ACTIVE checklists, so a mid-pipeline disabled
+one would also have stranded an offline replay.
+
+**A: a disabled checklist is skipped, wherever it sits. Read live (not frozen at cycle start).**
+- Shared: `LocalContext.disabledChecklistProfileIds` (+ `TapeInput`); new `enabledChecklistNodes()` /
+  `checklistNodeProfileId()` in `pipeline-executor/transitions.ts` — the one rule used by
+  `assertChecklistGatePassed` and `computeNextActions` (no SUBMIT_CHECKLIST for a disabled one).
+- API: `helpers.loadDisabledChecklistProfileIds` fills the context (`local-context.ts`) and
+  `current-state.ts` (pending checklist, `stageLookup[*].pendingChecklistProfileIds`, tape). The
+  current-state response now carries `disabledChecklistProfileIds` (declared in the route schema so
+  fast-json-stringify keeps it).
+- `submit-checklist` refuses an answer to a disabled checklist online: 400 `CHECKLIST_DISABLED`. An
+  OFFLINE replay of an answer the operator really gave is kept and `CHECKLIST_DISABLED` is added to
+  `replayExemptGates`.
+- Audit: the advance that passes a disabled checklist writes
+  `attributes.skippedChecklists: [{checklistProfileId, checklistProfileName, afterStage, reason:'DISABLED'}]`
+  (after the stage LEFT, and after the stage ENTERED when that advance completes the cycle). The
+  cycle timeline shows it as an amber "Checklist skipped: <name> after <stage> — it was disabled".
+- Tablet: `local-context.ts` + `offline-cache.ts` read the cached list, so the offline gate skips
+  exactly what the server skips; `cacheServerStateResponse` now persists it. A cache row from before
+  the field existed keeps the old behaviour. **Needs an APK rebuild to reach the tablet.**
+- Closes the "known residual gap" noted in `ahu-completion-check.ts` (`isCompletingAdvance`).
+
+**C: guards so the state is hard to create.**
+- `PUT /api/checklist-profiles/:id {isActive:false}` → 409 `CHECKLIST_IN_USE` while any
+  non-archived cleaning profile uses it (same rule as delete); message names the profiles. Enabling
+  and other edits are unaffected.
+- Cleaning profile create / update / re-activate refuses a CHECKLIST node pointing at a disabled
+  checklist → 400 `CHECKLIST_DISABLED`.
+
+Live data (digilog_db): both checklists in use (DRY, STORAGE) are active, so nothing changes for the
+10 cycles in progress. Tests: shared `transitions.test.ts` (+4), API
+`disabled-checklist-skipped.test.ts` (9, real DB incl. offline replay), web `offline-cache.test.ts`
+(+2) + `local-context.test.ts` (+2); `tape-parity.test.ts` mock now honours `where.isActive`.
+
 ## [Unreleased] - Rate limits removed except password endpoints; "Test setup" label; duplicate User ID message (2026-10-10)
 
 **Rate limits (operator decision).** 14 limits existed; 11 are gone, 3 kept and raised.

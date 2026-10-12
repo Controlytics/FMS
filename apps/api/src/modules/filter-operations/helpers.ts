@@ -6,6 +6,8 @@
  * No behavioral changes — these are byte-equivalent moves.
  */
 import { createHash } from 'node:crypto';
+import type { LocalContext } from '@digilog/shared';
+import * as executor from '@digilog/shared';
 import { prisma } from '../../lib/prisma.js';
 
 export function computeChecksum(data: Record<string, unknown>): string {
@@ -67,6 +69,65 @@ export function collectChecklistsAfterStage(
 
   walk(stage.id);
   return checklists;
+}
+
+/**
+ * Ids of the checklist profiles referenced by `stages` (CHECKLIST nodes) that
+ * are DISABLED right now. A disabled checklist is skipped wherever it sits in
+ * the pipeline (2026-10-12) — this is the server's one read of that fact, fed
+ * to `LocalContext.disabledChecklistProfileIds` and to the current-state
+ * response the tablet caches for offline work. Live, not pinned: switching a
+ * checklist off affects cycles already running.
+ */
+export async function loadDisabledChecklistProfileIds(
+  stages: Array<{ nodeType: string; configuration: unknown }>,
+): Promise<string[]> {
+  const ids = [...new Set(
+    stages
+      .filter(s => s.nodeType === 'CHECKLIST')
+      .map(s => (s.configuration as { checklistProfileId?: unknown } | null)?.checklistProfileId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+  )];
+  if (ids.length === 0) return [];
+  const rows = await prisma.checklistProfile.findMany({
+    where: { id: { in: ids }, isActive: false },
+    select: { id: true },
+  });
+  return rows.map(r => r.id);
+}
+
+/**
+ * The disabled checklists that sit after each of `afterStages` in the
+ * context's pipeline, named for the event record (`skippedChecklists`). Empty
+ * when none is disabled — the common case costs no query.
+ */
+export async function describeSkippedChecklists(
+  ctx: LocalContext,
+  afterStages: string[],
+): Promise<Array<{ checklistProfileId: string; checklistProfileName: string; afterStage: string; reason: 'DISABLED' }>> {
+  const disabled = new Set(ctx.disabledChecklistProfileIds ?? []);
+  if (disabled.size === 0 || afterStages.length === 0) return [];
+  const hits: Array<{ checklistProfileId: string; afterStage: string }> = [];
+  for (const afterStage of [...new Set(afterStages)]) {
+    const stage = ctx.profile.nodes.find(n => n.nodeType === 'STAGE' && n.stateKey === afterStage);
+    if (!stage) continue;
+    for (const node of executor.collectChecklistsAfterStage(stage, ctx.profile.nodes, ctx.profile.edges)) {
+      const id = executor.checklistNodeProfileId(node);
+      if (id && disabled.has(id)) hits.push({ checklistProfileId: id, afterStage });
+    }
+  }
+  if (hits.length === 0) return [];
+  const names = new Map(
+    (await prisma.checklistProfile.findMany({
+      where: { id: { in: [...new Set(hits.map(h => h.checklistProfileId))] } },
+      select: { id: true, name: true },
+    })).map(r => [r.id, r.name]),
+  );
+  return hits.map(h => ({
+    ...h,
+    checklistProfileName: names.get(h.checklistProfileId) ?? '(unknown checklist)',
+    reason: 'DISABLED' as const,
+  }));
 }
 
 /**

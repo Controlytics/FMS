@@ -95,6 +95,8 @@ interface CachedFilterState {
   pipelineStages?: any[];
   pipelineGraph?: { stages?: any[]; connections?: any[] } | null;
   stageLookup?: Record<string, StageInfo> | null;
+  /** 2026-10-12: checklists the server skips because they are disabled. */
+  disabledChecklistProfileIds?: string[];
   equipmentGroup?: any;
   isPmDue?: boolean;
   pmReasonKey?: string | null;
@@ -171,6 +173,13 @@ export async function loadLocalContextFromCache(
     filter,
     equipmentGroup,
     checklistProfile,
+    // 2026-10-12: a disabled checklist is skipped — the offline gate must skip
+    // exactly what the server skips, or a tablet blocks on a checklist the
+    // server would never ask for. Absent on a cache row written before this
+    // field existed = nothing disabled (the old behaviour).
+    disabledChecklistProfileIds: Array.isArray(cachedState?.disabledChecklistProfileIds)
+      ? cachedState!.disabledChecklistProfileIds
+      : [],
     assetTemplate: null, // FE doesn't gate on asset-template fields today
     user: cachedUser,
     now: Date.now(),

@@ -155,11 +155,16 @@ function setupReads(opts: { currentState: string | null; pipelineName: 'simple' 
   mockPrisma.equipmentGroup.findFirst.mockResolvedValue(null);
   mockPrisma.equipmentGroup.findMany.mockResolvedValue([]);
   mockPrisma.equipmentGroupVersion.findUnique.mockResolvedValue(null);
-  mockPrisma.checklistProfile.findMany.mockResolvedValue(
-    opts.resolvedChecklistProfile
-      ? [opts.resolvedChecklistProfile]
-      : [],
-  );
+  // Honour `where.isActive` — current-state asks for the DISABLED checklists
+  // (2026-10-12), and an unconditional mock would report the active one as
+  // disabled.
+  mockPrisma.checklistProfile.findMany.mockImplementation(async (args: any) => {
+    const rows = opts.resolvedChecklistProfile ? [opts.resolvedChecklistProfile] : [];
+    const wantActive = args?.where?.isActive;
+    return typeof wantActive === 'boolean'
+      ? rows.filter((r: any) => (r.isActive ?? true) === wantActive)
+      : rows;
+  });
   mockPrisma.checklistProfileVersion.findMany.mockResolvedValue([]);
 }
 

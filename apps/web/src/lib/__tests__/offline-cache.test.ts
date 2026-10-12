@@ -258,3 +258,52 @@ describe('recomputeAndCacheFilterState — fail-closed on unresolved checklist g
     expect(firstWrite[1].currentState).toBeNull();
   });
 });
+
+/**
+ * 2026-10-12: a DISABLED checklist is skipped wherever it sits. A cache row
+ * written before the server stopped listing it (stale stageLookup) must not
+ * park the filter waiting for it — the cached `disabledChecklistProfileIds`
+ * wins, so the offline tablet and the server agree.
+ */
+describe('recomputeAndCacheFilterState — disabled checklist is skipped', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockOfflineStore.cacheData.mockResolvedValue(undefined);
+    mockOfflineStore.updateFilterStateLocally.mockResolvedValue(undefined);
+    mockOfflineStore.clearOfflineCycleId.mockResolvedValue(undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('completes at a terminal stage whose only checklist is disabled (not parked)', async () => {
+    mockOfflineStore.getCachedData.mockImplementation(async (key: string) => {
+      if (key === 'checklist-profiles') return [];
+      if (key.startsWith('filter-state-')) {
+        return {
+          currentState: 'STORAGE_IN',
+          currentCycle: { id: 'cyc-1', status: 'IN_PROGRESS' },
+          stageLookup: {
+            STORAGE_OUT: { nextStages: [], pendingChecklistProfileIds: ['cl-off'], leadsToEnd: true, interlockGated: false },
+          },
+          disabledChecklistProfileIds: ['cl-off'],
+          pipelineStages: [{ stateKey: 'STORAGE_OUT', sortOrder: 5 }],
+        };
+      }
+      return null;
+    });
+
+    const { recomputeAndCacheFilterState } = await import('../offline-cache');
+    await recomputeAndCacheFilterState('filter-uuid-11', 'STORAGE_OUT', false, null);
+
+    expect(mockOfflineStore.clearOfflineCycleId).toHaveBeenCalledWith('filter-uuid-11');
+    const firstWrite = mockOfflineStore.cacheData.mock.calls[0];
+    expect(firstWrite[1].currentState).toBeNull();
+    expect(firstWrite[1].pendingChecklist).toEqual([]);
+  });
+
+  it('cacheServerStateResponse keeps disabledChecklistProfileIds for the offline gate', async () => {
+    const { cacheServerStateResponse } = await import('../offline-cache');
+    await cacheServerStateResponse('filter-uuid-12', { currentState: 'S1', disabledChecklistProfileIds: ['cl-off'] } as any);
+    const row = mockOfflineStore.cacheData.mock.calls[0][1];
+    expect(row.disabledChecklistProfileIds).toEqual(['cl-off']);
+  });
+});

@@ -188,6 +188,28 @@ export class ChecklistProfileService {
         isActive: existing.isActive,
         version: existing.version,
       };
+      // 2026-10-12 (operator decision): a checklist a cleaning profile still
+      // uses cannot be switched off. Same "in use" rule as delete() — any
+      // non-archived profile, ACTIVE or disabled. Enabling is always allowed.
+      if (existing.isActive && data.isActive === false) {
+        const users = await tx.filterPipelineStage.findMany({
+          where: {
+            nodeType: 'CHECKLIST',
+            configuration: { path: ['checklistProfileId'], equals: id },
+            profile: { status: { not: 'ARCHIVED' } },
+          },
+          select: { profile: { select: { name: true } } },
+        });
+        if (users.length > 0) {
+          const names = [...new Set(users.map(u => u.profile.name))];
+          throw new AppError(
+            409,
+            'CHECKLIST_IN_USE',
+            `Cannot disable "${existing.name}": it is used by cleaning profile${names.length === 1 ? '' : 's'} ${names.map(n => `"${n}"`).join(', ')}. Remove it from ${names.length === 1 ? 'that profile' : 'those profiles'} first.`,
+            { cleaningProfiles: names },
+          );
+        }
+      }
       await snapshotAndBump(tx, id, 'profile metadata updated', ctx);
       return tx.checklistProfile.update({
         where: { id },

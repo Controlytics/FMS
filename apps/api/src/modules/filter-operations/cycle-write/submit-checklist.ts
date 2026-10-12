@@ -164,7 +164,27 @@ export async function prepareChecklist(
     if (currentStage) {
       const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
       checklistNodeCount = checklistNodes.length;
-      resolvedChecklists = await resolveChecklistQuestions(checklistNodes, cyclePins);
+      // 2026-10-12: a DISABLED checklist is skipped — it is not asked, so it
+      // cannot be answered online. On an offline replay the operator may have
+      // answered it before it was switched off: that answer is a real record,
+      // so it is kept (and the bypass is named in replayExemptGates).
+      const disabled = new Set(localCtx.disabledChecklistProfileIds ?? []);
+      const answeredIds = new Set(answers && typeof answers === 'object' ? Object.keys(answers) : []);
+      const all = await resolveChecklistQuestions(checklistNodes, cyclePins);
+      resolvedChecklists = all.filter((cl: any) => {
+        if (!disabled.has(cl.checklistProfileId)) return true;
+        return ctx.isOfflineReplay === true && cl.questions.some((q: any) => answeredIds.has(q.id));
+      });
+      if (resolvedChecklists.some((cl: any) => disabled.has(cl.checklistProfileId))) {
+        replayExemptGates.push('CHECKLIST_DISABLED');
+      }
+      if (checklistNodeCount > 0 && all.length > 0 && resolvedChecklists.length === 0) {
+        throw new AppError(
+          400,
+          'CHECKLIST_DISABLED',
+          `The checklist after ${prettyStageLabel(stageKey)} is disabled, so it is skipped — there is nothing to submit.`,
+        );
+      }
     }
   }
 

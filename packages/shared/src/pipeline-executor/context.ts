@@ -72,6 +72,13 @@ export interface LocalContext {
    * call.
    */
   checklistProfile: ChecklistProfileSlice | null;
+  /**
+   * Ids of ChecklistProfiles that are DISABLED right now (2026-10-12). A
+   * CHECKLIST node pointing at one of these is skipped — never asked, never
+   * gating — wherever it sits in the pipeline. Read live, not frozen at cycle
+   * start. Omitted / empty = every referenced checklist is active.
+   */
+  disabledChecklistProfileIds?: readonly string[];
   /** AssetTemplate of the filter — read by alarm/validation guards. */
   assetTemplate: AssetTemplateSlice | null;
   /** Acting user — guards read role + permissions for RBAC checks. */

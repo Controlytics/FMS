@@ -183,6 +183,7 @@ function inputToLocalContext(input: TapeInput): {
     filter,
     equipmentGroup,
     checklistProfile: null,
+    disabledChecklistProfileIds: input.disabledChecklistProfileIds ?? [],
     assetTemplate: null,
     user: { id: '', role: '', permissions: [] },
     now: input.now.getTime(),

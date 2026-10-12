@@ -65,6 +65,8 @@ interface CachedFilterState {
   pipelineStages?: any[];
   pipelineGraph?: { stages?: any[]; connections?: any[] } | null;
   stageLookup?: Record<string, any> | null;
+  /** 2026-10-12: checklists the server skips because they are disabled. */
+  disabledChecklistProfileIds?: string[];
   equipmentGroup?: any;
   isPmDue?: boolean;
   pmReasonKey?: string | null;
@@ -144,15 +146,20 @@ function expectedChecklistIdsAfterStage(
   graph: { stages?: any[]; connections?: any[] } | null | undefined,
   stageLookup: Record<string, any> | null | undefined,
   newStage: string,
+  disabledChecklistProfileIds?: string[] | null,
 ): string[] {
+  // 2026-10-12: a disabled checklist is skipped, exactly as on the server. The
+  // server already leaves them out of stageLookup; filtering here as well keeps
+  // the graph-walk fallback (and any cache row written before) in step.
+  const disabled = new Set(disabledChecklistProfileIds ?? []);
   const lookupHit = stageLookup?.[newStage]?.pendingChecklistProfileIds;
-  if (Array.isArray(lookupHit)) return lookupHit;
+  if (Array.isArray(lookupHit)) return lookupHit.filter((id: string) => !disabled.has(id));
   if (graph?.stages && graph?.connections) {
     const stageNode = graph.stages.find((s: any) => s.stateKey === newStage);
     if (!stageNode) return [];
     return collectChecklistsAfterStage(stageNode, graph.stages, graph.connections)
       .map((n) => (n.configuration as { checklistProfileId?: string })?.checklistProfileId)
-      .filter((id): id is string => Boolean(id));
+      .filter((id): id is string => Boolean(id) && !disabled.has(id as string));
   }
   return [];
 }
@@ -186,9 +193,10 @@ export async function resolvePendingChecklistForStage(
   )) ?? {};
   const graph = cachedState.pipelineGraph;
   const stageLookup = cachedState.stageLookup;
-  const expectedIds = expectedChecklistIdsAfterStage(graph, stageLookup, targetStage);
+  const disabled = cachedState.disabledChecklistProfileIds;
+  const expectedIds = expectedChecklistIdsAfterStage(graph, stageLookup, targetStage, disabled);
   if (expectedIds.length === 0) return { checklists: [], expectedIds };
-  const checklists = await buildPendingChecklistFromProfile(graph, stageLookup, targetStage);
+  const checklists = await buildPendingChecklistFromProfile(graph, stageLookup, targetStage, disabled);
   return { checklists, expectedIds };
 }
 
@@ -196,8 +204,9 @@ async function buildPendingChecklistFromProfile(
   graph: { stages?: any[]; connections?: any[] } | null | undefined,
   stageLookup: Record<string, any> | null | undefined,
   newStage: string,
+  disabledChecklistProfileIds?: string[] | null,
 ): Promise<any[]> {
-  const profileIds = expectedChecklistIdsAfterStage(graph, stageLookup, newStage);
+  const profileIds = expectedChecklistIdsAfterStage(graph, stageLookup, newStage, disabledChecklistProfileIds);
   if (profileIds.length === 0) return [];
 
   const cachedProfiles = (await getCachedData<any[]>('checklist-profiles')) ?? [];
@@ -302,6 +311,7 @@ export async function recomputeAndCacheFilterState(
       graph,
       stageLookup,
       newStage,
+      cachedState.disabledChecklistProfileIds,
     );
 
     // 21 CFR fail-closed. The graph/stageLookup may say a CHECKLIST fires after
@@ -316,7 +326,9 @@ export async function recomputeAndCacheFilterState(
     // the filter parked at `newStage` until it re-syncs online and the server
     // re-resolves the gate. Online recompute has no checklist-profiles cache
     // dependency, so it self-heals on reconnect.
-    const expectedChecklistIds = expectedChecklistIdsAfterStage(graph, stageLookup, newStage);
+    const expectedChecklistIds = expectedChecklistIdsAfterStage(
+      graph, stageLookup, newStage, cachedState.disabledChecklistProfileIds,
+    );
     const checklistUnresolved =
       expectedChecklistIds.length > 0 && pendingChecklist.length === 0;
 
@@ -444,6 +456,7 @@ export interface ServerCurrentStateForCache {
   pipelineStages?: any[];
   pipelineGraph?: any;
   stageLookup?: Record<string, any> | null;
+  disabledChecklistProfileIds?: string[];
   nextAllowedStages?: string[];
   isPmDue?: boolean;
   pmReasonKey?: string | null;
@@ -524,6 +537,8 @@ export async function cacheServerStateResponse(
       pipelineStages: st.pipelineStages ?? [],
       pipelineGraph: st.pipelineGraph ?? null,
       stageLookup: st.stageLookup ?? null,
+      // 2026-10-12: the offline gate skips exactly these (see local-context.ts).
+      disabledChecklistProfileIds: Array.isArray(st.disabledChecklistProfileIds) ? st.disabledChecklistProfileIds : [],
       nextAllowedStages: st.nextAllowedStages ?? [],
       isPmDue: st.isPmDue ?? false,
       pmReasonKey: st.pmReasonKey ?? null,

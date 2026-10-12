@@ -21,6 +21,8 @@ import {
   leadsToEnd,
   buildStageLookup,
   collectChecklistsAfterStage,
+  computeNextActions,
+  enabledChecklistNodes,
   findReachable,
   prettyStageLabel,
 } from '../index.js';
@@ -129,6 +131,7 @@ function makeCtx(overrides: Partial<LocalContext> = {}): LocalContext {
     filter: overrides.filter ?? filter(),
     equipmentGroup: null,
     checklistProfile: null,
+    disabledChecklistProfileIds: overrides.disabledChecklistProfileIds,
     assetTemplate: null,
     user: { id: 'u-1', role: 'OPERATOR', permissions: [] },
     now: Date.UTC(2026, 4, 2, 12, 0, 0),
@@ -252,6 +255,42 @@ describe('assertChecklistGatePassed', () => {
   it('passes when currentState is null (pre-cycle)', () => {
     const ctx = makeCtx({ filter: filter({ currentLifecycleState: null }) });
     expect(assertChecklistGatePassed(ctx, ctx.profile, null)).toEqual({ ok: true });
+  });
+});
+
+// 2026-10-12: a DISABLED checklist is skipped wherever it sits in the pipeline.
+describe('disabled checklists are skipped', () => {
+  it('the gate does not block on a disabled checklist mid-pipeline', () => {
+    const p = profileWithChecklist();
+    const ctx = makeCtx({ profile: p, disabledChecklistProfileIds: ['cl-1'] });
+    expect(assertChecklistGatePassed(ctx, p, 'WASH_IN')).toEqual({ ok: true });
+  });
+  it('the gate still blocks when a DIFFERENT checklist is disabled', () => {
+    const p = profileWithChecklist();
+    const ctx = makeCtx({ profile: p, disabledChecklistProfileIds: ['some-other'] });
+    expect(assertChecklistGatePassed(ctx, p, 'WASH_IN')).toMatchObject({ ok: false, code: 'CHECKLIST_PENDING' });
+  });
+  it('enabledChecklistNodes drops disabled and unassigned nodes only', () => {
+    const nodes = [
+      { id: 'a', stateKey: null, nodeType: 'CHECKLIST', configuration: { checklistProfileId: 'on' }, sortOrder: 1 },
+      { id: 'b', stateKey: null, nodeType: 'CHECKLIST', configuration: { checklistProfileId: 'off' }, sortOrder: 2 },
+      { id: 'c', stateKey: null, nodeType: 'CHECKLIST', configuration: {}, sortOrder: 3 },
+    ];
+    expect(enabledChecklistNodes(nodes as any, ['off']).map(n => n.id)).toEqual(['a']);
+    expect(enabledChecklistNodes(nodes as any).map(n => n.id)).toEqual(['a', 'b']);
+  });
+  it('the tape offers no SUBMIT_CHECKLIST for a disabled checklist, and offers the next stage', () => {
+    const p = profileWithChecklist();
+    const questions = [{ id: 'q1', question: 'Ok?', questionType: 'YES_NO', required: true, sortOrder: 0 }];
+    const byId = new Map([['cl-1', { id: 'cl-1', name: 'CL', isActive: true, version: 1, questions } as any]]);
+    const enabled = computeNextActions(makeCtx({ profile: p }), { checklistProfilesById: byId });
+    expect(enabled.actions.some(a => a.type === 'SUBMIT_CHECKLIST')).toBe(true);
+    const disabled = computeNextActions(
+      makeCtx({ profile: p, disabledChecklistProfileIds: ['cl-1'] }),
+      { checklistProfilesById: byId },
+    );
+    expect(disabled.actions.some(a => a.type === 'SUBMIT_CHECKLIST')).toBe(false);
+    expect(disabled.actions.some(a => a.type === 'ADVANCE_TO_STAGE' && (a as any).params.targetState === 'WASH_OUT')).toBe(true);
   });
 });
 

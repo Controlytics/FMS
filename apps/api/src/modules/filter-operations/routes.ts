@@ -231,6 +231,13 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
               },
               description: 'Per-stage lookup for offline use: from a given stateKey, what comes next + which checklists fire',
             },
+            // 2026-10-12: declared so fast-json-stringify does not drop it —
+            // the offline tablet reads it to skip disabled checklists.
+            disabledChecklistProfileIds: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Checklist profiles in this pipeline that are disabled — skipped wherever they sit',
+            },
             interlock: {
               type: 'object',
               nullable: true,

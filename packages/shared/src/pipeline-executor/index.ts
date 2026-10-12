@@ -66,6 +66,8 @@ export {
   getReachableStages,
   leadsToEnd,
   collectChecklistsAfterStage,
+  checklistNodeProfileId,
+  enabledChecklistNodes,
   findReachable,
   buildStageLookup,
   prettyStageLabel,

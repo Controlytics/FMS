@@ -117,6 +117,8 @@ export interface TapeInput {
   pinnedEquipmentGroup: TapePinnedEquipmentGroup | null;
   /** Map keyed by checklistProfileId → resolved profile + questions. */
   pinnedChecklistProfiles: Map<string, TapeChecklistProfile>;
+  /** Checklist profiles disabled right now — skipped, never a SUBMIT_CHECKLIST (2026-10-12). */
+  disabledChecklistProfileIds?: readonly string[];
   recentChecklistEvents: TapeChecklistEvent[];
   /**
    * Total FilterEvent count for the cycle (any event type). Used to derive

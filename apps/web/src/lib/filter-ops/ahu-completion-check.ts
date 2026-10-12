@@ -190,14 +190,11 @@ export function isTerminalChecklist(
  * stage being advanced INTO, because the warning has to appear before the
  * advance that completes the cycle — after it there is nothing left to cancel.
  *
- * Known residual gap (unchanged by this fix): `pendingChecklistProfileIds` is
- * built from the CHECKLIST node's `checklistProfileId` without checking that
- * the referenced profile is still `isActive`. A pipeline pointing at a
- * deactivated checklist auto-completes on advance, yet reads here as "has a
- * checklist" so neither path warns. Every checklist profile in this deployment
- * is active; fixing it properly means the server marking the node non-gating in
- * `buildStageLookup` (see `findProfilesWithoutFinalChecklist`, which already
- * applies the `isActive` predicate).
+ * Disabled checklists (closed 2026-10-12): the server leaves a DISABLED
+ * checklist out of `pendingChecklistProfileIds` (current-state.ts), because a
+ * disabled checklist is skipped wherever it sits. So a pipeline whose final
+ * checklist is disabled reads here as "completes on advance" and warns —
+ * matching what advance() then does.
  */
 export function isCompletingAdvance(
   targetState: string | null | undefined,

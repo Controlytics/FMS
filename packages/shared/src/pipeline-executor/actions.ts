@@ -31,7 +31,7 @@ import type {
   ProfileNode,
   TapeInstrument,
 } from './types.js';
-import { collectChecklistsAfterStage, prettyStageLabel } from './transitions.js';
+import { collectChecklistsAfterStage, enabledChecklistNodes, prettyStageLabel } from './transitions.js';
 
 // ── Pipeline-graph helpers ────────────────────────────────────────────────
 
@@ -179,8 +179,12 @@ export function computeNextActions(
   }
 
   // 1. Pending-checklist gate.
+  // A disabled checklist is skipped wherever it sits (2026-10-12).
   const checklistNodes = state
-    ? collectChecklistsAfterStage(fromNode, stages, connections)
+    ? enabledChecklistNodes(
+        collectChecklistsAfterStage(fromNode, stages, connections),
+        ctx.disabledChecklistProfileIds,
+      )
     : [];
   const checklistAnswered = (afterStage: string | null): boolean => {
     if (!afterStage) return false;
