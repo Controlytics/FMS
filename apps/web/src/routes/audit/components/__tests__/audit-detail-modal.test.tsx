@@ -72,7 +72,7 @@ describe('AuditDetailModal', () => {
     const panel = screen.getByTestId('audit-changes');
     expect(within(panel).getByText('Email')).toBeInTheDocument();
     expect(within(panel).queryByText('Status')).not.toBeInTheDocument();
-    expect(within(panel).queryByText('Username')).not.toBeInTheDocument();
+    expect(within(panel).queryByText('User ID')).not.toBeInTheDocument();
     expect(within(panel).queryByText('Department')).not.toBeInTheDocument();
     expect(within(panel).queryByText('101020')).not.toBeInTheDocument();
   });
@@ -81,7 +81,7 @@ describe('AuditDetailModal', () => {
     renderModal();
     const panel = screen.getByTestId('audit-changes');
     expect(within(panel).queryByText('Status')).not.toBeInTheDocument();
-    expect(within(panel).queryByText('Username')).not.toBeInTheDocument();
+    expect(within(panel).queryByText('User ID')).not.toBeInTheDocument();
     // …and nothing outside the panel leaks the metadata back in.
     expect(screen.queryByText('101020')).not.toBeInTheDocument();
   });

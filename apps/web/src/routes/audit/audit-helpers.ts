@@ -412,7 +412,11 @@ export function redactionNote(record: any): string {
 const SENSITIVE_KEY_RE = /password|secret|token|apikey|api[_-]?key|private[_-]?key|credential/i;
 const DIFF_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Keys whose on-screen name differs from their spelling: the `username` column IS the User ID. */
+const FIELD_NAME_OVERRIDES: Record<string, string> = { username: 'User ID', userName: 'User ID' };
+
 export function prettyFieldName(key: string): string {
+  if (FIELD_NAME_OVERRIDES[key]) return FIELD_NAME_OVERRIDES[key];
   return key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim()
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }

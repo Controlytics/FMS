@@ -83,53 +83,45 @@ $openssl = Join-Path $InstallDir 'openssl\openssl.exe'
 # Without it `req`/`x509` fail ("No store loader found ... default or base providers")
 # while `genrsa` still succeeds - i.e. it half-works and looks like a cert bug.
 $env:OPENSSL_CONF = Join-Path $InstallDir 'openssl\openssl.cnf'
-# LAN IPv4 the tablet will use (default-route interface).
+# 2026-10-10: the certificate covers the LAN's whole /24 so a DHCP address change
+# never breaks the tablet (tasks/AUTO-IP-RECOVERY-PLAN.md). Shared with upgrade.ps1.
 $lanIp = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } |
           Select-Object -First 1).IPv4Address.IPAddress
 if (-not $lanIp) { $lanIp = '127.0.0.1' }
 $srvKey = Join-Path $certDir 'server.key'
 $srvCrt = Join-Path $certDir 'server.crt'
-$caPem  = Join-Path $certDir 'rootCA.pem'
 
-if (Test-Path $srvCrt) {
-  Write-Host "==> Reusing existing certs in $certDir (upgrade-safe)" -ForegroundColor Cyan
-} elseif ($DryRun) {
-  Write-Host "[dry-run] openssl generate rootCA + server cert (SAN: localhost,127.0.0.1,$lanIp) in $certDir" -ForegroundColor Yellow
-} elseif (-not (Test-Path $openssl)) {
-  Write-Host "FATAL: openssl.exe not found at $openssl (needed for HTTPS-on-LAN)." -ForegroundColor Red; exit 1
-} elseif (-not (Test-Path $env:OPENSSL_CONF)) {
-  Write-Host "FATAL: openssl.cnf not found at $env:OPENSSL_CONF (openssl req/x509 cannot run without it)." -ForegroundColor Red; exit 1
-} else {
-  New-Item -ItemType Directory -Force -Path $certDir | Out-Null
-  $caKey = Join-Path $certDir 'rootCA.key'
-  $ext = Join-Path $certDir 'server.ext'
-  Set-Content -Path $ext -Encoding ascii -Value @"
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, keyEncipherment
-subjectAltName = @alt
-[alt]
-DNS.1 = localhost
-IP.1 = 127.0.0.1
-IP.2 = $lanIp
-"@
-  & $openssl genrsa -out $caKey 2048
-  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (CA) failed." -ForegroundColor Red; exit 1 }
-  & $openssl req -x509 -new -nodes -key $caKey -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out $caPem
-  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl CA cert failed." -ForegroundColor Red; exit 1 }
-  & $openssl genrsa -out $srvKey 2048
-  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (server) failed." -ForegroundColor Red; exit 1 }
-  & $openssl req -new -key $srvKey -subj "/CN=$lanIp" -out (Join-Path $certDir 'server.csr')
-  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl server CSR failed." -ForegroundColor Red; exit 1 }
-  & $openssl x509 -req -in (Join-Path $certDir 'server.csr') -CA $caPem -CAkey $caKey -CAcreateserial -days 3650 -sha256 -extfile $ext -out $srvCrt
-  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $srvCrt)) { Write-Host "FATAL: server cert generation failed." -ForegroundColor Red; exit 1 }
-  # Trust the CA on the SERVER so the PC browser does not warn under HTTPS.
-  Import-Certificate -FilePath $caPem -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
-  Write-Host "==> Generated HTTPS certs (SAN includes $lanIp); rootCA.pem = $caPem" -ForegroundColor Cyan
+# 1c. digilog-addresses.ini - the ONE place for this server's names / IPs / port
+#     (tasks/AUTO-IP-RECOVERY-PLAN.md, Part 3). Created here on a fresh install;
+#     a file left by an earlier install is kept and wins over -ApiPort, so the
+#     port, certificate, origins and firewall all agree with it.
+. (Join-Path $scriptsDir 'address-config.ps1')
+$addrFile = Join-Path $configDir 'digilog-addresses.ini'
+if (-not (Test-Path $addrFile)) {
+  if ($DryRun) { Write-Host "[dry-run] create $addrFile (address $lanIp, api $ApiPort)" -ForegroundColor Yellow }
+  else {
+    New-DigilogAddressFile -Path $addrFile -Addresses @($lanIp | Where-Object { $_ -ne '127.0.0.1' }) -ApiPort $ApiPort -Apply 'Start menu: DigiLog > Apply server addresses'
+    Write-Host "==> Created $addrFile" -ForegroundColor Cyan
+  }
 }
+try {
+  $addrCfg = if (Test-Path $addrFile) { Read-DigilogAddresses -Path $addrFile -DefaultApiPort $ApiPort }
+             else { @{ Addresses = @($lanIp | Where-Object { $_ -ne '127.0.0.1' }); Ips = @(); Names = @(); ApiPort = $ApiPort; WebPort = 0 } }
+} catch { Write-Host "FATAL: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
+$addrCfg.WebPort = 0
+if ($addrCfg.ApiPort -ne $ApiPort) {
+  Write-Host "==> Using port $($addrCfg.ApiPort) from $addrFile (not $ApiPort)" -ForegroundColor Cyan
+  $ApiPort = $addrCfg.ApiPort
+}
+
+$certArgs = @{ CertDir = $certDir; OpenSsl = $openssl; OpenSslConf = $env:OPENSSL_CONF; ExtraNames = $addrCfg.Addresses }
+if ($DryRun) { $certArgs['DryRun'] = $true }
+& (Join-Path $scriptsDir 'issue-lan-cert.ps1') @certArgs
+if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # 2. Secrets + env file. Reuse if present (idempotent); never regenerate.
 $appDbPassword = $null
+$allowedOrigins = Get-DigilogAllowedOrigins $addrCfg
 if (Test-Path $envFile) {
   Write-Host "==> Reusing existing $envFile (secrets preserved)" -ForegroundColor Cyan
   # An UPGRADE reuses the existing env file, so a key added in a later release is
@@ -145,6 +137,13 @@ if (Test-Path $envFile) {
       Add-Content -Path $envFile -Encoding ascii -Value "`r`n# Added on upgrade: operational log directory (7-day rolling, per channel).`r`nLOG_DIR=$logDir"
       Write-Host "==> Added LOG_DIR to $envFile" -ForegroundColor Cyan
     }
+  }
+  # PORT + ALLOWED_ORIGINS belong to digilog-addresses.ini now, so a reinstall
+  # over a kept env file must follow it (everything else stays untouched).
+  if ($DryRun) { Write-Host "[dry-run] set PORT=$ApiPort + ALLOWED_ORIGINS in $envFile" -ForegroundColor Yellow }
+  else {
+    Set-DigilogEnvKey $envFile 'PORT' $ApiPort
+    Set-DigilogEnvKey $envFile 'ALLOWED_ORIGINS' $allowedOrigins
   }
 } else {
   if (-not $AdminPassword) { Write-Host "FATAL: -AdminPassword required on fresh install." -ForegroundColor Red; exit 1 }
@@ -193,7 +192,9 @@ UPLOAD_DIR=$uploadDir
 # These are NOT the 21 CFR Part 11 audit trail (that lives in the database,
 # hash-chained and retained permanently) - they are rotated and deleted.
 LOG_DIR=$logDir
-ALLOWED_ORIGINS=https://localhost:$ApiPort,https://${lanIp}:$ApiPort,https://localhost,capacitor://localhost,http://localhost
+# Browser origins allowed to call the API - generated from digilog-addresses.ini.
+# Change the addresses there and use Start menu > DigiLog > Apply server addresses.
+ALLOWED_ORIGINS=$allowedOrigins
 "@
   if ($DryRun) { Write-Host "[dry-run] write $envFile (secrets generated, app-db password random)" -ForegroundColor Yellow }
   else { Set-Content -Path $envFile -Value $envBody -Encoding ascii; Write-Host "==> Wrote $envFile (secrets generated)" -ForegroundColor Cyan }

@@ -93,6 +93,11 @@ Name: "{group}\DigiLog"; Filename: "{app}\DigiLog.url"
 Name: "{group}\Uninstall DigiLog"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\DigiLog"; Filename: "{app}\DigiLog.url"; Tasks: desktopicon
 Name: "{group}\Install tablet certificate (rootCA.pem)"; Filename: "{commonappdata}\DigiLog\certs"; Comment: "Copy rootCA.pem to the tablet and install it under Settings > Security > Install certificate"
+; The ONE file for this server's names / IPs / port, and the action that applies it
+; (certificate, port, allowed origins, firewall, restart). apply-addresses.cmd asks for
+; Administrator itself. tasks/AUTO-IP-RECOVERY-PLAN.md, Part 3.
+Name: "{group}\Edit server addresses"; Filename: "{app}\scripts\edit-addresses.cmd"; Comment: "Change the server's IP, name or port, then run Apply server addresses"
+Name: "{group}\Apply server addresses"; Filename: "{app}\scripts\apply-addresses.cmd"; Comment: "Apply digilog-addresses.ini: certificate, port, allowed origins, firewall, restart"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
@@ -250,6 +255,10 @@ begin
   if CurStep = ssPostInstall then
   begin
     UrlPath := ExpandConstant('{app}\DigiLog.url');
-    SaveStringToFile(UrlPath, '[InternetShortcut]' + #13#10 + 'URL=https://localhost:3000' + #13#10, False);
+    { Only when missing: apply-addresses.ps1 keeps it on the port from
+      digilog-addresses.ini, and rewriting it here on every upgrade would
+      point it back at 3000 after the port was changed. }
+    if not FileExists(UrlPath) then
+      SaveStringToFile(UrlPath, '[InternetShortcut]' + #13#10 + 'URL=https://localhost:3000' + #13#10, False);
   end;
 end;

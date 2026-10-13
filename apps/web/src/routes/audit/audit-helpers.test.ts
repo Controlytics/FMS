@@ -156,6 +156,13 @@ describe('audit-helpers — before/after diff', () => {
     expect(prettyFieldName('current_lifecycle_state')).toBe('Current Lifecycle State');
   });
 
+  it('shows the username column as "User ID" — the name the app uses for it everywhere', () => {
+    expect(prettyFieldName('username')).toBe('User ID');
+    expect(prettyFieldName('userName')).toBe('User ID');
+    expect(diffAuditValues({ username: 'a01' }, { username: 'b02' }))
+      .toEqual([{ field: 'User ID', from: 'a01', to: 'b02' }]);
+  });
+
   it('skips camelCase *Id keys even when the value is not a UUID', () => {
     // filterId is a non-UUID (numeric) id — must be skipped by key name, not just value.
     expect(diffAuditValues({ filterId: 5, name: 'A' }, { filterId: 6, name: 'A' })).toEqual([]);

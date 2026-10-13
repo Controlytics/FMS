@@ -49,9 +49,9 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
     DEVICE_ONLINE: [['Device','deviceName'],['UNS Path','unsPath'],['Protocol','protocol'],['Source IP','sourceIp'],['Time','timestamp']],
     DEVICE_OFFLINE: [['Device','deviceName'],['UNS Path','unsPath'],['Time','timestamp']],
     DEVICE_INACTIVITY: [['Device','deviceName'],['UNS Path','unsPath'],['Inactive Since','inactiveSince'],['Timeout (sec)','timeoutSeconds'],['Time','timestamp']],
-    USER_LOGIN: [['Username','username'],['Full Name','fullName'],['Role','role'],['IP Address','ipAddress'],['Time','timestamp']],
-    USER_CREATED: [['Username','username'],['Full Name','fullName'],['Email','email'],['Role','role'],['Created By','createdBy'],['Time','timestamp']],
-    USER_LOCKED: [['Username','username'],['Full Name','fullName'],['Reason','reason'],['Failed Attempts','failedAttempts'],['IP Address','ipAddress'],['Time','timestamp']],
+    USER_LOGIN: [['User ID','username'],['Full Name','fullName'],['Role','role'],['IP Address','ipAddress'],['Time','timestamp']],
+    USER_CREATED: [['User ID','username'],['Full Name','fullName'],['Email','email'],['Role','role'],['Created By','createdBy'],['Time','timestamp']],
+    USER_LOCKED: [['User ID','username'],['Full Name','fullName'],['Reason','reason'],['Failed Attempts','failedAttempts'],['IP Address','ipAddress'],['Time','timestamp']],
     CHECKLIST_SUBMITTED: [['Checklist','checklistName'],['Entity','entityName'],['Submitted By','submittedBy'],['Time','timestamp']],
     CHECKLIST_APPROVED: [['Checklist','checklistName'],['Approved By','approvedBy'],['Time','timestamp']],
     CHECKLIST_REJECTED: [['Checklist','checklistName'],['Rejected By','rejectedBy'],['Reason','reason'],['Time','timestamp']],
@@ -319,7 +319,7 @@ function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemp
       subject: '[DigiLog] User Login: ${username}',
       body: `<h2>User Login</h2>
 <table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Username</td><td style="padding:6px 12px;border:1px solid #ddd">\${username}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">User ID</td><td style="padding:6px 12px;border:1px solid #ddd">\${username}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Full Name</td><td style="padding:6px 12px;border:1px solid #ddd">\${fullName}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Role</td><td style="padding:6px 12px;border:1px solid #ddd">\${role}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">IP Address</td><td style="padding:6px 12px;border:1px solid #ddd">\${ipAddress}</td></tr>
@@ -330,7 +330,7 @@ function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemp
       subject: '[DigiLog] New User Created: ${username}',
       body: `<h2>New User Created</h2>
 <table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Username</td><td style="padding:6px 12px;border:1px solid #ddd">\${username}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">User ID</td><td style="padding:6px 12px;border:1px solid #ddd">\${username}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Full Name</td><td style="padding:6px 12px;border:1px solid #ddd">\${fullName}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Email</td><td style="padding:6px 12px;border:1px solid #ddd">\${email}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Role</td><td style="padding:6px 12px;border:1px solid #ddd">\${role}</td></tr>
@@ -342,7 +342,7 @@ function getDefaultEmailTemplate(eventType: string): { subject: string; bodyTemp
       subject: '[DigiLog] Account Locked: ${username}',
       body: `<h2>User Account Locked</h2>
 <table style="border-collapse:collapse;width:100%">
-<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Username</td><td style="padding:6px 12px;border:1px solid #ddd">\${username}</td></tr>
+<tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">User ID</td><td style="padding:6px 12px;border:1px solid #ddd">\${username}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Full Name</td><td style="padding:6px 12px;border:1px solid #ddd">\${fullName}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Reason</td><td style="padding:6px 12px;border:1px solid #ddd">\${reason}</td></tr>
 <tr><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold">Failed Attempts</td><td style="padding:6px 12px;border:1px solid #ddd">\${failedAttempts}</td></tr>

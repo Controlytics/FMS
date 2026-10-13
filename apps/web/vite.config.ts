@@ -4,6 +4,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 import fs from 'fs';
+import { readDevPorts } from './dev-ports';
+
+// Ports come from digilog-addresses.ini (repo root) - see dev-ports.ts.
+const PORTS = readDevPorts(path.resolve(__dirname, '../../digilog-addresses.ini'));
 
 export default defineConfig({
   plugins: [
@@ -83,7 +87,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5175,
+    port: PORTS.web,
     strictPort: true,
     host: true,
     https: {
@@ -92,12 +96,12 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'https://localhost:3000',
+        target: `https://localhost:${PORTS.api}`,
         changeOrigin: true,
         secure: false,
       },
       '/uploads': {
-        target: 'https://localhost:3000',
+        target: `https://localhost:${PORTS.api}`,
         changeOrigin: true,
         secure: false,
       },

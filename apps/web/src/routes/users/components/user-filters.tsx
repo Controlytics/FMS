@@ -55,7 +55,7 @@ export function UserFilters({
               </svg>
             </div>
             <Input
-              placeholder="Search by name, username, or email..."
+              placeholder="Search by name, User ID, or email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-14 h-12 bg-slate-50/50 border-slate-200 focus:bg-white transition-colors"

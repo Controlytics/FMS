@@ -1,9 +1,12 @@
 import { z } from 'zod';
 
 export const loginSchema = z.object({
-  username: z.string().min(1, 'Username is required'),
+  username: z.string().min(1, 'User ID is required'),
   password: z.string().min(1, 'Password is required'),
   force: z.boolean().optional(),
+  // 'tablet' = the DigiLog FilterOps app. The server then refuses a role
+  // without tablet login access BEFORE it ends any existing session.
+  client: z.enum(['web', 'tablet']).optional(),
 });
 
 export const passwordChangeSchema = z.object({

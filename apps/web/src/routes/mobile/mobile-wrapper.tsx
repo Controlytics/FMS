@@ -28,6 +28,8 @@ import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../li
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { StageApprovalsPage } from '../stage-approvals';
 import { normalizeRfidScan, rfidValuesMatch } from '@/lib/rfid-scan';
+import { onServerMoved } from '@/lib/server-discovery';
+import { useToast } from '@/hooks/use-toast';
 
 type View = 'home' | 'status' | 'my-tasks' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications' | 'stage-approvals';
 
@@ -130,6 +132,16 @@ export function MobileWrapperPage() {
   useOfflineConfig();
   const { online, pendingCount, heldOps, syncing, lastSyncMessage, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const reauth = useReauth();
+  const { toast: moveToast } = useToast();
+  // 2026-10-10: the connectivity engine found the server at a new address after
+  // a DHCP change and switched to it (lib/server-discovery.ts). Say so, so the
+  // operator knows why the Server Address changed.
+  // useToast() returns a new object every render; subscribe once via a ref.
+  const moveToastRef = useRef(moveToast);
+  moveToastRef.current = moveToast;
+  useEffect(() => onServerMoved((next) => {
+    moveToastRef.current.successToast('Server address updated', `Connected to the FMS server at ${next}.`);
+  }), []);
   // ONE ReauthDialog serves every signed action on this screen (RFID assign,
   // replace, stage approvals). The label was hardcoded to "RFID Tag", so any
   // other action prompted for a password under the wrong name. Each caller sets

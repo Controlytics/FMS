@@ -3,6 +3,7 @@ import { enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
+import { resolveTabletAccess } from '../../../lib/tablet-access.js';
 
 export async function tabletAccessRoutes(app: FastifyInstance) {
   app.get('/tablet-access', {
@@ -67,37 +68,9 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
     const role = req.user?.role;
     if (!role) return { allowed: [], configured: false };
 
-    // SUPER_ADMIN bypass — hardcoded so they cannot be locked out of the
-    // tablet by their own (or someone else's) tablet-access config.
-    if (role === 'SUPER_ADMIN') {
-      // 2026-08-10: 'approvals' dropped with the tablet Approvals screen —
-      // the key gated a view that no longer exists. Desktop /approvals and the
-      // BLOCK_CHANGE_APPROVE permission are unaffected.
-      // 2026-09-02: 'stage_approvals' added with the tablet Stage Approvals
-      // screen. Distinct key, distinct meaning — it is the QA interlock, not
-      // the block-change flow the retired 'approvals' key gated.
-      // KEEP IN STEP with FEATURES in web/src/routes/config/tablet-access.tsx —
-      // a key present there but missing here is invisible to SUPER_ADMIN.
-      return { role, allowed: [
-        'login', 'filter_cleaning', 'filter_status', 'my_tasks',
-        'stage_approvals', 'rfid_assign', 'logout',
-      ], configured: false };
-    }
-
-    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'tablet-access' } });
-    const config = (row?.configValue as any) ?? {};
-    const roleHasEntry = Object.prototype.hasOwnProperty.call(config, role);
-    const anyRoleConfigured = Object.keys(config).length > 0;
-
-    if (roleHasEntry) {
-      return { role, allowed: config[role] ?? [], configured: true };
-    }
-    if (anyRoleConfigured) {
-      // some role is configured but THIS role isn't → admin opted into the
-      // allowlist and didn't include this role; deny everything.
-      return { role, allowed: [], configured: true };
-    }
-    // No tablet-access config at all → legacy default-allow.
-    return { role, allowed: [], configured: false };
+    // 2026-10-13: the rule lives in lib/tablet-access.ts so the login refusal
+    // (auth.service `client: 'tablet'`) reads exactly the same answer.
+    // SUPER_ADMIN is hardcoded there to everything — it cannot be locked out.
+    return { role, ...(await resolveTabletAccess(role)) };
   });
 }

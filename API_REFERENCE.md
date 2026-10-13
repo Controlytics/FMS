@@ -9,10 +9,11 @@
 ### Login
 ```
 POST /api/auth/login
-Body: { username, password, force? }
+Body: { username, password, force?, client? }
 Response: { token, user: { id, username, fullName, role, forcePasswordChange }, expiresIn }
 ```
 `force: true` terminates any existing session for this user.
+`client: 'tablet'` (sent by the FilterOps app): a role whose tablet access has no `login` is refused with 403 `TABLET_ACCESS_DENIED` before any existing session is touched — so `force` cannot end the user's web session.
 
 ### Logout
 ```
@@ -403,6 +404,7 @@ Common error codes:
 - `NOT_FOUND` (404) — resource doesn't exist
 - `VALIDATION_ERROR` (400) — invalid request body
 - `SESSION_CONFLICT` (409) — another session exists
+- `TABLET_ACCESS_DENIED` (403) — `POST /api/auth/login` with `client: 'tablet'` for a role whose tablet access has no `login` (checked before any existing session is touched)
 - `INTERNAL_ERROR` (500) — server error
 
 ---

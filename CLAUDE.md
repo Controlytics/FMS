@@ -126,6 +126,15 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
 - **Rate limiters must use `rateLimitKeyGenerator`** (`apps/api/src/lib/rate-limit-key.ts`).
   Keying on `req.ip` alone lets an IPv6 attacker rotate the host portion of their
   /64 for an unlimited budget. (DEP-5, 2026-08-18.)
+- **Server IP changes (2026-10-10):** the cert covers the LAN's whole /24 (`scripts/issue-lan-cert.ps1`,
+  install + upgrade; dev: `certs/san-list.txt` + `refresh-lan-cert.ps1`), and the tablet rediscovers
+  the server (`lib/server-discovery.ts` + native `ServerScanPlugin.java`, matched on `/api/health`
+  `serverId` = cert authorityKeyIdentifier). Never move discovery into WebView fetches (OOM) and never
+  adopt a server without a matching serverId automatically. Plan: `tasks/AUTO-IP-RECOVERY-PLAN.md`.
+  **Every server name/IP/port lives in `digilog-addresses.ini`** (dev: repo root → `apply-addresses.bat`;
+  installed: `C:\ProgramData\DigiLog\config\` → Start menu "Apply server addresses"). It drives the
+  certificate, `PORT`, `ALLOWED_ORIGINS`, firewall, Vite + start-digilog ports. Never hand-edit those
+  keys; never move DB-stored URLs (instruments, SMTP, LDAP) into it — those changes must stay audited.
 - 🔴 **Only THREE rate limits exist (2026-10-10, operator decision):** `POST /api/auth/login`
   (100/min), `/verify` (50/min), `/change-password` (50/min). No app-wide limit
   (`global: false` in `app.ts`); every other route/public endpoint is unlimited. They are the
@@ -202,6 +211,7 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   (`dryerFieldsForStart` on both pages); a QUEUED `SET_DURATION` writes the dryer timing onto the
   cache row BEFORE the tape recompute (`rememberQueuedDryerStart`, `use-core.ts`) or the next
   offline Dry Out scan is refused as a wrong stage.
+- 🔴 **Tablet access is decided AT LOGIN, before the session check (2026-10-13).** The tablet sends `client: 'tablet'`; `auth.service.login` refuses a role without tablet `login` with 403 `TABLET_ACCESS_DENIED` before it creates or ends any session. The rule lives once in `lib/tablet-access.ts`, which `/tablet-access/my-features` also uses. Never move that check back after sign-in: the tablet's SESSION_CONFLICT auto-retry is `force:true`, so a post-login check ended a refused role's WEB session (QA/Admin/Manager).
 - **Field labels: `GET /api/config/field-ids/current`** (any signed-in user, `{fieldId, displayName}` only).
   Same pattern (2026-10-06): `GET /api/config/cleaning-profile-assignment/current` — the tablet's
   offline block→profile map; the CONFIG_READ list 403'd for every operator. **Every RFID scan path

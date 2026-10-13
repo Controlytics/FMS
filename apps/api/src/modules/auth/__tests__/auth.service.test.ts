@@ -10,6 +10,7 @@ const {
   mockVerifyToken,
   mockAuditLog,
   mockCreateNotification,
+  mockResolveTabletAccess,
 } = vi.hoisted(() => ({
   mockRepo: {
     findUserByUsername: vi.fn(),
@@ -42,6 +43,7 @@ const {
   mockVerifyToken: vi.fn(),
   mockAuditLog: vi.fn(),
   mockCreateNotification: vi.fn(),
+  mockResolveTabletAccess: vi.fn(),
 }));
 
 vi.mock('../auth.repository.js', () => ({ authRepository: mockRepo }));
@@ -49,6 +51,10 @@ vi.mock('../../../lib/password.js', () => ({ hashPassword: mockHashPassword, ver
 vi.mock('../../../lib/jwt.js', () => ({ signToken: mockSignToken, signVerificationToken: mockSignVerificationToken, verifyToken: mockVerifyToken }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: mockAuditLog }));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: mockCreateNotification }));
+vi.mock('../../../lib/tablet-access.js', async () => ({
+  ...(await vi.importActual<object>('../../../lib/tablet-access.js')),
+  resolveTabletAccess: mockResolveTabletAccess,
+}));
 
 import { authService } from '../auth.service.js';
 
@@ -108,7 +114,7 @@ describe('authService', () => {
       // (security hardening — prevents user enumeration). Both USER_NOT_FOUND
       // and wrong-password paths surface 401 with the same message.
       await expect(authService.login('nobody', 'pass', '127.0.0.1', undefined))
-        .rejects.toThrow('Username or password is incorrect.');
+        .rejects.toThrow('User ID or password is incorrect.');
     });
 
     it('throws ACCOUNT_DISABLED for disabled user (correct password)', async () => {
@@ -138,7 +144,7 @@ describe('authService', () => {
       mockVerifyPassword.mockResolvedValue(false);
 
       await expect(authService.login('admin', 'wrong', '127.0.0.1', undefined))
-        .rejects.toThrow('Username or password is incorrect.');
+        .rejects.toThrow('User ID or password is incorrect.');
       expect(mockRepo.updateUser).not.toHaveBeenCalled();
     });
 
@@ -166,7 +172,7 @@ describe('authService', () => {
       mockRepo.updateUser.mockResolvedValue(user);
 
       await expect(authService.login('admin', 'wrong', '127.0.0.1', undefined))
-        .rejects.toThrow('Username or password is incorrect.');
+        .rejects.toThrow('User ID or password is incorrect.');
 
       expect(mockRepo.updateUser).toHaveBeenCalledWith(user.id, expect.objectContaining({ failedLoginAttempts: 1 }));
     });
@@ -238,6 +244,68 @@ describe('authService', () => {
       const result = await authService.login('admin', 'pass', '127.0.0.1', undefined, true);
       expect(result.success).toBe(true);
       expect(mockRepo.terminateActiveSessions).toHaveBeenCalledWith(user.id, 'new_login');
+    });
+
+    // 2026-10-13: a tablet login for a role without tablet access is refused
+    // BEFORE the session check — it used to sign in with force:true and end the
+    // user's web session before the tablet discovered the role was not allowed.
+    describe("client: 'tablet'", () => {
+      const oldSession = [{ id: 'web-sess', createdAt: new Date(), lastActiveAt: new Date() }];
+      beforeEach(() => {
+        mockRepo.findUserByUsername.mockResolvedValue(makeUser({ role: 'QA' }));
+        mockVerifyPassword.mockResolvedValue(true);
+        mockRepo.findActiveSessions.mockResolvedValue(oldSession);
+        mockRepo.createSession.mockResolvedValue({ id: 'tab-sess' });
+        mockSignToken.mockResolvedValue('token');
+      });
+
+      it('refuses a role without tablet login access and leaves the web session alone, even with force', async () => {
+        mockResolveTabletAccess.mockResolvedValue({ allowed: [], configured: true });
+        await expect(authService.login('admin', 'pass', '127.0.0.1', undefined, true, 'tablet'))
+          .rejects.toMatchObject({ statusCode: 403, code: 'TABLET_ACCESS_DENIED' });
+        expect(mockRepo.findActiveSessions).not.toHaveBeenCalled();
+        expect(mockRepo.terminateActiveSessions).not.toHaveBeenCalled();
+        expect(mockRepo.createSession).not.toHaveBeenCalled();
+        expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+          action: 'LOGIN_FAILED', afterValue: expect.objectContaining({ reason: 'TABLET_ACCESS_DENIED' }),
+        }));
+      });
+
+      it('refuses a role whose features do not include login', async () => {
+        mockResolveTabletAccess.mockResolvedValue({ allowed: ['filter_status'], configured: true });
+        await expect(authService.login('admin', 'pass', '127.0.0.1', undefined, true, 'tablet'))
+          .rejects.toMatchObject({ code: 'TABLET_ACCESS_DENIED' });
+        expect(mockRepo.terminateActiveSessions).not.toHaveBeenCalled();
+      });
+
+      it('does not reveal tablet access to a caller with the wrong password', async () => {
+        mockResolveTabletAccess.mockResolvedValue({ allowed: [], configured: true });
+        mockVerifyPassword.mockResolvedValue(false);
+        await expect(authService.login('admin', 'wrong', '127.0.0.1', undefined, true, 'tablet'))
+          .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
+        expect(mockResolveTabletAccess).not.toHaveBeenCalled();
+      });
+
+      it('lets an allowed role through (force still ends the old session)', async () => {
+        mockResolveTabletAccess.mockResolvedValue({ allowed: ['login', 'logout'], configured: true });
+        const res = await authService.login('admin', 'pass', '127.0.0.1', undefined, true, 'tablet');
+        expect(res.success).toBe(true);
+        expect(mockRepo.terminateActiveSessions).toHaveBeenCalledWith('user-1', 'new_login');
+      });
+
+      it('lets everyone through when tablet access was never configured (legacy default-allow)', async () => {
+        mockResolveTabletAccess.mockResolvedValue({ allowed: [], configured: false });
+        mockRepo.findActiveSessions.mockResolvedValue([]);
+        const res = await authService.login('admin', 'pass', '127.0.0.1', undefined, false, 'tablet');
+        expect(res.success).toBe(true);
+      });
+
+      it('a web login never consults tablet access', async () => {
+        mockRepo.findActiveSessions.mockResolvedValue([]);
+        const res = await authService.login('admin', 'pass', '127.0.0.1', undefined, false);
+        expect(res.success).toBe(true);
+        expect(mockResolveTabletAccess).not.toHaveBeenCalled();
+      });
     });
   });
 

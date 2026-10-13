@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerSwagger, isApiDocsEnabled } from './lib/swagger.js';
 import { rateLimitKeyGenerator } from './lib/rate-limit-key.js';
+import { serverIdFromCertPem } from './lib/server-id.js';
 import { rootLogger, getLogger, initFileLogging, flushLogs, LOG_PATHS } from './lib/logger.js';
 import { pruneAllLogs, retentionDays, logDirSizeBytes, formatBytes } from './lib/log-retention.js';
 import { JWT_MAX_EXPIRY_HOURS } from './lib/jwt.js';
@@ -112,6 +113,7 @@ const httpsOptions = process.env.API_HTTPS === 'true'
       maxVersion: 'TLSv1.3' as const,
     }
   : null;
+const SERVER_ID = serverIdFromCertPem(httpsOptions?.cert);
 
 // May 16 H2 fix (2026-05-20): trustProxy was unconditionally 1. When the
 // API serves browsers DIRECTLY (no reverse proxy in front — the local
@@ -588,6 +590,10 @@ app.get('/api/health', {
           // dropped by fast-json-stringify because it wasn't declared here.
           db: { type: 'string', example: 'connected' },
           jobRunner: { type: 'string', example: 'running' },
+          // Identity of this install (served cert's authorityKeyIdentifier). The
+          // tablet uses it to rediscover the server after a DHCP address change
+          // without switching to another DigiLog install. lib/server-id.ts.
+          serverId: { type: 'string', nullable: true },
         },
       },
     },
@@ -600,7 +606,7 @@ app.get('/api/health', {
     // fine, and the tablet treats a non-2xx /api/health as "server unreachable"
     // (apps/web/src/lib/connectivity.ts probeServer) — a 503 here would flip
     // every tablet into offline mode over a background-job fault.
-    return { status: 'ok', db: 'connected', jobRunner: jobRunnerStatus };
+    return { status: 'ok', db: 'connected', jobRunner: jobRunnerStatus, serverId: SERVER_ID };
   } catch (err) {
     return reply.code(503 as any).send({ status: 'error', db: 'disconnected' });
   }

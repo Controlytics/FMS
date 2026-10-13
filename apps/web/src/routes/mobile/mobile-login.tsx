@@ -111,6 +111,10 @@ export function MobileLoginPage() {
         username: username.trim(),
         password,
         ...(force && { force: true }),
+        // The server refuses a role without tablet access BEFORE it touches any
+        // existing session (403 TABLET_ACCESS_DENIED). Without this a refused
+        // role's force retry below ended that user's web session.
+        client: 'tablet',
       });
       // Enforce tablet-access: this role must be allowed to log in from the tablet
       const access = await checkTabletAccess(res.token);
@@ -152,6 +156,7 @@ export function MobileLoginPage() {
               username: username.trim(),
               password,
               force: true,
+              client: 'tablet',
             });
             const access = await checkTabletAccess(res.token);
             if (!access.allowed) {
@@ -175,6 +180,11 @@ export function MobileLoginPage() {
               navigate('/m', { replace: true });
             }
           } catch (e2: any) {
+            if (e2?.code === 'TABLET_ACCESS_DENIED') {
+              setError("You don't have access to log in on the tablet.");
+              setLoading(false);
+              return;
+            }
             // Auto-retry failed — show manual force button as fallback
             setShowForce(true);
             setError('Session conflict. Tap "Force Login" to proceed.');
@@ -182,6 +192,8 @@ export function MobileLoginPage() {
         } else {
           setError(e?.message ?? 'Force login failed');
         }
+      } else if (e?.code === 'TABLET_ACCESS_DENIED' || e?.error === 'TABLET_ACCESS_DENIED') {
+        setError("You don't have access to log in on the tablet.");
       } else if (e?.code === 'ACCOUNT_LOCKED' || e?.error === 'ACCOUNT_LOCKED') {
         // Account locked per password-policy.maxFailedAttempts. Steer the
         // operator to the forgot-password flow since they can't retry.

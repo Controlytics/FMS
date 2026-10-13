@@ -24,6 +24,14 @@ if not "%~1"=="wrapped" (
 :: Repo root = directory containing this .bat (with trailing backslash stripped)
 set REPO_ROOT=%~dp0
 if "%REPO_ROOT:~-1%"=="\" set REPO_ROOT=%REPO_ROOT:~0,-1%
+:: Ports come from digilog-addresses.ini (the ONE address/port file; apply it
+:: with apply-addresses.bat). Defaults 3000 / 5175 if the file is missing.
+set DL_API_PORT=3000
+set DL_WEB_PORT=5175
+for /f "tokens=1,2" %%a in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%scriptsprint-ports.ps1"') do (
+    set DL_API_PORT=%%a
+    set DL_WEB_PORT=%%b
+)
 
 title DigiLog - Starting All Services
 color 0A
@@ -113,21 +121,21 @@ if %ERRORLEVEL%==0 (
 
 :: --- 4. Backend API in dev mode (tsx watch) ---
 echo [4/5] Starting Backend API (Fastify, dev/tsx watch)...
-start "DigiLog API" cmd /k "cd /d ""%REPO_ROOT%\apps\api"" && title DigiLog API - Port 3000 HTTPS && set API_HTTPS=true&&npx tsx watch src/app.ts"
+start "DigiLog API" cmd /k "cd /d ""%REPO_ROOT%\apps\api"" && title DigiLog API - Port %DL_API_PORT% HTTPS && set API_HTTPS=true&&npx tsx watch src/app.ts"
 timeout /t 8 /nobreak >NUL
-echo       API starting on https://localhost:3000
+echo       API starting on https://localhost:%DL_API_PORT%
 
 :: --- 5. Frontend in dev mode (vite --host) ---
 echo [5/5] Starting Frontend (Vite dev server)...
-:: Kill any existing process on 5175 so we don't double-bind
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5175" ^| findstr "LISTENING"') do (
+:: Kill any existing process on the web port so we don't double-bind
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":%DL_WEB_PORT%" ^| findstr "LISTENING"') do (
     echo       Killing existing Vite process PID %%a ...
     taskkill /F /PID %%a >NUL 2>&1
 )
 timeout /t 2 /nobreak >NUL
-start "DigiLog Web" cmd /k "cd /d ""%REPO_ROOT%\apps\web"" && title DigiLog Web - Port 5175 && npx vite --host"
+start "DigiLog Web" cmd /k "cd /d ""%REPO_ROOT%\apps\web"" && title DigiLog Web - Port %DL_WEB_PORT% && npx vite --host"
 timeout /t 5 /nobreak >NUL
-echo       Frontend starting on https://localhost:5175
+echo       Frontend starting on https://localhost:%DL_WEB_PORT%
 
 :: --- Wait for API health ---
 echo.
@@ -135,7 +143,7 @@ echo  Waiting for API to respond on /api/health...
 set API_READY=0
 for /L %%i in (1,1,40) do (
     if !API_READY! == 0 (
-        curl -sk -f https://localhost:3000/api/health >NUL 2>&1
+        curl -sk -f https://localhost:%DL_API_PORT%/api/health >NUL 2>&1
         if !ERRORLEVEL! == 0 (
             set API_READY=1
             echo       API is ready!
@@ -153,7 +161,7 @@ echo  Waiting for Frontend to respond on /...
 set VITE_READY=0
 for /L %%i in (1,1,30) do (
     if !VITE_READY! == 0 (
-        curl -sk -f https://localhost:5175/ >NUL 2>&1
+        curl -sk -f https://localhost:%DL_WEB_PORT%/ >NUL 2>&1
         if !ERRORLEVEL! == 0 (
             set VITE_READY=1
             echo       Frontend is ready!
@@ -172,16 +180,16 @@ echo  ============================================
 echo   All dev services started!
 echo  ============================================
 echo.
-echo   Frontend:  https://localhost:5175
-echo   API:       https://localhost:3000
-echo   Swagger:   https://localhost:3000/docs
+echo   Frontend:  https://localhost:%DL_WEB_PORT%
+echo   API:       https://localhost:%DL_API_PORT%
+echo   Swagger:   https://localhost:%DL_API_PORT%/docs
 echo   Mosquitto: tcp://localhost:1883 (no web dashboard - use POST /api/internal/mqtt/refresh-acl)
 echo   Login:     superadmin / Admin@123
 echo.
 echo  ============================================
 echo.
 
-start https://localhost:5175
+start https://localhost:%DL_WEB_PORT%
 
 echo Press any key to exit this window (services keep running)...
 pause >NUL

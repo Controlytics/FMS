@@ -1,5 +1,55 @@
 # Changelog
 
+## [Unreleased] - Tablet app named "FMS" (2026-10-13)
+
+Operator request. The OQ scripts call it the "FMS application", which matches "Application Name: FMS" in their headers.
+- Launcher label + activity title: `strings.xml` `app_name` / `title_activity_main`, `capacitor.config.ts` `appName`.
+  The package id `com.digilog.filtermanagement` is unchanged on purpose, so the APK installs as an update and keeps the stored
+  server address and the offline queue.
+- Server screen (`server-config.tsx`): "Connect to FMS server", "Enter the address shown on the FMS server PC.",
+  and the three discovery messages. Also the "Server address updated" toast in `mobile-wrapper.tsx`.
+- Kept: "installed the DigiLog certificate", because the CA the tablet installs is really named "DigiLog Root CA" / "DigiLog Local
+  CA" and that is the name Android shows. The APK file keeps the name `DigiLog-FilterOps.apk`.
+
+## [Unreleased] - Tablet login refused BEFORE it can end the web session (2026-10-13)
+
+Bug found while writing the OQ scripts. A role with no tablet access (QA, Admin and Manager today) that
+was signed in on the web lost its WEB session when the same user tried the tablet. The tablet's
+`SESSION_CONFLICT` auto-retry signs in with `force:true`, which ended the web session. Only then did
+it ask `/tablet-access/my-features` and refuse.
+- `POST /api/auth/login` takes an optional `client: 'web' | 'tablet'` (shared `loginSchema` + route
+  schema). With `'tablet'`, a role whose tablet access lacks `login` is refused **403
+  `TABLET_ACCESS_DENIED`** ("You don't have access to log in on the tablet."), checked after the
+  password and account state are proven and BEFORE the session check. No session is created or
+  ended, and a `LOGIN_FAILED` audit row records `reason: 'TABLET_ACCESS_DENIED'`.
+- The rule now lives once in `lib/tablet-access.ts` (`resolveTabletAccess` / `tabletLoginAllowed`).
+  `GET /api/config/tablet-access/my-features` uses it, so the tablet's view and the login refusal
+  cannot disagree. Behaviour unchanged: SUPER_ADMIN gets everything; no config means default-allow; a role
+  missing from a configured allowlist is denied.
+- Tablet (`mobile-login.tsx`) sends `client: 'tablet'` on both login calls and shows the refusal. The
+  post-login `my-features` check stays as a second, fail-closed guard.
+- Tests: `lib/__tests__/tablet-access.test.ts`, 6 new `auth.service.test.ts` cases, and e2e
+  `tablet-login-access.test.ts` (QA signed in on the web keeps `/api/auth/me` 200 after a refused
+  tablet force-login). The e2e fails with the check removed.
+- Takes effect on a tablet only after the APK is rebuilt. An older APK sends no `client` and keeps the
+  old behaviour.
+
+## [Unreleased] - "User ID", never "username", on screen (2026-10-12)
+
+Operator request: the login ID is called **User ID** everywhere a person reads it. Wording only — no
+field, column, API key or behaviour changed.
+- Login: `User ID or password is incorrect.` (was "Username or …", `auth.service.ts` ×4) and
+  `User ID is required` (shared `loginSchema`; web + tablet login).
+- Admin Requests: details "User ID" (Create/Modify/Unlock/Forgot), Request Approved dialog "User ID";
+  server errors "Request is missing User ID" / "Could not generate a unique User ID …".
+- Users: search placeholder, delete / bulk-delete dialog text. Password Policy: the two User ID hints.
+- Notification emails (user login / created / locked): row label "User ID".
+- **Audit Trail:** the change list showed the `username` field as "Username"; `prettyFieldName` now
+  names it "User ID". Stored audit rows are untouched (display only — the hash chain is unaffected).
+- Kept on purpose: SMTP "Username" and LDAP "Username Attribute" — those are mail/directory logins.
+Tests updated (`auth.service.test.ts`, `audit-detail-modal.test.tsx`) + new `prettyFieldName` case.
+The APK still carries the old login text until it is rebuilt.
+
 ## [Unreleased] - Disabled checklist is skipped everywhere; in-use checklist cannot be disabled (2026-10-12)
 
 Operator decision ("A and C"). Before: a disabled checklist BETWEEN two stages was still demanded
@@ -38,6 +88,70 @@ Live data (digilog_db): both checklists in use (DRY, STORAGE) are active, so not
 10 cycles in progress. Tests: shared `transitions.test.ts` (+4), API
 `disabled-checklist-skipped.test.ts` (9, real DB incl. offline replay), web `offline-cache.test.ts`
 (+2) + `local-context.test.ts` (+2); `tape-parity.test.ts` mock now honours `where.isActive`.
+
+## [Unreleased] - Server IP changes no longer break the tablet (2026-10-10)
+
+Every DHCP address change of the server PC broke the tablet twice: the TLS certificate had no
+SAN for the new IP, and the tablet's saved Server Address pointed at the old one. Connecting by
+host name was tried and failed on site (the Wi-Fi extender's DNS answers NXDOMAIN). Plan:
+`tasks/AUTO-IP-RECOVERY-PLAN.md`.
+
+**1. Certificate covers the whole /24.** No code runs at IP-change time.
+- New `scripts/issue-lan-cert.ps1`, shared by `install.ps1` (fresh) and `upgrade.ps1` (new step
+  5c): issues the server certificate for x.y.z.1-254 of the LAN from the install CA. An existing
+  certificate that does not cover the /24 is re-issued from the SAME CA (tablets keep trusting it),
+  keeping every IP it already had; a missing CA key only warns. Shipped via
+  `build-installer.ps1`'s named script list.
+- Dev: `certs/san-list.txt` now holds 192.168.1.1-254 (264 names).
+- Rejected: the API re-issuing its own certificate at runtime — it would need the API process to
+  read the CA private key.
+
+**2. The tablet finds the server again.**
+- `/api/health` returns `serverId` = the served certificate's authorityKeyIdentifier
+  (`lib/server-id.ts`): the same across re-issues by one CA, different per install, public.
+- New native plugin `ServerScanPlugin.java`: TCP sweep of port 3000 over the tablet's /24 and
+  the saved address's /24 (300 ms timeout, 32 threads). Native because 254 WebView HTTPS fetches
+  is the socket pile-up that OOM-crashed the WebView on 2026-07-03.
+- New `lib/server-discovery.ts`: each open host gets one HTTPS `/api/health`; adopted only if
+  TLS is trusted AND `serverId` matches the one remembered from the last good contact.
+  Triggered from `lib/connectivity.ts` after 3 failed probes (~45 s), tablet only, backoff 2 → 5
+  → 15 min, reset on any successful contact. Toast "Server address updated" on the tablet.
+- Server Address screen: **Find server** button (tablet app only); accepts a lone server even with
+  no remembered id, refuses when several answer.
+- Limits: same /24 only; the server must be running.
+
+**3. ONE address file, applied everywhere.** `digilog-addresses.ini` — dev: repo root; installed
+server: `C:\ProgramData\DigiLog\config\`. Sections: `[server]` (`address =` per name/IP, full URLs
+accepted), `[ports]` (`api`; `web` = dev Vite page), `[tablet]` + `[in-app settings]` (notes only —
+DB-stored URLs such as instrument reading URLs, SMTP/SMS/LDAP stay in the audited UI). Parsed and
+validated by `scripts/address-config.ps1` (self-test `scripts/test-address-config.ps1`); a bad line
+aborts with NOTHING changed.
+- Dev: double-click `apply-addresses.bat` → `refresh-lan-cert.ps1`: mkcert certificate (file +
+  current /24 + every earlier name), `PORT`/`API_PORT`/`ALLOWED_ORIGINS` in `apps/api/.env`
+  (backed up), firewall check, reload API + Vite, verifies the served certificate on both ports.
+  `vite.config.ts` (via `dev-ports.ts`) and `start-digilog.bat` (via `scripts/print-ports.ps1`) take
+  both ports from the file.
+- Installed server: Start menu **Edit server addresses** / **Apply server addresses**
+  (`apply-addresses.cmd` asks for Administrator → `apply-addresses.ps1`): certificate from the
+  install CA (`issue-lan-cert.ps1 -ExtraNames`, now with DNS names too), `PORT` + `ALLOWED_ORIGINS`
+  in `digilog.env` (backed up), firewall rule, `DigiLog.url`, restart + health check. `install.ps1`
+  creates the file on a fresh install (an existing file wins over `-ApiPort`); `upgrade.ps1` creates
+  it if missing and applies it (step 5c); the installer no longer rewrites `DigiLog.url` to :3000 on
+  every upgrade.
+- A NAME is trusted, not resolvable: the network's DNS must map it (`cai-fms.caipl` does not yet).
+- **Edit server addresses** opens Notepad as Administrator (`edit-addresses.cmd`): the file sits in
+  `ProgramData\DigiLog\config` beside `digilog.env` (secrets), which ordinary users may only read; the
+  folder's permissions are deliberately not loosened.
+- The env-file writer reads/writes UTF-8 **without BOM** and keeps the file's line endings. A first
+  version wrote `-Encoding ascii` and turned every non-ASCII character in the dev `.env` comments into
+  `?` (caught in review, restored from the automatic backup; values were unaffected).
+- Fixed on the way: **every customer upgrade reported "API did not report healthy" and exited 1** —
+  the health check polled `http://` against the HTTPS-only API. Dev `.env` `API_PORT` is read by
+  nothing (`app.ts` reads `PORT`); the apply step now writes both. Dev `ALLOWED_ORIGINS` listed
+  `http://localhost:5175` although Vite serves https (harmless — the page reaches the API through
+  Vite's proxy — now generated correctly).
+
+**This PC** is now static `192.168.1.200` (`.53` was in use by another device).
 
 ## [Unreleased] - Rate limits removed except password endpoints; "Test setup" label; duplicate User ID message (2026-10-10)
 

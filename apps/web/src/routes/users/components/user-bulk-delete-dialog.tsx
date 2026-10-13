@@ -58,7 +58,7 @@ export function UserBulkDeleteDialog({
                 tx.user.deleteMany — the rows are destroyed, not disabled. */}
             <p className="font-semibold">Warning: This permanently deletes these accounts!</p>
             <p className="mt-1">Every selected user record is erased from the database — along with their sessions, password history, personal settings and assignments. This is a deletion, not a disable, and it cannot be undone.</p>
-            <p className="mt-1">Only the audit trail entries survive, recording each username, full name, role and status at the time of deletion.</p>
+            <p className="mt-1">Only the audit trail entries survive, recording each User ID, full name, role and status at the time of deletion.</p>
           </div>
         </div>
       </div>

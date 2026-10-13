@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.digilog.filtermanagement',
-  appName: 'DigiLog',
+  appName: 'FMS',
   webDir: '../web/dist',
   android: {
     allowMixedContent: true,

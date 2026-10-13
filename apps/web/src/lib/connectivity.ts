@@ -19,6 +19,7 @@ import {
   CONNECTIVITY_POLL_INTERVAL_MS,
 } from './timing-constants';
 import { getApiBase } from './api-base';
+import { maybeDiscoverServer, rememberServerId, resetDiscoveryBackoff } from './server-discovery';
 
 let cachedOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 const listeners = new Set<(online: boolean) => void>();
@@ -60,6 +61,11 @@ async function probeServer(): Promise<boolean> {
     // 15s probe would keep resetting the timer on every Vite proxy error.
     const { markServerContactFromResponse } = await import('./server-contact');
     markServerContactFromResponse(r);
+    if (r.ok) {
+      // Remember which install this is, so the tablet can find the SAME server
+      // again after a DHCP address change (server-discovery.ts).
+      try { rememberServerId((await r.json())?.serverId); } catch { /* non-JSON body: nothing to remember */ }
+    }
     return r.ok;
   } catch {
     return false;
@@ -120,11 +126,21 @@ export async function startConnectivityEngine(): Promise<void> {
     const reachable = await probeServer();
     if (reachable) {
       consecutiveProbeFailures = 0;
+      resetDiscoveryBackoff();
       notify(true);
     } else {
       consecutiveProbeFailures += 1;
       if (consecutiveProbeFailures >= PROBE_FAILURES_BEFORE_OFFLINE) notify(false);
       // else: keep the current state — don't flap offline on one transient miss.
+
+      // 2026-10-10: the server may have moved (DHCP). Tablet-only, backed off,
+      // and a no-op until enough failures — see server-discovery.ts. A found
+      // server is re-probed at once so the app comes back online without
+      // waiting for the next poll.
+      maybeDiscoverServer(consecutiveProbeFailures).then(
+        (moved) => { if (moved) void tick(); },
+        (err) => console.warn('[server-discovery] scan failed:', err?.message ?? err),
+      );
     }
   };
   await tick();

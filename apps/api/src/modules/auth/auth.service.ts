@@ -12,6 +12,7 @@ import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 import { invalidateSessionAuthCache } from '../../plugins/auth.js';
 import { getLogger } from '../../lib/logger.js';
+import { resolveTabletAccess, tabletLoginAllowed } from '../../lib/tablet-access.js';
 
 /** Log type 7 — who logged in, who was refused, who was locked out. */
 const authLog = getLogger('auth', 'security');
@@ -89,7 +90,7 @@ export async function applyFailedPasswordAttempt(
 }
 
 export const authService = {
-  async login(username: string, password: string, ip: string, userAgent: string | undefined, force?: boolean) {
+  async login(username: string, password: string, ip: string, userAgent: string | undefined, force?: boolean, client?: 'web' | 'tablet') {
     let user = await authRepository.findUserByUsername(username);
     if (!user) {
       // Try LDAP auto-provisioning if enabled
@@ -110,7 +111,7 @@ export const authService = {
       if (!user) {
         await verifyPassword(password, DUMMY_HASH);
         // Audit API-1: unified error — do not reveal whether the user exists
-        throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'User ID or password is incorrect.');
       }
     }
 
@@ -135,7 +136,7 @@ export const authService = {
             await ldapService.syncUserAttributes(user.id, ldapResult, ldapConfig);
           } else {
             // Audit API-1: unified error — do not distinguish LDAP vs local credential failure
-            throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
+            throw new AppError(401, 'INVALID_CREDENTIALS', 'User ID or password is incorrect.');
           }
         }
       } catch (err: any) {
@@ -155,7 +156,7 @@ export const authService = {
     // unconditionally set skipPasswordCheck = true, which was the bypass.
     if (user.passwordHash === 'LDAP_EXTERNAL_AUTH' && !skipPasswordCheck) {
       await verifyPassword(password, DUMMY_HASH); // keep timing shape constant
-      throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'User ID or password is incorrect.');
     }
 
     const valid = skipPasswordCheck || await verifyPassword(password, user.passwordHash);
@@ -187,7 +188,7 @@ export const authService = {
 
       // Audit API-1: unified error; Audit API-2: do not expose attemptsRemaining in response
       // (audit log above already records the attempt count server-side for admin review)
-      throw new AppError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect.');
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'User ID or password is incorrect.');
     }
 
     // Account status — only now, with the password proven (F7, see above).
@@ -242,6 +243,22 @@ export const authService = {
         signatureMeaning: 'System detected expired password at login',
         ipAddress: ip, userAgent,
       });
+    }
+
+    // Tablet access — decided BEFORE the session check (2026-10-13). The tablet
+    // used to learn it was refused only AFTER signing in, and its SESSION_CONFLICT
+    // auto-retry signs in with force:true — so a role refused on the tablet still
+    // ended that user's web session. Checked only after the password has been
+    // proven, like the account-state checks above, so it discloses nothing to a
+    // caller without the password. Same rule as GET /tablet-access/my-features.
+    if (client === 'tablet' && !tabletLoginAllowed(await resolveTabletAccess(user.role))) {
+      await auditLog({
+        userId: user.username, userRole: user.role, action: 'LOGIN_FAILED',
+        targetType: 'user', targetId: user.id,
+        afterValue: { username: user.username, fullName: user.fullName, reason: 'TABLET_ACCESS_DENIED' },
+        ipAddress: ip, userAgent,
+      });
+      throw new AppError(403, 'TABLET_ACCESS_DENIED', "You don't have access to log in on the tablet.");
     }
 
     // Check for existing sessions (same account, different location)

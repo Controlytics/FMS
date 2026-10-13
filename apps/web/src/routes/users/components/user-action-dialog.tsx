@@ -70,7 +70,7 @@ export function UserActionDialog({ actionDialog, onClose, onConfirm }: UserActio
                   irreversible §11 action. Fix the copy, not the behaviour. */}
               <p className="font-semibold">Warning: This permanently deletes the account!</p>
               <p className="mt-1">The user record is erased from the database — along with their sessions, password history, personal settings and assignments. This is a deletion, not a disable, and it cannot be undone.</p>
-              <p className="mt-1">Only the audit trail entry survives, recording the username, full name, email, role and status at the time of deletion. To keep the account and merely block access, use Disable instead.</p>
+              <p className="mt-1">Only the audit trail entry survives, recording the User ID, full name, email, role and status at the time of deletion. To keep the account and merely block access, use Disable instead.</p>
             </div>
           </div>
         )}

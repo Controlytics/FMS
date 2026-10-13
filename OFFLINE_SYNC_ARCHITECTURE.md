@@ -310,6 +310,10 @@ syncPendingOperations()
   1. CHECK SERVER REACHABLE
      fetch(`${VITE_API_URL}/api/health`, timeout: 5s)
      If fails → skip, retry in 30 seconds
+     (Separately, lib/connectivity.ts: after 3 failed 15 s health probes on the
+      tablet, lib/server-discovery.ts looks for the server at a new DHCP address —
+      native TCP sweep of the /24, then HTTPS /api/health + matching serverId —
+      and switches the Server Address. Backoff 2/5/15 min. Added 2026-10-10.)
         │
         ▼
   2. GET PENDING OPERATIONS

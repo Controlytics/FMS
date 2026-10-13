@@ -11,6 +11,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Register the RFID plugin BEFORE super.onCreate so the bridge picks it up
         registerPlugin(RfidPlugin.class);
+        // Finds the API on the LAN after a DHCP address change (AUTO-IP-RECOVERY-PLAN)
+        registerPlugin(ServerScanPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

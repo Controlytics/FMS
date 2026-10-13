@@ -430,7 +430,7 @@ async function executeApproval(
 
     case 'FORGOT_PASSWORD': {
       const targetUsername = String(data.username ?? '').trim();
-      if (!targetUsername) throw new ValidationError('Request is missing username');
+      if (!targetUsername) throw new ValidationError('Request is missing User ID');
       const user = await userRepository.findByUsername(targetUsername);
       if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
       const temporaryPassword = await generateTempPassword();
@@ -442,7 +442,7 @@ async function executeApproval(
       const targetUsername = String(data.username ?? '').trim();
       const field = String(data.modifyField ?? '').trim();
       const newValue = data.newValue;
-      if (!targetUsername) throw new ValidationError('Request is missing username');
+      if (!targetUsername) throw new ValidationError('Request is missing User ID');
       if (!field) throw new ValidationError('Request is missing modifyField');
       const allowed = new Set(['fullName', 'email', 'department', 'role', 'status']);
       if (!allowed.has(field)) throw new ValidationError(`Field "${field}" cannot be modified via admin request`);
@@ -491,7 +491,7 @@ interface ActionOutcome {
  */
 async function loadManageableTarget(data: Record<string, any>, ctx: RequestContext) {
   const targetUsername = String(data.username ?? '').trim();
-  if (!targetUsername) throw new ValidationError('Request is missing username');
+  if (!targetUsername) throw new ValidationError('Request is missing User ID');
   const user = await userRepository.findByUsername(targetUsername);
   if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
   await assertCanManageTarget(ctx.userRole, (user as any).role);
@@ -506,7 +506,7 @@ async function generateUniqueUsername(email: string): Promise<string> {
     if (!existing) return candidate;
     candidate = `${base}${i}`;
   }
-  throw new ValidationError('Could not generate a unique username — please create user manually');
+  throw new ValidationError('Could not generate a unique User ID — please create the user manually');
 }
 
 /**

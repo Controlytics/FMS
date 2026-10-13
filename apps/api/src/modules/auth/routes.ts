@@ -41,6 +41,7 @@ export default async function authRoutes(app: FastifyInstance) {
           username: { type: 'string', example: 'your-username' },
           password: { type: 'string', example: 'your-password' },
           force: { type: 'boolean', description: 'Force login by terminating existing sessions' },
+          client: { type: 'string', enum: ['web', 'tablet'], description: "'tablet' = the FilterOps app: a role without tablet login access is refused (403 TABLET_ACCESS_DENIED) before any existing session is touched" },
         },
       },
       response: {
@@ -81,7 +82,7 @@ export default async function authRoutes(app: FastifyInstance) {
     // paths (lib/logger.ts) so it cannot leak through a future context object.
     const attempted = parsed.data.username;
     try {
-      const result = await authService.login(parsed.data.username, parsed.data.password, req.ip, req.headers['user-agent'], parsed.data.force);
+      const result = await authService.login(parsed.data.username, parsed.data.password, req.ip, req.headers['user-agent'], parsed.data.force, parsed.data.client);
       securityLog.info(
         { username: attempted, role: result?.user?.role, ip: req.ip, userAgent: req.headers['user-agent'] },
         `Login SUCCESS: ${attempted}`,

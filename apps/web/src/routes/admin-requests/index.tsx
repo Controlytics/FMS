@@ -214,14 +214,14 @@ export function AdminRequestsPage() {
         // Role-only requests (2026-10-01) carry the server-stamped currentRole;
         // older requests for other fields keep the generic layout.
         if (rd.modifyField === 'role') {
-          fields.push(['Username', rd.username], ['Current Role', rd.currentRole ?? '-'], ['New Role', rd.newValue]);
+          fields.push(['User ID', rd.username], ['Current Role', rd.currentRole ?? '-'], ['New Role', rd.newValue]);
         } else {
-          fields.push(['Username', rd.username], ['Modify Field', rd.modifyField], ['New Value', rd.newValue]);
+          fields.push(['User ID', rd.username], ['Modify Field', rd.modifyField], ['New Value', rd.newValue]);
         }
         break;
       case 'UNLOCK':
       case 'FORGOT_PASSWORD':
-        fields.push(['Username', rd.username]);
+        fields.push(['User ID', rd.username]);
         break;
       default:
         return <pre className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">{JSON.stringify(rd, null, 2)}</pre>;
@@ -621,14 +621,14 @@ export function AdminRequestsPage() {
                 )}
                 {approvalResult.username && (
                   <div>
-                    <label className="text-xs font-bold text-slate-500">Username</label>
+                    <label className="text-xs font-bold text-slate-500">User ID</label>
                     <div className="mt-1 flex items-center gap-2">
                       <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[13px] text-slate-800 font-mono">{approvalResult.username}</code>
                       <button
                         onClick={() => copyToClipboard(approvalResult.username!, 'username')}
                         // Both copy buttons render the bare word "Copy" — without
                         // a label they are indistinguishable out of visual context.
-                        aria-label="Copy username"
+                        aria-label="Copy User ID"
                         className="px-3 py-2.5 rounded-lg text-[12px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                       >
                         {copied === 'username' ? 'Copied' : 'Copy'}

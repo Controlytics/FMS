@@ -135,17 +135,33 @@ $btArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; RetainDays = $Backu
 if ($DryRun) { $btArgs['DryRun'] = $true }
 & (Join-Path $PSScriptRoot 'register-backup-task.ps1') @btArgs
 
+# 5c. Server addresses (2026-10-10, tasks/AUTO-IP-RECOVERY-PLAN.md Part 3):
+#     creates config\digilog-addresses.ini from this PC's IP + the current port if
+#     an older install has none, then applies it - HTTPS certificate for the
+#     LAN's whole /24 + every listed name (same install CA, so tablets keep
+#     trusting it), PORT + ALLOWED_ORIGINS in digilog.env, firewall, shortcut.
+#     Installs from before this release had a certificate for ONE address and
+#     broke on every DHCP change. Not fatal: the schema is already upgraded and
+#     the old settings still work on the old address.
+$addrArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; ApiService = $ApiService; DefaultApiPort = $ApiPort; CreateIfMissing = $true; NoRestart = $true }
+if ($DryRun) { $addrArgs['DryRun'] = $true }
+& (Join-Path $PSScriptRoot 'apply-addresses.ps1') @addrArgs
+if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: server addresses were not applied (see above). Fix digilog-addresses.ini and use Start menu > DigiLog > Apply server addresses." -ForegroundColor Yellow }
+# The port the API will actually listen on (digilog.env PORT, now in step with the ini).
+$envPortNow = (Get-Content $envFile -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*PORT\s*=\s*(\d+)' } | Select-Object -First 1)
+if ($envPortNow -match '=\s*(\d+)') { $ApiPort = [int]$Matches[1] }
+
 # 6. Start the API service + health check.
-if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll http://localhost:$ApiPort/api/health" -ForegroundColor Yellow; exit 0 }
+if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll https://localhost:$ApiPort/api/health" -ForegroundColor Yellow; exit 0 }
 Write-Host "==> Starting $ApiService" -ForegroundColor Cyan
 sc.exe start $ApiService | Out-Null
 $ok = $false
 foreach ($i in 1..30) {
-  try { $r = Invoke-WebRequest "http://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
+  try { $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
   Start-Sleep -Seconds 1
 }
 if ($ok) {
-  Write-Host "`nUpgrade to v$Version complete. API healthy at http://localhost:$ApiPort" -ForegroundColor Green
+  Write-Host "`nUpgrade to v$Version complete. API healthy at https://localhost:$ApiPort" -ForegroundColor Green
   Write-Host "Pre-upgrade backup retained: $backupFile" -ForegroundColor Gray
   exit 0
 } else {
