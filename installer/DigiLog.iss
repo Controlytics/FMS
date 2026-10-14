@@ -25,17 +25,22 @@
 #endif
 
 [Setup]
+; The product is shown as "FMS" (2026-10-14, operator). Only what a person SEES
+; changed: AppId, the install folder, C:\ProgramData\DigiLog, the service names
+; (DigiLogDB / DigiLogAPI) and DigiLog.url are UNCHANGED on purpose - upgrade
+; detection, the scripts and an existing install's data all depend on them.
 AppId={{8F3B2C71-1A4D-4E9A-9C2B-DIGILOG000001}
-AppName=DigiLog
+AppName=FMS
+AppVerName=FMS {#AppVersion}
 AppVersion={#AppVersion}
 AppPublisher=Controlytics
 DefaultDirName={autopf}\DigiLog
-DefaultGroupName=DigiLog
+DefaultGroupName=FMS
 DisableProgramGroupPage=yes
-UninstallDisplayName=DigiLog
+UninstallDisplayName=FMS
 UninstallDisplayIcon={app}\runtime\api\dist\app.js
 OutputDir={#OutputDir}
-OutputBaseFilename=DigiLog-Setup-{#AppVersion}
+OutputBaseFilename=FMS-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -78,6 +83,15 @@ Source: "{#StageDir}\service\*"; DestDir: "{app}\service"; Flags: recursesubdirs
 ; install.ps1 resolves openssl from here. PostgreSQL ships no openssl.exe of its own.
 Source: "{#StageDir}\openssl\*"; DestDir: "{app}\openssl"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StageDir}\scripts\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs createallsubdirs ignoreversion
+; The tablet app, so one Setup.exe carries everything a site needs. Copied to the
+; tablet by hand (with rootCA.pem from the certificate shortcut) and installed there.
+Source: "{#StageDir}\tablet\*"; DestDir: "{app}\tablet"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+[InstallDelete]
+; Shortcuts made by installers before the FMS rename (<= 1.1.2). Without this an
+; upgraded machine shows both a "DigiLog" and an "FMS" Start-menu group.
+Type: filesandordirs; Name: "{commonprograms}\DigiLog"
+Type: files; Name: "{commondesktop}\DigiLog.lnk"
 
 [Dirs]
 ; Data root - survives upgrades + uninstall. Created here so ACLs are set early.
@@ -89,10 +103,11 @@ Name: "{commonappdata}\DigiLog\config"
 
 [Icons]
 ; Start-menu + desktop shortcut open the app in the default browser.
-Name: "{group}\DigiLog"; Filename: "{app}\DigiLog.url"
-Name: "{group}\Uninstall DigiLog"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\DigiLog"; Filename: "{app}\DigiLog.url"; Tasks: desktopicon
+Name: "{group}\FMS"; Filename: "{app}\DigiLog.url"
+Name: "{group}\Uninstall FMS"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\FMS"; Filename: "{app}\DigiLog.url"; Tasks: desktopicon
 Name: "{group}\Install tablet certificate (rootCA.pem)"; Filename: "{commonappdata}\DigiLog\certs"; Comment: "Copy rootCA.pem to the tablet and install it under Settings > Security > Install certificate"
+Name: "{group}\Tablet app (FMS.apk)"; Filename: "{app}\tablet"; Comment: "Copy FMS.apk to the tablet and install it (install the certificate first)"
 ; The ONE file for this server's names / IPs / port, and the action that applies it
 ; (certificate, port, allowed origins, firewall, restart). apply-addresses.cmd asks for
 ; Administrator itself. tasks/AUTO-IP-RECOVERY-PLAN.md, Part 3.
@@ -109,14 +124,14 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 ; FRESH install: generate secrets, provision Postgres, register services, health check.
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install.ps1"" -InstallDir ""{app}"" -AdminPassword ""{code:GetAdminPassword}"""; \
-  StatusMsg: "Setting up the DigiLog database and services (this can take a minute)..."; \
+  StatusMsg: "Setting up the FMS database and services (this can take a minute)..."; \
   Flags: runhidden waituntilterminated; Check: not IsUpgrade
 ;
 ; UPGRADE: pre-upgrade DB backup, forward-only migrate deploy, reseed, restart API.
 ; Preserves all data + secrets in C:\ProgramData\DigiLog.
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\upgrade.ps1"" -InstallDir ""{app}"" -Version ""{#AppVersion}"""; \
-  StatusMsg: "Backing up and upgrading the DigiLog database (this can take a minute)..."; \
+  StatusMsg: "Backing up and upgrading the FMS database (this can take a minute)..."; \
   Flags: runhidden waituntilterminated; Check: IsUpgrade
 
 [UninstallRun]
@@ -141,11 +156,17 @@ end;
 procedure InitializeWizard;
 begin
   IsUpgradeFlag := FileExists(ExpandConstant('{commonappdata}\DigiLog\config\digilog.env'));
+  { The seed does NOT force a change at first login (forcePasswordChange=false):
+    the person installing chose this password. The old text promised a forced
+    change that never happened. }
   AdminPage := CreateInputQueryPage(wpSelectDir,
-    'Initial administrator password',
+    'Administrator password',
     'Set the password for the built-in ''superadmin'' account.',
-    'You will be required to change it on first login. Minimum 8 characters.');
-  AdminPage.Add('Initial admin password:', True);  { True = password (masked) }
+    'You will sign in to FMS as superadmin with this password. Keep it safe: it is ' +
+    'the only account on a new system. At least 8 characters, with an upper-case ' +
+    'letter, a lower-case letter, a number and a special character.');
+  AdminPage.Add('Password:', True);          { True = password (masked) }
+  AdminPage.Add('Confirm password:', True);
 end;
 
 { Skip the admin-password page on upgrade: the superadmin already exists and its
@@ -162,14 +183,47 @@ begin
   Result := AdminPage.Values[0];
 end;
 
+{ Same rules as the shipped password policy (8+ chars, upper, lower, number,
+  special), so the first password is not one the app itself would refuse. }
+function PasswordProblem(const Pw: string): string;
+var
+  I: Integer;
+  C: Char;
+  HasUpper, HasLower, HasDigit, HasSpecial: Boolean;
+begin
+  Result := '';
+  HasUpper := False; HasLower := False; HasDigit := False; HasSpecial := False;
+  for I := 1 to Length(Pw) do
+  begin
+    C := Pw[I];
+    if (C >= 'A') and (C <= 'Z') then HasUpper := True
+    else if (C >= 'a') and (C <= 'z') then HasLower := True
+    else if (C >= '0') and (C <= '9') then HasDigit := True
+    else if C <> ' ' then HasSpecial := True;
+  end;
+  if Length(Pw) < 8 then Result := 'at least 8 characters'
+  else if not HasUpper then Result := 'an upper-case letter'
+  else if not HasLower then Result := 'a lower-case letter'
+  else if not HasDigit then Result := 'a number'
+  else if not HasSpecial then Result := 'a special character';
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Problem: string;
 begin
   Result := True;
   if (not IsUpgradeFlag) and (CurPageID = AdminPage.ID) then
   begin
-    if Length(AdminPage.Values[0]) < 8 then
+    Problem := PasswordProblem(AdminPage.Values[0]);
+    if Problem <> '' then
     begin
-      MsgBox('The admin password must be at least 8 characters.', mbError, MB_OK);
+      MsgBox('The password needs ' + Problem + '.', mbError, MB_OK);
+      Result := False;
+    end
+    else if AdminPage.Values[0] <> AdminPage.Values[1] then
+    begin
+      MsgBox('The two passwords do not match.', mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -233,7 +287,7 @@ begin
     begin
       Result := 'The Microsoft Visual C++ Redistributable failed to install (code ' +
                 IntToStr(ResultCode) + ').' + #13#10 +
-                'DigiLog''s bundled PostgreSQL requires it. Install VC_redist.x64.exe ' +
+                'The FMS database (bundled PostgreSQL) requires it. Install VC_redist.x64.exe ' +
                 'manually, then run this installer again.';
       Exit;
     end;

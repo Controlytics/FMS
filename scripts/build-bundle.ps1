@@ -8,7 +8,7 @@
   Produces:
     apps/api/dist/   - compiled backend (entry: dist/app.js)
     apps/web/dist/   - built React UI (served by the backend when SERVE_WEB=true)
-    packages/shared/dist, packages/queue/dist - workspace deps
+    packages/shared/dist - workspace dep
 
   After building, run the whole app from one process:
 
@@ -34,7 +34,15 @@ function Step($name, $block) {
 }
 
 Step "Build @digilog/shared" { npm run build -w @digilog/shared }
-Step "Build @digilog/queue"  { npm run build -w @digilog/queue }
+# (@digilog/queue was deleted 2026-08-26 with graphile-worker; the API schedules
+#  its jobs in-process with node-cron. Its build step here broke every installer
+#  build from then until 2026-10-14.)
+# tsc never deletes output whose source was removed, so a module deleted from
+# src/ would keep shipping from a stale dist/. Start from an empty dist.
+Step "Clean apps/api/dist" {
+  if (Test-Path apps/api/dist) { Remove-Item -Recurse -Force apps/api/dist }
+  $global:LASTEXITCODE = 0
+}
 Step "Compile backend (tsc)" { npx tsc -p apps/api/tsconfig.json }
 
 # Precompile the DB seed to a self-contained ESM file the CUSTOMER runtime can run

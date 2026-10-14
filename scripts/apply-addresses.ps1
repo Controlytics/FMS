@@ -5,7 +5,7 @@
   of DigiLog, then restart the API.
 
 .DESCRIPTION
-  Start menu: "DigiLog > Edit server addresses" opens the file; "Apply server
+  Start menu: "FMS > Edit server addresses" opens the file; "Apply server
   addresses" runs this (apply-addresses.cmd asks for Administrator first).
   tasks/AUTO-IP-RECOVERY-PLAN.md, Part 3.
 
@@ -57,7 +57,7 @@ function Fail($m) { Write-Host "FAILED: $m" -ForegroundColor Red; exit 1 }
 $needsAdmin = -not $DryRun -and (-not $NoFirewall -or -not $NoRestart)
 if ($needsAdmin) {
   $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-  if (-not $admin) { Fail 'Run this as Administrator (Start menu: DigiLog > Apply server addresses).' }
+  if (-not $admin) { Fail 'Run this as Administrator (Start menu: FMS > Apply server addresses).' }
 }
 
 $lanIp = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).IPv4Address.IPAddress
@@ -71,7 +71,7 @@ if (-not (Test-Path $iniFile)) {
   if ($DryRun) { Write-Host "[dry-run] create $iniFile (address $($first -join ', '), api $currentPort)" -ForegroundColor Yellow }
   else {
     New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-    New-DigilogAddressFile -Path $iniFile -Addresses $first -ApiPort $currentPort -Apply 'Start menu: DigiLog > Apply server addresses'
+    New-DigilogAddressFile -Path $iniFile -Addresses $first -ApiPort $currentPort -Apply 'Start menu: FMS > Apply server addresses'
     Write-Step "Created $iniFile"
   }
 }

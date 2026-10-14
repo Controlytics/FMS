@@ -49,7 +49,10 @@ param(
   [string]$NodeExe = 'node',
   [string]$LogDir,
   [string]$EnvOut,
-  [switch]$StopWhenDone
+  [switch]$StopWhenDone,
+  # Seed the approved starting setup (prisma\install-baseline.json) instead of the
+  # code defaults. install.ps1 passes it; see apply-schema.ps1 -UseInstallBaseline.
+  [switch]$UseInstallBaseline
 )
 
 # Gate on $LASTEXITCODE; never ErrorActionPreference=Stop with native stderr.
@@ -118,7 +121,10 @@ log_checkpoints = on
 log_lock_waits = on
 log_min_duration_statement = 1000
 log_min_messages = warning
-log_timezone = 'localtime'
+# NO log_timezone here. initdb already writes the machine's own zone (e.g.
+# 'Asia/Calcutta'). 'localtime' is not a zone PostgreSQL accepts, so the
+# 2026-08-31 line that set it made postgresql.conf invalid and the cluster
+# refused to start - every fresh install failed at "start cluster" until 2026-10-14.
 
 "@
 Add-Content -Path $conf -Value $pgLogSettings
@@ -147,12 +153,23 @@ try {
   # 6 + 7. migrate deploy + seed via the shared, customer-safe apply-schema step
   #        (bundled node.exe only; npx/tsx dev fallback). Fresh + upgrade both go
   #        through apply-schema.ps1 so they can never drift. See EXE-PACKAGING-PLAN M6.
-  & (Join-Path $PSScriptRoot 'apply-schema.ps1') -NodeExe $NodeExe -ApiDir $ApiDir -DatabaseUrl $dbUrl -AdminPassword $AdminPassword
+  $schemaArgs = @{ NodeExe = $NodeExe; ApiDir = $ApiDir; DatabaseUrl = $dbUrl; AdminPassword = $AdminPassword }
+  if ($UseInstallBaseline) { $schemaArgs['UseInstallBaseline'] = $true }
+  & (Join-Path $PSScriptRoot 'apply-schema.ps1') @schemaArgs
   if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: apply-schema" -ForegroundColor Red; & $pgctl -D $DataDir stop -m fast | Out-Null; exit 1 }
 
   # 8. Verify
   $roleCount = Psql $AppDb "SELECT count(*) FROM roles;"
   $adminCount = Psql $AppDb "SELECT count(*) FROM users WHERE username='superadmin';"
+  if ($UseInstallBaseline) {
+    # The baseline is what makes tablet access and e-signatures match the
+    # approved setup; a seed that silently skipped it must not pass as success.
+    $baselineRows = Psql $AppDb "SELECT count(*) FROM system_config WHERE config_key IN ('tablet-access','action-reauth');"
+    if ("$baselineRows".Trim() -ne '2') {
+      Write-Host "FAILED: install baseline not applied (tablet-access / action-reauth missing)." -ForegroundColor Red
+      exit 1
+    }
+  }
   Write-Host "`nProvisioned OK - roles=$roleCount, superadmin=$adminCount, db=$AppDb @ :$Port" -ForegroundColor Green
   if ($EnvOut) { Set-Content -Path $EnvOut -Value "DATABASE_URL=$dbUrl" -Encoding ascii; Write-Host "Wrote $EnvOut" }
 }

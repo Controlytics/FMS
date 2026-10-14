@@ -100,7 +100,7 @@ $addrFile = Join-Path $configDir 'digilog-addresses.ini'
 if (-not (Test-Path $addrFile)) {
   if ($DryRun) { Write-Host "[dry-run] create $addrFile (address $lanIp, api $ApiPort)" -ForegroundColor Yellow }
   else {
-    New-DigilogAddressFile -Path $addrFile -Addresses @($lanIp | Where-Object { $_ -ne '127.0.0.1' }) -ApiPort $ApiPort -Apply 'Start menu: DigiLog > Apply server addresses'
+    New-DigilogAddressFile -Path $addrFile -Addresses @($lanIp | Where-Object { $_ -ne '127.0.0.1' }) -ApiPort $ApiPort -Apply 'Start menu: FMS > Apply server addresses'
     Write-Host "==> Created $addrFile" -ForegroundColor Cyan
   }
 }
@@ -161,11 +161,11 @@ OFFLINE_REPLAY_SECRET=$offline
 # 21 CFR Part 11 tamper-evidence: keyed HMAC-SHA256 audit chain (checksum_version=3).
 # Generated per-install and MUST be backed up OUTSIDE the database. If lost/changed,
 # all v3 audit rows become permanently unverifiable. Do NOT remove to "fix" a verify
-# error — losing this key is itself the compliance failure. See lib/hash-chain.ts.
+# error - losing this key is itself the compliance failure. See lib/hash-chain.ts.
 AUDIT_CHAIN_KEY=$auditKey
 # Cutover anchor for the keyed HMAC chain. A fresh install starts with an
 # empty audit_trail, so the very first audited row (chain_position 1) is
-# already keyed — every row must be v3 from the start. Do NOT change.
+# already keyed - every row must be v3 from the start. Do NOT change.
 AUDIT_CHAIN_KEYED_FROM=1
 # JWT lifetime ceiling in hours (integer). The Session Settings page can offer
 # a longer 'Session Duration', but signToken clamps every token to this value.
@@ -193,7 +193,7 @@ UPLOAD_DIR=$uploadDir
 # hash-chained and retained permanently) - they are rotated and deleted.
 LOG_DIR=$logDir
 # Browser origins allowed to call the API - generated from digilog-addresses.ini.
-# Change the addresses there and use Start menu > DigiLog > Apply server addresses.
+# Change the addresses there and use Start menu > FMS > Apply server addresses.
 ALLOWED_ORIGINS=$allowedOrigins
 "@
   if ($DryRun) { Write-Host "[dry-run] write $envFile (secrets generated, app-db password random)" -ForegroundColor Yellow }
@@ -213,6 +213,9 @@ if ($dbAlreadyInit) {
     AppPassword = $appDbPassword; SuperPassword = (NewSecret 18);
     AdminPassword = $AdminPassword; ApiDir = $apiDir; LogDir = $logDir;
     NodeExe = $nodeExe
+    # Fresh install: seed the approved roles / re-auth / tablet access / settings
+    # (prisma install-baseline.json), not the code defaults.
+    UseInstallBaseline = $true
     # MUST be $true. provision-db starts the cluster directly (pg_ctl start) to run
     # migrate+seed. If it is left running it keeps the data dir, port and
     # postmaster.pid, so `sc start DigiLogDB` launches a SECOND postmaster which
@@ -255,7 +258,7 @@ if ($DryRun) { $regArgs['DryRun'] = $true }
 & (Join-Path $scriptsDir 'register-services.ps1') @regArgs
 if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: service registration" -ForegroundColor Red; exit 1 }
 
-# 4b. Nightly DB backup task (21 CFR §11.10(c) - record protection). Non-fatal:
+# 4b. Nightly DB backup task (21 CFR S11.10(c) - record protection). Non-fatal:
 #     a missing backup job must not block the install, but register-backup-task
 #     WARNs loudly so it is not signed off at IQ. upgrade.ps1 calls the same
 #     script, because the installer's upgrade path never runs this file.

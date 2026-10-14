@@ -7,6 +7,40 @@ import { defaultRoles } from './default-roles.js';
 const prisma = new PrismaClient();
 
 /**
+ * EVERY write in this seed is CREATE-ONLY (`update: {}`), by operator decision
+ * 2026-10-14. The installer runs this seed on every UPGRADE (apply-schema.ps1),
+ * and the old update branches reset a customer's own configuration each time:
+ * the built-in roles' permissions, the password / session / date-time policy,
+ * the superadmin's status, field labels, help articles - and `action-reauth`
+ * back to `{}`, i.e. electronic signatures OFF after every upgrade. A seed
+ * value is a STARTING value; once a row exists it belongs to the site.
+ */
+
+interface InstallBaseline {
+  roles: Array<{ name: string; displayName: string; description: string | null; hierarchyLevel: number;
+                 permissions: string[]; color: string; isSystem: boolean }>;
+  roleConfigs: Array<{ role: string; sidebarItems: string[]; homeWidgets: unknown; permissions: Record<string, boolean> }>;
+  settings: Array<{ configKey: string; configValue: unknown; configType: string; requiresReauth: boolean }>;
+}
+
+/**
+ * The fresh-install starting setup (prisma/install-baseline.json, produced by
+ * export-install-baseline.ts). Read ONLY when SEED_INSTALL_BASELINE=1, which
+ * apply-schema.ps1 sets for a fresh install. Dev, test and upgrade seeds keep
+ * the code defaults. Missing or unreadable when requested = fatal: silently
+ * falling back would install the wrong roles with a success message.
+ */
+function loadInstallBaseline(): InstallBaseline | null {
+  if (process.env.SEED_INSTALL_BASELINE !== '1') return null;
+  const file = join(process.cwd(), 'prisma', 'install-baseline.json');
+  const parsed = JSON.parse(readFileSync(file, 'utf8')) as InstallBaseline;
+  if (!parsed.roles?.length || !parsed.settings?.length) {
+    throw new Error(`FATAL: ${file} has no roles or settings.`);
+  }
+  return parsed;
+}
+
+/**
  * Apply DDL invariants Prisma cannot express (Phase 5b.5).
  * Idempotent — every statement uses IF NOT EXISTS / OR REPLACE.
  */
@@ -41,19 +75,21 @@ async function applyInvariants() {
 async function main() {
   console.log('Seeding database...');
 
-  // 1. Create default roles (imported from ./default-roles.ts — pure data, no side effects)
+  const baseline = loadInstallBaseline();
+  if (baseline) console.log(`  Using the fresh-install baseline (${baseline.roles.length} roles, ${baseline.settings.length} settings)`);
 
-  for (const role of defaultRoles) {
+  // 1. Roles: the install baseline on a fresh install; ./default-roles.ts only on
+  //    an EMPTY database (dev / test). A database that already has roles is a
+  //    site's own set: an upgrade must not add roles to it either. (Rehearsal
+  //    2026-10-14: a 1.2.0 install upgraded in place gained MAINTENANCE + VIEWER.)
+  //    Create-only - see the note at the top of this file.
+  const existingRoles = await prisma.role.count();
+  const roleSource = baseline?.roles ?? (existingRoles === 0 ? defaultRoles : []);
+  if (!baseline && existingRoles > 0) console.log(`  Roles: ${existingRoles} already present - left as the site configured them`);
+  for (const role of roleSource) {
     await prisma.role.upsert({
       where: { name: role.name },
-      update: {
-        displayName: role.displayName,
-        description: role.description,
-        hierarchyLevel: role.hierarchyLevel,
-        permissions: role.permissions,
-        color: role.color,
-        isSystem: role.isSystem,
-      },
+      update: {},
       create: {
         name: role.name,
         displayName: role.displayName,
@@ -68,6 +104,29 @@ async function main() {
   }
   console.log('  Created default roles');
 
+  // 1b. Role configs (sidebar + feature toggles) and settings from the install
+  //     baseline. BEFORE the built-in config defaults below, so the baseline's
+  //     value is the one created. Create-only.
+  if (baseline) {
+    for (const rc of baseline.roleConfigs) {
+      await prisma.roleConfig.upsert({
+        where: { role: rc.role },
+        update: {},
+        create: { role: rc.role, sidebarItems: rc.sidebarItems, homeWidgets: rc.homeWidgets as any,
+                  permissions: rc.permissions, updatedBy: 'system' },
+      });
+    }
+    for (const s of baseline.settings) {
+      await prisma.systemConfig.upsert({
+        where: { configKey: s.configKey },
+        update: {},
+        create: { configKey: s.configKey, configValue: s.configValue as any, configType: s.configType,
+                  requiresReauth: s.requiresReauth },
+      });
+    }
+    console.log(`  Applied baseline role configs (${baseline.roleConfigs.length}) and settings (${baseline.settings.length})`);
+  }
+
   // 2. Create default SUPER_ADMIN
   const defaultPassword = process.env.INITIAL_ADMIN_PASSWORD;
   if (!defaultPassword) {
@@ -77,14 +136,7 @@ async function main() {
 
   await prisma.user.upsert({
     where: { username: 'superadmin' },
-    update: {
-      fullName: 'System Administrator',
-      email: 'admin@digilog.local',
-      role: 'SUPER_ADMIN',
-      status: 'ENABLED',
-      forcePasswordChange: false,
-      isTemporaryPassword: false,
-    },
+    update: {},
     create: {
       username: 'superadmin',
       fullName: 'System Administrator',
@@ -183,11 +235,7 @@ async function main() {
   for (const config of configs) {
     await prisma.systemConfig.upsert({
       where: { configKey: config.configKey },
-      update: {
-        configValue: config.configValue,
-        configType: config.configType,
-        requiresReauth: config.requiresReauth,
-      },
+      update: {},
       create: config,
     });
   }
@@ -318,9 +366,10 @@ async function main() {
   for (const field of fieldIds) {
     await prisma.fieldIdConfig.upsert({
       where: { fieldId: field.fieldId },
+      // defaultName / module / description are the code's own reference text and
+      // may be corrected by a release. displayName is the site's label - never touched.
       update: {
         defaultName: field.defaultName,
-        displayName: field.displayName,
         module: field.module,
         description: field.description,
       },
@@ -370,12 +419,7 @@ async function main() {
   for (const article of helpArticles) {
     await prisma.helpArticle.upsert({
       where: { key: article.key },
-      update: {
-        title: article.title,
-        content: `# ${article.title}\n\nThis article covers the key concepts and usage guidelines for ${article.title.toLowerCase()}. For detailed instructions, please refer to the system documentation or contact your administrator.`,
-        category: article.category,
-        sortOrder: article.sortOrder,
-      },
+      update: {}, // articles are editable in the Help module; a re-seed must not undo that
       create: {
         key: article.key,
         title: article.title,
@@ -401,7 +445,8 @@ async function main() {
   for (const k of systemKinds) {
     await prisma.templateKind.upsert({
       where: { code: k.code },
-      update: { label: k.label, description: k.description, sortOrder: k.sortOrder, isSystem: true },
+      // label / description / sortOrder are admin-editable; only the protection flag is enforced.
+      update: { isSystem: true },
       create: { code: k.code, label: k.label, description: k.description, sortOrder: k.sortOrder, isSystem: true, isActive: true },
     });
   }

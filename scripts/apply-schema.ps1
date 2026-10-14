@@ -38,6 +38,12 @@ param(
   [Parameter(Mandatory)] [string]$ApiDir,
   [Parameter(Mandatory)] [string]$DatabaseUrl,
   [Parameter(Mandatory)] [string]$AdminPassword,
+  # FRESH INSTALL ONLY (provision-db.ps1 passes it; upgrade.ps1 never does).
+  # Seeds the approved starting setup from prisma\install-baseline.json -
+  # roles, role configs, re-auth, tablet access, settings - instead of the code
+  # defaults. Every seed write is create-only, so on an existing DB it would
+  # change nothing anyway; keeping it off for upgrades makes that explicit.
+  [switch]$UseInstallBaseline,
   [switch]$DryRun
 )
 
@@ -78,6 +84,14 @@ try {
 
   Write-Host "==> seed" -ForegroundColor Cyan
   $env:INITIAL_ADMIN_PASSWORD = $AdminPassword
+  if ($UseInstallBaseline) {
+    if (-not (Test-Path (Join-Path $ApiDir 'prisma\install-baseline.json'))) {
+      Write-Host "FAILED: prisma\install-baseline.json missing - a fresh install would get the wrong roles." -ForegroundColor Red; exit 1
+    }
+    $env:SEED_INSTALL_BASELINE = '1'
+  } else {
+    Remove-Item Env:SEED_INSTALL_BASELINE -ErrorAction SilentlyContinue
+  }
   if (Test-Path $seedMjs)      { & $NodeExe $seedMjs }
   elseif (Test-Path $seedTs)   { npx tsx prisma/seed.ts }
   else { Write-Host "FAILED: no seed.mjs or seed.ts in $ApiDir\prisma" -ForegroundColor Red; exit 1 }

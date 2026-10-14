@@ -48,7 +48,7 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
 - **Applying schema** (fresh install or upgrade): extensions first, then `migrate deploy`.
   1. `CREATE EXTENSION IF NOT EXISTS ltree; CREATE EXTENSION IF NOT EXISTS pgcrypto;` (i.e. apply `prisma/sql/extensions.sql`) — **required**; the baseline uses these but doesn't create them, so `migrate deploy` fails on a bare DB without it.
   2. `npx prisma migrate deploy` (root: `npm run db:migrate`).
-  3. Seed with `INITIAL_ADMIN_PASSWORD` set (the seed throws without it). The seed is all `upsert` and never overwrites the admin password → upgrade-safe.
+  3. Seed with `INITIAL_ADMIN_PASSWORD` set (the seed throws without it). **Every seed write is create-only (2026-10-14)**, so an upgrade never changes a site's roles, settings, re-auth, labels or help articles. Before that, every upgrade reset `action-reauth` to `{}`. A FRESH install adds `SEED_INSTALL_BASELINE=1` (`apply-schema.ps1 -UseInstallBaseline`), so the approved roles and settings come from `prisma/install-baseline.json`. Re-export that file with `npx tsx prisma/export-install-baseline.ts` and review its diff; `src/__tests__/install-baseline.test.ts` guards it.
 - **Authoring a NEW migration** (the auto-gen `migrate dev` flow is unreliable here because the pg_dump baseline always reads as "drift" vs the datamodel):
   1. Edit `schema.prisma`.
   2. `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --script` → review, strip the out-of-band noise (triggers/functions/sequences managed in `prisma/sql/*`).

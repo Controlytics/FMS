@@ -14,15 +14,13 @@
     runtime\node.exe
     runtime\api\dist, runtime\api\prisma, runtime\api\package.json
     runtime\web\dist
-    runtime\queue\crontab.txt
     runtime\node_modules\...            (production deps)
     runtime\node_modules\@digilog\shared\{dist,package.json}   (dereferenced)
-    runtime\node_modules\@digilog\queue\{dist,package.json}    (dereferenced)
 
   The @digilog/* entries in a workspace node_modules are Windows JUNCTIONS into
   packages/. A naive copy ships dangling links, so we EXCLUDE @digilog from the
-  bulk copy and re-create shared + queue as real folders from their built dist.
-  (apps/api only depends on @digilog/shared + @digilog/queue.)
+  bulk copy and re-create shared as a real folder from its built dist.
+  (apps/api depends only on @digilog/shared; @digilog/queue was deleted 2026-08-26.)
 
 .PARAMETER NodeExe         Portable node.exe to bundle (ABI must match native build)
 .PARAMETER NodeModulesSrc  Production node_modules (from `npm ci --omit=dev`)
@@ -42,16 +40,13 @@ $apiDist   = Join-Path $RepoRoot 'apps\api\dist'
 $apiPrisma = Join-Path $RepoRoot 'apps\api\prisma'
 $apiPkg    = Join-Path $RepoRoot 'apps\api\package.json'
 $webDist   = Join-Path $RepoRoot 'apps\web\dist'
-$crontab   = Join-Path $RepoRoot 'packages\queue\crontab.txt'
 $sharedDist= Join-Path $RepoRoot 'packages\shared\dist'
 $sharedPkg = Join-Path $RepoRoot 'packages\shared\package.json'
-$queueDist = Join-Path $RepoRoot 'packages\queue\dist'
-$queuePkg  = Join-Path $RepoRoot 'packages\queue\package.json'
 
 # Pre-flight: every input must exist (fail loud, not a half-staged runtime).
 $required = @{
   'node.exe'=$NodeExe; 'node_modules src'=$NodeModulesSrc; 'api/dist'=$apiDist;
-  'web/dist'=$webDist; 'shared/dist'=$sharedDist; 'queue/dist'=$queueDist
+  'web/dist'=$webDist; 'shared/dist'=$sharedDist
 }
 foreach ($k in $required.Keys) {
   if (-not (Test-Path $required[$k])) { Write-Host "Missing input: $k -> $($required[$k]) (run build-bundle.ps1 first)" -ForegroundColor Red; exit 1 }
@@ -71,23 +66,21 @@ if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 if ($DryRun) { Write-Host "[dry-run] copy $NodeExe -> $OutDir\node.exe" -ForegroundColor Yellow }
 else { Copy-Item $NodeExe (Join-Path $OutDir 'node.exe') -Force }
 
-# backend + web + queue crontab
+# backend + web
 Copy-Tree $apiDist   (Join-Path $OutDir 'api\dist')   ''
 Copy-Tree $apiPrisma (Join-Path $OutDir 'api\prisma') ''
 Copy-Tree $webDist   (Join-Path $OutDir 'web\dist')   ''
 if ($DryRun) {
-  Write-Host "[dry-run] copy api/package.json, queue/crontab.txt" -ForegroundColor Yellow
+  Write-Host "[dry-run] copy api/package.json" -ForegroundColor Yellow
 } else {
   Copy-Item $apiPkg (Join-Path $OutDir 'api\package.json') -Force
-  New-Item -ItemType Directory -Force -Path (Join-Path $OutDir 'queue') | Out-Null
-  if (Test-Path $crontab) { Copy-Item $crontab (Join-Path $OutDir 'queue\crontab.txt') -Force }
 }
 
 # production node_modules - EXCLUDE the @digilog junctions (dereferenced below)
 Copy-Tree $NodeModulesSrc (Join-Path $OutDir 'node_modules') "/XD `"$NodeModulesSrc\@digilog`""
 
-# @digilog/shared + @digilog/queue as REAL folders (dist + package.json)
-foreach ($w in @(@{n='shared';d=$sharedDist;p=$sharedPkg}, @{n='queue';d=$queueDist;p=$queuePkg})) {
+# @digilog/shared as a REAL folder (dist + package.json)
+foreach ($w in @(@{n='shared';d=$sharedDist;p=$sharedPkg})) {
   $dest = Join-Path $OutDir "node_modules\@digilog\$($w.n)"
   Copy-Tree $w.d (Join-Path $dest 'dist') ''
   if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $dest | Out-Null; Copy-Item $w.p (Join-Path $dest 'package.json') -Force }

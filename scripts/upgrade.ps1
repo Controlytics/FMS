@@ -146,7 +146,7 @@ if ($DryRun) { $btArgs['DryRun'] = $true }
 $addrArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; ApiService = $ApiService; DefaultApiPort = $ApiPort; CreateIfMissing = $true; NoRestart = $true }
 if ($DryRun) { $addrArgs['DryRun'] = $true }
 & (Join-Path $PSScriptRoot 'apply-addresses.ps1') @addrArgs
-if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: server addresses were not applied (see above). Fix digilog-addresses.ini and use Start menu > DigiLog > Apply server addresses." -ForegroundColor Yellow }
+if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: server addresses were not applied (see above). Fix digilog-addresses.ini and use Start menu > FMS > Apply server addresses." -ForegroundColor Yellow }
 # The port the API will actually listen on (digilog.env PORT, now in step with the ini).
 $envPortNow = (Get-Content $envFile -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*PORT\s*=\s*(\d+)' } | Select-Object -First 1)
 if ($envPortNow -match '=\s*(\d+)') { $ApiPort = [int]$Matches[1] }

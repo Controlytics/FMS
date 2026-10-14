@@ -15,7 +15,9 @@
     6. stage scripts/ (provision/register/install/uninstall)
     7. stage prereq/  (VC++ 2015-2022 x64 redistributable)
     8. stage openssl/ (OpenSSL CLI - PostgreSQL does NOT ship one)
-    9. ISCC -> Setup.exe
+    8a. stage tablet/ (the Android APK -> {app}\tablet\FMS.apk)
+    8b. leak scan of the staged payload (no .env / keys / dumps / dev secrets)
+    9. ISCC -> FMS-Setup-<ver>.exe
 
   Prerequisites (the build machine provides these; not committed to the repo):
     -NodeZip   path to node-vXX-win-x64.zip      (ABI must match the native build)
@@ -48,6 +50,9 @@ param(
   # "FATAL: openssl.exe not found". Download + verify the published SHA-256 from
   # https://kb.firedaemon.com/support/solutions/articles/4000121705
   [Parameter(Mandatory)] [string]$OpenSslZip,
+  # The tablet app shipped inside Setup.exe ({app}\tablet\FMS.apk). Defaults to
+  # the APK committed at the repo root - rebuild it first if the web UI changed.
+  [string]$ApkPath,
   [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
   [string]$AppVersion = '0.1.0',
   [string]$OutDir,
@@ -65,6 +70,7 @@ param(
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $OutDir) { $OutDir = Join-Path $repoRoot 'dist' }
+if (-not $ApkPath) { $ApkPath = Join-Path $repoRoot 'DigiLog-FilterOps.apk' }
 $stage    = Join-Path $OutDir 'stage'
 $cleanDir = Join-Path $OutDir 'cleanroom'
 
@@ -106,7 +112,7 @@ function Sign-File($signtool, $file) {
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force -Path $stage, $cleanDir | Out-Null
 
-# 1. Build the app (shared/queue/api/web)
+# 1. Build the app (shared/api/web)
 Step "Build app bundle" { & (Join-Path $PSScriptRoot 'build-bundle.ps1') }
 
 # 2. Clean-room production deps. We do `npm ci --omit=dev` in an isolated tree so
@@ -266,12 +272,67 @@ Copy-Item (Join-Path $sslTmp 'LICENSE.txt') (Join-Path $sslDest 'LICENSE.txt') -
 $sslMb = [math]::Round(((Get-ChildItem $sslDest -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
 Write-Host "    staged openssl: $sslMb MB (pdb symbols excluded)" -ForegroundColor DarkGray
 
+# 8. Stage tablet/ - the Android app, so one Setup.exe carries everything.
+Write-Host "==> Stage tablet APK" -ForegroundColor Cyan
+if (-not (Test-Path $ApkPath)) { Write-Host "FAILED: tablet APK not found: $ApkPath" -ForegroundColor Red; exit 1 }
+$apkBytes = [System.IO.File]::ReadAllBytes($ApkPath)
+# An APK is a zip: it must start with "PK". A truncated or HTML-error file must not ship.
+if ($apkBytes.Length -lt 1MB -or $apkBytes[0] -ne 0x50 -or $apkBytes[1] -ne 0x4B) {
+  Write-Host "FAILED: $ApkPath is not a valid APK (zip header / size)." -ForegroundColor Red; exit 1
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $stage 'tablet') | Out-Null
+Copy-Item $ApkPath (Join-Path $stage 'tablet\FMS.apk') -Force
+Write-Host ("    staged FMS.apk: {0} MB, built {1}" -f [math]::Round($apkBytes.Length/1MB,1), (Get-Item $ApkPath).LastWriteTime) -ForegroundColor DarkGray
+
+# 8b. Leak scan of the STAGED tree (what actually ships), not the repo. runtime\
+#     is copied from the live working tree (api/dist, api/prisma, web/dist), so a
+#     developer's .env, certificate, key, dump or upload could ride along unseen.
+#     A new install must carry no data and no secret from the build machine.
+Write-Host "==> Leak scan of the staged payload" -ForegroundColor Cyan
+$leaks = @()
+# Scan what comes from THIS machine's working tree. pgsql\ and openssl\ are vendor
+# trees unpacked from the pinned zips (PostgreSQL ships hundreds of extension .sql
+# scripts), and prereq\ is Microsoft's redistributable.
+$ownTrees = @('runtime','scripts','tablet') | ForEach-Object { Join-Path $stage $_ } | Where-Object { Test-Path $_ }
+$leaks += Get-ChildItem $ownTrees -Recurse -File -Force | Where-Object {
+  ($_.Name -match '^\.env($|\.)' -and $_.FullName -notmatch '\\node_modules\\') -or
+  ($_.Extension -in '.key','.pfx','.p12','.dump','.bak','.backup') -or
+  ($_.Extension -in '.pem','.crt' -and $_.FullName -notmatch '\\node_modules\\') -or
+  ($_.Extension -eq '.sql' -and $_.FullName -notmatch '\\prisma\\(migrations|migrations_archive_\d+|sql)\\' -and $_.FullName -notmatch '\\node_modules\\')
+} | ForEach-Object { "file: $($_.FullName)" }
+foreach ($d in 'uploads','backups','logs') {
+  # \dist\ is compiled code: runtime\api\dist\modules\uploads is the uploads MODULE, not an uploads folder.
+  $leaks += Get-ChildItem $ownTrees -Recurse -Directory -Force -Filter $d -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '\\node_modules\\' -and $_.FullName -notmatch '\\dist\\' } | ForEach-Object { "dir: $($_.FullName)" }
+}
+# Secrets the build machine is known to hold: its dev DB password, and every
+# value in apps/api/.env that is long enough to be a secret.
+$needles = @('digilog123')
+$devEnv = Join-Path $repoRoot 'apps\api\.env'
+if (Test-Path $devEnv) {
+  foreach ($line in Get-Content $devEnv) {
+    if ($line -match '^\s*(JWT_SECRET|VERIFICATION_TOKEN_SECRET|OFFLINE_REPLAY_SECRET|AUDIT_CHAIN_KEY)\s*=\s*(\S{16,})') { $needles += $matches[2] }
+  }
+}
+$textFiles = Get-ChildItem (Join-Path $stage 'runtime'), (Join-Path $stage 'scripts') -Recurse -File -Force |
+  Where-Object { $_.Extension -in '.js','.mjs','.json','.html','.ps1','.cmd','.ts','.prisma','.txt' -and $_.FullName -notmatch '\\node_modules\\' }
+foreach ($n in $needles) {
+  $hit = $textFiles | Select-String -SimpleMatch -Pattern $n -List -ErrorAction SilentlyContinue
+  foreach ($h in $hit) { $leaks += "secret value in: $($h.Path)" }
+}
+if ($leaks.Count -gt 0) {
+  Write-Host "FAILED: the staged payload contains build-machine data or secrets:" -ForegroundColor Red
+  $leaks | Select-Object -First 30 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+  exit 1
+}
+Write-Host "    clean: no .env / keys / dumps / uploads / dev secrets in the payload" -ForegroundColor DarkGray
+
 # 9. Compile the installer
 Write-Host "==> Compile installer (ISCC)" -ForegroundColor Cyan
 if (-not (Test-Path $Iscc)) { Write-Host "Inno Setup not found at $Iscc - install Inno Setup 6 to compile. Staging is ready at $stage." -ForegroundColor Yellow; exit 0 }
 & $Iscc "/DStageDir=$stage" "/DAppVersion=$AppVersion" "/DOutputDir=$OutDir" (Join-Path $repoRoot 'installer\DigiLog.iss')
 if ($LASTEXITCODE -ne 0) { Write-Host "ISCC failed" -ForegroundColor Red; exit 1 }
-$setupExe = Join-Path $OutDir "DigiLog-Setup-$AppVersion.exe"
+$setupExe = Join-Path $OutDir "FMS-Setup-$AppVersion.exe"
 
 # 10. Code sign the finished Setup.exe (M7). Skipped unless -Sign is passed; when
 #    skipped the installer is unsigned and SmartScreen/AV will warn (expected -
