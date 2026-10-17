@@ -20,7 +20,7 @@
 
 ## What the current stack is (and isn't)
 
-- **Two components on the server:** PostgreSQL 18 (single database `digilog_db`) and one Node process — the Fastify API serves the built SPA on `:3000` (HTTPS). There is no job queue: four scheduled jobs run in-process (node-cron), plus a Windows Scheduled Task for the nightly DB backup.
+- **Two components on the server:** PostgreSQL 18 (single database: `dfms` on an install made by FMS-Setup 1.2.1 or later, `digilog_db` on older installs and on the dev PC — an upgrade never renames it; the name in use is the one in `C:\ProgramData\DigiLog\config\digilog.env` `DATABASE_URL`) and one Node process — the Fastify API serves the built SPA on `:3000` (HTTPS). There is no job queue: four scheduled jobs run in-process (node-cron), plus a Windows Scheduled Task for the nightly DB backup.
 - **Services:** the installer registers `DigiLogDB` (bundled Postgres) and `DigiLogAPI` (WinSW) as auto-starting Windows services.
 - **Data survives upgrades:** program files in `C:\Program Files\DigiLog`, data + secrets + backups in `C:\ProgramData\DigiLog`. `upgrade.ps1` is data-safe (pg_dump backup → forward-only `prisma migrate deploy`, never `db push`).
 - **HTTPS is required for the APK** — use an internal-CA cert bound to an internal DNS hostname (or the mkcert dev certs with `rootCA.pem` trusted on each tablet). See `docs/PHARMA_DEPLOYMENT_21CFR.md` §3.2.

@@ -7,7 +7,7 @@
 .DESCRIPTION
   21 CFR Part 11 §11.10(c) - protection of records. Without this, disk loss costs
   the customer every record back to the last time an operator manually clicked
-  Export in-app. Dumps digilog_db to ProgramData\backups and prunes its own old
+  Export in-app. Dumps the app database (name read from DATABASE_URL) to ProgramData\backups and prunes its own old
   dumps so it cannot fill the disk.
 
   FAILURE MUST BE VISIBLE. A backup job that errors into the void is worse than

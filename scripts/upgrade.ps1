@@ -79,6 +79,28 @@ if ($dbUrl -notmatch 'postgres(?:ql)?://([^:]+):([^@]+)@([^:/]+):(\d+)/([^?]+)')
 }
 $dbUser = $Matches[1]; $dbPass = $Matches[2]; $dbHost = $Matches[3]; $dbPort = $Matches[4]; $dbName = $Matches[5]
 
+# 1b. Re-create missing services (2026-10-17). Setup treats a machine as an
+#     UPGRADE whenever digilog.env survives - and uninstall keeps it, on purpose,
+#     with the database. But uninstall REMOVES both services, so "uninstall, then
+#     install again" used to arrive here with no DigiLogDB to start and stop at
+#     step 2. Register only what is missing, and do NOT start anything: the DB is
+#     started by step 2, the API only after the migration (step 6) - starting new
+#     code against the old schema first is exactly what this order prevents.
+$missing = @($DbService, $ApiService | Where-Object { -not (Get-Service -Name $_ -ErrorAction SilentlyContinue) })
+if ($missing.Count -gt 0) {
+  Write-Host "==> Service(s) missing ($($missing -join ', ')) - re-registering (reinstall over kept data)" -ForegroundColor Cyan
+  $regArgs = @{
+    PgBin = $pgBin; PgDataDir = $dbDir; Port = [int]$dbPort;
+    NodeExe = $nodeExe; AppEntry = (Join-Path $apiDir 'dist\app.js'); EnvFile = $envFile;
+    WinswExe = (Join-Path $InstallDir 'service\WinSW-x64.exe'); ServiceDir = (Join-Path $InstallDir 'service');
+    LogDir = (Join-Path $DataRoot 'logs'); DbService = $DbService; ApiService = $ApiService;
+    SkipExisting = $true; NoStart = $true
+  }
+  if ($DryRun) { $regArgs['DryRun'] = $true }
+  & (Join-Path $PSScriptRoot 'register-services.ps1') @regArgs
+  if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: could not re-register the services; nothing was changed in the database." -ForegroundColor Red; exit 1 }
+}
+
 # 2. Ensure the DB service is up (leave it running for backup + migrate).
 if (-not $DryRun) {
   & $pgReady -h $dbHost -p $dbPort | Out-Null

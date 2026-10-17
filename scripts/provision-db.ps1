@@ -40,7 +40,11 @@ param(
   [Parameter(Mandatory)] [string]$PgBin,
   [Parameter(Mandatory)] [string]$DataDir,
   [int]$Port = 5433,
-  [string]$AppDb = 'digilog_db',
+  # 'dfms' since 1.2.1 (operator, 2026-10-17). Lower case on purpose: PostgreSQL
+  # folds an unquoted DFMS to dfms anyway. Only a FRESH install uses this - an
+  # existing install keeps the name in its digilog.env DATABASE_URL, which every
+  # other script (upgrade, backup-db) reads instead of assuming a name.
+  [string]$AppDb = 'dfms',
   [string]$AppRole = 'digilog',
   [Parameter(Mandatory)] [string]$AppPassword,
   [Parameter(Mandatory)] [string]$SuperPassword,

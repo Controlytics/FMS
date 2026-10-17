@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - FMS-Setup 1.2.1: database named `dfms`; reinstall after uninstall works (2026-10-17)
+
+- **A fresh install now creates the database `dfms`** (operator request), not `digilog_db`. Lower case on
+  purpose: PostgreSQL folds an unquoted `DFMS` to `dfms`. Set in one place each: `provision-db.ps1 -AppDb`
+  (default) and `install.ps1 -AppDb`, which now passes the name to provisioning AND writes it into
+  `DATABASE_URL` (the two used to be separate literals). Nothing else assumes a name - upgrade, nightly backup
+  and the app all read `DATABASE_URL`. **Existing installs keep `digilog_db`**: an upgrade never renames a
+  live database. The dev PC is unchanged.
+- **Uninstall, then install again, stopped with "DigiLogDB did not accept connections".** Uninstall keeps
+  `C:\ProgramData\DigiLog` (database + `digilog.env`) on purpose, so Setup takes the UPGRADE path - but
+  uninstall also removed both services, and `upgrade.ps1` only ever started them. It now re-registers
+  whichever of DigiLogDB / DigiLogAPI is missing (step 1b), starting nothing: the DB is started by step 2 and
+  the API only after the migration. `register-services.ps1` gained `-SkipExisting` and `-NoStart` for this;
+  the fresh-install call passes neither and is unchanged. Firewall rule and backup task were already
+  re-created by the upgrade path.
+
 ## [Unreleased] - FMS-Setup 1.2.0: one installer, approved starting setup, upgrades keep site config (2026-10-14)
 
 Operator request: package the whole application as a single exe for a NEW server: no data, with the database

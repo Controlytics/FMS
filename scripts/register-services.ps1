@@ -39,6 +39,11 @@ param(
   [string]$LogDir,
   [string]$DbService  = 'DigiLogDB',
   [string]$ApiService = 'DigiLogAPI',
+  # upgrade.ps1 (reinstall over kept data): register only the service(s) that do
+  # not exist yet, and start nothing - it starts the DB itself and the API only
+  # after the migration. A fresh install passes neither and behaves as before.
+  [switch]$SkipExisting,
+  [switch]$NoStart,
   [switch]$DryRun
 )
 
@@ -99,16 +104,30 @@ if ($DryRun) {
   Copy-Item -Path $WinswExe -Destination $apiExe -Force
 }
 
+function ServiceExists($name) { [bool](Get-Service -Name $name -ErrorAction SilentlyContinue) }
+
 # 2. Register the DB as a native PostgreSQL service (auto-start)
-Do-Cmd "register $DbService (PostgreSQL service, auto-start)" `
-  $pgctl @('register','-N',$DbService,'-D',$PgDataDir,'-S','auto','-o',"-p $Port")
+if ($SkipExisting -and (ServiceExists $DbService)) {
+  Write-Host "==> $DbService already registered - kept" -ForegroundColor DarkGray
+} else {
+  Do-Cmd "register $DbService (PostgreSQL service, auto-start)" `
+    $pgctl @('register','-N',$DbService,'-D',$PgDataDir,'-S','auto','-o',"-p $Port")
+}
 
 # 3. Install the API service via WinSW (reads the adjacent XML)
-Do-Cmd "install $ApiService (WinSW)" $apiExe @('install')
+if ($SkipExisting -and (ServiceExists $ApiService)) {
+  Write-Host "==> $ApiService already registered - kept" -ForegroundColor DarkGray
+} else {
+  Do-Cmd "install $ApiService (WinSW)" $apiExe @('install')
+}
 
 # 4. Start both (DB first; the API <depend> also enforces ordering)
-Do-Cmd "start $DbService"  'sc.exe' @('start', $DbService)
-Do-Cmd "start $ApiService" 'sc.exe' @('start', $ApiService)
+if ($NoStart) {
+  Write-Host "==> Not starting the services here (-NoStart); the caller starts them in order" -ForegroundColor DarkGray
+} else {
+  Do-Cmd "start $DbService"  'sc.exe' @('start', $DbService)
+  Do-Cmd "start $ApiService" 'sc.exe' @('start', $ApiService)
+}
 
 Write-Host "`nServices registered. Both set to auto-start on boot." -ForegroundColor Green
 Write-Host "Verify: Get-Service $DbService, $ApiService" -ForegroundColor Gray

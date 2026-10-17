@@ -24,6 +24,9 @@ param(
   [string]$DataRoot   = 'C:\ProgramData\DigiLog',
   [int]$ApiPort = 3000,
   [int]$PgPort  = 5433,
+  # Application database name for a FRESH install (1.2.1+: dfms; 1.2.0 and older
+  # created digilog_db). A kept digilog.env keeps whatever name it already has.
+  [string]$AppDb = 'dfms',
   [string]$AdminPassword,
   [int]$BackupRetainDays = 14,
   [switch]$Upgrade,
@@ -152,7 +155,7 @@ if (Test-Path $envFile) {
   $verify        = NewSecret 48
   $offline       = NewSecret 48
   $auditKey      = NewSecret 48
-  $dbUrl = "postgresql://digilog:$appDbPassword@localhost:$PgPort/digilog_db?schema=public"
+  $dbUrl = "postgresql://digilog:$appDbPassword@localhost:${PgPort}/${AppDb}?schema=public"
   $envBody = @"
 DATABASE_URL=$dbUrl
 JWT_SECRET=$jwt
@@ -209,7 +212,7 @@ if ($dbAlreadyInit) {
   if (-not $appDbPassword) { Write-Host "FATAL: env file exists but DB not initialized - inconsistent state. Manual review needed." -ForegroundColor Red; exit 1 }
   # Hashtable splatting (binds by NAME). Array splatting would bind positionally.
   $provArgs = @{
-    PgBin = $pgBin; DataDir = $dbDir; Port = $PgPort;
+    PgBin = $pgBin; DataDir = $dbDir; Port = $PgPort; AppDb = $AppDb;
     AppPassword = $appDbPassword; SuperPassword = (NewSecret 18);
     AdminPassword = $AdminPassword; ApiDir = $apiDir; LogDir = $logDir;
     NodeExe = $nodeExe
