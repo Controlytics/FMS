@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.2] - FMS-Setup-1.2.2 (2026-10-19)
+
+Installer carrying the 2026-10-17 load-test fixes and the 2026-10-19 QA fixes below, plus the rebuilt
+tablet app (`{app}\tablet\FMS.apk`). On upgrade, `upgrade.ps1` applies the one new migration
+(`20261019090000_block_change_notification_types`, additive) and re-registers the services with
+`UV_THREADPOOL_SIZE=8`. A fresh install's Branding version now reads 1.2.2 (`install-baseline.json`);
+existing sites keep their own Branding (create-only seed) — change it on Config → Branding if wanted.
+
 ## [Unreleased] - QA campaign: defects found and fixed (2026-10-19)
 
 Operator request "fix everything" after the QA discovery of 2026-10-19 (`QA/`). Every fix has a
