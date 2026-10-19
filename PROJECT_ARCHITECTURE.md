@@ -111,7 +111,6 @@
 |---|---|
 | `turbo.json` | Turborepo task graph — build/test pipelines for all workspaces |
 | `vitest.workspace.ts` | Vitest workspace config — discovers tests across `apps/*` and `packages/*` |
-| `test-engine.mjs` (root) | Standalone `node:vm`-sandbox script runner — used to debug an isolated snippet |
 | `package.json` (root) | Workspace root, holds turbo + dev tools (NOT app deps — those live in workspaces; bloat audit P3.1 cleanup done) |
 | Per-workspace `vitest.config.ts` | `apps/api` and `packages/shared` each carry their own Vitest config; `packages/queue` has no test config. |
 | `apps/web/vite.config.ts` | Vite + PWA plugin + Tailwind + path aliases |

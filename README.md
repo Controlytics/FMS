@@ -17,7 +17,7 @@ The platform is monorepo-based (Turborepo) with a Fastify backend, a React/Vite 
 | `packages/shared/` | Permissions, privileges, reauth actions, Zod schemas |
 | `packages/queue/` | graphile-worker queue producer + runner (Postgres-backed; Phase 2 of windows-friendly-rewrite swapped from BullMQ + ioredis) |
 | `docs/` | Active project documentation |
-| `old/` | Archived superseded docs (kept for reference) |
+| ~~`old/`~~ | Archived superseded docs — moved out of the repo 2026-10-19 to `C:\Users\hello\21cfrlogbook-archive-2026-10-19` (still in git history: `git show a6e404a:<path>`) |
 | `future/` | Forward-looking design notes |
 | `scripts/` | Windows PowerShell deployment scripts |
 | `start-digilog.bat` / `stop-digilog.bat` | Local Windows service launchers |
@@ -174,7 +174,7 @@ The vitest suite runs against a separate `digilog_test_db`.
 | `LOCAL_SETUP_WINDOWS.md` | Windows local dev setup |
 | `windowsIssues.md` | Windows Server difficulty audit — 18 dependency / runtime issues with severity + mitigation |
 | `docs/` | User guides, admin guides, compliance, deployment methods |
-| `old/` | Archived superseded docs (read-only history) |
+| ~~`old/`~~ | Archived superseded docs — moved out of the repo 2026-10-19 to `C:\Users\hello\21cfrlogbook-archive-2026-10-19` (still in git history: `git show a6e404a:<path>`) |
 
 ---
 

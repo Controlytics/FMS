@@ -402,7 +402,7 @@ The completed feature plans live in `old/docs-superseded/superpowers-{plans,spec
 | DRY_IN state persistence | `superpowers-plans/2026-04-17-dryin-state-persistence.md` |
 | Bloat audit | `bloat.md` |
 
-These were archived (not deleted) because the work is shipped — but the docs remain valuable when revisiting the *why*.
+(`old/` and the root `bloat.md` were moved out of the repo 2026-10-19 to `C:\Users\hello\21cfrlogbook-archive-2026-10-19` (still in git history: `git show a6e404a:<path>`).) These were archived (not deleted) because the work is shipped — but the docs remain valuable when revisiting the *why*.
 
 ---
 

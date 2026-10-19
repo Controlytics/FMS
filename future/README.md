@@ -36,7 +36,7 @@ The pack under `future/` complements those — it's written one abstraction leve
 
 ## Superseded / historical material
 
-`old/` retains the audit-trail material:
+`old/` (moved out of the repo 2026-10-19 to `C:\Users\hello\21cfrlogbook-archive-2026-10-19` (still in git history: `git show a6e404a:<path>`)) retains the audit-trail material:
 
 - `old/docs-superseded/superpowers-{plans,specs}/` — completed feature design specs (block-change, PM tasks, reports, DRY_IN) referenced from `PHASE_5_RECENT_WORK § 10`
 - `old/docs-superseded/{ARCHITECTURE.md, bloat.md, offline-sync-design.md}` — historical reference

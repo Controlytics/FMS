@@ -125,6 +125,8 @@ See `PHASE_5_RECENT_WORK.md` for the full architectural breakdown and `CHANGELOG
 
 ## Historical design specs (archived but live features)
 Implementation plans + design specs for several Phase 4/5 features that contain problem statements, data models, and validation logic NOT duplicated in code:
+> `old/` was moved out of the repo 2026-10-19 to `C:\Users\hello\21cfrlogbook-archive-2026-10-19` (still in git history: `git show a6e404a:<path>`); the paths below are relative to that folder.
+
 - Block change approval — `old/docs-superseded/superpowers-{plans,specs}/2026-04-10-*`
 - PM "My Tasks" system — `old/docs-superseded/superpowers-specs/2026-04-11-*`
 - Report template designer + generation engine — `old/docs-superseded/superpowers-plans/2026-04-15-*`

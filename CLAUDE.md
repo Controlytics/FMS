@@ -15,7 +15,7 @@ apps/android/     — Capacitor Android wrapper (DigiLog-FilterOps.apk)
 rfid_scan_app/    — Native Kotlin RFID scanner (KC-series UHF readers)
 packages/shared/  — Permissions (106), privileges (87), reauth (127), sidebar items (27), zod schemas
 docs/             — Project docs (current)
-old/              — Archived superseded docs and tasks
+(old/            — archived superseded docs: moved out of the repo 2026-10-19 to `C:\Users\hello\21cfrlogbook-archive-2026-10-19` (still in git history: `git show a6e404a:<path>`))
 future/           — Forward-looking design notes
 ```
 
