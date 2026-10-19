@@ -8,6 +8,10 @@ tablet app (`{app}\tablet\FMS.apk`). On upgrade, `upgrade.ps1` applies the one n
 `UV_THREADPOOL_SIZE=8`. A fresh install's Branding version now reads 1.2.2 (`install-baseline.json`);
 existing sites keep their own Branding (create-only seed) — change it on Config → Branding if wanted.
 
+Built 2026-10-19: `dist\FMS-Setup-1.2.2.exe`, 177,579,793 bytes, SHA256
+`048bdae42734d8522f112545157eb8b3a28c487debc2a6e13941ab7b42fa9d4f`, UNSIGNED. Bundled APK SHA256 `a11b7eb6…`
+(= repo-root `DigiLog-FilterOps.apk`). Not yet run on a clean machine.
+
 ## [Unreleased] - QA campaign: defects found and fixed (2026-10-19)
 
 Operator request "fix everything" after the QA discovery of 2026-10-19 (`QA/`). Every fix has a
