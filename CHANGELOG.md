@@ -4,8 +4,8 @@
 
 Operator request "fix everything" after the QA discovery of 2026-10-19 (`QA/`). Every fix has a
 regression test that fails on the committed code; register with evidence: `QA/DEFECT_REGISTER.md`;
-plan and operator decisions: `QA/FIX_PLAN.md`. Suites after all changes: API 181 files / 1,705 passed / 0 failed
-(12 skipped), web 94 files / 1,033 passed / 0 failed (see `QA/results/`). **Schema:** one additive migration (`20261019090000_block_change_notification_types`),
+plan and operator decisions: `QA/FIX_PLAN.md`. Suites after all changes: API 182 files / 1,707 passed / 0 failed
+(12 skipped), web 95 files / 1,037 passed / 0 failed, shared 20 files / 361 passed (see `QA/results/`). **Schema:** one additive migration (`20261019090000_block_change_notification_types`),
 applied to `digilog_test_db` and the QA clone only — `digilog_db` gets it on the next `npm run db:migrate`
 / installer upgrade. **Tablet changes need an APK rebuild.**
 
@@ -103,8 +103,13 @@ exemption; Replacement Tasks open to every tablet role; "Send for Review" hidden
 contact-admin hides account state; RFID Track Record list uncapped; the 11 MB tablet payload shape and a
 second API process (design changes, not bug fixes).
 
-Still open: M10 (RFID Track Record reads the whole identifier audit history into memory per request);
-the unreachable `parentId=null` root filter on `GET /api/instances` (M11 residual).
+Closed later the same day: **M10** — RFID Track Record filters, counts and pages in SQL instead of loading
+the whole assign/remove history (23 equivalence cases identical on 3,044 records; a 25-row page 163 → 68 ms);
+**M11 residual** — `GET /api/instances?parentId=null` root filter reachable (shared schema accepts the
+sentinel); AHU Filter Set Config and Roles & Access back arrows no longer land on Access Denied
+(`hooks/use-config-back.ts`). Runtime browser checks on the QA clone: stage-screen missed-PM dialog
+(cycle started + visit written off), Admin Requests "no action taken", System Health disk, Filter
+Cleaning Record title, PM AHU links. Migration applied to `digilog_db`; drift guard PASS; APK rebuilt.
 
 ## [Unreleased] - Fixes found by load testing at one year of data volume (2026-10-17)
 

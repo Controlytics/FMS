@@ -7,8 +7,7 @@ fixes). Companion documents: `FEATURE_INVENTORY.md`, `TEST_STRATEGY.md`, `DEFECT
 ## Recommendation: **READY WITH CONDITIONS**
 
 No known P0 remains. Every P1/P2 found or recorded before today is fixed with a regression test that
-fails on the committed code, except **M10** (RFID Track Record reads the whole identifier audit history
-into memory per request — latent at today's volume, P2 at scale) and the items in §6. The conditions are the production-readiness ones
+fails on the committed code, except the items in §6 (M10 was fixed later the same day). The conditions are the production-readiness ones
 (`docs/production-readiness/FINAL_PRODUCTION_READINESS_REPORT.md` §2) plus §7 below. This is not a claim
 of 21 CFR Part 11 compliance.
 
@@ -25,8 +24,8 @@ of 21 CFR Part 11 compliance.
 
 | Suite | Before today | After |
 |---|---|---|
-| API (`apps/api`, single-fork) | not measured alone (2026-10-17 workspace run: 258 files · 2,912 incl. web + shared) | **181 files · 1,705 passed · 12 skipped · 0 failed** |
-| Web (`apps/web`) | 75 files · 913 | **94 files · 1,033 passed · 0 failed** |
+| API (`apps/api`, single-fork) | not measured alone (2026-10-17 workspace run: 258 files · 2,912 incl. web + shared) | **182 files · 1,707 passed · 12 skipped · 0 failed** |
+| Web (`apps/web`) | 75 files · 913 | **95 files · 1,037 passed · 0 failed** |
 | New regression tests today | — | 17 API files, 19 web files (`git ls-files --others` count) + cases added to 6 existing files |
 | Black-box (QA clone :3104) | — | endpoint sweep over 429 ops; race and config probes |
 
@@ -44,7 +43,7 @@ modules directly; their wiring is covered by a test that does fail), and the cle
 | Seeded from earlier records and fixed today | 18 OQ items + 14 July mediums + 13 sweep claims (QA-D024 and the D-rows) |
 | Documented decisions, tested as such, not changed | offline Wash Out/Dry Out approval exemption; Replacement Tasks open to all tablet roles; Send for Review hidden; no upload rate limit; contact-admin hides account state; RFID list uncapped; offline-replay gate exemptions; unretire cascade; audit edit/delete break the chain loudly; three rate limits only; SUPER_ADMIN exemptions |
 | Already fixed before today (re-check) | 14 of the 28 July mediums |
-| Still open | **M10** (see above); M11 residual — the `parentId=null` root filter on `GET /api/instances` is unreachable (schema allows only a uuid); P3 |
+| Still open | none of the recorded defects (M10 and the M11 residual were fixed later the same day) |
 
 Highest-severity fixed: stage-screen hang (P1), duplicate PM executions (P2, proven 2–5 duplicates →
 1 at runtime), unvalidated SUPER_ADMIN policy configs, unsigned/ADMIN-writable SUPER_ADMIN settings,
@@ -66,28 +65,35 @@ single Node process is the ceiling on this PC's core. 200 users at once fail on 
 first-load payload (design decision, open).
 
 ## 6. Not done / not testable here
-- **Browser (Playwright) runtime proof** of the stage-screen fix and the other UI fixes: not run (the
-  fixes are proven by source/render tests; the web `dist` has not been rebuilt since).
-- **Tablet fixes on a real device:** APK not rebuilt; no device. Offline eviction and the offline
-  allowlist are tested in jsdom only.
+- **Browser pass (done 2026-10-19, Playwright, dev web server → QA clone :3104):** stage screen —
+  scan + PM reason on an AHU owing a visit → 409 → the missed-PM dialog appears (before: hang); reason
+  saved → cycle IN_PROGRESS with reason PM and the visit written off. Admin Requests — Enable Account
+  label + readable details, prompt names "Approve / Reject Admin Request", already-enabled approval says
+  "No action taken". System Health real disk figures; System Health hidden from MANAGER's sidebar;
+  "Filter Cleaning Record" title; PM AHU links open the detail page; Equipment Groups back arrow for a
+  role without CONFIG_READ goes to the dashboard, not Access Denied. No unexpected console errors.
+  Not covered in the browser: every other changed page (covered by render/source tests).
+- **Tablet fixes on a real device:** APK rebuilt and verified (`DigiLog-FilterOps.apk`, valid zip, 88
+  scripts all from the 2026-10-19 build), but no tablet is connected, so it is not installed or tried.
+  Offline eviction and the offline allowlist are tested in jsdom only.
 - **SUPER_ADMIN black-box runtime probes:** set aside (operator); covered in-process.
 - **Phases not executed in full:** per-role permission matrix against `tasks/role-privileges-baseline/`
   (Phase 4), write-path abuse sweep with real tokens (Phase 5 writes), fault injection beyond the
   readiness campaign (Phase 8), coverage report (Phase 12).
-- `digilog_db` was never touched: the new migration and the M27/M37 leftover-row checks are for the
-  operator (SQL in `tasks/ENTERPRISE-AUDIT-MEDIUMS-VERDICTS-2026-07-15.md`).
+- `digilog_db`: only the additive migration was applied (operator request "resolve pending things");
+  the M27/M37 leftover-row checks are still the operator's (SQL in
+  `tasks/ENTERPRISE-AUDIT-MEDIUMS-VERDICTS-2026-07-15.md`).
 
-## 7. Conditions added by this campaign
-1. `npm run db:migrate` on `digilog_db` (adds the block-change notification types), then
-   `npm run db:verify-migrations` (the drift guard compares against `digilog_db`, so it fails until the
-   migration is applied), then commit the 2026-10-17 and 2026-10-19 work as two commits.
-2. Restart the dev API on :3000 so it loads the regenerated Prisma client (new enum values).
-   Count RFID tags stored in a non-canonical form before go-live — canonical writes start now, existing
-   rows are not rewritten; lower-case rows still resolve (case-insensitive fallback), doubled ones do not:
-   `select count(*) filter (where identifier_value <> upper(identifier_value)) lower_case, count(*) filter (where length(identifier_value)>=6 and length(identifier_value)%2=0 and upper(left(identifier_value,length(identifier_value)/2))=upper(right(identifier_value,length(identifier_value)/2))) doubled from asset_identifiers where identifier_type='RFID';`
-   (QA clone: 0 of 3,038.)
-3. Rebuild the web `dist` and the APK; install the APK on the tablets.
-4. One browser pass over the changed pages, and one tablet pass (Perform first stage, overdue
-   acknowledgement, login conflict, SIGNATURE question, offline scan of a retired filter).
-5. If the 12-month password-reuse window was a deliberate policy, say so — it was removed because no
-   decision was recorded.
+## 7. Conditions — status 2026-10-19
+| # | Step | Status |
+|---|---|---|
+| 1 | `npm run db:migrate` on `digilog_db` | **done** (block-change notification types) |
+| 2 | Drift guard `scripts/verify-migrations.ps1` | **PASS** |
+| 3 | Commit | **done** — `4ddd2cd` on `RFID` (one commit: the two days share files) + a docs follow-up; **not pushed** (operator) |
+| 4 | Dev API :3000 on the new client | **done** — `tsx watch` restarted itself after the client regeneration |
+| 5 | RFID tags in non-canonical form on `digilog_db` | **0 of 38** — nothing to migrate |
+| 6 | Web `dist` + APK | **rebuilt**; APK at repo root; **not installed** (no tablet connected) |
+| 7 | Browser pass | **done** for the pages in §6 |
+| 8 | Tablet pass (Perform first stage, overdue acknowledgement, login conflict, SIGNATURE question, offline scan of a retired filter) | **operator** — needs a tablet |
+| 9 | Push `RFID` (and merge to `main`) | **operator** |
+| 10 | Password-reuse window | removed (no recorded decision) — say so if it was deliberate |
