@@ -15,8 +15,9 @@ load-test campaign: disposable DBs only (`digilog_perf`, `digilog_day1_perf`, te
   - [x] Batch 1 server · [x] Batch 2 frontend blockers · [x] Batch 3 OQ · [x] Batch 4 UX/perf · [x] offline access + cache (helpers did web/tablet; I verified: backups restored, 16/17 new web test files fail on committed code, offline diff reviewed)
   - [x] Suites 2026-10-19: API 180 files 1,704 passed / 0 failed; web 94 files 1,031 passed / 0 failed. Rebuilt QA API: PM race 5×20 → 1 execution each; sweep clean
   - [x] CHANGELOG entry, `QA/DEFECT_REGISTER.md` (D001–D024), `QA/FINAL_QA_REPORT.md` (READY WITH CONDITIONS), CLAUDE.md sanitizer + scheduler (5 jobs) corrected
-  - [ ] Operator: commit (2 commits), `npm run db:migrate` on digilog_db, rebuild web dist + APK, browser + tablet pass, confirm password-reuse window removal
-  - [ ] Not done: Playwright runtime pass, Phase 4 role matrix vs baseline, write-path abuse sweep, coverage report
+  - [x] 2026-10-19 later: M10 (SQL paging, 23/23 equivalence), M11 residual, two back arrows fixed; migration applied to digilog_db, drift guard PASS; RFID tags on digilog_db 0/38 non-canonical; web dist + APK rebuilt (APK verified, not installed — no tablet); browser pass done (stage-screen missed-PM dialog proven end to end); committed `4ddd2cd` + `e09851f` on RFID (one commit — the two days share files). Suites: API 182/1,707, web 95/1,037, shared 20/361
+  - [ ] Operator: push RFID (+ merge to main), install APK + tablet pass, confirm password-reuse window removal, decide on deleting `qa_sa_01` (QA clone), `digilog_restore_perf` + 9 GB dumps
+  - [ ] Not done: Phase 4 role matrix vs baseline, write-path abuse sweep with real tokens, coverage report
 - [ ] Phases 2–10 test implementation + execution (safe subset on this PC), defect register, regression after each fix
 - [ ] Phases 12–14: traceability, commands, `QA/FINAL_QA_REPORT.md`
 - [x] Soak 30 min @100 users with NEW polling (go-live copy, :3102, 2026-10-19 10:25–10:55): 32,608 req, 3 ECONNRESET (0.009 %), p50 144 ms / p95 1.9 s / p99 3.5 s; minutes 14–27 p95 2–5 s with API CPU doubled at constant load → single Node thread is the ceiling at 100 users (07 §4, FINAL §1/§3/§4). Idle cost unchanged after; no leak. [ ] prove the GC/queueing hypothesis with `--trace-gc` or an inspector profile (not run)
