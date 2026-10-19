@@ -172,6 +172,15 @@ describe('roleService', () => {
       mockRoleRepo.findByName.mockResolvedValue(null);
       await expect(roleService.delete('NOPE', ctx)).rejects.toThrow('not found');
     });
+
+    // C-08 (QA 2026-10-19): a system role with users must be refused as a
+    // SYSTEM role, not as "has assigned users" (which implies it could be deleted
+    // once emptied).
+    it('refuses a system role with users as SYSTEM_ROLE', async () => {
+      mockRoleRepo.findByName.mockResolvedValue({ name: 'OPERATOR', isSystem: true, hierarchyLevel: 2, permissions: [] });
+      mockRoleRepo.countUsersByRole.mockResolvedValue(12);
+      await expect(roleService.delete('OPERATOR', ctx)).rejects.toMatchObject({ code: 'SYSTEM_ROLE' });
+    });
   });
 
   // A non-SUPER_ADMIN ROLE_MANAGE holder must not be able to escalate privilege

@@ -25,7 +25,19 @@ import { authRepository } from './auth.repository.js';
 export async function sweepExpiredSessions(): Promise<{ swept: number }> {
   const raw = (await authRepository.getSessionConfig()) as any;
   // Config may be flat or `{ value: {...} }` depending on how it was saved.
-  const cfg = raw?.value && typeof raw.value === 'object' ? raw.value : (raw ?? {});
+  const legacy = raw?.value && typeof raw.value === 'object' ? raw.value : (raw ?? {});
+  // OQ-12 (QA 2026-10-19): the idle settings MOVED into the password policy
+  // (packages/shared passwordPolicySchema "Session Settings (moved from
+  // sessionConfigSchema)"). That is the row admins edit (Config → Password
+  // Policy) and the one the web idle timer reads (app-layout.tsx). This sweep
+  // still read the old `session` row, which has no editing page — so the server
+  // logged users out on a different idle time than the one configured and shown.
+  // Password policy wins; the old row is only a fallback for a value it lacks.
+  const policy = ((await authRepository.getPasswordPolicyConfig()) ?? {}) as any;
+  const cfg = {
+    autoLogoutEnabled: policy.autoLogoutEnabled ?? legacy.autoLogoutEnabled,
+    idleTimeoutMinutes: policy.idleTimeoutMinutes ?? legacy.idleTimeoutMinutes,
+  };
   const now = new Date();
 
   const or: any[] = [{ expiresAt: { lt: now } }]; // hard expiry — always

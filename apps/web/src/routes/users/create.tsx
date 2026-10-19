@@ -348,7 +348,7 @@ export function CreateUserPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Create User"
+        actionLabel={reauth.pendingActionLabel ?? 'Create User'}
       />
     </div>
   );

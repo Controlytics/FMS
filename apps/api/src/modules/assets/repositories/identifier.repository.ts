@@ -38,6 +38,11 @@ export const identifierRepository = {
     return prisma.assetIdentifier.findUnique({ where: { identifierValue: value } });
   },
 
+  /** C-07: the RFID duplicate check — matches regardless of stored casing. */
+  async findByIdentifierValueInsensitive(value: string) {
+    return prisma.assetIdentifier.findFirst({ where: { identifierValue: { equals: value, mode: 'insensitive' } } });
+  },
+
   async create(data: {
     assetId: string;
     identifierType: string;

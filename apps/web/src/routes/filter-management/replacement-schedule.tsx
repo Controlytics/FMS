@@ -214,7 +214,7 @@ export function ReplacementSchedulePage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = 'replacement-schedule.xlsx';
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not download'); } finally { setExporting(false); }
+    } catch (e: any) { if (!isReauthCancelled(e)) toast.error('Export failed', e?.message ?? 'Could not download'); } finally { setExporting(false); }
   };
   const buildReplacementReport = async () => {
     const all = schedules.flatMap((s: any) => (s.entries ?? []));
@@ -236,7 +236,7 @@ export function ReplacementSchedulePage() {
       if (!report) return;
       await requireExportReauth(reauth, { reportType: 'Replacement Schedule', format: 'PDF', recordCount: schedules.flatMap((s: any) => (s.entries ?? [])).length }, toast.warning);
       report.save(`${downloadName('replacement-schedule')}.pdf`);
-    } catch (e: any) { toast.error('Export failed', e?.message ?? 'Could not generate PDF'); } finally { setExporting(false); }
+    } catch (e: any) { if (!isReauthCancelled(e)) toast.error('Export failed', e?.message ?? 'Could not generate PDF'); } finally { setExporting(false); }
   };
 
   const buildReplacementSnapshot = async () => { const report = await buildReplacementReport(); return report ? report.getSnapshot() : null; };
@@ -302,17 +302,33 @@ export function ReplacementSchedulePage() {
     } catch (e: any) { setError(e?.message || 'Failed to read the file'); }
   };
 
-  const submit = async () => {
+  // R-01 (QA 2026-10-19): the server gates this POST on UPLOAD_REPLACEMENT_SCHEDULE
+  // (replacement-schedule/routes.ts), but the page sent the file with no password
+  // path, so an enabled re-auth row ended as a bare 401 in the dialog. Same
+  // pattern as the PM upload: reauth.execute opens the prompt when the row is on
+  // for this role, the password rides in x-reauth-password (a multipart body
+  // cannot carry _currentPassword), and a REAUTH_* refusal is re-thrown with its
+  // code so the hook can re-prompt.
+  const submit = () => {
     if (!file) return;
     setStep('uploading');
-    try {
+    reauth.execute('UPLOAD_REPLACEMENT_SCHEDULE', async (password?: string) => {
       const fd = new FormData(); fd.append('file', file);
-      const res = await fetch(apiUrl('/api/replacement-schedules'), { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: fd });
+      const headers: Record<string, string> = { Authorization: `Bearer ${token()}` };
+      if (password) headers['x-reauth-password'] = password;
+      const res = await fetch(apiUrl('/api/replacement-schedules'), { method: 'POST', headers, body: fd });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok && !Array.isArray(d.results)) { setError(d.message || `Upload failed (HTTP ${res.status})`); setStep('preview'); return; }
+      if (!res.ok && !Array.isArray(d.results)) {
+        const err: any = new Error(d.message || `Upload failed (HTTP ${res.status})`);
+        err.code = d.error;
+        throw err;
+      }
       setResults(d.results || []); setCreated(d.created || 0); setFailed(d.failed || 0); setStep('results');
       if ((d.created || 0) > 0) { mutate('/api/replacement-schedules'); toast.success('Schedule uploaded', `${d.created} entr${d.created === 1 ? 'y' : 'ies'} created`); }
-    } catch (e: any) { setError(e?.message || 'Network error'); setStep('preview'); }
+    }, {
+      onError: (e: any) => { setError(e?.message || 'Network error'); setStep('preview'); },
+      onCancel: () => setStep('preview'),
+    });
   };
 
   const errorRows = results.filter((r: any) => r.status === 'error');
@@ -573,7 +589,7 @@ export function ReplacementSchedulePage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setBusy(false); }}
-        actionLabel="Replacement Schedule Action" />
+        actionLabel={reauth.pendingActionLabel ?? 'Replacement Schedule Action'} />
     </div>
   );
 }

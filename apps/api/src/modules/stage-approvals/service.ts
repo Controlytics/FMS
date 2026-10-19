@@ -270,9 +270,10 @@ export const stageApprovalService = {
   },
 
   /** Broader list — ?status=APPROVED|REJECTED|PENDING for the archive. */
-  async list(ctx: RequestContext, opts: { status?: string }) {
+  async list(ctx: RequestContext, opts: { status?: string; from?: string }) {
     const where: Record<string, unknown> = {};
     if (opts.status) where.status = opts.status;
+    const clauses: Record<string, unknown>[] = [];
     // Non-super-admins see approvals routed to their role (to act on) AND
     // approvals they themselves REQUESTED (to track the status of their own
     // requests — the tablet operator who advanced into a gated stage needs to
@@ -280,11 +281,18 @@ export const stageApprovalService = {
     // operator saw an empty approvals screen because stage approvals are routed
     // to the QA/approver role, never to OPERATOR.
     if (ctx.userRole !== 'SUPER_ADMIN') {
-      where.OR = [
-        { approverRole: ctx.userRole },
-        { requestedBy: ctx.userSub },
-      ];
+      clauses.push({ OR: [{ approverRole: ctx.userRole }, { requestedBy: ctx.userSub }] });
     }
+    // 2026-10-17 load test (operator decision): with no window the list returned
+    // every approval ever made — 1.0 M rows after one year, 39 s and then a hard
+    // failure. `from` keeps every PENDING row (whatever its age) plus everything
+    // requested on/after `from`; older decided rows stay reachable with a status
+    // filter and no `from`.
+    if (opts.from) {
+      const from = new Date(opts.from);
+      if (!Number.isNaN(from.getTime())) clauses.push({ OR: [{ status: 'PENDING' }, { requestedAt: { gte: from } }] });
+    }
+    if (clauses.length) where.AND = clauses;
     return withStageDetails(await withSelfFlag(ctx, await prisma.cleaningStageApproval.findMany({
       where,
       orderBy: { requestedAt: 'desc' },

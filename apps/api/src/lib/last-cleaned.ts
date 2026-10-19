@@ -19,7 +19,7 @@
  *       ('YYYY-MM-DD'; 'NA' / blank / malformed are ignored).
  *
  * Returns null when no source has a real date (caller may show 'NA'). Two
- * indexed groupBys per call.
+ * queries per call (a per-filter index probe for events, a groupBy for cycles).
  */
 import { prisma } from './prisma.js';
 
@@ -31,23 +31,30 @@ export async function zipLastCleaned<T extends { id: string; attributes?: any }>
   if (rows.length === 0) return [] as any;
   const ids = rows.map((r) => r.id);
   const [eventAgg, cycleAgg] = await Promise.all([
-    prisma.filterEvent.groupBy({
-      by: ['filterId'],
-      where: {
-        filterId: { in: ids },
-        eventType: { in: CLEANING_STAGE_EVENT_TYPES as unknown as any[] },
-        // Both real cycle stage events AND manual "Edit Filter Status" stage
-        // changes count — so a filter shown in a stage always has a date.
-      },
-      _max: { performedAt: true },
-    }),
+    // Latest cleaning-stage event per filter. Both real cycle stage events AND
+    // manual "Edit Filter Status" stage changes count — so a filter shown in a
+    // stage always has a date. One index probe per filter on
+    // (filter_id, performed_at DESC) instead of a groupBy/MAX that aggregated
+    // EVERY event of every filter: 1.8 s -> 0.5 s at 6.2M events, same rows
+    // (2026-10-17 load test). The cycle half below stays a groupBy — no index
+    // fits a per-filter probe on completed_at, and the groupBy is the faster one.
+    prisma.$queryRaw<Array<{ filterId: string; performedAt: Date | null }>>`
+      SELECT i.id AS "filterId", l.performed_at AS "performedAt"
+      FROM unnest(${ids}::uuid[]) AS i(id)
+      CROSS JOIN LATERAL (
+        SELECT e.performed_at FROM filter_events e
+        WHERE e.filter_id = i.id
+          AND e.event_type = ANY(${[...CLEANING_STAGE_EVENT_TYPES]}::filter_event_type[])
+        ORDER BY e.performed_at DESC
+        LIMIT 1
+      ) l`,
     prisma.cleaningCycle.groupBy({
       by: ['filterId'],
       where: { filterId: { in: ids }, status: 'COMPLETED' },
       _max: { completedAt: true },
     }),
   ]);
-  const eventById = new Map<string, Date | null>(eventAgg.map((g) => [g.filterId, g._max.performedAt ?? null]));
+  const eventById = new Map<string, Date | null>(eventAgg.map((g) => [g.filterId, g.performedAt ?? null]));
   const cycleById = new Map<string, Date | null>(cycleAgg.map((g) => [g.filterId, g._max.completedAt ?? null]));
   return rows.map((r) => {
     // GREATEST over the candidate sources. Each contributes a comparable epoch

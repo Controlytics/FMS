@@ -14,6 +14,10 @@ const { mockIdentRepo, mockInstanceRepo, mockAuditLog, mockPrisma } = vi.hoisted
       findByValue: vi.fn(),
       findById: vi.fn(),
       findByIdentifierValue: vi.fn(),
+      // C-07 (2026-10-19): the RFID duplicate check is case-insensitive. The
+      // tests below set findByIdentifierValue; this delegates so they keep
+      // meaning the same thing (see beforeEach).
+      findByIdentifierValueInsensitive: vi.fn(),
       create: vi.fn(),
       delete: vi.fn(),
     },
@@ -36,6 +40,7 @@ describe('identifierService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuditLog.mockResolvedValue(undefined);
+    mockIdentRepo.findByIdentifierValueInsensitive.mockImplementation((v: string) => mockIdentRepo.findByIdentifierValue(v));
   });
 
   describe('list', () => {

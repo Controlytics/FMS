@@ -348,20 +348,22 @@ export const roleService = {
     if (!existing) {
       throw new NotFoundError('Role not found');
     }
+    // Audit 2026-09-24 (F5): the route promised "System roles cannot be
+    // deleted" but nothing enforced it, and unlike create/update there was no
+    // hierarchy check — any ROLE_MANAGE holder could delete an unused system
+    // role, or a custom role above their own.
+    // C-08 (QA 2026-10-19): checked FIRST — a system role with users used to be
+    // refused as "has assigned users", implying it could be deleted once emptied.
+    if (existing.isSystem) {
+      throw new AppError(409, 'SYSTEM_ROLE', 'System roles cannot be deleted');
+    }
+
     // Check if any users have this role
     const usersWithRole = await roleRepository.countUsersByRole(name);
     if (usersWithRole > 0) {
       const err = new AppError(409, 'ROLE_HAS_USERS', 'Cannot delete role with assigned users');
       (err as any).usersCount = usersWithRole;
       throw err;
-    }
-
-    // Audit 2026-09-24 (F5): the route promised "System roles cannot be
-    // deleted" but nothing enforced it, and unlike create/update there was no
-    // hierarchy check — any ROLE_MANAGE holder could delete an unused system
-    // role, or a custom role above their own.
-    if (existing.isSystem) {
-      throw new AppError(409, 'SYSTEM_ROLE', 'System roles cannot be deleted');
     }
     await assertRoleWithinCallerPrivilege(ctx, {}, {
       name: existing.name,

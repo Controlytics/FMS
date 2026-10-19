@@ -125,7 +125,11 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
   };
 
   const { data: queueData, mutate: mutateQueue } = useSWR<{ data: StageApprovalSummary[] }>('/api/stage-approvals/queue', { refreshInterval: 30000 });
-  const { data: allData, mutate: mutateAll } = useSWR<{ data: StageApprovalSummary[] }>('/api/stage-approvals');
+  // 2026-10-17 load test (operator decision): the "All" tab asked for every
+  // approval ever made (1.0 M rows after a year → 39 s, then failure). It now
+  // shows every PENDING row plus the last 30 days; the key is fixed per mount.
+  const [allSince] = useState(() => new Date(Date.now() - 30 * 86_400_000).toISOString());
+  const { data: allData, mutate: mutateAll } = useSWR<{ data: StageApprovalSummary[] }>(`/api/stage-approvals?from=${encodeURIComponent(allSince)}`);
 
   const queue = queueData?.data ?? [];
   const all = allData?.data ?? [];

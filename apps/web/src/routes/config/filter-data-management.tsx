@@ -139,11 +139,22 @@ const NOTIFICATION_TYPE_COLORS: Record<string, string> = {
 };
 
 // Admin request type + status badges (mirrors /admin-requests)
+// QA 2026-10-19 (OQ-19 follow-up): the SERVER's request types
+// (admin-requests/routes.ts requestType enum + admin-request.service.ts). This
+// console offered RESET_PASSWORD / UNLOCK_USER, codes the server never handles,
+// so a manual record created with them could not be processed, and it omitted
+// UNLOCK, ENABLE_ACCOUNT, DISABLE_ACCOUNT and FORGOT_PASSWORD.
+const ADMIN_REQ_TYPES = ['CREATE_USER', 'MODIFY_USER', 'UNLOCK', 'ENABLE_ACCOUNT', 'DISABLE_ACCOUNT', 'FORGOT_PASSWORD'] as const;
 const ADMIN_REQ_TYPE_LABELS: Record<string, string> = {
   CREATE_USER: 'Create User',
-  RESET_PASSWORD: 'Reset Password',
-  UNLOCK_USER: 'Unlock User',
   MODIFY_USER: 'Modify User',
+  UNLOCK: 'Unlock Account',
+  ENABLE_ACCOUNT: 'Enable Account',
+  DISABLE_ACCOUNT: 'Disable Account',
+  FORGOT_PASSWORD: 'Password Reset',
+  // legacy codes this console used to write — labelled so old rows still read well
+  RESET_PASSWORD: 'Password Reset (legacy code)',
+  UNLOCK_USER: 'Unlock Account (legacy code)',
 };
 const ADMIN_REQ_STATUS_COLORS: Record<string, string> = {
   PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -238,7 +249,7 @@ const TAB_CREATE_ENTITY: Record<string, RowEntity> = {
 // Enum option lists (mirror the Prisma enums) so create-modal selects can't
 // submit an invalid value the DB would reject.
 const FILTER_EVENT_TYPES = ['STATE_TRANSITION', 'PARAMETER_CAPTURE', 'CHECKLIST_COMPLETED', 'BYPASS_DEVIATION', 'EQUIPMENT_LINKED', 'REMARK_ADDED', 'APPROVAL_GRANTED', 'SCRIPT_EXECUTED', 'CYCLE_STARTED', 'CYCLE_COMPLETED', 'CYCLE_TERMINATED'];
-const NOTIFICATION_TYPES = ['ACCOUNT_LOCKED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'PASSWORD_RESET_REQUEST', 'PASSWORD_RESET_APPROVED', 'PASSWORD_RESET_REJECTED', 'USER_CREATED', 'USER_UPDATED', 'ROLE_CHANGED', 'USER_CREATION_REQUEST_SUBMITTED', 'USER_CREATION_REQUEST_APPROVED', 'USER_CREATION_REQUEST_REJECTED', 'USER_LOGIN', 'USER_LOCKED', 'CHECKLIST_SUBMITTED', 'CHECKLIST_APPROVED', 'CHECKLIST_REJECTED', 'SYSTEM_ERROR', 'PM_OVERDUE', 'PM_OVERDUE_COMPLETED', 'PM_SCHEDULE_QNN', 'GUEST_CLEANING_REQUEST', 'REPORT_REVIEW_REQUESTED', 'REPORT_REVIEW_APPROVED', 'REPORT_REVIEW_REJECTED', 'PASSWORD_EXPIRY_WARNING', 'PASSWORD_EXPIRED_NOTICE', 'STAGE_APPROVAL_REQUESTED', 'STAGE_APPROVAL_APPROVED', 'STAGE_APPROVAL_REJECTED'];
+const NOTIFICATION_TYPES = ['ACCOUNT_LOCKED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'PASSWORD_RESET_REQUEST', 'PASSWORD_RESET_APPROVED', 'PASSWORD_RESET_REJECTED', 'USER_CREATED', 'USER_UPDATED', 'ROLE_CHANGED', 'USER_CREATION_REQUEST_SUBMITTED', 'USER_CREATION_REQUEST_APPROVED', 'USER_CREATION_REQUEST_REJECTED', 'USER_LOGIN', 'USER_LOCKED', 'CHECKLIST_SUBMITTED', 'CHECKLIST_APPROVED', 'CHECKLIST_REJECTED', 'SYSTEM_ERROR', 'PM_OVERDUE', 'PM_OVERDUE_COMPLETED', 'PM_SCHEDULE_QNN', 'GUEST_CLEANING_REQUEST', 'REPORT_REVIEW_REQUESTED', 'REPORT_REVIEW_APPROVED', 'REPORT_REVIEW_REJECTED', 'PASSWORD_EXPIRY_WARNING', 'PASSWORD_EXPIRED_NOTICE', 'STAGE_APPROVAL_REQUESTED', 'STAGE_APPROVAL_APPROVED', 'STAGE_APPROVAL_REJECTED', 'BLOCK_CHANGE_REQUESTED', 'BLOCK_CHANGE_APPROVED', 'BLOCK_CHANGE_REJECTED'];
 
 /**
  * The status/type filter each tab offers, mirroring its user-facing page.
@@ -504,7 +515,11 @@ export function FilterDataManagementPage() {
   const [editFields, setEditFields] = useState<Record<string, string>>({});
   // Retirement/replacement rows have no Delete — deleting them meant destroying
   // FILTER_RETIRED / FILTER_REPLACED audit rows, which 21 CFR §11 forbids.
-  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
+  // `endpoint` overrides the tab-derived endpoint. F-02 (QA 2026-10-19): a
+  // lifecycle STEP is a filter event shown inside the Cleaning Cycles tab, so the
+  // tab rule sent DELETE /data/cleaning-cycles/<eventId> (404 at best, the wrong
+  // row if ids ever collided). The step's delete names the event endpoint.
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string; endpoint?: string } | null>(null);
   // Edit-row modal for cycles/events tabs. Shows only the columns that live
   // ON the underlying DB row (vs. the derived display columns in the table).
   // For cleaning_cycles: cycleCode, status, cleaningReasonLabel, startedAt,
@@ -836,10 +851,12 @@ export function FilterDataManagementPage() {
     if (!reasonOk(changeReason)) return;
     setProcessing(true);
     try {
-      await apiClient.post(`/api/super-admin/filter-data/retirements/${id}/unretire`, {
-        parentId: unretireParentId || undefined,
-        _changeReason: changeReason.trim(),
-      });
+      // R-03 (QA 2026-10-19): the route enforces requireDataEditReauth; this call
+      // bypassed gated(), so an enforced row ended as a bare 401 toast.
+      const unretireBody = { parentId: unretireParentId || undefined, _changeReason: changeReason.trim() };
+      await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
+        ? apiClient.postWithReauth(`/api/super-admin/filter-data/retirements/${id}/unretire`, unretireBody, pw)
+        : apiClient.post(`/api/super-admin/filter-data/retirements/${id}/unretire`, unretireBody));
       toast.success('Unretired', 'Filter restored to Active status');
       setUnretireDialog(null); setUnretireParentId(''); setChangeReason(''); refreshAll();
     } catch (e: any) { if (!isReauthAbort(e)) toast.error('Error', e?.message ?? 'Failed'); }
@@ -1270,9 +1287,13 @@ export function FilterDataManagementPage() {
     setManualRecordSaving(true);
     try {
       const f = manualRecordFields;
+      // R-03 (QA 2026-10-19): both creates go through gated() like every other
+      // write on this page — the routes enforce requireDataEditReauth.
+      const postSigned = (url: string, body: Record<string, unknown>) =>
+        gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw ? apiClient.postWithReauth(url, body, pw) : apiClient.post(url, body));
       if (manualRecordDialog.kind === 'retirement') {
         if (!f.filterId) { toast.error('Missing field', 'Select the filter being retired'); setManualRecordSaving(false); return; }
-        await apiClient.post('/api/super-admin/filter-data/retirements', {
+        await postSigned('/api/super-admin/filter-data/retirements', {
           filterId: f.filterId,
           remarks: f.remarks || undefined,
           retiredAt: f.retiredAt ? toIsoIfNaiveDatetime(f.retiredAt, tz) : undefined,
@@ -1282,7 +1303,7 @@ export function FilterDataManagementPage() {
         toast.success('Created', 'Retirement record added and audited');
       } else {
         if (!f.oldFilterId || !f.newFilterId) { toast.error('Missing field', 'Select both the replaced and the replacement filter'); setManualRecordSaving(false); return; }
-        await apiClient.post('/api/super-admin/filter-data/replacements', {
+        await postSigned('/api/super-admin/filter-data/replacements', {
           oldFilterId: f.oldFilterId,
           newFilterId: f.newFilterId,
           remarks: f.remarks || undefined,
@@ -1299,11 +1320,11 @@ export function FilterDataManagementPage() {
     setManualRecordSaving(false);
   };
 
-  const handleDeleteGeneric = async (id: string) => {
+  const handleDeleteGeneric = async (id: string, endpointOverride?: string) => {
     // Resolve endpoint from active tab. The dedicated cleaning-cycles +
     // filter-events tabs aren't in genericTabs but still hit the super-admin
     // data endpoints under the same naming convention.
-    let endpoint = activeGenericTab?.endpoint;
+    let endpoint = endpointOverride ?? activeGenericTab?.endpoint;
     if (!endpoint && tab === 'cleaning-cycles') endpoint = '/api/super-admin/data/cleaning-cycles';
     if (!endpoint && tab === 'filter-events') endpoint = '/api/super-admin/data/filter-events';
     if (!endpoint && tab === 'pm-entries') endpoint = '/api/super-admin/data/pm-entries';
@@ -1821,7 +1842,7 @@ export function FilterDataManagementPage() {
                             cycle={c}
                             formatDateTime={formatDateTime}
                             onEditEvent={(ev) => openRowEdit(ev, 'event', `${ev.eventType} · ${c.cycleCode ?? ''}`)}
-                            onDeleteEvent={(ev) => { setChangeReason(''); setConfirmDelete({ id: ev.id, name: `${ev.eventType} (${c.cycleCode ?? 'cycle'})` }); }}
+                            onDeleteEvent={(ev) => { setChangeReason(''); setConfirmDelete({ id: ev.id, name: `${ev.eventType} (${c.cycleCode ?? 'cycle'})`, endpoint: '/api/super-admin/data/filter-events' }); }}
                           />
                         </td>
                       </tr>
@@ -2309,7 +2330,7 @@ export function FilterDataManagementPage() {
               <ReasonBox value={changeReason} onChange={setChangeReason} danger />
               <div className="flex gap-3 mt-4">
                 <button onClick={() => { setConfirmDelete(null); setChangeReason(''); }} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
-                <button onClick={() => handleDeleteGeneric(confirmDelete.id)}
+                <button onClick={() => handleDeleteGeneric(confirmDelete.id, confirmDelete.endpoint)}
                   disabled={processing || !reasonOk(changeReason)}
                   title={reasonOk(changeReason) ? undefined : 'Enter a reason for this deletion'}
                   className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-red-700 transition-colors">
@@ -2465,7 +2486,7 @@ export function FilterDataManagementPage() {
               ) : rowEditDialog.entity === 'admin-request' ? (
                 <>
                   <Field label="Request Type" value={rowEditFields.requestType} onChange={v => setRowEditFields(p => ({ ...p, requestType: v }))}
-                    select options={['CREATE_USER', 'RESET_PASSWORD', 'UNLOCK_USER', 'MODIFY_USER']} />
+                    select options={[...ADMIN_REQ_TYPES]} />
                   <Field label="Status" value={rowEditFields.status} onChange={v => setRowEditFields(p => ({ ...p, status: v }))}
                     select options={['PENDING', 'APPROVED', 'REJECTED']} />
                   <Field label="Requester Name" value={rowEditFields.requesterName} onChange={v => setRowEditFields(p => ({ ...p, requesterName: v }))} />
@@ -2588,7 +2609,7 @@ export function FilterDataManagementPage() {
                 </>
               ) : createDialog.entity === 'admin-request' ? (
                 <>
-                  <Field label="Request Type" required select options={['', 'CREATE_USER', 'RESET_PASSWORD', 'UNLOCK_USER', 'MODIFY_USER']} value={createFields.requestType} onChange={v => setCreateFields(p => ({ ...p, requestType: v }))} />
+                  <Field label="Request Type" required select options={['', ...ADMIN_REQ_TYPES]} value={createFields.requestType} onChange={v => setCreateFields(p => ({ ...p, requestType: v }))} />
                   <Field label="Status" select options={['PENDING', 'APPROVED', 'REJECTED']} value={createFields.status} onChange={v => setCreateFields(p => ({ ...p, status: v }))} />
                   <Field label="Requester Name" required value={createFields.requesterName} onChange={v => setCreateFields(p => ({ ...p, requesterName: v }))} />
                   <Field label="Requester Employee ID" value={createFields.requesterEmployeeId} onChange={v => setCreateFields(p => ({ ...p, requesterEmployeeId: v }))} />

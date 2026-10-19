@@ -50,7 +50,7 @@ async function loadInState(filterIds: string[], expected: string[], action: stri
   if (!filterIds?.length) throw new AppError(400, 'NO_FILTERS', 'Select at least one filter');
   const rows = await prisma.assetInstance.findMany({
     where: { id: { in: filterIds } },
-    select: { id: true, name: true, approvalStatus: true },
+    select: { id: true, name: true, approvalStatus: true, submittedBy: true, reviewedBy: true },
   });
   if (rows.length !== filterIds.length) {
     throw new AppError(404, 'NOT_FOUND', 'One or more filters no longer exist');
@@ -64,6 +64,29 @@ async function loadInState(filterIds: string[], expected: string[], action: stri
     );
   }
   return rows;
+}
+
+/**
+ * Segregation of duties by USER (QA OQ-18 / BR-061, operator decision
+ * 2026-10-19 "require a different person"). Same rule as PM
+ * (`pm-approval.ts assertNotOwnEntry`) and replacement schedules: the person who
+ * created / uploaded a filter may not review, approve or reject it, and the
+ * reviewer may not also approve it. Before this, role separation was the only
+ * guard, so with one person holding both roles (or a blank reviewRole) the same
+ * user could submit and approve. All-or-nothing, like the state check: one own
+ * filter in a batch refuses the batch and names it.
+ */
+function assertNotOwnFilter(
+  ctx: RequestContext,
+  rows: Array<{ name: string; submittedBy: string | null; reviewedBy: string | null }>,
+  step: 'review' | 'approve' | 'reject',
+) {
+  if (!ctx.userSub) return;
+  const own = rows.filter((r) => r.submittedBy === ctx.userSub || (step === 'approve' && r.reviewedBy === ctx.userSub));
+  if (own.length) {
+    throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN',
+      `You cannot ${step} a filter you created or reviewed yourself (${own.map((r) => `"${r.name}"`).join(', ')}). A different user must sign off.`);
+  }
 }
 
 async function auditEach(rows: { id: string; name: string }[], ctx: RequestContext, action: string, after: Record<string, unknown>, reason?: string) {
@@ -84,6 +107,7 @@ export async function reviewFilters(ctx: RequestContext, filterIds: string[], re
   const cfg = await getFilterWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.reviewRole, 'review', 'filters');
   const rows = await loadInState(filterIds, ['PENDING_REVIEW'], 'review');
+  assertNotOwnFilter(ctx, rows, 'review');
 
   await prisma.assetInstance.updateMany({
     where: { id: { in: filterIds } },
@@ -108,6 +132,7 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
   // PENDING_REVIEW, skipping the review and leaving reviewedBy null.
   const approvable = cfg.reviewRole ? ['PENDING_APPROVAL'] : ['PENDING_APPROVAL', 'PENDING_REVIEW'];
   const rows = await loadInState(filterIds, approvable, 'approve');
+  assertNotOwnFilter(ctx, rows, 'approve');
 
   await prisma.assetInstance.updateMany({
     where: { id: { in: filterIds } },
@@ -138,6 +163,7 @@ export async function rejectFilters(ctx: RequestContext, filterIds: string[], re
       `Only users with role "${cfg.reviewRole}" or "${cfg.approvalRole}" can reject filters`);
   }
   const rows = await loadInState(filterIds, ['PENDING_REVIEW', 'PENDING_APPROVAL'], 'reject');
+  assertNotOwnFilter(ctx, rows, 'reject');
 
   await prisma.assetInstance.updateMany({
     where: { id: { in: filterIds } },

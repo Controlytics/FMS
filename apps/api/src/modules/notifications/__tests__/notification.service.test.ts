@@ -202,33 +202,53 @@ describe('notificationService', () => {
     it('returns count of unread notifications', async () => {
       mockNotifRepo.count.mockResolvedValue(5);
 
-      const result = await notificationService.getUnreadCount('u1', 'ADMIN');
+      // M32 (QA 2026-10-19): signature is (userRole, username); the args were swapped.
+      const result = await notificationService.getUnreadCount('ADMIN', 'u1');
       expect(result.count).toBe(5);
     });
   });
 
+  // M32 (QA 2026-10-19): these called markRead('n1') with no role/username and
+  // passed only because the old row check compared undefined === undefined.
   describe('markRead', () => {
-    it('marks notification as read', async () => {
-      mockNotifRepo.findById.mockResolvedValue({ id: 'n1' });
+    it('marks the caller\'s own notification as read', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n1', type: 'USER_UPDATED', forUserId: 'u1', forRole: null });
       mockNotifRepo.markRead.mockResolvedValue({});
 
-      const result = await notificationService.markRead('n1');
+      const result = await notificationService.markRead('n1', 'OPERATOR', 'u1');
       expect(result.success).toBe(true);
       expect(mockNotifRepo.markRead).toHaveBeenCalledWith('n1');
     });
 
     it('throws NotFoundError', async () => {
       mockNotifRepo.findById.mockResolvedValue(null);
-      await expect(notificationService.markRead('bad')).rejects.toThrow('not found');
+      await expect(notificationService.markRead('bad', 'OPERATOR', 'u1')).rejects.toThrow('not found');
+    });
+
+    // M30: one rule — being the SUBJECT of a notice (targetUserId) is not being its recipient.
+    it('refuses a regular user acting on an ADMIN notice that is only ABOUT them', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n2', type: 'ACCOUNT_LOCKED', forRole: 'ADMIN', forUserId: null, targetUserId: 'u1' });
+      await expect(notificationService.markRead('n2', 'OPERATOR', 'u1')).rejects.toThrow('not found');
+      expect(mockNotifRepo.markRead).not.toHaveBeenCalledWith('n2');
+    });
+
+    it('refuses an ADMIN acting on a notice addressed to SUPER_ADMIN', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n3', type: 'SYSTEM_ERROR', forRole: 'SUPER_ADMIN', forUserId: null });
+      await expect(notificationService.markRead('n3', 'ADMIN', 'admin1')).rejects.toThrow('not found');
+    });
+
+    it('a missing username never matches a row', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n4', type: 'USER_UPDATED', forUserId: null, forRole: 'OPERATOR' });
+      await expect(notificationService.markRead('n4', 'OPERATOR', undefined as any)).rejects.toThrow('not found');
     });
   });
 
   describe('markUnread', () => {
-    it('marks notification as unread', async () => {
-      mockNotifRepo.findById.mockResolvedValue({ id: 'n1' });
+    it('marks the caller\'s own notification as unread', async () => {
+      mockNotifRepo.findById.mockResolvedValue({ id: 'n1', type: 'USER_UPDATED', forUserId: 'u1', forRole: null });
       mockNotifRepo.markUnread.mockResolvedValue({});
 
-      const result = await notificationService.markUnread('n1');
+      const result = await notificationService.markUnread('n1', 'OPERATOR', 'u1');
       expect(result.success).toBe(true);
       expect(mockNotifRepo.markUnread).toHaveBeenCalledWith('n1');
     });

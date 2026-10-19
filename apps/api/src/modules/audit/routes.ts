@@ -10,6 +10,22 @@ import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
 
+// 2026-10-17 load test (operator decision): the dashboard card asks for the
+// audit total every 30 s per user, and COUNT(*) over 7.4 M rows took 1.8–2.0 s
+// every time. Identical filters reuse the count for 60 s. The total may lag by up
+// to a minute; the rows returned never do (only the count is cached).
+const AUDIT_COUNT_TTL_MS = 60_000;
+const auditCountCache = new Map<string, { total: number; at: number }>();
+async function cachedAuditCount(where: unknown): Promise<number> {
+  const key = JSON.stringify(where);
+  const hit = auditCountCache.get(key);
+  if (hit && Date.now() - hit.at < AUDIT_COUNT_TTL_MS) return hit.total;
+  const total = await prisma.auditTrail.count({ where: where as any });
+  if (auditCountCache.size >= 200) auditCountCache.clear();
+  auditCountCache.set(key, { total, at: Date.now() });
+  return total;
+}
+
 /** Report names the web app records on export - the only values report-export-log accepts. */
 /** Permissions (any one) a role needs before it may log an export of that report. Empty = any authenticated user (config-gated reports). */
 const REPORT_READ_GATES: Record<string, string[]> = {
@@ -185,7 +201,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         skip: (query.page - 1) * effectiveLimit,
         take: effectiveLimit,
       }),
-      prisma.auditTrail.count({ where: where as any }),
+      cachedAuditCount(where),
     ]);
 
     // 2026-05-20 enrichment fix: many older audit rows stored only IDs in

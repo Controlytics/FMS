@@ -6,13 +6,9 @@ import type { RequestContext } from '../../types/context.js';
 import { z } from 'zod';
 import { parseRangeEnd } from '../../lib/date-range-guard.js';
 
-// Notification types whose visibility is config-driven (a role list), NOT the
-// normal per-user/per-role addressing. Each maps to its config key + field.
-export const GATED_TYPES: Record<string, { configKey: string; field: string }> = {
-  PM_SCHEDULE_QNN: { configKey: 'qnn-notifications', field: 'visibleRoles' },
-  GUEST_CLEANING_REQUEST: { configKey: 'guest-cleaning-requests', field: 'recipientRoles' },
-};
-const GATED_TYPE_KEYS = Object.keys(GATED_TYPES);
+// The visibility rule lives ONCE in ./visibility.ts (M30, 2026-10-19).
+import { GATED_TYPES, GATED_TYPE_KEYS, visibilityWhere, isVisible } from './visibility.js';
+export { GATED_TYPES };
 
 // Which config-gated notification types this role may see. Super Admin sees all;
 // otherwise a type is visible when the viewer's role is in that type's config list.
@@ -34,12 +30,7 @@ export async function gatedTypesVisibleTo(userRole: string): Promise<string[]> {
 // Visibility enforcing gated-type config: non-gated notifications use the normal
 // per-role rules; gated types show only to roles allowed by their config.
 function gatedAwareWhere(userRole: string, username: string, visibleGated: string[]): Record<string, unknown> {
-  const normal = buildVisibilityFilter(userRole, username);
-  const branches: Record<string, unknown>[] = [
-    { AND: [{ type: { notIn: GATED_TYPE_KEYS } }, normal] },
-  ];
-  for (const t of visibleGated) branches.push({ type: t });
-  return { OR: branches };
+  return visibilityWhere(userRole, username, visibleGated);
 }
 
 const notificationQuerySchema = z.object({
@@ -74,32 +65,6 @@ function applySearchFilter(where: Record<string, unknown>, search?: string) {
   };
   const existing = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
   where.AND = [...existing, clause];
-}
-
-function buildVisibilityFilter(userRole: string, username: string): Record<string, unknown> {
-  const where: Record<string, unknown> = {};
-
-  if (userRole === 'SUPER_ADMIN') {
-    // Super admin sees everything
-  } else if (userRole === 'ADMIN') {
-    // Admin sees: notifications for ADMIN role, or for the specific user, or general (no forUserId/forRole)
-    where.OR = [
-      { forUserId: username },
-      { forRole: 'ADMIN' },
-      { forRole: null, forUserId: null },
-    ];
-    // But not notifications specifically for SUPER_ADMIN. This must be
-    // null-safe: a bare `NOT: { forRole: 'SUPER_ADMIN' }` compiles to
-    // `NOT (for_role = 'SUPER_ADMIN')`, which evaluates to NULL — not TRUE —
-    // for the forRole IS NULL rows, silently excluding the personally-addressed
-    // and general branches above. Mirrored in notification.repository.ts.
-    where.AND = [{ OR: [{ forRole: null }, { forRole: { not: 'SUPER_ADMIN' } }] }];
-  } else {
-    // Regular users see only their own notifications
-    where.forUserId = username;
-  }
-
-  return where;
 }
 
 function applyDateFilter(where: Record<string, unknown>, period?: string, startDate?: string, endDate?: string) {
@@ -290,21 +255,9 @@ export const notificationService = {
 // Throws a 403-like error if the notification doesn't belong to the caller (unless ADMIN/SUPER_ADMIN).
 // Mirrors buildVisibilityFilter's rules so list-visibility == single-op access.
 function assertNotificationVisible(notif: any, userRole: string, username: string, visibleGated: string[]): void {
-  // Gated types (QNN, guest requests) follow config role lists, not per-user addressing.
-  if (GATED_TYPE_KEYS.includes(notif.type)) {
-    if (visibleGated.includes(notif.type)) return;
-    throw new NotFoundError('Notification not found');
-  }
-  if (userRole === 'SUPER_ADMIN') return;
-  if (userRole === 'ADMIN') {
-    if (notif.forRole === 'SUPER_ADMIN') throw new NotFoundError('Notification not found');
-    // Audit 2026-09-24 (B-F9): mirror the list's OR-branch — own, ADMIN-role, or general.
-    const visible = notif.forUserId === username || notif.forRole === 'ADMIN' || (notif.forRole == null && notif.forUserId == null);
-    if (!visible) throw new NotFoundError('Notification not found');
-    return;
-  }
-  const isForUser = notif.forUserId === username || notif.targetUserId === username;
-  if (!isForUser) throw new NotFoundError('Notification not found');
+  // Same rule as the list and the bulk ops (./visibility.ts). M30: this used to
+  // also admit `targetUserId === username`, which the list never did.
+  if (!isVisible(notif, userRole, username, visibleGated)) throw new NotFoundError('Notification not found');
 }
 
 // Exported for use by other modules (auth.service.ts, user.service.ts)

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
+import { useConfigBack } from '@/hooks/use-config-back';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
@@ -36,6 +37,8 @@ export function AhuFilterSetConfigPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const canWrite = isSuperAdmin || perms.includes('PM_UPDATE') || perms.includes('CONFIG_UPDATE');
   const navigate = useNavigate();
+  // Page admits PM_READ / ASSET_VIEW holders, who cannot open /config.
+  const goBack = useConfigBack();
   const { data, mutate: mutateList, isLoading } =
     useSWR<{ ahus: AhuConfigRow[] }>('/api/pm-schedules/ahu-configs');
 
@@ -110,7 +113,7 @@ export function AhuFilterSetConfigPage() {
           </div>
         </div>
         <button
-          onClick={() => navigate('/config')}
+          onClick={goBack}
           className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -305,7 +308,7 @@ export function AhuFilterSetConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setSavingAhuId(null); }}
-        actionLabel="Update AHU Filter-Set Mode"
+        actionLabel={reauth.pendingActionLabel ?? 'Update AHU Filter-Set Mode'}
       />
     </div>
   );

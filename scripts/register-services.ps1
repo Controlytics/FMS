@@ -78,6 +78,10 @@ $xml = @"
   <depend>$DbService</depend>
   <env name="NODE_ENV" value="production" />
   <env name="DOTENV_CONFIG_PATH" value="$EnvFile" />
+  <!-- 2026-10-17 load test: bcrypt (cost 12, ~230 ms per check) runs on the libuv
+       threadpool, default 4 threads. 40 concurrent logins: 17/s at 4 threads,
+       29/s at 8 (tests/performance/security/bcrypt-throughput.mjs). -->
+  <env name="UV_THREADPOOL_SIZE" value="8" />
   <startmode>Automatic</startmode>
   <onfailure action="restart" delay="10 sec" />
   <log mode="roll-by-size">

@@ -234,7 +234,7 @@ createRoot(document.getElementById('root')!).render(
 
 
             {/* Notifications */}
-            <Route path="/notifications" element={<RequireRole permissions={[PERMISSIONS.NOTIFICATION_VIEW, PERMISSIONS.NOTIFICATION_MANAGE]}><NotificationsPage /></RequireRole>} />
+            <Route path="/notifications" element={<RequireRole permissions={[PERMISSIONS.NOTIFICATION_VIEW, PERMISSIONS.NOTIFICATION_MANAGE, PERMISSIONS.NOTIFICATION_DELETE]}><NotificationsPage /></RequireRole>} />
 
             {/* Audit trail */}
 

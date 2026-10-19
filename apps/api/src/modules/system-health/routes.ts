@@ -1,11 +1,12 @@
 import { type FastifyPluginAsync } from 'fastify';
 import os from 'node:os';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { statfs } from 'node:fs/promises';
 import { prisma } from '../../lib/prisma.js';
 import { errorResponses } from '../../lib/error-schemas.js';
+import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
+import { getLogger } from '../../lib/logger.js';
 
-const execAsync = promisify(exec);
+const log = getLogger('system-health', 'services');
 
 // ── In-memory request counter ──────────────────────────────────────────
 let totalRequests = 0;
@@ -32,34 +33,30 @@ function getRequestsPerMinute(): number {
 }
 
 // ── Disk usage helper ──────────────────────────────────────────────────
-async function getDiskUsage(): Promise<{
-  total: number;
-  used: number;
-  free: number;
-  usagePercent: number;
+// M51 (QA 2026-10-19): this used to shell out to the WMIC tool (deprecated, absent on
+// Windows 11 24H2+) for a hard-coded C: drive, and on ANY failure returned zeros —
+// so the health page showed a healthy 0 % disk exactly when it could not measure.
+// Now: Node's statfs on the volume the application actually writes to (the
+// uploads root — same volume as the data folder in an install), and a failure is
+// reported as unavailable, never as a number.
+export async function getDiskUsage(path: string = UPLOADS_ROOT): Promise<{
+  total: number | null;
+  used: number | null;
+  free: number | null;
+  usagePercent: number | null;
+  available: boolean;
+  path: string;
 }> {
   try {
-    if (process.platform === 'win32') {
-      const { stdout } = await execAsync(
-        'wmic logicaldisk where "DeviceID=\'C:\'" get Size,FreeSpace /format:csv',
-      );
-      const lines = stdout.trim().split('\n').filter(Boolean);
-      const last = lines[lines.length - 1];
-      const parts = last.split(',');
-      const free = parseInt(parts[1], 10);
-      const total = parseInt(parts[2], 10);
-      const used = total - free;
-      return { total, used, free, usagePercent: Math.round((used / total) * 100) };
-    }
-    // Linux/macOS
-    const { stdout } = await execAsync("df -B1 / | tail -1 | awk '{print $2,$3,$4}'");
-    const [totalStr, usedStr, freeStr] = stdout.trim().split(/\s+/);
-    const total = parseInt(totalStr, 10);
-    const used = parseInt(usedStr, 10);
-    const free = parseInt(freeStr, 10);
-    return { total, used, free, usagePercent: Math.round((used / total) * 100) };
-  } catch {
-    return { total: 0, used: 0, free: 0, usagePercent: 0 };
+    const s = await statfs(path);
+    const total = s.blocks * s.bsize;
+    const free = s.bavail * s.bsize;
+    const used = total - free;
+    if (!Number.isFinite(total) || total <= 0) throw new Error(`statfs returned no size for ${path}`);
+    return { total, used, free, usagePercent: Math.round((used / total) * 100), available: true, path };
+  } catch (err) {
+    log.warn({ err, path }, 'Disk usage could not be measured');
+    return { total: null, used: null, free: null, usagePercent: null, available: false, path };
   }
 }
 
@@ -170,10 +167,12 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
               disk: {
                 type: 'object',
                 properties: {
-                  totalBytes: { type: 'number' },
-                  usedBytes: { type: 'number' },
-                  freeBytes: { type: 'number' },
-                  usagePercent: { type: 'number' },
+                  totalBytes: { type: 'number', nullable: true },
+                  usedBytes: { type: 'number', nullable: true },
+                  freeBytes: { type: 'number', nullable: true },
+                  usagePercent: { type: 'number', nullable: true },
+                  available: { type: 'boolean' },
+                  path: { type: 'string' },
                 },
               },
               process: {
@@ -254,6 +253,8 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
           usedBytes: disk.used,
           freeBytes: disk.free,
           usagePercent: disk.usagePercent,
+          available: disk.available,
+          path: disk.path,
         },
         process: {
           nodeVersion: process.version,

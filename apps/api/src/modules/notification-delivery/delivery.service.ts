@@ -94,8 +94,8 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
 
 /**
  * Retry a failed notification delivery.
- * TODO: Replace setTimeout retries with a durable delayed-retry mechanism
- * for durability across restarts.
+ * Retries live in this process (setTimeout); a restart kills them. What a dead
+ * process left RETRYING is closed at boot by failStrandedRetries() (C-11).
  */
 async function scheduleRetry(logId: string, payload: NotificationPayload, attempt: number): Promise<void> {
   if (attempt >= MAX_RETRIES) {
@@ -106,7 +106,10 @@ async function scheduleRetry(logId: string, payload: NotificationPayload, attemp
     return;
   }
 
-  const delay = RETRY_DELAYS[attempt] ?? RETRY_DELAYS[RETRY_DELAYS.length - 1];
+  // C-11 (QA 2026-10-19): attempt N waits RETRY_DELAYS[N-1]. It used to wait
+  // RETRY_DELAYS[N], so the row said 'retry in 5 s' (nextRetryAt) while the code
+  // slept 15 s, and the 5 s delay was never used.
+  const delay = RETRY_DELAYS[attempt - 1] ?? RETRY_DELAYS[RETRY_DELAYS.length - 1];
   await new Promise((resolve) => setTimeout(resolve, delay));
 
   const channel = channels[payload.channel];
@@ -138,7 +141,7 @@ async function scheduleRetry(logId: string, payload: NotificationPayload, attemp
         },
       });
     } else {
-      const nextRetryAt = new Date(Date.now() + (RETRY_DELAYS[nextAttempt] ?? 60000));
+      const nextRetryAt = new Date(Date.now() + (RETRY_DELAYS[nextAttempt - 1] ?? 60000));
       await prisma.notificationLog.update({
         where: { id: logId },
         data: {
@@ -153,6 +156,23 @@ async function scheduleRetry(logId: string, payload: NotificationPayload, attemp
       });
     }
   }
+}
+
+/**
+ * C-11 (QA 2026-10-19): a RETRYING row at boot was left by a process that died
+ * with its retry timers (there is no durable queue since graphile-worker went,
+ * 2026-08-26), so it would stay RETRYING forever and look in-flight on the
+ * notification log page. Close it as FAILED with the reason, so an admin sees it
+ * and can resend. Deliberately NOT re-sent automatically: a send that partly
+ * succeeded before the crash would be delivered twice.
+ * Call once at startup, before any new notification is sent.
+ */
+export async function failStrandedRetries(): Promise<{ failed: number }> {
+  const r = await prisma.notificationLog.updateMany({
+    where: { status: 'RETRYING' },
+    data: { status: 'FAILED', nextRetryAt: null, errorMessage: 'Retry interrupted by a server restart; not re-sent automatically.' },
+  });
+  return { failed: r.count };
 }
 
 /**

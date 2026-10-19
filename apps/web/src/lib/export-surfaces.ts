@@ -20,6 +20,11 @@ export const EXPORT_SURFACES: ExportSurface[] = [
   { key: 'rfid-track-record', label: 'RFID Track Record' },
   { key: 'pm', label: 'PM Schedules' },
   { key: 'qnn', label: 'Quality Notifications (QNN)' },
+  // OQ-16 (2026-10-19): these two pages had their own Export buttons and never
+  // joined the matrix, so "PDF only" still offered them Excel. Not to be
+  // confused with 'replacement' above, which is the Replacement SCHEDULE.
+  { key: 'retirement-list', label: 'Retirement List' },
+  { key: 'replacement-list', label: 'Replacement List' },
 ];
 
 /** Resolve a stored format string into PDF/Excel button visibility.

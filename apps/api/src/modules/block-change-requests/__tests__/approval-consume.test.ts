@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockPrisma } = vi.hoisted(() => ({
-  mockPrisma: {
+const { mockPrisma } = vi.hoisted(() => {
+  const m: any = {
     blockChangeRequest: { create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
     systemConfig: { findUnique: vi.fn() },
-  },
-}));
+    // QA-D004 (2026-10-19): create() now runs in a transaction with a row lock;
+    // the mock hands the callback the same client and accepts the lock query.
+    $queryRaw: vi.fn().mockResolvedValue([]),
+  };
+  m.$transaction = vi.fn(async (fn: (tx: any) => unknown) => fn(m));
+  return { mockPrisma: m };
+});
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: vi.fn().mockResolvedValue(undefined) }));

@@ -287,7 +287,7 @@ export function AuditTemplatesConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Audit Templates"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Audit Templates'}
       />
     </div>
   );

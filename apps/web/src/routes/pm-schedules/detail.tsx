@@ -5,6 +5,7 @@ import { apiClient, api } from '../../lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { RejectionDetails } from './index';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -12,7 +13,9 @@ export function PmScheduleDetailPage() {
   const { formatDateTime, formatDate } = useDatetimeFormat();
   const { entityId } = useParams<{ entityId: string }>();
   const [year, setYear] = useState(new Date().getFullYear());
-  const { data: schedule, isLoading } = useSWR(entityId ? `/api/pm-schedules/${entityId}?year=${year}` : null);
+  // M79: `error` is read so a failed fetch is not reported as "No PM schedule
+  // exists". The server answers 200 + null when there genuinely is none.
+  const { data: schedule, error: loadError, isLoading, mutate: reload } = useSWR(entityId ? `/api/pm-schedules/${entityId}?year=${year}` : null);
   const [starting, setStarting] = useState<string | null>(null);
 
   // Which visits overlap the one before them, and which months hold more than
@@ -87,10 +90,24 @@ export function PmScheduleDetailPage() {
         </div>
       </div>
 
-      {!schedule ? (
+      {!schedule && loadError ? (
+        <div role="alert" className="bg-white border border-red-200 rounded-xl p-8 text-center space-y-2">
+          <p className="text-[14px] font-semibold text-red-700">
+            {(loadError as any)?.status === 403 ? 'You do not have permission to view this PM schedule' : `Could not load the PM schedule for ${year}`}
+          </p>
+          <p className="text-[13px] text-slate-500">{(loadError as any)?.message || 'The server did not answer.'}</p>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            {(loadError as any)?.status !== 403 && (
+              <button onClick={() => reload()} className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+            )}
+            <Link to="/pm-schedules" className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 border border-slate-300 bg-white hover:bg-slate-50">Back to PM Schedules</Link>
+          </div>
+        </div>
+      ) : !schedule ? (
         <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
           <p className="text-slate-500">No PM schedule exists for {year}.</p>
-          <p className="text-xs text-slate-400 mt-2">Schedules are created by uploading a CSV/XLSX from the PM Schedules list (entries are routed to QA for approval).</p>
+          {/* OQ-08: was "routed to QA for approval"; review/approval roles are configurable. */}
+          <p className="text-xs text-slate-400 mt-2">Schedules are created by uploading a CSV/XLSX from the PM Schedules list (entries then go through the PM approval workflow).</p>
           <Link
             to="/pm-schedules"
             className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors"
@@ -157,6 +174,13 @@ export function PmScheduleDetailPage() {
                     <div>Window: <span className="text-slate-600">{formatDate(entry.windowStart)} - {formatDate(entry.windowEnd)}</span></div>
                     <div>Tolerance: <span className="text-slate-600">{entry.toleranceDays} days</span></div>
                   </div>
+                  {/* OQ-10: a rejected visit says who rejected it, when, at which step and why. */}
+                  {entry.approvalStatus === 'REJECTED' && (
+                    <div className="mt-2 pt-2 border-t border-red-100">
+                      <span className="px-2 py-0.5 text-xs bg-red-50 text-red-700 rounded-full">Rejected</span>
+                      <RejectionDetails entry={entry} formatDateTime={formatDateTime} />
+                    </div>
+                  )}
                   {exec && (
                     <div className="mt-2 pt-2 border-t border-slate-200 text-sm text-slate-500">
                       {exec.startedAt && <div>Started: {formatDateTime(exec.startedAt)}</div>}
@@ -185,7 +209,7 @@ export function PmScheduleDetailPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setStarting(null); }}
-        actionLabel="Start PM Task"
+        actionLabel={reauth.pendingActionLabel ?? 'Start PM Task'}
       />
     </div>
   );

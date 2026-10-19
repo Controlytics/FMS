@@ -35,7 +35,7 @@ export function CleaningCycleTimelinePage() {
   const canExportPdf = isSuperAdmin || perms.includes('REPORT_EXPORT') || perms.includes('REPORT_GENERATE');
   const [downloading, setDownloading] = useState(false);
   const [saEdit, setSaEdit] = useState(false);
-  const { data: cycle, isLoading } = useSWR(id ? `/api/filters/cycles/${id}` : null);
+  const { data: cycle, error: loadError, isLoading, mutate: reload } = useSWR(id ? `/api/filters/cycles/${id}` : null);
 
   // A cycle ended by retire/replace writes NO CYCLE_TERMINATED event — the
   // operator is on the FILTER_RETIRED / FILTER_REPLACED audit instead — so
@@ -63,6 +63,18 @@ export function CleaningCycleTimelinePage() {
       <span className="text-sm text-slate-400">Loading cycle details...</span>
     </div>
   );
+  // M63: a failed fetch used to read "Cycle not found" - a false statement
+  // about the record when the server simply did not answer. Only a real 404
+  // is "not found".
+  if (!cycle && loadError && (loadError as any)?.status !== 404) return (
+    <div role="alert" className="flex flex-col items-center justify-center py-16 gap-2 text-center px-6">
+            <span className="text-[14px] font-semibold text-red-700">Could not load this cycle</span>
+            <span className="text-[13px] text-slate-500 max-w-md">{(loadError as any)?.status === 403 ? 'You do not have permission to view this.' : ((loadError as any)?.message || 'The server did not answer.')}</span>
+            {(loadError as any)?.status !== 403 && (
+              <button onClick={() => reload()} className="mt-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+            )}
+          </div>
+  );
   if (!cycle) return <div className="p-6 text-slate-500">Cycle not found</div>;
 
   const buildCycleReport = async () => {
@@ -83,13 +95,22 @@ export function CleaningCycleTimelinePage() {
     return report;
   };
 
+
+  // C-05: requireExportReauth re-throws a dismissed password prompt as
+  // REAUTH_CANCELLED. Uncaught, a cancel became an unhandled rejection, and a
+  // real export failure surfaced only in the console. Cancel = no export, silent.
+  const reportExportError = (e: unknown) => {
+    if (isReauthCancelled(e)) return;
+    toast.error('Export failed', (e as any)?.message ?? 'The export could not be completed.');
+  };
+
   const handleExportPDF = async () => {
     setDownloading(true);
     try {
       const report = await buildCycleReport();
       await requireExportReauth(reauth, { reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: cycle.events?.length ?? 0 }, toast.warning);
       report.save(`${downloadName('cycle', cycle.filterName ?? 'filter', formatDate(cycle.startedAt))}.pdf`);
-    } finally { setDownloading(false); }
+    } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
 
   const buildCycleSnapshot = async () => (await buildCycleReport()).getSnapshot();
@@ -116,7 +137,7 @@ export function CleaningCycleTimelinePage() {
       });
       await requireExportReauth(reauth, { reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: rows.length }, toast.warning);
       exportToExcel({ filename: `cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}`, sheetName: 'Cycle Detail', head, rows });
-    } finally { setDownloading(false); }
+    } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
 
   return (

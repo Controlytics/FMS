@@ -4,6 +4,7 @@ import { apiClient } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { useAuth } from '@/hooks/use-auth';
 
 const FEATURES = [
   { key: 'login', label: 'Login', description: 'Allow this role to log into the tablet app' },
@@ -24,6 +25,12 @@ type TabletConfig = Record<string, string[]>;
 export function TabletAccessConfigPage() {
   const { toast } = useToast();
   const reauth = useReauth();
+  // C-02: the route admits CONFIG_READ, but the PUT needs CONFIG_UPDATE (plus
+  // the UPDATE_TABLET_ACCESS signature). A read-only role used to get live
+  // toggles and a Save that asked for a password and then answered 403.
+  const { user } = useAuth();
+  const canWrite = user?.role === 'SUPER_ADMIN'
+    || ((user?.permissions as string[] | undefined) ?? []).includes('CONFIG_UPDATE');
   const { data: config, isLoading } = useSWR('/api/config/tablet-access');
   // Audit 2026-09-24: /api/roles needs ROLE_READ, which an ADMIN opening this
   // page (CONFIG_READ) does not hold — the page rendered an empty role list
@@ -45,6 +52,7 @@ export function TabletAccessConfigPage() {
   }, [config]);
 
   const toggle = (role: string, feature: string) => {
+    if (!canWrite) return;
     setLocalConfig(prev => {
       const current = prev[role] ?? [];
       const has = current.includes(feature);
@@ -65,6 +73,7 @@ export function TabletAccessConfigPage() {
   };
 
   const toggleAll = (role: string) => {
+    if (!canWrite) return;
     setLocalConfig(prev => {
       const current = prev[role] ?? [];
       const allEnabled = FEATURES.every(f => current.includes(f.key));
@@ -74,6 +83,7 @@ export function TabletAccessConfigPage() {
   };
 
   const save = async () => {
+    if (!canWrite) return;
     setSaving(true);
     try {
       // 2026-08-10: drop feature keys that no longer exist before saving.
@@ -143,13 +153,20 @@ export function TabletAccessConfigPage() {
           </div>
           <div className="flex items-center gap-3">
             {dirty && <span className="text-xs text-amber-600 font-medium">Unsaved changes</span>}
-            <button onClick={save} disabled={saving || !dirty}
+            <button onClick={save} disabled={!canWrite || saving || !dirty}
+              title={!canWrite ? 'Read-only: changing tablet access needs the CONFIG_UPDATE permission' : undefined}
               className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50 hover:from-cyan-500 hover:to-teal-500 transition-all">
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </div>
       </div>
+
+      {!canWrite && (
+        <div role="note" className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-[13px] text-amber-800">
+          Read-only. Your role can view tablet access but not change it. Changing it needs the CONFIG_UPDATE permission.
+        </div>
+      )}
 
       {/* Matrix Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
@@ -187,8 +204,10 @@ export function TabletAccessConfigPage() {
                       <td key={f.key} className="text-center px-3 py-4">
                         <button
                           onClick={() => toggle(role.name, f.key)}
-                          disabled={isDisabledByLogin}
-                          className={`w-10 h-6 rounded-full relative transition-all ${
+                          disabled={!canWrite || isDisabledByLogin}
+                          aria-label={`${f.label} for ${role.displayName}`}
+                          aria-pressed={enabled}
+                          className={`w-10 h-6 rounded-full relative transition-all disabled:cursor-not-allowed disabled:opacity-70 ${
                             enabled
                               ? isLogin ? 'bg-cyan-500' : 'bg-emerald-500'
                               : isDisabledByLogin ? 'bg-slate-100 cursor-not-allowed' : 'bg-slate-200'
@@ -202,8 +221,9 @@ export function TabletAccessConfigPage() {
                     );
                   })}
                   <td className="text-center px-3 py-4">
-                    <button onClick={() => toggleAll(role.name)}
-                      className={`w-10 h-6 rounded-full relative transition-all ${allEnabled ? 'bg-cyan-500' : 'bg-slate-200'}`}>
+                    <button onClick={() => toggleAll(role.name)} disabled={!canWrite}
+                      aria-label={`All features for ${role.displayName}`} aria-pressed={allEnabled}
+                      className={`w-10 h-6 rounded-full relative transition-all disabled:cursor-not-allowed disabled:opacity-70 ${allEnabled ? 'bg-cyan-500' : 'bg-slate-200'}`}>
                       <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all ${allEnabled ? 'left-[18px]' : 'left-0.5'}`} />
                     </button>
                   </td>
@@ -238,7 +258,7 @@ export function TabletAccessConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Tablet Access"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Tablet Access'}
       />
     </div>
   );

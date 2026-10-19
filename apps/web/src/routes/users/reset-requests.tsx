@@ -592,7 +592,7 @@ export function ResetRequestsPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Process Reset Request"
+        actionLabel={reauth.pendingActionLabel ?? 'Process Reset Request'}
       />
     </div>
   );

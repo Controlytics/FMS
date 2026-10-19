@@ -64,6 +64,8 @@ import cron, { type ScheduledTask } from 'node-cron';
 import { sweepOverdueDeviations } from './modules/pm-schedules/pm-deviations.js';
 import { sweepExpiredSessions } from './modules/auth/session-sweep.js';
 import { sweepPasswordExpiryNotifications } from './modules/auth/password-expiry-sweep.js';
+import { sweepOrphanPhotos } from './lib/photo-orphan-sweep.js';
+import { failStrandedRetries } from './modules/notification-delivery/delivery.service.js';
 import { AppError } from './lib/errors.js';
 import { extractRefusal, type Refusal } from './lib/refusal-log.js';
 import { OfflineTimeError } from './lib/offline-time-window.js';
@@ -387,6 +389,12 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       message: 'This record was modified concurrently. Please reload and try again.',
     });
   }
+  // M29 residual (QA 2026-10-19): "record to update/delete not found" is a 404,
+  // not a data constraint. Same generic message class as the other Prisma
+  // branches — no Prisma text reaches the client.
+  if ((err as any).code === 'P2025') {
+    return reply.code(404).send({ error: 'NOT_FOUND', message: 'The record was not found. It may have been deleted.' });
+  }
   // Prisma "value too long for the column" → 400, not 500 (VAPT-5, 2026-08-18).
   // Discovered when an input that passed the schema's max-length check overflowed
   // a column AFTER server-side sanitization *escaped* the HTML (e.g. `<script>`
@@ -397,6 +405,19 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     return reply.code(400).send({
       error: 'VALUE_TOO_LONG',
       message: 'One or more fields exceed the maximum allowed length.',
+    });
+  }
+  // 2026-10-17 load test: a connection-pool timeout (P2024) or an interactive-
+  // transaction timeout (P2028) means the SERVER is busy, not that the client's
+  // data is wrong. Reported as 400 DATA_CONSTRAINT, the tablet's sync engine
+  // treated it as the operation's own failure and could mark queued operator
+  // work permanently failed after five busy minutes (sync-engine.ts). 503 with
+  // the same generic wording (nothing from Prisma leaks) tells clients to wait.
+  if ((err as any).code === 'P2024' || (err as any).code === 'P2028') {
+    app.log.warn({ url: _req.url, prismaCode: (err as any).code }, 'Database busy (pool or transaction timeout) — capacity, not data');
+    return reply.code(503).send({
+      error: 'SERVICE_BUSY',
+      message: 'The server is busy. Please try again in a moment.',
     });
   }
   // Any other Prisma known-request error: return a generic 400 and log the detail
@@ -412,6 +433,19 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     return reply.code(400).send({
       error: 'DATA_CONSTRAINT',
       message: 'The request could not be completed due to a data constraint.',
+    });
+  }
+  // QA 2026-10-19 (M15/M50 class): a PrismaClientValidationError carries NO
+  // code, so it skipped the branch above and fell to the 500 + SYSTEM_ERROR
+  // notification path — every invalid date / unknown enum value that slipped past
+  // a route schema paged the admins as a system failure. It means the query
+  // ARGUMENTS were invalid (input reached Prisma unchecked): a 400, still logged
+  // at error level with the full detail so the missing route validation is found.
+  if ((err as any).name === 'PrismaClientValidationError') {
+    app.log.error({ err, url: _req.url }, 'Prisma validation error — input reached the database unvalidated');
+    return reply.code(400).send({
+      error: 'VALIDATION_ERROR',
+      message: 'One or more values are not valid.',
     });
   }
 
@@ -835,6 +869,9 @@ try {
       await runSweep('log_retention', pruneLogs);
       cronTasks.push(cron.schedule('5 0 * * *', () => runSweep('log_retention', pruneLogs)));
     }
+    // C-11 (QA 2026-10-19): once at boot — close notification retries a dead
+    // process left RETRYING (their timers died with it). Not a recurring job.
+    await runSweep('notification_retry_recovery', failStrandedRetries);
 
     // Session reaper — every 5 min (terminates idle/expired sessions + LOGOUT audit)
     cronTasks.push(cron.schedule('*/5 * * * *', () => runSweep('session_sweep', sweepExpiredSessions)));
@@ -842,10 +879,13 @@ try {
     cronTasks.push(cron.schedule('0 0 * * *', () => runSweep('password_expiry_check', sweepPasswordExpiryNotifications)));
     // PM overdue deviation sweep — daily 03:00
     cronTasks.push(cron.schedule('0 3 * * *', () => runSweep('pm_overdue_check', sweepOverdueDeviations)));
+    // M55 (QA 2026-10-19): remove profile-photo files nothing references (replaced
+    // or never-saved uploads). Only generator-named files older than 24 h.
+    cronTasks.push(cron.schedule('10 0 * * *', () => runSweep('photo_orphan_sweep', () => sweepOrphanPhotos())));
 
     jobRunnerStatus = 'running';
     servicesLog.info(
-      { jobs: ['session_sweep (*/5m)', 'password_expiry_check (00:00)', 'pm_overdue_check (03:00)', 'log_retention (00:05)'] },
+      { jobs: ['session_sweep (*/5m)', 'password_expiry_check (00:00)', 'pm_overdue_check (03:00)', 'log_retention (00:05)', 'photo_orphan_sweep (00:10)'] },
       'in-process node-cron scheduler started',
     );
   } catch (runnerErr) {

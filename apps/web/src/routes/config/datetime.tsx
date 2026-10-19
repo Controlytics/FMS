@@ -297,7 +297,7 @@ export function DatetimeConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Date/Time Config"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Date/Time Config'}
       />
     </div>
   );

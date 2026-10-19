@@ -5,6 +5,8 @@ import { assertFilterOperable } from '../filter-workflow.js';
 import { identifierRepository } from '../repositories/identifier.repository.js';
 import { instanceRepository } from '../repositories/instance.repository.js';
 import { prisma } from '../../../lib/prisma.js';
+import { Prisma } from '@prisma/client';
+import { canonicalRfidValue, sameRfidValue } from '../../../lib/rfid-canonical.js';
 
 export const identifierService = {
   async list(query: { assetId?: string; type?: string }) {
@@ -15,12 +17,28 @@ export const identifierService = {
   },
 
   async lookupByValue(value: string) {
-    const identifier = await identifierRepository.findByValue(value);
+    let identifier = await identifierRepository.findByValue(value);
+    // C-07: scans arrive normalised (upper-case, stutter collapsed). A row
+    // stored before canonical writes may differ only in casing — resolve it
+    // rather than answering "not found" for a tag that IS assigned.
+    if (!identifier) {
+      const alt = await identifierRepository.findByIdentifierValueInsensitive(canonicalRfidValue(value));
+      if (alt) identifier = await identifierRepository.findByValue(alt.identifierValue);
+    }
     if (!identifier) throw new NotFoundError('Identifier not found');
     return identifier;
   },
 
-  async create(data: { assetId: string; identifierType: string; identifierValue: string; label?: string; isPrimary?: boolean; replaceExisting?: boolean }, ctx: RequestContext) {
+  async create(rawData: { assetId: string; identifierType: string; identifierValue: string; label?: string; isPrimary?: boolean; replaceExisting?: boolean }, ctx: RequestContext) {
+    // C-07 (2026-10-19): an RFID value is stored in its CANONICAL form — the
+    // same rule every scan lookup applies (lib/rfid-canonical.ts mirrors
+    // web lib/rfid-scan.ts). One place for every client (tablet assign, web
+    // assign, typed filter create via filter.service). Other identifier types
+    // are left exactly as sent: a barcode / QR payload may be case-sensitive.
+    const isRfid = rawData.identifierType === 'RFID';
+    const data = isRfid ? { ...rawData, identifierValue: canonicalRfidValue(rawData.identifierValue) } : rawData;
+    if (isRfid && !data.identifierValue) throw new ValidationError('RFID tag value is empty');
+    const sameValue = (a: string, b: string) => (isRfid ? sameRfidValue(a, b) : a === b);
     const asset = await instanceRepository.findByIdSimple(data.assetId);
     if (!asset) throw new ValidationError('Entity instance not found');
     // 2026-10-08 (operator): a filter that has not passed review + approval
@@ -38,7 +56,7 @@ export const identifierService = {
     // the RFID Track Record shows REMOVE then ASSIGN. Without the flag the
     // refusal stands: both UIs send it only after a confirm step.
     const existingForAsset = await identifierRepository.findMany({ assetId: data.assetId });
-    const sameTagAlreadyHere = existingForAsset.find((i) => i.identifierValue === data.identifierValue);
+    const sameTagAlreadyHere = existingForAsset.find((i) => sameValue(i.identifierValue, data.identifierValue));
     if (sameTagAlreadyHere) {
       throw new ConflictError(`Tag ${data.identifierValue} is already assigned to "${asset.name}".`, 'IDENTIFIER_ALREADY_ON_ENTITY');
     }
@@ -50,7 +68,11 @@ export const identifierService = {
     }
     const replaced = data.replaceExisting ? existingForAsset : [];
 
-    const existingIdent = await identifierRepository.findByIdentifierValue(data.identifierValue);
+    // C-07: an RFID duplicate is found case-insensitively, so a lower-case row
+    // stored before canonical writes still conflicts with its upper-case scan.
+    const existingIdent = isRfid
+      ? await identifierRepository.findByIdentifierValueInsensitive(data.identifierValue)
+      : await identifierRepository.findByIdentifierValue(data.identifierValue);
     // Audit 2026-09-24 DB finding (closed 2026-09-25): a tag stays bound to a
     // retired filter on purpose (§11 evidence; replace()/unretire depend on it —
     // see e2e/retire-replace-identifier-invariant.test.ts), but a retired or
@@ -166,20 +188,60 @@ export const identifierService = {
     from?: string; to?: string; rfid?: string; filterName?: string; ahu?: string; user?: string;
     page?: number; limit?: number;
   }) {
-    const where: any = { action: { in: ['ASSET_IDENTIFIER_CREATED', 'ASSET_IDENTIFIER_DELETED'] } };
-    if (query.from || query.to) {
-      // Audit 2026-09-24 (A-F1): an unparsable date became `Invalid Date` → Prisma
-      // validation error → 500 + a SYSTEM_ERROR notification, for every role.
-      const parse = (v: string, label: string) => {
-        const d = new Date(v);
-        if (Number.isNaN(d.getTime())) throw new AppError(400, 'INVALID_DATE', `"${label}" is not a valid date.`);
-        return d;
-      };
-      where.timestamp = {};
-      if (query.from) where.timestamp.gte = parse(query.from, 'from');
-      if (query.to) where.timestamp.lte = parse(query.to, 'to');
-    }
-    const rows = await prisma.auditTrail.findMany({ where, orderBy: { timestamp: 'desc' } });
+    // Audit 2026-09-24 (A-F1): an unparsable date became `Invalid Date` → Prisma
+    // validation error → 500 + a SYSTEM_ERROR notification, for every role.
+    const parse = (v: string, label: string) => {
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) throw new AppError(400, 'INVALID_DATE', `"${label}" is not a valid date.`);
+      return d;
+    };
+    const fromD = query.from ? parse(query.from, 'from') : undefined;
+    const toD = query.to ? parse(query.to, 'to') : undefined;
+
+    // M10 (QA 2026-10-19): this used to read EVERY assign/remove audit row (full
+    // width, incl. before/after JSON) into memory on each request and filter /
+    // page in Node, so a page of 25 cost the whole history. The same filters now
+    // run in SQL, which returns the total and only the ids of the requested page;
+    // the enrichment below is unchanged and runs for that page only. Semantics
+    // kept exactly: RFID-type rows with a value; case-insensitive "contains" on
+    // RFID / filter name / AHU name / user (user = audit userName, else the
+    // username of a UUID userId, else the raw userId); newest first; an omitted
+    // limit still returns ALL rows (2026-07-03 user decision).
+    const like = (s: string) => `%${s.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const conds: Prisma.Sql[] = [];
+    if (query.rfid) conds.push(Prisma.sql`lower(coalesce(x.rfid, '')) LIKE ${like(query.rfid)}`);
+    if (query.filterName) conds.push(Prisma.sql`lower(coalesce(x.filter_name, '')) LIKE ${like(query.filterName)}`);
+    if (query.ahu) conds.push(Prisma.sql`lower(coalesce(x.ahu_name, '')) LIKE ${like(query.ahu)}`);
+    if (query.user) conds.push(Prisma.sql`lower(coalesce(x.uname, '')) LIKE ${like(query.user)}`);
+    const filterSql = conds.length ? Prisma.sql`WHERE ${Prisma.join(conds, ' AND ')}` : Prisma.empty;
+    const base = Prisma.sql`
+      WITH ev AS (
+        SELECT a.id, a.timestamp, a.user_id, a.user_name,
+               CASE WHEN a.action = 'ASSET_IDENTIFIER_CREATED' THEN a.after_value ELSE a.before_value END AS v
+          FROM audit_trail a
+         WHERE a.action IN ('ASSET_IDENTIFIER_CREATED', 'ASSET_IDENTIFIER_DELETED')
+           ${fromD ? Prisma.sql`AND a.timestamp >= ${fromD}` : Prisma.empty}
+           ${toD ? Prisma.sql`AND a.timestamp <= ${toD}` : Prisma.empty}
+      ), x AS (
+        SELECT ev.id, ev.timestamp, ev.v->>'identifierValue' AS rfid, f.name AS filter_name, p.name AS ahu_name,
+               coalesce(nullif(ev.user_name, ''), u.username, ev.user_id) AS uname
+          FROM ev
+          LEFT JOIN asset_instances f ON f.id::text = ev.v->>'assetId'
+          LEFT JOIN asset_instances p ON p.id = f.parent_id
+          LEFT JOIN users u ON u.id::text = ev.user_id
+         WHERE ev.v->>'identifierType' = 'RFID' AND coalesce(ev.v->>'identifierValue', '') <> ''
+      )`;
+    const [{ total: totalBig }] = await prisma.$queryRaw<Array<{ total: bigint }>>`${base} SELECT count(*)::bigint AS total FROM x ${filterSql}`;
+    const page = query.page ?? 1;
+    const limit = query.limit;
+    const idRows = await prisma.$queryRaw<Array<{ id: string }>>`${base}
+      SELECT x.id FROM x ${filterSql} ORDER BY x.timestamp DESC, x.id DESC
+      ${limit ? Prisma.sql`LIMIT ${limit} OFFSET ${(page - 1) * limit}` : Prisma.empty}`;
+    const pageIds = idRows.map((r) => r.id);
+    const order = new Map(pageIds.map((id, i) => [id, i]));
+    const rows = pageIds.length
+      ? (await prisma.auditTrail.findMany({ where: { id: { in: pageIds } } })).sort((a, b) => order.get(a.id)! - order.get(b.id)!)
+      : [];
 
     const events = rows.map((r) => {
       const isAssign = r.action === 'ASSET_IDENTIFIER_CREATED';
@@ -223,7 +285,7 @@ export const identifierService = {
     // Show the user ID (username), not the full name, as the performer.
     const umap = new Map(users.map((u) => [u.id, u.username]));
 
-    let enriched = events.map((e) => {
+    const enriched = events.map((e) => {
       const f = e.assetId ? fmap.get(e.assetId) : null;
       return {
         id: e.id,
@@ -242,18 +304,9 @@ export const identifierService = {
       };
     });
 
-    const lc = (s?: string | null) => (s ?? '').toLowerCase();
-    if (query.rfid) enriched = enriched.filter((e) => lc(e.rfidNumber).includes(query.rfid!.toLowerCase()));
-    if (query.filterName) enriched = enriched.filter((e) => lc(e.filterName).includes(query.filterName!.toLowerCase()));
-    if (query.ahu) enriched = enriched.filter((e) => lc(e.ahuName).includes(query.ahu!.toLowerCase()));
-    if (query.user) enriched = enriched.filter((e) => lc(e.user).includes(query.user!.toLowerCase()));
-
-    const total = enriched.length;
-    const page = query.page ?? 1;
-    // 2026-07-03: RFID identifier list uncapped per user request. An omitted
-    // limit returns ALL rows; a provided value still paginates the in-memory set.
-    const limit = query.limit;
-    const data = limit ? enriched.slice((page - 1) * limit, (page - 1) * limit + limit) : enriched;
-    return { data, total, page, limit: limit ?? total, totalPages: limit ? Math.ceil(total / limit) : 1 };
+    // Filtering and paging happened in SQL (M10). 2026-07-03: RFID identifier
+    // list uncapped per user request — an omitted limit returns ALL rows.
+    const total = Number(totalBig);
+    return { data: enriched, total, page, limit: limit ?? total, totalPages: limit ? Math.ceil(total / limit) : 1 };
   },
 };

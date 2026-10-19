@@ -375,7 +375,7 @@ export function PasswordPolicyPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Password Policy"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Password Policy'}
       />
     </div>
   );

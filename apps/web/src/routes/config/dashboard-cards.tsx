@@ -187,7 +187,7 @@ export default function DashboardCardsConfig() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setSaving(false); }}
-        actionLabel="Update Dashboard Cards"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Dashboard Cards'}
       />
     </div>
   );

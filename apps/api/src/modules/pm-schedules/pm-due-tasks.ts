@@ -158,13 +158,25 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     filtersByAhu.get(f.parentId)!.push(f);
   }
 
-  // Bulk-fetch the latest cleaning cycle for every involved filter
-  // (we take the 5 most recent per filter to also catch "in window"
-  // cycles that aren't strictly the latest).
+  // Fetch only the cycles the two predicates below can match: every IN_PROGRESS
+  // cycle (the in-window branch has no lower bound on startedAt) plus any cycle
+  // completed on/after the earliest window opened. Everything older can never
+  // match either `.find`, so dropping it leaves the result identical. This used
+  // to load EVERY cycle of every filter, full width — at one year of production
+  // volume (~3,700 cycles per AHU) the result exceeded V8's max string length
+  // and the endpoint failed outright (2026-10-17 load test, 400 DATA_CONSTRAINT).
   const filterIds = allChildFilters.map(f => f.id);
+  const earliestWindowStart = entries.reduce(
+    (min, e) => (e.windowStart < min ? e.windowStart : min),
+    entries[0].windowStart,
+  );
   const recentCycles = filterIds.length
     ? await prisma.cleaningCycle.findMany({
-        where: { filterId: { in: filterIds } },
+        where: {
+          filterId: { in: filterIds },
+          OR: [{ status: 'IN_PROGRESS' }, { completedAt: { gte: earliestWindowStart } }],
+        },
+        select: { filterId: true, status: true, cleaningReasonKey: true, startedAt: true, completedAt: true },
         orderBy: [{ filterId: 'asc' }, { startedAt: 'desc' }],
       })
     : [];
@@ -173,6 +185,16 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     if (!cyclesByFilter.has(c.filterId)) cyclesByFilter.set(c.filterId, []);
     cyclesByFilter.get(c.filterId)!.push(c);
   }
+  // `lastCycleCompletedAt` falls back to the filter's LATEST cycle whatever its
+  // date, which the bounded fetch above may not hold — one row per filter.
+  const latestCycles = filterIds.length
+    ? await prisma.$queryRaw<Array<{ filter_id: string; completed_at: Date | null }>>`
+        SELECT DISTINCT ON (filter_id) filter_id, completed_at
+        FROM cleaning_cycles
+        WHERE filter_id = ANY(${filterIds}::uuid[])
+        ORDER BY filter_id, started_at DESC`
+    : [];
+  const latestCompletedByFilter = new Map(latestCycles.map(r => [r.filter_id, r.completed_at]));
 
   // Build result rows (types live in pm-types.ts)
   const active: DueTaskRow[] = [];
@@ -251,7 +273,7 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
         // Current cleaning lifecycle stage (WASH_IN / WASH_OUT / DRY_IN / …) so
         // the tablet My Tasks view can show which stage each filter is in.
         currentStage: f.currentStage ?? null,
-        lastCycleCompletedAt: cleaned?.completedAt ?? cycles[0]?.completedAt ?? null,
+        lastCycleCompletedAt: cleaned?.completedAt ?? latestCompletedByFilter.get(f.id) ?? null,
       };
     });
 

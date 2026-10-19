@@ -24,7 +24,15 @@ export const ADMIN_PASSWORD = 'Admin@123';
  * Build a Fastify instance for integration testing.
  * Uses app.inject() — no actual HTTP server is started.
  */
-export async function buildApp(): Promise<FastifyInstance> {
+/**
+ * `extraRoutes` (QA campaign, 2026-10-19): optional additional route modules to
+ * mount, for tests of modules this harness does not register by default
+ * (dynamic config, pm-schedules, stage-approvals, …). Omitted = exactly the
+ * historical 11-module app, so every existing test is unaffected.
+ */
+export type ExtraRoute = { plugin: (app: FastifyInstance, opts: any) => Promise<void> | void; prefix: string };
+
+export async function buildApp(extraRoutes: ExtraRoute[] = []): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false, // quiet during tests
     ajv: {
@@ -76,14 +84,25 @@ export async function buildApp(): Promise<FastifyInstance> {
     if ((err as any).code === 'P2002') {
       return reply.code(409).send({ error: 'CONFLICT', message: 'This record was modified concurrently. Please reload and try again.' });
     }
+    if ((err as any).code === 'P2025') {
+      return reply.code(404).send({ error: 'NOT_FOUND', message: 'The record was not found. It may have been deleted.' });
+    }
     if ((err as any).code === 'P2000') {
       return reply.code(400).send({ error: 'VALUE_TOO_LONG', message: 'One or more fields exceed the maximum allowed length.' });
+    }
+    // Mirrors app.ts: pool / transaction timeouts are capacity (503), not data (400).
+    if ((err as any).code === 'P2024' || (err as any).code === 'P2028') {
+      return reply.code(503).send({ error: 'SERVICE_BUSY', message: 'The server is busy. Please try again in a moment.' });
     }
     if (
       (err as any).name === 'PrismaClientKnownRequestError' ||
       (typeof (err as any).code === 'string' && /^P\d{4}$/.test((err as any).code))
     ) {
       return reply.code(400).send({ error: 'DATA_CONSTRAINT', message: 'The request could not be completed due to a data constraint.' });
+    }
+    // Mirrors app.ts (QA 2026-10-19): PrismaClientValidationError has no code.
+    if ((err as any).name === 'PrismaClientValidationError') {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'One or more values are not valid.' });
     }
     const status = err.statusCode ?? 500;
     return reply.code(status).send({ error: err.message || 'Internal Server Error' });
@@ -104,6 +123,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(userGroupRoutes, { prefix: '/api/user-groups' });
   await app.register(backupRoutes, { prefix: '/api/backup' });
   await app.register(systemHealthRoutes, { prefix: '/api/system-health' });
+  for (const r of extraRoutes) await app.register(r.plugin, { prefix: r.prefix });
 
   await app.ready();
   return app;

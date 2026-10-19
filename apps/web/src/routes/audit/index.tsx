@@ -368,6 +368,7 @@ export function AuditTrailPage() {
       try {
         await logExport('PDF', records.length);
       } catch (e: any) {
+        if (isReauthCancelled(e)) return; // C-05: cancelled password prompt — no export, no error
         toast.error('Export blocked', `Could not record this download in the audit trail: ${e?.message ?? 'unknown error'}. Download cancelled.`);
         return;
       }
@@ -405,6 +406,7 @@ export function AuditTrailPage() {
       try {
         await logExport('Excel', records.length);
       } catch (e: any) {
+        if (isReauthCancelled(e)) return; // C-05: cancelled password prompt — no export, no error
         toast.error('Export blocked', `Could not record this download in the audit trail: ${e?.message ?? 'unknown error'}. Download cancelled.`);
         return;
       }

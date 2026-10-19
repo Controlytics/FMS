@@ -398,7 +398,7 @@ export function BrandingConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Branding"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Branding'}
       />
     </div>
   );

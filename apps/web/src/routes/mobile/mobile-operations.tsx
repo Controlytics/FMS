@@ -13,6 +13,7 @@ import { onSyncEvent } from '../../lib/sync-engine';
 import { withStageAction, batchTargetState } from '../../lib/stage-reauth';
 import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 import { normalizeRfidScan } from '@/lib/rfid-scan';
+import { buildIdentifierMap, filterIdsWithUnsyncedWork, type IdentifierMapEntry } from '../../lib/offline-sync-service';
 // Dry In multi-select (2026-09-04): the Currently Drying panel is SHARED with the desktop page.
 import { DryingFiltersPanel } from '../filter-management/components/drying-filters-panel';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
@@ -41,7 +42,8 @@ import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
 // authoritative. All dialog state lives in core.dialogState; all writes
 // go through core.dispatch / core.advance / core.startAndAdvance / core.submitChecklist.
 import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
-import { prettyStage as interlockStageLabel } from '@/lib/stage-approval';
+import { blockingInterlock, interlockBannerTitle, interlockBannerDetail, interlockRefusalLine, INTERLOCK_REFUSAL_CODES, type StageInterlockState } from './stage-interlock-notice';
+import { useTabletAccess } from './use-tablet-access';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
 import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
 // 2026-08-10: DRY_IN instrument auto-fetch, shared with the desktop drying panel.
@@ -58,23 +60,10 @@ import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
 
 type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'cycles';
 
-// Build identifier→filter map from identifiers list. Carries the filter's
-// creation-workflow status (2026-09-25, audit web F3) so a scan can refuse a
-// tag on a filter that is not yet APPROVED — offline too, from this cache.
-type IdentifierMapEntry = { filterId: string; filterName: string; approvalStatus?: string | null };
-function buildIdentifierMap(identifiers: any[]): Record<string, IdentifierMapEntry> {
-  const list = Array.isArray(identifiers) ? identifiers : [];
-  const map: Record<string, IdentifierMapEntry> = {};
-  for (const ident of list) {
-    if (ident.identifierValue && ident.assetId) {
-      const entry: IdentifierMapEntry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId, approvalStatus: ident.asset?.approvalStatus ?? null };
-      map[ident.identifierValue] = entry;
-      map[ident.identifierValue.toUpperCase()] = entry;
-      map[ident.identifierValue.toLowerCase()] = entry;
-    }
-  }
-  return map;
-}
+// Identifier→filter map: ONE builder, shared with the full offline sync and the
+// wrapper (M53, 2026-10-19). It carries the filter's creation-workflow status
+// (2026-09-25, audit web F3) so a scan can refuse a not-yet-APPROVED filter
+// offline, and leaves out tags held by retired / deactivated filters.
 
 /**
  * Audit 2026-09-24 (web F3, closed 2026-09-25): the creation-workflow gate
@@ -94,7 +83,12 @@ function approvalBlockMessage(filterName: string, approvalStatus: string | null 
 }
 
 
-export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialStageKey?: string; hideHeader?: boolean } = {}) {
+export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHeader }: {
+  initialStageKey?: string;
+  /** OQ-05: My Tasks "Perform" opens the station with the task AHU's block already chosen. */
+  initialBlockId?: string;
+  hideHeader?: boolean;
+} = {}) {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { formatTime, formatDate } = useDatetimeFormat();
   const { online, pendingCount, syncing, lastSyncMessage, executeOrQueue, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
@@ -114,10 +108,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   const ahuMode = useAhuCompletionMode();
   const mobileNav = useNavigate();
 
-  // Tablet access control — which features are allowed for this role
-  const { data: tabletAccess } = useSWR(user && online ? '/api/config/tablet-access/my-features' : null);
-  const allowedFeatures: string[] = (tabletAccess as any)?.allowed ?? [];
-  const hasFeature = (f: string) => allowedFeatures.length === 0 || allowedFeatures.includes(f); // empty = all allowed (backwards compat)
+  // Tablet access control — which features are allowed for this role.
+  // OQ-04 (2026-10-19): the SAME hook and rule as mobile-wrapper.tsx
+  // (use-tablet-access.ts) — the server's `configured` flag decides, and the
+  // last list read online is used offline instead of failing open. This page
+  // used "empty list = everything allowed", which let a role configured with
+  // an EMPTY allowlist through.
+  const { tabletAccess, allowedFeatures, hasFeature } = useTabletAccess(user, online);
 
   // 2026-05-21: auth/feature redirects deferred to the final JSX block. See
   // mobile-wrapper.tsx for the same fix — early-returning before the ~50
@@ -211,11 +208,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     liveVersion: number;
     recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART';
   } | null>(null);
-  // Stage interlock — current stage (Wash Out / Dry Out) awaiting QA approval.
-  const [interlock, setInterlock] = useState<{
-    gatedStage: boolean; stageKey: string | null; status: string | null;
-    approvalId: string | null; approverRole: string | null; blocksLeaving: boolean;
-  } | null>(null);
+  // Stage interlock — current stage (Wash Out / Dry Out) awaiting its configured approver.
+  // OQ-02 (2026-10-19): set by the LIVE queue submit (handleSubmitQueue), not
+  // only by the superseded single-scan handleSubmit. Cleared on openStage /
+  // goHome / each submit; never set offline (offline cleaning is exempt).
+  const [interlock, setInterlock] = useState<StageInterlockState | null>(null);
   // Task 7 + 2026-07-02: AHU remaining-filters dialog state (multi-AHU carousel).
   const [ahuDialogState, setAhuDialogState] = useState<{
     mode: 'POPUP' | 'INTERLOCK';
@@ -565,8 +562,13 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // full /cleaning-cycles/history page but tablets had no equivalent — after
   // an offline sync, operators couldn't view the resulting cycle data without
   // a desktop. Mirror the desktop endpoint, scoped to recent cycles only.
+  // 2026-10-17 load test (operator decision): the view asked for EVERY cycle ever
+  // recorded, with events, every 30 s — it never completed at one year of data.
+  // Now the last 30 days; the key is fixed for the component's lifetime so SWR
+  // does not see a new URL on every render.
+  const cyclesSince = useMemo(() => new Date(Date.now() - 30 * 86_400_000).toISOString(), []);
   const { data: cyclesData, isLoading: cyclesLoading } =
-    useSWR<any>(online && view === 'cycles' ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true` : null, { refreshInterval: 30000 });
+    useSWR<any>(online && view === 'cycles' ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true&from=${encodeURIComponent(cyclesSince)}` : null, { refreshInterval: 30000 });
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   useEffect(() => { if (cyclesData?.data) cache('cleaning-cycles-recent', cyclesData.data); }, [cyclesData, cache]);
   useEffect(() => {
@@ -620,12 +622,18 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // Cache data when online for offline use
   useEffect(() => { if (instancesData?.data) cacheFilterData(instancesData.data); }, [instancesData]);
   useEffect(() => {
-    if (identifiersData) {
-      const map = buildIdentifierMap(identifiersData as any[]);
+    if (!identifiersData) return;
+    let live = true;
+    // M53: retired / deactivated holders drop out unless they still have
+    // unsynced queued work on this tablet (that work must never be stranded).
+    filterIdsWithUnsyncedWork().catch(() => undefined).then((keep) => {
+      if (!live) return;
+      const map = buildIdentifierMap(identifiersData as any[], keep);
       if (Object.keys(map).length > 0) {
         cache('identifier-map', map);
       }
-    }
+    });
+    return () => { live = false; };
   }, [identifiersData, cache]);
   useEffect(() => { if (templatesData?.data) cache('templates', templatesData.data, 24 * 60 * 60 * 1000); }, [templatesData, cache]);
   useEffect(() => { const r = (reasonsData as any)?.reasons ?? reasonsData; if (r) cache('cleaning-reasons', r, 24 * 60 * 60 * 1000); }, [reasonsData, cache]);
@@ -688,11 +696,19 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
       return { ok: false, count: 0, error: msg };
     }
   };
+  // 2026-10-17 load test (operator decision): this used to re-run on every
+  // `instancesData` refresh, i.e. every 30 s — one 11 MB all-filters download per
+  // tablet per 30 s, ~7 s of server CPU each before fix 6 and still the single
+  // request that saturated the server at 100 users. The offline cache is now
+  // refreshed when the tablet comes online, every 5 minutes while it stays
+  // online, on every sync (offline-sync-service.ts) and on the manual button;
+  // the operator's own actions update their filter's cached state as they happen.
   useEffect(() => {
-    if (!online || !instancesData?.data) return;
+    if (!online) return;
     const timer = setTimeout(cacheAllStates, 2000);
-    return () => clearTimeout(timer);
-  }, [online, instancesData]);
+    const every = setInterval(cacheAllStates, 5 * 60_000);
+    return () => { clearTimeout(timer); clearInterval(every); };
+  }, [online]);
   const manualRecache = async () => {
     if (!online || recaching) return;
     setRecaching(true);
@@ -763,6 +779,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     f.isActive !== false && f.status !== 'Retired'
   );
   const blocks = instances.filter((i: any) => i.templateId === blockTemplateId);
+  // OQ-05 (2026-10-19): a My Tasks "Perform" names the task AHU's block. Pick it
+  // once, as soon as the block list has loaded; "Change" still clears it, and
+  // an unknown id leaves the normal block picker in place.
+  const initialBlockAppliedRef = useRef(false);
+  useEffect(() => {
+    if (initialBlockAppliedRef.current || !initialBlockId || !activeStage?.needsBlock || selectedBlock) return;
+    const b = blocks.find((x: any) => x.id === initialBlockId);
+    if (b) { initialBlockAppliedRef.current = true; setSelectedBlock(b); }
+  });
 
   const stageCounts: Record<string, number> = {};
   allFilters.forEach((f: any) => { if (f.currentLifecycleState) stageCounts[f.currentLifecycleState] = (stageCounts[f.currentLifecycleState] ?? 0) + 1; });
@@ -803,6 +828,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     setView('stage');
     setScanValue(''); setRemarks(''); setError(''); setSuccess(''); setSelectedBlock(null);
     setEquipmentGroupSyncWarning(null);
+    setInterlock(null);
   };
 
   // 2026-05-17 stale-stage-counter fix: force-revalidate `instances` when
@@ -815,7 +841,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
   // since per-stage counters can't be derived from local optimistic state
   // without re-projecting every cached filter (separate follow-up).
   const goHome = () => {
-    setView('home'); setActiveStage(null); core.dispatch({ type: 'close' }); setError(''); setSuccess(''); setScanQueue([]); setDryerDurations({}); setEquipmentGroupSyncWarning(null); setStageSubmitRecap(null);
+    setView('home'); setActiveStage(null); core.dispatch({ type: 'close' }); setError(''); setSuccess(''); setScanQueue([]); setDryerDurations({}); setEquipmentGroupSyncWarning(null); setStageSubmitRecap(null); setInterlock(null);
     if (online) mutate('/api/assets/instances');
   };
 
@@ -846,7 +872,10 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         filterId = l.asset.id; filterName = l.asset.name; approvalStatus = l.asset.approvalStatus ?? null;
         // Self-heal the offline cache so a later OFFLINE scan of this (possibly
         // just-reassigned) tag resolves to the CURRENT filter, not a stale one.
-        try {
+        // M53: never re-add a tag whose holder is retired / deactivated — the
+        // sync just evicted it, and this would put it straight back.
+        const holderGone = l.asset.status === 'Retired' || l.asset.isActive === false;
+        if (!holderGone) try {
           const m = (await getCache<Record<string, IdentifierMapEntry>>('identifier-map')) || {};
           const entry: IdentifierMapEntry = { filterId: filterId as string, filterName: filterName as string, approvalStatus };
           m[sv] = entry; m[sv.toUpperCase()] = entry; m[sv.toLowerCase()] = entry;
@@ -1069,6 +1098,11 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
     const batchQueue = scanQueue.filter(q => selectedQueueIds.has(q.filterId));
     if (batchQueue.length === 0 || !activeStage || loading) return;
     setLoading(true); setError(''); setSuccess('');
+    setInterlock(null);
+    // OQ-02: the first filter of this submit held by the stage interlock — the
+    // banner explains it; every held filter also gets its own failure line.
+    let interlockHit: StageInterlockState | null = null;
+    const noteInterlock = (i: StageInterlockState) => { if (!interlockHit) { interlockHit = i; setInterlock(i); } };
     // 2026-05-20: snapshot the queue BEFORE the loop so the post-batch
     // current-state prime can target every filter even after setScanQueue([])
     // clears the live state.
@@ -1192,9 +1226,9 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         // tape and recompute locally. Online keeps respecting the live stripped
         // tape. (Same rationale as buildOfflineState above.)
         const itemGated = !online && !!cachedState.stageLookup?.[currentLifecycle ?? '']?.interlockGated;
-        const itemActions = await getCurrentActions(item.filterId, itemGated ? null : cachedState.actions);
+        let itemActions = await getCurrentActions(item.filterId, itemGated ? null : cachedState.actions);
 
-        const gate = validateOfflineGate({
+        const runGate = () => validateOfflineGate({
           activeStageKey: activeStage.key,
           activeStageLabel: activeStage.label,
           online,
@@ -1216,6 +1250,33 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           selectedBlockId: selectedBlock?.id,
           replacementBlocked: blockedIds.has(item.filterId),
         });
+        let gate = runGate();
+        // OQ-02 (2026-10-19): ONLINE at an interlock-gated stage the server tape
+        // has the advance stripped while the approval is outstanding, so the
+        // gate refuses with a generic line. The cached row cannot say why -
+        // cacheServerStateResponse does not persist `interlock` - so read the
+        // live state for THIS refused filter only (no extra call for a filter
+        // the gate lets through). Approved since the cache was written: carry
+        // on with the fresh state. Still held: say who must approve it.
+        if (!gate.ok && online && cycleInProgress && cachedState.stageLookup?.[currentLifecycle ?? '']?.interlockGated) {
+          try {
+            const fresh = await apiClient.get<any>(
+              `/api/filters/${item.filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`,
+            );
+            const held = blockingInterlock(fresh);
+            if (held) {
+              noteInterlock(held);
+              failed.push(interlockRefusalLine(item.filterName, held));
+              continue;
+            }
+            if (fresh) {
+              await cacheServerStateResponse(item.filterId, fresh);
+              cachedState = fresh;
+              itemActions = await getCurrentActions(item.filterId, cachedState.actions);
+              gate = runGate();
+            }
+          } catch { /* transient read failure - report the gate's own reason below */ }
+        }
         if (!gate.ok) {
           failed.push(`${item.filterName}: ${gate.reason}`);
           continue;
@@ -1627,6 +1688,15 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           setRecentOps(prev => [{ stage: stageLabel, filter: fname, time: formatTime(new Date()), queued: false, status: 'ok' as const }, ...prev].slice(0, 200));
         } else {
           failed.push(`${fname}: ${r.error?.message ?? 'failed'}`);
+          // OQ-02: the server's interlock refusal (423). Its message already
+          // names the approver role; the banner reads the live state once, for
+          // the first such filter only.
+          if (!interlockHit && INTERLOCK_REFUSAL_CODES.has(r.error?.code ?? '')) {
+            try {
+              const held = blockingInterlock(await apiClient.get<any>(`/api/filters/${r.filterId}/current-state`));
+              if (held) noteInterlock(held);
+            } catch { /* the failure line above already carries the reason */ }
+          }
           // B3/C2: record failures too so they render in the Failure section.
           setRecentOps(prev => [{ stage: activeStage.key, filter: fname, time: formatTime(new Date()), status: 'failed' as const, msg: r.error?.message ?? 'failed' }, ...prev].slice(0, 200));
         }
@@ -3650,18 +3720,14 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
           </button>
         </div>
       )}
-      {/* Stage interlock — paused awaiting QA approval (server already removed the
+      {/* Stage interlock — paused awaiting the configured approver (server already removed the
           advance action; this explains why). */}
       {interlock?.blocksLeaving && view === 'stage' && (
         <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl text-sm text-amber-800 flex items-start gap-2">
           <span className="text-base leading-none">🛡️</span>
           <div>
-            <div className="font-semibold">{interlockStageLabel(interlock.stageKey)} awaiting QA approval</div>
-            <div className="text-amber-700 mt-0.5 text-[13px]">
-              {interlock.status === 'REJECTED'
-                ? 'Rejected — the filter has been sent back for re-cleaning.'
-                : `${interlock.approverRole ?? 'An approver'} must verify and approve before this filter can continue.`}
-            </div>
+            <div className="font-semibold">{interlockBannerTitle(interlock)}</div>
+            <div className="text-amber-700 mt-0.5 text-[13px]">{interlockBannerDetail(interlock)}</div>
           </div>
         </div>
       )}
@@ -4520,9 +4586,12 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
                                     <img src={val} alt="Captured" className="mt-2 rounded-xl max-h-32 object-cover border border-slate-200" />
                                   )}
                                 </div>
-                              ) : q.questionType === 'SIGNATURE' ? (
-                                <p className="text-xs text-slate-400 italic">Signature capture not available on tablet — will be collected online</p>
                               ) : (
+                                // C-04 (2026-10-19): SIGNATURE falls through to the
+                                // typed answer, exactly as the web checklist dialog
+                                // (checklist-dialog.tsx `default:`). The tablet had
+                                // a "not available" note with no input, so a
+                                // REQUIRED signature question blocked the batch.
                                 <textarea value={val} onChange={e => setVal(e.target.value)} rows={2}
                                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none" placeholder="Enter answer" />
                               )}
@@ -4646,7 +4715,7 @@ export function MobileOperationsPage({ initialStageKey, hideHeader }: { initialS
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Filter Operation"
+        actionLabel={reauth.pendingActionLabel ?? 'Filter Operation'}
       />
 
       {/* Rendered here, in the MAIN component, alongside the reauth dialog —

@@ -40,7 +40,10 @@ import { prisma } from '../lib/prisma.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 
 // Unique suffix isolates this run's fixtures from other suites.
-const SUFFIX = `p3-${Date.now().toString(36)}`;
+// Upper-case on purpose (C-07, 2026-10-19): an RFID value is stored in its
+// canonical, upper-case form, and these cases assert the stored value equals
+// the value sent. rfid-canonical-write.test.ts covers the non-canonical input.
+const SUFFIX = `P3-${Date.now().toString(36).toUpperCase()}`;
 
 describe('Phase 3 — RFID & Offline (identifier lookup + offline-replay header)', () => {
   let app: FastifyInstance;

@@ -268,7 +268,7 @@ export function AccessMatrixPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setSaving(false); }}
-        actionLabel="Save Configuration Access"
+        actionLabel={reauth.pendingActionLabel ?? 'Save Configuration Access'}
       />
     </div>
   );

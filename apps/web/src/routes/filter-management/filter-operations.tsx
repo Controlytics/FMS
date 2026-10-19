@@ -1860,6 +1860,63 @@ export function FilterOperationsPage() {
 
   const selectedStageInfo = CLEANING_STAGES.find(s => s.key === selectedStatusStage);
 
+  // QA-D002 (2026-10-19): the dialogs that RESOLVE a pending submit promise —
+  // AHU set chooser (runAhuGate), AHU remaining-filters warn/block
+  // (checkAhuCompletionBatch), and the missed-PM question (askPmSkipReasons on a
+  // 409 PM_PREVIOUS_TASK_PENDING). They used to be mounted only in the landing
+  // return; the stage screen (/filters/stage/:key) runs the same submit handlers,
+  // so there the promise could never settle and the submit spun forever. One
+  // element, rendered in BOTH returns, so the two cannot drift again.
+  const gateDialogs = (
+    <>
+      {/* AHU Filter-Set Chooser — shown before the completion popup (2026-07-03) */}
+      {ahuSetChooser && (
+        <AhuSetChooserDialog
+          onChoose={(set) => {
+            setAhuSetChooser(false);
+            ahuSetResolveRef.current?.(set);
+            ahuSetResolveRef.current = null;
+          }}
+          onCancel={() => {
+            setAhuSetChooser(false);
+            ahuSetResolveRef.current?.(null);
+            ahuSetResolveRef.current = null;
+          }}
+        />
+      )}
+
+      {/* AHU Remaining Filters Dialog (Task 7) */}
+      {ahuDialogState && (
+        <RemainingFiltersDialog
+          mode={ahuDialogState.mode}
+          ahus={ahuDialogState.ahus}
+          currentFilterIds={ahuDialogState.currentFilterIds}
+          onContinue={() => {
+            ahuDialogResolveRef.current?.(true);
+            ahuDialogResolveRef.current = null;
+            setAhuDialogState(null);
+          }}
+          onCancel={() => {
+            ahuDialogResolveRef.current?.(false);
+            ahuDialogResolveRef.current = null;
+            setAhuDialogState(null);
+          }}
+        />
+      )}
+
+      {pmGate && (
+        <PmPendingTasksDialog
+          tasks={pmGate.tasks}
+          minReasonLength={pmGate.minReasonLength}
+          busy={pmGateBusy}
+          formatDate={formatDate}
+          onCancel={() => { pmGate.resolve(null); setPmGate(null); }}
+          onConfirm={(skips) => { setPmGateBusy(false); pmGate.resolve(skips); setPmGate(null); }}
+        />
+      )}
+    </>
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -1973,7 +2030,7 @@ export function FilterOperationsPage() {
         <EquipmentDialog dialog={equipmentDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} online={online} />
         <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { core.dispatch({ type: 'close' }); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
         <ChecklistDialog dialog={checklistDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
-        <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying} onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel="Filter Operation" />
+        <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying} onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel={reauth.pendingActionLabel ?? 'Filter Operation'} />
         <BlockChangeRequestDialog
           dialog={blockChangeDialog}
           reason={blockChangeReason}
@@ -1983,6 +2040,7 @@ export function FilterOperationsPage() {
           onCancel={() => { core.dispatch({ type: 'close' }); }}
           mode={blockChangeMode}
         />
+        {gateDialogs}
         <ErrorPopup error={popupError} onClose={() => setPopupError('')} />
       </div>
     );
@@ -2194,7 +2252,7 @@ export function FilterOperationsPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Filter Operation"
+        actionLabel={reauth.pendingActionLabel ?? 'Filter Operation'}
       />
 
       {/* Block Change Request Dialog */}
@@ -2208,53 +2266,10 @@ export function FilterOperationsPage() {
         mode={blockChangeMode}
       />
 
-      {/* AHU Filter-Set Chooser — shown before the completion popup (2026-07-03) */}
-      {ahuSetChooser && (
-        <AhuSetChooserDialog
-          onChoose={(set) => {
-            setAhuSetChooser(false);
-            ahuSetResolveRef.current?.(set);
-            ahuSetResolveRef.current = null;
-          }}
-          onCancel={() => {
-            setAhuSetChooser(false);
-            ahuSetResolveRef.current?.(null);
-            ahuSetResolveRef.current = null;
-          }}
-        />
-      )}
-
-      {/* AHU Remaining Filters Dialog (Task 7) */}
-      {ahuDialogState && (
-        <RemainingFiltersDialog
-          mode={ahuDialogState.mode}
-          ahus={ahuDialogState.ahus}
-          currentFilterIds={ahuDialogState.currentFilterIds}
-          onContinue={() => {
-            ahuDialogResolveRef.current?.(true);
-            ahuDialogResolveRef.current = null;
-            setAhuDialogState(null);
-          }}
-          onCancel={() => {
-            ahuDialogResolveRef.current?.(false);
-            ahuDialogResolveRef.current = null;
-            setAhuDialogState(null);
-          }}
-        />
-      )}
+      {gateDialogs}
 
       {/* Error Popup */}
       <ErrorPopup error={popupError} onClose={() => setPopupError('')} />
-      {pmGate && (
-        <PmPendingTasksDialog
-          tasks={pmGate.tasks}
-          minReasonLength={pmGate.minReasonLength}
-          busy={pmGateBusy}
-          formatDate={formatDate}
-          onCancel={() => { pmGate.resolve(null); setPmGate(null); }}
-          onConfirm={(skips) => { setPmGateBusy(false); pmGate.resolve(skips); setPmGate(null); }}
-        />
-      )}
 
     </div>
   );

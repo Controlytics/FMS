@@ -381,7 +381,7 @@ export default function LdapConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setSaving(false); }}
-        actionLabel="Update LDAP Configuration"
+        actionLabel={reauth.pendingActionLabel ?? 'Update LDAP Configuration'}
       />
     </div>
   );

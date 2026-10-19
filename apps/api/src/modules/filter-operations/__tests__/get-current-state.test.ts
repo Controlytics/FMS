@@ -31,6 +31,7 @@ const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
   mockPrisma: {
     assetInstance: { findFirst: vi.fn(), findUnique: vi.fn() },
     cleaningCycle: { findUnique: vi.fn(), findFirst: vi.fn(), count: vi.fn(), update: vi.fn() },
+    cleaningStageApproval: { findFirst: vi.fn() },
     equipmentGroup: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     equipmentGroupVersion: { findUnique: vi.fn() },
     filterCleaningProfile: { findUnique: vi.fn() },
@@ -361,5 +362,58 @@ describe('FilterOperationsService.getCurrentState() — L1 + L2 invariants', () 
       // Pre-cycle: live profileId is what the operator sees.
       expect(pipelineSpy).toHaveBeenCalledWith(LIVE_PROFILE_ID, false);
     });
+  });
+});
+
+// ── Stage interlock: the tape must withhold EVERY leave action while approval is pending ──
+// 2026-10-17 load test: at a gated Wash Out with the approval PENDING the tape still
+// offered SET_DRYER_DURATION (the advance into Dry In), so the tablet showed a button
+// that advance.ts refused with 423 STAGE_APPROVAL_PENDING — 4 of 9 cycles hit it.
+describe('stage interlock tape filter', () => {
+  const WASH_IN = 'n-wash-in', WASH_OUT = 'n-wash-out', DRY_IN = 'n-dry-in';
+  const gatedPipeline = {
+    id: CYCLE_PROFILE_ID, name: 'Gated', flowMode: 'STRICT', status: 'ACTIVE',
+    stages: [
+      { id: 'n-start', stateKey: null, nodeType: 'START', sortOrder: 0, configuration: {} },
+      { id: WASH_IN, stateKey: 'WASH_IN', nodeType: 'STAGE', sortOrder: 1, configuration: {} },
+      { id: WASH_OUT, stateKey: 'WASH_OUT', nodeType: 'STAGE', sortOrder: 2, configuration: {} },
+      { id: DRY_IN, stateKey: 'DRY_IN', nodeType: 'STAGE', sortOrder: 3, configuration: {} },
+      { id: 'n-end', stateKey: null, nodeType: 'END', sortOrder: 4, configuration: {} },
+    ],
+    connections: [
+      { fromStageId: 'n-start', toStageId: WASH_IN }, { fromStageId: WASH_IN, toStageId: WASH_OUT },
+      { fromStageId: WASH_OUT, toStageId: DRY_IN }, { fromStageId: DRY_IN, toStageId: 'n-end' },
+    ],
+  };
+
+  function arrange(approvalStatus: 'PENDING' | 'APPROVED') {
+    const filter: any = filterWithCycle();
+    filter.filterDetails.currentLifecycleState = 'WASH_OUT';
+    const cycle: any = { ...cycleFixture(), profileVersion: 1, dryerStartedAt: null, dryerDurationMinutes: null, dryerReadingsSubmitted: false };
+    setupMinimalReads(filter, cycle);
+    mockPrisma.systemConfig.findUnique.mockImplementation(async ({ where }: any) =>
+      where?.configKey === 'stage-interlock'
+        ? { configKey: 'stage-interlock', configValue: { enabled: true, washOutApproverRole: 'SHIFTOFFICER', dryOutApproverRole: 'SHIFTOFFICER', requireDifferentApprover: true } }
+        : null);
+    mockPrisma.cleaningStageApproval.findFirst.mockResolvedValue({ id: 'appr-1', status: approvalStatus, cycleId: CYCLE_ID, filterId: FILTER_ID, stageKey: 'WASH_OUT' });
+    mockPrisma.equipmentGroupVersion.findUnique.mockResolvedValue(null);
+    mockPrisma.equipmentGroup.findUnique.mockResolvedValue({ id: GROUP_ID, name: 'g', blockId: 'block-1', isActive: true, version: 3, instruments: [] });
+    const service = new FilterOperationsService();
+    (service as any).getProfilePipeline = vi.fn().mockResolvedValue(gatedPipeline);
+    return service;
+  }
+
+  it('PENDING: neither ADVANCE_TO_STAGE nor SET_DRYER_DURATION is offered out of Wash Out', async () => {
+    const state = await arrange('PENDING').getCurrentState(ctx, FILTER_ID);
+    expect(state.interlock?.blocksLeaving).toBe(true);
+    const types = state.actions.map((a: any) => a.type);
+    expect(types).not.toContain('SET_DRYER_DURATION');
+    expect(types).not.toContain('ADVANCE_TO_STAGE');
+  });
+
+  it('APPROVED (control): SET_DRYER_DURATION into Dry In is offered again', async () => {
+    const state = await arrange('APPROVED').getCurrentState(ctx, FILTER_ID);
+    expect(state.interlock?.blocksLeaving).toBe(false);
+    expect(state.actions.map((a: any) => a.type)).toContain('SET_DRYER_DURATION');
   });
 });

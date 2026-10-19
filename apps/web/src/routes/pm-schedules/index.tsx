@@ -1,6 +1,7 @@
 import React, { useRef, useState, useMemo } from 'react';
 import { ALL_ROWS } from '@/lib/page-size';
 import useSWR, { mutate as globalMutate } from 'swr';
+import { Link } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useCan } from '../../hooks/use-can';
@@ -53,6 +54,58 @@ const STATUS_CFG: Record<string, { label: string; bg: string; text: string; bord
   APPROVED: { label: 'Approved', bg: 'bg-emerald-50',  text: 'text-emerald-700',  border: 'border-emerald-200',  dot: 'bg-emerald-400' },
   REJECTED: { label: 'Rejected', bg: 'bg-red-50',      text: 'text-red-700',      border: 'border-red-200',      dot: 'bg-red-400' },
 };
+
+type PmWorkflowConfig = { workflowEnabled: boolean; reviewRole: string; approvalRole: string };
+
+/**
+ * OQ-08 / OQ-09: where a submitted, re-submitted or edited entry goes next, said
+ * the way the SERVER routes it (pm-approval.ts / pm-import.ts): workflow ON puts
+ * it in PENDING_REVIEW for the configured review role; workflow OFF puts it in
+ * PENDING for a PM_APPROVE holder. The copy used to say "QA approval" in every
+ * case, from the old single-step flow - wrong whenever review is a Manager step.
+ * `wf` undefined = the workflow config could not be read; say nothing specific.
+ */
+export function pmSubmissionText(wf: PmWorkflowConfig | undefined): { title: string; phrase: string } {
+  if (!wf) return { title: 'Submitted', phrase: 'submitted to the PM approval workflow' };
+  if (wf.workflowEnabled) {
+    const role = wf.reviewRole?.trim();
+    return { title: 'Sent for review', phrase: `sent for review${role ? ` by ${role}` : ''}` };
+  }
+  return { title: 'Sent for approval', phrase: 'sent for approval' };
+}
+
+/** OQ-08: what happens to uploaded rows - same server rules as above. */
+export function pmUploadHint(wf: PmWorkflowConfig | undefined, isSuperAdmin: boolean): string {
+  if (!wf) return 'entries go through the PM approval workflow';
+  if (wf.workflowEnabled) {
+    const role = wf.reviewRole?.trim();
+    const approver = wf.approvalRole?.trim();
+    return `entries go to review${role ? ` by ${role}` : ''}, then approval${approver ? ` by ${approver}` : ''}`;
+  }
+  // pm-import.ts: with the workflow off a SUPER_ADMIN upload is approved directly.
+  return isSuperAdmin ? 'entries you upload are approved directly' : 'entries go to Pending for approval';
+}
+
+const REJECTION_STAGE: Record<string, string> = { REVIEW: 'review', APPROVAL: 'approval' };
+
+/** OQ-10: who rejected a PM entry, when, at which step, and why. */
+export function RejectionDetails({ entry, formatDateTime }: {
+  entry: { approvalRemarks?: string | null; rejectedByName?: string | null; rejectedAt?: string | null; rejectionStage?: string | null };
+  formatDateTime: (iso: string) => string;
+}) {
+  const stage = entry.rejectionStage ? REJECTION_STAGE[entry.rejectionStage] ?? entry.rejectionStage.toLowerCase() : null;
+  return (
+    <div className="mt-1.5 max-w-[18rem] space-y-0.5 text-[11px] leading-snug text-red-700">
+      <div>
+        Rejected{stage ? ` at ${stage}` : ''}{entry.rejectedByName ? ` by ${entry.rejectedByName}` : ''}
+        {entry.rejectedAt ? ` on ${formatDateTime(entry.rejectedAt)}` : ''}
+      </div>
+      <div className="break-words text-red-600">
+        <span className="font-semibold">Remarks:</span> {entry.approvalRemarks?.trim() || 'none recorded'}
+      </div>
+    </div>
+  );
+}
 
 function parseCsvText(text: string): Array<Record<string, string>> {
   const lines = text.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#'));
@@ -125,10 +178,17 @@ export function PmScheduleListPage() {
   // strictly by the configured ROLE (assertPmRole), so the FE must too — otherwise a
   // user with the PM_APPROVE permission but not the approver role sees an Approve
   // button that 403s. When OFF (legacy single-step), fall back to the permissions.
-  const { data: wfConfig } = useSWR<{ workflowEnabled: boolean; reviewRole: string; approvalRole: string }>('/api/pm-schedules/workflow-config');
+  const { data: wfConfig, error: wfError, mutate: reloadWf } = useSWR<PmWorkflowConfig>('/api/pm-schedules/workflow-config');
+  // M79: until the workflow config is KNOWN, nobody gets Review / Approve. A
+  // failed fetch used to fall back to `workflowEnabled: false` and silently
+  // switch the buttons to the legacy permission rules - offering an Approve the
+  // server (assertPmRole) then refuses, or a single-step approval of an entry
+  // that is really waiting on review. Hidden while loading too (brief).
+  const wfKnown = !!wfConfig;
   const workflowOn = wfConfig?.workflowEnabled ?? false;
-  const isApprover = isSuperAdmin || (workflowOn ? user?.role === wfConfig?.approvalRole : perms.includes('PM_APPROVE'));
-  const canReview = isSuperAdmin || (workflowOn ? user?.role === wfConfig?.reviewRole : perms.includes('PM_REVIEW'));
+  const isApprover = wfKnown && (isSuperAdmin || (workflowOn ? user?.role === wfConfig?.approvalRole : perms.includes('PM_APPROVE')));
+  const canReview = wfKnown && (isSuperAdmin || (workflowOn ? user?.role === wfConfig?.reviewRole : perms.includes('PM_REVIEW')));
+  const submission = pmSubmissionText(wfConfig);
   // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint
   // (BE supports it with reauth, no FE caller). Surface a delete button
   // per AHU group; backend pm-schedule-crud.ts:138 returns 409 if any
@@ -215,7 +275,7 @@ export function PmScheduleListPage() {
     [years, statusQs],
   );
   const entriesKey = entriesUrls.length ? (['pm-entries', ...entriesUrls] as const) : null;
-  const { data: entriesData, isLoading } = useSWR(
+  const { data: entriesData, error: entriesError, isLoading, mutate: reloadEntries } = useSWR(
     entriesKey,
     async ([, ...urls]: readonly string[]) => {
       const pages = await Promise.all(urls.map(u => apiClient.get<{ data: ScheduleEntry[] }>(u)));
@@ -541,7 +601,7 @@ export function PmScheduleListPage() {
       },
       {
         onSuccess: () => {
-          toast.success('Sent for review', `Change to ${showInputDate(createForm.plannedDate)} submitted for review & approval. The current date stays active until approved.`);
+          toast.success(submission.title, `Change to ${showInputDate(createForm.plannedDate)} ${submission.phrase}. The current date stays active until the change is approved.`);
           setOverwriteConfirm(null);
           resetCreate();
           refreshAll();
@@ -639,7 +699,7 @@ export function PmScheduleListPage() {
       },
       {
         onSuccess: () => {
-          toast.success('Re-submitted', 'Entry sent for QA approval');
+          toast.success('Re-submitted', `Entry ${submission.phrase}.`);
           setEditingId(null); refreshAll(); setProcessing(false);
         },
         onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
@@ -655,7 +715,7 @@ export function PmScheduleListPage() {
       if (password) await apiClient.putWithReauth(`/api/pm-schedules/entries/${id}/edit`, body, password);
       else await apiClient.put(`/api/pm-schedules/entries/${id}/edit`, body);
     }, {
-      onSuccess: () => { toast.success('Edit Submitted', 'Change sent for QA approval'); setEditingId(null); refreshAll(); setProcessing(false); },
+      onSuccess: () => { toast.success('Edit Submitted', `Change ${submission.phrase}. The current date stays active until the change is approved.`); setEditingId(null); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
     });
   };
@@ -883,9 +943,23 @@ export function PmScheduleListPage() {
         </div>
       )}
 
+      {wfError && !wfConfig && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+          <span>Could not load the PM approval workflow settings, so Review and Approve are hidden until they load.</span>
+          <button onClick={() => reloadWf()} className="shrink-0 px-3 py-1 rounded-lg text-[12px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+        </div>
+      )}
+
       {/* ─── Table ─── */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        {isLoading ? (
+        {/* M79: a failed load used to read "No schedule entries found". */}
+        {entriesError && !entriesData ? (
+          <div role="alert" className="flex flex-col items-center justify-center py-16 gap-2 text-center px-6">
+            <span className="text-[14px] font-semibold text-red-700">Could not load PM schedule entries</span>
+            <span className="text-[13px] text-slate-500 max-w-md">{(entriesError as any)?.message || 'The server did not answer.'}</span>
+            <button onClick={() => reloadEntries()} className="mt-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+          </div>
+        ) : isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }} />
             <p className="text-sm text-slate-400">Loading schedules...</p>
@@ -945,7 +1019,12 @@ export function PmScheduleListPage() {
                           <td className="w-14 text-center px-2 py-3 text-sm text-slate-400 font-medium">{serialNo}</td>
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-slate-800 whitespace-nowrap">{group.ahuName}</span>
+                              {/* M80 / OQ-11 (operator decision: link it): the AHU's
+                                  own schedule page - year view, per-visit Start PM. */}
+                              <Link to={`/pm-schedules/${group.ahuId}`}
+                                className="text-sm font-semibold text-slate-800 whitespace-nowrap hover:text-brand-700 hover:underline underline-offset-2">
+                                {group.ahuName}
+                              </Link>
                               {ahuFiltersEnabled && group.filterNames.length > 0 && (
                                 <button onClick={e => { e.stopPropagation(); toggleAhuExpand(group.ahuId); }}
                                   className="text-[11px] px-1.5 py-0.5 rounded border transition-colors font-medium whitespace-nowrap" style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>
@@ -1018,6 +1097,9 @@ export function PmScheduleListPage() {
                               <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                               {sc.label}
                             </span>
+                            {/* OQ-10: the rejection reason used to appear only in the
+                                PDF export. Whoever must fix and re-submit needs it here. */}
+                            {entry.approvalStatus === 'REJECTED' && <RejectionDetails entry={entry} formatDateTime={formatDateTime} />}
                           </td>
                           <td className="px-5 py-3">
                             {entry.approvedByName ? (
@@ -1150,7 +1232,7 @@ export function PmScheduleListPage() {
               <div className="flex items-center justify-between mb-5">
                 <div>
                   <h3 className="text-lg font-bold text-slate-800">Upload PM Schedule</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">CSV or XLSX • max 5 MB • entries go to Pending for QA approval</p>
+                  <p className="text-xs text-slate-400 mt-0.5">CSV or XLSX • max 5 MB • {pmUploadHint(wfConfig, isSuperAdmin)}</p>
                 </div>
                 <button onClick={() => { setUploadOpen(false); setResult(null); setUploadError(''); }}
                   className="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center" aria-label="Close">
@@ -1219,7 +1301,7 @@ export function PmScheduleListPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setDeletingSchedule(false); setUploading(false); setProcessing(false); setCreatingSchedule(false); }}
-        actionLabel="PM Schedule Action" />
+        actionLabel={reauth.pendingActionLabel ?? 'PM Schedule Action'} />
 
       {/* Audit 2026-05-09 fix: single-PM-schedule create dialog */}
       {createDialog && (

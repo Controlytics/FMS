@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useExportOptions } from '@/hooks/use-export-options';
+import { isReauthCancelled } from '@/lib/report-export-log';
 
 interface ExportMenuProps {
   /** Surface key from export-surfaces.ts (e.g. 'filters', 'audit'). */
   surface: string;
-  onExportPdf?: () => void;
-  onExportExcel?: () => void;
+  onExportPdf?: () => void | Promise<unknown>;
+  onExportExcel?: () => void | Promise<unknown>;
   busy?: boolean;
   /** Override the trigger button classes (defaults to a slate outline button). */
   className?: string;
@@ -33,6 +34,21 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
+  // C-05 backstop: the handlers are async and this menu used to fire them and
+  // drop the promise, so a rejection (a dismissed export password prompt, or a
+  // handler without its own catch) became an unhandled rejection. Pages report
+  // their own failures to the operator; here a cancel stays silent and anything
+  // that still escapes is logged, never left unhandled.
+  const run = (fn?: () => void | Promise<unknown>) => {
+    const r = fn?.();
+    if (r && typeof (r as Promise<unknown>).catch === 'function') {
+      (r as Promise<unknown>).catch((e) => {
+        if (isReauthCancelled(e)) return;
+        console.error('[ExportMenu] export failed', e);
+      });
+    }
+  };
+
   const showPdf = pdf && !!onExportPdf;
   const showExcel = excel && !!onExportExcel;
   if (!showPdf && !showExcel) return null;
@@ -44,7 +60,7 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
   if (showPdf !== showExcel) {
     const isPdf = showPdf;
     return (
-      <button onClick={isPdf ? onExportPdf : onExportExcel} disabled={busy} className={btnCls}>
+      <button onClick={() => run(isPdf ? onExportPdf : onExportExcel)} disabled={busy} className={btnCls}>
         {DownloadIcon}
         {busy ? 'Exporting…' : isPdf ? 'Export as PDF' : 'Export as Excel'}
       </button>
@@ -63,11 +79,11 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
       </button>
       {open && (
         <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
-          <button onClick={() => { setOpen(false); onExportPdf?.(); }}
+          <button onClick={() => { setOpen(false); run(onExportPdf); }}
             className="w-full flex items-center gap-2 text-left px-3.5 py-2.5 text-[13px] text-slate-700 hover:bg-slate-50">
             <span className="text-red-500 font-bold text-[11px]">PDF</span> Export as PDF
           </button>
-          <button onClick={() => { setOpen(false); onExportExcel?.(); }}
+          <button onClick={() => { setOpen(false); run(onExportExcel); }}
             className="w-full flex items-center gap-2 text-left px-3.5 py-2.5 text-[13px] text-slate-700 hover:bg-slate-50 border-t border-slate-100">
             <span className="text-emerald-600 font-bold text-[11px]">XLS</span> Export as Excel
           </button>

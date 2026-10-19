@@ -66,8 +66,12 @@ export const REPORT_DEFS: ReportDef[] = [
   },
   {
     key: 'cleaning-cycles',
-    name: 'Cleaning Cycles',
-    defaultTitle: 'Cleaning Cycles',
+    // OQ-15 (operator decision 2026-10-19): the sidebar item and permission
+    // tree have called this page "Filter Cleaning Record" for months, but the
+    // page heading + PDF/Excel title still said "Cleaning Cycles". A title
+    // saved on Config -> Report Labels still overrides this default.
+    name: 'Filter Cleaning Record',
+    defaultTitle: 'Filter Cleaning Record',
     columns: [
       { key: 'sNo', default: 'S.No' },
       { key: 'filter', default: 'Filter' },

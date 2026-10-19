@@ -124,6 +124,27 @@ describe('Audit hash chain — C3', () => {
     expect(result.preChainRows).toBe(0);
   });
 
+  it('verifyAuditChain accepts a signed row (signature_audit_id is inside the checksum)', async () => {
+    // 2026-10-17: the verifier's SELECT omitted signature_audit_id, so every
+    // row signed through re-auth was reported as PER_ROW_CHECKSUM_MISMATCH.
+    const beforeMaxRow = await prisma.$queryRaw<Array<{ chain_position: bigint | null }>>`
+      SELECT chain_position FROM audit_trail ORDER BY chain_position DESC NULLS LAST LIMIT 1
+    `;
+    const beforeMax = beforeMaxRow[0]?.chain_position == null ? 0 : Number(beforeMaxRow[0].chain_position);
+
+    const signatureId = await auditLog({ userId: TEST_USERNAME, action: 'SIGNED_REAUTH', targetType: 'test', targetId: 's0' });
+    await auditLog({ userId: TEST_USERNAME, action: 'SIGNED_ACTION', targetType: 'test', targetId: 's1', signatureAuditId: signatureId });
+
+    const signed = await prisma.$queryRaw<Array<{ signature_audit_id: string | null }>>`
+      SELECT signature_audit_id FROM audit_trail WHERE action = 'SIGNED_ACTION' AND chain_position > ${beforeMax}
+    `;
+    expect(signed[0]?.signature_audit_id).toBe(signatureId);
+
+    const result = await verifyAuditChain({ fromPosition: beforeMax + 1 });
+    expect(result.anomalies).toEqual([]);
+    expect(result.intact).toBe(true);
+  });
+
   it('detects in-place mutation as PER_ROW_CHECKSUM_MISMATCH and breaks the chain', async () => {
     // Insert a fresh chain segment we can tamper with.
     const beforeMaxRow = await prisma.$queryRaw<Array<{ chain_position: bigint | null }>>`

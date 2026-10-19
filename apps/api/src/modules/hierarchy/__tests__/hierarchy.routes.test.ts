@@ -36,10 +36,11 @@ const { mockPrisma } = vi.hoisted(() => ({
     // this handle the whole tree 500s on `undefined.findMany`. Returning none
     // is the right default: the zip falls back to APPROVED.
     assetInstance: { findMany: vi.fn(async () => []) },
-    // getTree()/listFilters()/getFilter() derive lastCleanedAt via groupBys over
-    // cleaning-stage filter events + completed cycles (zipLastCleaned). Default: none.
+    // getTree()/listFilters()/getFilter() derive lastCleanedAt (zipLastCleaned):
+    // a per-filter $queryRaw over cleaning-stage filter events + a groupBy over
+    // completed cycles. Default: none.
+    $queryRaw: vi.fn(async () => []),
     cleaningCycle: { groupBy: vi.fn(async () => []) },
-    filterEvent: { groupBy: vi.fn(async () => []) },
   },
 }));
 

@@ -239,7 +239,7 @@ function CycleAccordionItem({ summary, index, formatDateTime, fallback }: {
   fallback?: { replacedBy?: string | null; retiredBy?: string | null };
 }) {
   const [open, setOpen] = useState(false);
-  const { data: detail } = useSWR(open ? `/api/filters/cycles/${summary.id}` : null);
+  const { data: detail, error: detailError, mutate: reloadDetail } = useSWR(open ? `/api/filters/cycles/${summary.id}` : null);
   // SUPER_ADMIN edit (2026-09-05) of the expanded cycle + its stage events.
   const isSuperAdmin = useIsSuperAdmin();
   const [saEdit, setSaEdit] = useState(false);
@@ -271,7 +271,16 @@ function CycleAccordionItem({ summary, index, formatDateTime, fallback }: {
       </button>
       {open && (
         <div className="border-t border-slate-100 bg-slate-50/30 p-4">
-          {!detail ? (
+          {/* M63: a failed detail fetch used to spin forever. */}
+          {!detail && detailError ? (
+            <div role="alert" className="flex flex-col items-center justify-center py-16 gap-2 text-center px-6">
+            <span className="text-[14px] font-semibold text-red-700">Could not load this cycle</span>
+            <span className="text-[13px] text-slate-500 max-w-md">{(detailError as any)?.status === 403 ? 'You do not have permission to view this.' : ((detailError as any)?.message || 'The server did not answer.')}</span>
+            {(detailError as any)?.status !== 403 && (
+              <button onClick={() => reloadDetail()} className="mt-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+            )}
+          </div>
+          ) : !detail ? (
             <div className="flex items-center gap-2 text-[13px] text-slate-400 py-6 justify-center">
               <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" /> Loading detail…
             </div>
@@ -459,13 +468,24 @@ export function FilterLifecycleReportPage() {
   const canExportPdf = can('lifecycle.export');
 
   // Hierarchy dropdown sources.
-  const { data: blocksData } = useSWR<{ data: HNode[] }>('/api/hierarchy/blocks');
-  const { data: areasData } = useSWR<{ data: HNode[] }>('/api/hierarchy/areas');
-  const { data: ahusData } = useSWR<{ data: HNode[] }>('/api/hierarchy/ahus');
-  const { data: filtersData } = useSWR<{ data: HNode[] }>('/api/hierarchy/filters');
+  const blocksSwr = useSWR<{ data: HNode[] }>('/api/hierarchy/blocks');
+  const areasSwr = useSWR<{ data: HNode[] }>('/api/hierarchy/areas');
+  const ahusSwr = useSWR<{ data: HNode[] }>('/api/hierarchy/ahus');
+  const filtersSwr = useSWR<{ data: HNode[] }>('/api/hierarchy/filters');
   // Lifecycle sources (ASSET_READ, same as the dropdowns). Bare arrays.
-  const { data: retirementsData } = useSWR<any[]>('/api/filters/retirements');
-  const { data: replacementsData } = useSWR<any[]>('/api/filters/replacements');
+  const retirementsSwr = useSWR<any[]>('/api/filters/retirements');
+  const replacementsSwr = useSWR<any[]>('/api/filters/replacements');
+  const blocksData = blocksSwr.data, areasData = areasSwr.data, ahusData = ahusSwr.data;
+  const filtersData = filtersSwr.data, retirementsData = retirementsSwr.data, replacementsData = replacementsSwr.data;
+  // M63: each of these failing used to leave its list silently EMPTY - a
+  // missing retirements list drops every retired filter (and its cycles) from
+  // the report with no warning, which is an under-reported record. Name what
+  // failed and offer a retry; stale data from a good earlier load still counts.
+  const failedSources = ([
+    ['Blocks', blocksSwr], ['Areas', areasSwr], ['AHUs', ahusSwr], ['Filters', filtersSwr],
+    ['Retirements', retirementsSwr], ['Replacements', replacementsSwr],
+  ] as const).filter(([, s]) => s.error && !s.data);
+  const retryFailedSources = () => failedSources.forEach(([, s]) => { s.mutate(); });
 
   const allBlocks = blocksData?.data ?? [];
   const allAreas = areasData?.data ?? [];
@@ -807,6 +827,7 @@ export function FilterLifecycleReportPage() {
       report.save(`${downloadName('lifecycle', safeScope)}.pdf`);
       return null;
     } catch (e: any) {
+      if (isReauthCancelled(e)) return null; // C-05: operator dismissed the password prompt — no export
       setDownloadMsg(e?.message ?? 'Report generation failed.');
       return null;
     } finally {
@@ -862,6 +883,7 @@ export function FilterLifecycleReportPage() {
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       exportToExcel({ filename: `lifecycle-${safeScope}`, sheetName: 'Cleaning Cycles', head, rows });
     } catch (e: any) {
+      if (isReauthCancelled(e)) return; // C-05: operator dismissed the password prompt — no export
       setDownloadMsg(e?.message ?? 'Export failed.');
     } finally {
       setDownloading(false);
@@ -952,6 +974,14 @@ export function FilterLifecycleReportPage() {
         </div>
         {downloadMsg && (
           <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-[13px] text-amber-700">{downloadMsg}</div>
+        )}
+        {failedSources.length > 0 && (
+          <div role="alert" className="mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[13px] text-red-700 flex items-center justify-between gap-3">
+            <span>
+              Could not load {failedSources.map(([n]) => n).join(', ')}. This report may be incomplete until they load.
+            </span>
+            <button onClick={retryFailedSources} className="shrink-0 px-3 py-1 rounded-lg text-[12px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+          </div>
         )}
       </div>
 

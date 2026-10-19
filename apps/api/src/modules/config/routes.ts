@@ -1,9 +1,10 @@
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { passwordPolicySchema, loginSecuritySchema, sessionConfigSchema, datetimeConfigSchema, paginationConfigSchema, exportLimitConfigSchema, backupFormatConfigSchema } from '@digilog/shared';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import { configService } from './config.service.js';
+import { configRegistry } from '../../lib/config-registry.js';
 import { prisma } from '../../lib/prisma.js';
 
 // Extracted route groups — one file per config surface under static-routes/.
@@ -84,8 +85,19 @@ export default async function configRoutes(app: FastifyInstance) {
       return configService.getConfig(key, schema);
     });
 
+    // C-01 (QA 2026-10-19): honour the def's own `requiredRole`. pagination,
+    // export-limit and backup-format are `requiredRole: 'SUPER_ADMIN'` and the
+    // dynamic route enforces that, but this route let any CONFIG_UPDATE holder
+    // save them. Checked at request time (the registry is filled by
+    // discoverAndRegisterConfigs, which may run after route registration).
+    const defRoleGate = async (req: FastifyRequest, reply: FastifyReply) => {
+      if (configRegistry.get(key)?.requiredRole === 'SUPER_ADMIN' && req.user?.role !== 'SUPER_ADMIN') {
+        return reply.code(403).send({ error: 'FORBIDDEN', message: 'Insufficient permissions' });
+      }
+    };
+
     app.put(`/${key}`, {
-      preHandler: [superAdminOnly ? app.requireSuperAdmin() : app.requirePermission('CONFIG_UPDATE')],
+      preHandler: [superAdminOnly ? app.requireSuperAdmin() : app.requirePermission('CONFIG_UPDATE'), defRoleGate],
       schema: {
         tags: ['Config'],
         summary: `Update ${titleKey} configuration`,
@@ -105,8 +117,15 @@ export default async function configRoutes(app: FastifyInstance) {
     }, async (req, reply) => {
       const body = req.body as Record<string, unknown>;
 
-      // Dynamic re-auth from action-reauth config
-      const actionKey = CONFIG_KEY_TO_ACTION[key];
+      // Dynamic re-auth from action-reauth config.
+      // R-02 (QA 2026-10-19): fall back to the def's own declared re-auth row.
+      // pagination / export-limit / backup-format declare `requiresReauth: true,
+      // reauthAction: 'UPDATE_CONFIG_PAGE'` (2026-09-24 coverage sweep) and the
+      // dynamic route enforces it, but this route only knew the four keys in the
+      // map, so the same settings saved here took no signature at all. Still
+      // policy-driven (enforceReauth): a role with no row configured passes.
+      const def = configRegistry.get(key);
+      const actionKey = CONFIG_KEY_TO_ACTION[key] ?? (def?.requiresReauth ? def.reauthAction : undefined);
       if (actionKey) {
         const { ok } = await enforceReauth(actionKey, req, reply);
         if (!ok) return;

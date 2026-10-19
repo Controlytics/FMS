@@ -6,6 +6,12 @@ import { CleaningProfileService } from './cleaning-profile.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { PipelineNodeType } from '@prisma/client';
+
+// M15 (QA 2026-10-19): an unknown nodeType reached Prisma as a
+// PrismaClientValidationError (no code) -> 500 + SYSTEM_ERROR, and PUT accepted a
+// blank name. The allowed list IS the database enum, so the two cannot disagree.
+const NODE_TYPES = Object.values(PipelineNodeType);
 
 export default async function cleaningProfileRoutes(app: FastifyInstance) {
   const service = new CleaningProfileService();
@@ -113,7 +119,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
               required: ['nodeType'],
               properties: {
                 stateKey: { type: 'string', nullable: true },
-                nodeType: { type: 'string' },
+                nodeType: { type: 'string', enum: NODE_TYPES },
                 configuration: { type: 'object' },
                 positionX: { type: 'number' },
                 positionY: { type: 'number' },
@@ -163,7 +169,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         properties: {
-          name: { type: 'string' },
+          name: { type: 'string', minLength: 1, maxLength: 255 },
           description: { type: 'string' },
           flowMode: { type: 'string', enum: ['STRICT', 'BYPASS_ENABLED'] },
           alarmOnForwardSkip: { type: 'boolean' },
@@ -180,7 +186,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
               required: ['nodeType'],
               properties: {
                 stateKey: { type: 'string', nullable: true },
-                nodeType: { type: 'string' },
+                nodeType: { type: 'string', enum: NODE_TYPES },
                 configuration: { type: 'object' },
                 positionX: { type: 'number' },
                 positionY: { type: 'number' },

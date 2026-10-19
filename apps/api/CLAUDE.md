@@ -26,7 +26,7 @@ node apps/api/dist/app.js
 - 32 route modules registered via `apps/api/src/modules/*/routes.ts`
 - Config auto-discovery at startup via `lib/config-discovery.ts`
 - Config registry pattern via `lib/config-registry.ts` (self-registering config modules)
-- Input sanitization: `lib/sanitize.ts` (HTML stripping on all text inputs)
+- Input sanitization: `lib/sanitize.ts` — opt-in per service (11 call-site files, 2026-10-19), NOT on all text inputs; see root CLAUDE.md
 - JWT auth with 30-min refresh, session management, re-auth for sensitive ops
 - Permission-based RBAC via `requirePermission()` on all protected routes
 
@@ -64,7 +64,7 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
   `AUDIT_CHAIN_KEY` is set it writes a keyed HMAC-SHA256 (V3, `audit_trail.checksum_version=3`)
   so a DB-level actor can't forge the chain. Verifier requires the key for v3 rows; legacy rows
   keep the unkeyed fallback. See `lib/hash-chain.ts`.
-- `sanitize.ts` — HTML stripping on all text inputs
+- `sanitize.ts` — HTML stripping, called per service (not a global hook)
 - `config-discovery.ts` — Auto-discover config definitions at startup
 - `config-registry.ts` — Self-registering config module pattern
 - `jwt.ts` — JWT token management

@@ -13,6 +13,7 @@ import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
 import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
+import { normalizeRfidScan, rfidValuesMatch } from '@/lib/rfid-scan';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
@@ -629,14 +630,18 @@ export function FilterListPage() {
   const closeRfidPanel = () => { setRfidPanel(null); setRfidTagValue(''); setRfidSubmitting(false); setRfidReplaceConfirm(null); };
 
   const handleAssignRfid = async (opts: { replace?: boolean } = {}) => {
-    if (!rfidPanel || !rfidTagValue.trim()) return;
-    const tagValue = rfidTagValue.trim();
+    // C-07: the same normaliser every scan/lookup path uses (lib/rfid-scan.ts).
+    // A raw value here stored lower-case or doubled EPCs ("ABCDABCD") that no
+    // later scan could ever match. Normalised at submit, not per keystroke, so
+    // a half-typed value is never collapsed.
+    const tagValue = normalizeRfidScan(rfidTagValue);
+    if (!rfidPanel || !tagValue) return;
     // 2026-10-05: a filter holds one RFID tag. Assigning onto a filter that
     // already has one asks for confirmation in the panel and then sends
     // `replaceExisting`, instead of surfacing the server's 409 as a toast.
     const heldRfid = (identifiersByAsset.get(rfidPanel.id) ?? []).filter((t: any) => t.identifierType === 'RFID');
     if (heldRfid.length > 0 && !opts.replace) {
-      if (heldRfid.some((t: any) => t.identifierValue === tagValue)) {
+      if (heldRfid.some((t: any) => rfidValuesMatch(t.identifierValue, tagValue))) {
         toast.error('Already assigned', `Tag "${tagValue}" is already assigned to ${rfidPanel.name}`);
         return;
       }
@@ -1199,7 +1204,9 @@ export function FilterListPage() {
         ...(editFilterSet !== setBefore ? { filterSet: editFilterSet } : {}),
         ...(editFilterAhu && editFilterAhu !== (d.ahuId ?? '') ? { ahuId: editFilterAhu } : {}),
         ...(editFilterState && editFilterState !== (d.currentState ?? '') ? { lifecycleState: editFilterState, ...(editFilterCleaningReason ? { cleaningReasonKey: editFilterCleaningReason } : {}) } : {}),
-        ...(editFilterRfid.trim() !== (d.rfid ?? '') ? { rfidNumber: editFilterRfid.trim() } : {}),
+        // C-07: normalised like every scan path; compared normalised too, so an
+        // untouched tag stored in another case is not re-assigned on save.
+        ...(normalizeRfidScan(editFilterRfid) !== normalizeRfidScan(d.rfid) ? { rfidNumber: normalizeRfidScan(editFilterRfid) } : {}),
       };
       await reauth.execute('SUPER_ADMIN_DATA_EDIT', async (password?: string) => {
         if (password) await api.putWithReauth(`/api/super-admin/filter-data/filters/${id}`, body, password);
@@ -1545,12 +1552,22 @@ export function FilterListPage() {
     return { headers, body, safeName };
   };
 
+  // C-05: requireExportReauth re-throws a dismissed password prompt as
+  // REAUTH_CANCELLED. Uncaught, a cancel became an unhandled rejection, and a
+  // real export failure surfaced only in the console. Cancel = no export, silent.
+  const reportExportError = (e: unknown) => {
+    if (isReauthCancelled(e)) return;
+    toast.error('Export failed', (e as any)?.message ?? 'The export could not be completed.');
+  };
+
   const exportFiltersExcel = async () => {
-    const { headers, body, safeName } = buildFiltersExport();
-    if (body.length === 0) return;
-    if (body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(body.length)); return; }
-    await requireExportReauth(reauth, { reportType: 'Filters', format: 'Excel', recordCount: body.length }, toast.warning);
-    exportToExcel({ filename: `${safeName}-filters`, sheetName: 'Filters', head: headers, rows: body });
+    try {
+      const { headers, body, safeName } = buildFiltersExport();
+      if (body.length === 0) return;
+      if (body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(body.length)); return; }
+      await requireExportReauth(reauth, { reportType: 'Filters', format: 'Excel', recordCount: body.length }, toast.warning);
+      exportToExcel({ filename: `${safeName}-filters`, sheetName: 'Filters', head: headers, rows: body });
+    } catch (e) { reportExportError(e); }
   };
 
   const buildFiltersReport = async () => {
@@ -1573,10 +1590,12 @@ export function FilterListPage() {
   };
 
   const exportFiltersPdf = async () => {
-    const built = await buildFiltersReport();
-    if (!built) return;
-    await requireExportReauth(reauth, { reportType: 'Filters', format: 'PDF', recordCount: built.count }, toast.warning);
-    built.report.save(`${downloadName(built.safeName, 'filters')}.pdf`);
+    try {
+      const built = await buildFiltersReport();
+      if (!built) return;
+      await requireExportReauth(reauth, { reportType: 'Filters', format: 'PDF', recordCount: built.count }, toast.warning);
+      built.report.save(`${downloadName(built.safeName, 'filters')}.pdf`);
+    } catch (e) { reportExportError(e); }
   };
 
   const buildFiltersSnapshot = async () => { const built = await buildFiltersReport(); return built ? built.report.getSnapshot() : null; };
@@ -2292,7 +2311,10 @@ export function FilterListPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Status"
+        // F-14 (QA 2026-10-19): one dialog serves 18 signed actions on this page
+        // (retire, delete, approve, bulk upload, export, …). The §11 prompt must
+        // name the action being signed, not always "Update Status".
+        actionLabel={reauth.pendingActionLabel ?? 'Update Status'}
       />
 
       {/* Retire / Replace Side Panel */}

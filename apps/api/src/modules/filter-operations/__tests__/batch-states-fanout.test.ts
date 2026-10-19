@@ -75,14 +75,18 @@ const countConfigReads = (key: string) =>
 describe('M39 — getBatchStates does not re-read shared rows per filter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrisma.assetInstance.findMany.mockResolvedValue(FILTER_IDS.map((id) => ({ id })));
-    mockPrisma.assetInstance.findFirst.mockImplementation(async ({ where }: any) => instanceFixture(where.id));
     // The home-block / ancestor walk: filter -> AHU -> BLOCK.
-    mockPrisma.assetInstance.findUnique.mockImplementation(async ({ where }: any) => {
-      if (where.id === AHU_ID) return { id: AHU_ID, name: 'AHU-1', parentId: 'block-1', template: { templateKind: 'AHU' } };
-      if (where.id === 'block-1') return { id: 'block-1', name: 'Block 1', parentId: null, template: { templateKind: 'BLOCK' } };
-      return instanceFixture(where.id);
-    });
+    const nodeFixture = (id: string) => {
+      if (id === AHU_ID) return { id: AHU_ID, name: 'AHU-1', parentId: 'block-1', attributes: {}, template: { templateKind: 'AHU' } };
+      if (id === 'block-1') return { id: 'block-1', name: 'Block 1', parentId: null, attributes: {}, template: { templateKind: 'BLOCK' } };
+      return FILTER_IDS.includes(id) ? instanceFixture(id) : null;
+    };
+    // findMany answers like the database: the batch's id list for the FILTER
+    // query, and the requested rows for batch-preload's `id IN (...)` bulk reads.
+    mockPrisma.assetInstance.findMany.mockImplementation(async ({ where }: any) =>
+      where?.id?.in ? where.id.in.map(nodeFixture).filter(Boolean) : FILTER_IDS.map((id) => ({ id })));
+    mockPrisma.assetInstance.findFirst.mockImplementation(async ({ where }: any) => instanceFixture(where.id));
+    mockPrisma.assetInstance.findUnique.mockImplementation(async ({ where }: any) => nodeFixture(where.id));
     mockPrisma.cleaningCycle.findUnique.mockResolvedValue(null);
     mockPrisma.cleaningCycle.findFirst.mockResolvedValue(null);
     mockPrisma.cleaningCycle.count.mockResolvedValue(0);
@@ -127,15 +131,23 @@ describe('M39 — getBatchStates does not re-read shared rows per filter', () =>
     expect(mockPrisma.cleaningCycle.count).not.toHaveBeenCalled();
   });
 
-  it('walks each shared ancestor ONCE across the whole batch', async () => {
+  it('loads each shared ancestor ONCE for the whole batch and never per filter', async () => {
     const service = new FilterOperationsService();
     await service.getBatchStates(ctx, undefined);
 
-    const reads = (id: string) =>
-      mockPrisma.assetInstance.findUnique.mock.calls.filter(([a]: any[]) => a?.where?.id === id).length;
-    // The AHU and block are on every filter's home-block walk.
-    expect(reads(AHU_ID)).toBe(1);
-    expect(reads('block-1')).toBe(1);
+    // 2026-10-17: batch-preload.ts loads the filters and their ancestor chain in
+    // one `id IN (...)` read per level and seeds the memo, so the home-block walk
+    // issues NO per-row reads at all (was 1 per shared ancestor, 1 per filter).
+    const perRowReads = (id: string) =>
+      mockPrisma.assetInstance.findUnique.mock.calls.filter(([a]: any[]) => a?.where?.id === id).length
+      + mockPrisma.assetInstance.findFirst.mock.calls.filter(([a]: any[]) => a?.where?.id === id).length;
+    const bulkReads = (id: string) =>
+      mockPrisma.assetInstance.findMany.mock.calls.filter(([a]: any[]) => a?.where?.id?.in?.includes(id)).length;
+    expect(perRowReads(AHU_ID)).toBe(0);
+    expect(perRowReads('block-1')).toBe(0);
+    for (const id of FILTER_IDS) expect(perRowReads(id)).toBe(0);
+    expect(bulkReads(AHU_ID)).toBe(1);
+    expect(bulkReads('block-1')).toBe(1);
   });
 
   it('leaves the single-filter path un-memoised (no cache arg → per-call reads)', async () => {

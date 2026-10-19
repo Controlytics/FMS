@@ -450,6 +450,22 @@ describe('authService', () => {
       await expect(authService.changePassword('user-1', 'Old@1234', 'Reused@123', '127.0.0.1', 'agent', 'sess-1'))
         .rejects.toThrow('last');
     });
+
+    // CS-100 (QA 2026-10-19): "cannot match any of your last N passwords" must
+    // hold however old those N passwords are. A hidden 12-month cut-off let a
+    // user who changes yearly reuse a password still inside the configured count.
+    it('rejects a password reused from within the last N even when it is older than 12 months', async () => {
+      mockRepo.findUserById.mockResolvedValue(makeUser());
+      mockVerifyPassword.mockImplementation(async (_pw: string, hash: string) => hash === '$2b$12$hash' || hash === 'two-years-old');
+      mockRepo.getPasswordPolicyConfig.mockResolvedValue({ minLength: 8, preventReuseCount: 5 });
+      mockRepo.getPasswordHistory.mockResolvedValue([
+        { passwordHash: 'two-years-old', createdAt: new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000) },
+      ]);
+
+      await expect(authService.changePassword('user-1', 'Old@1234', 'Reused@123', '127.0.0.1', 'agent', 'sess-1'))
+        .rejects.toThrow('last 5 passwords');
+      expect(mockRepo.getPasswordHistory).toHaveBeenCalledWith('user-1', 5);
+    });
   });
 
   // ── verify ──

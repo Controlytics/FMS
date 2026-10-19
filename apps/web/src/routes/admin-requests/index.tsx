@@ -16,7 +16,16 @@ const TYPE_CFG: Record<string, { label: string; bg: string; text: string; border
   MODIFY_USER: { label: 'Modify User', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: '~' },
   UNLOCK: { label: 'Unlock Account', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: '!' },
   FORGOT_PASSWORD: { label: 'Forgot Password', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', icon: '?' },
+  // OQ-19: Contact Admin has always submitted these two (contact-admin.tsx) and
+  // the server executes them (admin-request.service.ts), but this map lacked
+  // them - so the queue showed the raw code, the details panel dumped JSON and
+  // the approval toast read "undefined request has been approved".
+  ENABLE_ACCOUNT: { label: 'Enable Account', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: '+' },
+  DISABLE_ACCOUNT: { label: 'Disable Account', bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-300', icon: '-' },
 };
+
+/** Readable request-type name; never "undefined" for a type this page does not know. */
+const typeLabel = (requestType: string | undefined) => TYPE_CFG[requestType ?? '']?.label ?? requestType ?? 'Admin';
 
 const STATUS_CFG: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
   PENDING: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-400 animate-pulse' },
@@ -112,7 +121,14 @@ export function AdminRequestsPage() {
   // Fetch the full set once and filter client-side. Server-side ?status= would
   // zero out the other buckets, making the status counts wrong while a filter
   // is active — so counts + filtering both run off the same full list here.
-  const { data, isLoading } = useSWR('/api/admin-requests', { refreshInterval: 15000 });
+  const { data, error, isLoading, mutate: reload } = useSWR('/api/admin-requests', { refreshInterval: 15000 });
+  // M82: a failed fetch used to fall through to "No requests found", telling an
+  // approver the queue was empty when it had not been read at all. SWR keeps
+  // the last good data on a later error, so only a fetch with NOTHING to show
+  // gets the error panel. A 403 toast is suppressed globally (swr-config.ts),
+  // so this panel is the only place the operator learns why.
+  const loadFailed = !!error && !data;
+  const loadForbidden = loadFailed && (error as any)?.status === 403;
   const allRequests: any[] = data?.data ?? [];
   const counts = {
     all: allRequests.length,
@@ -158,8 +174,17 @@ export function AdminRequestsPage() {
       },
       {
         onSuccess: () => {
-          const hasCreds = action === 'approve' && (response?.temporaryPassword || response?.username);
-          if (hasCreds) {
+          // The server answers "No action taken - already enabled" (actionTaken
+          // false) for a request that had nothing to do. That is not an approval
+          // that changed anything, so it must not open the green "Request
+          // Approved" credentials dialog. Enable/Disable return a username but
+          // no credentials, so they get a toast, not a credentials dialog.
+          const noCredTypes = ['ENABLE_ACCOUNT', 'DISABLE_ACCOUNT'];
+          const hasCreds = action === 'approve' && response?.actionTaken !== false
+            && (response?.temporaryPassword || (response?.username && !noCredTypes.includes(reqType)));
+          if (action === 'approve' && response?.actionTaken === false) {
+            toast.warning('No action taken', response?.message ?? `${typeLabel(reqType)} request closed without a change.`);
+          } else if (hasCreds) {
             setApprovalResult({
               username: response.username,
               temporaryPassword: response.temporaryPassword,
@@ -169,7 +194,9 @@ export function AdminRequestsPage() {
           } else {
             toast.success(
               action === 'approve' ? 'Request Approved' : 'Request Rejected',
-              `${TYPE_CFG[reqType]?.label} request has been ${action === 'approve' ? 'approved' : 'rejected'}.`,
+              response?.message && action === 'approve'
+                ? response.message
+                : `${typeLabel(reqType)} request has been ${action === 'approve' ? 'approved' : 'rejected'}.`,
             );
           }
           setSelectedRequest(null);
@@ -223,6 +250,16 @@ export function AdminRequestsPage() {
       case 'FORGOT_PASSWORD':
         fields.push(['User ID', rd.username]);
         break;
+      case 'ENABLE_ACCOUNT':
+      case 'DISABLE_ACCOUNT':
+        // The requester's reason is the request's own `remarks` column;
+        // requestData only carries the target account.
+        fields.push(
+          ['User ID', rd.username || '-'],
+          ['Requested action', req.requestType === 'ENABLE_ACCOUNT' ? 'Enable the account' : 'Disable the account'],
+          ['Reason', req.remarks || '-'],
+        );
+        break;
       default:
         return <pre className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">{JSON.stringify(rd, null, 2)}</pre>;
     }
@@ -252,7 +289,7 @@ export function AdminRequestsPage() {
             <div>
               <h1 className="text-xl font-bold text-slate-800 tracking-tight">Admin Requests</h1>
               <p className="text-[13px] text-slate-400 mt-0.5">
-                {pendingCount > 0 ? (
+                {loadFailed ? 'Request list unavailable' : pendingCount > 0 ? (
                   <><span className="text-amber-600 font-semibold">{pendingCount} pending</span> request{pendingCount !== 1 ? 's' : ''} awaiting review</>
                 ) : 'All requests have been processed'}
               </p>
@@ -299,7 +336,23 @@ export function AdminRequestsPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        {isLoading ? (
+        {loadFailed ? (
+          <div role="alert" className="flex flex-col items-center justify-center py-20 gap-2 text-center px-6">
+            <span className="text-[14px] font-semibold text-red-700">
+              {loadForbidden ? 'You do not have permission to view admin requests' : 'Could not load admin requests'}
+            </span>
+            <span className="text-[13px] text-slate-500 max-w-md">
+              {loadForbidden
+                ? 'Your role is not allowed to read this queue. Ask an administrator to grant access.'
+                : ((error as any)?.message || 'The server did not answer, so the queue could not be read.')}
+            </span>
+            {!loadForbidden && (
+              <button onClick={() => reload()} className="mt-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">
+                Retry
+              </button>
+            )}
+          </div>
+        ) : isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
             <span className="text-[13px] text-slate-400">Loading requests...</span>
@@ -567,7 +620,7 @@ export function AdminRequestsPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setProcessing(false); }}
-        actionLabel="Process Request"
+        actionLabel={reauth.pendingActionLabel ?? 'Process Request'}
       />
 
       {editReq && (

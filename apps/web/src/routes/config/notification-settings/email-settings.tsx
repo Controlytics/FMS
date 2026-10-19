@@ -657,7 +657,7 @@ function EmailTab() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Email Settings"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Email Settings'}
       />
     </div>
   );
@@ -899,7 +899,7 @@ function SmsTab() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update SMS Settings"
+        actionLabel={reauth.pendingActionLabel ?? 'Update SMS Settings'}
       />
     </div>
   );

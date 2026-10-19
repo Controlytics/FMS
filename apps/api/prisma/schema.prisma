@@ -362,6 +362,12 @@ enum NotificationType {
   STAGE_APPROVAL_REQUESTED
   STAGE_APPROVAL_APPROVED
   STAGE_APPROVAL_REJECTED
+  // Cross-block cleaning request / decision (QA-D005, 2026-10-19). Emitted by
+  // block-change.service.ts since 2026-05-25 but never added here, so every
+  // approver notification failed the enum check and was swallowed.
+  BLOCK_CHANGE_REQUESTED
+  BLOCK_CHANGE_APPROVED
+  BLOCK_CHANGE_REJECTED
 }
 
 model Notification {

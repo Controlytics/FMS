@@ -260,7 +260,10 @@ export const assetQuerySchema = z.object({
   search: z.string().optional(),
   templateId: z.string().uuid().optional(),
   status: z.string().optional(),
-  parentId: z.string().uuid().nullable().optional(),
+  // M11 residual (QA 2026-10-19): the literal 'null' is the "root / no parent"
+  // sentinel that instance.service list() handles (`parentId === 'null'`); a
+  // uuid-only schema rejected it first, so root filtering was unreachable.
+  parentId: z.union([z.literal('null'), z.string().uuid()]).nullable().optional(),
   isActive: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   // 2026-07-03: record lists are uncapped per user request. An OMITTED limit is

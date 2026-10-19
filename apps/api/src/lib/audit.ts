@@ -194,10 +194,17 @@ async function writeAuditRow(
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${AUDIT_CHAIN_LOCK_ID})`;
 
   // Read the latest chain row's checksum to link this row to it.
+  // Must stay `IS NOT NULL ... DESC`, never `DESC NULLS LAST`: the
+  // chain_position index is ascending, so a backward scan yields NULLS FIRST
+  // and `NULLS LAST` forced a full-table sort on EVERY audited write while the
+  // chain lock was held — 1.4 s at 7.4M rows, past Prisma's 5 s transaction
+  // timeout under load, so logins failed (2026-10-17 load test). Same row:
+  // chain_position is BIGSERIAL and never NULL after the C3 backfill.
   const prior = await tx.$queryRaw<Array<{ checksum: string | null }>>`
     SELECT checksum
     FROM audit_trail
-    ORDER BY chain_position DESC NULLS LAST
+    WHERE chain_position IS NOT NULL
+    ORDER BY chain_position DESC
     LIMIT 1
   `;
   const previousChecksum: string | null = prior[0]?.checksum ?? null;

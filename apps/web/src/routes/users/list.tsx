@@ -425,7 +425,7 @@ export function UserListPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="User Action"
+        actionLabel={reauth.pendingActionLabel ?? 'User Action'}
       />
     </div>
   );

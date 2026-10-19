@@ -4,6 +4,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
+import { useReauth } from '@/hooks/use-reauth';
+import { ReauthPrompt } from '@/components/reauth-prompt';
 
 interface PaginationConfig {
   limit: number;
@@ -40,6 +42,7 @@ export function PaginationConfigPage() {
   const [options, setOptions] = useState<number[]>([10, 25, 50]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const reauth = useReauth();
   // Snapshot of the seeded values, used to gate the Save button. A snapshot is
   // required here (rather than comparing straight to `data`) because the page
   // decomposes the payload into three pieces of state with fallbacks — a
@@ -98,17 +101,26 @@ export function PaginationConfigPage() {
 
     setSaving(true);
     setMessage(null);
-    try {
-      const sortedOptions = [...options].sort((a, b) => a - b);
-      await apiClient.put('/api/config/pagination', { limit, count, options: sortedOptions });
+    const sortedOptions = [...options].sort((a, b) => a - b);
+    // R-02 (QA 2026-10-19): pagination.def declares UPDATE_CONFIG_PAGE, which
+    // PUT /api/config/pagination now enforces; the page had no password path.
+    reauth.execute('UPDATE_CONFIG_PAGE', async (password?: string) => {
+      const body = { limit, count, options: sortedOptions };
+      if (password) await apiClient.putWithReauth('/api/config/pagination', body, password);
+      else await apiClient.put('/api/config/pagination', body);
       await mutate();
-      setOptions(sortedOptions);
-      setMessage({ type: 'success', text: 'Pagination settings saved successfully.' });
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err?.message || 'Failed to save settings.' });
-    } finally {
-      setSaving(false);
-    }
+    }, {
+      onSuccess: () => {
+        setOptions(sortedOptions);
+        setMessage({ type: 'success', text: 'Pagination settings saved successfully.' });
+        setSaving(false);
+      },
+      onError: (err: any) => {
+        setMessage({ type: 'error', text: err?.message || 'Failed to save settings.' });
+        setSaving(false);
+      },
+      onCancel: () => setSaving(false),
+    });
   };
 
   const handleReset = () => {
@@ -121,6 +133,7 @@ export function PaginationConfigPage() {
 
   return (
     <div className="space-y-5 max-w-2xl">
+      <ReauthPrompt reauth={reauth} actionLabel="Save" />
       <p className="text-sm text-slate-500">Configure records per page options for all list views.</p>
 
       <Card>

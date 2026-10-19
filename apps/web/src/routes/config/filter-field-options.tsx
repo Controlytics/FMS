@@ -176,7 +176,7 @@ export function FilterFieldOptionsConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setSaving(false); }}
-        actionLabel="Update Filter Field Options"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Filter Field Options'}
       />
     </div>
   );

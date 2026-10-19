@@ -23,11 +23,11 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
     preHandler: [app.requireAnyPermission('STAGE_APPROVAL_VIEW', 'FILTER_OPERATE')],
     schema: {
       tags: ['Stage Approvals'], summary: 'List stage approvals',
-      querystring: { type: 'object', properties: { status: { type: 'string' } } },
+      querystring: { type: 'object', properties: { status: { type: 'string' }, from: { type: 'string', format: 'date-time', description: 'Keep PENDING rows plus rows requested on/after this instant (2026-10-17)' } } },
     },
   }, async (req) => {
-    const q = req.query as { status?: string };
-    return { data: await svc.list(buildContext(req), { status: q.status }) };
+    const q = req.query as { status?: string; from?: string };
+    return { data: await svc.list(buildContext(req), { status: q.status, from: q.from }) };
   });
 
   // Full record incl. the frozen details snapshot.

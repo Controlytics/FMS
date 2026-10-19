@@ -152,7 +152,7 @@ export function ReportSignatoriesPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Report Signatories"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Report Signatories'}
       />
     </div>
   );

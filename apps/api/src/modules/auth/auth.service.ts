@@ -457,11 +457,13 @@ export const authService = {
     }
 
     const reuseCount = (policy.preventReuseCount as number) ?? 12;
+    // CS-100 (QA 2026-10-19): the configured count is the whole rule. A hidden
+    // 12-month cut-off used to drop older entries, so a user who changes their
+    // password yearly could reuse one that was still within the last N — while
+    // the refusal text promised "last N". getPasswordHistory already returns the
+    // newest N entries only.
     const history = await authRepository.getPasswordHistory(user.id, reuseCount);
-    // Only check passwords from the last 12 months
-    const maxAge = 365 * 24 * 60 * 60 * 1000; // 12 months
-    const recentHistory = history.filter(h => (Date.now() - new Date(h.createdAt).getTime()) < maxAge);
-    for (const h of recentHistory) {
+    for (const h of history) {
       const reused = await verifyPassword(newPassword, h.passwordHash);
       if (reused) throw new AppError(400, 'POLICY_VIOLATION', `Password cannot match any of your last ${reuseCount} passwords`);
     }

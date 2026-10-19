@@ -23,10 +23,13 @@ interface SystemHealthData {
     usagePercent: number;
   };
   disk: {
-    totalBytes: number;
-    usedBytes: number;
-    freeBytes: number;
-    usagePercent: number;
+    totalBytes: number | null;
+    usedBytes: number | null;
+    freeBytes: number | null;
+    usagePercent: number | null;
+    /** false when the server could not measure the volume (M51) — never shown as 0 %. */
+    available?: boolean;
+    path?: string;
   };
   process: {
     nodeVersion: string;
@@ -312,18 +315,24 @@ export function SystemHealthPage() {
             </svg>
           }
         >
+          {data.disk.available === false || data.disk.usagePercent == null ? (
+            // M51: an unmeasurable disk is reported as such, not as a healthy 0 %.
+            <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-testid="disk-unavailable">
+              Disk usage could not be measured{data.disk.path ? ` for ${data.disk.path}` : ''}. See the server log.
+            </div>
+          ) : (
           <div className="space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">Used</span>
               <span className="font-medium text-slate-800">
-                {formatBytes(data.disk.usedBytes)} / {formatBytes(data.disk.totalBytes)}
+                {formatBytes(data.disk.usedBytes ?? 0)} / {formatBytes(data.disk.totalBytes ?? 0)}
               </span>
             </div>
             <ProgressBar percent={data.disk.usagePercent} color="bg-blue-500" />
             <div className="grid grid-cols-2 gap-4 pt-2">
               <div>
                 <p className="text-xs text-slate-400">Free</p>
-                <p className="text-sm font-semibold text-slate-700">{formatBytes(data.disk.freeBytes)}</p>
+                <p className="text-sm font-semibold text-slate-700">{formatBytes(data.disk.freeBytes ?? 0)}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-400">Usage</p>
@@ -331,6 +340,7 @@ export function SystemHealthPage() {
               </div>
             </div>
           </div>
+          )}
         </MetricCard>
 
         {/* Database */}

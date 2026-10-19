@@ -16,6 +16,7 @@ import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log'
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useReportLabels } from '@/hooks/use-report-labels';
 import { downloadName } from '@/lib/download-name';
+import { ExportMenu } from '@/components/ExportMenu';
 
 export function RetirementListPage() {
   const { formatDate } = useDatetimeFormat();
@@ -140,6 +141,8 @@ export function RetirementListPage() {
       await requireExportReauth(reauth, { reportType: 'Retirement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
       report.save(`${downloadName('retirement-list')}.pdf`);
     } catch (e: any) {
+      // A dismissed password prompt means "no export", not a failure (C-05).
+      if (isReauthCancelled(e)) return;
       toast.error('Export failed', e?.message ?? 'Could not generate the PDF report');
     } finally {
       setExporting(false);
@@ -153,6 +156,8 @@ export function RetirementListPage() {
       await requireExportReauth(reauth, { reportType: 'Retirement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
       exportToExcel({ filename: 'retirement-list', sheetName: 'Retirements', head: reportHead, rows: reportRows() });
     } catch (e: any) {
+      // A dismissed password prompt means "no export", not a failure (C-05).
+      if (isReauthCancelled(e)) return;
       toast.error('Export failed', e?.message ?? 'Could not generate the Excel file');
     }
   };
@@ -207,34 +212,13 @@ export function RetirementListPage() {
           />
         </div>
         <BlockAhuFilter scope={scope} onChange={() => setPage(1)} />
-        {canExport && (
-        <div className="ml-auto flex items-center gap-2 shrink-0">
-          <button
-            onClick={downloadExcel}
-            disabled={filtered.length === 0}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-            title="Export the retirement list as an Excel file"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Export Excel
-          </button>
-          <button
-            onClick={downloadReport}
-            disabled={exporting || filtered.length === 0}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-            title="Download the retirement list as a PDF report"
-          >
-            {exporting ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            )}
-            {exporting ? 'Generating…' : 'Download Report'}
-          </button>
+        {/* OQ-16: rendered through ExportMenu so the role-wise Export Options
+            matrix ("PDF only", "Excel only", "None") applies here as on every
+            other report page. The page-level can() check still gates it. */}
+        {canExport && filtered.length > 0 && (
+        <div className="ml-auto shrink-0">
+          <ExportMenu surface="retirement-list" onExportPdf={downloadReport} onExportExcel={downloadExcel} busy={exporting}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm" />
         </div>
         )}
       </div>

@@ -225,6 +225,35 @@ describe('sync-engine — Phase 8.3 tape-version handling', () => {
     expect(op.retryCount).toBe(1); // bumped exactly once
   });
 
+  it('4b. a 5xx (503 SERVICE_BUSY: server pool/transaction timeout) never spends the last retry — the op stays pending and the drain pauses', async () => {
+    // 2026-10-17 load test: an overloaded server answered every replay with an
+    // error; after five of them the op was marked permanently failed and the
+    // operator's recorded work was dropped on the device. A 5xx is the server's
+    // problem, not the operation's: treated like a network interruption.
+    const first = queueOp({ type: 'advance', tapeVersion: 1005, retryCount: 4 }); // one retry left
+    const second = queueOp({ type: 'advance', filterId: 'filter-2', filterName: 'F-002', tapeVersion: 1006, retryCount: 0 });
+    let posts = 0;
+    mockApiClient.post.mockImplementation(async (url: string) => {
+      if (url === '/api/auth/refresh') return { token: 'fresh' };
+      posts++;
+      const err: any = new Error('The server is busy. Please try again in a moment.');
+      err.code = 'SERVICE_BUSY';
+      err.status = 503;
+      throw err;
+    });
+
+    const engineMod = await import('../sync-engine');
+    const events: string[] = [];
+    const off = engineMod.onSyncEvent((ev) => { events.push(ev.type); });
+    await engineMod.syncPendingOperations();
+    off();
+
+    expect(first.status).toBe('pending');          // NOT 'failed' despite retryCount 4
+    expect(second.status).toBe('pending');
+    expect(posts).toBe(1);                         // the drain paused after the first 5xx
+    expect(events).toContain('interrupted');
+  });
+
   // ── Phase 8.4 I-3: dedupe STALE_TAPE toasts per filter per drain ──────
   //
   // When 5 cycle-bound ops are queued for the same filter and the cycle

@@ -194,7 +194,7 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
   const rows = await prisma.$queryRaw<AuditRow[]>`
     SELECT id, chain_position, timestamp, user_id, user_name, user_role, action,
            target_type, target_id, before_value, after_value, reason,
-           ip_address, user_agent, session_id, signature_meaning,
+           ip_address, user_agent, session_id, signature_meaning, signature_audit_id,
            checksum, previous_checksum, redacted_at, checksum_version
     FROM audit_trail
     WHERE chain_position >= ${fromPos}

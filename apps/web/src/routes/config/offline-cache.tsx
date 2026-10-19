@@ -150,7 +150,7 @@ export function OfflineCacheConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Offline Cache Settings"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Offline Cache Settings'}
       />
     </div>
   );

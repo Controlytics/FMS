@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { visibilityWhere } from './visibility.js';
 
 export const notificationRepository = {
   async findMany(where: Record<string, unknown>, skip: number, take?: number) {
@@ -125,29 +126,8 @@ function buildBulkVisibilityFilter(
   username?: string,
   visibleGated: string[] = [],
 ): Record<string, unknown> {
-  // NON-QNN visibility fragment (role-based, same rules as the list).
-  let normal: Record<string, unknown>;
-  if (userRole === 'SUPER_ADMIN') {
-    normal = {};
-  } else if (userRole === 'ADMIN') {
-    normal = {
-      OR: [
-        { forUserId: username },
-        { forRole: 'ADMIN' },
-        { forRole: null, forUserId: null },
-      ],
-      // Null-safe SUPER_ADMIN exclusion — see notification.service.ts
-      // buildVisibilityFilter. A bare NOT drops every forRole IS NULL row.
-      AND: [{ OR: [{ forRole: null }, { forRole: { not: 'SUPER_ADMIN' } }] }],
-    };
-  } else {
-    normal = username ? { OR: [{ forUserId: username }, { targetUserId: username }] } : {};
-  }
-  // Gated types (QNN, guest requests) follow config role lists, not per-user addressing.
-  const GATED = ['PM_SCHEDULE_QNN', 'GUEST_CLEANING_REQUEST'];
-  const branches: Record<string, unknown>[] = [
-    { AND: [{ type: { notIn: GATED } }, normal] },
-  ];
-  for (const t of visibleGated) branches.push({ type: t });
-  return { id: { in: ids }, OR: branches };
+  // M30 (QA 2026-10-19): the list's rule, from the ONE definition. This copy used
+  // to admit `targetUserId === username` for regular users (list did not), hard-
+  // coded its own gated-type list, and — with no username — matched EVERY row.
+  return { id: { in: ids }, ...visibilityWhere(userRole, username, visibleGated) };
 }

@@ -21,7 +21,7 @@ import { useOfflineConfig } from '../../hooks/use-offline-config';
 import { HardCutoffBlocker } from '../../components/hard-cutoff-blocker';
 import { ConnectivityRibbon } from '../../components/mobile/connectivity-ribbon';
 import { FailedOpsPanel } from '../../components/failed-ops-panel';
-import { syncAllDataForOffline, type SyncProgress } from '../../lib/offline-sync-service';
+import { syncAllDataForOffline, buildIdentifierMap, type SyncProgress } from '../../lib/offline-sync-service';
 import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../lib/filter-constants';
@@ -30,6 +30,11 @@ import { StageApprovalsPage } from '../stage-approvals';
 import { normalizeRfidScan, rfidValuesMatch } from '@/lib/rfid-scan';
 import { onServerMoved } from '@/lib/server-discovery';
 import { useToast } from '@/hooks/use-toast';
+import { useCan } from '@/hooks/use-can';
+import { useTabletAccess, canUseStageApprovals } from './use-tablet-access';
+import { resolveTaskFirstStage } from './task-first-stage';
+import { isTaskTerminal, needsOverdueAck } from '../my-tasks/task-rules';
+import { OverdueAckDialog } from '../my-tasks/overdue-ack-dialog';
 
 type View = 'home' | 'status' | 'my-tasks' | 'operations' | 'rfid-assign' | 'replace' | 'cycles' | 'cycle-detail' | 'replacement-tasks' | 'notifications' | 'stage-approvals';
 
@@ -106,21 +111,10 @@ function effectiveLastCleaned(cycleAt: string | undefined | null, attrs: any): s
   return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
 }
 
-// Same shape as mobile-operations.tsx's map: carries approvalStatus (2026-09-25,
-// audit web F3) so an offline scan can refuse a not-yet-approved filter.
-function buildIdentifierMap(identifiers: any[]): Record<string, { filterId: string; filterName: string; approvalStatus?: string | null }> {
-  const list = Array.isArray(identifiers) ? identifiers : [];
-  const map: Record<string, { filterId: string; filterName: string; approvalStatus?: string | null }> = {};
-  for (const ident of list) {
-    if (ident.identifierValue && ident.assetId) {
-      const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId, approvalStatus: ident.asset?.approvalStatus ?? null };
-      map[ident.identifierValue] = entry;
-      map[ident.identifierValue.toUpperCase()] = entry;
-      map[ident.identifierValue.toLowerCase()] = entry;
-    }
-  }
-  return map;
-}
+// Identifier→filter map: the ONE builder in lib/offline-sync-service.ts (M53,
+// 2026-10-19) — shared with mobile-operations and the full offline sync. It
+// leaves out tags held by retired / deactivated filters, so Replace and the
+// replacement-task scan can no longer select a filter that is already gone.
 
 export function MobileWrapperPage() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
@@ -155,10 +149,13 @@ export function MobileWrapperPage() {
   // "admin configured this role with an empty allowlist" (deny everything).
   // Without this the FE backwards-compat path treated empty as all-allowed,
   // letting supervisors into my-tasks/rfid-assign that admin had unchecked.
-  const { data: tabletAccess } = useSWR(user && online ? '/api/config/tablet-access/my-features' : null);
-  const allowedFeatures: string[] = (tabletAccess as any)?.allowed ?? [];
-  const tabletConfigured: boolean = (tabletAccess as any)?.configured === true;
-  const hasFeature = (f: string) => !tabletConfigured || allowedFeatures.includes(f);
+  // OQ-04 (2026-10-19): ONE hook + rule for both tablet pages
+  // (use-tablet-access.ts). Offline it uses the last list this user read
+  // online on this tablet instead of failing open.
+  const { tabletAccess, allowedFeatures, tabletConfigured, hasFeature } = useTabletAccess(user, online);
+  // OQ-03a: the tab needs the tablet feature AND STAGE_APPROVAL_VIEW/_DECIDE.
+  const canStageApprovals = canUseStageApprovals(tabletAccess, user);
+  const can = useCan();
 
   // 2026-05-21: auth/feature redirects are deferred to the final JSX block
   // (just above the main `return (` below). Returning early HERE skipped the
@@ -210,8 +207,10 @@ export function MobileWrapperPage() {
     if (feature && !hasFeature(feature)) {
       setView('home');
     }
+    // OQ-03a: Stage Approvals also needs the RBAC permission, not just the feature.
+    if (view === 'stage-approvals' && !canStageApprovals) setView('home');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, tabletConfigured, allowedFeatures.join(',')]);
+  }, [view, tabletConfigured, allowedFeatures.join(','), canStageApprovals]);
   // 2026-05-20: Filter Status drill-down. Tapping a stage card on the Status
   // view now filters the list below by that stage (read-only details — Name,
   // AHU, Last Cleaned, Stage) instead of routing into the scan-operations
@@ -347,8 +346,17 @@ export function MobileWrapperPage() {
   // Issue #7 fix (2026-05-18): cleaning-cycles list for mobile.
   // 2026-05-20: also load when view==='status' so the new stage-detail drill-down
   // can derive "Last cleaned" per filter from the most-recent COMPLETED cycle.
+  // 2026-10-17 load test (operator decision): the Cycles view polled EVERY cycle
+  // ever recorded, with events, every 30 s — it never completed at one year of
+  // data. The Cycles view now asks for the last 30 days (key fixed per mount).
+  // The status / rfid-assign / replace views keep the full list: they load it
+  // once, and only as a fallback for "last cleaned" when the server's
+  // `lastCleanedAt` is absent.
+  const cyclesSince = useMemo(() => new Date(Date.now() - 30 * 86_400_000).toISOString(), []);
   const { data: cyclesData, isLoading: cyclesLoading } =
-    useSWR<any>(online && (view === 'cycles' || view === 'status' || view === 'rfid-assign' || view === 'replace') ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true` : null,
+    useSWR<any>(online && (view === 'cycles' || view === 'status' || view === 'rfid-assign' || view === 'replace')
+      ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true${view === 'cycles' ? `&from=${encodeURIComponent(cyclesSince)}` : ''}`
+      : null,
       { refreshInterval: view === 'cycles' ? 30000 : 0 });
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
@@ -650,6 +658,14 @@ export function MobileWrapperPage() {
   useEffect(() => { if (success) { const t = setTimeout(() => setSuccess(''), 4000); return () => clearTimeout(t); } }, [success]);
   useEffect(() => { if (error) { const t = setTimeout(() => setError(''), 6000); return () => clearTimeout(t); } }, [error]);
 
+  // OQ-05: block preselected for the operations page (My Tasks Perform only).
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  // The assignment map Perform resolves the first stage from. The `/current`
+  // read needs no permission. Cached under the key mobile-operations uses, so
+  // the offline Perform finds it even if no station was opened online.
+  const { data: cleaningAssignmentData } = useSWR<any>(online ? '/api/config/cleaning-profile-assignment/current' : null);
+  useEffect(() => { if (cleaningAssignmentData) cache('cleaning-profile-assignment', cleaningAssignmentData, 24 * 60 * 60 * 1000); }, [cleaningAssignmentData, cache]);
+
   const openStage = (stageKey: string) => {
     setSelectedStageKey(stageKey);
     setView('operations');
@@ -659,6 +675,7 @@ export function MobileWrapperPage() {
   const goHome = () => {
     setView('home');
     setSelectedStageKey(null);
+    setSelectedBlockId(null);
     setError('');
     setSuccess('');
     setRfidSearch('');
@@ -697,11 +714,14 @@ export function MobileWrapperPage() {
   // had drifted. CREATE_ASSET_IDENTIFIER / DELETE_ASSET_IDENTIFIER actions
   // already declared in packages/shared/src/types/reauth-actions.ts:47-48.
   const assignRfid = (opts: { replace?: boolean } = {}) => {
-    if (!rfidSelectedFilter || !rfidScan.value.trim()) {
+    // C-07 (2026-10-19): the SAME normaliser as every scan lookup (upper-case,
+    // doubled/tripled EPC collapsed). Trim-only stored "abcd1234abcd1234" when
+    // the reader stuttered, and no later scan could ever match it.
+    const tagValue = normalizeRfidScan(rfidScan.value);
+    if (!rfidSelectedFilter || !tagValue) {
       setRfidError('Enter or scan a tag value.');
       return;
     }
-    const tagValue = rfidScan.value.trim();
     // 2026-05-26: guard against double-fire from the scanner emitting the
     // same physical scan twice within ~1s. Silent skip — the operator
     // already saw a success toast from the first submit.
@@ -713,7 +733,7 @@ export function MobileWrapperPage() {
     // Re-scanning the tag the filter already holds is pointed out, not sent.
     const heldTag = currentRfidTags[0];
     if (heldTag && !opts.replace) {
-      if (currentRfidTags.some((t: any) => t.identifierValue === tagValue)) {
+      if (currentRfidTags.some((t: any) => rfidValuesMatch(t.identifierValue, tagValue))) {
         setRfidError(`Tag ${tagValue} is already assigned to this filter.`);
         return;
       }
@@ -813,7 +833,7 @@ export function MobileWrapperPage() {
   // same identifier→filter map as the Status "Scan RFID" lookup and the cleaning
   // scan flow, so a tag scanned here behaves identically to one scanned elsewhere.
   const resolveReplaceScan = () => {
-    const raw = replaceScan.value.trim();
+    const raw = normalizeRfidScan(replaceScan.value); // C-07: one scan rule
     if (!raw) return;
     const map = buildIdentifierMap(allIdentifiers);
     const hit = map[raw] ?? map[raw.toUpperCase()] ?? map[raw.toLowerCase()];
@@ -832,7 +852,7 @@ export function MobileWrapperPage() {
   // increments qty + logs the execution). REPLACE_FILTER reauth gates it.
   const resolveAndExecuteReplTask = () => {
     if (!activeReplTask) return;
-    const raw = replTaskScan.value.trim();
+    const raw = normalizeRfidScan(replTaskScan.value); // C-07: one scan rule
     if (!raw) { setReplTaskError('Scan a filter tag to replace.'); return; }
     const map = buildIdentifierMap(allIdentifiers);
     const hit = map[raw] ?? map[raw.toUpperCase()] ?? map[raw.toLowerCase()];
@@ -997,9 +1017,44 @@ export function MobileWrapperPage() {
     });
   };
 
-  const performTask = (_task: any) => {
-    // Jump straight into the operations view with WASH_IN pre-selected
-    openStage('WASH_IN');
+  // OQ-05 (2026-10-19): Perform opens the FIRST stage of the cleaning profile
+  // the task AHU's filters use (task-first-stage.ts), with the block chosen.
+  // When that cannot be told (offline with nothing cached, a per-filter
+  // assignment mode, an ambiguous profile) the operator picks the station.
+  const performTask = async (task: any) => {
+    const stationKeys = new Set<string>(STAGES.map((st) => st.key));
+    let assignment: any = cleaningAssignmentData;
+    if (!assignment) {
+      try { assignment = await getCache<any>('cleaning-profile-assignment'); } catch { assignment = null; }
+    }
+    const stage = await resolveTaskFirstStage(task, stationKeys, {
+      assignment,
+      getProfile: async (id: string) => {
+        if (online) {
+          try { return await apiClient.get<any>(`/api/filter-cleaning-profiles/${id}`); } catch { /* fall back to the cache */ }
+        }
+        return (await getCache<any>(`active-profile-${id}`)) ?? (await getCache<any>(`cleaning-profile-${id}`));
+      },
+    });
+    if (stage) {
+      setSelectedBlockId(task.blockId ?? null);
+      openStage(stage);
+      setSuccess(`Ready to clean filters from ${task.ahuName}. Scan each filter now.`);
+      return;
+    }
+    goHome();
+    setSuccess(`Ready to clean filters from ${task.ahuName} — choose its first station below.`);
+  };
+
+  // OQ-06 (2026-10-19): an overdue task with an open, unacknowledged deviation
+  // asks for the operator's password first — the web rule (task-rules.ts) and
+  // the web dialog (overdue-ack-dialog.tsx), one implementation. OFFLINE there
+  // is no server to sign against, so Perform proceeds as before; nothing is
+  // invented or queued for the acknowledgement.
+  const [ackTask, setAckTask] = useState<any | null>(null);
+  const onPerform = (task: any) => {
+    if (online && needsOverdueAck(task)) { setAckTask(task); return; }
+    void performTask(task);
   };
 
   // Android hardware/gesture back button (Capacitor APK only — no-op on web).
@@ -1257,7 +1312,7 @@ export function MobileWrapperPage() {
                   </div>
                   <div className="grid grid-cols-3 gap-2.5">
                     {STAGES.map((stage) => (
-                      <button key={stage.key} onClick={() => openStage(stage.key)}
+                      <button key={stage.key} onClick={() => { setSelectedBlockId(null); openStage(stage.key); }}
                         className="tile-lift relative bg-white rounded-2xl border border-slate-200 p-3 text-left overflow-hidden">
                         <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stage.gradient} grid place-items-center shadow-[0_4px_12px_-4px_rgba(15,23,42,0.25)] text-xl mb-2`}>
                           {stage.icon}
@@ -1809,6 +1864,7 @@ export function MobileWrapperPage() {
               const expanded = expandedTasks.has(task.entryId);
               const statusColor =
                 task.overallStatus === 'complete' ? { bar: 'from-emerald-400 to-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500' }
+                : task.overallStatus === 'not_performed' ? { bar: 'from-amber-500 to-amber-600', badge: 'bg-amber-50 text-amber-800 border-amber-300', dot: 'bg-amber-600' }
                 : task.overallStatus === 'in_progress' ? { bar: 'from-cyan-400 to-cyan-500', badge: 'bg-cyan-50 text-cyan-700 border-cyan-100', dot: 'bg-cyan-500' }
                 : { bar: 'from-amber-400 to-amber-500', badge: 'bg-amber-50 text-amber-700 border-amber-100', dot: 'bg-amber-500' };
               const progressPct = task.totalFilters > 0 ? Math.round((task.cleanedCount / task.totalFilters) * 100) : 0;
@@ -1823,7 +1879,7 @@ export function MobileWrapperPage() {
                             <h3 className="text-base font-bold text-slate-800 truncate">{task.ahuName}</h3>
                             <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${statusColor.badge}`}>
                               <span className={`w-1 h-1 rounded-full ${statusColor.dot}`} />
-                              {task.overallStatus === 'complete' ? 'Complete' : task.overallStatus === 'in_progress' ? 'In Progress' : 'Pending'}
+                              {task.overallStatus === 'complete' ? 'Complete' : task.overallStatus === 'not_performed' ? 'Not performed' : task.overallStatus === 'in_progress' ? 'In Progress' : 'Pending'}
                             </span>
                           </div>
                           <div className="text-[11px] text-slate-500 mt-1">
@@ -1870,9 +1926,14 @@ export function MobileWrapperPage() {
                         </svg>
                         Completed
                       </div>
+                    ) : isTaskTerminal(task.overallStatus) ? (
+                      // OQ-13: a written-off visit is terminal — no Perform.
+                      <div className="mt-3 w-full py-2.5 bg-amber-50 border border-amber-300 text-amber-800 rounded-xl text-sm font-semibold text-center">
+                        Not performed{task.skipReason ? ` — ${task.skipReason}` : ''}
+                      </div>
                     ) : (
                       <button
-                        onClick={() => performTask(task)}
+                        onClick={() => onPerform(task)}
                         className="mt-3 w-full py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-cyan-500/25 active:shadow-none"
                       >
                         Perform {'\u2192'}
@@ -1905,12 +1966,16 @@ export function MobileWrapperPage() {
                           Overdue
                         </span>
                       </div>
+                      {isTaskTerminal(task.overallStatus) ? (
+                        <div className="mt-3 w-full py-2.5 bg-amber-50 border border-amber-300 text-amber-800 rounded-xl text-sm font-semibold text-center">Not performed</div>
+                      ) : (
                       <button
-                        onClick={() => performTask(task)}
+                        onClick={() => onPerform(task)}
                         className="mt-3 w-full py-2.5 bg-gradient-to-r from-rose-600 to-rose-700 text-white rounded-xl text-sm font-semibold shadow-lg shadow-rose-500/25 active:shadow-none"
                       >
                         Perform (overdue) {'\u2192'}
                       </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1972,10 +2037,11 @@ export function MobileWrapperPage() {
             re-auth signature. Only the offline notice is the tablet's own. */}
         {view === 'stage-approvals' && (
           !online ? (
-            // Deliberately worded as OFFLINE, never as "not permitted" — the
-            // tablet-access fetch is skipped offline, so hasFeature() lets this
-            // tab through for every role. Both the queue and the signature need
-            // the server, so say exactly that.
+            // Deliberately worded as OFFLINE, never as "not permitted". Offline
+            // the tab is gated by the last allowlist cached online for this
+            // user (use-tablet-access.ts) plus the STAGE_APPROVAL_* permission;
+            // with nothing cached it still shows. Both the queue and the
+            // signature need the server, so say exactly that.
             <div className="flex flex-col items-center justify-center px-4 py-16 gap-2 text-center">
               <svg className="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728m9.9 9.9a5 5 0 010-7.072m-7.072 0a5 5 0 010 7.072M13 12a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
               <span className="text-[13px] text-slate-500 font-semibold">Approvals need a connection</span>
@@ -1991,7 +2057,7 @@ export function MobileWrapperPage() {
         {/* === OPERATIONS VIEW (renders MobileOperationsPage with proper offline support) === */}
         {view === 'operations' && (
           <div className="flex-1 overflow-y-auto">
-            <MobileOperationsPage initialStageKey={selectedStageKey ?? undefined} hideHeader />
+            <MobileOperationsPage initialStageKey={selectedStageKey ?? undefined} initialBlockId={selectedBlockId ?? undefined} hideHeader />
           </div>
         )}
 
@@ -3486,7 +3552,7 @@ export function MobileWrapperPage() {
               <span className="text-[10px] font-semibold">My Tasks</span>
             </button>
           )}
-          {hasFeature('stage_approvals') && (
+          {canStageApprovals && (
             <button onClick={() => setView('stage-approvals')} className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-colors ${view === 'stage-approvals' ? 'text-cyan-600' : 'text-slate-400'}`}>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               <span className="text-[10px] font-semibold whitespace-nowrap">Stage Approvals</span>
@@ -3505,6 +3571,19 @@ export function MobileWrapperPage() {
         onCancel={() => { reauth.cancel(); setRfidSubmitting(false); setReplaceSubmitting(false); setReplTaskSubmitting(false); }}
         actionLabel={reauthLabel}
       />
+      {ackTask && ackTask.deviation && (
+        <OverdueAckDialog
+          task={{ ahuName: ackTask.ahuName, totalFilters: ackTask.totalFilters, deviation: ackTask.deviation }}
+          canConfirm={can('my_tasks.acknowledge')}
+          onCancel={() => setAckTask(null)}
+          onAcknowledged={async () => {
+            const task = ackTask;
+            setAckTask(null);
+            await mutateDueTasks();
+            await performTask(task);
+          }}
+        />
+      )}
       {/* W4: read-only blocker overlay when hard-cutoff window elapsed */}
       <HardCutoffBlocker />
     </div>

@@ -1,3 +1,52 @@
+# QA campaign: exhaustive feature / workflow / abuse testing (started 2026-10-19)
+
+Operator pasted "MASTER PROMPT 2" (14 phases, deliverables under `QA/`). Rules carried over from the
+load-test campaign: disposable DBs only (`digilog_perf`, `digilog_day1_perf`, test DB for vitest), never
+`digilog_db`; synthetic accounts `perf_user_*`; no test marked PASS unless executed; every number grep-backed.
+
+- [x] Phase 1 discovery (4 read-only agents → `QA/_discovery/`): frontend inventory (7 parts deleted by an agent's cleanup, all restored, counts re-verified) · backend workflows + error codes · code smells · existing-tests map
+- [x] `QA/FEATURE_INVENTORY.md` (40 feature groups, R1–R15) + `QA/TEST_STRATEGY.md` (two lanes, denylist, triage) + `QA/DEFECT_REGISTER.md` (seeded: 19 OQ bugs, 32 July mediums, 2 operator decisions)
+- [x] QA clone `digilog_qa_perf` (from go-live copy) + API on :3104 (`start-perf-api.ps1 -Database digilog_qa_perf -Port 3104 -NoBuild`)
+- [x] Probes: R2 session config validated (PASS; sweep overstated) · R6a PM execution race **FAIL** (QA-D001: 2–5 duplicates per 20 concurrent) · R1 stage-screen dialogs (QA-D002, code) · QA-D003 dynamic config unvalidated (code) · QA-D004 block-change race (code)
+- [ ] ⚠️ `qa_sa_01` SUPER_ADMIN created on the clone by SQL; auto-mode classifier then flagged it as a permission grant → paused, NOT used. Operator to decide: keep (unblocks D003/D004 runtime probes + SA-only sweep rows) or delete
+- [ ] Next: endpoint sweep over 429 ops (non-SA roles), remaining risk probes (R7, R8, R10, R11, R15, sanitizer), Playwright for QA-D002
+- [ ] **"fix everything" (operator 2026-10-19)** — plan `QA/FIX_PLAN.md`. Answers: no commit until done; Cycles 30 d kept; filter approval needs a different person; offline: fix access fail-open + cache eviction only, keep offline approval skip. SA runtime testing set aside (verify in-process)
+  - [x] Re-verify OQ 19 + July 32 against today's code (`QA/_discovery/reverify-open-items.md`: 14 July already fixed)
+  - [x] Batch 1 server · [x] Batch 2 frontend blockers · [x] Batch 3 OQ · [x] Batch 4 UX/perf · [x] offline access + cache (helpers did web/tablet; I verified: backups restored, 16/17 new web test files fail on committed code, offline diff reviewed)
+  - [x] Suites 2026-10-19: API 180 files 1,704 passed / 0 failed; web 94 files 1,031 passed / 0 failed. Rebuilt QA API: PM race 5×20 → 1 execution each; sweep clean
+  - [x] CHANGELOG entry, `QA/DEFECT_REGISTER.md` (D001–D024), `QA/FINAL_QA_REPORT.md` (READY WITH CONDITIONS), CLAUDE.md sanitizer + scheduler (5 jobs) corrected
+  - [ ] Operator: commit (2 commits), `npm run db:migrate` on digilog_db, rebuild web dist + APK, browser + tablet pass, confirm password-reuse window removal
+  - [ ] Not done: Playwright runtime pass, Phase 4 role matrix vs baseline, write-path abuse sweep, coverage report
+- [ ] Phases 2–10 test implementation + execution (safe subset on this PC), defect register, regression after each fix
+- [ ] Phases 12–14: traceability, commands, `QA/FINAL_QA_REPORT.md`
+- [x] Soak 30 min @100 users with NEW polling (go-live copy, :3102, 2026-10-19 10:25–10:55): 32,608 req, 3 ECONNRESET (0.009 %), p50 144 ms / p95 1.9 s / p99 3.5 s; minutes 14–27 p95 2–5 s with API CPU doubled at constant load → single Node thread is the ceiling at 100 users (07 §4, FINAL §1/§3/§4). Idle cost unchanged after; no leak. [ ] prove the GC/queueing hypothesis with `--trace-gc` or an inspector profile (not run)
+
+# Production readiness / load testing (started 2026-10-17)
+
+Plan + risks: `docs/production-readiness/00_PLAN_AND_RISKS.md`. Target = clone `digilog_perf` +
+production-build API on :3100 (`tests/performance/start-perf-api.ps1`). Never `digilog_db`.
+
+- [x] Clone `digilog_perf`; prod API on :3100 healthy
+- [x] `postgresql.conf`: `shared_preload_libraries='pg_stat_statements'` (backup `.bak-2026-10-17-perf`) — **needs an ADMIN restart** of `postgresql-x64-18`, then `CREATE EXTENSION pg_stat_statements` in digilog_perf
+- [x] Load runner (`tests/performance/api/run-load.mjs`), token cache, resource sampler
+- [x] 03 endpoint inventory · 05a frontend static audit · synthetic data generator (scale 1 = one year, 10 GB in `digilog_perf`; go-live copy `digilog_day1_perf`)
+- [x] Fixed from load-test evidence (CHANGELOG 2026-10-17): verify-chain false positives; audit chain-head full scan on every write; PM due overflow; last-cleaned groupBy; Cleaning Record loading every cycle id. Each proven byte-identical old vs new (`tests/performance/equivalence/`).
+- [x] Scenario: web users (polls + pages, role-based personas). [x] tablet operators (cycle state machine) — 50 users @3×: 3,635 req, 0 errors, 142/123 cycles, chain intact; races answered correctly (INVALID_STATUS / CONCURRENT_DECISION / STALE_TAPE). Found + fixed tape defect (SET_DRYER_DURATION offered while gated, fix 7). [ ] bulk-operate burst, login/re-auth storm
+- [x] Soak 30 min: 100 users aborted ×2 (old polling); 50 users PASS (0 err, memory plateau 2.9 GB) — doc 07
+- [x] 100 users with NEW polling: 0 err, p50 54 ms, p95 570 ms (04 §8). 200 still fails on the 11 MB first-load payload
+- [x] Bulk burst 10 ops × 50 tags: 2,890 items, 0 err, chain intact (04 §6). Restart under load: back in ≈4 s (08). Backup/restore of 10 GB: 4.1/6.4 min custom, 1.6/10.4 min plain; restored chain window intact (10)
+- [x] Pool what-if (year copy, 100 users, connection_limit 20) — KILLED by the Claude Code memory guard at 5 GB API RSS; recorded as a finding (04 §2b), not rerun. [x] full test suites 2026-10-17 21:52: 258 files / 2,912 passed / 13 skipped / 0 failed; web 913 passed
+- [x] Ramp: smoke · 25 · 50 · 100 · 200 on go-live data, before and after every fix (04). Final: 100 PASS with the new polling; 200 still fails during the ramp (11 MB first-load payload). Year copy @100: pool starvation → now 503, open decision. Spike profile and the writes scenario ran (04 §6); chain verified intact after every write run
+- [x] 🔴 `GET /api/filters/batch-states`: 17,300 Prisma queries + 7 s CPU per call → **fixed** (`batch-preload.ts`, operator approved): 286 queries, 0.63 s, response byte-identical on both clones; reruns at 25/50/100/200 in 04
+- [x] 503 for P2024/P2028 + sync-engine keeps ops pending on 5xx (test 4b); UV_THREADPOOL_SIZE=8 in service def
+- [x] Operator-approved (20:35): tablet cache refresh 5 min, Cycles view 30 d, Approvals `?from=` (test), audit count 60 s cache; before/after 100-user run in 04 §8. Open: batch-states 11 MB payload shape; wrapper status/rfid/replace full cycle list; Cycles window 30 d vs 7 d/paging at year-two volume (11 §2)
+- [x] DB: EXPLAIN on the slow queries at scale 1 (05); scale 5 extrapolated only (≈ 50 GB), not generated. `pg_stat_statements` still needs the ADMIN Postgres restart
+- [x] Soak 30 min (07). 2 h / 8 h / 24 h / 72 h NOT run — condition 4 of the final report (client hardware)
+- [x] Failure injection on clones: API kill under load (08). Postgres restart under load BLOCKED (needs admin)
+- [x] Reports 00–12 + FINAL written (verdict READY WITH CONDITIONS)
+- [ ] NOT possible here: 8/24/72 h soak, WS2022 clean offline install, real tablets/RFID, production-server numbers, Postgres restart (admin)
+- [ ] Operator: commit + push (exclude `apps/web/tsconfig.tsbuildinfo`); rebuild + install the APK; drop `digilog_restore_perf` (9.2 GB) and `tests/performance/results/backups/` (9.1 GB) when no longer needed; stop the test APIs on :3100 / :3102 (`tests/performance/stop-perf-api.ps1 -Port`)
+
 # Tablet leftovers from 10-05 (2026-10-06)
 
 - [x] Status "Scan RFID" popup: shared `normalizeRfidScan` + case-insensitive match; 4 copies replaced

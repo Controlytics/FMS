@@ -237,6 +237,11 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
             username: { type: 'string' },
             temporaryPassword: { type: 'string' },
             message: { type: 'string' },
+            // OQ-19 follow-up (QA 2026-10-19): false when an approval needed no
+            // change (account already enabled/disabled). The page reads it at the
+            // top level to show "no action was required" instead of a success
+            // dialog; without it in the schema Fastify would strip it.
+            actionTaken: { type: 'boolean' },
           },
         },
         ...errorResponses,
@@ -256,6 +261,10 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
 
     const result = await adminRequestService.process(id, action, adminRemarks ?? '', ctx);
     const { username, temporaryPassword, message, ...rest } = result as any;
-    return { success: true, data: rest, ...(username && { username }), ...(temporaryPassword && { temporaryPassword }), ...(message && { message }) };
+    return {
+      success: true, data: rest,
+      ...(username && { username }), ...(temporaryPassword && { temporaryPassword }), ...(message && { message }),
+      ...(typeof rest.actionTaken === 'boolean' && { actionTaken: rest.actionTaken }),
+    };
   });
 }

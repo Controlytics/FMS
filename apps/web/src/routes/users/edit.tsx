@@ -64,7 +64,7 @@ export function EditUserPage() {
   );
   const creatableRoles = creatableRolesData || [];
 
-  const { data: userData, mutate } = useSWR(id ? `/api/users/${id}` : null);
+  const { data: userData, error: loadError, mutate } = useSWR(id ? `/api/users/${id}` : null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<UpdateUserInput>({
     resolver: zodResolver(updateUserSchema),
@@ -145,6 +145,30 @@ export function EditUserPage() {
     });
     setIsGenerating(false);
   };
+
+  // M66: a failed fetch (deleted user, 403, server down) used to leave the
+  // "Loading user data..." spinner up forever. 403 and 404 raise no toast
+  // (swr-config.ts), so the page must say what happened and offer a way out.
+  if (!userData && loadError) {
+    const status = (loadError as any)?.status;
+    const title = status === 404 ? 'User not found'
+      : status === 403 ? 'You do not have permission to view this user'
+      : 'Could not load this user';
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div role="alert" className="max-w-md w-full rounded-xl border border-red-200 bg-white p-6 text-center space-y-3">
+          <div className="text-[15px] font-semibold text-red-700">{title}</div>
+          <p className="text-[13px] text-slate-500">{(loadError as any)?.message || 'The server did not return this user.'}</p>
+          <div className="flex items-center justify-center gap-2 pt-1">
+            {status !== 403 && status !== 404 && (
+              <Button variant="outline" onClick={() => mutate()}>Retry</Button>
+            )}
+            <Button onClick={() => navigate('/users')}>Back to Users</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!userData) {
     return (
@@ -511,7 +535,7 @@ export function EditUserPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="User Action"
+        actionLabel={reauth.pendingActionLabel ?? 'User Action'}
       />
     </div>
   );

@@ -37,6 +37,7 @@ import {
 } from './stage-interlock.js';
 import type { FilterOperationsService } from './filter-operations.service.js';
 import { createBatchReadCache, type BatchReadCache } from './batch-cache.js';
+import { preloadBatchReads } from './batch-preload.js';
 import { getModuleLogger } from '../../lib/logger.js';
 
 const filterOpsLog = getModuleLogger('filter-operations');
@@ -109,6 +110,11 @@ export async function getBatchStatesImpl(
   // them to one apiece. The per-filter projection is untouched — getCurrentState
   // still produces byte-identical output (locked by the D5 parity test).
   const cache = createBatchReadCache();
+  // 2026-10-17: the six reads M39 left per-filter (all primary-key lookups) are
+  // loaded for every filter + ancestor up front and seeded into the memo —
+  // 17,299 queries / ~7 s per call → a handful of findMany calls. getCurrentState
+  // is unchanged; see batch-preload.ts.
+  await preloadBatchReads(filters.map(f => f.id), cache);
   const CHUNK_SIZE = 10;
   const states: Record<string, any> = {};
   for (let i = 0; i < filters.length; i += CHUNK_SIZE) {
@@ -136,7 +142,7 @@ export async function getCurrentStateImpl(
   // behaves exactly as before — no cross-request caching, no staleness window.
   cache?: BatchReadCache,
 ) {
-  const filter = await getFilter(filterId, ctx);
+  const filter = await getFilter(filterId, ctx, cache);
 
   let currentCycle = null;
   if (filter.currentCycleId) {
@@ -765,12 +771,18 @@ export async function getCurrentStateImpl(
     // operator could fill in but never submit. Withheld until APPROVED, like
     // the advance; a checklist with more stages after it is not a leave and
     // stays available.
+    // 2026-10-17 (load test, 4 of 9 cycles): SET_DRYER_DURATION out of a gated
+    // Wash Out is a leave too — it is the advance into Dry In — and advance.ts
+    // refuses it with 423 STAGE_APPROVAL_PENDING, yet the tape still offered
+    // it, so the tablet showed a "Set Dryer Duration" button that could only
+    // fail. Withheld like the advance; the in-place form (target = current
+    // stage) is unaffected.
     const here = stageLookup[interlockStateKey as string];
     const checklistCompletesCycle = !!here && here.leadsToEnd && here.nextStages.length === 0;
     actions = actions.filter(
       (a: any) =>
         !(
-          ((a.type === 'ADVANCE_TO_STAGE' || a.type === 'BYPASS_STAGE') &&
+          ((a.type === 'ADVANCE_TO_STAGE' || a.type === 'BYPASS_STAGE' || a.type === 'SET_DRYER_DURATION') &&
             a.params?.targetState !== interlockStateKey) ||
           (a.type === 'SUBMIT_CHECKLIST' && checklistCompletesCycle)
         ),

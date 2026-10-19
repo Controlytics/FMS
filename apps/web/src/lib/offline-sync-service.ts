@@ -27,8 +27,70 @@ import {
   cacheAreas,
   cacheAhus,
   cacheFiltersTyped,
+  deleteFilterStatesExcept,
+  getAllOperations,
+  getPendingTombstones,
 } from './offline-store';
 import { withDerivedPendingChecklist } from './offline-cache';
+
+/** One entry of the cached tag → filter map. */
+export type IdentifierMapEntry = { filterId: string; filterName: string; approvalStatus?: string | null };
+
+/**
+ * THE identifier → filter map builder (M53, 2026-10-19). Three copies existed
+ * (this sync, mobile-operations, mobile-wrapper) and whichever wrote the
+ * `identifier-map` cache last won. This copy also dropped `approvalStatus`, so
+ * after a full sync the offline not-yet-approved gate saw `undefined` and let
+ * the filter through.
+ *
+ * A tag stays bound to a RETIRED filter on purpose (retire() keeps it, §11
+ * evidence), so `/api/assets/identifiers` keeps returning it. A retired or
+ * deactivated holder is therefore left out of the map — an offline scan of that
+ * tag must read "not found", not resolve to a filter that can no longer be
+ * cleaned. `keepFilterIds` names filters that still have unsynced queued work:
+ * those keep their entry, so queued work is never stranded.
+ */
+export function buildIdentifierMap(
+  identifiers: any[],
+  keepFilterIds?: ReadonlySet<string>,
+): Record<string, IdentifierMapEntry> {
+  const list = Array.isArray(identifiers) ? identifiers : [];
+  const map: Record<string, IdentifierMapEntry> = {};
+  for (const ident of list) {
+    if (!ident?.identifierValue || !ident.assetId) continue;
+    const holderGone = !!ident.asset && (ident.asset.status === 'Retired' || ident.asset.isActive === false);
+    if (holderGone && !keepFilterIds?.has(ident.assetId)) continue;
+    const entry: IdentifierMapEntry = {
+      filterId: ident.assetId,
+      filterName: ident.asset?.name || ident.assetId,
+      approvalStatus: ident.asset?.approvalStatus ?? null,
+    };
+    map[ident.identifierValue] = entry;
+    map[ident.identifierValue.toUpperCase()] = entry;
+    map[ident.identifierValue.toLowerCase()] = entry;
+  }
+  return map;
+}
+
+/**
+ * Filters that still have work on this tablet the server has not accepted —
+ * any owner (the queue is owner-scoped, but a cache row is shared), any status
+ * except `synced`. Their cached read data must survive an eviction: replay and
+ * executeOrQueue read `tapeVersion` from `filter-state-<id>`.
+ */
+export async function filterIdsWithUnsyncedWork(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const op of await getAllOperations()) {
+    if (op.status !== 'synced' && op.filterId) ids.add(op.filterId);
+  }
+  try {
+    for (const t of await getPendingTombstones()) {
+      const fid = (t.payload as any)?.filterId;
+      if (typeof fid === 'string') ids.add(fid);
+    }
+  } catch { /* tombstones store unreadable — operations above already protect the queue */ }
+  return ids;
+}
 
 export interface SyncProgress {
   step: string;
@@ -159,6 +221,20 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
           // withDerivedPendingChecklist docblock (offline-cache.ts).
           await cacheItem(`filter-state-${filterId}`, withDerivedPendingChecklist(stateObj));
         }
+        // M53 (2026-10-19): /batch-states covers EVERY active, non-retired
+        // filter, so a cached row it no longer returns belongs to a filter that
+        // was retired, deactivated or deleted — offline it would still scan as
+        // cleanable. Evict it, except where the tablet still holds unsynced
+        // work for that filter (replay reads tapeVersion from this row).
+        // Only on the batch path: the per-filter fallback below is partial by
+        // nature, and a partial list must never evict.
+        try {
+          const keep = new Set<string>(stateEntries.map(([id]) => id));
+          for (const id of await filterIdsWithUnsyncedWork()) keep.add(id);
+          await deleteFilterStatesExcept(keep);
+        } catch (err) {
+          recordSoftFailure('filter-states-evict', err);
+        }
       }
     } catch (err) {
       // Batch endpoint might not exist — fall back to individual calls.
@@ -231,15 +307,10 @@ export async function syncAllDataForOffline(onProgress?: ProgressCallback): Prom
     try {
       const identRes = await apiClient.get<any[]>('/api/assets/identifiers');
       const identList = Array.isArray(identRes) ? identRes : [];
-      const identMap: Record<string, { filterId: string; filterName: string }> = {};
-      for (const ident of identList) {
-        if (ident.identifierValue && ident.assetId) {
-          const entry = { filterId: ident.assetId, filterName: ident.asset?.name || ident.assetId };
-          identMap[ident.identifierValue] = entry;
-          identMap[ident.identifierValue.toUpperCase()] = entry;
-          identMap[ident.identifierValue.toLowerCase()] = entry;
-        }
-      }
+      // M53: the shared builder — skips retired/deactivated holders (unless
+      // they still have queued work) and keeps approvalStatus.
+      // A queue-read failure must not cost the whole map (replay never uses it).
+      const identMap = buildIdentifierMap(identList, await filterIdsWithUnsyncedWork().catch(() => undefined));
       await cacheItem('identifier-map', identMap);
     } catch (err) {
       // Losing this map means offline RFID scanning cannot resolve a tag, so it

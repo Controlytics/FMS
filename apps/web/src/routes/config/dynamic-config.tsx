@@ -476,7 +476,7 @@ export function DynamicConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Save Configuration"
+        actionLabel={reauth.pendingActionLabel ?? 'Save Configuration'}
       />
     </div>
   );

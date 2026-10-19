@@ -201,14 +201,16 @@ describe('Roles endpoints', () => {
   });
 
   describe('DELETE /api/roles/:name — Delete role', () => {
-    it('returns 409 when deleting a role that has users assigned (SUPER_ADMIN)', async () => {
-      // SUPER_ADMIN has the admin user assigned to it, so delete should return 409
+    it('returns 409 SYSTEM_ROLE when deleting a system role, even one with users (SUPER_ADMIN)', async () => {
+      // C-08 (QA 2026-10-19): the system-role refusal now comes FIRST, so a
+      // system role with users is refused as SYSTEM_ROLE, not ROLE_HAS_USERS
+      // (which implied it could be deleted once emptied). The ROLE_HAS_USERS path
+      // for custom roles is covered in modules/roles/__tests__/role.service.test.ts.
       const res = await authDelete(app, '/api/roles/SUPER_ADMIN', adminToken, ADMIN_PASSWORD);
 
       expect(res.statusCode).toBe(409);
       const body = JSON.parse(res.body);
-      expect(body.error).toBeTruthy();
-      expect(body.usersCount).toBeGreaterThan(0);
+      expect(body.error).toBe('SYSTEM_ROLE');
     });
 
     it('deletes the test role successfully', async () => {

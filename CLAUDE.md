@@ -91,7 +91,7 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
 - **Config:** **38 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **34** corresponding pages (`filter-approval.def.ts` added 2026-09-04 — the filter create/upload → review → approve workflow's role assignment; edited on the Role Assignments page, so it adds no `routes/config/*.tsx`; `uns.def` + `retention.def` removed 2026-06-17; `ahu-completion-process.def.ts` added 2026-07-01; `export-limit.def.ts` added 2026-07-14 — configurable max export records + message, renders via the dynamic config page so no new `routes/config/*.tsx`; `backup-format.def.ts` added 2026-08-08 — default backup file format, same dynamic-page pattern)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
 - **Frontend:** **77 Routes** in `main.tsx`, **29** custom hooks, **45** lib modules (hook/lib counts re-verified by `ls` 2026-09-24 — the prior 39 was stale)
-- **Scheduler:** **in-process `node-cron`** in `apps/api/src/app.ts` — **4 jobs**: `session_sweep` (5 min), `password_expiry_check` (00:00), `log_retention` (00:05, added 2026-08-31 — also runs once at boot), `pm_overdue_check` (03:00). (`pm_series_rollover` at 03:30 went with the 2026-08-27 recurring-PM revert.) **No job queue.** `packages/queue` + the `graphile-worker` dependency were DELETED 2026-08-26: `startJobRunner` had no caller after the 2026-07-25 move to node-cron, and the queue's job types all belonged to the Phase-7 ingestion tear-out. These jobs only run while the API process is up — `/api/health` reports `jobRunner`. The ONLY scheduler outside the app is the Windows Scheduled Task the installer registers for DB backups (daily 01:30).
+- **Scheduler:** **in-process `node-cron`** in `apps/api/src/app.ts` — **5 jobs**: `session_sweep` (5 min; idle time read from the Password Policy since 2026-10-19), `password_expiry_check` (00:00), `log_retention` (00:05, added 2026-08-31 — also runs once at boot), `photo_orphan_sweep` (00:10, added 2026-10-19 — deletes unreferenced generator-named profile photos older than 24 h), `pm_overdue_check` (03:00). Plus one boot-only step, `notification_retry_recovery` (2026-10-19): notification rows a dead process left RETRYING are closed as FAILED, never re-sent automatically. (`pm_series_rollover` at 03:30 went with the 2026-08-27 recurring-PM revert.) **No job queue.** `packages/queue` + the `graphile-worker` dependency were DELETED 2026-08-26: `startJobRunner` had no caller after the 2026-07-25 move to node-cron, and the queue's job types all belonged to the Phase-7 ingestion tear-out. These jobs only run while the API process is up — `/api/health` reports `jobRunner`. The ONLY scheduler outside the app is the Windows Scheduled Task the installer registers for DB backups (daily 01:30).
 - **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
 ## Important Notes
@@ -117,7 +117,13 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   Partial unique index `asset_instances_active_name_key` (`lower(name) WHERE is_active`) is
   migration-only — `schema.prisma` cannot express it; the drift guard covers it.
 - Only one database now: `digilog_db` (Prisma). TimescaleDB (`digilog_tsdb`) was dropped 2026-06-11 with the data-ingestion tear-out.
-- Input sanitization strips HTML on all text fields (`apps/api/src/lib/sanitize.ts`)
+- Input sanitization (`apps/api/src/lib/sanitize.ts`, `stripHtml` / `sanitizeStrings`) is **opt-in per
+  service, NOT global** — 11 call-site files (verified by grep 2026-10-19: admin requests, filter fields,
+  auth profile, equipment groups, cycle advance/bypass/start/terminate, guest, replacement schedule,
+  users). Other free-text fields (hierarchy names, PM remarks, checklist text, notification rules,
+  report-review / block-change / stage-approval remarks) are stored as typed. The web app never renders
+  stored text as HTML (0 `dangerouslySetInnerHTML`), so this is not an open XSS path today; sanitise at
+  the service when adding a field that reaches an HTML context (email templates).
 - **Outbound calls to admin-typed URLs must use `apps/api/src/lib/ssrf.ts`** (
   `hardenedFetch` / `checkOutboundUrl`) — scheme allowlist, DNS-resolved destination
   check blocking loopback/link-local/metadata, no redirect-follow, hard timeout.

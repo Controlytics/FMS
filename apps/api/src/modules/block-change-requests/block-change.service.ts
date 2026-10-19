@@ -31,36 +31,48 @@ export const blockChangeService = {
     toBlockId: string; toBlockName: string;
     reason?: string;
   }) {
-    const existing = await prisma.blockChangeRequest.findFirst({
-      where: { filterId: data.filterId, toBlockId: data.toBlockId, status: 'PENDING' },
-    });
-    if (existing) throw new AppError(409, 'DUPLICATE_REQUEST', 'A pending request already exists for this filter and block');
+    // QA-D004 (2026-10-19): the duplicate check and the insert were two separate
+    // statements, so simultaneous submits could each pass the check and create
+    // duplicate PENDING requests. One transaction now takes a row lock on the
+    // filter first (a second submit waits, then sees the first request), and the
+    // audit row joins it so a refused submit leaves no BLOCK_CHANGE_REQUESTED row.
+    // An unknown filterId locks nothing; behaviour for it is unchanged.
+    const request = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM asset_instances WHERE id = ${data.filterId}::uuid FOR UPDATE`;
 
-    // Build the row from explicit named fields — never spread the request body.
-    // `data` arrives as `req.body as any` and the POST schema does not set
-    // additionalProperties:false, so a spread let a requester supply real model
-    // columns: `status:'APPROVED'` self-forged the approval that hasApproval()
-    // checks (bypassing the cross-block gate with no approver), and
-    // `manualEntry:true` disguised the row as a data-management insert.
-    const request = await prisma.blockChangeRequest.create({
-      data: {
-        filterId: data.filterId,
-        filterName: data.filterName,
-        fromBlockId: data.fromBlockId,
-        fromBlockName: data.fromBlockName,
-        toBlockId: data.toBlockId,
-        toBlockName: data.toBlockName,
-        reason: data.reason,
-        requestedBy: ctx.userSub,
-        requestedByName: ctx.userId,
-      },
-    });
+      const existing = await tx.blockChangeRequest.findFirst({
+        where: { filterId: data.filterId, toBlockId: data.toBlockId, status: 'PENDING' },
+      });
+      if (existing) throw new AppError(409, 'DUPLICATE_REQUEST', 'A pending request already exists for this filter and block');
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'BLOCK_CHANGE_REQUESTED',
-      targetType: 'block_change_request', targetId: request.id,
-      afterValue: { filterId: data.filterId, fromBlock: data.fromBlockName, toBlock: data.toBlockName },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      // Build the row from explicit named fields — never spread the request body.
+      // `data` arrives as `req.body as any` and the POST schema does not set
+      // additionalProperties:false, so a spread let a requester supply real model
+      // columns: `status:'APPROVED'` self-forged the approval that hasApproval()
+      // checks (bypassing the cross-block gate with no approver), and
+      // `manualEntry:true` disguised the row as a data-management insert.
+      const created = await tx.blockChangeRequest.create({
+        data: {
+          filterId: data.filterId,
+          filterName: data.filterName,
+          fromBlockId: data.fromBlockId,
+          fromBlockName: data.fromBlockName,
+          toBlockId: data.toBlockId,
+          toBlockName: data.toBlockName,
+          reason: data.reason,
+          requestedBy: ctx.userSub,
+          requestedByName: ctx.userId,
+        },
+      });
+
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'BLOCK_CHANGE_REQUESTED',
+        targetType: 'block_change_request', targetId: created.id,
+        afterValue: { filterId: data.filterId, fromBlock: data.fromBlockName, toBlock: data.toBlockName },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+
+      return created;
     });
 
     // Notify the approvers. Pre-fix, this row was created silently and the

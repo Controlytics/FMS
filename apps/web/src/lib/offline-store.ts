@@ -342,6 +342,32 @@ export async function clearFilterStateCaches(): Promise<void> {
   });
 }
 
+/**
+ * M53 (2026-10-19): drop `filter-state-<id>` rows whose filter is not in
+ * `keepIds`. Cached READ data only — the operations / tombstones stores are
+ * never touched. The caller decides what to keep (the live set plus every
+ * filter that still has unsynced work). Returns the number of rows removed.
+ */
+export async function deleteFilterStatesExcept(keepIds: ReadonlySet<string>): Promise<number> {
+  const db = await openDB();
+  const tx = db.transaction('cache', 'readwrite');
+  const store = tx.objectStore('cache');
+  const req = store.getAllKeys();
+  let removed = 0;
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => {
+      for (const key of (req.result ?? []) as IDBValidKey[]) {
+        if (typeof key !== 'string' || !key.startsWith('filter-state-')) continue;
+        if (keepIds.has(key.slice('filter-state-'.length))) continue;
+        store.delete(key);
+        removed++;
+      }
+    };
+    tx.oncomplete = () => resolve(removed);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function cacheData(key: string, data: any, ttlMs?: number): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('cache', 'readwrite');
@@ -411,7 +437,9 @@ export async function evictLruCache(): Promise<{ evicted: number; total: number 
     req.onsuccess = () => {
       const items = (req.result ?? []) as CachedData[];
       if (items.length <= CACHE_LRU_CAP) { resolve({ evicted: 0, total: items.length }); return; }
-      const exempt = (key: string) => key.startsWith('filter-state-') || key === 'identifier-map' || key === 'cleaning-profile-assignment' || key.startsWith('active-profile-');
+      // `tablet-access-<userId>` (OQ-04, 2026-10-19): the offline allowlist —
+      // losing it makes the tablet fall back to "no config = everything allowed".
+      const exempt = (key: string) => key.startsWith('filter-state-') || key === 'identifier-map' || key === 'cleaning-profile-assignment' || key.startsWith('active-profile-') || key.startsWith('tablet-access-');
       const evictable = items
         .filter(i => !exempt(i.key))
         .sort((a, b) => new Date(a.lastAccessedAt ?? a.cachedAt).getTime() - new Date(b.lastAccessedAt ?? b.cachedAt).getTime());

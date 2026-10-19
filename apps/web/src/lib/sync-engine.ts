@@ -674,10 +674,16 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
         failedStartFilters.add(op.filterId);
       }
 
-      // Network error: server went away mid-sync, stop trying
+      // Network error: server went away mid-sync, stop trying.
+      // 2026-10-17 load test: a 5xx (the server answers 503 SERVICE_BUSY on a
+      // database pool/transaction timeout) or 429 is the same situation — the
+      // server, not this operation, is the problem — so it must keep the op
+      // pending with its retry budget intact instead of burning one of the five
+      // retries and eventually dropping the operator's work.
       const isNetErr = msg.includes('fetch') || msg.includes('network')
         || msg.includes('econnrefused') || msg.includes('load failed')
-        || msg.includes('abort');
+        || msg.includes('abort')
+        || (typeof e?.status === 'number' && (e.status >= 500 || e.status === 429));
       if (isNetErr) {
         await updateOperationStatus(op.id, 'pending', errMsg);
         failed++;

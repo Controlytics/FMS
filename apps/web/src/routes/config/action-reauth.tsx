@@ -599,7 +599,7 @@ export function ActionReauthPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setSaving(false); }}
-        actionLabel="Update Re-auth Policy"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Re-auth Policy'}
       />
     </div>
   );

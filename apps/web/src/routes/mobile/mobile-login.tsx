@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
 import { AuthShell, AuthError } from '../../components/auth-shell';
 import { getApiBase } from '../../lib/api-base';
+import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 
 // 2026-05-21: raw fetch() calls below must hit the API host directly, not the
 // Capacitor SPA origin. On the tablet the WebView serves from
@@ -21,7 +22,13 @@ export function MobileLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showForce, setShowForce] = useState(false);
+  // OQ-07 (operator decision 2026-10-19: ASK FIRST, like the web). On a
+  // SESSION_CONFLICT the tablet used to retry with force:true on its own,
+  // silently ending the user's other session. It now shows the other
+  // session's login time (the server's `activeSession`, no IP) and forces
+  // only when the operator confirms. Wording matches routes/auth/login.tsx.
+  const [conflict, setConflict] = useState<{ type: 'same_user' | 'different_user'; loginTime?: string; lastActiveAt?: string; username?: string; fullName?: string } | null>(null);
+  const { formatDateTime } = useDatetimeFormat();
   // Lockout surface state — fed by backend's `attemptsRemaining` on each failed
   // login + ACCOUNT_LOCKED error code. Backend already enforces the count from
   // the password-policy config (passwordPolicy.maxFailedAttempts) — frontend
@@ -106,6 +113,7 @@ export function MobileLoginPage() {
   const handleLogin = async (force?: boolean) => {
     if (!username.trim() || !password.trim()) return;
     setLoading(true); setError(''); setAttemptsRemaining(null); setAccountLocked(false);
+    if (!force) setConflict(null);
     try {
       const res = await apiClient.post<any>('/api/auth/login', {
         username: username.trim(),
@@ -148,48 +156,14 @@ export function MobileLoginPage() {
         navigate('/m', { replace: true });
       }
     } catch (e: any) {
-      if (e?.code === 'SESSION_CONFLICT' || e?.error === 'SESSION_CONFLICT' || e?.message?.includes('session')) {
+      const code = e?.code ?? e?.error;
+      if (force) setConflict(null); // answered — the card goes, whatever the outcome
+      if (code === 'SESSION_CONFLICT' || code === 'DIFFERENT_USER_SESSION_CONFLICT') {
         if (!force) {
-          // Auto-retry with force on mobile — operators need quick access
-          try {
-            const res = await apiClient.post<any>('/api/auth/login', {
-              username: username.trim(),
-              password,
-              force: true,
-              client: 'tablet',
-            });
-            const access = await checkTabletAccess(res.token);
-            if (!access.allowed) {
-              try { await fetch(`${getApiBase()}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${res.token}` } }); } catch {}
-              sessionStorage.removeItem('access_token');
-              localStorage.removeItem('access_token_backup');
-              setError("You don't have access to log in on the tablet.");
-              setLoading(false);
-              return;
-            }
-            sessionStorage.setItem('access_token', res.token);
-            // Same forcePasswordChange skip as the main login path above —
-            // /api/auth/offline-grant returns 403 for force-change users.
-            if (!res.user?.forcePasswordChange) {
-              await mintOfflineGrant(password);
-            }
-            if (res.user?.forcePasswordChange) {
-              sessionStorage.setItem('post_change_password_redirect', '/m');
-              navigate('/change-password', { replace: true });
-            } else {
-              navigate('/m', { replace: true });
-            }
-          } catch (e2: any) {
-            if (e2?.code === 'TABLET_ACCESS_DENIED') {
-              setError("You don't have access to log in on the tablet.");
-              setLoading(false);
-              return;
-            }
-            // Auto-retry failed — show manual force button as fallback
-            setShowForce(true);
-            setError('Session conflict. Tap "Force Login" to proceed.');
-          }
+          // Ask first — never end the other session without the operator's yes.
+          setConflict({ type: code === 'DIFFERENT_USER_SESSION_CONFLICT' ? 'different_user' : 'same_user', ...(e?.activeSession ?? {}) });
         } else {
+          setConflict(null);
           setError(e?.message ?? 'Force login failed');
         }
       } else if (e?.code === 'TABLET_ACCESS_DENIED' || e?.error === 'TABLET_ACCESS_DENIED') {
@@ -222,7 +196,7 @@ export function MobileLoginPage() {
             id="m-login-username"
             type="text"
             value={username}
-            onChange={e => { setUsername(e.target.value); setError(''); setShowForce(false); }}
+            onChange={e => { setUsername(e.target.value); setError(''); setConflict(null); }}
             placeholder="Enter your user ID"
             className={field}
             autoFocus
@@ -236,7 +210,7 @@ export function MobileLoginPage() {
               id="m-login-password"
               type={showPassword ? 'text' : 'password'}
               value={password}
-              onChange={e => { setPassword(e.target.value); setError(''); setShowForce(false); setAttemptsRemaining(null); }}
+              onChange={e => { setPassword(e.target.value); setError(''); setConflict(null); setAttemptsRemaining(null); }}
               onKeyDown={e => { if (e.key === 'Enter') handleLogin(); }}
               placeholder="Enter your password"
               className={`${field} pr-14`}
@@ -306,11 +280,39 @@ export function MobileLoginPage() {
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
 
-          {showForce && (
-            <button onClick={() => handleLogin(true)} disabled={loading}
-              className="h-12 w-full rounded-lg border border-amber-300 bg-amber-50 text-sm font-medium text-amber-900">
-              Sign in here and end the other session
-            </button>
+          {conflict && (
+            <div role="alertdialog" aria-label={conflict.type === 'different_user' ? 'Another User is Logged In' : 'Active Session Detected'}
+              className="rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-900">
+                {conflict.type === 'different_user' ? 'Another User is Logged In' : 'Active Session Detected'}
+              </p>
+              <p className="text-sm text-amber-900">
+                {conflict.type === 'different_user'
+                  ? 'Another user is currently logged in from this system. For security reasons, only one user can be active per system. Continuing will terminate their session.'
+                  : 'Your account is currently logged in from another location. Continuing will terminate the existing session.'}
+              </p>
+              {conflict.type === 'different_user' && conflict.username && (
+                <p className="text-sm text-amber-900"><span className="font-medium">User:</span> {conflict.fullName || conflict.username} ({conflict.username})</p>
+              )}
+              {conflict.loginTime && (
+                <p className="text-sm text-amber-900"><span className="font-medium">Logged in:</span> {formatDateTime(conflict.loginTime)}</p>
+              )}
+              <p className="text-sm text-amber-800">
+                {conflict.type === 'different_user'
+                  ? "Do you want to continue and logout the other user's session?"
+                  : 'Do you want to continue and logout the other session?'}
+              </p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setConflict(null)} disabled={loading}
+                  className="h-12 flex-1 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 active:bg-slate-50">
+                  Cancel
+                </button>
+                <button type="button" onClick={() => handleLogin(true)} disabled={loading}
+                  className="h-12 flex-1 rounded-lg bg-amber-600 text-sm font-semibold text-white active:bg-amber-700 disabled:opacity-40">
+                  {loading ? 'Continuing…' : conflict.type === 'different_user' ? `Continue & Logout ${conflict.username ?? 'User'}` : 'Continue & Logout Old Session'}
+                </button>
+              </div>
+            </div>
           )}
 
           <button onClick={() => navigate('/guest-request')}

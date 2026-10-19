@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { api } from '@/lib/api-client';
 import { Pagination } from '@/components/ui/pagination';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { isTaskTerminal, needsOverdueAck } from './task-rules';
+import { OverdueAckDialog } from './overdue-ack-dialog';
 
 interface FilterRow {
   filterId: string;
@@ -105,11 +106,8 @@ export function MyTasksPage() {
   const [areaFilter, setAreaFilter] = useState('');   // area id
   const [statusFilter, setStatusFilter] = useState<'' | TaskRow['overallStatus']>('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Overdue acknowledge (password) dialog state.
+  // Overdue acknowledge (password) dialog — shared with the tablet (OQ-06).
   const [ackTask, setAckTask] = useState<TaskRow | null>(null);
-  const [ackPassword, setAckPassword] = useState('');
-  const [ackSubmitting, setAckSubmitting] = useState(false);
-  const [ackError, setAckError] = useState('');
 
   const tasks = data?.tasks ?? [];
   const overdueTasks = data?.overdue ?? [];
@@ -194,36 +192,12 @@ export function MyTasksPage() {
   const onPerform = (task: TaskRow) => {
     // Overdue + a still-unacknowledged deviation → require password confirmation
     // before letting the operator proceed to cleaning. Otherwise go straight.
-    const dev = task.deviation;
-    if (task.overallStatus === 'overdue' && dev && dev.status !== 'CLOSED' && !dev.acknowledged) {
-      setAckPassword('');
-      setAckError('');
+    // The rule lives in task-rules.ts, shared with the tablet task list.
+    if (needsOverdueAck(task)) {
       setAckTask(task);
       return;
     }
     goToOps(task);
-  };
-
-  const closeAck = () => { setAckTask(null); setAckPassword(''); setAckError(''); setAckSubmitting(false); };
-
-  const handleAckConfirm = async () => {
-    if (!ackTask?.deviation || !ackPassword.trim()) return;
-    setAckSubmitting(true);
-    setAckError('');
-    try {
-      await api.postWithReauth(`/api/pm-schedules/deviations/${ackTask.deviation.deviationId}/acknowledge`, {}, ackPassword);
-      await mutate(dueKey);
-      const task = ackTask;
-      closeAck();
-      goToOps(task);
-    } catch (e: any) {
-      const code = e?.error ?? e?.code;
-      setAckError(
-        code === 'REAUTH_FAILED' ? 'Incorrect password. Please try again.'
-        : e?.message ?? 'Could not confirm — please try again.',
-      );
-      setAckSubmitting(false);
-    }
   };
 
   return (
@@ -433,49 +407,18 @@ export function MyTasksPage() {
 
       {/* ─── Overdue acknowledge (password) dialog ─── */}
       {ackTask && ackTask.deviation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
-          onMouseDown={(e) => { if (e.target === e.currentTarget && !ackSubmitting) closeAck(); }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-4 bg-gradient-to-r from-rose-500 to-rose-600 flex items-center gap-3">
-              <svg className="w-6 h-6 text-white shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <h3 className="text-white font-bold text-base">Overdue Cleaning — Confirmation Required</h3>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-slate-700">
-                These <strong>{ackTask.ahuName}</strong> filters are already overdue by{' '}
-                <strong className="text-rose-600">{ackTask.deviation.overdueDays} day{ackTask.deviation.overdueDays === 1 ? '' : 's'}</strong>{' '}
-                ({ackTask.totalFilters} filter{ackTask.totalFilters === 1 ? '' : 's'}). Please confirm with your password to continue.
-              </p>
-              <div className="text-[11px] text-slate-400">Deviation {ackTask.deviation.deviationNumber}</div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Password</label>
-                <input
-                  type="password" autoFocus value={ackPassword}
-                  onChange={(e) => { setAckPassword(e.target.value); setAckError(''); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && ackPassword.trim() && !ackSubmitting) handleAckConfirm(); }}
-                  placeholder="Enter your password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
-                />
-                {ackError && <p className="text-xs text-rose-600 mt-1.5">{ackError}</p>}
-              </div>
-            </div>
-            <div className="px-6 py-4 bg-slate-50 flex justify-end gap-2">
-              <button onClick={closeAck} disabled={ackSubmitting}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40">Cancel</button>
-              {/* Phase 5C: Confirm gated on my_tasks.acknowledge (gate: PM_READ).
-                  Previously UNGATED; correction toward backend PM_READ gate. */}
-              {can('my_tasks.acknowledge') && (
-                <button onClick={handleAckConfirm} disabled={ackSubmitting || !ackPassword.trim()}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 inline-flex items-center gap-2">
-                  {ackSubmitting && <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-                  Confirm &amp; Continue
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <OverdueAckDialog
+          task={{ ahuName: ackTask.ahuName, totalFilters: ackTask.totalFilters, deviation: ackTask.deviation }}
+          // Phase 5C: Confirm gated on my_tasks.acknowledge (gate: PM_READ).
+          canConfirm={can('my_tasks.acknowledge')}
+          onCancel={() => setAckTask(null)}
+          onAcknowledged={async () => {
+            await mutate(dueKey);
+            const task = ackTask;
+            setAckTask(null);
+            goToOps(task);
+          }}
+        />
       )}
     </div>
   );
@@ -483,7 +426,7 @@ export function MyTasksPage() {
 
 // ─── Task Card ───────────────────────────────────────────
 
-function TaskCard({ task, expanded, onToggle, onPerform, canPerform = true, formatDate, formatDateTime }: {
+export function TaskCard({ task, expanded, onToggle, onPerform, canPerform = true, formatDate, formatDateTime }: {
   task: TaskRow;
   expanded: boolean;
   onToggle: () => void;
@@ -586,6 +529,12 @@ function TaskCard({ task, expanded, onToggle, onPerform, canPerform = true, form
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                 </svg>
                 Completed
+              </div>
+            ) : isTaskTerminal(task.overallStatus) ? (
+              // OQ-13: a written-off visit is TERMINAL. Offering Perform here
+              // invited a cleaning "for" a visit already recorded as not done.
+              <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-300 text-amber-800 rounded-xl text-sm font-semibold">
+                Not performed
               </div>
             ) : !canPerform ? (
               <span className="text-xs text-slate-400 italic">View only</span>

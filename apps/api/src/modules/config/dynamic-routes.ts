@@ -1,5 +1,6 @@
 import { type FastifyInstance } from 'fastify';
 import { configRegistry } from '../../lib/config-registry.js';
+import { validateAgainstSettings } from '../../lib/config-settings-validate.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { sanitizeAuditValue } from '../../lib/audit-diff.js';
@@ -96,6 +97,14 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
       for (const [k, v] of Object.entries(rawBody)) {
         if (k.startsWith('_')) continue; // transport-only field, never persisted
         body[k] = v;
+      }
+
+      // QA-D003 (2026-10-19): check the declared settings (type, min/max,
+      // lengths, static options) on the server. No def supplies a zodSchema or
+      // validate hook, so before this every body was stored verbatim.
+      const settingErrors = validateAgainstSettings(def.settings, body);
+      if (settingErrors.length) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', message: settingErrors.join(', ') });
       }
 
       // Validate with Zod if schema provided

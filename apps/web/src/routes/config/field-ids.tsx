@@ -404,7 +404,7 @@ export function FieldIdsPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Update Field Label"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Field Label'}
       />
     </div>
   );

@@ -113,3 +113,9 @@ certs/certs/
 # audit-trail PII, and the full data set (audit 2026-05-30).
 old/db-backups/*
 logs-sample/
+
+# Performance-test output (2026-10-17) — results, logs, generated data
+tests/performance/results/
+
+# QA campaign output (2026-10-19) — probe results, sweep results, suite logs, cached tokens
+QA/results/

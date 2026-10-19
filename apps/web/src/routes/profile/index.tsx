@@ -364,7 +364,7 @@ export function ProfilePage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setIsSubmitting(false); }}
-        actionLabel="Update Profile"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Profile'}
       />
 
       {/* Success Dialog */}

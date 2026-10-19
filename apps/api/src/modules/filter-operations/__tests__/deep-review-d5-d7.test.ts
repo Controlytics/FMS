@@ -73,7 +73,11 @@ describe('D5 — batch-states and current-state shape contract', () => {
     mockPrisma.cleaningCycle.findUnique.mockResolvedValue(null);
     mockPrisma.cleaningCycle.findFirst.mockResolvedValue(null);
     mockPrisma.filterProfile.findUnique.mockResolvedValue(null);
-    mockPrisma.assetInstance.findMany.mockResolvedValue([{ id: FILTER_ID }]);
+    // findMany answers like the database: the batch's id list for the FILTER
+    // query, and the requested rows for batch-preload's `id IN (...)` bulk reads
+    // (2026-10-17) — an unknown id is simply absent, as it would be in Postgres.
+    mockPrisma.assetInstance.findMany.mockImplementation(async ({ where }: any) =>
+      where?.id?.in ? where.id.in.filter((id: string) => id === FILTER_ID).map(() => filterFixture()) : [{ id: FILTER_ID }]);
     mockPrisma.systemConfig.findUnique.mockResolvedValue(null);
     mockPrisma.pmScheduleEntry.findFirst.mockResolvedValue(null);
     // totalCycles (M39): the single path counts per filter; the batch path loads

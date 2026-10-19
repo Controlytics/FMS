@@ -311,16 +311,25 @@ export class FilterOperationsService {
     if (filterIdConstraint) manualWhere.filterId = filterIdConstraint;
     if (fromD || toD) { manualWhere.performedAt = {}; if (fromD) manualWhere.performedAt.gte = fromD; if (toD) manualWhere.performedAt.lte = toD; }
 
-    const [cyclesLite, manualLite] = await Promise.all([
-      prisma.cleaningCycle.findMany({ where: cycleWhere, select: { id: true, startedAt: true }, orderBy: { startedAt: 'desc' } }),
-      prisma.filterEvent.findMany({ where: manualWhere, select: { id: true, performedAt: true }, orderBy: { performedAt: 'desc' } }),
+    // The first page*limit rows of the date-merged list can only come from the
+    // first page*limit rows of EACH list, so fetch just that many of each and
+    // count the totals separately. It used to load every cycle id + every manual
+    // change and sort them in Node to show 25 rows: 3.7 s per page at 566k
+    // cycles (2026-10-17 load test). Same rows, same order (stable sort, cycles
+    // before manual on equal dates, exactly as before).
+    const take = page * limit;
+    const [cyclesLite, manualLite, cycleTotal, manualTotal] = await Promise.all([
+      prisma.cleaningCycle.findMany({ where: cycleWhere, select: { id: true, startedAt: true }, orderBy: { startedAt: 'desc' }, take }),
+      prisma.filterEvent.findMany({ where: manualWhere, select: { id: true, performedAt: true }, orderBy: { performedAt: 'desc' }, take }),
+      prisma.cleaningCycle.count({ where: cycleWhere }),
+      prisma.filterEvent.count({ where: manualWhere }),
     ]);
     const merged = [
       ...cyclesLite.map((c) => ({ id: c.id, kind: 'cycle' as const, date: c.startedAt ? new Date(c.startedAt).getTime() : 0 })),
       ...manualLite.map((m) => ({ id: m.id, kind: 'manual' as const, date: m.performedAt ? new Date(m.performedAt).getTime() : 0 })),
     ].sort((a, b) => b.date - a.date);
 
-    const total = merged.length;
+    const total = cycleTotal + manualTotal;
     const pageSlice = merged.slice((page - 1) * limit, page * limit);
     const cycleIds = pageSlice.filter((r) => r.kind === 'cycle').map((r) => r.id);
     const manualIds = pageSlice.filter((r) => r.kind === 'manual').map((r) => r.id);

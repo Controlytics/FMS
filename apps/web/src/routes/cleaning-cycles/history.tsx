@@ -140,7 +140,9 @@ export function CleaningCycleHistoryPage() {
   if (fromIso) queryParams.set('from', fromIso);
   if (toIso) queryParams.set('to', toIso);
 
-  const { data, isLoading } = useSWR<PaginatedResponse<any>>(`/api/filters/cleaning-record?${queryParams}`);
+  // M63: `error` is read so a failed fetch is not rendered as "No records
+  // found". Stale rows from an earlier good load stay up on a later failure.
+  const { data, error: loadError, isLoading, mutate: reload } = useSWR<PaginatedResponse<any>>(`/api/filters/cleaning-record?${queryParams}`);
 
   const selectedFilterName = selectedFilter
     ? filterInstances.find((f) => f.id === selectedFilter)?.name ?? 'Filter'
@@ -311,6 +313,15 @@ export function CleaningCycleHistoryPage() {
     return report;
   };
 
+
+  // C-05: requireExportReauth re-throws a dismissed password prompt as
+  // REAUTH_CANCELLED. Uncaught, a cancel became an unhandled rejection, and a
+  // real export failure surfaced only in the console. Cancel = no export, silent.
+  const reportExportError = (e: unknown) => {
+    if (isReauthCancelled(e)) return;
+    toast.error('Export failed', (e as any)?.message ?? 'The export could not be completed.');
+  };
+
   const exportPdf = async () => {
     setDownloading(true);
     try {
@@ -321,7 +332,7 @@ export function CleaningCycleHistoryPage() {
       if (!report) return;
       await requireExportReauth(reauth, { reportType: 'Cleaning Record', format: 'PDF', recordCount: rows.length }, toast.warning);
       report.save(`${downloadName('cleaning-cycles', selectedFilterName)}.pdf`);
-    } finally { setDownloading(false); }
+    } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
 
   const buildHistorySnapshot = async () => {
@@ -339,7 +350,7 @@ export function CleaningCycleHistoryPage() {
       if (rows.length === 0) { toast.error('Nothing to export', 'This selection contains no cleaning cycles.'); return; }
       await requireExportReauth(reauth, { reportType: 'Cleaning Record', format: 'Excel', recordCount: rows.length }, toast.warning);
       exportToExcel({ filename: `cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Cleaning Record', head: ccHead, rows: buildCleaningRows(rows) });
-    } finally { setDownloading(false); }
+    } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
 
   return (
@@ -450,7 +461,15 @@ export function CleaningCycleHistoryPage() {
           full page of rows is visible (flex-1 + min-h-0 make the scroll area grow
           to the available space instead of being capped to a few rows). */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {isLoading ? (
+        {loadError && !data ? (
+          <div role="alert" className="flex flex-col items-center justify-center py-16 gap-2 text-center px-6">
+            <span className="text-[14px] font-semibold text-red-700">Could not load the cleaning record</span>
+            <span className="text-[13px] text-slate-500 max-w-md">{(loadError as any)?.status === 403 ? 'You do not have permission to view this.' : ((loadError as any)?.message || 'The server did not answer.')}</span>
+            {(loadError as any)?.status !== 403 && (
+              <button onClick={() => reload()} className="mt-2 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+            )}
+          </div>
+        ) : isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
             <span className="text-[13px] text-slate-400">Loading record...</span>

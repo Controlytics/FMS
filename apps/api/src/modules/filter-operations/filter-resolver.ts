@@ -19,18 +19,21 @@ export type ResolvedFilter = {
   filterSet: string | null;
 };
 
-export async function getFilter(filterId: string, _ctx: RequestContext): Promise<ResolvedFilter> {
+export async function getFilter(filterId: string, _ctx: RequestContext, cache?: BatchReadCache): Promise<ResolvedFilter> {
   // parentId is required by retire() to snapshot the original tree position
   // into customAttributes._preRetireParentId so unretire can restore it.
   // Filter cycle state lives on FilterDetails (Step 6) — include + flatten so
   // the rest of this service keeps reading filter.{filterProfileId, currentLifecycleState, currentCycleId, filterSet} unchanged.
-  const inst = await prisma.assetInstance.findFirst({
+  // `filter:` projection — under getBatchStates it is pre-seeded for every
+  // filter by batch-preload.ts; every other caller reads as before.
+  const readInstance = () => prisma.assetInstance.findFirst({
     where: { id: filterId },
     select: {
       id: true, name: true, parentId: true,
       filterDetails: { select: { filterProfileId: true, currentLifecycleState: true, currentCycleId: true, filterSet: true } },
     },
   });
+  const inst = cache ? await cache.memo(`filter:${filterId}`, readInstance) : await readInstance();
   if (!inst) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
   return {
     id: inst.id,

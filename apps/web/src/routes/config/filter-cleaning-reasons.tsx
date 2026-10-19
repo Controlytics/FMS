@@ -273,7 +273,7 @@ export function CleaningReasonsConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setSaving(false); }}
-        actionLabel="Update Cleaning Reasons"
+        actionLabel={reauth.pendingActionLabel ?? 'Update Cleaning Reasons'}
       />
     </div>
   );

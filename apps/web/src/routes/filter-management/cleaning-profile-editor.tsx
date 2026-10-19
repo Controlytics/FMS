@@ -227,34 +227,47 @@ export function CleaningProfileEditorPage() {
     const disconnected = nodes.filter((n, i) => n.nodeType !== 'START' && n.nodeType !== 'END' && !connections.some(c => c.fromIndex === i || c.toIndex === i));
     if (disconnected.length > 0) { setToast({ type: 'error', message: `${disconnected.length} disconnected node(s) found. Connect all nodes.` }); return; }
 
+    // M87: the guard must hold for the WHOLE save - while the request is in
+    // flight AND while the password dialog is open. `reauth.execute` returns as
+    // soon as the dialog opens and never re-throws, and the callback may run
+    // more than once (a wrong password re-prompts), so `saving` is cleared only
+    // from onSuccess / onError / onCancel. It used to be cleared synchronously
+    // after execute AND in the callback's finally, which re-enabled Save
+    // mid-request / mid-prompt: two clicks created two profiles or two versions.
+    if (saving) return;
     setSaving(true);
     const action = isNew ? 'CREATE_CLEANING_PROFILE' : 'UPDATE_CLEANING_PROFILE';
     reauth.execute(action, async (password?: string) => {
-      try {
-        const body = {
-          name, flowMode,
-          alarmOnForwardSkip: alarmFlags.forwardSkip, alarmOnBackwardJump: alarmFlags.backwardJump, alarmOnOutOfSequence: alarmFlags.outOfSequence,
-          stages: nodes.map((n, i) => ({ ...n, sortOrder: i })),
-          connections: connections.map(c => ({ fromIndex: c.fromIndex, toIndex: c.toIndex, label: c.label })),
-        };
-        if (isNew) {
-          const result = password
-            ? await apiClient.postWithReauth('/api/filter-cleaning-profiles', body, password)
-            : await apiClient.post('/api/filter-cleaning-profiles', body);
-          navigate(`/filter-cleaning-profiles/${(result as any).id}/edit`, { replace: true });
-        } else {
-          const result = password
-            ? await apiClient.putWithReauth(`/api/filter-cleaning-profiles/${id}`, body, password)
-            : await apiClient.put(`/api/filter-cleaning-profiles/${id}`, body);
-          const newId = (result as any).id;
-          if (newId && newId !== id) navigate(`/filter-cleaning-profiles/${newId}/edit`, { replace: true });
-          else mutate(`/api/filter-cleaning-profiles/${id}`);
-        }
+      const body = {
+        name, flowMode,
+        alarmOnForwardSkip: alarmFlags.forwardSkip, alarmOnBackwardJump: alarmFlags.backwardJump, alarmOnOutOfSequence: alarmFlags.outOfSequence,
+        stages: nodes.map((n, i) => ({ ...n, sortOrder: i })),
+        connections: connections.map(c => ({ fromIndex: c.fromIndex, toIndex: c.toIndex, label: c.label })),
+      };
+      if (isNew) {
+        const result = password
+          ? await apiClient.postWithReauth('/api/filter-cleaning-profiles', body, password)
+          : await apiClient.post('/api/filter-cleaning-profiles', body);
+        navigate(`/filter-cleaning-profiles/${(result as any).id}/edit`, { replace: true });
+      } else {
+        const result = password
+          ? await apiClient.putWithReauth(`/api/filter-cleaning-profiles/${id}`, body, password)
+          : await apiClient.put(`/api/filter-cleaning-profiles/${id}`, body);
+        const newId = (result as any).id;
+        if (newId && newId !== id) navigate(`/filter-cleaning-profiles/${newId}/edit`, { replace: true });
+        else mutate(`/api/filter-cleaning-profiles/${id}`);
+      }
+    }, {
+      onSuccess: () => {
         setToast({ type: 'success', message: 'Cleaning profile saved successfully' });
-      } catch (e: any) { setToast({ type: 'error', message: e.message || 'Failed to save profile' }); throw e; }
-      finally { setSaving(false); }
+        setSaving(false);
+      },
+      onError: (e: any) => {
+        setToast({ type: 'error', message: e?.message || 'Failed to save profile' });
+        setSaving(false);
+      },
+      onCancel: () => setSaving(false),
     });
-    setSaving(false);
   };
 
   /* ── Compute incoming/outgoing connections for selected node ── */

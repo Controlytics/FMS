@@ -149,10 +149,14 @@ export function BackupRestorePage() {
   const [ackForce, setAckForce] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleExport = async () => {
+  // M74: `reauth.execute` returns as soon as the password dialog opens (it does
+  // not await the callback and never re-throws), so the busy flags are reset
+  // from onSuccess / onError / onCancel - never synchronously after it.
+  const handleExport = () => {
     setExporting(true);
     setExportError('');
-    await reauth.execute('EXPORT_BACKUP', async (password?) => {
+    const done = () => setExporting(false);
+    reauth.execute('EXPORT_BACKUP', async (password?) => {
       const token = sessionStorage.getItem('access_token');
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       if (password) headers['x-reauth-password'] = password;
@@ -162,15 +166,21 @@ export function BackupRestorePage() {
         // perfectly diagnosable pg_dump error (the 2026-08-08 `invalid URI
         // query parameter: "schema"`) behind two useless words, and the
         // operator had nothing to act on or report.
-        let detail = '';
+        let body: any = null;
         try {
-          const body = await response.json();
-          detail = body?.message || body?.error || '';
+          body = await response.json();
         } catch {
           // Non-JSON body (proxy error page, truncated response) — the status
           // line below is still better than nothing.
         }
-        throw new Error(detail || `Export failed (HTTP ${response.status})`);
+        // M74: keep the server's structured code on the thrown error. use-reauth
+        // branches on `err.error` - a wrong password (REAUTH_FAILED) must keep
+        // the dialog open with "Incorrect password", and a stale reauth config
+        // (REAUTH_REQUIRED) must open it. A bare Error lost both.
+        throw Object.assign(
+          new Error(body?.message || body?.error || `Export failed (HTTP ${response.status})`),
+          { error: body?.error, status: response.status },
+        );
       }
 
       const blob = await response.blob();
@@ -188,9 +198,10 @@ export function BackupRestorePage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }, {
-      onError: (err: any) => setExportError(err.message || 'Failed to export backup'),
+      onSuccess: done,
+      onError: (err: any) => { setExportError(err.message || 'Failed to export backup'); done(); },
+      onCancel: done,
     });
-    setExporting(false);
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -237,12 +248,13 @@ export function BackupRestorePage() {
   const chainReport: ChainReport | null = chainBlock?.report ?? validation?.auditChain ?? null;
   const chainAnomalies = chainReport ? chainReport.checksumFailures + chainReport.linkFailures : 0;
 
-  const handleRestore = async (force = false) => {
+  const handleRestore = (force = false) => {
     if (!restoreFile) return;
     setRestoring(true);
     setError('');
     setConfirmRestore(false);
-    await reauth.execute('RESTORE_BACKUP', async (password?) => {
+    const done = () => setRestoring(false);
+    reauth.execute('RESTORE_BACKUP', async (password?) => {
       const formData = new FormData();
       formData.append('file', restoreFile);
       // The backend has always read this field (backup/routes.ts), but nothing
@@ -260,16 +272,23 @@ export function BackupRestorePage() {
         body: formData,
       });
 
-      const result = await response.json();
-      if (response.ok) {
-        setChainBlock(null);
-        setRestoreResult({ success: true, message: result.message });
-      } else {
+      const result: any = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        // M74: a refused restore used to RETURN normally, so the re-auth flow
+        // counted it as a success and a wrong password showed "Restore Failed"
+        // instead of re-prompting. Throw the server's code: REAUTH_FAILED /
+        // REAUTH_REQUIRED keep the password dialog open (no failure banner);
+        // anything else reaches onError, which renders the banner.
         if (result.error === 'BACKUP_AUDIT_CHAIN_INVALID') {
           setChainBlock({ message: result.message, report: result.chainReport ?? null });
         }
-        setRestoreResult({ success: false, message: result.message || 'Restore failed' });
+        throw Object.assign(
+          new Error(result.message || `Restore failed (HTTP ${response.status})`),
+          { error: result.error, status: response.status },
+        );
       }
+      setChainBlock(null);
+      setRestoreResult({ success: true, message: result.message });
 
       if (result.success) {
         setRestoreFile(null);
@@ -279,11 +298,13 @@ export function BackupRestorePage() {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     }, {
-      onError: () => {
-        setRestoreResult({ success: false, message: 'Restore failed unexpectedly' });
+      onSuccess: done,
+      onError: (err: any) => {
+        setRestoreResult({ success: false, message: err?.message || 'Restore failed unexpectedly' });
+        done();
       },
+      onCancel: done,
     });
-    setRestoring(false);
   };
 
   return (
@@ -422,7 +443,9 @@ export function BackupRestorePage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json,.bak,.sql,.zip"
+              // F-06 (QA 2026-10-19): .dump is the default export format and the
+              // one the help text below lists first; the picker hid it.
+              accept=".dump,.json,.bak,.sql,.zip"
               onChange={handleFileSelect}
               className="hidden"
             />
@@ -753,7 +776,7 @@ export function BackupRestorePage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
-        actionLabel="Backup Action"
+        actionLabel={reauth.pendingActionLabel ?? 'Backup Action'}
       />
     </div>
   );

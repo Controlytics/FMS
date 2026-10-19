@@ -1,5 +1,185 @@
 # Changelog
 
+## [Unreleased] - QA campaign: defects found and fixed (2026-10-19)
+
+Operator request "fix everything" after the QA discovery of 2026-10-19 (`QA/`). Every fix has a
+regression test that fails on the committed code; register with evidence: `QA/DEFECT_REGISTER.md`;
+plan and operator decisions: `QA/FIX_PLAN.md`. Suites after all changes: API 181 files / 1,705 passed / 0 failed
+(12 skipped), web 94 files / 1,033 passed / 0 failed (see `QA/results/`). **Schema:** one additive migration (`20261019090000_block_change_notification_types`),
+applied to `digilog_test_db` and the QA clone only — `digilog_db` gets it on the next `npm run db:migrate`
+/ installer upgrade. **Tablet changes need an APK rebuild.**
+
+Server
+- **Concurrent "Start PM" created duplicate in-progress executions** (2–5 per 20 taps, each audited):
+  `pm-executions.ts` now does the duplicate check and insert in one transaction with a row lock on the
+  schedule entry; the audit row joins it.
+- **Concurrent block-change requests created duplicate PENDING requests:** same pattern
+  (`block-change.service.ts`, row lock on the filter).
+- **Block-change notifications were never delivered.** `BLOCK_CHANGE_REQUESTED/_APPROVED/_REJECTED` were
+  sent since 2026-05-25 but missing from the `NotificationType` enum, so every insert failed and was
+  swallowed. Enum + migration; a sweep of every notification type sent against the enum found no other gap.
+- **12 config defs (stage interlock, approval workflows, export limit, …) were stored with no server
+  validation.** New `lib/config-settings-validate.ts` checks each def's declared type / min / max /
+  lengths / static options on `PUT /api/config/dynamic/:key`; every value already stored on four
+  databases passes (pre-flight `QA/tests/probes/config-stored-values-check.mts`).
+- **Pagination / export-limit / backup-format were saved unsigned, and by ADMIN, through
+  `PUT /api/config/:key`.** That route now enforces each def's declared re-auth row and
+  `requiredRole: SUPER_ADMIN` (the dynamic route already did).
+- **Filter approval: the submitter could approve their own filter** (operator decision 2026-10-19:
+  require a different person). Creator may not review/approve/reject; reviewer may not approve — same
+  rule as PM and replacement schedules.
+- **Typed filter create (Filters dialog + every bulk-upload row) accepted a deactivated AHU.**
+- **Password reuse:** a hidden 12-month cut-off let a password inside the configured "last N" be
+  reused. The configured count is now the whole rule (no rationale was recorded for the window).
+- **Filter Data Management generic edits:** invalid dates / non-numbers became 500 + a false
+  SYSTEM_ERROR alert, month 13 was stored, an edit could overlap two PM visits, and six catch blocks
+  sent raw error text to the client. Now 400 `INVALID_VALUE`, the PM separation rule (409
+  `PM_VISIT_OVERLAP`) on console edits/creates, and only `AppError` messages reach clients.
+- **Error mapping:** Prisma P2025 (record not found) → 404 `NOT_FOUND`; `PrismaClientValidationError`
+  (carries no code) → 400 `VALIDATION_ERROR` instead of 500 + SYSTEM_ERROR (still logged at error level).
+- **Cleaning profiles:** unknown pipeline `nodeType` and a blank name on update are refused at
+  validation (the allowed list is the database enum).
+- **Notification visibility had three disagreeing copies;** bulk ops and single-row access let a user
+  act on an admin notice merely ABOUT them (`targetUserId`). One rule now (`notifications/visibility.ts`):
+  the subject of a notice is not its recipient. The unit tests that passed only because
+  `undefined === undefined` were corrected.
+- **Notification retries:** the first retry waited 15 s while the row said 5 s; rows left RETRYING by a
+  restart stayed so forever. Delay indexing fixed; at boot they are closed as FAILED with the reason
+  (deliberately not re-sent — a partly-delivered send would go out twice).
+- **Server idle logout used a different idle time from the one configured and shown** (the old
+  `session` row, which has no editing page). The sweep now reads the Password Policy, where the idle
+  settings moved.
+- **System Health disk usage** used the deprecated WMIC tool on a hard-coded C: and showed a healthy
+  0 % when it failed; now `statfs` on the app's own volume, and "could not be measured" on failure.
+- **Orphan profile photos** are deleted by a new nightly job (00:10): only generator-named files older
+  than 24 h that no user references. The upload rate limit stays removed (operator decision 2026-10-10).
+- **System role delete** is refused as `SYSTEM_ROLE` before the "has users" check.
+- **RFID values are canonicalised on write** (`lib/rfid-canonical.ts`, same rules as the web
+  normaliser) in identifier create/replace and the typed filter create; duplicate checks compare
+  canonical values. Existing rows are not rewritten.
+
+Web
+- **Stage screen (`/filters/stage/:key`) hung** when the server asked the missed-PM question or an AHU
+  gate fired — those dialogs were mounted only on the landing page. One shared element now renders on both.
+- **Signature prompts:** Replacement Schedule upload, Pagination save and three Filter Data Management
+  writes now go through re-auth (they ended as bare 401s with the row on); 34 password dialogs name the
+  action being signed instead of a fixed label ("Update Status" for 18 different actions on Filters).
+- Filter Data Management lifecycle-step delete now hits the filter-event endpoint (it sent the event id
+  to the cycles endpoint). Backup restore picker accepts `.dump`. Delete hidden for system roles.
+- Error states instead of false "no records" / endless spinners: Cleaning Record, Cycle Detail,
+  Lifecycle, Users edit, PM Schedules (+ detail; a failed workflow-config read hides review/approve
+  instead of falling back), Admin Requests (names the 403).
+- Admin Requests shows ENABLE/DISABLE_ACCOUNT with labels; no "undefined request" toast; the server now
+  returns `actionTaken` at the top level, so an approval that needed no change says so. Filter Data
+  Management offers the server's six request types (it offered two codes the server never handles).
+- Backup export/restore keep the server's error code (a wrong password re-prompts; a failed restore is
+  no longer treated as success). Cleaning-profile editor save guard holds while the request or the
+  password prompt is open (double-click created two profiles).
+- PM: texts follow the configured review/approval roles (no hard-coded "QA approval"); rejection
+  remarks, rejecter and date shown on screen; the AHU name links to its PM detail page (operator decision).
+- Exports: a cancelled password prompt is silent — no unhandled rejection and no "Export failed" — on
+  every page that asks for an export password (guard test over all route files) + an `ExportMenu` backstop; Retirement and Replacement lists honour the export-options matrix ("PDF only").
+- "Filter Cleaning Record" is the report's default title (operator decision; Report Labels overrides win).
+- Equipment Groups back arrow no longer lands on Access Denied for roles without CONFIG_READ; Tablet Access page is read-only for roles without CONFIG_UPDATE; System Health hidden from
+  roles that cannot open it; Notifications page opens for NOTIFICATION_DELETE holders.
+- Filters page RFID assign and SA edit go through the RFID normaliser.
+
+Tablet (APK rebuild required)
+- Stage-interlock notice wired into the live queue submit (was dead code; wording from the configured
+  approver role). Stage Approvals tab only for holders of STAGE_APPROVAL_VIEW/DECIDE.
+- Perform opens the first stage of the AHU block's cleaning profile, not always Wash In; an overdue
+  task asks the password acknowledgement like the web; Not Performed tasks show no Perform (web too).
+- Login on SESSION_CONFLICT asks before ending the other session (operator decision; was silent).
+- A required SIGNATURE checklist question has an input (it blocked the whole batch).
+- RFID assign / replace scan / replacement-task scan go through the normaliser.
+- **Offline (operator-approved scope):** the tablet-access allowlist last read online is cached and used
+  offline instead of failing open (a tablet that has NEVER read it online still allows every feature, as
+  before); retired / deactivated filters are evicted from the offline state cache and the
+  identifier map on refresh, except filters that still have unsynced queued work. Queueing, replay,
+  retry and the sync-engine drain are unchanged.
+
+Not changed (operator decisions or deliberate, recorded in code): offline Wash Out / Dry Out approval
+exemption; Replacement Tasks open to every tablet role; "Send for Review" hidden; no upload rate limit;
+contact-admin hides account state; RFID Track Record list uncapped; the 11 MB tablet payload shape and a
+second API process (design changes, not bug fixes).
+
+Still open: M10 (RFID Track Record reads the whole identifier audit history into memory per request);
+the unreachable `parentId=null` root filter on `GET /api/instances` (M11 residual).
+
+## [Unreleased] - Fixes found by load testing at one year of data volume (2026-10-17)
+
+Found on `digilog_perf`, a disposable clone holding one year of synthetic production volume
+(566k cycles, 6.2M filter events, 7.4M audit rows). See `docs/production-readiness/`.
+
+- **Server capacity failures were reported as `400 DATA_CONSTRAINT`, and the tablet dropped queued
+  work because of it.** A Prisma connection-pool timeout (`P2024`) or interactive-transaction timeout
+  (`P2028`) — both seen at 100 users on one year of data — fell into the generic Prisma→400 mapping in
+  `app.ts`, so the tablet's sync engine treated the answer as the operation's own failure, spent one of
+  its five retries and, after five busy minutes, marked the operator's recorded work permanently failed.
+  Now: those two codes answer `503 SERVICE_BUSY` (same generic wording, nothing from Prisma leaks), and
+  `sync-engine.ts` treats any 5xx or 429 like a network interruption — the operation stays `pending`
+  with its retry budget intact and the drain pauses. Web test `sync-engine.test.ts` 4b; the e2e
+  test-helper mirrors the mapping.
+- **Operator-approved load changes (2026-10-17), each measured first:** the tablet refreshes the
+  all-filters offline cache when it comes online, every 5 minutes and on sync — not on every 30 s
+  `instances` poll (one 11 MB download per tablet per 30 s was the request that saturated the server at
+  100 users); the tablet Cycles view asks for the last 30 days instead of every cycle ever recorded (it
+  never completed at one year); the Stage Approvals "All" tab keeps every PENDING row plus the last 30
+  days (`GET /api/stage-approvals?from=`; the unfiltered list was 1.0 M rows → 39 s then failure); the
+  audit-trail total used by the dashboard card is reused for 60 s per identical filter (`COUNT(*)` over
+  7.4 M rows was 1.8–2.0 s every 30 s per dashboard user — only the count is cached, never the rows).
+- **`UV_THREADPOOL_SIZE=8` in the WinSW service definition** (`register-services.ps1`): bcrypt cost 12
+  runs on the libuv threadpool; 40 concurrent logins went from 17/s to 29/s with 8 threads
+  (`tests/performance/security/bcrypt-throughput.mjs`).
+- **The decision tape offered "Set Dryer Duration" out of a gated Wash Out while its approval was
+  still pending.** The interlock post-filter in `current-state.ts` withheld `ADVANCE_TO_STAGE` and
+  `BYPASS_STAGE` but not `SET_DRYER_DURATION`, which is the advance into Dry In; `advance.ts` then
+  refused it with `423 STAGE_APPROVAL_PENDING`, so the tablet showed a button that could only fail
+  (4 of 9 cycles in the first write-path load run hit it). Now withheld like the advance; the in-place
+  form (target = current stage) is unaffected. Unit test in `get-current-state.test.ts` (fails without
+  the fix).
+- **`GET /api/filters/batch-states` ran 17,299 queries and ~7 s of CPU per call.** Every tablet
+  makes this call every 30 s (`mobile-operations.tsx`, `cacheAllStates` on each `instancesData`
+  refresh) and on every sync. The 2026-07-15 M39 memo had collapsed the shared reads of the per-filter
+  fan-out, but six primary-key lookups stayed per filter (getFilter's row, the `hb:` home-block walk,
+  the `parent:` and `attrs:` projections). On 3,038 filters: 17,299 Prisma queries, 59 % of the CPU
+  inside the Prisma client, Postgres itself under 1.4 s. 40 tablets × 7 s every 30 s is more than one
+  JavaScript thread can do: at 100 users on go-live data 89 of 90 calls timed out and every other
+  request queued behind them; without this call the same 100 users ran at p95 1.7 s with 0 errors.
+  Fix: `batch-preload.ts` loads those rows for all filters and their ancestor chain with one
+  `findMany` per level and seeds the existing batch memo under the keys `getCurrentState` already
+  uses; `getFilter` gained the same optional memo. `getCurrentState` is unchanged. Result: 286 queries,
+  0.63 s in-process (1.4 s / 0.9 s over HTTPS), and the response is byte-identical to the old build on
+  both the go-live and the one-year clone, with and without `cleaningAreaId` (D5 parity test + captured
+  responses). The 11 MB payload itself (5 distinct pipeline graphs repeated 3,000×) is unchanged — a
+  shape change the tablet's offline cache would have to follow; listed in the readiness report only.
+- **Every audited write scanned the whole audit trail.** `writeAuditRow` (`lib/audit.ts`) read the
+  chain head with `ORDER BY chain_position DESC NULLS LAST`. The index is ascending, so a backward
+  scan gives NULLS FIRST, and Postgres sorted the full table instead: 1,442 ms and about 3.6 GB read
+  per write at 7.4M rows, while holding the global chain lock. Under load it passed Prisma's 5 s
+  transaction timeout, so **login and the `session_sweep` cron failed** (reported as `400
+  DATA_CONSTRAINT`). Now `WHERE chain_position IS NOT NULL ORDER BY chain_position DESC`: 0.13 ms,
+  same row (no NULL positions exist; the column is BIGSERIAL). Audit + lib tests pass (156), and
+  the chain verifies across the post-fix rows.
+- **My Tasks / PM due (`GET /api/pm-schedules/due`) failed outright.** `pm-due-tasks.ts` loaded every
+  cleaning cycle of every filter under the AHUs being checked, full width. At one year that was
+  larger than V8's maximum string size: 23.7 s, then `400 DATA_CONSTRAINT`. It now fetches only
+  cycles that can match (IN_PROGRESS, or completed on/after the earliest window being checked) and
+  only the five columns read, plus one `DISTINCT ON` row per filter for `lastCycleCompletedAt`.
+  Default view: 1.6 s, 841 KB. Old and new outputs compared byte-for-byte on 18 cases (dev DB and
+  the one-year clone, including days with written-off visits and future days): all identical.
+  Script: `tests/performance/equivalence/pm-due-compare.mts`. PM tests pass (68).
+
+### Audit chain verifier reported every signed row as tampered
+
+- **`GET /api/audit/verify-chain` flagged every e-signed audit row as `PER_ROW_CHECKSUM_MISMATCH`.**
+  Since 2026-09-25 `auditLog()` puts `signature_audit_id` inside a signed row's checksum, and the
+  verifier maps the column (`audit-verify.ts`), but its SELECT never read it, so the value was always
+  null and the recomputed checksum never matched. The rows were never altered. On the dev DB that is
+  138 of 976 rows; on the 7.4M-row perf clone, 1,019,018. Fix: add the column to the SELECT.
+  Regression test in `e2e/audit-chain.test.ts` (fails without the fix). Found by the
+  production-readiness data generator (`docs/production-readiness/`).
+
 ## [Unreleased] - FMS-Setup 1.2.1: database named `dfms`; reinstall after uninstall works (2026-10-17)
 
 - **A fresh install now creates the database `dfms`** (operator request), not `digilog_db`. Lower case on

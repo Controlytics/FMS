@@ -193,6 +193,14 @@ export function RfidTrackRecordPage() {
     return { report, count: r.body.length };
   };
 
+  // C-05: requireExportReauth re-throws a dismissed password prompt as
+  // REAUTH_CANCELLED. Uncaught, a cancel became an unhandled rejection, and a
+  // real export failure surfaced only in the console. Cancel = no export, silent.
+  const reportExportError = (e: unknown) => {
+    if (isReauthCancelled(e)) return;
+    toast.error('Export failed', (e as any)?.message ?? 'The export could not be completed.');
+  };
+
   const exportPdf = async () => {
     setDownloading(true);
     try {
@@ -200,7 +208,7 @@ export function RfidTrackRecordPage() {
       if (!built) return;
       await requireExportReauth(reauth, { reportType: 'RFID Track Record', format: 'PDF', recordCount: built.count }, toast.warning);
       built.report.save(`${downloadName('rfid-track-record')}.pdf`);
-    } finally { setDownloading(false); }
+    } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
 
   const buildRfidSnapshot = async () => { const b = await buildRfidReport(); return b ? b.report.getSnapshot() : null; };
@@ -212,7 +220,7 @@ export function RfidTrackRecordPage() {
       if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return; }
       await requireExportReauth(reauth, { reportType: 'RFID Track Record', format: 'Excel', recordCount: r.body.length }, toast.warning);
       exportToExcel({ filename: `rfid-track-record-${new Date().toISOString().slice(0, 10)}`, sheetName: 'RFID Track Record', head: headLabels, rows: r.body });
-    } finally { setDownloading(false); }
+    } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
 
   const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600';

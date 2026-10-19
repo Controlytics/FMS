@@ -34,33 +34,45 @@ export async function createExecution(ctx: RequestContext, data: any) {
   }
   const entityId = entry.schedule.entityId;
 
-  // Prevent duplicate IN_PROGRESS executions
-  const existing = await prisma.pmExecution.findFirst({
-    where: { scheduleEntryId, status: 'IN_PROGRESS' },
+  // QA-D001 (2026-10-19): the duplicate check and the insert used to be two
+  // separate statements, so simultaneous taps all passed the check — 20
+  // concurrent starts produced 2–5 IN_PROGRESS executions (each with its own
+  // PM_STARTED audit row). Now one transaction takes a row lock on the schedule
+  // entry first: a second start waits for the first to commit, then sees its
+  // execution and is refused. The audit row joins the same transaction, so a
+  // refused or rolled-back start never leaves a PM_STARTED row behind.
+  // Lock order (entry row, then the audit-chain advisory lock inside auditLog)
+  // matches every other path that updates an entry and then audits.
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM pm_schedule_entries WHERE id = ${scheduleEntryId}::uuid FOR UPDATE`;
+
+    const existing = await tx.pmExecution.findFirst({
+      where: { scheduleEntryId, status: 'IN_PROGRESS' },
+    });
+    if (existing) throw new AppError(409, 'CONFLICT', 'An execution is already in progress for this entry');
+
+    const now = new Date();
+    const isWithinWindow = now >= entry.windowStart && now <= entry.windowEnd;
+
+    const execution = await tx.pmExecution.create({
+      data: {
+        scheduleEntryId,
+        entityId,
+        status: 'IN_PROGRESS',
+        startedAt: now,
+        performedBy: ctx.userSub,
+        isWithinWindow,
+        filterSet: filterSet ?? null,
+      },
+    });
+
+    await auditLog({
+      userId: ctx.userId, userRole: ctx.userRole, action: 'PM_STARTED',
+      targetType: 'pm_execution', targetId: execution.id,
+      afterValue: { entityId, isWithinWindow, filterSet },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    }, tx);
+
+    return execution;
   });
-  if (existing) throw new AppError(409, 'CONFLICT', 'An execution is already in progress for this entry');
-
-  const now = new Date();
-  const isWithinWindow = now >= entry.windowStart && now <= entry.windowEnd;
-
-  const execution = await prisma.pmExecution.create({
-    data: {
-      scheduleEntryId,
-      entityId,
-      status: 'IN_PROGRESS',
-      startedAt: now,
-      performedBy: ctx.userSub,
-      isWithinWindow,
-      filterSet: filterSet ?? null,
-    },
-  });
-
-  await auditLog({
-    userId: ctx.userId, userRole: ctx.userRole, action: 'PM_STARTED',
-    targetType: 'pm_execution', targetId: execution.id,
-    afterValue: { entityId, isWithinWindow, filterSet },
-    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-  });
-
-  return execution;
 }

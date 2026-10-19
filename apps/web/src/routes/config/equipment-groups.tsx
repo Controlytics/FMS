@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
 import { useCan } from '@/hooks/use-can';
+import { useAuth } from '@/hooks/use-auth';
+import { PERMISSIONS } from '@digilog/shared';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
@@ -60,6 +62,20 @@ const STAGE_CONFIG: Record<string, { bg: string; text: string; border: string; i
 
 export function EquipmentGroupsConfigPage() {
   const navigate = useNavigate();
+  // OQ-14: this page is a SIDEBAR item gated on EG_VIEW / ASSET_READ, but the
+  // back arrow always went to /config, which needs CONFIG_READ (main.tsx). A
+  // role that reached Equipment Groups from the sidebar landed on "Access
+  // denied". Same gate as the /config route: SUPER_ADMIN or CONFIG_READ.
+  const { user } = useAuth();
+  const canOpenConfig = user?.role === 'SUPER_ADMIN'
+    || ((user?.permissions as string[] | undefined) ?? []).includes(PERMISSIONS.CONFIG_READ);
+  const goBack = () => {
+    if (canOpenConfig) { navigate('/config'); return; }
+    // React Router keeps the in-app history index in history.state.idx; with
+    // nothing to go back to (opened in a fresh tab) fall back to the dashboard.
+    if (((window.history.state as { idx?: number } | null)?.idx ?? 0) > 0) navigate(-1);
+    else navigate('/');
+  };
   // Phase 5C: button gating via useCan(<node>) — resolves from PERMISSION_TREE gate,
   // which matches the real backend enforcement (no drift).
   const can = useCan();
@@ -289,7 +305,7 @@ export function EquipmentGroupsConfigPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/config')}
+          <button onClick={goBack} aria-label={canOpenConfig ? 'Back to configuration' : 'Back'}
             className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
@@ -683,7 +699,7 @@ export function EquipmentGroupsConfigPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setSaving(false); }}
-        actionLabel="Equipment Group"
+        actionLabel={reauth.pendingActionLabel ?? 'Equipment Group'}
       />
     </div>
   );

@@ -7,6 +7,7 @@ import { auditLog, type AuditTx } from '../../lib/audit.js';
 import { requireDataEditReauth, reasonSchemaProps, readChangeReason, auditManualChange } from './manual-change.js';
 import recordEditRoutes from './record-edit-routes.js';
 import { computeChecksum } from '../filter-operations/helpers.js';
+import { assertSeparation } from '../pm-schedules/pm-separation-guard.js';
 import { NotificationType, PmEntryApprovalStatus, CleaningCycleStatus, FilterEventType, BlockChangeStatus, DeviationStatus, DeviationClosureKind } from '@prisma/client';
 
 // Console verification 2026-09-04: an invalid enum value (e.g. a notification
@@ -29,6 +30,28 @@ function invalidEnum(model: keyof typeof CONSOLE_ENUM_FIELDS, data: Record<strin
     if (!(typeof v === 'string' && v in values)) {
       return { error: 'INVALID_VALUE', message: `${field} must be one of: ${Object.keys(values).join(', ')}` };
     }
+  }
+  return invalidValue(data);
+}
+
+/**
+ * M50 (QA 2026-10-19): every generic handler builds `data` with `new Date(x)` /
+ * `Number(x)` and no check, so a bad date or a non-number reached Prisma as a
+ * PrismaClientValidationError (no code) → 500 + SYSTEM_ERROR notification.
+ * Called through invalidEnum, which every create/update handler already runs
+ * just before its write, so one change covers all of them.
+ */
+function invalidValue(data: Record<string, unknown>): { error: string; message: string } | null {
+  for (const [field, v] of Object.entries(data)) {
+    if (v instanceof Date && Number.isNaN(v.getTime())) return { error: 'INVALID_VALUE', message: `${field} must be a valid date-time` };
+    if (typeof v === 'number' && !Number.isFinite(v)) return { error: 'INVALID_VALUE', message: `${field} must be a number` };
+  }
+  if (data.month !== undefined && data.month !== null) {
+    const m = data.month as number;
+    if (!Number.isInteger(m) || m < 1 || m > 12) return { error: 'INVALID_VALUE', message: 'month must be a whole number from 1 to 12' };
+  }
+  if (typeof data.toleranceDays === 'number' && (data.toleranceDays < 0 || !Number.isInteger(data.toleranceDays))) {
+    return { error: 'INVALID_VALUE', message: 'toleranceDays must be a whole number of 0 or more' };
   }
   return null;
 }
@@ -432,7 +455,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
         await tx.assetInstance.delete({ where: { id } });
       });
     } catch (e: any) {
-      return reply.code(400).send({ error: 'DELETE_FAILED', message: String(e?.message ?? 'Could not delete retired filter.') });
+      return reply.code(400).send({ error: 'DELETE_FAILED', message: e instanceof AppError ? e.message : 'Could not delete retired filter.' });
     }
     return { success: true };
   });
@@ -1009,7 +1032,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       if (e?.code === 'P2002' || msg.includes('unique') || msg.includes('23505') || msg.includes('one_in_progress')) {
         return reply.code(409).send({ error: 'CONFLICT', message: 'Duplicate cycle code, or this filter already has an in-progress cycle. Set status to COMPLETED/TERMINATED or change the cycle code.' });
       }
-      return reply.code(400).send({ error: 'CREATE_FAILED', message: msg || 'Could not create cleaning cycle.' });
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: e instanceof AppError ? e.message : 'Could not create cleaning cycle.' });
     }
   });
 
@@ -1214,7 +1237,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       await auditManualChange(req, { verb: 'CREATED', targetType: 'notification', targetId: created.id, label: 'Notification', reason, after: created });
       return created;
     } catch (e: any) {
-      return reply.code(400).send({ error: 'CREATE_FAILED', message: String(e?.message ?? 'Could not create notification.') });
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: e instanceof AppError ? e.message : 'Could not create notification.' });
     }
   });
 
@@ -1323,6 +1346,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null;
     }
     if (body.requestData !== undefined) data.requestData = body.requestData;
+    const badA = invalidValue(data); if (badA) return reply.code(400).send(badA);
     const updated = await prisma.adminRequest.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'admin_request', targetId: id, label: 'Admin request', reason, before: existing, after: updated });
     return updated;
@@ -1340,12 +1364,13 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (!data.requestType) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Request type is required.' });
     if (!data.requesterName) return reply.code(400).send({ error: 'MISSING_FIELD', message: 'Requester name is required.' });
     data.manualEntry = true;
+    const badA = invalidValue(data); if (badA) return reply.code(400).send(badA);
     try {
       const created = await prisma.adminRequest.create({ data });
       await auditManualChange(req, { verb: 'CREATED', targetType: 'admin_request', targetId: created.id, label: 'Admin request', reason, after: created });
       return created;
     } catch (e: any) {
-      return reply.code(400).send({ error: 'CREATE_FAILED', message: String(e?.message ?? 'Could not create admin request.') });
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: e instanceof AppError ? e.message : 'Could not create admin request.' });
     }
   });
 
@@ -1411,7 +1436,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       await auditManualChange(req, { verb: 'CREATED', targetType: 'block_change_request', targetId: created.id, label: 'Block change request', reason, after: created });
       return created;
     } catch (e: any) {
-      return reply.code(400).send({ error: 'CREATE_FAILED', message: String(e?.message ?? 'Could not create block change request.') });
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: e instanceof AppError ? e.message : 'Could not create block change request.' });
     }
   });
 
@@ -1460,6 +1485,18 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     for (const f of ['approvalStatus', 'approvalRemarks', 'submittedByName', 'approvedByName', 'notes']) { if (body[f] !== undefined) data[f] = body[f]; }
     for (const f of ['plannedDate', 'windowStart', 'windowEnd', 'approvedAt']) { if (body[f] !== undefined) data[f] = body[f] ? new Date(body[f]) : null; }
     const badP = invalidEnum('pmScheduleEntry', data); if (badP) return reply.code(400).send(badP);
+    // M50 (QA 2026-10-19): the visit-separation rule (two visits must never be
+    // satisfiable by one cleaning — CLAUDE.md "PM schedules: many irregular
+    // visits") is enforced on every normal PM write path; this console edit
+    // skipped it. Same guard, same 409 PM_VISIT_OVERLAP.
+    if (data.plannedDate !== undefined || data.toleranceDays !== undefined) {
+      const plannedDate = (data.plannedDate ?? existing.plannedDate) as Date | null;
+      if (plannedDate) {
+        await assertSeparation(existing.scheduleId, {
+          plannedDate, toleranceDays: (data.toleranceDays ?? existing.toleranceDays) as number, entryId: id,
+        }, 'This visit');
+      }
+    }
     const updated = await prisma.pmScheduleEntry.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'pm_schedule_entry', targetId: id, label: 'PM entry', reason, before: existing, after: updated });
     return updated;
@@ -1484,6 +1521,8 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (!data.windowEnd) data.windowEnd = data.plannedDate;
     data.manualEntry = true;
     const badP = invalidEnum('pmScheduleEntry', data); if (badP) return reply.code(400).send(badP);
+    // M50: same separation rule as every other PM write path (409 PM_VISIT_OVERLAP).
+    await assertSeparation(data.scheduleId, { plannedDate: data.plannedDate, toleranceDays: data.toleranceDays ?? 0 }, 'This visit');
     try {
       const created = await prisma.pmScheduleEntry.create({ data });
       await auditManualChange(req, { verb: 'CREATED', targetType: 'pm_schedule_entry', targetId: created.id, label: 'PM entry', reason, after: created });
@@ -1493,7 +1532,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       if (e?.code === 'P2002' || msg.includes('unique') || msg.includes('23505')) {
         return reply.code(409).send({ error: 'CONFLICT', message: 'A PM entry for this schedule and month already exists.' });
       }
-      return reply.code(400).send({ error: 'CREATE_FAILED', message: msg || 'Could not create PM entry.' });
+      return reply.code(400).send({ error: 'CREATE_FAILED', message: e instanceof AppError ? e.message : 'Could not create PM entry.' });
     }
   });
 

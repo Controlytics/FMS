@@ -25,8 +25,13 @@ export const filterService = {
     const name = input.name?.trim();
     if (!name) throw new ValidationError('Filter Name is required');
 
-    const ahu = await prisma.ahu.findUnique({ where: { id: input.ahuId }, select: { id: true } });
+    const ahu = await prisma.ahu.findUnique({ where: { id: input.ahuId }, select: { id: true, isActive: true } });
     if (!ahu) throw new ValidationError('AHU not found');
+    // BR-070 (QA 2026-10-19): the generic create path (instance.service
+    // validateParent) has refused a deactivated parent since 2026-09-25, but this
+    // typed path — the Filters page dialog AND every bulk-upload row — only
+    // checked that the AHU existed, so a filter could be hung under a deleted AHU.
+    if (ahu.isActive === false) throw new ValidationError('Parent entity is deactivated and cannot receive children');
 
     const existing = await prisma.filter.findFirst({ where: { name: { equals: name, mode: 'insensitive' }, isActive: true }, select: { id: true } });
     if (existing) throw new ValidationError(`A filter with the name "${name}" already exists`);

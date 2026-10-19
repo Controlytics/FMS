@@ -274,6 +274,10 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
     // QNN report visibility is config-gated (qnn-notifications.visibleRoles),
     // not permission-mapped — hide until the server confirms this role may see it.
     if (item.id === 'quality-notifications' && !qnnVis?.visible) return false;
+    // OQ-17 (QA 2026-10-19): the System Health route + API are SUPER_ADMIN/ADMIN
+    // only, but the item has no permission gate, so every role saw a menu entry
+    // that opened "Access Denied".
+    if (item.id === 'system-health' && user?.role !== 'ADMIN') return false;
 
     // Check permissions first — if user lacks permission, always hide
     if (!hasPermissionForItem(item.id)) return false;

@@ -236,7 +236,7 @@ export function ApprovalsPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={() => { reauth.cancel(); setProcessingId(null); }}
-        actionLabel="Process Block Change"
+        actionLabel={reauth.pendingActionLabel ?? 'Process Block Change'}
       />
     </div>
   );
