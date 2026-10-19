@@ -4,6 +4,7 @@ Operator pasted "MASTER PROMPT 2" (14 phases, deliverables under `QA/`). Rules c
 load-test campaign: disposable DBs only (`digilog_perf`, `digilog_day1_perf`, test DB for vitest), never
 `digilog_db`; synthetic accounts `perf_user_*`; no test marked PASS unless executed; every number grep-backed.
 
+- [x] 2026-10-19 per-site tablet app: `scripts/build-site-apk.ps1` builds `dist/site-apks/FMS-<site>.apk` with the site's rootCA.pem built in (refusals, restore, zip diff, server-cert verify, same signing key all proven with throwaway certs). Operator: run it with a real site's rootCA.pem + server.crt and try it on a tablet
 - [x] 2026-10-19 release: APK rebuilt (`7fe4417`, sha256 a11b7eb6…), branding baseline 1.2.2, `dist/FMS-Setup-1.2.2.exe` built (sha256 048bdae4…, UNSIGNED, bundled APK = repo APK, new migration staged). Operator: push RFID, run Setup on a clean machine + as an upgrade over 1.2.1, install the APK on a tablet
 - [x] Phase 1 discovery (4 read-only agents → `QA/_discovery/`): frontend inventory (7 parts deleted by an agent's cleanup, all restored, counts re-verified) · backend workflows + error codes · code smells · existing-tests map
 - [x] `QA/FEATURE_INVENTORY.md` (40 feature groups, R1–R15) + `QA/TEST_STRATEGY.md` (two lanes, denylist, triage) + `QA/DEFECT_REGISTER.md` (seeded: 19 OQ bugs, 32 July mediums, 2 operator decisions)

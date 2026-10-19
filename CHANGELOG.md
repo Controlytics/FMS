@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] - Per-site tablet app with the server's certificate built in (2026-10-19)
+
+Operator: tablets should not need the certificate installed by hand. `scripts/build-site-apk.ps1` builds
+`dist\site-apks\FMS-<site>.apk` with that site's `rootCA.pem` in `res/raw/rootca.pem`, the one authority
+`network_security_config.xml` trusts besides system and user-installed certificates.
+
+- **Refuses** a file containing a private key, more than one certificate, a non-CA certificate, an expired
+  one, and (with `-ServerCert`) an authority that did not sign that server's certificate. Warns if under a
+  year is left. All seven refusals tested with throwaway certificates.
+- **Replaces** this PC's mkcert test authority in the site app instead of adding beside it, so a customer
+  tablet does not trust a key that lives on the dev PC. The general `DigiLog-FilterOps.apk` (and the one in
+  Setup.exe) is unchanged and still carries it.
+- **Restores** the tracked file in `finally` (proven on a failed run) and refuses to start if it is already
+  modified. Deletes Gradle's output afterwards so a site build cannot be copied as the general APK.
+- **Proves** the result: every zip entry read and hashed; only `res/raw/rootca.pem` and `META-INF/*` differ
+  from `DigiLog-FilterOps.apk`; the certificate in the APK verifies the site's `server.crt`; signing key
+  identical to the released APK (installs as an update). Not tried on a tablet (none connected).
+- Guard test `apps/web/src/routes/mobile/__tests__/site-apk-certificate.test.ts` (3 cases; fails if the
+  key refusal is removed).
+
 ## [1.2.2] - FMS-Setup-1.2.2 (2026-10-19)
 
 Installer carrying the 2026-10-17 load-test fixes and the 2026-10-19 QA fixes below, plus the rebuilt
