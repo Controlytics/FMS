@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import type { ApprovalDialogFilter, ApprovalDialogMode } from './FilterApprovalDialog';
+import { Input } from '@/components/ui/input';
 
 // Filter creation workflow — bulk review / approve popup (2026-09-24).
 //
@@ -78,7 +79,7 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
         <div className="overflow-auto flex-1 min-h-0">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 sticky top-0 z-10">
-              <tr className="text-xs text-slate-500 [&>th]:px-3 [&>th]:py-2 [&>th]:text-left [&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-slate-200">
+              <tr className="text-xs text-slate-600 [&>th]:h-10 [&>th]:px-3 [&>th]:text-left [&>th]:font-semibold [&>th]:whitespace-nowrap">
                 <th className="w-8">
                   <input type="checkbox" checked={allPicked} onChange={toggleAll} aria-label="Select all"
                     className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
@@ -97,12 +98,12 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
                 <th className="w-10"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {filters.map(f => {
                 const a = attribution.get(f.id);
                 const on = selected.has(f.id);
                 return (
-                  <tr key={f.id} className={`[&>td]:px-3 [&>td]:py-2 [&>td]:whitespace-nowrap ${on ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50/60'}`}>
+                  <tr key={f.id} className={`[&>td]:px-3 [&>td]:py-2 [&>td]:whitespace-nowrap ${on ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50'}`}>
                     <td>
                       <input type="checkbox" checked={on} onChange={() => toggle(f.id)} aria-label={`Select ${f.name}`}
                         className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
@@ -156,9 +157,8 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
           {!rejecting ? (
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Remarks <span className="text-slate-400 font-normal">(optional, recorded on every selected filter)</span></label>
-              <input value={remarks} onChange={e => setRemarks(e.target.value)}
-                placeholder={isReview ? 'Anything the approver should know' : 'Approval remarks'}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-[var(--theme-primary)] focus:border-[var(--theme-primary)]" />
+              <Input value={remarks} onChange={e => setRemarks(e.target.value)}
+                placeholder={isReview ? 'Anything the approver should know' : 'Approval remarks'} />
             </div>
           ) : (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3">

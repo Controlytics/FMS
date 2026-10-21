@@ -1,5 +1,7 @@
 import type { FilterFieldOptions, LastCleaningDateState } from '../types';
 import { FilterFieldOptionsSection } from '../components/FilterFieldOptionsSection';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 /**
  * SUPER_ADMIN extension (2026-09-05, operator request): the same dialog also
@@ -55,8 +57,6 @@ type Props = {
   superAdmin?: EditFilterSuperAdminProps;
 };
 
-const selectCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600';
-
 export function EditFilterDialog({
   name, filterSet, error, submitting,
   fieldOptions, ahuType, filterType, micronSize, filterSize, lastCleaning,
@@ -85,25 +85,24 @@ export function EditFilterDialog({
           )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Filter Name <span className="text-red-500">*</span></label>
-            <input type="text" value={name} onChange={e => onNameChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
+            <Input type="text" value={name} onChange={e => onNameChange(e.target.value)} />
           </div>
 
           {sa && sa.showHierarchy && (
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Area</label>
-                <select value={sa.areaId} onChange={e => sa.onAreaChange(e.target.value)} className={selectCls}>
+                <Select value={sa.areaId} onChange={e => sa.onAreaChange(e.target.value)}>
                   <option value="">All areas / no area</option>
                   {sa.areaOptions.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+                </Select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">AHU <span className="text-red-500">*</span></label>
-                <select value={sa.ahuId} onChange={e => sa.onAhuChange(e.target.value)} className={selectCls}>
+                <Select value={sa.ahuId} onChange={e => sa.onAhuChange(e.target.value)}>
                   <option value="">-- select AHU --</option>
                   {sa.ahuOptions.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+                </Select>
               </div>
             </div>
           )}
@@ -148,25 +147,24 @@ export function EditFilterDialog({
             <>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                <select value={sa.lifecycleState} onChange={e => sa.onLifecycleChange(e.target.value)} className={selectCls}>
+                <Select value={sa.lifecycleState} onChange={e => sa.onLifecycleChange(e.target.value)}>
                   <option value="">-- no cleaning status --</option>
                   {sa.lifecycleOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
+                </Select>
                 <p className="mt-1 text-[11px] text-slate-500">Goes through the same rules as Update Status: the cleaning-profile sequence is enforced and a move that starts a cycle needs a cleaning reason.</p>
               </div>
               {lifecycleChanged && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Cleaning reason (if this move starts a cycle)</label>
-                  <select value={sa.cleaningReasonKey} onChange={e => sa.onCleaningReasonChange(e.target.value)} className={selectCls}>
+                  <Select value={sa.cleaningReasonKey} onChange={e => sa.onCleaningReasonChange(e.target.value)}>
                     <option value="">-- none --</option>
                     {sa.cleaningReasons.map(r => <option key={r.key} value={r.key}>{r.name}</option>)}
-                  </select>
+                  </Select>
                 </div>
               )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">RFID tag</label>
-                <input type="text" value={sa.rfid} onChange={e => sa.onRfidChange(e.target.value)} placeholder="Blank = no tag"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
+                <Input type="text" value={sa.rfid} onChange={e => sa.onRfidChange(e.target.value)} placeholder="Blank = no tag" className="font-mono" />
                 <p className="mt-1 text-[11px] text-slate-500">Changing it removes the current tag and assigns this one; both steps appear on the RFID Track Record.</p>
               </div>
               <div className="pt-3 border-t border-slate-200">

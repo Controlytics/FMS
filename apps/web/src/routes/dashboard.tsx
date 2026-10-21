@@ -5,64 +5,14 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { useMemo, useState } from 'react';
+import { StatCard } from '@/components/ui/stat-card';
 
+// <path> content for the Quick Overview tiles (drawn by the shared StatCard).
 const statCardIcons = {
-  users: (
-    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-    </svg>
-  ),
-  audit: (
-    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-    </svg>
-  ),
-  notifications: (
-    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-    </svg>
-  ),
+  users: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />,
+  audit: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />,
+  notifications: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />,
 };
-
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  icon: React.ReactNode;
-  href: string;
-  delay?: string;
-}
-
-const themeGradient = 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))';
-
-function StatCard({ title, value, icon, href, delay = '0ms' }: StatCardProps) {
-  return (
-    <Link to={href} className="group" style={{ animationDelay: delay }}>
-      <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200/60 shadow-soft hover:shadow-elevated transition-all duration-300">
-        {/* Gradient accent bar */}
-        <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundImage: themeGradient }} />
-
-        <div className="p-6">
-          <div className="flex items-start justify-between">
-            <div className="space-y-3">
-              <p className="text-sm font-medium text-slate-500">{title}</p>
-              <p className="text-4xl font-bold text-slate-800">{value}</p>
-            </div>
-            <div className="p-3 rounded-xl text-white shadow-lg transition-transform duration-300" style={{ backgroundImage: themeGradient }}>
-              {icon}
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center text-sm text-slate-500 group-hover:text-slate-700 transition-colors">
-            <span>View details</span>
-            <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </div>
-        </div>
-      </div>
-    </Link>
-  );
-}
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -99,10 +49,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Welcome Section */}
-      <div
-        className="relative overflow-hidden rounded-2xl p-8 text-white shadow-elevated"
-        style={{ backgroundImage: themeGradient }}
-      >
+      <div className="relative overflow-hidden rounded-2xl bg-brand-600 p-8 text-white shadow-xs">
         <div className="relative z-10">
           <p className="text-white/70 text-sm font-medium mb-1">Welcome back,</p>
           <h1 className="text-3xl font-bold mb-2">{user?.fullName}</h1>
@@ -146,31 +93,31 @@ export function DashboardPage() {
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {isAdmin && showCard('total_users') && (
             <StatCard
-              title="Total Users"
+              size="lg"
+              label="Total Users"
               value={userStats?.total ?? '-'}
               icon={statCardIcons.users}
               href="/users"
-              delay="0ms"
             />
           )}
 
           {canReadAudit && showCard('audit_trail') && (
             <StatCard
-              title="Audit Trail"
+              size="lg"
+              label="Audit Trail"
               value={auditStats?.total ?? '-'}
               icon={statCardIcons.audit}
               href="/audit"
-              delay="50ms"
             />
           )}
 
           {showCard('notifications') && (
             <StatCard
-              title="Notifications"
+              size="lg"
+              label="Notifications"
               value={notifStats?.total ?? '-'}
               icon={statCardIcons.notifications}
               href="/notifications"
-              delay="100ms"
             />
           )}
         </div>
@@ -313,7 +260,7 @@ function MiniBreakdown({ title, items, color, emptyText = 'No data', onItemClick
     <div className="bg-white border border-slate-200 rounded-xl p-5">
       <h3 className="text-sm font-semibold text-slate-700 mb-4">
         {title}
-        {clickable && items.length > 0 && <span className="ml-1.5 text-[10px] font-normal text-slate-400">· click a row to view</span>}
+        {clickable && items.length > 0 && <span className="ml-1.5 text-[11px] font-normal text-slate-400">· click a row to view</span>}
       </h3>
       {items.length === 0 ? (
         <div className="text-center py-8 text-sm text-slate-400">{emptyText}</div>
@@ -370,13 +317,13 @@ function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value
           ) : matches.length === 0 ? (
             <div className="p-10 text-center text-sm text-slate-400">No filters match.</div>
           ) : (
-            <table className="w-full text-[12px]">
-              <thead className="sticky top-0 bg-slate-50 z-10"><tr className="[&>th]:text-left [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold [&>th]:text-slate-500 [&>th]:whitespace-nowrap">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 z-10"><tr className="[&>th]:h-10 [&>th]:text-left [&>th]:px-4 [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600 [&>th]:whitespace-nowrap">
                 <th>Filter</th><th>AHU</th><th>Set</th><th>Type</th><th>Micron</th><th>Status</th><th>Last Cleaned</th>
               </tr></thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {matches.map((f: any) => (
-                  <tr key={f.id} className="[&>td]:px-3 [&>td]:py-1.5 [&>td]:whitespace-nowrap hover:bg-slate-50/60">
+                  <tr key={f.id} className="[&>td]:px-4 [&>td]:py-2.5 [&>td]:whitespace-nowrap hover:bg-slate-50">
                     <td className="font-medium text-slate-700">{f.name}</td>
                     <td className="text-slate-500">{nameById.get(f.parentId) ?? '—'}</td>
                     <td className="text-slate-500">{setLabel(f.filterSet)}</td>

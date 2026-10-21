@@ -1,5 +1,7 @@
 import { themeButton } from '@/lib/theme-styles';
 import type { CreateDialogState, TemplateField } from '../types';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 type Props = {
   dialog: CreateDialogState;
@@ -36,9 +38,8 @@ export function CreateHierarchyDialog({
           <div className="space-y-3 mb-5 max-h-[50vh] overflow-y-auto">
             <div>
               <label className="text-xs font-bold text-slate-500 mb-1.5 block">Name <span className="text-red-500">*</span></label>
-              <input value={name} onChange={e => onNameChange(e.target.value)} autoFocus
-                placeholder={`Enter ${dialog.type} name...`}
-                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none" />
+              <Input value={name} onChange={e => onNameChange(e.target.value)} autoFocus
+                placeholder={`Enter ${dialog.type} name...`} />
             </div>
             {/* Dynamic attribute fields from template schema */}
             {schema.map((field: any) => (
@@ -49,41 +50,37 @@ export function CreateHierarchyDialog({
                   {field.required && <span className="text-red-500"> *</span>}
                 </label>
                 {field.dataType === 'DROPDOWN' ? (
-                  <select
+                  <Select
                     value={attrs[field.fieldName] ?? ''}
                     onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none"
                   >
                     <option value="">Select...</option>
                     {(field.dropdownOptions ?? []).map((opt: string) => (
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
-                  </select>
+                  </Select>
                 ) : field.dataType === 'BOOLEAN' ? (
-                  <select
+                  <Select
                     value={attrs[field.fieldName] ?? ''}
                     onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none"
                   >
                     <option value="">Select...</option>
                     <option value="true">Yes</option>
                     <option value="false">No</option>
-                  </select>
+                  </Select>
                 ) : field.dataType === 'DATE' ? (
-                  <input
+                  <Input
                     type="date"
                     value={attrs[field.fieldName] ?? ''}
                     onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none"
                   />
                 ) : (
-                  <input
+                  <Input
                     type={field.dataType === 'FLOAT' || field.dataType === 'NUMBER' || field.dataType === 'INTEGER' ? 'number' : 'text'}
                     step={field.dataType === 'FLOAT' ? 'any' : undefined}
                     value={attrs[field.fieldName] ?? ''}
                     onChange={e => onAttrChange(p => ({ ...p, [field.fieldName]: e.target.value }))}
                     placeholder={field.fieldName.replace(/_/g, ' ')}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-[13px] text-slate-800 focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none"
                   />
                 )}
               </div>

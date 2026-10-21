@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { getCachedData } from '@/lib/offline-store';
 import { normalizeRfidScan } from '@/lib/rfid-scan';
+import { Select } from '@/components/ui/select';
 
 interface QueueItem {
   filterId: string;
@@ -333,10 +334,9 @@ export function StageScanDialog({
                     {activeStage?.key === 'DRY_IN' && onDryerDurationChange && (
                       <label className="flex items-center gap-2 text-xs text-slate-600">
                         Dryer duration for selected
-                        <select value={dryerDuration} onChange={(e) => onDryerDurationChange(Number(e.target.value))}
-                          className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700">
+                        <Select selectSize="sm" className="w-auto" value={dryerDuration} onChange={(e) => onDryerDurationChange(Number(e.target.value))}>
                           {[5, 10, 15, 30, 45, 60, 90, 120, 180, 240].map(m => <option key={m} value={m}>{m < 60 ? `${m} min` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`}</option>)}
-                        </select>
+                        </Select>
                       </label>
                     )}
                   </div>

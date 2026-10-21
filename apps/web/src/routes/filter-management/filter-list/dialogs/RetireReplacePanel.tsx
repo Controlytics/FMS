@@ -1,4 +1,6 @@
 import type { FilterRef } from '../types';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 type Props = {
   filter: FilterRef;
@@ -40,28 +42,25 @@ export function RetireReplacePanel({
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Filter ID</label>
-            <input
+            <Input
               type="text"
               value={filter.name}
-              readOnly
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
+              readOnly className="bg-slate-50"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Action</label>
             {both ? (
-              <select
+              <Select
                 value={action}
                 onChange={e => onActionChange(e.target.value as 'retire' | 'replace')}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
               >
                 <option value="retire">Retirement</option>
                 <option value="replace">Replacement</option>
-              </select>
+              </Select>
             ) : (
               // Only one action is granted to this role — show it, no choice.
-              <input type="text" readOnly value={action === 'retire' ? 'Retirement' : 'Replacement'}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm" />
+              <Input type="text" readOnly value={action === 'retire' ? 'Retirement' : 'Replacement'} className="bg-slate-50" />
             )}
           </div>
           <div className={`rounded-lg p-3 text-xs ${action === 'retire' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>

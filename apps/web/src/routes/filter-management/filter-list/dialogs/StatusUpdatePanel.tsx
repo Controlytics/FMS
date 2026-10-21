@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { STATUS_LABELS, LIFECYCLE_STATE_OPTIONS } from '../constants';
 import type { StatusPanelFilter } from '../types';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 type Props = {
   filter: StatusPanelFilter;
@@ -84,25 +86,23 @@ export function StatusUpdatePanel({
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Filter ID</label>
-            <input type="text" value={filter.name} readOnly className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm" />
+            <Input type="text" value={filter.name} readOnly className="bg-slate-50" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Current Status</label>
-            <input
+            <Input
               type="text"
               value={filter.currentState ? (STATUS_LABELS[filter.currentState]?.label ?? filter.currentState.replace(/_/g, ' ')) : 'To Be Cleaned'}
-              readOnly
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 text-sm"
+              readOnly className="bg-slate-50"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">
               New Status <span className="text-red-500">*</span>
             </label>
-            <select
+            <Select
               value={state}
               onChange={e => onStateChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
             >
               <option value="" disabled>Select status…</option>
               {profileOptions
@@ -115,7 +115,7 @@ export function StatusUpdatePanel({
                 : LIFECYCLE_STATE_OPTIONS.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
-            </select>
+            </Select>
             {stageOpts?.hasProfile && stageOpts.profileName && (
               <p className="mt-1 text-xs text-slate-400">Cleaning profile: {stageOpts.profileName}</p>
             )}
@@ -148,16 +148,15 @@ export function StatusUpdatePanel({
                 <label className="block text-sm font-medium text-slate-600 mb-1">
                   Cleaning Reason <span className="text-red-500">*</span>
                 </label>
-                <select
+                <Select
                   value={reasonKey}
                   onChange={e => setReasonKey(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                 >
                   <option value="" disabled>Select reason…</option>
                   {reasons.map(r => (
                     <option key={r.key} value={r.key}>{r.name}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               {needsJustification && (
                 <div>

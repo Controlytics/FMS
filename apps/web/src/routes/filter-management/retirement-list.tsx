@@ -17,6 +17,9 @@ import { useExportLimit } from '@/hooks/use-export-limit';
 import { useReportLabels } from '@/hooks/use-report-labels';
 import { downloadName } from '@/lib/download-name';
 import { ExportMenu } from '@/components/ExportMenu';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
+import { Input } from '@/components/ui/input';
 
 export function RetirementListPage() {
   const { formatDate } = useDatetimeFormat();
@@ -166,26 +169,17 @@ export function RetirementListPage() {
     <div className="p-6 space-y-6">
       <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* ─── Header ─── */}
-      <div className="flex items-center gap-4">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Retirement List</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Filters that have been permanently retired and removed from service
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Retirement List"
+        subtitle="Filters that have been permanently retired and removed from service"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />}
+      />
 
       {/* ─── Stat Cards ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg">
-          <div className="text-2xl font-bold">{stats.total}</div>
-          <div className="text-cyan-100 text-sm font-medium mt-0.5">Total Retired</div>
-        </div>
+        <StatCard label="Total Retired" value={stats.total} icon={
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        } />
         <StatCard label="This Month" value={stats.month} iconBg="bg-amber-50" iconColor="text-amber-600" icon={
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         } />
@@ -200,15 +194,15 @@ export function RetirementListPage() {
       {/* ─── Search + Block / AHU scope ─── */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="relative flex-1 min-w-[220px] max-w-md">
-          <svg className="absolute left-3 bottom-[13px] w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input
+          <Input
             type="text"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search filter, AHU, block, set, retired by, or remarks..."
-            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none transition-all"
+            className="h-auto py-2.5 pl-10"
           />
         </div>
         <BlockAhuFilter scope={scope} onChange={() => setPage(1)} />
@@ -218,15 +212,14 @@ export function RetirementListPage() {
         {canExport && filtered.length > 0 && (
         <div className="ml-auto shrink-0">
           <ExportMenu surface="retirement-list" onExportPdf={downloadReport} onExportExcel={downloadExcel} busy={exporting}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm" />
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm" />
         </div>
         )}
       </div>
 
       {/* ─── Table / States ─── */}
       {isLoading ? (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-          <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
           <div className="p-4 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />
@@ -234,11 +227,10 @@ export function RetirementListPage() {
           </div>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-          <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
           <div className="p-16 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-teal-50 to-cyan-50 flex items-center justify-center">
-              <svg className="w-8 h-8 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-brand-50 flex items-center justify-center">
+              <svg className="w-8 h-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
               </svg>
             </div>
@@ -249,29 +241,28 @@ export function RetirementListPage() {
           </div>
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-          <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200">
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 w-16">S.No</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">AHU / Block</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Filter</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Set</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Retired On</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Remarks</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Status</th>
-                  {isSuperAdmin && <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500">Edit</th>}
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap w-16">S.No</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">AHU / Block</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Filter</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Set</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Retired On</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Remarks</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Status</th>
+                  {isSuperAdmin && <th className="text-right h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Edit</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {pageItems.map((r: any, idx: number) => (
-                  <tr key={r.id} className="hover:bg-cyan-50/40 transition-colors">
-                    <td className="px-5 py-3.5 text-sm text-slate-400 font-medium">
+                  <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-2.5 text-sm text-slate-400 font-medium">
                       {(safePage - 1) * pageSize + idx + 1}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5">
                       {r.ahuName ? (
                         <div className="min-w-0">
                           <div className="text-sm font-medium text-slate-700 truncate">{r.ahuName}</div>
@@ -279,9 +270,9 @@ export function RetirementListPage() {
                         </div>
                       ) : <span className="text-xs text-slate-300">—</span>}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shrink-0">
+                        <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
                           <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                           </svg>
@@ -289,7 +280,7 @@ export function RetirementListPage() {
                         <span className="text-sm font-semibold text-slate-800">{r.name ?? '-'}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5">
                       {r.filterSet ? (
                         <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg font-semibold bg-cyan-50 text-cyan-700 border border-cyan-100">
                           <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
@@ -297,20 +288,20 @@ export function RetirementListPage() {
                         </span>
                       ) : <span className="text-xs text-slate-300">—</span>}
                     </td>
-                    <td className="px-5 py-3.5 text-sm text-slate-600">{(r.retiredAt ?? r.updatedAt) ? formatDate(r.retiredAt ?? r.updatedAt) : '—'}</td>
-                    <td className="px-5 py-3.5 text-sm text-slate-600 max-w-xs">
+                    <td className="px-4 py-2.5 text-sm text-slate-600">{(r.retiredAt ?? r.updatedAt) ? formatDate(r.retiredAt ?? r.updatedAt) : '—'}</td>
+                    <td className="px-4 py-2.5 text-sm text-slate-600 max-w-xs">
                       {r.remarks
                         ? <span className="block truncate" title={`${r.remarks}${r.retiredBy ? ` — by ${r.retiredBy}` : ''}`}>{r.remarks}</span>
                         : <span className="text-slate-300">—</span>}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-100">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                         Retired
                       </span>
                     </td>
                     {isSuperAdmin && (
-                      <td className="px-5 py-3.5 text-right">
+                      <td className="px-4 py-2.5 text-right">
                         <SuperAdminEditButton onClick={() => setEditRow(r)} />
                       </td>
                     )}
@@ -334,28 +325,6 @@ export function RetirementListPage() {
           onClose={() => setEditRow(null)}
         />
       )}
-    </div>
-  );
-}
-
-// ─── Local Helpers ────────────────────────────────────────
-
-function StatCard({ label, value, iconBg, iconColor, icon }: {
-  label: string; value: number; iconBg: string; iconColor: string; icon: React.ReactNode;
-}) {
-  return (
-    <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
-          <svg className={`w-5 h-5 ${iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {icon}
-          </svg>
-        </div>
-        <div className="min-w-0">
-          <div className="text-xl font-bold text-slate-800 leading-tight">{value}</div>
-          <div className="text-xs text-slate-400 font-medium truncate">{label}</div>
-        </div>
-      </div>
     </div>
   );
 }

@@ -18,6 +18,8 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
+import { PageHeader } from '@/components/ui/page-header';
+import { Select } from '@/components/ui/select';
 import { PencilIcon, useIsSuperAdmin } from '@/components/super-admin-record-edit';
 import { SuperAdminCycleEditDialog } from '@/components/super-admin-cycle-edit';
 
@@ -410,9 +412,9 @@ function FilterCyclesGroup({ filter, fromIso, toIso, defaultOpen, lifecycle, for
         <div className="flex-1 min-w-0">
           <div className="text-[14px] font-bold text-slate-800 truncate">
             {filter.name}
-            {filter.retired && <span className="ml-2 text-[10px] font-semibold text-amber-600">(Retired)</span>}
+            {filter.retired && <span className="ml-2 text-[11px] font-semibold text-amber-600">(Retired)</span>}
           </div>
-          {filter.filterSet && <span className="text-[10px] font-semibold text-indigo-500">Set {filter.filterSet.replace('SET_', '')}</span>}
+          {filter.filterSet && <span className="text-[11px] font-semibold text-indigo-500">Set {filter.filterSet.replace('SET_', '')}</span>}
         </div>
         {loaded && <span className="text-[11px] text-slate-400">{cycles.length} cycle(s){manual.length ? ` · ${manual.length} manual` : ''}{lifecycle.length ? ` · ${lifecycle.length} event(s)` : ''}</span>}
         <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -892,7 +894,8 @@ export function FilterLifecycleReportPage() {
 
   // h-9, not py-2: DateRangeFilter's `md` size is h-9, and a padding-derived
   // ~38px next to a fixed 36px left the row's controls on different baselines.
-  const selectCls = 'w-full px-3 h-9 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:bg-slate-50 disabled:text-slate-400';
+  // h-9 matches the DateRangeFilter (md) fields in the same row.
+  const selectCls = 'h-9 text-[13px]';
   const singleFilter = filtersInScope.length === 1;
 
   return (
@@ -900,19 +903,12 @@ export function FilterLifecycleReportPage() {
       <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-6m4 6V7m4 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight">Filter Lifecycle Report</h1>
-              <p className="text-[13px] text-slate-400">Pick a Block, Area, AHU or Filter — cleaning cycles + retirement / replacement, cycle by cycle.</p>
-            </div>
-          </div>
-          {canExportPdf && filtersInScope.length > 0 && (
+        <PageHeader
+          className="mb-4"
+          title="Filter Lifecycle Report"
+          subtitle="Pick a Block, Area, AHU or Filter — cleaning cycles + retirement / replacement, cycle by cycle."
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-6m4 6V7m4 10v-3M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />}
+          actions={canExportPdf && filtersInScope.length > 0 && (
             <>
               <ExportMenu surface="lifecycle" onExportPdf={() => handleDownload(false)} onExportExcel={exportExcel}
                 busy={downloading}
@@ -921,37 +917,37 @@ export function FilterLifecycleReportPage() {
                 className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-[13px] font-semibold hover:bg-slate-50 shadow-sm transition-all shrink-0" />
             </>
           )}
-        </div>
+        />
 
         {/* Cascade selectors + period */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">Block</label>
-            <select className={selectCls} value={blockId} onChange={(e) => onBlock(e.target.value)}>
+            <Select className={selectCls} value={blockId} onChange={(e) => onBlock(e.target.value)}>
               <option value="">All Blocks</option>
               {[...allBlocks].sort((a, b) => a.name.localeCompare(b.name)).map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">Area</label>
-            <select className={selectCls} value={areaId} onChange={(e) => onArea(e.target.value)}>
+            <Select className={selectCls} value={areaId} onChange={(e) => onArea(e.target.value)}>
               <option value="">All Areas</option>
               {areaOptions.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">AHU</label>
-            <select className={selectCls} value={ahuId} onChange={(e) => onAhu(e.target.value)}>
+            <Select className={selectCls} value={ahuId} onChange={(e) => onAhu(e.target.value)}>
               <option value="">All AHUs</option>
               {ahuOptions.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">Filter</label>
-            <select className={selectCls} value={filterId} onChange={(e) => setFilterId(e.target.value)}>
+            <Select className={selectCls} value={filterId} onChange={(e) => setFilterId(e.target.value)}>
               <option value="">All in scope</option>
               {filterOptions.map((f) => (<option key={f.id} value={f.id}>{f.name}{f.retired ? ' (Retired)' : ''}</option>))}
-            </select>
+            </Select>
           </div>
           {/* Spans TWO of the six columns: it holds two date inputs plus the
               "to" separator and the clear button, and in a single 1/6 cell those

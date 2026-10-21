@@ -1,4 +1,6 @@
 import type { LastCleaningDateState } from '../lib/lastCleaningDateState';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 export type FilterFieldOptions = {
   ahuType: string[];
@@ -26,11 +28,10 @@ export function FilterFieldOptionsSection({
   onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onFilterSizeChange, onLastCleaningChange,
 }: Props) {
   const select = (value: string, list: string[], onChange: (v: string) => void, emptyHint: string) => (
-    <select value={value} onChange={e => onChange(e.target.value)}
-      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+    <Select value={value} onChange={e => onChange(e.target.value)}>
       <option value="">{list.length === 0 ? emptyHint : 'Select…'}</option>
       {list.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-    </select>
+    </Select>
   );
 
   return (
@@ -54,19 +55,17 @@ export function FilterFieldOptionsSection({
 
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Filter Dimensions</label>
-        <input type="text" value={filterSize} onChange={e => onFilterSizeChange(e.target.value)}
-          placeholder="e.g. 610×610×292mm"
-          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
+        <Input type="text" value={filterSize} onChange={e => onFilterSizeChange(e.target.value)}
+          placeholder="e.g. 610×610×292mm" />
       </div>
 
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Last Cleaning Date</label>
         <div className="flex items-center gap-3">
-          <input type="date"
+          <Input type="date"
             value={lastCleaning.date}
             disabled={lastCleaning.na}
-            onChange={e => onLastCleaningChange({ ...lastCleaning, date: e.target.value })}
-            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:bg-slate-50 disabled:text-slate-400" />
+            onChange={e => onLastCleaningChange({ ...lastCleaning, date: e.target.value })} className="flex-1" />
           <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer select-none">
             <input type="checkbox"
               checked={lastCleaning.na}

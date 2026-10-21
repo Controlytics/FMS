@@ -378,9 +378,9 @@ function DryingRow({
   }
 
   const sourceBadge = autoFetch.source === 'AUTO'
-    ? <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>
+    ? <span className="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>
     : autoFetch.source === 'AUTO_OVERRIDDEN'
-      ? <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700" title="Fetched from the instrument, then changed by the operator">Auto · changed</span>
+      ? <span className="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700" title="Fetched from the instrument, then changed by the operator">Auto · changed</span>
       : null;
 
   const valueBox = editing || !autoFetch.isAuto || autoFetch.timedOut ? (

@@ -5,6 +5,10 @@ import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Pagination } from '@/components/ui/pagination';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { isTaskTerminal, needsOverdueAck } from './task-rules';
 import { OverdueAckDialog } from './overdue-ack-dialog';
 
@@ -203,26 +207,17 @@ export function MyTasksPage() {
   return (
     <div className="p-6 space-y-6">
       {/* ─── Header ─── */}
-      <div className="flex items-center gap-4">
-        <div className="p-3 rounded-2xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">My Tasks</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            AHUs due for cleaning per PM schedules — pick a period and status, or leave blank for what's due now
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="My Tasks"
+        subtitle="AHUs due for cleaning per PM schedules — pick a period and status, or leave blank for what's due now"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />}
+      />
 
       {/* ─── Stat Cards ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="rounded-2xl p-4 text-white shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-          <div className="text-2xl font-bold">{tasks.length}</div>
-          <div className="text-white/80 text-sm font-medium mt-0.5">Due Now</div>
-        </div>
+        <StatCard label="Due Now" value={tasks.length} icon={
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+        } />
         <StatCard label="Due Today" value={stats.dueToday} iconBg="bg-amber-50" iconColor="text-amber-600" icon={
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         } />
@@ -235,20 +230,20 @@ export function MyTasksPage() {
       </div>
 
       {/* ─── Filter toolbar ─── */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
             <label className="text-xs font-semibold text-slate-500">Search</label>
             <div className="relative">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <input
+              <Input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="AHU, block or area…"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:bg-white outline-none transition-all"
+                className="h-11 pl-10"
               />
             </div>
           </div>
@@ -271,20 +266,19 @@ export function MyTasksPage() {
 
           <div className="flex flex-col gap-1 min-w-[150px]">
             <label className="text-xs font-semibold text-slate-500">Status</label>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:bg-white outline-none transition-all">
+            <Select className="h-11" value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}>
               <option value="">All</option>
               <option value="pending">Pending</option>
               <option value="overdue">Overdue</option>
               <option value="complete">Completed</option>
               <option value="not_performed">Not Performed</option>
               <option value="in_progress">In Progress</option>
-            </select>
+            </Select>
           </div>
 
           {hasActiveFilters && (
             <button onClick={clearFilters}
-              className="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors">
+              className="h-11 px-4 rounded-lg text-sm font-semibold text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors">
               Clear
             </button>
           )}
@@ -325,11 +319,10 @@ export function MyTasksPage() {
 
       {/* ─── Main tasks list ─── */}
       {!isLoading && filteredTasks.length === 0 && filteredOverdue.length === 0 && (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-          <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
           <div className="p-16 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-teal-50 to-cyan-50 flex items-center justify-center">
-              <svg className="w-8 h-8 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-brand-50 flex items-center justify-center">
+              <svg className="w-8 h-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
               </svg>
             </div>
@@ -449,7 +442,7 @@ export function TaskCard({ task, expanded, onToggle, onPerform, canPerform = tru
       <div className="p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-start gap-3 min-w-0 flex-1">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16m-7 5h7" />
               </svg>
@@ -541,8 +534,7 @@ export function TaskCard({ task, expanded, onToggle, onPerform, canPerform = tru
             ) : (
               <button
                 onClick={onPerform}
-                className="inline-flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-sm font-semibold shadow-lg hover:opacity-90 transition-all"
-                style={{ backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-white rounded-lg bg-brand-600 hover:bg-brand-700 text-sm font-semibold shadow-xs transition-colors"
               >
                 Perform
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -569,7 +561,7 @@ export function TaskCard({ task, expanded, onToggle, onPerform, canPerform = tru
                     >
                       <span className={`w-1.5 h-1.5 rounded-full ${fMeta.dot}`} />
                       {f.filterName}
-                      <span className="text-[10px] opacity-70">· {fMeta.label}</span>
+                      <span className="text-[11px] opacity-70">· {fMeta.label}</span>
                     </span>
                   );
                 })}
@@ -590,33 +582,10 @@ function FilterSelect({ label, value, options, allLabel, onChange }: {
   return (
     <div className="flex flex-col gap-1 min-w-[160px]">
       <label className="text-xs font-semibold text-slate-500">{label}</label>
-      <select value={value} onChange={e => onChange(e.target.value)}
-        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:bg-white outline-none transition-all">
+      <Select className="h-11" value={value} onChange={e => onChange(e.target.value)}>
         <option value="">{allLabel}</option>
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </div>
-  );
-}
-
-// ─── StatCard helper ─────────────────────────────────────
-
-function StatCard({ label, value, iconBg, iconColor, icon }: {
-  label: string; value: number; iconBg: string; iconColor: string; icon: React.ReactNode;
-}) {
-  return (
-    <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
-          <svg className={`w-5 h-5 ${iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {icon}
-          </svg>
-        </div>
-        <div className="min-w-0">
-          <div className="text-xl font-bold text-slate-800 leading-tight">{value}</div>
-          <div className="text-xs text-slate-400 font-medium truncate">{label}</div>
-        </div>
-      </div>
+      </Select>
     </div>
   );
 }

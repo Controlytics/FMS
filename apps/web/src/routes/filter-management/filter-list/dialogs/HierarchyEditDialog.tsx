@@ -1,4 +1,5 @@
 import type { HierarchyNode } from '../types';
+import { Input } from '@/components/ui/input';
 
 type Props = {
   node: HierarchyNode;
@@ -29,8 +30,7 @@ export function HierarchyEditDialog({ node, name, error, submitting, onNameChang
           )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Name <span className="text-red-500">*</span></label>
-            <input type="text" value={name} onChange={e => onNameChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
+            <Input type="text" value={name} onChange={e => onNameChange(e.target.value)} />
           </div>
         </div>
         <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center gap-3">

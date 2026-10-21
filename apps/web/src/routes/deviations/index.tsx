@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { PageHeader } from '@/components/ui/page-header';
 import { downloadName } from '@/lib/download-name';
 import { ALL_ROWS } from '@/lib/page-size';
 import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
@@ -313,20 +314,15 @@ export function DeviationsPage() {
       <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2.5 rounded-xl bg-gradient-to-br from-rose-500 to-rose-600 shadow-lg">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-800 tracking-tight">Deviations</h1>
-            <p className="text-[13px] text-slate-400 mt-0.5">
-              {total.toLocaleString()} deviation{total === 1 ? '' : 's'}
-              {data?.openCount ? ` · ${data.openCount} open` : ''} — overdue AHU filter cleaning audit trail
-            </p>
-          </div>
-        </div>
+        <PageHeader
+          className="mb-4"
+          title="Deviations"
+          subtitle={<>
+            {total.toLocaleString()} deviation{total === 1 ? '' : 's'}
+            {data?.openCount ? ` · ${data.openCount} open` : ''} — overdue AHU filter cleaning audit trail
+          </>}
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />}
+        />
 
         {/* Overdue severity legend */}
         <div className="flex items-center gap-4 mb-3 text-[11px]">
@@ -362,7 +358,7 @@ export function DeviationsPage() {
                 Previously UNGATED (fail-open); now correctly hidden from users without PM_READ. */}
             {can('deviations.export') && (
               <ExportMenu surface="deviations" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-gradient-to-r from-rose-500 to-rose-600 shadow-sm disabled:opacity-50" />
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 shadow-xs disabled:opacity-50" />
             )}
             <SendForReviewButton buildSnapshot={buildDeviationsSnapshot}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
@@ -388,27 +384,27 @@ export function DeviationsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
-            <table className="w-full">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-slate-50 border-b border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50">
+                <tr>
                   {['Deviation #', 'AHU', 'Filters', 'Scheduled', 'Overdue', 'Status', 'Acknowledged By', 'Completed By', 'Completed', 'Delay', ...(isSuperAdmin ? ['Edit'] : [])].map((h, i) => (
-                    <th key={i} className="text-left px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap">{h}</th>
+                    <th key={i} className="h-10 text-left px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {rows.map(d => {
                   const sm = STATUS_META[d.status];
                   return (
-                    <tr key={d.id} className="hover:bg-rose-50/20 transition-colors">
-                      <td className="px-4 py-3 text-[13px] font-semibold text-slate-800 whitespace-nowrap">{d.deviationNumber}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-700">{d.ahuName}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-600 text-center tabular-nums">{d.filterCount}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap">
+                    <tr key={d.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-2.5 text-[13px] font-semibold text-slate-800 whitespace-nowrap">{d.deviationNumber}</td>
+                      <td className="px-4 py-2.5 text-[13px] text-slate-700">{d.ahuName}</td>
+                      <td className="px-4 py-2.5 text-[13px] text-slate-600 text-center tabular-nums">{d.filterCount}</td>
+                      <td className="px-4 py-2.5 text-[13px] text-slate-600 whitespace-nowrap">
                         <div>{formatDate(d.scheduledDate)}</div>
                         <div className="text-[11px] text-slate-400">{windowLine(d)}</div>
                       </td>
-                      <td className="px-4 py-3 text-[13px] whitespace-nowrap">
+                      <td className="px-4 py-2.5 text-[13px] whitespace-nowrap">
                         {d.status === 'CLOSED' ? (
                           <span className={`${severityPill} ${severityCls(d.delayDays ?? d.overdueDaysAtOpen)}`}>
                             {daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay
@@ -419,24 +415,24 @@ export function DeviationsPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-2.5">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full border ${sm.cls}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${sm.dot}`} />{sm.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-[13px] text-slate-700 whitespace-nowrap">
+                      <td className="px-4 py-2.5 text-[13px] text-slate-700 whitespace-nowrap">
                         {d.acknowledgedByName ?? '—'}
                         {d.passwordVerified && <span className="ml-1 text-emerald-500" title="Password verified">✓</span>}
                       </td>
-                      <td className="px-4 py-3 text-[13px] text-slate-700 whitespace-nowrap">{d.completedByName ?? '—'}</td>
-                      <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap">{d.completedAt ? formatDateTime(d.completedAt) : '—'}</td>
-                      <td className="px-4 py-3 text-[13px] text-center tabular-nums">
+                      <td className="px-4 py-2.5 text-[13px] text-slate-700 whitespace-nowrap">{d.completedByName ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-[13px] text-slate-600 whitespace-nowrap">{d.completedAt ? formatDateTime(d.completedAt) : '—'}</td>
+                      <td className="px-4 py-2.5 text-[13px] text-center tabular-nums">
                         {d.delayDays != null
                           ? <span className={`${severityPill} ${severityCls(d.delayDays)}`}>{daysLabel(d.delayDays)}</span>
                           : <span className="text-slate-600">—</span>}
                       </td>
                       {isSuperAdmin && (
-                        <td className="px-4 py-3 text-right"><SuperAdminEditButton onClick={() => setEditRow(d)} /></td>
+                        <td className="px-4 py-2.5 text-right"><SuperAdminEditButton onClick={() => setEditRow(d)} /></td>
                       )}
                     </tr>
                   );

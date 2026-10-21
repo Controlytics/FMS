@@ -101,7 +101,7 @@ export function BlockChangeRequestDialog({
             <button
               onClick={onSubmit}
               disabled={submitting || (isApproval && !reason.trim())}
-              className="flex-1 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg"
+              className="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-xs"
             >
               {isApproval ? (submitting ? 'Submitting…' : 'Request approval') : 'Continue with cleaning'}
             </button>

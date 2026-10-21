@@ -17,6 +17,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { PageHeader } from '@/components/ui/page-header';
+import { Input } from '@/components/ui/input';
 import { downloadName } from '@/lib/download-name';
 
 const RFID_COLS = ['sNo', 'dateTime', 'event', 'rfid', 'filter', 'ahu', 'user', 'reason'];
@@ -223,32 +225,31 @@ export function RfidTrackRecordPage() {
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
 
-  const inputCls = 'px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600';
+  // h-8 matches the DateRangeFilter (sm) fields in the same row.
+  const inputCls = 'h-8 text-[13px]';
 
   return (
     <ReportPageWrapper title={L.title} totalRecords={total} page={page} totalPages={totalPages} hideFooter>
       <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <h1 className="text-xl font-bold text-slate-800">{L.title}</h1>
-              <p className="text-[13px] text-slate-500">{L.subtitle || 'Complete assign / remove lifecycle history of RFID tags'}</p>
-            </div>
-            {total > 0 && (
-              <>
-                {/* Phase 5C: Export gated on rfid_track.export (gate: ASSET_VIEW + FILTER_RFID_MANAGE).
-                    Effectively-same as page-view gate — no user visible for this page without both. */}
-                {can('rfid_track.export') && (
-                  <ExportMenu surface="rfid-track-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
-                )}
-                {/* SendForReviewButton is globally disabled — left ungated. */}
-                <SendForReviewButton buildSnapshot={buildRfidSnapshot}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
-              </>
+          <PageHeader
+            title={L.title}
+            subtitle={L.subtitle || 'Complete assign / remove lifecycle history of RFID tags'}
+            actions={total > 0 && (
+                <>
+                  {/* Phase 5C: Export gated on rfid_track.export (gate: ASSET_VIEW + FILTER_RFID_MANAGE).
+                      Effectively-same as page-view gate — no user visible for this page without both. */}
+                  {can('rfid_track.export') && (
+                    <ExportMenu surface="rfid-track-record" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+                  )}
+                  {/* SendForReviewButton is globally disabled — left ungated. */}
+                  <SendForReviewButton buildSnapshot={buildRfidSnapshot}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
+                </>
             )}
-          </div>
+          />
           {/* Filters */}
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <DateRangeFilter
@@ -261,16 +262,16 @@ export function RfidTrackRecordPage() {
               toAriaLabel="RFID track record to date"
             />
             <label className="flex flex-col text-[11px] font-medium text-slate-500">RFID Number
-              <input type="text" value={rfid} placeholder="e.g. CA000…" onChange={e => resetPageAnd(setRfid)(e.target.value)} className={inputCls} />
+              <Input type="text" value={rfid} placeholder="e.g. CA000…" onChange={e => resetPageAnd(setRfid)(e.target.value)} className={inputCls} />
             </label>
             <label className="flex flex-col text-[11px] font-medium text-slate-500">Filter
-              <input type="text" value={filterName} placeholder="Filter name" onChange={e => resetPageAnd(setFilterName)(e.target.value)} className={inputCls} />
+              <Input type="text" value={filterName} placeholder="Filter name" onChange={e => resetPageAnd(setFilterName)(e.target.value)} className={inputCls} />
             </label>
             <label className="flex flex-col text-[11px] font-medium text-slate-500">AHU
-              <input type="text" value={ahu} placeholder="AHU name" onChange={e => resetPageAnd(setAhu)(e.target.value)} className={inputCls} />
+              <Input type="text" value={ahu} placeholder="AHU name" onChange={e => resetPageAnd(setAhu)(e.target.value)} className={inputCls} />
             </label>
             <label className="flex flex-col text-[11px] font-medium text-slate-500">User
-              <input type="text" value={userQ} placeholder="User" onChange={e => resetPageAnd(setUserQ)(e.target.value)} className={inputCls} />
+              <Input type="text" value={userQ} placeholder="User" onChange={e => resetPageAnd(setUserQ)(e.target.value)} className={inputCls} />
             </label>
           </div>
         </div>
@@ -281,35 +282,35 @@ export function RfidTrackRecordPage() {
           ) : rows.length === 0 ? (
             <div className="text-center text-slate-400 py-12">No RFID activity found for these filters.</div>
           ) : (
-            <table className="w-full">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-slate-50 border-b border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50">
+                <tr>
                   {headLabels.map((h, i) => (
-                    <th key={i} className="text-left px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className="h-10 text-left px-4 text-xs font-semibold text-slate-600 whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
-                  {isSuperAdmin && <th className="text-right px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">Edit</th>}
+                  {isSuperAdmin && <th className="h-10 text-right px-4 text-xs font-semibold text-slate-600 whitespace-nowrap bg-slate-50">Edit</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
+              <tbody className="bg-white">
                 {rows.map((r, idx) => (
-                  <tr key={idx} className="hover:bg-cyan-50/30 transition-colors">
-                    <td className="px-4 py-3 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * PER_PAGE + idx + 1}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(r.timestamp)}</td>
-                    <td className="px-4 py-3">
+                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-2.5 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * PER_PAGE + idx + 1}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(r.timestamp)}</td>
+                    <td className="px-4 py-2.5">
                       <span className={`inline-flex items-center px-2.5 py-1 text-[11px] font-bold rounded-full ${r.event === 'ASSIGN' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                         {r.event === 'ASSIGN' ? 'Assigned' : 'Removed'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-[13px] font-semibold text-slate-800 font-mono">{r.rfidNumber}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-700">{r.filterName ?? <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600">{r.ahuName ?? <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600">{r.user ?? <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-[13px] font-semibold text-slate-800 font-mono">{r.rfidNumber}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-700">{r.filterName ?? <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-600">{r.ahuName ?? <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-600">{r.user ?? <span className="text-slate-300">—</span>}</td>
                     {/* min-w: one very long tag number widens its own column and, in an
                         overflowing table, squeezed this one to ~100px — a sentence-long
                         release reason then wrapped into 14 lines (317px rows). */}
-                    <td className="px-4 py-3 text-[13px] text-slate-600 min-w-[18rem]">{r.reason ?? <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-600 min-w-[18rem]">{r.reason ?? <span className="text-slate-300">—</span>}</td>
                     {isSuperAdmin && (
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-2.5 text-right">
                         <SuperAdminEditButton onClick={() => setEditRow(r)} />
                       </td>
                     )}

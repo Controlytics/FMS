@@ -1,3 +1,22 @@
+# Coverage campaign: ≥90% lines/statements/branches/functions, API and Web separately (started 2026-10-21)
+
+Operator pasted "MASTER PROMPT: Full Application Test Audit and 90%+ Code Coverage". Decisions 2026-10-21:
+finish UI Phase 2 first (web tests after the restyle lands); install Stryker (dev-only) for mutation
+testing on critical modules; parallel background agents per module, tests only — agents REPORT real
+defects (failing test + root cause), production fixes are made centrally with a regression test.
+
+Baseline (reproduced 2026-10-21 on 70adf40-era code, `QA/coverage/baseline-2026-10-21/`):
+API 63.3 % lines/statements, 73.7 % branches, 76.6 % functions (34,577 lines). Web 19.7 % / 65.7 % /
+42.5 % (56,075 lines). Web branch % is inflated: v8 only counts branches of LOADED files, so it will
+fall as pages get rendered before it rises.
+
+- [ ] API wave 1 (running): pm-schedules · super-admin + debug-traces + deployment-check + block-change + report-reviews · backup + notification-delivery/rules/notifications
+- [ ] API wave 2: filter-operations + assets + stage-approvals + replacement-schedule · equipment-groups + filter-profiles + dashboards + cleaning-profiles + ldap + hierarchy · auth/audit/config/admin-requests/lib remainder · app.ts (0 %, needs a testable build entry — production change, decide)
+- [ ] Web waves (after UI Phase 2 commit): config · filter-management · mobile (tablet) · users/audit/admin · components/hooks/lib
+- [ ] Stryker install (when no agent is running tests) + mutation runs on auth / rbac / reauth / audit chain / filter-ops gates
+- [ ] Coverage thresholds 90 % in both vitest configs + html/json reporters; CI check; exclusions documented (only non-production scripts)
+- [ ] Final serial runs, coverage comparison table, `QA/COVERAGE_FINAL_REPORT.md`
+
 # Pending-items pass (2026-10-21, operator: "complete the pending ones")
 
 Decisions 2026-10-21: password reuse = keep strict rule (no 12-month window); dev CA out of

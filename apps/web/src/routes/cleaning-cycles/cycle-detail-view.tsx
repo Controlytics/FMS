@@ -122,7 +122,7 @@ export function CycleDetailView({ cycle, fallback }: {
                   </span>
                 )}
                 {cycle.filterSet && (
-                  <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${cycle.filterSet === 'SET_A' ? 'bg-indigo-50 text-indigo-700' : 'bg-purple-50 text-purple-700'}`}>
+                  <span className={`px-2 py-0.5 text-[11px] rounded-full font-medium ${cycle.filterSet === 'SET_A' ? 'bg-indigo-50 text-indigo-700' : 'bg-purple-50 text-purple-700'}`}>
                     Set {cycle.filterSet.replace('SET_', '')}
                   </span>
                 )}
@@ -234,7 +234,7 @@ export function CycleDetailView({ cycle, fallback }: {
               const isCurrent = stage === currentStage;
               return (
                 <div key={stage} className="flex items-center gap-2 flex-1">
-                  <div title={notApplicable ? "Not in this cycle's cleaning profile" : undefined} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-medium flex-1 justify-center transition-all ${
+                  <div title={notApplicable ? "Not in this cycle's cleaning profile" : undefined} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium flex-1 justify-center transition-all ${
                     notApplicable ? 'bg-slate-100 text-slate-400 border border-slate-200 line-through'
                     : done ? (STAGE_BADGE[stage] ?? 'bg-slate-100 text-slate-600') + ' border'
                     : isCurrent ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse'
@@ -255,7 +255,7 @@ export function CycleDetailView({ cycle, fallback }: {
             {(eff === 'REPLACED' || eff === 'RETIRED' || eff === 'TERMINATED') && (
               <div className="flex items-center gap-2 shrink-0">
                 <div className="w-3 h-0.5 shrink-0 bg-slate-200" />
-                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold justify-center border ${
+                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-bold justify-center border ${
                   eff === 'RETIRED' ? 'bg-amber-50 text-amber-700 border-amber-200'
                   : eff === 'REPLACED' ? 'bg-purple-50 text-purple-700 border-purple-200'
                   : 'bg-red-50 text-red-700 border-red-200'
@@ -404,11 +404,11 @@ export function CycleDetailView({ cycle, fallback }: {
                             <span className="text-lg font-bold text-slate-800 tabular-nums">{reading.leastCount !== undefined && reading.leastCount !== null ? formatByLeastCount(reading.value, reading.leastCount) : reading.value}</span>
                             <span className="text-xs text-slate-500">{reading.uom || reading.unit || ''}</span>
                             {/* Provenance (2026-09-04): AUTO = fetched from the instrument, AUTO_OVERRIDDEN = fetched then changed by the operator. Absent on MANUAL / older rows. */}
-                            {reading.source === 'AUTO' && <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
-                            {reading.source === 'AUTO_OVERRIDDEN' && <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700" title="Fetched from the instrument, then changed by the operator">Auto · changed</span>}
+                            {reading.source === 'AUTO' && <span className="ml-1 px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}
+                            {reading.source === 'AUTO_OVERRIDDEN' && <span className="ml-1 px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-amber-50 border border-amber-200 text-amber-700" title="Fetched from the instrument, then changed by the operator">Auto · changed</span>}
                           </div>
                           {reading.instrumentCode && reading.description && (
-                            <div className="text-[10px] text-slate-300 mt-0.5 font-mono">{reading.instrumentCode}</div>
+                            <div className="text-[11px] text-slate-300 mt-0.5 font-mono">{reading.instrumentCode}</div>
                           )}
                         </div>
                       ))}

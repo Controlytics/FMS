@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { formatByLeastCount } from '@/lib/format-by-least-count';
 import { apiClient } from '@/lib/api-client';
+import { Select } from '@/components/ui/select';
 
 interface EquipmentDialogProps {
   dialog: {
@@ -274,7 +275,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-slate-700">{inst.description}</span>
                         <span className="text-xs text-slate-400 font-mono">{inst.instrumentId}</span>
-                        {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
+                        {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
                       </div>
                       <span className="text-xs text-slate-400">{formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)} {inst.uom}</span>
                     </div>
@@ -297,15 +298,14 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                         <span className="text-xs text-slate-400 shrink-0">{inst.uom}</span>
                       </div>
                     ) : (
-                      <select
+                      <Select
                         value={val ?? ''}
-                        onChange={e => setManualReading(inst.id, e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-slate-800 text-sm focus:border-brand-600 outline-none">
+                        onChange={e => setManualReading(inst.id, e.target.value)}>
                         <option value="">Select value...</option>
                         {options.map((v) => (
                           <option key={v} value={v}>{formatByLeastCount(v, inst.leastCount)} {inst.uom}</option>
                         ))}
-                      </select>
+                      </Select>
                     )}
 
                     {outOfRange && (

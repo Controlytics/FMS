@@ -64,7 +64,7 @@ export function CleaningReasonDialog({ dialog, onClose, onSubmit, loading, error
                 className={`w-full text-left px-4 py-3 rounded-xl transition-all ${selectedReason === r.key ? 'bg-cyan-50 border-2 border-cyan-500' : 'bg-slate-100 border-2 border-transparent hover:border-slate-300'}`}>
                 <div className="text-sm font-medium text-slate-800">{r.name}</div>
                 {r.description && <div className="text-xs text-slate-400 mt-0.5">{r.description}</div>}
-                {r.requiresJustification && <div className="text-[10px] text-amber-500 mt-0.5">Requires justification</div>}
+                {r.requiresJustification && <div className="text-[11px] text-amber-500 mt-0.5">Requires justification</div>}
               </button>
             ))}
           </div>

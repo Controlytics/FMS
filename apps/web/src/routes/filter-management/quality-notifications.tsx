@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { downloadName } from '@/lib/download-name';
@@ -194,20 +195,18 @@ export function QualityNotificationsPage() {
       <ReauthPrompt reauth={reauth} actionLabel="Export report" />
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <h1 className="text-xl font-bold text-slate-800">{L.title}</h1>
-              <p className="text-[13px] text-slate-500">{L.subtitle || 'Quality Notifications (QNN) minted by the PM approval workflow'}</p>
-            </div>
-            {total > 0 && (
-              <>
-                <ExportMenu surface="qnn" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
-                <SendForReviewButton buildSnapshot={buildQnnSnapshot}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
-              </>
+          <PageHeader
+            title={L.title}
+            subtitle={L.subtitle || 'Quality Notifications (QNN) minted by the PM approval workflow'}
+            actions={total > 0 && (
+                <>
+                  <ExportMenu surface="qnn" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors disabled:opacity-50" />
+                  <SendForReviewButton buildSnapshot={buildQnnSnapshot}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 border border-slate-200 bg-white hover:bg-slate-50" />
+                </>
             )}
-          </div>
+          />
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <DateRangeFilter
               size="sm"
@@ -227,26 +226,26 @@ export function QualityNotificationsPage() {
           ) : rows.length === 0 ? (
             <div className="text-center text-slate-400 py-12">No Quality Notifications found for these filters.</div>
           ) : (
-            <table className="w-full">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-slate-50 border-b border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50">
+                <tr>
                   {headLabels.map((h, i) => (
-                    <th key={i} className="text-left px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className="h-10 text-left px-4 text-xs font-semibold text-slate-600 whitespace-nowrap bg-slate-50">{h}</th>
                   ))}
-                  {isSuperAdmin && <th className="text-right px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">Edit</th>}
+                  {isSuperAdmin && <th className="h-10 text-right px-4 text-xs font-semibold text-slate-600 whitespace-nowrap bg-slate-50">Edit</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
+              <tbody className="bg-white">
                 {rows.map((r, idx) => (
-                  <tr key={r.id} className="hover:bg-cyan-50/30 transition-colors">
-                    <td className="px-4 py-3 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * perPage + idx + 1}</td>
-                    <td className="px-4 py-3 text-[13px] font-semibold text-slate-800 font-mono whitespace-nowrap">{r.qnn}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-700 whitespace-nowrap">{r.action}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600">{r.ahuName ?? <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 max-w-[360px]">{r.message ?? <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap">{r.performedByName ?? <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(r.createdAt)}</td>
-                    {isSuperAdmin && <td className="px-4 py-3 text-right"><SuperAdminEditButton onClick={() => setEditRow(r)} /></td>}
+                  <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-2.5 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * perPage + idx + 1}</td>
+                    <td className="px-4 py-2.5 text-[13px] font-semibold text-slate-800 font-mono whitespace-nowrap">{r.qnn}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-700 whitespace-nowrap">{r.action}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-600">{r.ahuName ?? <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-600 max-w-[360px]">{r.message ?? <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-600 whitespace-nowrap">{r.performedByName ?? <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(r.createdAt)}</td>
+                    {isSuperAdmin && <td className="px-4 py-2.5 text-right"><SuperAdminEditButton onClick={() => setEditRow(r)} /></td>}
                   </tr>
                 ))}
               </tbody>

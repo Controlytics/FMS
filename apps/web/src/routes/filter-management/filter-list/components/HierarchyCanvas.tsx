@@ -292,10 +292,10 @@ function BlockNode({ block, perms, onAddBlockChild, onNavigate, children }: Bloc
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
           </svg>
           <span className="text-xs font-bold text-center truncate w-full" style={{ color: 'var(--theme-primary-dark)' }}>{block.name}</span>
-          <span className="text-[9px] mt-0.5 text-theme-primary">Block</span>
+          <span className="text-[11px] mt-0.5 text-theme-primary">Block</span>
         </button>
         {perms.canCreate && (
-          <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/block:opacity-100 transition-opacity z-10">
+          <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/block:opacity-100 group-focus-within/block:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity z-10">
             <button
               type="button"
               className="w-5 h-5 rounded-full bg-purple-500 text-white flex items-center justify-center shadow-sm hover:bg-purple-600 transition-colors"

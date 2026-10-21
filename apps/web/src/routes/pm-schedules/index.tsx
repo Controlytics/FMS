@@ -22,6 +22,9 @@ import { isoToDateInput, startOfDayIso } from '@/lib/datetime-input';
 import { apiUrl } from '@/lib/url-utils';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
+import { PageHeader } from '@/components/ui/page-header';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 interface UploadResult {
   imported: number;
@@ -809,19 +812,11 @@ export function PmScheduleListPage() {
   return (
     <div className="p-6 space-y-6">
       {/* ─── Header ─── */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
-          <div className="p-3.5 rounded-2xl shadow-lg" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">PM Schedules</h1>
-            <p className="text-sm text-slate-400 mt-0.5">Preventive maintenance cleaning schedules</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2.5">
+      <PageHeader
+        title="PM Schedules"
+        subtitle="Preventive maintenance cleaning schedules"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />}
+        actions={<>
           {canDownload && (
             <button onClick={handleDownloadTemplate} className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-all">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
@@ -840,13 +835,13 @@ export function PmScheduleListPage() {
             </button>
           )}
           {canUpload && (
-            <button onClick={() => { setUploadOpen(true); setResult(null); setUploadError(''); }} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold shadow-md hover:shadow-lg transition-all" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))', color: '#fff' }}>
+            <button onClick={() => { setUploadOpen(true); setResult(null); setUploadError(''); }} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-xs transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.9A5.001 5.001 0 0115.9 6a5 5 0 01.1 10H7zM9 15l3-3m0 0l3 3m-3-3v6" /></svg>
               Upload Schedule
             </button>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
       {/* ─── Summary Cards ─── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -896,7 +891,7 @@ export function PmScheduleListPage() {
                   : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
                 style={statusFilter === s ? { backgroundColor: 'var(--theme-primary)', color: '#fff' } : undefined}>
                 {s === 'ALL' ? 'All' : STATUS_CFG[s]?.label ?? s}
-                {count > 0 && <span className={`ml-1.5 text-[10px] ${statusFilter === s ? 'opacity-70' : 'text-slate-400'}`}>({count})</span>}
+                {count > 0 && <span className={`ml-1.5 text-[11px] ${statusFilter === s ? 'opacity-70' : 'text-slate-400'}`}>({count})</span>}
               </button>
             );
           })}
@@ -951,7 +946,7 @@ export function PmScheduleListPage() {
       )}
 
       {/* ─── Table ─── */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
         {/* M79: a failed load used to read "No schedule entries found". */}
         {entriesError && !entriesData ? (
           <div role="alert" className="flex flex-col items-center justify-center py-16 gap-2 text-center px-6">
@@ -974,27 +969,27 @@ export function PmScheduleListPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
                   {showSelectColumn && (
-                    <th className="w-10 px-3 py-3.5">
+                    <th className="w-10 h-10 px-3">
                       <input type="checkbox" checked={allPendingSelected} onChange={toggleSelectAll} disabled={selectableEntries.length === 0}
                         title="Select every entry waiting on your step"
                         className="w-3.5 h-3.5 rounded border-slate-300 cursor-pointer" style={{ accentColor: 'var(--theme-primary)' }} />
                     </th>
                   )}
-                  <th className="w-14 text-center px-2 py-3.5 text-xs font-semibold text-slate-500">S.No</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">AHU</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Scheduled Date</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Tolerance</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Window</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Status</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Approved By</th>
-                  <th className="text-right px-5 py-3.5 text-xs font-semibold text-slate-500">Actions</th>
+                  <th className="w-14 h-10 text-center px-2 text-xs font-semibold text-slate-600 whitespace-nowrap">S.No</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">AHU</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Scheduled Date</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Tolerance</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Window</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Status</th>
+                  <th className="text-left h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Approved By</th>
+                  <th className="text-right h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {groupedEntries.map(group => {
                   const isExpanded = expandedAhus.has(group.ahuId);
                   return (
@@ -1007,17 +1002,17 @@ export function PmScheduleListPage() {
                       const serialNo = (page - 1) * perPage + globalIdx + 1;
 
                       return (
-                        <tr key={entry.id} className={`transition-colors hover:bg-slate-50/50 ${entry.approvalStatus === 'PENDING' ? 'bg-amber-50/15' : entry.approvalStatus === 'REJECTED' ? 'bg-red-50/15' : ''}`}>
+                        <tr key={entry.id} className={`transition-colors hover:bg-slate-50 ${entry.approvalStatus === 'PENDING' ? 'bg-amber-50/15' : entry.approvalStatus === 'REJECTED' ? 'bg-red-50/15' : ''}`}>
                           {showSelectColumn && (
-                            <td className="w-10 px-3 py-3">
+                            <td className="w-10 px-3 py-2.5">
                               {isSelectable(entry) && (
                                 <input type="checkbox" checked={selected.has(entry.id)} onChange={() => toggleSelect(entry.id)}
                                   className="w-3.5 h-3.5 rounded border-slate-300 cursor-pointer" style={{ accentColor: 'var(--theme-primary)' }} />
                               )}
                             </td>
                           )}
-                          <td className="w-14 text-center px-2 py-3 text-sm text-slate-400 font-medium">{serialNo}</td>
-                          <td className="px-5 py-3">
+                          <td className="w-14 text-center px-2 py-2.5 text-sm text-slate-400 font-medium">{serialNo}</td>
+                          <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               {/* M80 / OQ-11 (operator decision: link it): the AHU's
                                   own schedule page - year view, per-visit Start PM. */}
@@ -1055,23 +1050,22 @@ export function PmScheduleListPage() {
                               <div className="mt-2 flex flex-wrap gap-1.5">
                                 {group.filterNames.map((fn, fi) => (
                                   <span key={fi} className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border" style={{ color: 'var(--theme-primary-dark)', backgroundColor: 'var(--theme-primary-light)', borderColor: 'var(--theme-primary)' }}>
-                                    <span className="w-4.5 h-4.5 text-[10px] font-bold text-white rounded-full flex items-center justify-center leading-none" style={{ width: 18, height: 18, backgroundColor: 'var(--theme-primary)' }}>{fi + 1}</span>
+                                    <span className="w-4.5 h-4.5 text-[11px] font-bold text-white rounded-full flex items-center justify-center leading-none" style={{ width: 18, height: 18, backgroundColor: 'var(--theme-primary)' }}>{fi + 1}</span>
                                     {fn}
                                   </span>
                                 ))}
                               </div>
                             )}
                           </td>
-                          <td className="px-5 py-3">
+                          <td className="px-4 py-2.5">
                             {isEditing ? (
-                              <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-slate-50 focus:bg-white focus:ring-3 w-40 transition-all"
-                                style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as any} />
+                              <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
+                                className="h-8 w-40" />
                             ) : (
                               <div>
                                 <span className="text-sm font-medium text-slate-700 tabular-nums">{formatDate(entry.plannedDate)}</span>
                                 {hasPendingEdit && (
-                                  <div className="text-[10px] text-amber-600 font-medium mt-0.5 flex items-center gap-1">
+                                  <div className="text-[11px] text-amber-600 font-medium mt-0.5 flex items-center gap-1">
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     Pending: {formatDate(entry.pendingPlannedDate!)}
                                   </div>
@@ -1079,20 +1073,19 @@ export function PmScheduleListPage() {
                               </div>
                             )}
                           </td>
-                          <td className="px-5 py-3">
+                          <td className="px-4 py-2.5">
                             {isEditing ? (
-                              <input type="number" value={editTolerance} onChange={e => setEditTolerance(e.target.value)}
+                              <Input type="number" value={editTolerance} onChange={e => setEditTolerance(e.target.value)}
                                 placeholder={String(entry.toleranceDays)} min={0} max={365}
-                                className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-slate-50 focus:bg-white focus:ring-3 w-20 transition-all"
-                                style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as any} />
+                                className="h-8 w-20" />
                             ) : (
                               <span className="text-sm text-slate-500 font-medium">{entry.toleranceDays} days</span>
                             )}
                           </td>
-                          <td className="px-5 py-3 text-sm text-slate-400 tabular-nums whitespace-nowrap">
+                          <td className="px-4 py-2.5 text-sm text-slate-400 tabular-nums whitespace-nowrap">
                             {formatDate(entry.windowStart)} — {formatDate(entry.windowEnd)}
                           </td>
-                          <td className="px-5 py-3">
+                          <td className="px-4 py-2.5">
                             <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] px-2.5 py-1 rounded-full border font-semibold ${sc.bg} ${sc.text} ${sc.border}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                               {sc.label}
@@ -1101,7 +1094,7 @@ export function PmScheduleListPage() {
                                 PDF export. Whoever must fix and re-submit needs it here. */}
                             {entry.approvalStatus === 'REJECTED' && <RejectionDetails entry={entry} formatDateTime={formatDateTime} />}
                           </td>
-                          <td className="px-5 py-3">
+                          <td className="px-4 py-2.5">
                             {entry.approvedByName ? (
                               <div className="flex items-center gap-1.5">
                                 <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -1115,7 +1108,7 @@ export function PmScheduleListPage() {
                               <span className="text-xs text-slate-300">--</span>
                             )}
                           </td>
-                          <td className="px-5 py-3">
+                          <td className="px-4 py-2.5">
                             <div className="flex items-center justify-end gap-1.5">
                               {isEditing ? (
                                 <>
@@ -1262,7 +1255,7 @@ export function PmScheduleListPage() {
                   />
                   <div className="flex gap-3 pt-2">
                     <button onClick={() => { setResult(null); setUploadError(''); }} className="flex-1 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50">Upload Another</button>
-                    <button onClick={() => { setUploadOpen(false); setResult(null); setUploadError(''); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))', color: '#fff' }}>Done</button>
+                    <button onClick={() => { setUploadOpen(false); setResult(null); setUploadError(''); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-xs">Done</button>
                   </div>
                 </div>
               )}
@@ -1318,32 +1311,29 @@ export function PmScheduleListPage() {
               </p>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">AHU</label>
-                <select value={createForm.ahuId}
-                        onChange={e => setCreateForm(f => ({ ...f, ahuId: e.target.value }))}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15 bg-white">
+                <Select value={createForm.ahuId}
+                        onChange={e => setCreateForm(f => ({ ...f, ahuId: e.target.value }))}>
                   <option value="">Select an AHU…</option>
                   {ahuInstances.map((a: any) => (
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
-                </select>
+                </Select>
                 {ahuInstances.length === 0 && (
                   <p className="text-xs text-amber-700 mt-1">No AHU instances found. Create an AHU under a Block first.</p>
                 )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
-                <input type="date"
+                <Input type="date"
                        value={createForm.plannedDate}
-                       onChange={e => setCreateForm(f => ({ ...f, plannedDate: e.target.value }))}
-                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+                       onChange={e => setCreateForm(f => ({ ...f, plannedDate: e.target.value }))} />
                 <p className="text-xs text-slate-400 mt-1">Select the year, month and day for this PM.</p>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Tolerance days</label>
-                <input type="number" min={0} max={365}
+                <Input type="number" min={0} max={365}
                        value={createForm.toleranceDays}
-                       onChange={e => setCreateForm(f => ({ ...f, toleranceDays: Number(e.target.value) }))}
-                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+                       onChange={e => setCreateForm(f => ({ ...f, toleranceDays: Number(e.target.value) }))} />
                 <p className="text-xs text-slate-400 mt-1">Window: planned date ± tolerance days.</p>
               </div>
             </div>
@@ -1354,8 +1344,7 @@ export function PmScheduleListPage() {
               </button>
               <button type="button" onClick={submitCreateSchedule}
                       disabled={creatingSchedule || !createForm.ahuId || !createForm.plannedDate}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50"
-                      style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))', color: '#fff' }}>
+                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-xs disabled:opacity-50">
                 {creatingSchedule ? 'Creating…' : 'Create schedule'}
               </button>
             </div>

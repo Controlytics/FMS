@@ -1,6 +1,8 @@
 import { themeButton } from '@/lib/theme-styles';
 import type { AhuOption, FilterFieldOptions, LastCleaningDateState } from '../types';
 import { FilterFieldOptionsSection } from '../components/FilterFieldOptionsSection';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 type Props = {
   ahu: string;
@@ -64,26 +66,23 @@ export function CreateFilterDialog({
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Area <span className="text-slate-400 font-normal">(Optional)</span>
               </label>
-              <select value={area} onChange={e => onAreaChange(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+              <Select value={area} onChange={e => onAreaChange(e.target.value)}>
                 <option value="">All / Any</option>
                 {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              </Select>
             </div>
           )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">AHU <span className="text-red-500">*</span></label>
-            <select value={ahu} onChange={e => onAhuChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+            <Select value={ahu} onChange={e => onAhuChange(e.target.value)}>
               <option value="">Select AHU...</option>
               {ahus.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Filter Name <span className="text-red-500">*</span></label>
-            <input type="text" value={name} onChange={e => onNameChange(e.target.value)}
-              placeholder="e.g., Pre-Filter-01"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
+            <Input type="text" value={name} onChange={e => onNameChange(e.target.value)}
+              placeholder="e.g., Pre-Filter-01" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Filter Set <span className="text-red-500">*</span></label>

@@ -33,10 +33,10 @@ export function FilterDiagNode({ filter: f, identifiersByAsset, onNavigate }: Fi
         <svg className="w-4 h-4 mb-0.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
         </svg>
-        <span className="text-[10px] font-bold text-center text-slate-700 truncate w-full">{f.name}</span>
-        <span className={`text-[8px] mt-0.5 px-1.5 py-0.5 rounded-full border font-medium ${stateInfo.color}`}>{stateInfo.label}</span>
-        {rfidTags.length > 0 && <span className="text-[7px] font-mono mt-0.5 truncate w-full text-center text-theme-primary">{rfidTags[0].identifierValue}</span>}
-        {f.filterSet && <span className="text-[7px] text-slate-400 mt-0.5">{f.filterSet.replace('_', ' ')}</span>}
+        <span className="text-[11px] font-bold text-center text-slate-700 truncate w-full">{f.name}</span>
+        <span className={`text-[11px] mt-0.5 px-1.5 py-0.5 rounded-full border font-medium ${stateInfo.color}`}>{stateInfo.label}</span>
+        {rfidTags.length > 0 && <span className="text-[11px] font-mono mt-0.5 truncate w-full text-center text-theme-primary">{rfidTags[0].identifierValue}</span>}
+        {f.filterSet && <span className="text-[11px] text-slate-400 mt-0.5">{f.filterSet.replace('_', ' ')}</span>}
       </button>
     </div>
   );
@@ -111,9 +111,9 @@ export function AhuDiagNode({ ahu, identifiersByAsset, perms, handlers }: AhuDia
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
           <span className="text-xs font-bold text-center text-teal-800 truncate w-full">{ahu.name}</span>
-          <span className="text-[9px] mt-0.5 text-teal-500">AHU</span>
+          <span className="text-[11px] mt-0.5 text-teal-500">AHU</span>
         </button>
-        <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover/ahu:opacity-100 transition-opacity">
+        <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover/ahu:opacity-100 group-focus-within/ahu:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity">
           {perms.canEditHierarchy && (
             <button onClick={(e) => { e.stopPropagation(); handlers.onEditNode({ id: ahu.id, name: ahu.name, entityType: 'AHU' }); }}
               className="w-6 h-6 rounded-full bg-white border border-amber-300 text-amber-600 hover:bg-amber-50 shadow-sm flex items-center justify-center" title="Edit AHU">
@@ -153,10 +153,10 @@ export function AreaDiagNode({ area, identifiersByAsset, perms, handlers }: Area
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5z" />
           </svg>
           <span className="text-xs font-bold text-center text-purple-800 truncate w-full">{area.name}</span>
-          <span className="text-[9px] mt-0.5 text-purple-500">Area</span>
+          <span className="text-[11px] mt-0.5 text-purple-500">Area</span>
         </button>
         {/* Hover: Add AHU / Edit / Delete */}
-        <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/area:opacity-100 transition-opacity z-10">
+        <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover/area:opacity-100 group-focus-within/area:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity z-10">
           {perms.canCreate && (
             <button
               className="w-6 h-6 rounded-full bg-teal-500 text-white flex items-center justify-center shadow-sm hover:bg-teal-600 transition-colors"

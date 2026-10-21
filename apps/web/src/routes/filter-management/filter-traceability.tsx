@@ -82,28 +82,28 @@ export function FilterTraceabilityPage() {
       )}
 
       {tab === 'cycles' && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500 text-sm">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-slate-50">
+              <tr>
                 {traceHead.map((h, i) => (
-                  <th key={i} className="py-3 px-4">{h}</th>
+                  <th key={i} className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {(cycles?.data ?? []).map((c) => (
-                <tr key={c.id} className="border-b border-slate-200 hover:bg-slate-50">
-                  <td className="py-3 px-4 font-mono text-cyan-600 text-sm">{c.cycleCode}</td>
-                  <td className="py-3 px-4 text-slate-600 text-sm">{c.cleaningReasonLabel}</td>
-                  <td className="py-3 px-4">
+                <tr key={c.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-2.5 font-mono text-cyan-600 text-sm">{c.cycleCode}</td>
+                  <td className="px-4 py-2.5 text-slate-600 text-sm">{c.cleaningReasonLabel}</td>
+                  <td className="px-4 py-2.5">
                     <span className={`px-2 py-0.5 text-xs rounded-full ${c.status === 'COMPLETED' ? 'bg-green-50 text-green-700' : c.status === 'IN_PROGRESS' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
                       {c.status}
                     </span>
                   </td>
-                  <td className="py-3 px-4 text-slate-500 text-sm">{formatDate(c.startedAt)}</td>
-                  <td className="py-3 px-4 text-slate-500 text-sm">{c.completedAt ? formatDate(c.completedAt) : '-'}</td>
-                  <td className="py-3 px-4 text-slate-500">#{c.sequenceNumber}</td>
+                  <td className="px-4 py-2.5 text-slate-500 text-sm">{formatDate(c.startedAt)}</td>
+                  <td className="px-4 py-2.5 text-slate-500 text-sm">{c.completedAt ? formatDate(c.completedAt) : '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500">#{c.sequenceNumber}</td>
                 </tr>
               ))}
               {(cycles?.data ?? []).length === 0 && <tr><td colSpan={6} className="py-8 text-center text-slate-400">No cycles</td></tr>}

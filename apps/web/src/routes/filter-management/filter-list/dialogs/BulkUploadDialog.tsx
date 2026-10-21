@@ -164,9 +164,9 @@ export function BulkUploadDialog({
                 <table className="w-full text-xs">
                   <thead className="bg-slate-50 sticky top-0">
                     <tr>
-                      <th className="text-left px-3 py-2 text-slate-500 font-medium">S.No</th>
+                      <th className="h-10 text-left px-3 text-xs font-semibold text-slate-600 whitespace-nowrap">S.No</th>
                       {previewKeys.map(k => (
-                        <th key={k} className="text-left px-3 py-2 text-slate-500 font-medium">{k}</th>
+                        <th key={k} className="h-10 text-left px-3 text-xs font-semibold text-slate-600 whitespace-nowrap">{k}</th>
                       ))}
                     </tr>
                   </thead>
@@ -174,13 +174,13 @@ export function BulkUploadDialog({
                     {rows.map((r: any, i: number) => {
                       const bad = errorRowNums.has(i + 2);
                       return (
-                        <tr key={i} className={`border-t border-slate-100 ${bad ? 'bg-red-50' : ''}`}>
+                        <tr key={i} className={bad ? 'bg-red-50' : 'hover:bg-slate-50'}>
                           <td className="px-3 py-1.5 text-slate-400">{i + 1}</td>
                           {previewKeys.map(k => (
                             <td key={k} className={`px-3 py-1.5 ${bad ? 'text-red-600' : 'text-slate-600'}`}>
                               {r[k] || '--'}
                               {((k === 'ahu' && r.ahuStatus === 'new') || (k === 'area' && r.areaStatus === 'new')) && (
-                                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold">new</span>
+                                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[11px] font-semibold">new</span>
                               )}
                             </td>
                           ))}
@@ -228,15 +228,15 @@ export function BulkUploadDialog({
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 sticky top-0">
                     <tr>
-                      <th className="text-left px-4 py-2 text-slate-500 font-medium">Row</th>
-                      <th className="text-left px-4 py-2 text-slate-500 font-medium">Name</th>
-                      <th className="text-left px-4 py-2 text-slate-500 font-medium">Status</th>
-                      <th className="text-left px-4 py-2 text-slate-500 font-medium">Details</th>
+                      <th className="h-10 text-left px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Row</th>
+                      <th className="h-10 text-left px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Name</th>
+                      <th className="h-10 text-left px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Status</th>
+                      <th className="h-10 text-left px-4 text-xs font-semibold text-slate-600 whitespace-nowrap">Details</th>
                     </tr>
                   </thead>
                   <tbody>
                     {results.map((r: any, i: number) => (
-                      <tr key={i} className="border-t border-slate-100">
+                      <tr key={i} className="hover:bg-slate-50">
                         <td className="px-4 py-2 text-slate-400">{r.row}</td>
                         <td className="px-4 py-2 text-slate-700">{r.name}</td>
                         <td className="px-4 py-2">

@@ -11,6 +11,7 @@ import { ALL_ROWS } from '@/lib/page-size';
 import { StageApprovalDetailsCard } from '@/components/stage-approval-details';
 import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 import { SuperAdminCycleEditDialog } from '@/components/super-admin-cycle-edit';
+import { PageHeader } from '@/components/ui/page-header';
 
 const APPROVAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUPERSEDED'];
 /** Sentinel for the decided-by picker: "" means keep, this means clear. */
@@ -320,14 +321,17 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-800">Stage Approvals</h1>
-      <p className="text-sm text-slate-500 mt-1 mb-5">Cleaning stages (Wash Out / Dry Out) paused at the QA interlock. Verify the filter details, then approve to release the operator or reject to send it back for re-cleaning. Your password is your signature.</p>
+      <PageHeader
+        className="mb-5"
+        title="Stage Approvals"
+        subtitle="Cleaning stages (Wash Out / Dry Out) paused at the QA interlock. Verify the filter details, then approve to release the operator or reject to send it back for re-cleaning. Your password is your signature."
+      />
 
       <div className="flex items-center gap-2 mb-4">
-        <button onClick={() => switchTab('queue')} className={`px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 ${tab === 'queue' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600' : 'text-slate-600 bg-slate-100'}`}>
+        <button onClick={() => switchTab('queue')} className={`px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 ${tab === 'queue' ? 'text-white bg-brand-600' : 'text-slate-600 bg-slate-100'}`}>
           To Action {queue.length > 0 && <span className="ml-1 px-1.5 rounded-full bg-white/30 text-[11px]">{queue.length}</span>}
         </button>
-        <button onClick={() => switchTab('all')} className={`px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 ${tab === 'all' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600' : 'text-slate-600 bg-slate-100'}`}>All</button>
+        <button onClick={() => switchTab('all')} className={`px-4 py-2 rounded-lg text-sm font-semibold [@media(pointer:coarse)]:min-h-11 ${tab === 'all' ? 'text-white bg-brand-600' : 'text-slate-600 bg-slate-100'}`}>All</button>
       </div>
 
       {/* Bulk selection toolbar — queue tab only (only PENDING items are actionable). */}

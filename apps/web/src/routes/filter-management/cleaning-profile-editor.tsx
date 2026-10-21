@@ -442,7 +442,8 @@ export function CleaningProfileEditorPage() {
                 {/* Delete button (top-right, non-START/END) */}
                 {node.nodeType !== 'START' && node.nodeType !== 'END' && (
                   <button
-                    className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white border border-slate-300 text-slate-400 hover:bg-red-900 hover:border-red-500 hover:text-red-600 text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center"
+                    className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white border border-slate-300 text-slate-400 hover:bg-red-50 hover:border-red-500 hover:text-red-600 text-[11px] font-bold opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-all flex items-center justify-center"
+                    aria-label="Remove node"
                     onClick={(e) => { e.stopPropagation(); removeNode(idx); }}>&times;</button>
                 )}
               </div>

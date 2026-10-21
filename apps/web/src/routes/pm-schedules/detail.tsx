@@ -6,6 +6,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { RejectionDetails } from './index';
+import { PageHeader } from '@/components/ui/page-header';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -81,14 +82,14 @@ export function PmScheduleDetailPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-800">PM Schedule</h1>
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="PM Schedule"
+        actions={<div className="flex items-center gap-3">
           <button onClick={() => setYear(y => y - 1)} aria-label="Previous year" className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg">←</button>
           <span className="text-lg font-semibold text-slate-800">{year}</span>
           <button onClick={() => setYear(y => y + 1)} aria-label="Next year" className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg">→</button>
-        </div>
-      </div>
+        </div>}
+      />
 
       {!schedule && loadError ? (
         <div role="alert" className="bg-white border border-red-200 rounded-xl p-8 text-center space-y-2">

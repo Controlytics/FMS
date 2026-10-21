@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api-client';
 import { LIFECYCLE_STATE_OPTIONS } from '../constants';
+import { Select } from '@/components/ui/select';
 
 type CleaningReason = { key: string; name: string; requiresJustification?: boolean };
 type StageOption = { state: string; allowed: boolean; classification: string; isCurrent: boolean };
@@ -105,8 +106,7 @@ export function BulkStatusUpdatePanel({
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">New Status <span className="text-red-500">*</span></label>
-            <select value={state} onChange={e => onStateChange(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+            <Select value={state} onChange={e => onStateChange(e.target.value)}>
               <option value="" disabled>Select status…</option>
               {LIFECYCLE_STATE_OPTIONS.map(opt => {
                 const count = validCount(opt.value);
@@ -120,7 +120,7 @@ export function BulkStatusUpdatePanel({
                       : `${opt.label} — valid for ${count} of ${total}`;
                 return <option key={opt.value} value={opt.value} disabled={none}>{label}</option>;
               })}
-            </select>
+            </Select>
             {!optsLoaded && <p className="mt-1 text-xs text-slate-400">Checking which stages are valid for the selected filters…</p>}
           </div>
 
@@ -142,13 +142,12 @@ export function BulkStatusUpdatePanel({
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Cleaning Reason <span className="text-red-500">*</span></label>
-                <select value={reasonKey} onChange={e => setReasonKey(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+                <Select value={reasonKey} onChange={e => setReasonKey(e.target.value)}>
                   <option value="" disabled>Select reason…</option>
                   {reasons.map(r => (
                     <option key={r.key} value={r.key}>{r.name}</option>
                   ))}
-                </select>
+                </Select>
                 {reasons.length === 0 && (
                   <p className="mt-1 text-xs text-slate-400">No cleaning reasons configured for this block's profile.</p>
                 )}

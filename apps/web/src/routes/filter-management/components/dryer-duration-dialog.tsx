@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Select } from '@/components/ui/select';
 
 const DURATION_OPTIONS = [5, 10, 15, 30, 45, 60, 90, 120, 180, 240];
 
@@ -31,16 +32,15 @@ export function DryerDurationDialog({ open, filterName, loading, error, onClose,
         <div className="p-5 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Duration</label>
-            <select
+            <Select
               value={minutes}
               onChange={(e) => setMinutes(Number(e.target.value))}
-              className="w-full rounded border border-slate-300 px-3 py-2 text-slate-800 focus:border-brand-600 focus:outline-none"
               disabled={loading}
             >
               {DURATION_OPTIONS.map((m) => (
                 <option key={m} value={m}>{formatDuration(m)}</option>
               ))}
-            </select>
+            </Select>
             <p className="mt-2 text-xs text-slate-500">
               Temperature readings can be entered after half the duration has elapsed.
             </p>

@@ -46,6 +46,8 @@ import { pendingWorkflowSteps } from './filter-list/lib/pending-workflow-steps';
 import { findMissingRequiredAttributes } from './filter-list/lib/validate-template-attributes';
 import { apiUrl } from '@/lib/url-utils';
 import { downloadName } from '@/lib/download-name';
+import { PageHeader } from '@/components/ui/page-header';
+import { Input } from '@/components/ui/input';
 
 // Filter creation workflow (2026-09-04). A filter that has not been APPROVED
 // exists and is listed, but CANNOT be operated — so it has to be visibly
@@ -1629,31 +1631,22 @@ export function FilterListPage() {
     <div className="py-6 space-y-6 -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4">
 
       {/* ── Page Header ── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          {selectedBlock && (
+      <PageHeader
+        title={selectedBlock ? selectedBlockName : 'Filter Management'}
+        subtitle={selectedBlock
+          ? `${blockFilters.length} filter(s) in this block`
+          : `${enrichedFilters.length} filters across ${blocks.length} blocks`
+        }
+        back={selectedBlock && (
             <button onClick={() => { setSelectedBlock(null); setBlockTab('view'); setSelectedFilterIds(new Set()); setDiagramFilter(null); }}
               className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-          )}
-          <div>
-            <h1 className="text-xl font-bold text-slate-800">
-              {selectedBlock ? selectedBlockName : 'Filter Management'}
-            </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              {selectedBlock
-                ? `${blockFilters.length} filter(s) in this block`
-                : `${enrichedFilters.length} filters across ${blocks.length} blocks`
-              }
-            </p>
-          </div>
-        </div>
-
-        {/* Tab toggle when block is selected */}
-        {selectedBlock && (
+        )}
+        actions={selectedBlock && (
+          // Tab toggle when block is selected
           <div className="flex items-center bg-slate-100 rounded-lg p-1">
             <button onClick={() => { setBlockTab('view'); setDiagramFilter(null); }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-semibold transition-all ${
@@ -1679,7 +1672,7 @@ export function FilterListPage() {
             </button>
           </div>
         )}
-      </div>
+      />
 
       {/* ── Summary Stats (block list screen only) ── */}
       {!selectedBlock && !isLoading && blocks.length > 0 && (
@@ -1828,12 +1821,12 @@ export function FilterListPage() {
                 <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
                 </svg>
-                <input
+                <Input
                   type="text"
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                   placeholder="Search filters…"
-                  className="w-56 pl-9 pr-8 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-3 focus:ring-[var(--theme-focus-ring)] focus:border-[var(--theme-primary)]"
+                  className="w-56 h-9 pl-9 pr-8"
                 />
                 {search && (
                   <button onClick={() => { setSearch(''); setPage(1); }} title="Clear search"
@@ -1986,9 +1979,9 @@ export function FilterListPage() {
                   const showAreaColumn = scope === null || scope === 'block';
                   const showAhuColumn  = scope === null || scope === 'block' || scope === 'area';
                   return (
-                <table className="w-full">
-                  <thead className="sticky top-0 z-20">
-                    <tr className="bg-slate-50 border-b border-slate-200 [&>th]:bg-slate-50 [&>th]:whitespace-nowrap [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-20 bg-slate-50">
+                    <tr className="[&>th]:h-10 [&>th]:bg-slate-50 [&>th]:whitespace-nowrap [&>th]:text-xs [&>th]:font-semibold [&>th]:text-slate-600">
                       <th className="w-10 px-2 py-2">
                         <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
                           className="w-4 h-4 rounded border-slate-300 text-[var(--theme-primary)] focus:ring-[var(--theme-focus-ring)] cursor-pointer" />
@@ -2014,7 +2007,7 @@ export function FilterListPage() {
                       <th className="text-right px-2 py-2">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody>
                     {paginatedFilters.map((f, idx) => {
                       const stateInfo = STATUS_LABELS[f.currentState ?? ''] ?? { label: f.currentState?.replace(/_/g, ' ') ?? 'To Be Cleaned', color: 'bg-slate-100 text-slate-500 border-slate-300' };
                       const tags = (identifiersByAsset.get(f.id) ?? []).filter((i: any) => i.identifierType === 'RFID');
@@ -2024,7 +2017,7 @@ export function FilterListPage() {
                       // shows details + its next step only. See workflow-row-actions.ts.
                       const wf = workflowRowActions(f.approvalStatus, wfPerms, { isRetired });
                       return (
-                        <tr key={f.id} className={`transition-colors [&>td]:whitespace-nowrap ${isSelected ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50/50'}`}>
+                        <tr key={f.id} className={`transition-colors [&>td]:whitespace-nowrap ${isSelected ? 'bg-[var(--theme-primary-light)]' : 'hover:bg-slate-50'}`}>
                           <td className="w-10 px-2 py-2">
                             {wf.selectable ? (
                               <input type="checkbox" checked={isSelected} onChange={() => toggleFilterSelect(f.id)}
@@ -2061,7 +2054,7 @@ export function FilterListPage() {
                             {APPROVAL_BADGE[f.approvalStatus] && (
                               <div className="mt-1 ml-4 flex items-center gap-1.5">
                                 <span title={APPROVAL_BADGE[f.approvalStatus].title}
-                                  className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[f.approvalStatus].cls}`}>
+                                  className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold border ${APPROVAL_BADGE[f.approvalStatus].cls}`}>
                                   {APPROVAL_BADGE[f.approvalStatus].label}
                                 </span>
                                 {/* The viewer's workflow step sits right beside the

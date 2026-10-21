@@ -64,7 +64,7 @@ export function RfidTagPanel({
                     </svg>
                     <div>
                       <div className="text-sm font-bold font-mono" style={{ color: 'var(--theme-primary-dark)' }}>{tag.identifierValue}</div>
-                      <div className="text-[10px] text-theme-primary">RFID Tag</div>
+                      <div className="text-[11px] text-theme-primary">RFID Tag</div>
                     </div>
                   </div>
                   <button onClick={() => onUnassign(tag.id)} disabled={submitting}
@@ -81,7 +81,7 @@ export function RfidTagPanel({
                     </svg>
                     <div>
                       <div className="text-sm font-medium text-slate-700">{tag.identifierValue}</div>
-                      <div className="text-[10px] text-slate-400">{tag.identifierType}{tag.label ? ` — ${tag.label}` : ''}</div>
+                      <div className="text-[11px] text-slate-400">{tag.identifierType}{tag.label ? ` — ${tag.label}` : ''}</div>
                     </div>
                   </div>
                   <button onClick={() => onUnassign(tag.id)} disabled={submitting}

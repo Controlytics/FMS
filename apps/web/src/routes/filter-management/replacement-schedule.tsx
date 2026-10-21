@@ -14,9 +14,9 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { UploadValidationResult } from '@/components/upload-validation-result';
 import { Pagination } from '@/components/ui/pagination';
-import { themeButton } from '@/lib/theme-styles';
 import { apiUrl } from '@/lib/url-utils';
 import { downloadName } from '@/lib/download-name';
+import { PageHeader } from '@/components/ui/page-header';
 
 // Show "NA" when a value wasn't entered (null/empty/whitespace) or was a stray
 // "[object Object]" from a non-text spreadsheet cell.
@@ -46,7 +46,7 @@ function AhuFiltersRow({ ahuId, identMap }: { ahuId: string; identMap: Map<strin
             const rfid = (identMap.get(f.id) ?? []).join(', ');
             return (
               <tr key={f.id} className="[&>td]:px-2 [&>td]:py-1 text-slate-600">
-                <td className="font-medium text-slate-800">{f.name}{f.filterSet ? <span className="ml-1.5 text-[10px] font-semibold text-indigo-500">Set {String(f.filterSet).replace('SET_', '')}</span> : null}</td>
+                <td className="font-medium text-slate-800">{f.name}{f.filterSet ? <span className="ml-1.5 text-[11px] font-semibold text-indigo-500">Set {String(f.filterSet).replace('SET_', '')}</span> : null}</td>
                 <td className="font-mono text-slate-500">{rfid || '—'}</td>
                 <td>{naText(attrs.micronSize)}</td>
                 <td>{naText(attrs.filterSize)}</td>
@@ -338,12 +338,10 @@ export function ReplacementSchedulePage() {
   return (
     <div className="py-6 space-y-6 -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800">Replacement Schedule</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{allEntries.length} scheduled replacement(s)</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Replacement Schedule"
+        subtitle={<>{allEntries.length} scheduled replacement(s)</>}
+        actions={<>
           <ExportMenu surface="replacement" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={exporting}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-sm transition-all disabled:opacity-50" />
           <SendForReviewButton buildSnapshot={buildReplacementSnapshot}
@@ -355,13 +353,13 @@ export function ReplacementSchedulePage() {
           </button>
           {canUpload && (
             <button onClick={openDialog}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-white rounded-lg text-xs font-semibold shadow-sm hover:shadow-md transition-all" style={themeButton}>
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-white bg-brand-600 hover:bg-brand-700 rounded-lg text-xs font-semibold shadow-xs transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
               Upload Schedule
             </button>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
       {/* List */}
       {isLoading ? (
@@ -559,7 +557,7 @@ export function ReplacementSchedulePage() {
               <button onClick={closeDialog} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">{step === 'results' ? 'Close' : 'Cancel'}</button>
               {step === 'preview' && (
                 <button onClick={submit} disabled={errorRows.length > 0}
-                  className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed" style={themeButton}>
+                  className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed">
                   Upload {rows.length} row(s)
                 </button>
               )}

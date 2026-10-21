@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 function OptionButtons({ options, value, onChange, colorFn }: {
   options: string[];
@@ -130,18 +132,16 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
         return <OptionButtons options={['Pass', 'Fail']} value={value} onChange={onChange} colorFn={(opt, sel) => sel ? (opt === 'Pass' ? 'bg-green-600 text-white' : 'bg-red-600 text-white') : 'bg-slate-100 text-slate-600 hover:bg-slate-200'} />;
       case 'NUMERIC':
         return (
-          <input type="number" value={value} onChange={e => onChange(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none" placeholder="Enter value" />
+          <Input type="number" value={value} onChange={e => onChange(e.target.value)} placeholder="Enter value" />
         );
       case 'DROPDOWN':
         return (
-          <select value={value} onChange={e => onChange(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-brand-600 outline-none">
+          <Select value={value} onChange={e => onChange(e.target.value)}>
             <option value="">Select...</option>
             {(Array.isArray(q.options) ? q.options : []).map((opt: any, i: number) => (
               <option key={i} value={typeof opt === 'string' ? opt : opt.value}>{typeof opt === 'string' ? opt : opt.label}</option>
             ))}
-          </select>
+          </Select>
         );
       case 'MULTI_SELECT':
         return (
