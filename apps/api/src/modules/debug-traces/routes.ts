@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { auditVisibilityScope } from '../../lib/audit-visibility.js';
+import { parseRangeEnd } from '../../lib/date-range-guard.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { auditLog } from '../../lib/audit.js';
 
@@ -110,9 +111,21 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
       ];
     }
     if (q.from || q.to) {
+      // 2026-10-21: a bare yyyy-mm-dd `to` parsed to that day's midnight, so a
+      // single-day range (which the date-range guard accepts) dropped the whole
+      // day. parseRangeEnd is the shared end-of-day rule. An unparseable bound
+      // is the caller's mistake: a clean 400, not an Invalid Date into Prisma.
       const ts: Record<string, Date> = {};
-      if (q.from) ts.gte = new Date(q.from);
-      if (q.to) ts.lte = new Date(q.to);
+      if (q.from) {
+        const start = new Date(q.from);
+        if (Number.isNaN(start.getTime())) throw new AppError(400, 'INVALID_DATE', '"from" is not a valid date.');
+        ts.gte = start;
+      }
+      if (q.to) {
+        const end = parseRangeEnd(q.to);
+        if (!end) throw new AppError(400, 'INVALID_DATE', '"to" is not a valid date.');
+        ts.lte = end;
+      }
       where.timestamp = ts;
     }
 

@@ -6,7 +6,7 @@
  */
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
-import { auditLog } from '../../lib/audit.js';
+import { auditLog, type AuditTx } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { getLogger } from '../../lib/logger.js';
@@ -107,24 +107,30 @@ export const reportReviewService = {
       throw new AppError(400, 'INVALID_INPUT', 'reportType, title and dataSnapshot are required.');
     }
     const assignee = requireOneAssignee(input.assigneeUserId, input.assigneeRole);
-    const row = await prisma.reportReview.create({
-      data: {
-        reportType: input.reportType,
-        title: input.title.slice(0, 500),
-        subtitle: input.subtitle?.slice(0, 1000) ?? null,
-        dataSnapshot: input.dataSnapshot as any,
-        status: 'PENDING_REVIEW',
-        generatedBy: ctx.userSub,
-        generatedByName: ctx.userId,
-        ...assignee,
-      },
-    });
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'REPORT_REVIEW_SUBMITTED',
-      targetType: 'report_review', targetId: row.id,
-      afterValue: { reportType: row.reportType, title: row.title, assignee },
-      signatureMeaning: `Report "${row.title}" submitted for review`,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // The row and its signature audit row commit together (2026-10-21): when the
+    // audit write failed, the report used to stay behind - PENDING_REVIEW, in
+    // every queue, with no record of who submitted it - while the caller saw 400.
+    const row = await prisma.$transaction(async (tx) => {
+      const created = await tx.reportReview.create({
+        data: {
+          reportType: input.reportType,
+          title: input.title.slice(0, 500),
+          subtitle: input.subtitle?.slice(0, 1000) ?? null,
+          dataSnapshot: input.dataSnapshot as any,
+          status: 'PENDING_REVIEW',
+          generatedBy: ctx.userSub,
+          generatedByName: ctx.userId,
+          ...assignee,
+        },
+      });
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole, action: 'REPORT_REVIEW_SUBMITTED',
+        targetType: 'report_review', targetId: created.id,
+        afterValue: { reportType: created.reportType, title: created.title, assignee },
+        signatureMeaning: signatureFor(created.title, 'submitted for review'),
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return created;
     });
     await notifyAssignee(row, 'REPORT_REVIEW_REQUESTED', 'Report awaiting your review', `"${row.title}" was sent to you for review by ${ctx.userId}.`, ctx.userId);
     return row;
@@ -181,8 +187,8 @@ export const reportReviewService = {
    * updateMany doesn't return the row, so re-read it for the audit/notify step —
    * safe, because the status is now terminal for this transition.
    */
-  async decideIfStill(id: string, expected: 'PENDING_REVIEW' | 'PENDING_APPROVAL', data: Record<string, unknown>) {
-    const { count } = await prisma.reportReview.updateMany({
+  async decideIfStill(id: string, expected: 'PENDING_REVIEW' | 'PENDING_APPROVAL', data: Record<string, unknown>, client: ReviewClient = prisma) {
+    const { count } = await client.reportReview.updateMany({
       where: { id, status: expected as any },
       data: data as any,
     });
@@ -190,9 +196,27 @@ export const reportReviewService = {
       throw new AppError(409, 'CONCURRENT_DECISION',
         'Someone else decided this report while you were deciding. Reload to see the current status.');
     }
-    const row = await prisma.reportReview.findUnique({ where: { id } });
+    const row = await client.reportReview.findUnique({ where: { id } });
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Report review not found');
     return row;
+  },
+
+  /**
+   * Apply a decision AND write its signature audit row in ONE transaction
+   * (2026-10-21). They used to be two commits: when the audit insert failed
+   * (a long title overflowed signature_meaning) the decision stayed applied -
+   * REJECTED / APPROVED with no record of who signed it - while the caller got
+   * an error and a retry hit INVALID_STATUS.
+   */
+  async decideAndSign(
+    ctx: RequestContext, id: string, expected: 'PENDING_REVIEW' | 'PENDING_APPROVAL',
+    data: Record<string, unknown>, action: string, meaning: string,
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const updated = await this.decideIfStill(id, expected, data, tx);
+      await this.audit(ctx, updated, action, meaning, tx);
+      return updated;
+    });
   },
 
   /** Stage 2 — reviewer approves (→ PENDING_APPROVAL, assigns the approver) or rejects. */
@@ -208,21 +232,19 @@ export const reportReviewService = {
 
     if (action === 'reject') {
       if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 chars).');
-      const updated = await this.decideIfStill(id, 'PENDING_REVIEW', {
+      const updated = await this.decideAndSign(ctx, id, 'PENDING_REVIEW', {
         status: 'REJECTED', rejectionStage: 'REVIEW', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
         reviewRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
-      });
-      await this.audit(ctx, updated, 'REPORT_REVIEW_REJECTED', `Report "${row.title}" rejected at review`);
+      }, 'REPORT_REVIEW_REJECTED', signatureFor(row.title, 'rejected at review'));
       await notifySubmitter(updated, 'REPORT_REVIEW_REJECTED', 'Report rejected at review', `"${row.title}" was rejected at review by ${ctx.userId}.`, ctx.userId);
       return updated;
     }
     // approve → move to approval stage, assign approver
     const assignee = requireOneAssignee(nextUserId, nextRole);
-    const updated = await this.decideIfStill(id, 'PENDING_REVIEW', {
+    const updated = await this.decideAndSign(ctx, id, 'PENDING_REVIEW', {
       status: 'PENDING_APPROVAL', reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(),
       reviewRemarks: remarks?.trim() || null, ...assignee,
-    });
-    await this.audit(ctx, updated, 'REPORT_REVIEW_REVIEWED', `Report "${row.title}" reviewed (sent for approval)`);
+    }, 'REPORT_REVIEW_REVIEWED', signatureFor(row.title, 'reviewed (sent for approval)'));
     await notifyAssignee(updated, 'REPORT_REVIEW_REQUESTED', 'Report awaiting your approval', `"${row.title}" was reviewed by ${ctx.userId} and needs your approval.`, ctx.userId);
     return updated;
   },
@@ -240,33 +262,46 @@ export const reportReviewService = {
 
     if (action === 'reject') {
       if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 chars).');
-      const updated = await this.decideIfStill(id, 'PENDING_APPROVAL', {
+      const updated = await this.decideAndSign(ctx, id, 'PENDING_APPROVAL', {
         status: 'REJECTED', rejectionStage: 'APPROVAL', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
         approvalRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
-      });
-      await this.audit(ctx, updated, 'REPORT_REVIEW_REJECTED', `Report "${row.title}" rejected at approval`);
+      }, 'REPORT_REVIEW_REJECTED', signatureFor(row.title, 'rejected at approval'));
       await notifySubmitter(updated, 'REPORT_REVIEW_REJECTED', 'Report rejected at approval', `"${row.title}" was rejected at approval by ${ctx.userId}.`, ctx.userId);
       return updated;
     }
-    const updated = await this.decideIfStill(id, 'PENDING_APPROVAL', {
+    const updated = await this.decideAndSign(ctx, id, 'PENDING_APPROVAL', {
       status: 'APPROVED', approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(),
       approvalRemarks: remarks?.trim() || null, assigneeUserId: null, assigneeRole: null,
-    });
-    await this.audit(ctx, updated, 'REPORT_REVIEW_APPROVED', `Report "${row.title}" approved`);
+    }, 'REPORT_REVIEW_APPROVED', signatureFor(row.title, 'approved'));
     await notifySubmitter(updated, 'REPORT_REVIEW_APPROVED', 'Report approved', `"${row.title}" was approved by ${ctx.userId}.`, ctx.userId);
     return updated;
   },
 
-  async audit(ctx: RequestContext, row: { id: string; status: string; title?: string; reviewRemarks?: string | null; approvalRemarks?: string | null }, action: string, meaning: string) {
+  async audit(ctx: RequestContext, row: { id: string; status: string; title?: string; reviewRemarks?: string | null; approvalRemarks?: string | null }, action: string, meaning: string, tx?: AuditTx) {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action,
       targetType: 'report_review', targetId: row.id,
       // Audit 2026-09-24: the decider's remarks were persisted on the row but absent from the signature record.
       afterValue: { status: row.status, title: row.title ?? null, reviewRemarks: row.reviewRemarks ?? null, approvalRemarks: row.approvalRemarks ?? null },
       signatureMeaning: meaning, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
-    });
+    }, tx);
   },
 };
+
+/** The client `decideIfStill` writes through: the global one or a transaction's. */
+type ReviewClient = Pick<typeof prisma, 'reportReview'>;
+
+/**
+ * audit_trail.signature_meaning is varchar(255) and a report title may be 500
+ * characters, so the title is shortened INSIDE the signature text only (the full
+ * title stays in the row and in the audit row's afterValue). 200 leaves room for
+ * the longest wording - `Report "…" rejected at approval` is 30 characters.
+ */
+const MAX_TITLE_IN_SIGNATURE = 200;
+export function signatureFor(title: string, what: string): string {
+  const t = title.length > MAX_TITLE_IN_SIGNATURE ? `${title.slice(0, MAX_TITLE_IN_SIGNATURE - 1)}…` : title;
+  return `Report "${t}" ${what}`;
+}
 
 const SUMMARY_SELECT = {
   id: true, reportType: true, title: true, subtitle: true, status: true,

@@ -15,6 +15,7 @@
  *      Assigned row must never re-assign a tag that was removed later.
  */
 import { ConflictError } from '../../lib/errors.js';
+import { canonicalRfidValue } from '../../lib/rfid-canonical.js';
 
 export const RFID_EVENT_ACTIONS = ['ASSET_IDENTIFIER_CREATED', 'ASSET_IDENTIFIER_DELETED'] as const;
 export type RfidEvent = 'ASSIGN' | 'REMOVE';
@@ -78,7 +79,10 @@ export function planRfidEventEdit(row: RfidEventRow, changes: RfidEventChanges):
   const oldAssetId = (payload.assetId as string | undefined) ?? null;
 
   const newEvent = changes.event ?? oldEvent;
-  const newValue = (changes.rfidNumber !== undefined ? changes.rfidNumber.trim() : oldValue) || oldValue;
+  // A-11 (2026-10-21): the canonical form every other RFID write stores since
+  // 10-19 (trim, upper-case, doubled / tripled EPC read collapsed) - a typed
+  // `ca0001` must name the same live tag as the stored `CA0001`.
+  const newValue = (changes.rfidNumber !== undefined ? canonicalRfidValue(changes.rfidNumber) : oldValue) || oldValue;
   const newAssetId = changes.filterId !== undefined ? changes.filterId : oldAssetId;
 
   // Carry every stored key (identifier id, label, isPrimary, createdAt...) and

@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { readSuperAdminApiEnabledUncached, setSuperAdminApiEnabled } from '../../lib/super-admin-lock.js';
 import { auditLog, type AuditTx } from '../../lib/audit.js';
-import { requireDataEditReauth, reasonSchemaProps, readChangeReason, auditManualChange } from './manual-change.js';
+import { requireDataEditReauth, reasonSchemaProps, readChangeReason, auditManualChange, sanitizeSnapshot } from './manual-change.js';
 import recordEditRoutes from './record-edit-routes.js';
 import { computeChecksum } from '../filter-operations/helpers.js';
 import { assertSeparation } from '../pm-schedules/pm-separation-guard.js';
@@ -209,12 +209,27 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (!filter) return reply.code(404).send({ error: 'NOT_FOUND', message: 'Retired filter not found' });
     const beforeDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { filterSet: true } });
 
-    let chainBroken = false;
+    // 2026-10-21: EVERY input is validated before the first write, and every
+    // write - the FILTER_RETIRED row rewrite, its meta-audit row, the sidecar,
+    // the asset row and the MANUAL_RECORD_UPDATED row - commits in ONE
+    // transaction. Before, the audit-row rewrite committed on its own and an
+    // unparseable `updatedAt` then failed the asset update: the operator got a
+    // 400 while a chain-breaking edit of the §11 retirement row had landed.
+    const data: any = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.attributes !== undefined) data.attributes = body.attributes;
+    if (body.updatedAt !== undefined) {
+      const d = new Date(body.updatedAt);
+      if (Number.isNaN(d.getTime())) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'updatedAt must be a valid date-time' });
+      data.updatedAt = d;
+    }
+
+    let retireRow: Awaited<ReturnType<typeof prisma.auditTrail.findFirst>> = null;
+    const rowData: any = {};
     if (body.retiredAt !== undefined || body.retiredBy !== undefined || body.remarks !== undefined) {
       // getRetirements() joins the LATEST FILTER_RETIRED row per filter; edit that one.
-      const retireRow = await prisma.auditTrail.findFirst({ where: { action: 'FILTER_RETIRED', targetId: id }, orderBy: { timestamp: 'desc' } });
+      retireRow = await prisma.auditTrail.findFirst({ where: { action: 'FILTER_RETIRED', targetId: id }, orderBy: { timestamp: 'desc' } });
       if (!retireRow) return reply.code(404).send({ error: 'NOT_FOUND', message: 'No FILTER_RETIRED audit row for this filter - nothing carries its date, performer or remarks' });
-      const rowData: any = {};
       if (body.retiredAt !== undefined) {
         const d = new Date(body.retiredAt);
         if (Number.isNaN(d.getTime())) return reply.code(400).send({ error: 'INVALID_VALUE', message: 'retiredAt must be a valid date-time' });
@@ -223,16 +238,21 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       if (body.retiredBy !== undefined) {
         const u = await prisma.user.findUnique({ where: { username: body.retiredBy }, select: { id: true, username: true } });
         if (!u) return reply.code(404).send({ error: 'NOT_FOUND', message: `User "${body.retiredBy}" not found` });
-        rowData.userId = u.id; rowData.userName = u.username;
+        // Username in the actor column, as retire() writes it (compliance F3).
+        rowData.userId = u.username; rowData.userName = u.username;
       }
       if (body.remarks !== undefined) rowData.afterValue = { ...((retireRow.afterValue as any) ?? {}), remarks: body.remarks?.trim() || null };
-      const actor = req.user as any;
-      await prisma.$transaction(async (tx) => {
-        // Same contract as the replacement edit below: meta-audit row FIRST, in
-        // the same transaction, preserving the original values; no checksum
-        // recompute - the break stays visible in verify-chain by design.
+    }
+    const chainBroken = retireRow !== null;
+
+    const actor = req.user as any;
+    const updated = await prisma.$transaction(async (tx) => {
+      if (retireRow) {
+        // Same contract as the replacement edit below: meta-audit row FIRST,
+        // preserving the original values; no checksum recompute - the break
+        // stays visible in verify-chain by design.
         await auditLog({
-          userId: actor?.sub, userName: actor?.username, userRole: actor?.role,
+          userId: actor?.username, userName: actor?.username, userRole: actor?.role, // username, not uuid (compliance F3)
           action: 'AUDIT_RECORD_UPDATED', targetType: 'audit_trail', targetId: retireRow.id,
           beforeValue: { timestamp: retireRow.timestamp, userId: retireRow.userId, userName: retireRow.userName, afterValue: retireRow.afterValue, action: retireRow.action },
           afterValue: { timestamp: rowData.timestamp ?? retireRow.timestamp, userId: rowData.userId ?? retireRow.userId, userName: rowData.userName ?? retireRow.userName, afterValue: rowData.afterValue ?? retireRow.afterValue },
@@ -241,33 +261,27 @@ export default async function superAdminRoutes(app: FastifyInstance) {
           ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: actor?.sessionId,
         }, tx);
         await tx.auditTrail.update({ where: { id: retireRow.id }, data: rowData });
-      });
-      chainBroken = true;
-    }
-
-    const data: any = {};
-    if (body.name !== undefined) data.name = body.name;
-    if (body.attributes !== undefined) data.attributes = body.attributes;
-    if (body.updatedAt !== undefined) data.updatedAt = new Date(body.updatedAt);
-
-    // filterSet now lives on FilterDetails (Step 6) â€” route to the sidecar.
-    if (body.filterSet !== undefined) {
-      await prisma.filterDetails.upsert({
-        where: { assetInstanceId: id },
-        update: { filterSet: body.filterSet || null },
-        create: { assetInstanceId: id, filterSet: body.filterSet || null },
-      });
-    }
-    const updated = Object.keys(data).length > 0
-      ? await prisma.assetInstance.update({ where: { id }, data })
-      : await prisma.assetInstance.findUnique({ where: { id } });
-    // filterSet lives on the sidecar, so it is captured separately on both
-    // sides - otherwise a filterSet-only edit would audit as a no-op.
-    await auditManualChange(req, {
-      verb: 'UPDATED', targetType: 'retired_filter', targetId: id, label: 'Retired filter', reason,
-      before: { ...filter, filterSet: beforeDetails?.filterSet ?? null },
-      after: { ...(updated as object), filterSet: body.filterSet !== undefined ? (body.filterSet || null) : (beforeDetails?.filterSet ?? null) },
-      ...(chainBroken ? { sideEffects: { retirementAuditRowEdited: true } } : {}),
+      }
+      // filterSet now lives on FilterDetails (Step 6) - route to the sidecar.
+      if (body.filterSet !== undefined) {
+        await tx.filterDetails.upsert({
+          where: { assetInstanceId: id },
+          update: { filterSet: body.filterSet || null },
+          create: { assetInstanceId: id, filterSet: body.filterSet || null },
+        });
+      }
+      const u = Object.keys(data).length > 0
+        ? await tx.assetInstance.update({ where: { id }, data })
+        : await tx.assetInstance.findUnique({ where: { id } });
+      // filterSet lives on the sidecar, so it is captured separately on both
+      // sides - otherwise a filterSet-only edit would audit as a no-op.
+      await auditManualChange(req, {
+        verb: 'UPDATED', targetType: 'retired_filter', targetId: id, label: 'Retired filter', reason,
+        before: { ...filter, filterSet: beforeDetails?.filterSet ?? null },
+        after: { ...(u as object), filterSet: body.filterSet !== undefined ? (body.filterSet || null) : (beforeDetails?.filterSet ?? null) },
+        ...(chainBroken ? { sideEffects: { retirementAuditRowEdited: true } } : {}),
+      }, tx);
+      return u;
     });
     return { ...(updated as object), chainBroken };
   });
@@ -354,7 +368,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       // half. Written with the same action the workflow emits so the Retirement
       // List, the lifecycle report and the audit page all read it unchanged.
       await auditLog({
-        userId: (req.user as any)?.sub,
+        userId: (req.user as any)?.username, // username, not uuid (compliance F3)
         userName: body.performedBy || (req.user as any)?.username,
         userRole: (req.user as any)?.role,
         action: 'FILTER_RETIRED',
@@ -630,8 +644,11 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (body.performedBy !== undefined) data.userName = body.performedBy;
     if (body.replacedAt !== undefined) data.timestamp = new Date(body.replacedAt);
 
-    // Update fields stored in afterValue JSON
-    const afterVal = (record.afterValue as any) ?? {};
+    // Update fields stored in afterValue JSON. A COPY: mutating
+    // `record.afterValue` in place made the meta-audit row below record the
+    // edited values as the "before" (2026-10-21) - and that row is the only
+    // surviving record of the originals once this row is rewritten.
+    const afterVal = { ...((record.afterValue as any) ?? {}) };
     let afterChanged = false;
     for (const key of ['remarks', 'oldFilterId', 'oldFilterName', 'newFilterId', 'newFilterName']) {
       if (body[key] !== undefined) { afterVal[key] = body[key]; afterChanged = true; }
@@ -654,7 +671,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     // FIRST, in the same transaction - preserves the original field values.
     await prisma.$transaction(async (tx) => {
       await auditLog({
-        userId: (req.user as any)?.sub,
+        userId: (req.user as any)?.username, // username, not uuid (compliance F3)
         userName: (req.user as any)?.username,
         userRole: (req.user as any)?.role,
         action: 'AUDIT_RECORD_UPDATED',
@@ -720,7 +737,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     // expects to see it.
     await prisma.$transaction(async (tx) => {
     await auditLog({
-      userId: (req.user as any)?.sub,
+      userId: (req.user as any)?.username, // username, not uuid (compliance F3)
       // getReplacements() renders `performedBy` from userName, so an operator
       // recording someone else's replacement can name them here.
       userName: body.performedBy || (req.user as any)?.username,
@@ -778,7 +795,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
 
     await prisma.$transaction(async (tx) => {
       await auditLog({
-        userId: (req.user as any)?.sub,
+        userId: (req.user as any)?.username, // username, not uuid (compliance F3)
         userName: (req.user as any)?.username,
         userRole: (req.user as any)?.role,
         action: 'AUDIT_RECORD_DELETED',
@@ -1173,7 +1190,10 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   // dedicated REDACT path (Wave 4 Â§C1 â€” preserves chain links, NULLs
   // payload, requires reauth + meta-audit).
   app.get('/data/audit-trail', { preHandler: dataPreHandler, schema: dataSchema('List audit trail entries') }, async (req) => {
-    return paginatedList(prisma.auditTrail, req.query, { timestamp: 'desc' });
+    // `chainPosition` is a BIGSERIAL (BigInt), which JSON cannot carry: the raw
+    // rows made every call a 500 (2026-10-21). sanitizeSnapshot turns it into
+    // an exact decimal string - a JS number would round past 2^53.
+    return sanitizeSnapshot(await paginatedList(prisma.auditTrail, req.query, { timestamp: 'desc' }));
   });
 
   // â”€â”€â”€ Notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

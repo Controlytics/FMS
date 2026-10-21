@@ -20,6 +20,7 @@ import { identifierService } from '../assets/services/identifier.service.js';
 import { instanceService } from '../assets/services/instance.service.js';
 import { requireDataEditReauth, reasonSchemaProps, readChangeReason, auditManualChange, sanitizeSnapshot } from './manual-change.js';
 import { RFID_EVENT_ACTIONS, decideLiveTag, planRfidEventEdit, type RfidEventRow } from './rfid-event-edit.js';
+import { canonicalRfidValue, sameRfidValue } from '../../lib/rfid-canonical.js';
 
 const LIFECYCLE_STATES = ['INSTALLED', 'WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT', 'IN_USE', 'CLEANING_CYCLE_COMPLETED'] as const;
 
@@ -214,11 +215,25 @@ export default async function recordEditRoutes(app: FastifyInstance) {
     // Validate everything that CAN be validated up front, so the later
     // sequential writes (each service owns its own transaction) fail before
     // anything is changed rather than half-way through.
+    //
+    // 2026-10-21: that included the name / field values only in a comment - the
+    // field service's own checks (name required, unique among active filters,
+    // configured option lists) ran in step 2, AFTER step 1 had committed the
+    // lifecycle move, its stage event and its audit row. Same checks, here.
+    const fieldInput: Record<string, unknown> = {};
+    for (const k of ['name', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate']) {
+      if (body[k] !== undefined) fieldInput[k] = body[k];
+    }
+    if (body.filterSet === 'A' || body.filterSet === 'B') fieldInput.filterSet = body.filterSet;
+    if (Object.keys(fieldInput).length > 0) await filterService.validateUpdate(id, fieldInput as any);
     if (body.ahuId !== undefined && body.ahuId !== before.ahuId) {
       const ahu = await prisma.ahu.findFirst({ where: { id: body.ahuId, isActive: true }, select: { id: true } });
       if (!ahu) throw new ValidationError('Target AHU not found or inactive');
     }
-    const rfidNext: string | undefined = body.rfidNumber !== undefined ? String(body.rfidNumber).trim() : undefined;
+    // A-11 (2026-10-21): canonical form, as stored - so the duplicate check and
+    // the "already on this filter" comparison below see the same value a scan
+    // would, and a lower-case retype of the current tag is not a remove/re-assign.
+    const rfidNext: string | undefined = body.rfidNumber !== undefined ? canonicalRfidValue(String(body.rfidNumber)) : undefined;
     if (rfidNext) {
       const holder = await prisma.assetIdentifier.findUnique({ where: { identifierValue: rfidNext }, select: { assetId: true } });
       if (holder && holder.assetId !== id) throw new ConflictError(`Tag ${rfidNext} is live on another filter - remove it there first.`, 'DUPLICATE_IDENTIFIER_VALUE');
@@ -239,11 +254,6 @@ export default async function recordEditRoutes(app: FastifyInstance) {
 
     // 2. Name / field values / set - the typed filter service (validates the
     //    configured option lists, keeps the asset_instances mirror in step).
-    const fieldInput: Record<string, unknown> = {};
-    for (const k of ['name', 'ahuType', 'filterType', 'micronSize', 'filterSize', 'lastCleaningDate']) {
-      if (body[k] !== undefined) fieldInput[k] = body[k];
-    }
-    if (body.filterSet === 'A' || body.filterSet === 'B') fieldInput.filterSet = body.filterSet;
     if (Object.keys(fieldInput).length > 0) {
       await filterService.update(id, fieldInput as any, ctx, { allowInactive: true });
       applied.push(...Object.keys(fieldInput));
@@ -281,7 +291,7 @@ export default async function recordEditRoutes(app: FastifyInstance) {
     //    are written and the RFID Track Record shows the change.
     if (rfidNext !== undefined) {
       const current = await prisma.assetIdentifier.findMany({ where: { assetId: id, identifierType: 'RFID' } });
-      const already = current.some(t => t.identifierValue === rfidNext);
+      const already = current.some(t => sameRfidValue(t.identifierValue, rfidNext));
       if (rfidNext === '' || !already) {
         for (const t of current) await identifierService.delete(t.id, ctx, reason);
         if (rfidNext !== '') {

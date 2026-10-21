@@ -6,7 +6,21 @@ import os from 'node:os';
 import { prisma } from '../../lib/prisma.js';
 import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
 import { getReauthHealth } from '../../lib/reauth-check.js';
+import { getLogger } from '../../lib/logger.js';
 // TimescaleDB + MQTT checks removed with data-ingestion removal.
+
+const deployLog = getLogger('deployment-check', 'application');
+
+/**
+ * A failed probe's raw error text (driver / fs messages carry host paths, table
+ * names, connection details) goes to the server error log ONLY; the response
+ * carries a fixed, coded detail (A-04, 2026-10-21 - only AppError messages may
+ * reach a client). Check names and PASS/WARN/FAIL statuses are unchanged.
+ */
+function failDetail(code: string, what: string, err: unknown, context: string): string {
+  deployLog.error({ err, code, check: context }, `Deployment check: ${what}`);
+  return `${code}: ${what}. Details are in the server error log.`;
+}
 // Phase 4 (2026-05-01): Redis fully retired from this codebase. The internal
 // pub/sub bus + RPC TTL cache moved in-process. ioredis dependency dropped.
 
@@ -49,14 +63,15 @@ async function runCheck(
       duration_ms: Date.now() - start,
       subChecks,
     };
-  } catch (err: any) {
+  } catch (err) {
+    const detail = failDetail('CHECK_FAILED', 'the check could not complete', err, `${category}/${name}`);
     return {
       category,
       name,
       status: 'FAIL',
       duration_ms: Date.now() - start,
-      details: err.message,
-      subChecks: [{ name: 'connection', status: 'FAIL', message: err.message }],
+      details: detail,
+      subChecks: [{ name: 'connection', status: 'FAIL', message: detail }],
     };
   }
 }
@@ -69,8 +84,8 @@ async function checkPostgresql(): Promise<SubCheck[]> {
   try {
     await prisma.$queryRaw`SELECT 1`;
     checks.push({ name: 'connection', status: 'PASS', message: 'Connected' });
-  } catch (e: any) {
-    checks.push({ name: 'connection', status: 'FAIL', message: e.message });
+  } catch (e) {
+    checks.push({ name: 'connection', status: 'FAIL', message: failDetail('DB_UNREACHABLE', 'the database could not be reached', e, 'database/connection') });
     return checks;
   }
 
@@ -150,8 +165,8 @@ async function checkPrismaModels(): Promise<SubCheck[]> {
     try {
       const count = await m.fn();
       checks.push({ name: `model_${m.name}`, status: 'PASS', found: String(count) });
-    } catch (e: any) {
-      checks.push({ name: `model_${m.name}`, status: 'FAIL', message: e.message });
+    } catch (e) {
+      checks.push({ name: `model_${m.name}`, status: 'FAIL', message: failDetail('MODEL_QUERY_FAILED', 'the table could not be read', e, `model/${m.name}`) });
     }
   }
 
@@ -258,8 +273,8 @@ function checkFilesystem(): SubCheck[] {
     try {
       fs.mkdirSync(uploadsDir, { recursive: true });
       checks.push({ name: 'uploads_directory', status: 'PASS', message: 'Created' });
-    } catch (e: any) {
-      checks.push({ name: 'uploads_directory', status: 'FAIL', message: `Cannot create: ${e.message}` });
+    } catch (e) {
+      checks.push({ name: 'uploads_directory', status: 'FAIL', message: failDetail('UPLOADS_CREATE_FAILED', 'the uploads directory could not be created', e, 'filesystem/uploads') });
       return checks;
     }
   } else {
@@ -426,8 +441,8 @@ async function checkConfigEntries(): Promise<SubCheck[]> {
     } else {
       checks.push({ name: 'reauth-policy', status: 'PASS', found: `${reauth.actionsConfigured} actions gated` });
     }
-  } catch (e: any) {
-    checks.push({ name: 'reauth-policy', status: 'WARN', message: `Could not read reauth config: ${e.message}` });
+  } catch (e) {
+    checks.push({ name: 'reauth-policy', status: 'WARN', message: failDetail('REAUTH_CONFIG_UNREADABLE', 'the re-auth policy could not be read', e, 'auth/reauth-policy') });
   }
 
   return checks;
@@ -462,7 +477,7 @@ const deploymentCheckRoutes: FastifyPluginAsync = async (app) => {
       const checks: CheckResult[] = results.map((r) =>
         r.status === 'fulfilled'
           ? r.value
-          : { category: 'unknown', name: 'unknown', status: 'FAIL' as const, duration_ms: 0, details: (r.reason as Error).message, subChecks: [] },
+          : { category: 'unknown', name: 'unknown', status: 'FAIL' as const, duration_ms: 0, details: failDetail('CHECK_FAILED', 'the check could not complete', r.reason, 'unknown'), subChecks: [] },
       );
 
       const passed = checks.filter((c) => c.status === 'PASS').length;

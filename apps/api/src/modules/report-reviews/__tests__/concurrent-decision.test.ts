@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockPrisma } = vi.hoisted(() => ({
-  mockPrisma: {
+const { mockPrisma } = vi.hoisted(() => {
+  const m: any = {
     reportReview: {
       findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),
@@ -9,8 +9,12 @@ const { mockPrisma } = vi.hoisted(() => ({
       updateMany: vi.fn(),
       create: vi.fn(),
     },
-  },
-}));
+  };
+  // A decision and its audit row run in one transaction (2026-10-21); the mock
+  // hands the callback the same client so the assertions below still apply.
+  m.$transaction = vi.fn(async (fn: (tx: any) => unknown) => fn(m));
+  return { mockPrisma: m };
+});
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: vi.fn().mockResolvedValue(undefined) }));

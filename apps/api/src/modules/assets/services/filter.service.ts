@@ -110,6 +110,25 @@ export const filterService = {
     return filter;
   },
 
+  /**
+   * Every input check `update()` makes, with no write. Exposed so a caller that
+   * performs OTHER writes before `update()` (the SUPER_ADMIN Filters-page edit,
+   * which moves the lifecycle state first) can refuse a bad name or field value
+   * before anything commits - and so both paths run the same rule (2026-10-21).
+   */
+  async validateUpdate(id: string, input: FilterFieldInput & { name?: string }) {
+    let name: string | undefined;
+    if (input.name !== undefined) {
+      name = input.name.trim();
+      if (!name) throw new ValidationError('Filter Name is required');
+      const dupe = await prisma.filter.findFirst({ where: { name: { equals: name, mode: 'insensitive' }, isActive: true, id: { not: id } }, select: { id: true } });
+      if (dupe) throw new ValidationError(`A filter with the name "${name}" already exists`);
+    }
+    const { attributes, errors } = await validateAndBuildFilterAttributes(input);
+    if (errors.length > 0) throw new ValidationError('One or more filter fields are invalid', errors as any);
+    return { name, attributes };
+  },
+
   // Typed-direct update (A-01 T2.3). Writes the typed `filters` table + the
   // FilterDetails sidecar; the reverse-mirror trigger keeps asset_instances in
   // sync. No asset-template / attributeSchema. Field-option values are
@@ -128,16 +147,8 @@ export const filterService = {
     const existingDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { filterSet: true } });
 
     const data: Record<string, unknown> = { updatedBy: ctx.userId };
-    if (input.name !== undefined) {
-      const name = input.name.trim();
-      if (!name) throw new ValidationError('Filter Name is required');
-      const dupe = await prisma.filter.findFirst({ where: { name: { equals: name, mode: 'insensitive' }, isActive: true, id: { not: id } }, select: { id: true } });
-      if (dupe) throw new ValidationError(`A filter with the name "${name}" already exists`);
-      data.name = name;
-    }
-
-    const { attributes, errors } = await validateAndBuildFilterAttributes(input);
-    if (errors.length > 0) throw new ValidationError('One or more filter fields are invalid', errors as any);
+    const { name, attributes } = await filterService.validateUpdate(id, input);
+    if (name !== undefined) data.name = name;
 
     // PARTIAL-UPDATE CONTRACT: an ABSENT field means "don't touch"; a field sent
     // EMPTY ('' / null) means "clear it". validateAndBuildFilterAttributes only
