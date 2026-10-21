@@ -169,6 +169,39 @@ describe('api-client — one error shape; a wrong password keeps the session', (
     expect(sessionStorage.getItem('access_token')).toBeNull();
   });
 
+  it('a refresh attempted while signed out does not disable refresh for the rest of the session (D1)', async () => {
+    const { apiClient } = await import('../api-client');
+    sessionStorage.removeItem('access_token');
+    await expect(apiClient.refreshToken()).resolves.toBe(false); // the login page's timer, before sign-in
+    sessionStorage.setItem('access_token', 'fresh-login');
+    mockFetch.mockClear();
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, headers: { get: () => null }, text: async () => JSON.stringify({ token: 'renewed' }) });
+    await expect(apiClient.refreshToken()).resolves.toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(String(mockFetch.mock.calls[0][0])).toContain('/api/auth/refresh');
+    expect(sessionStorage.getItem('access_token')).toBe('renewed');
+  });
+
+  it('a 401 on the desktop /my-tasks page goes to the desktop login, not the tablet one (D2)', async () => {
+    const loc = { pathname: '/my-tasks', href: '/my-tasks', search: '' };
+    vi.stubGlobal('location', loc);
+    try {
+      sessionStorage.setItem('access_token', 'live-token');
+      respond(401, { error: 'SESSION_EXPIRED', message: 'Session expired' });
+      await failure('/api/pm-schedules/due');
+      expect(loc.href).toBe('/login');
+    } finally {
+      vi.unstubAllGlobals();
+      globalThis.fetch = mockFetch as any;
+    }
+  });
+
+  it('isTabletPath: /m and /m/... only', async () => {
+    const { isTabletPath } = await import('../tablet-path');
+    expect(['/m', '/m/login', '/m/server-config'].map(isTabletPath)).toEqual([true, true, true]);
+    expect(['/my-tasks', '/m-x', '/', '/login', '/mobile'].map(isTabletPath)).toEqual([false, false, false, false, false]);
+  });
+
   it('apiErrorFromResponse builds the same shape for pages that call fetch themselves', async () => {
     const { apiErrorFromResponse } = await import('../api-client');
     const e = apiErrorFromResponse(401, { error: 'REAUTH_FAILED', message: 'Invalid password' }, 'fallback');

@@ -2,6 +2,7 @@
 import { markServerContactFromResponse } from './server-contact';
 import { isHardCutoffExceeded } from './hard-cutoff';
 import { getApiBase } from './api-base';
+import { isTabletPath } from './tablet-path';
 
 // W4: methods that are refused before they hit the network when the
 // hard-cutoff lockout has fired. GET stays allowed so SWR polling can keep
@@ -136,7 +137,7 @@ class ApiClient {
           localStorage.removeItem('digilog_tab_heartbeat');
           localStorage.removeItem('digilog_active_user_id');
           // Redirect to login — use mobile login for /m routes
-          const isMobile = window.location.pathname.startsWith('/m');
+          const isMobile = isTabletPath(window.location.pathname);
           const loginPath = isMobile ? '/m/login' : '/login';
           if (!window.location.pathname.startsWith(loginPath)) {
             // No returnUrl: a poll that 401s right after logout used to
@@ -245,9 +246,14 @@ class ApiClient {
   private inFlightRefresh: Promise<boolean> | null = null;
   refreshToken(): Promise<boolean> {
     if (this.inFlightRefresh) return this.inFlightRefresh;
+    // No token, nothing to refresh. Checked BEFORE the in-flight slot is taken
+    // (2026-10-21): returning false inside the async body skipped the finally
+    // that clears the slot, so one call made while signed out (the login page's
+    // 5 s refresh timer) parked a settled `false` there for the rest of the SPA
+    // session - every later refresh returned it without asking the server, and
+    // the operator was signed out mid-shift when the JWT expired.
+    if (!this.getToken()) return Promise.resolve(false);
     this.inFlightRefresh = (async () => {
-      const token = this.getToken();
-      if (!token) return false;
       try {
         const data = await this.post<{ token?: string }>('/api/auth/refresh', {});
         if (data?.token) {

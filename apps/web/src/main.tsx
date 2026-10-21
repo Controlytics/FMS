@@ -44,6 +44,7 @@ import { ProfilePage } from './routes/profile/index';
 import { ToastProvider } from './components/toast-provider';
 import './app.css';
 import { initApiBaseFromStorage, getApiBase } from './lib/api-base';
+import { isTabletPath } from './lib/tablet-path';
 
 // Lazy-loaded heavy pages (code-split into separate chunks).
 // FilterOperationsPage + AuditTrailPage added 2026-05-20 (May 16 H18 fix).
@@ -131,7 +132,7 @@ initApiBaseFromStorage();
 {
   const path = window.location.pathname;
   const isNative = (window as any).Capacitor?.isNativePlatform?.();
-  const allowedOnTablet = path.startsWith('/m') || path.startsWith('/change-password');
+  const allowedOnTablet = isTabletPath(path) || path.startsWith('/change-password');
   if (isNative) {
     // No server configured yet -> force the Server Address screen first.
     if (!getApiBase() && path !== '/m/server-config') {
