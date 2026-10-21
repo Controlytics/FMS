@@ -7,9 +7,7 @@ describe('DEFAULT_ROLE_HIERARCHY', () => {
       SUPER_ADMIN: 6,
       ADMIN: 5,
       SUPERVISOR: 4,
-      MAINTENANCE: 3,
       OPERATOR: 2,
-      VIEWER: 1,
     });
   });
 });

@@ -63,7 +63,7 @@ describe('UserActionDialog — delete copy matches the hard delete it triggers',
 describe('UserBulkDeleteDialog — bulk copy matches deleteMany', () => {
   const users = [
     { id: 'u1', username: 'jdoe', fullName: 'Jane Doe', role: 'OPERATOR', status: 'ENABLED' },
-    { id: 'u2', username: 'rroe', fullName: 'Richard Roe', role: 'VIEWER', status: 'ENABLED' },
+    { id: 'u2', username: 'rroe', fullName: 'Richard Roe', role: 'QA', status: 'ENABLED' },
   ];
 
   const renderBulk = () =>

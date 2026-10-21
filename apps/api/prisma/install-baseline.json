@@ -1321,15 +1321,6 @@
             "audit_trail",
             "notifications"
           ],
-          "VIEWER": [
-            "total_users",
-            "notifications",
-            "total_filters",
-            "active_cycles",
-            "completed_today",
-            "monthly_chart",
-            "quick_actions"
-          ],
           "MANAGER": [
             "filter_analytics",
             "total_filters",
@@ -1448,18 +1439,6 @@
           "rfid-track-record": "PDF"
         },
         "SUPERVISOR": {
-          "pm": "PDF",
-          "qnn": "PDF",
-          "audit": "PDF",
-          "filters": "PDF",
-          "lifecycle": "PDF",
-          "deviations": "PDF",
-          "replacement": "PDF",
-          "cleaning-detail": "PDF",
-          "cleaning-record": "PDF",
-          "rfid-track-record": "PDF"
-        },
-        "MAINTENANCE": {
           "pm": "PDF",
           "qnn": "PDF",
           "audit": "PDF",
@@ -1652,7 +1631,6 @@
         "visibleRoles": [
           "SUPERVISOR",
           "QA",
-          "MAINTENANCE",
           "MANAGER",
           "ADMIN",
           "SHIFTOFFICER"
@@ -1770,7 +1748,6 @@
           "rfid_assign",
           "logout"
         ],
-        "MAINTENANCE": [],
         "SHIFTOFFICER": [
           "login",
           "filter_cleaning",

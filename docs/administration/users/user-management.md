@@ -1,14 +1,19 @@
 # User Management
 
-## Roles (6 hierarchical)
-| Role | Level | Description |
-|------|-------|-------------|
-| SUPER_ADMIN | 6 | Full access, system configuration |
-| ADMIN | 5 | User & config management |
-| SUPERVISOR | 4 | Audit, approvals, assets |
-| MAINTENANCE | 3 | Audit, asset CRUD, filter operations |
-| OPERATOR | 2 | Audit read, asset view, checklist submission |
-| VIEWER | 1 | Read-only audit |
+## Roles (7 — the live set, verified on digilog_db 2026-10-21)
+Roles are stored in the database and edited on Config → Roles & Access; what each one
+may do is the role matrix in `tasks/role-privileges-baseline/target-matrix.json`.
+| Role | Level |
+|------|-------|
+| SUPER_ADMIN | 6 |
+| ADMIN | 5 |
+| SUPERVISOR | 4 |
+| QA | 3 |
+| MANAGER | 1 |
+| SHIFTOFFICER | 1 |
+| OPERATOR | 1 |
+
+MAINTENANCE and VIEWER no longer exist (removed 2026-10-21, operator decision).
 
 ## User Lifecycle
 Created (with temporary password) > Force password change > Active > Can be Disabled/Locked/Expired

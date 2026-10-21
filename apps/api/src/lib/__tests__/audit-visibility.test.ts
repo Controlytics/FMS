@@ -18,7 +18,7 @@ describe('auditVisibilityScope', () => {
     expect(auditVisibilityScope('SUPER_ADMIN')).toBeNull();
   });
 
-  it.each(['ADMIN', 'MANAGER', 'QA', 'SUPERVISOR', 'SHIFTOFFICER', 'OPERATOR', 'VIEWER', undefined])(
+  it.each(['ADMIN', 'MANAGER', 'QA', 'SUPERVISOR', 'SHIFTOFFICER', 'OPERATOR', undefined])(
     'restricts %s on BOTH the actor rule and the action rule',
     (role) => {
       const scope = auditVisibilityScope(role as string | undefined);

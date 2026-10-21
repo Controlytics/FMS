@@ -38,7 +38,10 @@ describe('Roles endpoints', () => {
       const names = body.map((r: any) => r.name);
       expect(names).toContain('SUPER_ADMIN');
       expect(names).toContain('ADMIN');
-      expect(names).toContain('VIEWER');
+      expect(names).toContain('SUPERVISOR');
+      // 2026-10-21 (operator): VIEWER and MAINTENANCE must not exist.
+      expect(names).not.toContain('VIEWER');
+      expect(names).not.toContain('MAINTENANCE');
     });
   });
 
@@ -189,22 +192,22 @@ describe('Roles endpoints', () => {
     });
 
     it('can update a system role displayName and color (restricted fields)', async () => {
-      // Read current VIEWER role first
-      const before = await authGet(app, '/api/roles/VIEWER', adminToken);
+      // Read current SUPERVISOR (a system role) first
+      const before = await authGet(app, '/api/roles/SUPERVISOR', adminToken);
       const original = JSON.parse(before.body);
 
-      const res = await authPut(app, '/api/roles/VIEWER', adminToken, {
-        displayName: 'Viewer Updated',
+      const res = await authPut(app, '/api/roles/SUPERVISOR', adminToken, {
+        displayName: 'Supervisor Updated',
         color: '#ef4444',
       }, ADMIN_PASSWORD);
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
       expect(body.success).toBe(true);
-      expect(body.data.displayName).toBe('Viewer Updated');
+      expect(body.data.displayName).toBe('Supervisor Updated');
 
       // Restore original values
-      await authPut(app, '/api/roles/VIEWER', adminToken, {
+      await authPut(app, '/api/roles/SUPERVISOR', adminToken, {
         displayName: original.displayName,
         color: original.color,
       }, ADMIN_PASSWORD);

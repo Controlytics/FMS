@@ -41,7 +41,7 @@ describe('MODULE_FLOWS integrity', () => {
   });
 
   it('every gateRoles entry is a known default role name', () => {
-    const KNOWN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR', 'VIEWER']);
+    const KNOWN_ROLES = new Set(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MANAGER', 'QA', 'SHIFTOFFICER', 'OPERATOR']);
     for (const m of MODULE_FLOWS) {
       for (const s of m.steps) {
         for (const r of s.gateRoles ?? []) expect(KNOWN_ROLES.has(r)).toBe(true);

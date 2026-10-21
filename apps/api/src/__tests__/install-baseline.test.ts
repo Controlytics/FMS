@@ -26,6 +26,17 @@ describe('install baseline (fresh-install starting setup)', () => {
     expect(names).toEqual(['ADMIN', 'MANAGER', 'OPERATOR', 'QA', 'SHIFTOFFICER', 'SUPERVISOR', 'SUPER_ADMIN']);
   });
 
+  // 2026-10-21 (operator): "viewer role should not be there in the application".
+  // MAINTENANCE was in the same state. Neither may come back - not as a role, and
+  // not as a leftover key or list entry in any setting (tablet-access,
+  // export-options, qnn-notifications and dashboard-cards all carried one).
+  it('mentions no VIEWER or MAINTENANCE role anywhere (roles, configs, settings, code defaults)', () => {
+    const roleKey = /"(VIEWER|MAINTENANCE)"/;
+    expect(JSON.stringify(baseline)).not.toMatch(roleKey);
+    const defaults = readFileSync(join(__dirname, '..', '..', 'prisma', 'default-roles.ts'), 'utf8');
+    expect(defaults).not.toMatch(/name: '(VIEWER|MAINTENANCE)'/);
+  });
+
   it('grants only permissions that exist in the code', () => {
     const valid = new Set<string>(Object.values(PERMISSIONS));
     const unknown = baseline.roles.flatMap((r) => r.permissions.filter((p) => !valid.has(p)).map((p) => `${r.name}:${p}`));

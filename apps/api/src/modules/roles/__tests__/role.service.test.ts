@@ -30,7 +30,7 @@ describe('roleService', () => {
 
   describe('listAll', () => {
     it('returns all roles', async () => {
-      mockRoleRepo.findAll.mockResolvedValue([{ name: 'ADMIN' }, { name: 'VIEWER' }]);
+      mockRoleRepo.findAll.mockResolvedValue([{ name: 'ADMIN' }, { name: 'OPERATOR' }]);
       const result = await roleService.listAll();
       expect(result).toHaveLength(2);
     });
@@ -204,14 +204,14 @@ describe('roleService', () => {
     const byName: Record<string, any> = {
       ADMIN: ADMIN_ROLE,
       SUPER_ADMIN: { name: 'SUPER_ADMIN', hierarchyLevel: 6, isSystem: true, permissions: ['AUDIT_DELETE'] },
-      VIEWER: { name: 'VIEWER', hierarchyLevel: 1, isSystem: true, permissions: ['USER_READ', 'AUDIT_READ'] },
+      OPERATOR: { name: 'OPERATOR', hierarchyLevel: 1, isSystem: true, permissions: ['USER_READ', 'AUDIT_READ'] },
     };
 
     it('ADMIN cannot self-grant a permission its own role does not hold', async () => {
       mockRoleRepo.findByName.mockImplementation((n: string) => Promise.resolve(byName[n] ?? null));
       // Editing its own ADMIN role is blocked first (own role), so target a lower role
       // and try to grant AUDIT_DELETE which ADMIN does not hold.
-      await expect(roleService.update('VIEWER', { permissions: ['USER_READ', 'AUDIT_DELETE'] }, adminCtx))
+      await expect(roleService.update('OPERATOR', { permissions: ['USER_READ', 'AUDIT_DELETE'] }, adminCtx))
         .rejects.toThrow(/cannot grant permissions/i);
       expect(mockRoleRepo.update).not.toHaveBeenCalled();
     });
@@ -239,9 +239,9 @@ describe('roleService', () => {
 
     it('ADMIN CAN edit a lower role, keeping its grandfathered permissions', async () => {
       mockRoleRepo.findByName.mockImplementation((n: string) => Promise.resolve(byName[n] ?? null));
-      mockRoleRepo.update.mockResolvedValue({ name: 'VIEWER', color: '#abcabc' });
-      // AUDIT_READ is already on VIEWER (grandfathered) and ADMIN lacks it — must NOT block a color edit.
-      await roleService.update('VIEWER', { color: '#abcabc', permissions: ['USER_READ', 'AUDIT_READ'] }, adminCtx);
+      mockRoleRepo.update.mockResolvedValue({ name: 'OPERATOR', color: '#abcabc' });
+      // AUDIT_READ is already on OPERATOR (grandfathered) and ADMIN lacks it — must NOT block a color edit.
+      await roleService.update('OPERATOR', { color: '#abcabc', permissions: ['USER_READ', 'AUDIT_READ'] }, adminCtx);
       expect(mockRoleRepo.update).toHaveBeenCalled();
     });
   });
@@ -259,7 +259,7 @@ describe('roleService', () => {
   describe('getCreatableRoles', () => {
     it('returns roles at or below hierarchy level', async () => {
       mockRoleRepo.findByName.mockResolvedValue({ name: 'ADMIN', hierarchyLevel: 5 });
-      mockRoleRepo.findCreatableRoles.mockResolvedValue([{ name: 'OPERATOR' }, { name: 'VIEWER' }]);
+      mockRoleRepo.findCreatableRoles.mockResolvedValue([{ name: 'OPERATOR' }, { name: 'SHIFTOFFICER' }]);
 
       const result = await roleService.getCreatableRoles('ADMIN');
       expect(result).toHaveLength(2);

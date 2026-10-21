@@ -1,12 +1,11 @@
-// Default system roles - these are created during seed
+// Default system roles - these are created when seeding an EMPTY database (apps/api/prisma/default-roles.ts).
+// MAINTENANCE and VIEWER were removed 2026-10-21 (operator: they must not exist).
 // Actual roles are now stored in the database and managed dynamically
 export const DEFAULT_ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
   ADMIN: 'ADMIN',
   SUPERVISOR: 'SUPERVISOR',
-  MAINTENANCE: 'MAINTENANCE',
   OPERATOR: 'OPERATOR',
-  VIEWER: 'VIEWER',
 } as const;
 
 // Keep ROLES export for backward compatibility
@@ -33,9 +32,7 @@ export const DEFAULT_ROLE_HIERARCHY: Record<string, number> = {
   SUPER_ADMIN: 6,
   ADMIN: 5,
   SUPERVISOR: 4,
-  MAINTENANCE: 3,
   OPERATOR: 2,
-  VIEWER: 1,
 };
 
 // Keep ROLE_HIERARCHY export for backward compatibility
@@ -45,8 +42,8 @@ export const ROLE_HIERARCHY = DEFAULT_ROLE_HIERARCHY;
  * @deprecated Use API endpoint /api/roles/:name/creatable instead
  */
 export const CREATABLE_ROLES: Record<string, string[]> = {
-  SUPER_ADMIN: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR', 'VIEWER'],
-  ADMIN: ['ADMIN', 'SUPERVISOR', 'MAINTENANCE', 'OPERATOR', 'VIEWER'],
+  SUPER_ADMIN: ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'OPERATOR'],
+  ADMIN: ['ADMIN', 'SUPERVISOR', 'OPERATOR'],
 };
 
 export const USER_STATUS = {

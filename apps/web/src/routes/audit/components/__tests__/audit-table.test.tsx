@@ -17,7 +17,7 @@ const record = {
   timestamp: '2026-07-15T10:00:00.000Z',
   action: 'USER_LOGIN',
   userId: 'inspector',
-  userRole: 'VIEWER',
+  userRole: 'QA',
   ipAddress: '10.0.0.1',
 };
 

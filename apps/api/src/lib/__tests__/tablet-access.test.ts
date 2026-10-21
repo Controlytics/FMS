@@ -6,7 +6,7 @@ vi.mock('../prisma.js', () => ({ prisma: { systemConfig: { findUnique } } }));
 import { resolveTabletAccess, tabletLoginAllowed } from '../tablet-access.js';
 
 const LIVE = {
-  QA: [], MAINTENANCE: [],
+  QA: [],
   OPERATOR: ['login', 'filter_cleaning', 'logout'],
 };
 

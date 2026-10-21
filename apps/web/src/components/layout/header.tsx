@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { Badge } from '../ui/badge';
 import { useBranding } from '@/hooks/use-branding';
 import { getPhotoUrl } from '../../lib/url-utils';
+import { useRoleColors } from '@/hooks/use-role-colors';
 
 interface HeaderProps {
   user: {
@@ -18,19 +19,11 @@ interface HeaderProps {
   onMenuToggle?: () => void;
 }
 
-const roleLabels: Record<string, string> = {
-  SUPER_ADMIN: 'Super Admin',
-  ADMIN: 'Admin',
-  SUPERVISOR: 'Supervisor',
-  MAINTENANCE: 'Maintenance',
-  OPERATOR: 'Operator',
-  VIEWER: 'Viewer',
-};
-
 export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
   const [showMenu, setShowMenu] = useState(false);
   const { branding } = useBranding();
   const navigate = useNavigate();
+  const { roleLabels } = useRoleColors();
 
   // Fetch unread notifications count for all users
   const { data: notificationData } = useSWR<{ count: number }>(

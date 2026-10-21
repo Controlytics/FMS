@@ -12,28 +12,12 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { getPhotoUrl } from '../../lib/url-utils';
 import { getApiBase } from '@/lib/api-base';
-
-const roleColors: Record<string, string> = {
-  SUPER_ADMIN: 'bg-gradient-to-r from-red-500 to-pink-500 text-white border-0',
-  ADMIN: 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white border-0',
-  SUPERVISOR: 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0',
-  MAINTENANCE: 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0',
-  OPERATOR: 'bg-gradient-to-r from-slate-500 to-gray-500 text-white border-0',
-  VIEWER: 'bg-gradient-to-r from-gray-400 to-slate-400 text-white border-0',
-};
-
-const roleLabels: Record<string, string> = {
-  SUPER_ADMIN: 'Super Admin',
-  ADMIN: 'Admin',
-  SUPERVISOR: 'Supervisor',
-  MAINTENANCE: 'Maintenance',
-  OPERATOR: 'Operator',
-  VIEWER: 'Viewer',
-};
+import { useRoleColors } from '@/hooks/use-role-colors';
 
 export function ProfilePage() {
   const { user, mutate } = useAuth();
   const { branding } = useBranding();
+  const { roleColors, roleLabels } = useRoleColors();
   const { formatDateTime, formatDate } = useDatetimeFormat();
   const reauth = useReauth();
   const fileInputRef = useRef<HTMLInputElement>(null);

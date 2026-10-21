@@ -25,7 +25,7 @@ describe('VAPT-5 — Prisma errors do not leak internals', () => {
       payload: {
         username: 'VAPTP5',
         fullName: 'Bob',
-        role: 'VIEWER',
+        role: 'TEST_READONLY',
         password: 'Pentest@12345',
         confirmPassword: 'Pentest@12345',
         department: '<script>alert(document.cookie)</script>',

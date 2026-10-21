@@ -21,7 +21,7 @@ describe('buildContext', () => {
 
   it('handles missing user-agent header', () => {
     const req = {
-      user: { sub: 'u1', username: 'test', role: 'VIEWER', sessionId: 's1' },
+      user: { sub: 'u1', username: 'test', role: 'OPERATOR', sessionId: 's1' },
       ip: '10.0.0.1',
       headers: {},
     } as any;

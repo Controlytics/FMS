@@ -163,10 +163,10 @@ assert_status_in "POST /api/auth/forgot-password non-existent (no enum / rate-li
 # ============================================================
 echo -e "\n${CYAN}[3] CREATE 10 USERS${NC}"
 
-ROLES=("ADMIN" "SUPERVISOR" "MAINTENANCE" "OPERATOR" "VIEWER" "OPERATOR" "SUPERVISOR" "MAINTENANCE" "VIEWER" "ADMIN")
+ROLES=("ADMIN" "SUPERVISOR" "QA" "SHIFTOFFICER" "OPERATOR" "OPERATOR" "SUPERVISOR" "MANAGER" "QA" "ADMIN")  # 2026-10-21: VIEWER + MAINTENANCE removed (operator); slot 5 is the low-privilege login
 USER_IDS=()
-VIEWER_USERNAME=""
-VIEWER_PASSWORD=""
+LOWPRIV_USERNAME=""
+LOWPRIV_PASSWORD=""
 ADMIN2_USERNAME=""
 ADMIN2_PASSWORD=""
 
@@ -188,7 +188,7 @@ for i in $(seq 1 10); do
     echo -e "  ${GREEN}PASS${NC} Created user #$i: $USERNAME ($ROLE) id=$USERID"
     PASS=$((PASS+1))
     USER_IDS+=("$USERID")
-    if [ "$i" = "5" ]; then VIEWER_USERNAME="$USERNAME"; VIEWER_PASSWORD="TestPass@523"; fi
+    if [ "$i" = "5" ]; then LOWPRIV_USERNAME="$USERNAME"; LOWPRIV_PASSWORD="TestPass@523"; fi
     if [ "$i" = "1" ]; then ADMIN2_USERNAME="$USERNAME"; ADMIN2_PASSWORD="TestPass@123"; fi
   else
     echo -e "  ${RED}FAIL${NC} Create user #$i ($ROLE): $(echo $BODY | head -c200)"
@@ -245,40 +245,40 @@ fi
 # ============================================================
 echo -e "\n${CYAN}[4] RBAC TESTING${NC}"
 
-if [ -n "$VIEWER_USERNAME" ]; then
+if [ -n "$LOWPRIV_USERNAME" ]; then
   PGPASSWORD=digilog123 psql -h localhost -U digilog -d digilog_db -c \
-    "UPDATE users SET force_password_change = false WHERE username = '$VIEWER_USERNAME';" > /dev/null 2>&1
-  VL=$(login "$VIEWER_USERNAME" "$VIEWER_PASSWORD")
+    "UPDATE users SET force_password_change = false WHERE username = '$LOWPRIV_USERNAME';" > /dev/null 2>&1
+  VL=$(login "$LOWPRIV_USERNAME" "$LOWPRIV_PASSWORD")
   VT=$(get_token "$VL")
   if [ -n "$VT" ] && [ "$VT" != "" ]; then
-    echo -e "  ${GREEN}PASS${NC} Viewer login OK"
+    echo -e "  ${GREEN}PASS${NC} Operator (low-privilege) login OK"
     PASS=$((PASS+1))
 
     STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/api/users" \
       -H "Authorization: Bearer $VT" -H "Content-Type: application/json" \
-      -H "x-reauth-password: $VIEWER_PASSWORD" \
+      -H "x-reauth-password: $LOWPRIV_PASSWORD" \
       -d "{\"username\":\"HKTEST\",\"password\":\"Hk@12345\",\"confirmPassword\":\"Hk@12345\",\"fullName\":\"H Test\",\"email\":\"hk@test.com\",\"role\":\"ADMIN\"}")
-    assert_status_in "RBAC: Viewer CANNOT create users" "$STATUS" 403 400
+    assert_status_in "RBAC: Operator CANNOT create users" "$STATUS" 403 400
 
     STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$API/api/config/password-policy" \
       -H "Authorization: Bearer $VT" -H "Content-Type: application/json" -d '{"minLength":6}')
-    assert_status "RBAC: Viewer CANNOT update config" 403 "$STATUS"
+    assert_status "RBAC: Operator CANNOT update config" 403 "$STATUS"
 
     STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/api/system-health" \
       -H "Authorization: Bearer $VT")
-    assert_status "RBAC: Viewer CANNOT access system-health" 403 "$STATUS"
+    assert_status "RBAC: Operator CANNOT access system-health" 403 "$STATUS"
 
     STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/api/auth/me" \
       -H "Authorization: Bearer $VT")
-    assert_status "RBAC: Viewer CAN access /auth/me" 200 "$STATUS"
+    assert_status "RBAC: Operator CAN access /auth/me" 200 "$STATUS"
 
     STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$API/api/notifications" \
       -H "Authorization: Bearer $VT")
-    assert_status "RBAC: Viewer CAN access notifications" 200 "$STATUS"
+    assert_status "RBAC: Operator CAN access notifications" 200 "$STATUS"
 
     curl -s -X POST "$API/api/auth/logout" -H "Authorization: Bearer $VT" > /dev/null
   else
-    echo -e "  ${YELLOW}SKIP${NC} Viewer login failed"
+    echo -e "  ${YELLOW}SKIP${NC} Operator (low-privilege) login failed"
     SKIP=$((SKIP+5))
   fi
 fi

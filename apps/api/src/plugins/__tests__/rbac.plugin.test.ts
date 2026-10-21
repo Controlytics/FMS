@@ -140,7 +140,7 @@ describe('rbacPlugin', () => {
 
     it('denies when user role does not match', async () => {
       const middleware = requireRole('SUPER_ADMIN');
-      const req = makeReq({ sub: 'u1', username: 'viewer', role: 'VIEWER', sessionId: 's1' });
+      const req = makeReq({ sub: 'u1', username: 'operator', role: 'OPERATOR', sessionId: 's1' });
       const reply = makeReply();
 
       await middleware(req, reply);

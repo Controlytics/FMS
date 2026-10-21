@@ -47,7 +47,7 @@ import { loginAs, ADMIN_PASSWORD } from './test-helper.js';
 
 const SUFFIX = Date.now().toString(36).slice(-4).toUpperCase();
 const OPERATOR_USERNAME = `OPP4${SUFFIX}`;
-const VIEWER_USERNAME = `VWP4${SUFFIX}`;
+const READONLY_USERNAME = `VWP4${SUFFIX}`;
 const TEST_PASSWORD = 'TestPass@123';
 
 /**
@@ -103,18 +103,18 @@ async function buildPhase4App(): Promise<FastifyInstance> {
 
 describe('Phase 4 — Permissions / Themes / Reports', () => {
   let app: FastifyInstance;
-  let viewerToken: string;
+  let readonlyToken: string;
   let operatorToken: string;
 
   beforeAll(async () => {
     app = await buildPhase4App();
 
-    // Provision a VIEWER and OPERATOR user. VIEWER lacks FILTER_OPERATE;
+    // Provision a read-only (TEST_READONLY fixture) and an OPERATOR user. The read-only one lacks FILTER_OPERATE;
     // OPERATOR has it. Both share the same TEST_PASSWORD.
     const passwordHash = await hashPassword(TEST_PASSWORD);
 
     for (const [username, role] of [
-      [VIEWER_USERNAME, 'VIEWER'],
+      [READONLY_USERNAME, 'TEST_READONLY'],
       [OPERATOR_USERNAME, 'OPERATOR'],
     ] as const) {
       await prisma.user.upsert({
@@ -143,7 +143,7 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
       });
     }
 
-    viewerToken = await loginAs(app, VIEWER_USERNAME, TEST_PASSWORD);
+    readonlyToken = await loginAs(app, READONLY_USERNAME, TEST_PASSWORD);
     operatorToken = await loginAs(app, OPERATOR_USERNAME, TEST_PASSWORD);
   });
 
@@ -153,7 +153,7 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
     // user.delete cascades into many tables and is unnecessary for
     // re-runnable tests (the upsert above resets them).
     await prisma.session.updateMany({
-      where: { user: { username: { in: [VIEWER_USERNAME, OPERATOR_USERNAME] } }, isActive: true },
+      where: { user: { username: { in: [READONLY_USERNAME, OPERATOR_USERNAME] } }, isActive: true },
       data: { isActive: false, terminationReason: 'phase4_test_cleanup' },
     });
     await app.close();
@@ -163,7 +163,7 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
   // 1. Feature toggle permission — DENIED
   // ===========================================================================
   describe('Feature toggle: FILTER_OPERATE permission gate', () => {
-    it('VIEWER (no FILTER_OPERATE) gets 403 on POST /api/filters/:id/start-cycle', async () => {
+    it('a read-only role (no FILTER_OPERATE) gets 403 on POST /api/filters/:id/start-cycle', async () => {
       // A syntactically valid UUID; the perm check fires before the filter is
       // resolved, so we never reach the DB lookup. Body is intentionally
       // minimal — the perm check sits in preHandler so it returns 403 before
@@ -172,7 +172,7 @@ describe('Phase 4 — Permissions / Themes / Reports', () => {
       const res = await app.inject({
         method: 'POST',
         url: `/api/filters/${dummyUuid}/start-cycle`,
-        headers: { authorization: `Bearer ${viewerToken}` },
+        headers: { authorization: `Bearer ${readonlyToken}` },
         payload: { cleaningReasonKey: 'OOC' },
       });
 

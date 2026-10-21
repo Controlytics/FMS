@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] - VIEWER and MAINTENANCE roles removed (2026-10-21)
+
+Operator: "viewer role should not be there in the application" (MAINTENANCE, in the same state, too).
+Neither was a live role on digilog_db; both lingered elsewhere:
+
+- **Live digilog_db settings** — `tablet-access`, `export-options`, `qnn-notifications` (MAINTENANCE) and
+  `dashboard-cards` (VIEWER) still carried their keys. Removed through the app's `auditLog()`: four
+  `CONFIG_CHANGED` rows by `system` with the operator's reason (chain positions 22956–22959). Every
+  role column in the database re-scanned afterwards: 0 references.
+- **Installer** — the same four keys removed from `prisma/install-baseline.json` (fresh installs).
+- **Code** — `prisma/default-roles.ts` (empty-database seed) and the shared `DEFAULT_ROLES` /
+  `DEFAULT_ROLE_HIERARCHY` / `CREATABLE_ROLES` now hold SUPER_ADMIN, ADMIN, SUPERVISOR, OPERATOR; the
+  deployment check no longer reports the two as "Role not found".
+- **Web** — the header and profile badge read role display names (and colours) from the roles table
+  (`useRoleColors().roleLabels`) instead of hard-coded maps that listed MAINTENANCE / VIEWER and lacked
+  MANAGER / QA / SHIFTOFFICER (those showed their raw names).
+- **Tests** — the VIEWER fixture is replaced by a test-only `TEST_READONLY` role (digilog_test_db only,
+  not a system role); unit tests use real role names. The test database's 83 VIEWER test users and the
+  VIEWER / MAINTENANCE rows were deleted. Guard: `install-baseline.test.ts` fails if either name returns to
+  the installer baseline or the default roles.
+
 ## [Unreleased] - Pending-items pass: QA Phase 4/5 fixes, placeholder tablet CA (2026-10-21)
 
 Operator: "complete the pending ones". QA Phase 4 (per-role permission matrix, `QA/PHASE4_ROLE_MATRIX.md`,

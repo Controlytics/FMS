@@ -373,9 +373,7 @@ async function checkRolePermissions(): Promise<SubCheck[]> {
     SUPER_ADMIN: 50,
     ADMIN: 50,
     SUPERVISOR: 8,
-    MAINTENANCE: 8,
     OPERATOR: 8,
-    VIEWER: 3,
   };
 
   for (const [roleName, minCount] of Object.entries(minimums)) {

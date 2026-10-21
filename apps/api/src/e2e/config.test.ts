@@ -501,10 +501,10 @@ describe('Config endpoints', () => {
     });
 
     it('returns defaults for a non-configured role', async () => {
-      const res = await authGet(app, '/api/config/roles/VIEWER', adminToken);
+      const res = await authGet(app, '/api/config/roles/TEST_READONLY', adminToken);
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
-      expect(body.role).toBe('VIEWER');
+      expect(body.role).toBe('TEST_READONLY');
     });
   });
 
@@ -514,11 +514,11 @@ describe('Config endpoints', () => {
   describe('PUT /api/config/roles/:role', () => {
     it('updates role config sidebarItems and restores', async () => {
       // Read current
-      const getRes = await authGet(app, '/api/config/roles/VIEWER', adminToken);
+      const getRes = await authGet(app, '/api/config/roles/TEST_READONLY', adminToken);
       const original = JSON.parse(getRes.body);
 
       // Update
-      const putRes = await authPut(app, '/api/config/roles/VIEWER', adminToken, {
+      const putRes = await authPut(app, '/api/config/roles/TEST_READONLY', adminToken, {
         sidebarItems: ['dashboard', 'notifications'],
         homeWidgets: original.homeWidgets ?? [],
       }, ADMIN_PASSWORD);
@@ -527,7 +527,7 @@ describe('Config endpoints', () => {
       expect(putBody.success).toBe(true);
 
       // Restore original
-      await authPut(app, '/api/config/roles/VIEWER', adminToken, {
+      await authPut(app, '/api/config/roles/TEST_READONLY', adminToken, {
         sidebarItems: original.sidebarItems ?? [],
         homeWidgets: original.homeWidgets ?? [],
       }, ADMIN_PASSWORD);
@@ -535,7 +535,7 @@ describe('Config endpoints', () => {
 
     // P4-10 (2026-10-21): a PERMISSION change needs a reason (sidebar-only saves above do not).
     // Uses its OWN throwaway role: saving permissions re-expands roles.permissions from the
-    // toggles, which on a shared fixture (VIEWER) handed it FILTER_OPERATE and broke
+    // toggles, which on a shared fixture (then VIEWER) handed it FILTER_OPERATE and broke
     // phase4-perms-themes-reports.test.ts.
     it('a permission change without a reason is refused; with one it is saved and audited', async () => {
       const role = `QAP410${Date.now() % 1e8}`;

@@ -20,20 +20,22 @@ export default async function setup(): Promise<void> {
       );
     }
 
-    // Ensure VIEWER exists too. Older dev DBs were seeded before VIEWER was
-    // added (e2e/roles.test.ts asserts it as a default system role); upsert
-    // is idempotent so this is safe to run on every test launch.
+    // Low-privilege TEST fixture role (read-only: no FILTER_OPERATE, no config).
+    // It replaced the VIEWER fixture on 2026-10-21, when the operator ruled that
+    // VIEWER (and MAINTENANCE) must not exist in the application at all. Not a
+    // system role and not in default-roles.ts - it exists only in digilog_test_db.
+    // Upsert is idempotent, so this is safe on every test launch.
     await prisma.role.upsert({
-      where: { name: 'VIEWER' },
+      where: { name: 'TEST_READONLY' },
       update: {},
       create: {
-        name: 'VIEWER',
-        displayName: 'Viewer',
-        description: 'View-only access (test fixture)',
+        name: 'TEST_READONLY',
+        displayName: 'Test read-only',
+        description: 'Read-only access (test fixture only)',
         hierarchyLevel: 1,
-        permissions: ['AUDIT_READ', 'ASSET_VIEW', 'ASSET_READ', 'ALARM_VIEW', 'DASHBOARD_VIEW'],
+        permissions: ['AUDIT_READ', 'ASSET_VIEW', 'ASSET_READ', 'DASHBOARD_VIEW'],
         color: 'bg-gradient-to-r from-slate-400 to-slate-500',
-        isSystem: true,
+        isSystem: false,
       },
     });
 

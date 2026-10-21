@@ -6,6 +6,8 @@
  * seed.ts imports this and uses it identically to the former inline array.
  */
 export const defaultRoles = [
+  // 2026-10-21 (operator): MAINTENANCE and VIEWER removed - no live site has
+  // them; they only reached an empty dev/test database through this file.
   {
     name: 'SUPER_ADMIN',
     displayName: 'Super Admin',
@@ -106,26 +108,6 @@ export const defaultRoles = [
     isSystem: true,
   },
   {
-    name: 'MAINTENANCE',
-    displayName: 'Maintenance',
-    description: 'Maintenance staff with entity and template management',
-    hierarchyLevel: 3,
-    permissions: [
-      'AUDIT_READ',
-      'ASSET_VIEW', 'ASSET_READ', 'ASSET_CREATE', 'ASSET_UPDATE',
-      'RETIREMENT_LIST_VIEW', 'REPLACEMENT_LIST_VIEW',
-      'DASHBOARD_VIEW',
-      // Phase 2: Filter operations + checklist
-      'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
-      'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
-      'BLOCK_CHANGE_REQUEST',
-      // Reports — PDF export (generate/sign designer removed 2026-07-04)
-      'REPORT_GENERATE', 'REPORT_EXPORT',
-    ],
-    color: 'bg-gradient-to-r from-amber-500 to-orange-500',
-    isSystem: true,
-  },
-  {
     name: 'OPERATOR',
     displayName: 'Operator',
     description: 'Operator with read access and filter operations',
@@ -139,23 +121,8 @@ export const defaultRoles = [
       'FILTER_OPERATE', 'CHECKLIST_SUBMIT', 'EVENT_READ',
       'FCP_READ', 'FP_READ', 'PM_READ', 'CYCLE_READ',
       'BLOCK_CHANGE_REQUEST',
-      // (Reports: VIEWER had only the orphaned REPORT_VIEW — removed 2026-07-04.)
     ],
     color: 'bg-gradient-to-r from-emerald-500 to-green-500',
-    isSystem: true,
-  },
-  {
-    name: 'VIEWER',
-    displayName: 'Viewer',
-    description: 'View-only access',
-    hierarchyLevel: 1,
-    permissions: [
-      'AUDIT_READ',
-      'ASSET_VIEW', 'ASSET_READ',
-      'RETIREMENT_LIST_VIEW', 'REPLACEMENT_LIST_VIEW',
-      'DASHBOARD_VIEW',
-    ],
-    color: 'bg-gradient-to-r from-slate-400 to-slate-500',
     isSystem: true,
   },
 ] as const satisfies Array<{

@@ -18,7 +18,7 @@ describe('role.repository', () => {
     it('returns all roles ordered by hierarchy', async () => {
       mockPrisma.role.findMany.mockResolvedValue([
         { name: 'SUPER_ADMIN', hierarchyLevel: 6 },
-        { name: 'VIEWER', hierarchyLevel: 1 },
+        { name: 'SHIFTOFFICER', hierarchyLevel: 1 },
       ]);
       const result = await roleRepository.findAll();
       expect(result).toHaveLength(2);
@@ -72,7 +72,7 @@ describe('role.repository', () => {
     it('returns roles at or below given hierarchy level', async () => {
       mockPrisma.role.findMany.mockResolvedValue([
         { name: 'OPERATOR', hierarchyLevel: 2 },
-        { name: 'VIEWER', hierarchyLevel: 1 },
+        { name: 'SHIFTOFFICER', hierarchyLevel: 1 },
       ]);
       const result = await roleRepository.findCreatableRoles(3);
       expect(result).toHaveLength(2);

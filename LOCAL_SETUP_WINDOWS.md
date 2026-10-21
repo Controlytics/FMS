@@ -147,7 +147,7 @@ npx prisma migrate deploy
 npx prisma db seed
 ```
 
-> This creates: 6 default roles (SUPER_ADMIN through VIEWER), superadmin user (username: `superadmin`, password: `Admin@123`), system config entries (auto-discovered), permission constants, and the system template kinds (DigiLog is single-tenant, no organizations created).
+> This creates: on an EMPTY database the 4 code-default roles (SUPER_ADMIN, ADMIN, SUPERVISOR, OPERATOR — `prisma/default-roles.ts`; a fresh install with `SEED_INSTALL_BASELINE=1` gets the 7 approved roles from `install-baseline.json` instead), superadmin user (username: `superadmin`, password: `Admin@123`), system config entries (auto-discovered), permission constants, and the system template kinds (DigiLog is single-tenant, no organizations created).
 
 ```bash
 cd ../..
