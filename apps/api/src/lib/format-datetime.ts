@@ -22,21 +22,39 @@ const DEFAULT_CONFIG: DatetimeConfig = {
   timezone: 'Asia/Kolkata',
 };
 
+// A fixed table, never ICU's `month: 'short'`: en-GB prints "Sept" on ICU 72+
+// (Node 24) but "Sep" on older WebViews, so the server PDF and the tablet could
+// disagree (2026-10-21). Kept identical to apps/web use-datetime-format.
+const MONTHS_3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Day / month / year as numbers, in the configured zone. */
+function zonedParts(date: Date, timezone: string): { day: number; month: number; year: number } {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, day: 'numeric', month: 'numeric', year: 'numeric' }).formatToParts(date);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  return { day: get('day'), month: get('month'), year: get('year') };
+}
+
 function formatDateValue(date: Date, dateFormat: string, timezone: string): string {
   const opts: Intl.DateTimeFormatOptions = { timeZone: timezone };
+  const pad = (n: number) => String(n).padStart(2, '0');
   switch (dateFormat) {
     case 'DD/MM/YYYY':
       return date.toLocaleDateString('en-GB', { ...opts });
-    case 'MM/DD/YYYY':
-      return date.toLocaleDateString('en-US', { ...opts });
+    case 'MM/DD/YYYY': {
+      // Zero-padded like every other numeric format (en-US alone prints 6/15/2026).
+      const { day, month, year } = zonedParts(date, timezone);
+      return `${pad(month)}/${pad(day)}/${year}`;
+    }
     case 'YYYY-MM-DD': {
       const y = date.toLocaleString('en-US', { year: 'numeric', timeZone: timezone });
       const m = date.toLocaleString('en-US', { month: '2-digit', timeZone: timezone });
       const d = date.toLocaleString('en-US', { day: '2-digit', timeZone: timezone });
       return `${y}-${m}-${d}`;
     }
-    case 'DD-MMM-YYYY':
-      return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', ...opts }).replace(/ /g, '-');
+    case 'DD-MMM-YYYY': {
+      const { day, month, year } = zonedParts(date, timezone);
+      return `${pad(day)}-${MONTHS_3[month - 1]}-${year}`;
+    }
     case 'MMM DD, YYYY':
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', ...opts });
     default:
