@@ -386,7 +386,7 @@ describe('editing an APPROVED entry (staged change → approval applies it)', ()
     const res = await call('PUT', `/entries/${e.id}/edit`, 'edt', { plannedDate: iso(target), toleranceDays: 2 });
     expect(res.statusCode).toBe(200);
     let row = await get(e.id);
-    expect(row).toMatchObject({ approvalStatus: 'PENDING_REVIEW', pendingToleranceDays: 2, pendingEditBy: u.edt.id, approvedBy: null, submittedBy: u.edt.id });
+    expect(row).toMatchObject({ approvalStatus: 'PENDING_REVIEW', pendingToleranceDays: 2, pendingEditBy: u.edt.id, approvedBy: u.apr.id, submittedBy: u.edt.id }); // D2: the approval of the date in force stands
     expect(iso(row.pendingPlannedDate!)).toBe(iso(target));
     expect(iso(row.plannedDate)).toBe(iso(e.plannedDate));
     const [editAudit] = await audits('PM_SCHEDULE_EDIT_REQUESTED', e.id);

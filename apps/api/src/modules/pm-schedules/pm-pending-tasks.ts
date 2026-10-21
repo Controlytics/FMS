@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
-import { resolvePmReasonKeys, loadCountedFilters } from './pm-shared.js';
+import { resolvePmReasonKeys, loadCountedFilters, PM_ENTRY_IN_FORCE } from './pm-shared.js';
 import { formatConfiguredDate } from '../../lib/format-datetime.js';
 
 /**
@@ -52,10 +52,12 @@ const DAY = 86_400_000;
  * unresolved.
  *
  * "Unresolved" means: the window has closed, the entry has not been written off,
- * and no PM-reason cleaning has actually been performed for it. The last test
- * uses the SAME predicate pm-due-tasks.ts uses to call a task done — if the two
- * disagreed, the popup would demand a reason for a task the task list already
- * showed as complete.
+ * and not every counted filter has had a PM-reason cleaning since the window
+ * opened. The last test uses the SAME predicate pm-due-tasks.ts and the sweep
+ * use to call a task done: if they disagreed, the popup would demand a reason
+ * for a task the task list showed as complete, or (D4b, before 2026-10-21) stay
+ * silent on a part-done visit, so the next cleaning completed it late AND
+ * counted for the current visit.
  */
 export async function getPendingEarlierPmTasks(
   filterId: string,
@@ -73,8 +75,9 @@ export async function getPendingEarlierPmTasks(
       schedule: { entityId: ahuId, status: 'ACTIVE' },
       windowEnd: { lt: now },
       skippedAt: null,
-      // An entry still awaiting review/approval is not yet an obligation.
-      approvalStatus: 'APPROVED',
+      // An entry still awaiting review/approval is not yet an obligation; an
+      // approved visit whose date change awaits sign-off still is (D2).
+      AND: [PM_ENTRY_IN_FORCE],
     },
     select: {
       id: true, scheduleId: true, plannedDate: true, windowStart: true, windowEnd: true,
@@ -98,19 +101,27 @@ export async function getPendingEarlierPmTasks(
 
   const cycles = await prisma.cleaningCycle.findMany({
     where: { filterId: { in: siblingIds }, status: 'COMPLETED', completedAt: { gte: earliestWindow } },
-    select: { completedAt: true, cleaningReasonKey: true },
+    select: { filterId: true, completedAt: true, cleaningReasonKey: true },
   });
-  const pmCycles = cycles.filter(
-    (c) => c.completedAt != null && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey)),
-  );
+  // Latest PM-reason completion per counted filter.
+  const latestPm = new Map<string, Date>();
+  for (const c of cycles) {
+    if (c.completedAt == null || (pmReasonKeys && !pmReasonKeys.has(c.cleaningReasonKey))) continue;
+    const prev = latestPm.get(c.filterId);
+    if (!prev || c.completedAt > prev) latestPm.set(c.filterId, c.completedAt);
+  }
 
   const pending: PendingPmTask[] = [];
   for (const e of entries) {
-    // Mirrors pm-due-tasks.ts: for a CLOSED window, any PM cleaning on or after
-    // windowStart counts. That upper-boundless rule is exactly what this gate
-    // exists to stop being applied silently — but while an entry is genuinely
-    // satisfied by a real cleaning we must not ask for a reason.
-    const satisfied = pmCycles.some((c) => c.completedAt! >= e.windowStart);
+    // Mirrors pm-due-tasks.ts: for a CLOSED window, a PM cleaning on or after
+    // windowStart counts, and the visit is done only when EVERY counted filter
+    // has one (D4b, operator decision 2026-10-21). That upper-boundless rule is
+    // exactly what this gate exists to stop being applied silently — but while
+    // an entry is genuinely satisfied by real cleanings we must not ask.
+    const satisfied = siblingIds.every((id) => {
+      const at = latestPm.get(id);
+      return at != null && at >= e.windowStart;
+    });
     if (satisfied) continue;
     pending.push({
       entryId: e.id,
@@ -216,7 +227,7 @@ export async function getPendingPmTasksMap(
   const overdueEntries = await prisma.pmScheduleEntry.findMany({
     where: {
       schedule: { status: 'ACTIVE' },
-      approvalStatus: 'APPROVED',
+      AND: [PM_ENTRY_IN_FORCE],
       windowEnd: { lt: now },
       skippedAt: null,
     },

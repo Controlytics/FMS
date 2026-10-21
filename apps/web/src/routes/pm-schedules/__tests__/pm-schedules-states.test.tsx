@@ -67,7 +67,7 @@ const put = vi.fn(async (..._a: any[]) => ({}));
 const post = vi.fn(async (..._a: any[]) => ({}));
 vi.mock('../../../lib/api-client', () => ({ apiClient: { get: vi.fn(), put: (...a: any[]) => put(...a), post: (...a: any[]) => post(...a) }, api: {} }));
 
-import { PmScheduleListPage, pmSubmissionText, pmUploadHint } from '../index';
+import { PmScheduleListPage, pmSubmissionText, pmUploadHint, rejectToastText } from '../index';
 import { PmScheduleDetailPage } from '../detail';
 
 const WF_ON = { workflowEnabled: true, reviewRole: 'MANAGER', approvalRole: 'QA' };
@@ -118,6 +118,13 @@ describe('OQ-08 / OQ-09 — messages follow the configured flow, never "QA appro
     const [url, body] = put.mock.calls[0];
     expect(url).toBe('/api/pm-schedules/entries/e1/review-edit');
     expect(body).toEqual({ plannedDate: proposed.slice(0, 10), toleranceDays: 3 });
+  });
+
+  it('D2: rejecting a date change says the visit stays approved', () => {
+    const rows = [{ id: 'a', pendingPlannedDate: null }, { id: 'b', pendingPlannedDate: '2026-11-20' }];
+    expect(rejectToastText(['a'], rows)).toBe('1 entry(s) rejected');
+    expect(rejectToastText(['b'], rows)).toBe('1 date change(s) rejected; those visits stay approved on their current date.');
+    expect(rejectToastText(['a', 'b'], rows)).toBe('1 entry(s) rejected. 1 date change(s) rejected; those visits stay approved on their current date.');
   });
 
   it('re-submitting a rejected entry with the workflow off says "sent for approval"', async () => {

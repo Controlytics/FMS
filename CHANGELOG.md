@@ -30,9 +30,18 @@ Found by the PM coverage tests (each confirmed by a failing test first). Regress
   changes the proposal; the web Modify pre-fills the proposal.
 - **D11 (found while fixing):** a review-stage reject kept the staged edit, so resubmit + approve
   applied the rejected date over the resubmitted one. Review reject and resubmit now clear it.
-- **Waiting on operator decisions:** D2 (an edit takes the approved visit off My Tasks / gate / sweep
-  until approved, and rejecting the edit rejects the visit; the UI toast says the opposite) and D4b
-  (one cleaned sibling satisfies the missed-PM gate, while My Tasks needs every counted filter).
+- **D2 (operator decision): an approved visit stays in force while a change to its date waits.** An
+  edit used to move the entry to PENDING_*, and My Tasks, the missed-PM gate, the sweep, the "PM due"
+  hint and the schedule-replace evidence check all dropped the visit; rejecting the change rejected
+  the visit. Now `PM_ENTRY_IN_FORCE` (`pm-shared.ts`) = APPROVED, or a pending change to an approved
+  visit, is used at all of them. Rejecting a change (review or approval stage) discards only the
+  change: the visit stays APPROVED on its date, with its approver kept (audit `changeRejected:
+  true`, QNN "Change rejected … visit stays approved", web toast says so). A schedule replace now
+  carries a pending change forward. Also: `isPmDue` no longer pre-selects the PM reason for an
+  unapproved or rejected visit, and approval-stage reject reports what it actually rejected.
+- **D4b (operator decision):** the missed-PM gate now needs EVERY counted filter PM-cleaned since
+  the window opened, the same rule as My Tasks and the sweep. A part-done overdue visit asks for a
+  write-off reason at the next PM cleaning, instead of being completed late by it.
 
 ## [Unreleased] - Fresh install could not create its first block (2026-10-21)
 

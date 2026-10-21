@@ -131,6 +131,48 @@ function assertNotOwnEntry(
 }
 
 /**
+ * What a rejection writes. A plain entry becomes REJECTED. A CHANGE to an
+ * approved visit (pendingPlannedDate set) is discarded instead, and the visit
+ * stays APPROVED on its original date (D2, operator decision 2026-10-21):
+ * rejecting a proposed new date must not cancel the scheduled maintenance. The
+ * rejection itself is recorded by the caller's audit row and QNN. The review
+ * fields described the rejected change, so they are cleared.
+ */
+function rejectionUpdate(
+  entry: { pendingPlannedDate: Date | null },
+  stage: 'REVIEW' | 'APPROVAL',
+  remarks: string,
+  ctx: RequestContext,
+) {
+  const dropChange = { pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null, pendingEditAt: null };
+  if (entry.pendingPlannedDate != null) {
+    return {
+      approvalStatus: 'APPROVED' as const, ...dropChange,
+      reviewedBy: null, reviewedByName: null, reviewedAt: null, reviewRemarks: null,
+    };
+  }
+  return {
+    approvalStatus: 'REJECTED' as const, rejectionStage: stage,
+    rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
+    approvalRemarks: remarks,
+    // A rejected entry carries no proposal: a later resubmit + approval must
+    // not lay a stale date over the resubmitted one (D11, 2026-10-21).
+    ...dropChange,
+  };
+}
+
+/** Audit fields for a rejection, naming a discarded change and the visit it left standing. */
+function rejectionAudit(entry: { pendingPlannedDate: Date | null; pendingToleranceDays: number | null; plannedDate: Date; toleranceDays: number }, stage: 'REVIEW' | 'APPROVAL', remarks: string) {
+  return entry.pendingPlannedDate != null
+    ? {
+      stage, remarks, changeRejected: true,
+      rejectedChange: { plannedDate: entry.pendingPlannedDate, toleranceDays: entry.pendingToleranceDays },
+      visitKept: { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays, approvalStatus: 'APPROVED' },
+    }
+    : { stage, remarks };
+}
+
+/**
  * Review step (workflow ON). action='approve' moves PENDING_REVIEW →
  * PENDING_APPROVAL; action='reject' moves PENDING_REVIEW → REJECTED (stage REVIEW).
  * Gated by the configured reviewRole.
@@ -185,19 +227,12 @@ export async function reviewEntries(
     } else {
       await prisma.pmScheduleEntry.update({
         where: { id: entry.id },
-        data: {
-          approvalStatus: 'REJECTED', rejectionStage: 'REVIEW',
-          rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
-          approvalRemarks: remarks!.trim(),
-          // The rejected proposal dies here, as at approval-stage reject. Left
-          // behind, a later resubmit + approval laid this stale date over the
-          // resubmitted one (D11, 2026-10-21).
-          pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null, pendingEditAt: null,
-        },
+        data: rejectionUpdate(entry, 'REVIEW', remarks!.trim(), ctx),
       });
-      qnns.push(await mintQnn('REJECT', entry, ahuName, ctx, 'Rejected at review',
+      qnns.push(await mintQnn('REJECT', entry, ahuName, ctx,
+        entry.pendingPlannedDate != null ? 'Change rejected at review (visit stays approved)' : 'Rejected at review',
         qnnBatchTag(batchRef, qnns.length + 1, batchTotal, batchAhus)));
-      await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { stage: 'REVIEW', remarks: remarks!.trim() }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+      await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: rejectionAudit(entry, 'REVIEW', remarks!.trim()), ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     }
   }
   return { processed: qnns.length, qnns };
@@ -315,18 +350,15 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
     if (!isRejectable(entry)) continue;
     await prisma.pmScheduleEntry.update({
       where: { id: entry.id },
-      data: {
-        approvalStatus: 'REJECTED', rejectionStage: 'APPROVAL',
-        rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
-        approvalRemarks: remarks.trim(),
-        pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null, pendingEditAt: null,
-      },
+      data: rejectionUpdate(entry, 'APPROVAL', remarks.trim(), ctx),
     });
-    qnns.push(await mintQnn('REJECT', entry, ahuNames.get(entry.id) ?? '?', ctx, 'Rejected at approval',
+    qnns.push(await mintQnn('REJECT', entry, ahuNames.get(entry.id) ?? '?', ctx,
+      entry.pendingPlannedDate != null ? 'Change rejected at approval (visit stays approved)' : 'Rejected at approval',
       qnnBatchTag(batchRef, qnns.length + 1, batchTotal, batchAhus)));
-    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { stage: 'APPROVAL', remarks: remarks.trim() }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: rejectionAudit(entry, 'APPROVAL', remarks.trim()), ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   }
-  return { processed: entries.length, qnns };
+  // Count what was actually rejected (one QNN each), not what was asked for.
+  return { processed: qnns.length, qnns };
 }
 
 /** Re-submit a rejected entry with corrected data. Goes back to the start of the flow. */
@@ -404,10 +436,12 @@ export async function editApprovedEntry(
       pendingPlannedDate: planned,
       pendingToleranceDays: data.toleranceDays ?? entry.toleranceDays,
       pendingEditBy: ctx.userSub, pendingEditAt: new Date(),
+      // The status tracks the CHANGE through review/approval. The visit itself
+      // stays in force on its approved date (PM_ENTRY_IN_FORCE, D2), so the
+      // approval attribution of that date is kept; approving the change
+      // overwrites it, rejecting the change leaves it standing.
       approvalStatus: nextStatus,
-      approvalRemarks: null,
       reviewedBy: null, reviewedByName: null, reviewedAt: null, reviewRemarks: null,
-      approvedBy: null, approvedByName: null, approvedAt: null,
       submittedBy: ctx.userSub, submittedByName: ctx.userId,
     },
   });

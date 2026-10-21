@@ -575,6 +575,13 @@ windowEnd`). Without the gate, the April cleaning silently marks March done too
   session does not re-ask.
 - Files: `pm-schedules/pm-pending-tasks.ts` (detection + write-off),
   `components/pm-pending-tasks-dialog.tsx` (ONE dialog for web + tablet).
+- 🔴 **One "done" rule, one "in force" rule (2026-10-21, operator decisions D2/D4b).** A visit is
+  done only when EVERY counted filter (`loadCountedFilters`, honours `pmFilterSetMode`) has a PM
+  cleaning since its window opened — My Tasks, the sweep and this gate. A visit is an obligation
+  when `PM_ENTRY_IN_FORCE` (`pm-shared.ts`): APPROVED, or an approved visit whose date change awaits
+  sign-off. Rejecting such a change discards only the change; the visit stays APPROVED. Never filter
+  obligations on `approvalStatus: 'APPROVED'` alone, and use it as `AND: [PM_ENTRY_IN_FORCE]` (it
+  carries its own OR). The sweep also skips written-off visits (`skippedAt: null`).
 
 ## Filter Data Management: cache invalidation (2026-08-27)
 

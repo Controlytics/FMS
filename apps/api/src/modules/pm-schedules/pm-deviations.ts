@@ -31,7 +31,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { formatConfiguredDate } from '../../lib/format-datetime.js';
-import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, loadCountedFilters, type CountedAhu } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, loadCountedFilters, PM_ENTRY_IN_FORCE, type CountedAhu } from './pm-shared.js';
 
 const DAY = 86400000;
 // Don't auto-open deviations for entries whose window closed more than this many
@@ -217,7 +217,7 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
     // later cleaning then closed that deviation as "completed late"; when the
     // write-off had already closed one, every sweep raised a daily
     // DEVIATION_OPEN_BLOCKED alarm instead. The missed-PM gate has always had it.
-    where: { schedule: { status: 'ACTIVE' }, approvalStatus: 'APPROVED', skippedAt: null, windowEnd: { lt: now, gte: horizon } },
+    where: { schedule: { status: 'ACTIVE' }, AND: [PM_ENTRY_IN_FORCE], skippedAt: null, windowEnd: { lt: now, gte: horizon } },
     include: { schedule: true },
   });
   const counted = await loadCountedFilters([...new Set(candidates.map((e) => e.schedule.entityId))]);

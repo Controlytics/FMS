@@ -68,6 +68,19 @@ type PmWorkflowConfig = { workflowEnabled: boolean; reviewRole: string; approval
  * case, from the old single-step flow - wrong whenever review is a Manager step.
  * `wf` undefined = the workflow config could not be read; say nothing specific.
  */
+/**
+ * Rejecting a DATE CHANGE to an approved visit (pendingPlannedDate set) discards
+ * only the change; the visit stays approved on its current date (operator
+ * decision 2026-10-21). Say which happened instead of "N entries rejected".
+ */
+export function rejectToastText(ids: string[], entries: Array<{ id: string; pendingPlannedDate: string | null }>): string {
+  const changes = ids.filter((id) => entries.find((e) => e.id === id)?.pendingPlannedDate).length;
+  const plain = ids.length - changes;
+  if (changes === 0) return `${plain} entry(s) rejected`;
+  const kept = `${changes} date change(s) rejected; those visits stay approved on their current date.`;
+  return plain === 0 ? kept : `${plain} entry(s) rejected. ${kept}`;
+}
+
 export function pmSubmissionText(wf: PmWorkflowConfig | undefined): { title: string; phrase: string } {
   if (!wf) return { title: 'Submitted', phrase: 'submitted to the PM approval workflow' };
   if (wf.workflowEnabled) {
@@ -540,7 +553,7 @@ export function PmScheduleListPage() {
       if (password) await apiClient.postWithReauth(url, body, password);
       else await apiClient.post(url, body);
     }, {
-      onSuccess: () => { toast.success('Rejected', `${ids.length} entry(s) rejected`); setRejectDialog(null); setSelected(new Set()); refreshAll(); setProcessing(false); },
+      onSuccess: () => { toast.success('Rejected', rejectToastText(ids, entries)); setRejectDialog(null); setSelected(new Set()); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
     });
   };

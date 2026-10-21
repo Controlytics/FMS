@@ -3,9 +3,9 @@
  * report D1-D9) plus two found while fixing them (D10, D11). Each test asserts
  * the CORRECT behaviour and failed before its fix.
  *
- * D2 (an edit takes an approved visit out of every obligation) and D4b (one
- * cleaned sibling satisfies the missed-PM gate) wait on operator decisions and
- * are not pinned here.
+ * D2 and D4b were operator decisions (2026-10-21): an approved visit stays in
+ * force while a change to its date waits (and a rejected change leaves it
+ * approved), and the missed-PM gate needs EVERY counted filter, like My Tasks.
  *
  * Real Prisma on digilog_test_db; PM config is served in-process (pm-fixtures).
  */
@@ -15,6 +15,7 @@ import ExcelJS from 'exceljs';
 import { buildApp } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import pmScheduleRoutes from '../modules/pm-schedules/routes.js';
+import filterOperationsRoutes from '../modules/filter-operations/routes.js';
 import { getPendingEarlierPmTasks } from '../modules/pm-schedules/pm-pending-tasks.js';
 import {
   PmFixture, installConfigOverrides, defaultPmConfig, utcDay, iso, DAY, multipartBody, type ConfigOverrides,
@@ -48,7 +49,10 @@ const upload = (name: string, content: Buffer) => {
 };
 
 beforeAll(async () => {
-  app = await buildApp([{ plugin: pmScheduleRoutes, prefix: '/api/pm-schedules' }]);
+  app = await buildApp([
+    { plugin: pmScheduleRoutes, prefix: '/api/pm-schedules' },
+    { plugin: filterOperationsRoutes, prefix: '/api/filters' },
+  ]);
   const note = await fx.role('NOTE', ['DASHBOARD_VIEW']);
   cfg = installConfigOverrides(defaultPmConfig(note));
   // Three people, so separation of duties never blocks a step under test:
@@ -153,6 +157,107 @@ describe('D4a - the missed-PM gate honours the AHU filter-set mode', () => {
   });
 });
 
+describe('D4b - the missed-PM gate needs every counted filter', () => {
+  it('a part-done overdue visit is still pending; once every filter is PM-cleaned it is not', async () => {
+    const ahu = await fx.instance('AHU', 'D4all', { parentId: blockId });
+    const f1 = await fx.filter('d4b-1', ahu);
+    const f2 = await fx.filter('d4b-2', ahu);
+    const s = await fx.schedule(ahu, 2026, users.sa.id, [{ plannedDate: at(-15), toleranceDays: 5 }]);
+    await fx.cycle(f1, users.sa.id, { status: 'COMPLETED', startedAt: at(-13), completedAt: at(-12) });
+    expect((await getPendingEarlierPmTasks(f2)).map((p) => p.entryId)).toEqual([s.entryIds[0]]);
+
+    // Control: the same predicate as My Tasks - a late PM clean of the last filter completes it.
+    await fx.cycle(f2, users.sa.id, { status: 'COMPLETED', startedAt: at(-2), completedAt: at(-1) });
+    expect(await getPendingEarlierPmTasks(f2)).toEqual([]);
+  });
+});
+
+describe('D2 - an approved visit stays in force while a change to its date waits', () => {
+  it('My Tasks, the missed-PM gate and the sweep keep the visit on its approved date', async () => {
+    cfg.set('pm-schedule-approval', WORKFLOW_OFF);
+    const ahu = await fx.instance('AHU', 'D2a', { parentId: blockId });
+    const flt = await fx.filter('d2a-f', ahu);
+    const s = await fx.schedule(ahu, 2026, users.sa.id, [{ plannedDate: at(-15), toleranceDays: 5, approvalStatus: 'APPROVED' }]);
+    const id = s.entryIds[0];
+    expect((await as('sa', 'PUT', `/entries/${id}/edit`, { plannedDate: iso(at(40)) })).statusCode).toBe(200);
+    expect((await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } })).approvalStatus).toBe('PENDING');
+
+    const due = (await as('sa', 'GET', '/due')).json();
+    expect([...due.tasks, ...due.overdue].some((r: any) => r.entryId === id)).toBe(true);
+    expect((await getPendingEarlierPmTasks(flt)).map((p) => p.entryId)).toEqual([id]);
+    await as('sa', 'POST', '/deviations/sweep');
+    expect(await prisma.deviation.findUnique({ where: { pmScheduleEntryId: id } })).not.toBeNull();
+  });
+
+  it('rejecting the change at approval keeps the visit APPROVED on its original date, approver kept', async () => {
+    cfg.set('pm-schedule-approval', WORKFLOW_OFF);
+    const ahu = await fx.instance('AHU', 'D2b', { parentId: blockId });
+    const live = new Date(Date.UTC(2097, 2, 1));
+    const approvedAt = new Date(Date.UTC(2097, 0, 2));
+    const s = await fx.schedule(ahu, 2097, users.sa.id, [{
+      plannedDate: live, toleranceDays: 2, approvalStatus: 'APPROVED',
+      extra: { approvedBy: users.apr.id, approvedByName: users.apr.username, approvedAt },
+    }]);
+    const id = s.entryIds[0];
+    await as('sa', 'PUT', `/entries/${id}/edit`, { plannedDate: '2097-03-10' });
+    expect((await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } })).approvedByName).toBe(users.apr.username);
+
+    const res = await as('apr', 'POST', '/entries/reject', { entryIds: [id], remarks: 'keep the original date' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().processed).toBe(1);
+    const row = await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } });
+    expect(row).toMatchObject({ approvalStatus: 'APPROVED', pendingPlannedDate: null, approvedByName: users.apr.username, rejectedAt: null });
+    expect(iso(row.plannedDate)).toBe(iso(live));
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'PM_SCHEDULE_REJECTED', targetId: id }, orderBy: { chainPosition: 'desc' } });
+    expect(audit?.afterValue).toMatchObject({ stage: 'APPROVAL', changeRejected: true, visitKept: { approvalStatus: 'APPROVED' } });
+  });
+
+  it('rejecting the change at review keeps the visit APPROVED too', async () => {
+    cfg.set('pm-schedule-approval', WORKFLOW_ON);
+    const ahu = await fx.instance('AHU', 'D2c', { parentId: blockId });
+    const live = new Date(Date.UTC(2097, 5, 1));
+    const s = await fx.schedule(ahu, 2097, users.sa.id, [{ plannedDate: live, toleranceDays: 2, approvalStatus: 'APPROVED' }]);
+    const id = s.entryIds[0];
+    await as('sa', 'PUT', `/entries/${id}/edit`, { plannedDate: '2097-06-12' });
+    expect((await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'reject', remarks: 'not this date' })).statusCode).toBe(200);
+    const row = await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } });
+    expect(row).toMatchObject({ approvalStatus: 'APPROVED', pendingPlannedDate: null, reviewedBy: null });
+    expect(iso(row.plannedDate)).toBe(iso(live));
+  });
+
+  it('replacing the schedule keeps the pending change, and refuses to drop the visit', async () => {
+    cfg.set('pm-schedule-approval', WORKFLOW_OFF);
+    const ahu = await fx.instance('AHU', 'D2d', { parentId: blockId });
+    const live = new Date(Date.UTC(2097, 8, 1));
+    const s = await fx.schedule(ahu, 2097, users.sa.id, [{ plannedDate: live, toleranceDays: 2, approvalStatus: 'APPROVED' }]);
+    await as('sa', 'PUT', `/entries/${s.entryIds[0]}/edit`, { plannedDate: '2097-09-08' });
+
+    const dropIt = await as('sa', 'PUT', `/${s.scheduleId}`, { entries: [{ month: 10, plannedDate: '2097-10-15', toleranceDays: 2 }] });
+    expect(dropIt.statusCode).toBe(409);
+    expect(dropIt.json().error).toBe('PM_ENTRY_HAS_EVIDENCE');
+
+    const keep = await as('sa', 'PUT', `/${s.scheduleId}`, { entries: [{ month: 9, plannedDate: '2097-09-01', toleranceDays: 2 }] });
+    expect(keep.statusCode).toBe(200);
+    const active = await prisma.pmSchedule.findFirstOrThrow({ where: { entityId: ahu, year: 2097, status: 'ACTIVE' }, include: { entries: true } });
+    expect(active.entries).toHaveLength(1);
+    expect(active.entries[0].pendingPlannedDate && iso(active.entries[0].pendingPlannedDate)).toBe('2097-09-08');
+  });
+});
+
+describe('isPmDue - only a visit in force pre-selects the PM reason', () => {
+  it('an unapproved visit in its window is not "PM due"; an approved one is', async () => {
+    const ahu = await fx.instance('AHU', 'DUE', { parentId: blockId });
+    const flt = await fx.filter('due-f', ahu);
+    const s = await fx.schedule(ahu, 2026, users.sa.id, [{ plannedDate: at(0), toleranceDays: 3, approvalStatus: 'PENDING' }]);
+    const state = async () => (await app.inject({
+      method: 'GET', url: `/api/filters/${flt}/current-state`, headers: { authorization: `Bearer ${users.sa.token}` },
+    })).json();
+    expect((await state()).isPmDue).toBe(false);
+    await prisma.pmScheduleEntry.update({ where: { id: s.entryIds[0] }, data: { approvalStatus: 'APPROVED' } });
+    expect((await state()).isPmDue).toBe(true);
+  });
+});
+
 describe('D3 - bulk approve is all-or-nothing on a separation refusal', () => {
   it('refuses the batch before writing anything when two staged edits would overlap', async () => {
     cfg.set('pm-schedule-approval', WORKFLOW_OFF);
@@ -219,16 +324,19 @@ describe('D10 / D11 - a pending edit of an approved visit', () => {
     expect(iso(row.plannedDate)).toBe('2096-03-12');
   });
 
-  it('D11: an edit rejected at review is not resurrected when the entry is resubmitted', async () => {
+  it('D11: a stale proposal on a REJECTED entry is not resurrected when the entry is resubmitted', async () => {
+    // A review reject used to keep the proposal (D11). Since D2 a rejected CHANGE
+    // leaves the visit APPROVED, so such rows now exist only from before the fix:
+    // build one directly and check resubmit drops the stale date.
     cfg.set('pm-schedule-approval', WORKFLOW_ON);
     const ahu = await fx.instance('AHU', 'D11', { parentId: blockId });
-    const s = await fx.schedule(ahu, 2096, users.sa.id, [{ plannedDate: new Date(Date.UTC(2096, 5, 1)), toleranceDays: 2, approvalStatus: 'APPROVED' }]);
+    const s = await fx.schedule(ahu, 2096, users.sa.id, [{
+      plannedDate: new Date(Date.UTC(2096, 5, 1)), toleranceDays: 2, approvalStatus: 'REJECTED',
+      extra: { rejectionStage: 'REVIEW', pendingPlannedDate: new Date(Date.UTC(2096, 5, 10)), pendingToleranceDays: 2 },
+    }]);
     const id = s.entryIds[0];
-    await as('sa', 'PUT', `/entries/${id}/edit`, { plannedDate: '2096-06-10' });
-    expect((await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'reject', remarks: 'wrong date' })).statusCode).toBe(200);
-    expect((await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } })).pendingPlannedDate).toBeNull();
-
     expect((await as('sa', 'POST', `/entries/${id}/resubmit`, { plannedDate: '2096-06-20' })).statusCode).toBe(200);
+    expect((await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } })).pendingPlannedDate).toBeNull();
     await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'approve' });
     expect((await as('apr', 'POST', '/entries/approve', { entryIds: [id] })).statusCode).toBe(200);
     const row = await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } });

@@ -32,6 +32,36 @@ export async function checkPmEnabled() {
   if (!isPmEnabled(await readPmSettings())) throw new AppError(404, 'PM_DISABLED', 'PM scheduling module is not enabled');
 }
 
+/**
+ * A PM visit that is an obligation NOW: APPROVED, or an approved visit whose
+ * date change is awaiting sign-off. Operator decision 2026-10-21 (D2): the
+ * approved date stays in force until the change is approved, and a rejected
+ * change leaves the visit approved on its original date. Before that, an edit
+ * moved the entry to PENDING_* and every obligation surface (My Tasks, the
+ * missed-PM gate, the sweep) silently dropped the visit.
+ *
+ * `pendingPlannedDate` marks the change: only editApprovedEntry sets it, and
+ * only on an APPROVED entry; approve, reject and resubmit all clear it. The
+ * status list keeps a REJECTED row with a stale pending date (left by review
+ * rejects before D11) out.
+ *
+ * Use it as `AND: [PM_ENTRY_IN_FORCE]`: it carries an OR of its own, and a
+ * spread would overwrite (or be overwritten by) a sibling OR such as My Tasks'
+ * window filter.
+ */
+export const PM_ENTRY_IN_FORCE = {
+  OR: [
+    { approvalStatus: 'APPROVED' as const },
+    { pendingPlannedDate: { not: null }, approvalStatus: { in: ['PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL'] as ('PENDING' | 'PENDING_REVIEW' | 'PENDING_APPROVAL')[] } },
+  ],
+};
+
+/** The same rule for an entry already in memory. */
+export function isPmEntryInForce(e: { approvalStatus: string; pendingPlannedDate: Date | null }): boolean {
+  return e.approvalStatus === 'APPROVED'
+    || (e.pendingPlannedDate != null && ['PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL'].includes(e.approvalStatus));
+}
+
 export interface CountedAhu {
   ahuId: string;
   ahuName: string;

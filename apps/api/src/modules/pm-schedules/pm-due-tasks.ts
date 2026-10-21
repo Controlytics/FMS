@@ -12,7 +12,7 @@
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
-import { checkPmEnabled, resolvePmReasonKeys, readPmSettings } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, PM_ENTRY_IN_FORCE } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
 
@@ -63,11 +63,12 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
         ],
       };
 
-  // Fetch candidate entries — only APPROVED entries on ACTIVE schedules.
+  // Fetch candidate entries — visits in force (APPROVED, or approved with a date
+  // change awaiting sign-off: PM_ENTRY_IN_FORCE) on ACTIVE schedules.
   const entries = await prisma.pmScheduleEntry.findMany({
     where: {
       schedule: { status: 'ACTIVE' },
-      approvalStatus: 'APPROVED',
+      AND: [PM_ENTRY_IN_FORCE],
       ...windowFilter,
     },
     include: { schedule: true },

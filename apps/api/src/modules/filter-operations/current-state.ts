@@ -12,6 +12,7 @@
  */
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
+import { PM_ENTRY_IN_FORCE } from '../pm-schedules/pm-shared.js';
 import { generateTape } from './tape/tape-generator.js';
 import type { TapeChecklistProfile } from './tape/types.js';
 import {
@@ -295,6 +296,8 @@ export async function getCurrentStateImpl(
       const readDueEntry = () => prisma.pmScheduleEntry.findFirst({
         where: {
           schedule: { entityId: ahuId, status: 'ACTIVE' },
+          // Only a visit in force is due — not one awaiting approval or rejected.
+          AND: [PM_ENTRY_IN_FORCE],
           windowStart: { lte: now },
           windowEnd: { gte: now },
         },

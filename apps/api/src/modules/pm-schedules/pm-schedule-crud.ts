@@ -6,7 +6,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { checkPmEnabled } from './pm-shared.js';
+import { checkPmEnabled, isPmEntryInForce } from './pm-shared.js';
 import { assertSetSeparation } from './pm-separation-guard.js';
 
 export async function getByEntity(_ctx: RequestContext, entityId: string, year?: number) {
@@ -115,7 +115,7 @@ export async function update(ctx: RequestContext, id: string, data: any) {
   const incomingDays = new Set(entries.map((e: any) => dayKey(e.plannedDate)));
   const dropped = existing.entries.filter((e) =>
     !incomingDays.has(dayKey(e.plannedDate))
-    && (e.approvalStatus === 'APPROVED' || e.skippedAt || e.executions.length > 0));
+    && (isPmEntryInForce(e) || e.skippedAt || e.executions.length > 0));
   if (dropped.length > 0) {
     throw new AppError(409, 'PM_ENTRY_HAS_EVIDENCE',
       `${dropped.length} visit(s) with an approval, write-off or execution would be removed (${dropped.map((e) => dayKey(e.plannedDate)).join(', ')}). Remove them individually instead.`);
@@ -124,6 +124,11 @@ export async function update(ctx: RequestContext, id: string, data: any) {
   const carry = (e: (typeof existing.entries)[number] | undefined) => e ? {
     approvalStatus: e.approvalStatus, approvalRemarks: e.approvalRemarks,
     approvedBy: e.approvedBy, approvedByName: e.approvedByName, approvedAt: e.approvedAt,
+    // A date change awaiting sign-off travels with its visit (D2): dropped, the
+    // carried PENDING_* status would describe no change and the approved visit
+    // would fall out of every obligation surface.
+    pendingPlannedDate: e.pendingPlannedDate, pendingToleranceDays: e.pendingToleranceDays,
+    pendingEditBy: e.pendingEditBy, pendingEditAt: e.pendingEditAt,
     submittedBy: e.submittedBy, submittedByName: e.submittedByName,
     reviewedBy: e.reviewedBy, reviewedByName: e.reviewedByName, reviewedAt: e.reviewedAt, reviewRemarks: e.reviewRemarks,
     rejectedBy: e.rejectedBy, rejectedByName: e.rejectedByName, rejectedAt: e.rejectedAt, rejectionStage: e.rejectionStage,
