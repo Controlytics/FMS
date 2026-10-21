@@ -221,3 +221,30 @@ describe('Replacement List page', () => {
     expect(api.calls('PUT', '/api/super-admin/filter-data/replacements/rp3')[0].json).toEqual({ remarks: 'Backfilled', _changeReason: 'Missing remarks' });
   });
 });
+
+// 2026-10-21: the initial tab was fixed from permissions read BEFORE /api/auth/me
+// resolved, and never re-synced. These run with NO cached user, i.e. a cold load.
+describe('Replacement List page — initial tab follows the permissions once they load', () => {
+  it('SUPER_ADMIN on a cold load lands on the List, and the schedule is never fetched for it', async () => {
+    const api = setup();
+    renderPage(<ReplacementListPage />, { user: SA, api });
+    expect(await screen.findByText('FLT-001')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Replacement List' })).toBeInTheDocument();
+    expect(api.calls('GET', '/api/replacement-schedules')).toHaveLength(0);
+  });
+
+  it('a schedule-only role on a cold load lands on the Schedule; the list feed is not requested', async () => {
+    const api = setup();
+    renderPage(<ReplacementListPage />, { user: role('MANAGER', ['REPLACEMENT_SCHEDULE_VIEW']), api });
+    expect(await screen.findByRole('heading', { name: 'Replacement Schedule' })).toBeInTheDocument();
+    expect(api.calls('GET', '/api/filters/replacements')).toHaveLength(0);
+  });
+
+  it('the operator\'s own tab choice is kept', async () => {
+    const api = setup();
+    renderPage(<ReplacementListPage />, { user: SA, api });
+    await screen.findByText('FLT-001');
+    fireEvent.click(screen.getByRole('button', { name: 'Replacement Schedule' }));
+    expect(await screen.findByText('No replacement schedule yet')).toBeInTheDocument();
+  });
+});

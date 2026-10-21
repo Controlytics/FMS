@@ -151,8 +151,9 @@ export function DryingFiltersPanel({
     }
     if (!sig.ok) { setSubmitting(false); return; }
     const password = sig.password;
-    let ok = 0; let queued = 0; const failed: string[] = [];
+    let ok = 0; let queued = 0; const failed: string[] = []; const notRefreshed: string[] = [];
     for (const r of targets) {
+      let executed: boolean;
       try {
         const dryIn = (r.group.instruments ?? []).filter((i: any) => i.stageKey === 'DRY_IN');
         const readings: Record<string, number> = {};
@@ -165,37 +166,57 @@ export function DryingFiltersPanel({
           readings[inst.id] = typeof auto === 'number' ? auto : inst.operatingMin;
           readingSources[inst.id] = typeof auto === 'number' ? 'AUTO' : 'MANUAL';
         }
-        const { executed } = await executeOrQueue('advance', r.filterId, r.filterName, {
+        ({ executed } = await executeOrQueue('advance', r.filterId, r.filterName, {
           targetState: 'DRY_IN',
           dryerAction: 'SUBMIT_READINGS',
           equipmentGroupId: r.group.id,
           instrumentReadings: readings,
           readingSources,
           remarks: `Dryer temperature ${r.temp}${r.uom} - ${r.filterName}`,
-        }, 'DRY_IN', password);
-        if (executed) ok++; else queued++;
-        // Queued offline: rewrite the cached action tape / reachable-target
-        // mirrors first (the pre-2026-09-04 tablet card did this; without it a
-        // second offline scan of the same filter still sees "readings pending").
-        if (!executed) await recomputeAndCacheFilterState(r.filterId, 'DRY_IN', false, null);
-        // Mirror the server's view of the cycle in the offline cache + clear the persisted temp.
-        try {
-          const cs = await getCache<any>(`filter-state-${r.filterId}`);
-          if (cs) cacheData(`filter-state-${r.filterId}`, { ...cs, currentCycle: { ...(cs.currentCycle ?? {}), dryerReadingsSubmitted: true } });
-          cacheData(`dryer-temp-${r.filterId}`, null, 0);
-        } catch (err) {
-          // eslint-disable-next-line no-console -- intentional structured log
-          console.warn('[drying-panel] cache update failed —', err instanceof Error ? err.message : String(err));
-        }
-        setRows(prev => prev[r.filterId] ? { ...prev, [r.filterId]: { ...prev[r.filterId], submitted: true } } : prev);
+        }, 'DRY_IN', password));
       } catch (e: any) {
         failed.push(`${r.filterName}: ${e?.message ?? 'failed'}`);
+        continue;
       }
+      // From here the reading is RECORDED (sent) or durably QUEUED. What follows is
+      // upkeep of this device's offline view, and it must never turn that reading
+      // into a "failed" one: the operator was told "N queued" AND "failed" for the
+      // same filter, and the row stayed selectable, so a second Submit queued a
+      // duplicate reading (2026-10-21, D8).
+      if (executed) ok++; else queued++;
+      // Queued offline: rewrite the cached action tape / reachable-target
+      // mirrors (the pre-2026-09-04 tablet card did this; without it a second
+      // offline scan of the same filter still sees "readings pending"). It
+      // re-throws by design (fail-loud); report it as what it is.
+      if (!executed) {
+        try {
+          await recomputeAndCacheFilterState(r.filterId, 'DRY_IN', false, null);
+        } catch (err: any) {
+          notRefreshed.push(`${r.filterName}: ${err?.message ?? String(err)}`);
+        }
+      }
+      // Mirror the server's view of the cycle in the offline cache + clear the persisted temp.
+      try {
+        const cs = await getCache<any>(`filter-state-${r.filterId}`);
+        if (cs) cacheData(`filter-state-${r.filterId}`, { ...cs, currentCycle: { ...(cs.currentCycle ?? {}), dryerReadingsSubmitted: true } });
+        cacheData(`dryer-temp-${r.filterId}`, null, 0);
+      } catch (err) {
+        // eslint-disable-next-line no-console -- intentional structured log
+        console.warn('[drying-panel] cache update failed —', err instanceof Error ? err.message : String(err));
+      }
+      setRows(prev => prev[r.filterId] ? { ...prev, [r.filterId]: { ...prev[r.filterId], submitted: true } } : prev);
     }
     setSelected(new Set());
     setSharedTemp('');
     if (ok + queued > 0) onSuccess(`${ok + queued} filter(s) → Dry In complete${queued ? ` (${queued} queued)` : ''}`);
-    if (failed.length > 0) onError(`${failed.length} failed:\n${failed.join('\n')}`);
+    // ONE onError: both parents keep a single message, so a second call would
+    // overwrite the first.
+    const problems: string[] = [];
+    if (failed.length > 0) problems.push(`${failed.length} failed:\n${failed.join('\n')}`);
+    if (notRefreshed.length > 0) {
+      problems.push(`${notRefreshed.length} queued, but this device's offline view was not refreshed — do not submit it again; the reading will sync when online:\n${notRefreshed.join('\n')}`);
+    }
+    if (problems.length > 0) onError(problems.join('\n\n'));
     onAfterSubmit?.();
     setSubmitting(false);
   };

@@ -142,7 +142,10 @@ export function FilterListPage() {
   // Pagination
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(paginationOptions[0] ?? 10);
+  // Derived, not seeded: useState(paginationOptions[0]) captured the pre-load
+  // fallback (10) on a cold load and never took the configured option (2026-10-21, D6).
+  const [perPageChoice, setPerPageChoice] = useState<number | null>(null);
+  const perPage = perPageChoice ?? paginationOptions[0] ?? 10;
   // Filters-tab search box: matches filter name / area / AHU / type / size / set /
   // status / RFID tag within the selected block's list.
   const [search, setSearch] = useState('');
@@ -812,6 +815,8 @@ export function FilterListPage() {
     if (ids.length === 0) return;
     const action = kind === 'review' ? 'REVIEW_FILTER' : kind === 'approve' ? 'APPROVE_FILTER' : 'REJECT_FILTER';
     const verb = kind === 'review' ? 'Reviewed' : kind === 'approve' ? 'Approved' : 'Rejected';
+    // The failure title names the ACTION; `${verb} failed` read "Approved failed".
+    const failTitle = kind === 'review' ? 'Review failed' : kind === 'approve' ? 'Approval failed' : 'Rejection failed';
     const subject = ids.length === 1 ? (label ?? approvalDialog?.filter?.name ?? 'Filter') : `${ids.length} filters`;
     setApprovalSubmitting(true);
     reauth.execute(action, async (password?: string) => {
@@ -843,7 +848,7 @@ export function FilterListPage() {
       },
       onError: (e: any) => {
         setApprovalSubmitting(false);
-        toast.error(`${verb} failed`, e?.message ?? 'Unknown error');
+        toast.error(failTitle, e?.message ?? 'Unknown error');
       },
       // A cancelled re-auth is not an error: the popup stays open, unlocked.
       onCancel: () => setApprovalSubmitting(false),
@@ -1124,7 +1129,7 @@ export function FilterListPage() {
       else await api.put(`/api/assets/instances/${id}`, body);
     }, {
       onSuccess: () => {
-        toast.success('Updated', `"${hierarchyEditName}" saved`);
+        toast.success('Updated', `"${hierarchyEditName.trim()}" saved`);
         setHierarchyEditDialog(null);
         mutate('/api/hierarchy/tree');
         setHierarchyEditSubmitting(false);
@@ -1215,7 +1220,7 @@ export function FilterListPage() {
         else await api.put(`/api/super-admin/filter-data/filters/${id}`, body);
       }, {
         onSuccess: () => {
-          toast.success('Filter Updated', `"${editFilterName}" saved and recorded in the audit trail`);
+          toast.success('Filter Updated', `"${editFilterName.trim()}" saved and recorded in the audit trail`);
           setEditFilterDialog(null);
           setEditFilterSubmitting(false);
           mutate('/api/hierarchy/tree');
@@ -1250,7 +1255,7 @@ export function FilterListPage() {
       else await api.put(`/api/hierarchy/filters/${id}`, body);
     }, {
       onSuccess: () => {
-        toast.success('Filter Updated', `"${editFilterName}" saved`);
+        toast.success('Filter Updated', `"${editFilterName.trim()}" saved`);
         setEditFilterDialog(null);
         mutate('/api/hierarchy/tree');
         setEditFilterSubmitting(false);
@@ -1341,7 +1346,7 @@ export function FilterListPage() {
         else await api.post('/api/hierarchy/filters', body);
       }, {
         onSuccess: () => {
-          toast.success('Filter Created', `"${createFilterName}" added`);
+          toast.success('Filter Created', `"${createFilterName.trim()}" added`);
           setCreateFilterOpen(false);
           mutate('/api/hierarchy/tree');
           setCreateFilterSubmitting(false);
@@ -2232,7 +2237,7 @@ export function FilterListPage() {
                 pageSize={perPage}
                 totalItems={blockFilters.length}
                 onPageChange={setPage}
-                onPageSizeChange={setPerPage}
+                onPageSizeChange={setPerPageChoice}
                 pageSizeOptions={paginationOptions}
               />
             </div>

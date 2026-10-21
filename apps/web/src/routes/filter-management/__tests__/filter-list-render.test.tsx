@@ -344,3 +344,13 @@ describe('Filters page — Filters tab table', () => {
     await waitFor(() => expect(within(row('PF-006')).getByTitle('Edit Filter (Super Admin)')).toBeInTheDocument());
   });
 });
+
+describe('Filters page — configured page size (D6 class)', () => {
+  it('pages by the first CONFIGURED rows-per-page option, not the pre-load fallback', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...F.pf2, id: `m${i}`, name: `MF-${String(i + 1).padStart(2, '0')}` }));
+    renderFilters(SA, setupApi({ tree: makeTree({ ahu1Filters: many, ahu2Filters: [] }), base: { pagination: { limit: 25, options: [5, 25, 50] } } }));
+    await openFiltersTab('Block Alpha', 'MF-01');
+    await waitFor(() => expect(screen.getByText(/Showing/).parentElement).toHaveTextContent('Showing 1–5 of 12'));
+    expect(screen.queryByText('MF-06')).toBeNull();
+  });
+});

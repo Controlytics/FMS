@@ -238,3 +238,40 @@ describe('Filters page — bulk review / approve', () => {
     expect(await screen.findByText('2 filters reviewed')).toBeInTheDocument();
   });
 });
+
+describe('Filters page — workflow failure titles name the action', () => {
+  const refuse = (kind: string) => ({ method: 'POST', path: `/api/assets/instances/${kind}`, status: 409, body: { error: 'CONFLICT', message: `${kind} refused` } });
+
+  it('a refused review reads "Review failed"', async () => {
+    const api = setupApi({ extra: [refuse('review')] });
+    renderFilters(REVIEWER, api);
+    await openFiltersTab();
+    fireEvent.click(within(row('PF-003')).getByRole('button', { name: 'Review' }));
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Complete Review' }));
+    expect(await screen.findByText('review refused')).toBeInTheDocument();
+    expect(screen.getByText('Review failed')).toBeInTheDocument();
+    expect(screen.queryByText(/Reviewed failed/)).toBeNull();
+  });
+
+  it('a refused approval reads "Approval failed"', async () => {
+    const api = setupApi({ extra: [refuse('approve')] });
+    renderFilters(APPROVER, api);
+    await openFiltersTab();
+    fireEvent.click(within(row('PF-004')).getByRole('button', { name: 'Approve' }));
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Approve' }));
+    expect(await screen.findByText('approve refused')).toBeInTheDocument();
+    expect(screen.getByText('Approval failed')).toBeInTheDocument();
+  });
+
+  it('a refused rejection reads "Rejection failed"', async () => {
+    const api = setupApi({ extra: [refuse('reject')] });
+    renderFilters(REVIEWER, api);
+    await openFiltersTab();
+    fireEvent.click(within(row('PF-003')).getByRole('button', { name: 'Review' }));
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Reject…' }));
+    fireEvent.change(within(dlg()).getByPlaceholderText(/Why this filter is being rejected/), { target: { value: 'Wrong micron size' } });
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Confirm Reject' }));
+    expect(await screen.findByText('reject refused')).toBeInTheDocument();
+    expect(screen.getByText('Rejection failed')).toBeInTheDocument();
+  });
+});

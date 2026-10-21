@@ -326,3 +326,28 @@ describe('StageScanDialog — in-flight states', () => {
     expect(screen.queryByText('Looking up filter...')).toBeNull();
   });
 });
+
+// D9 (2026-10-21): the 300 ms "tag complete" timer must be disarmed by a manual add.
+describe('StageScanDialog — scan timer is disarmed', () => {
+  it('a manual add right after typing does not re-detect the same value as a tag', async () => {
+    const s = setup();
+    scan('FLT-001');
+    fireEvent.click(screen.getByRole('button', { name: /Add to Queue/ }));
+    expect(s.onAddToQueue).toHaveBeenCalledTimes(1);
+    expect(s.onAddToQueue).toHaveBeenCalledWith('FLT-001');
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); });
+    expect(screen.queryByText('Tag Detected')).toBeNull();
+    expect(scanInput()).toHaveValue('');
+    expect(s.onScanValueChange).toHaveBeenLastCalledWith('');
+    expect(s.onAddToQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('a timer armed when the dialog unmounts never fires into the parent', async () => {
+    const s = setup();
+    scan('FLT-001');
+    s.unmount();
+    const calls = s.onScanValueChange.mock.calls.length;
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); });
+    expect(s.onScanValueChange.mock.calls.length).toBe(calls);
+  });
+});

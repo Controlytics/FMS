@@ -205,3 +205,52 @@ describe('Cleaning Profiles list', () => {
     expectSigned(api.calls('DELETE', '/api/filter-cleaning-profiles/p1')[0]);
   });
 });
+
+describe('Cleaning Profiles list — configured page size (D6 class)', () => {
+  it('starts at the first CONFIGURED rows-per-page option, not the pre-load fallback', async () => {
+    const api = setup([], { pagination: { limit: 25, options: [25, 50, 100] } });
+    renderPage(ui(), { user: SA, api });
+    await screen.findByRole('heading', { name: 'WET CLEAN' });
+    await waitFor(() => expect(lastList(api).query.get('limit')).toBe('25'));
+    expect(screen.getByRole('combobox')).toHaveValue('25');
+    expect(Array.from(screen.getByRole('combobox').querySelectorAll('option')).map((o) => o.textContent)).toEqual(['25', '50', '100']);
+  });
+});
+
+describe('Cleaning Profiles list — toggle under re-auth (D7)', () => {
+  it('a server REAUTH_REQUIRED opens only the password prompt; a wrong password shows only "Incorrect password"; the signed retry succeeds', async () => {
+    const api = setup([
+      { method: 'PATCH', path: '/api/filter-cleaning-profiles/p1/toggle-status', status: 401, times: 1, body: { error: 'REAUTH_REQUIRED', message: 'Re-authentication required' } },
+      { method: 'PATCH', path: '/api/filter-cleaning-profiles/p1/toggle-status', status: 401, times: 1, body: { error: 'REAUTH_FAILED', message: 'Invalid password' } },
+      { method: 'PATCH', path: '/api/filter-cleaning-profiles/p1/toggle-status', body: { status: 'INACTIVE' } },
+    ]);
+    renderPage(ui(), { user: SA, api });
+    await screen.findByRole('heading', { name: 'WET CLEAN' });
+    fireEvent.click(within(card('WET CLEAN')).getByRole('button', { name: 'Deactivate profile' }));
+    expect(await screen.findByPlaceholderText('Enter your password')).toBeInTheDocument();
+    expect(screen.queryByText('Re-authentication required')).toBeNull();
+    await passReauth('wrong');
+    expect(await screen.findByText('Incorrect password. Please try again.')).toBeInTheDocument();
+    expect(screen.queryByText('Invalid password')).toBeNull();
+    await passReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
+    const calls = api.calls('PATCH', '/api/filter-cleaning-profiles/p1/toggle-status');
+    expect(calls).toHaveLength(3);
+    expectSigned(calls[2]);
+  });
+
+  it('cancelling the toggle prompt is silent', async () => {
+    const api = setup([], { reauthActions: ['UPDATE_CLEANING_PROFILE'] });
+    renderPage(ui(), { user: SA, api });
+    await screen.findByRole('heading', { name: 'WET CLEAN' });
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.click(within(card('WET CLEAN')).getByRole('button', { name: 'Deactivate profile' }));
+    const pw = await screen.findByPlaceholderText('Enter your password');
+    fireEvent.click(within(pw.closest('.max-w-lg') as HTMLElement).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
+    expect(api.calls('PATCH', '/api/filter-cleaning-profiles/p1/toggle-status')).toHaveLength(0);
+  });
+});

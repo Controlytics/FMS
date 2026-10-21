@@ -394,3 +394,33 @@ describe('Filters page — bulk selection', () => {
     expect(within(bulkBar()).queryByRole('button', { name: 'Replace' })).toBeNull();
   });
 });
+
+describe('Filters page — bulk status for filters with no cleaning profile (D5)', () => {
+  it('the bulk panel offers the stages the single panel does, needs no cleaning reason, and updates the filter', async () => {
+    // Real API shape for a filter without a cleaning profile (stage-rules.ts buildStageOptions):
+    const noProfile = { hasProfile: false, hasActiveCycle: false, profileName: null, currentStage: null, orderedStages: [], immediateNext: [],
+      options: [{ state: 'CLEANING_CYCLE_COMPLETED', classification: 'COMPLETE', allowed: true, isCurrent: false, startsCycle: false }], cleaningReasons: [] };
+    const api = setupApi({ extra: [
+      { path: /\/api\/filters\/f\d\/stage-options/, body: noProfile },
+      { method: 'PATCH', path: /\/api\/assets\/instances\/f\d\/lifecycle-state/, body: {} },
+    ] });
+    renderFilters(OPERATOR, api);
+    await openFiltersTab();
+    fireEvent.click(within(row('PF-002')).getByTitle('Update Status'));
+    const single = panel('Update Filter Status');
+    await waitFor(() => expect(api.calls('GET', '/api/filters/f2/stage-options')).toHaveLength(1));
+    expect(within(field('New Status', single)).getByRole('option', { name: 'Wash In' })).toBeEnabled();
+    fireEvent.click(within(single).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(row('PF-002')).getByRole('checkbox'));
+    fireEvent.click(within(bulkBar()).getByRole('button', { name: 'Update Status' }));
+    const bulk = panel('Bulk Status Update');
+    await waitFor(() => expect(within(field('New Status', bulk)).getByRole('option', { name: 'Wash In' })).toBeEnabled());
+    fireEvent.change(field('New Status', bulk), { target: { value: 'WASH_IN' } });
+    // a no-profile move never starts a cycle, so the server takes no cleaning reason
+    expect(within(bulk).queryByText(/a cleaning reason is required/)).toBeNull();
+    fireEvent.change(within(bulk).getByPlaceholderText('Enter reason for status change...'), { target: { value: 'Moved by hand' } });
+    fireEvent.click(within(bulk).getByRole('button', { name: 'Update 1 Filter(s)' }));
+    expect(await screen.findByText('1 filter(s) updated to Wash In')).toBeInTheDocument();
+    expect(api.calls('PATCH', '/api/assets/instances/f2/lifecycle-state')[0].json).toEqual({ lifecycleState: 'WASH_IN', remarks: 'Moved by hand' });
+  });
+});

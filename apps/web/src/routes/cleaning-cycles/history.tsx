@@ -8,7 +8,7 @@ import { useReportLabels } from '../../hooks/use-report-labels';
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '../../lib/api-client';
 import { createReport } from '../../lib/pdf-report';
-import { startOfDayIso, endOfDayIso } from '@/lib/datetime-input';
+import { datetimeInputToIso } from '@/lib/datetime-input';
 import { exportToExcel } from '@/lib/excel-export';
 import { ExportMenu } from '@/components/ExportMenu';
 import { SendForReviewButton } from '@/components/SendForReviewButton';
@@ -70,16 +70,12 @@ export function CleaningCycleHistoryPage() {
   const canExportPdf = can('cleaning_record.export');
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(defaultLimit);
-  const [perPageSynced, setPerPageSynced] = useState(false);
-  // Sync the page size to the Pagination Settings default once it loads (SWR).
-  useEffect(() => {
-    if (!perPageSynced && defaultLimit) {
-      setPerPage(defaultLimit);
-      setPerPageSynced(true);
-      setPage(1);
-    }
-  }, [defaultLimit, perPageSynced]);
+  // The page size FOLLOWS the Pagination Settings default until the operator
+  // picks one. Seeding state from `defaultLimit` captured the hook's pre-load
+  // fallback (20) on a cold load, and a "synced once" flag then locked it in,
+  // so the configured size never applied (2026-10-21, D6).
+  const [perPageChoice, setPerPageChoice] = useState<number | null>(null);
+  const perPage = perPageChoice ?? defaultLimit;
   const [status, setStatus] = useState('');
   // 2026-06-09: cleaning cycles + manual status updates are now MERGED into one
   // date-sorted list via /api/filters/cleaning-record. Manual rows are tagged
@@ -96,9 +92,14 @@ export function CleaningCycleHistoryPage() {
   const [areaId, setAreaId] = useState('');
   const [ahuId, setAhuId] = useState('');
   useEffect(() => {
-    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1); }, 350);
+    // Only a CHANGED search resets the page. The effect also runs at mount (and
+    // on whitespace-only edits); arming the timer then sent an operator who had
+    // already clicked Next back to page 1 (2026-10-21, D10).
+    const next = searchInput.trim();
+    if (next === search) return;
+    const t = setTimeout(() => { setSearch(next); setPage(1); }, 350);
     return () => clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, search]);
   const [downloading, setDownloading] = useState(false);
   // Manual status update opened in the detail dialog (manual rows have no cycle
   // page to navigate to, so View opens an in-place summary instead).
@@ -135,11 +136,16 @@ export function CleaningCycleHistoryPage() {
   if (blockId) queryParams.set('blockId', blockId);
   if (areaId) queryParams.set('areaId', areaId);
   if (ahuId) queryParams.set('ahuId', ahuId);
-  // Bound the operator's LOCAL day, inclusive at both ends (the server compares
-  // gte/lte). `new Date('2026-07-15')` is UTC midnight, which in IST starts the
-  // range 5.5h late and ends it 18.5h early.
-  const fromIso = startOfDayIso(fromDate, datetimeConfig.timezone);
-  const toIso = endOfDayIso(toDate, datetimeConfig.timezone);
+  // The range control is `datetime-local`: each end is a wall-clock DATE AND TIME
+  // in the configured zone (the zone every timestamp on this page is shown in).
+  // It used to go through the date-only startOfDayIso/endOfDayIso, which return
+  // '' for a value with a time part — so no from/to was ever sent and the list
+  // AND the export ignored the range (2026-10-21, D4). The server compares
+  // gte/lte; the input is minute-precision and the list shows minutes, so "To"
+  // includes the whole chosen minute (17:45 → 17:45:59.999).
+  const fromIso = datetimeInputToIso(fromDate, datetimeConfig.timezone);
+  const toStart = datetimeInputToIso(toDate, datetimeConfig.timezone);
+  const toIso = toStart ? new Date(new Date(toStart).getTime() + 59_999).toISOString() : '';
   if (fromIso) queryParams.set('from', fromIso);
   if (toIso) queryParams.set('to', toIso);
 
@@ -633,7 +639,7 @@ export function CleaningCycleHistoryPage() {
             pageSize={perPage}
             totalItems={total}
             onPageChange={setPage}
-            onPageSizeChange={setPerPage}
+            onPageSizeChange={setPerPageChoice}
             pageSizeOptions={paginationOptions}
           />
         </div>

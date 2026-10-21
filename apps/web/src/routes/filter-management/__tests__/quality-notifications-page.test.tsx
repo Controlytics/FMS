@@ -178,3 +178,22 @@ describe('Quality Notifications page', () => {
     await waitFor(() => expect(api.calls('GET', '/api/pm-schedules/qnn').length).toBeGreaterThan(listReads));
   });
 });
+
+describe('Quality Notifications page — configured page size (D6)', () => {
+  it('uses the configured Pagination default on a cold load, not the pre-load fallback', async () => {
+    const api = setup([], { pagination: { limit: 50, options: [25, 50, 100] } });
+    renderPage(<QualityNotificationsPage />, { user: SA, api });
+    await screen.findByText('QN-2026-000131');
+    await waitFor(() => expect(lastList(api).query.get('limit')).toBe('50'));
+    expect(screen.getByRole('combobox')).toHaveValue('50');
+  });
+
+  it('a size the operator picks sticks', async () => {
+    const api = setup([], { pagination: { limit: 50, options: [25, 50, 100] } }, resp(ROWS, 120));
+    renderPage(<QualityNotificationsPage />, { user: SA, api });
+    await screen.findByText('QN-2026-000131');
+    await waitFor(() => expect(lastList(api).query.get('limit')).toBe('50'));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '100' } });
+    await waitFor(() => expect(lastList(api).query.get('limit')).toBe('100'));
+  });
+});

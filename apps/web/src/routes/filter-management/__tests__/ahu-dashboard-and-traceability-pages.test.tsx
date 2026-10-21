@@ -191,3 +191,20 @@ describe('Filter traceability', () => {
     expect(screen.getByText('Total Cycles:').parentElement).toHaveTextContent('Total Cycles: 0');
   });
 });
+
+describe('Filter traceability — configured page size (D6)', () => {
+  it('reads the configured Pagination default on a cold load, for every tab', async () => {
+    const api = mockApi([
+      { path: '/api/config/pagination/current', body: { limit: 50, count: 50, options: [10, 25, 50] } },
+      { path: '/api/filters/f1/current-state', body: { filterName: 'FLT-001' } },
+      { path: '/api/filters/events', body: { data: [], total: 0, page: 1, limit: 50, totalPages: 1 } },
+      { path: '/api/filters/cycles', body: { data: [], total: 0, page: 1, limit: 50, totalPages: 1 } },
+      ...baseRoutes(),
+    ]);
+    renderPage(<FilterTraceabilityPage />, { user: SA, route: '/filters/f1/trace', path: '/filters/:id/trace', api });
+    await waitFor(() => expect(api.calls('GET', '/api/filters/events').at(-1)!.query.get('limit')).toBe('50'));
+    fireEvent.click(screen.getByRole('button', { name: 'Cycle History' }));
+    await waitFor(() => expect(api.calls('GET', '/api/filters/cycles').at(-1)!.query.get('limit')).toBe('50'));
+    await screen.findByText('No cycles');
+  });
+});

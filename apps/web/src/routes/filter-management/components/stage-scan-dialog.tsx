@@ -81,14 +81,24 @@ export function StageScanDialog({
   const [filterInfo, setFilterInfo] = useState<{ name: string; parentName: string } | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
   const rfidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Cancel a pending "tag complete" timer. Every path that consumes or discards
+  // the typed value must call this: a manual Add left it armed, so 300 ms later
+  // the same text came back as a "Tag Detected" with its own Add button and
+  // could be queued twice (2026-10-21, D9).
+  const disarmScanTimer = useCallback(() => {
+    if (rfidTimerRef.current) clearTimeout(rfidTimerRef.current);
+    rfidTimerRef.current = null;
+  }, []);
+  useEffect(() => disarmScanTimer, [disarmScanTimer]);
 
   // Reset RFID state when dialog opens/closes
   useEffect(() => {
     if (!activeStage) {
+      disarmScanTimer();
       setRfidDetected(null);
       setFilterInfo(null);
     }
-  }, [activeStage]);
+  }, [activeStage, disarmScanTimer]);
 
   // When tag is detected, look up filter details (API first, then cached identifier map)
   const lookupFilter = useCallback(async (tagId: string) => {
@@ -173,6 +183,7 @@ export function StageScanDialog({
 
   const handleManualAdd = () => {
     if (scanValue.trim()) {
+      disarmScanTimer();
       onAddToQueue(scanValue.trim());
       setRfidDetected(null);
       setFilterInfo(null);

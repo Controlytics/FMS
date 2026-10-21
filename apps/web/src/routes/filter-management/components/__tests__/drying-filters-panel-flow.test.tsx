@@ -451,3 +451,54 @@ describe('DryingFiltersPanel - a wrong password in the sign-once prompt', () => 
     expect(executeOrQueue).not.toHaveBeenCalled();
   });
 });
+
+// D8 (2026-10-21): an item counted as queued must not also be reported as failed,
+// nor stay selectable for a second (duplicate) reading.
+describe('DryingFiltersPanel — a queued reading whose offline-view refresh fails', () => {
+  it('is counted once, as queued; the refresh failure is named as such; the row cannot be submitted again', async () => {
+    // No IndexedDB here: recomputeAndCacheFilterState re-throws (21 CFR fail-loud).
+    const { allowConsoleError } = await import('../../__tests__/fm-test-kit');
+    allowConsoleError(/\[offline-cache\] recomputeAndCacheFilterState failed/);
+    const getCache = vi.fn(async (k: string) => (k === 'filter-state-f1' ? { currentCycle: cycle(), equipmentGroup: G } : null));
+    const executeOrQueue = vi.fn(async () => ({ executed: false }));
+    const s = setup({ online: false, states: {}, getCache, executeOrQueue });
+    await waitFor(() => expect(screen.getByText('1 of 1 ready filter(s) selected')).toBeInTheDocument());
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: '60' } });
+    fireEvent.click(submit());
+    await waitFor(() => expect(s.onSuccess).toHaveBeenCalledWith('1 filter(s) → Dry In complete (1 queued)'));
+    expect(s.onError).toHaveBeenCalledTimes(1);
+    const msg = s.onError.mock.calls[0][0] as string;
+    expect(msg).not.toMatch(/failed:/);
+    expect(msg).toMatch(/^1 queued, but this device's offline view was not refreshed — do not submit it again; the reading will sync when online:\nFLT-1: /);
+    // the reading is in the queue: the row leaves the panel instead of staying selectable
+    expect(await screen.findByText('No filters drying in this block')).toBeInTheDocument();
+    expect(executeOrQueue).toHaveBeenCalledTimes(1);
+    // the reading is still marked submitted in the cache the panel writes, and the stored temperature cleared
+    expect(s.cacheData).toHaveBeenCalledWith('filter-state-f1', expect.objectContaining({ currentCycle: expect.objectContaining({ dryerReadingsSubmitted: true }) }));
+    expect(s.cacheData).toHaveBeenCalledWith('dryer-temp-f1', null, 0);
+  });
+
+  it('with a real failure beside it, one message lists the failure and the unrefreshed queued item separately', async () => {
+    const { allowConsoleError } = await import('../../__tests__/fm-test-kit');
+    allowConsoleError(/\[offline-cache\] recomputeAndCacheFilterState failed/);
+    const getCache = vi.fn(async (k: string) => (k.startsWith('filter-state-') ? { currentCycle: cycle(), equipmentGroup: G } : null));
+    const executeOrQueue = vi.fn(async (_k: string, id: string) => {
+      if (id === 'f2') throw new Error('Filter is not at Dry In');
+      return { executed: false };
+    });
+    const s = setup({ online: false, filters: [{ id: 'f1', name: 'FLT-1' }, { id: 'f2', name: 'FLT-2' }], states: {}, getCache, executeOrQueue });
+    await waitFor(() => expect(screen.getByText('0 of 2 ready filter(s) selected')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('checkbox', { name: /Select all ready/ }));
+    const boxes = screen.getAllByRole('combobox');
+    fireEvent.change(boxes[boxes.length - 1], { target: { value: '60' } });
+    fireEvent.click(submit());
+    await waitFor(() => expect(s.onError).toHaveBeenCalledTimes(1));
+    expect(s.onSuccess).toHaveBeenCalledWith('1 filter(s) → Dry In complete (1 queued)');
+    const msg = s.onError.mock.calls[0][0] as string;
+    expect(msg).toMatch(/^1 failed:\nFLT-2: Filter is not at Dry In\n\n1 queued, but this device's offline view was not refreshed/);
+    expect(msg).toMatch(/\nFLT-1: /);
+    // the failed one stays for another try; the queued one is gone
+    await waitFor(() => expect(screen.queryByText('FLT-1')).toBeNull());
+    expect(screen.getByText('FLT-2')).toBeInTheDocument();
+  });
+});

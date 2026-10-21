@@ -42,7 +42,13 @@ export function ReplacementListPage() {
   // this page through the schedule toggles alone gets the Schedule tab only —
   // and the list feed is not requested for it.
   const canList = can('replacement.view');
-  const [view, setView] = useState<'list' | 'schedule'>(canList ? 'list' : 'schedule');
+  // The tab FOLLOWS the permissions until the operator picks one. Seeding state
+  // from `canList` captured it before /api/auth/me resolved (no cached user =
+  // false), so a cold load stuck every role on the Schedule tab (2026-10-21).
+  const [chosenView, setView] = useState<'list' | 'schedule' | null>(null);
+  const view = chosenView ?? (canList ? 'list' : 'schedule');
+  // Nothing is rendered (or fetched) for a tab until we know who is asking.
+  const userKnown = !!user;
   const { data, isLoading } = useSWR(canList ? '/api/filters/replacements' : null, { refreshInterval: 30000 });
 
   const [search, setSearch] = useState('');
@@ -210,7 +216,7 @@ export function ReplacementListPage() {
         </div>
       </div>
 
-      {view === 'schedule' || !canList ? <ReplacementSchedulePage /> : (
+      {!userKnown ? null : view === 'schedule' || !canList ? <ReplacementSchedulePage /> : (
       <div className="p-6 space-y-6">
       {/* ─── Header ─── */}
       <PageHeader

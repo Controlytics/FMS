@@ -40,14 +40,15 @@ function renderPanel(filters: Array<{ id: string; name: string }>) {
 describe('DryingFiltersPanel — selection', () => {
   it('one ready filter is ticked automatically and Submit is enabled', async () => {
     renderPanel([{ id: 'f1', name: 'CWH/RDU/21-00' }]);
-    await waitFor(() => expect(screen.getByText('1 of 1 ready filter(s) selected')).toBeTruthy());
+    // 5 s: the first test of a cold worker under a parallel run needs more than the 1 s default
+    await waitFor(() => expect(screen.getByText('1 of 1 ready filter(s) selected')).toBeTruthy(), { timeout: 5000 });
     expect((screen.getByRole('button', { name: /Submit/ }) as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTitle('Select for submission') as HTMLInputElement).checked).toBe(true);
   });
 
   it('two ready filters: nothing is pre-ticked, the operator chooses', async () => {
     renderPanel([{ id: 'f1', name: 'CWH/RDU/21-00' }, { id: 'f2', name: 'CWH/RDU/22-00' }]);
-    await waitFor(() => expect(screen.getByText('0 of 2 ready filter(s) selected')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('0 of 2 ready filter(s) selected')).toBeTruthy(), { timeout: 5000 });
     expect((screen.getByRole('button', { name: /Submit/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -39,7 +39,10 @@ export function CleaningProfileListPage() {
   const [page, setPage] = useState(1);
   // Default to a config-provided option so the rows-per-page selector always
   // shows a valid selection (20 is not guaranteed to be in the options list).
-  const [perPage, setPerPage] = useState(paginationOptions[0] ?? 10);
+  // Derived, not seeded: useState(paginationOptions[0]) captured the pre-load
+  // fallback (10) on a cold load and never took the configured option (2026-10-21, D6).
+  const [perPageChoice, setPerPageChoice] = useState<number | null>(null);
+  const perPage = perPageChoice ?? paginationOptions[0] ?? 10;
   const [search, setSearch] = useState('');
   // Audit M88 (2026-09-04): the search used to filter only the rows of the
   // current page in memory — a profile on page 2 was unfindable from page 1.
@@ -94,15 +97,17 @@ export function CleaningProfileListPage() {
   const toggleStatus = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    // A refusal is reported through onError, which the re-auth hook calls only for
+    // a REAL failure. Toasting inside the callback also fired for REAUTH_REQUIRED /
+    // REAUTH_FAILED, stacking an "Error" modal on the password prompt the hook
+    // was already showing (2026-10-21, D7). A cancelled prompt is not an error.
     reauth.execute('UPDATE_CLEANING_PROFILE', async (password?: string) => {
-      try {
-        if (password) await apiClient.patchWithReauth(`/api/filter-cleaning-profiles/${id}/toggle-status`, { toggle: true }, password);
-        else await apiClient.patch(`/api/filter-cleaning-profiles/${id}/toggle-status`, { toggle: true });
-        mutate(swrKey);
-      } catch (err: any) {
-        toast.error('Error', err.message || 'Failed to toggle status');
-        throw err;
-      }
+      if (password) await apiClient.patchWithReauth(`/api/filter-cleaning-profiles/${id}/toggle-status`, { toggle: true }, password);
+      else await apiClient.patch(`/api/filter-cleaning-profiles/${id}/toggle-status`, { toggle: true });
+      mutate(swrKey);
+    }, {
+      onError: (err: any) => toast.error('Error', err?.message || 'Failed to toggle status'),
+      onCancel: () => {},
     });
   };
 
@@ -259,7 +264,7 @@ export function CleaningProfileListPage() {
             pageSize={perPage}
             totalItems={data?.total ?? 0}
             onPageChange={setPage}
-            onPageSizeChange={setPerPage}
+            onPageSizeChange={setPerPageChoice}
             pageSizeOptions={paginationOptions}
           />
         </div>

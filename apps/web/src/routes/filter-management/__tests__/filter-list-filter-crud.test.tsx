@@ -34,7 +34,8 @@ describe('Filters page — Create Filter', () => {
     fireEvent.change(field('Last Cleaning Date', dlg), { target: { value: '2026-09-15' } });
     fireEvent.click(submit);
     expect(await screen.findByText('Filter Created')).toBeInTheDocument();
-    expect(screen.getByText(/PF-010/, { selector: 'p' })).toBeInTheDocument();
+    // the toast names what was created: the trimmed name, as sent
+    expect(screen.getByText('"PF-010" added')).toBeInTheDocument();
     expect(api.calls('POST', '/api/hierarchy/filters')[0].json).toEqual({
       name: 'PF-010', ahuId: 'h1', filterSet: 'B', ahuType: 'Non Process', filterType: 'HEPA', micronSize: '5', filterSize: '305x305', lastCleaningDate: '2026-09-15',
     });
@@ -363,5 +364,32 @@ describe('Filters page — a REJECTED filter', () => {
     await cancelReauth();
     expect(screen.queryByText('Resubmit failed')).toBeNull();
     expect(api.calls('POST', '/api/assets/instances/f5/resubmit')).toHaveLength(0);
+  });
+});
+
+describe('Filters page — success toasts name the saved (trimmed) filter', () => {
+  it('Edit Filter: a padded name is saved trimmed and the toast says so', async () => {
+    const api = setupApi({ extra: [{ method: 'PUT', path: '/api/hierarchy/filters/f1', body: {} }] });
+    renderFilters(EDITOR, api);
+    await openFiltersTab();
+    fireEvent.click(within(row('PF-001')).getByTitle('Edit Filter'));
+    const dlg = card('Edit Filter');
+    fireEvent.change(within(dlg).getByDisplayValue('PF-001'), { target: { value: '  PF-001X ' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save Changes' }));
+    expect(await screen.findByText('"PF-001X" saved')).toBeInTheDocument();
+    expect(api.calls('PUT', '/api/hierarchy/filters/f1')[0].json.name).toBe('PF-001X');
+  });
+
+  it('SUPER_ADMIN edit: a padded name is saved trimmed and the toast says so', async () => {
+    const api = setupApi({ extra: [{ method: 'PUT', path: '/api/super-admin/filter-data/filters/f1', body: {} }] });
+    renderFilters(SA, api);
+    await openFiltersTab();
+    fireEvent.click(await waitFor(() => within(row('PF-001')).getByTitle('Edit Filter (Super Admin)')));
+    const dlg = card('Edit Filter (Super Admin)');
+    fireEvent.change(within(dlg).getByDisplayValue('PF-001'), { target: { value: ' PF-001Y  ' } });
+    fireEvent.change(within(dlg).getByPlaceholderText(/At least 5 characters/), { target: { value: 'Renamed' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save Changes' }));
+    expect(await screen.findByText('"PF-001Y" saved and recorded in the audit trail')).toBeInTheDocument();
+    expect(api.calls('PUT', '/api/super-admin/filter-data/filters/f1')[0].json.name).toBe('PF-001Y');
   });
 });

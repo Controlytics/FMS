@@ -20,7 +20,10 @@ export function FilterTraceabilityPage() {
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
   const [tab, setTab] = useState<'events' | 'cycles' | 'deviations'>('events');
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(defaultLimit);
+  // FOLLOWS the configured default until the operator picks a size: seeding state
+  // from defaultLimit captured the pre-load fallback (20) on a cold load (2026-10-21, D6).
+  const [perPageChoice, setPerPageChoice] = useState<number | null>(null);
+  const perPage = perPageChoice ?? defaultLimit;
 
   const { data: filterState } = useSWR(id ? `/api/filters/${id}/current-state` : null);
   const { data: events } = useSWR<PaginatedResponse<FilterEvent>>(tab === 'events' && id ? `/api/filters/events?filterId=${id}&page=${page}&limit=${perPage}` : null);
@@ -144,7 +147,7 @@ export function FilterTraceabilityPage() {
             pageSize={perPage}
             totalItems={currentData?.total ?? 0}
             onPageChange={setPage}
-            onPageSizeChange={setPerPage}
+            onPageSizeChange={setPerPageChoice}
             pageSizeOptions={paginationOptions}
           />
         </div>

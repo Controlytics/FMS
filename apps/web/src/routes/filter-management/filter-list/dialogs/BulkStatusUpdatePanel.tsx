@@ -5,7 +5,28 @@ import { Select } from '@/components/ui/select';
 
 type CleaningReason = { key: string; name: string; requiresJustification?: boolean };
 type StageOption = { state: string; allowed: boolean; classification: string; isCurrent: boolean };
-type StageOptionsResp = { hasProfile: boolean; options?: StageOption[]; cleaningReasons?: CleaningReason[] };
+type StageOptionsResp = { hasProfile: boolean; currentStage?: string | null; options?: StageOption[]; cleaningReasons?: CleaningReason[] };
+type FilterTargets = { hasProfile: boolean; valid: Set<string> };
+
+/**
+ * The stages one filter may move to — the SAME rule as the single-filter
+ * StatusUpdatePanel. With a cleaning profile the server's profile-aware
+ * `options` decide; WITHOUT one the server applies no sequence rule and starts
+ * no cycle (instance.service `updateLifecycleState`), so every manual stage but
+ * the one the filter already holds is valid. Using `options` for a no-profile
+ * filter (it then lists only Cleaning Cycle Completed) marked every real stage
+ * "out of sequence" (2026-10-21, D5). A filter whose options could not be read
+ * stays conservative: nothing is valid for it.
+ */
+function targetsFor(resp: StageOptionsResp | null): FilterTargets {
+  if (!resp) return { hasProfile: false, valid: new Set() };
+  if (!resp.hasProfile) {
+    return { hasProfile: false, valid: new Set(LIFECYCLE_STATE_OPTIONS.map(o => o.value).filter(s => s !== resp.currentStage)) };
+  }
+  const valid = new Set<string>();
+  for (const o of resp.options ?? []) if (o.allowed && !o.isCurrent) valid.add(o.state);
+  return { hasProfile: true, valid };
+}
 
 // Moving INTO one of these stages can start a cleaning cycle (server-side P3),
 // which requires a cleaning reason. CLEANING_CYCLE_COMPLETED never starts one.
@@ -34,7 +55,7 @@ export function BulkStatusUpdatePanel({
   // Per-filter set of valid (allowed, non-current) target stages + the cleaning
   // reasons, fetched up-front from each filter's profile-aware stage-options so
   // the dropdown can hint which stages are valid BEFORE the operator submits.
-  const [validByFilter, setValidByFilter] = useState<Map<string, Set<string>>>(new Map());
+  const [validByFilter, setValidByFilter] = useState<Map<string, FilterTargets>>(new Map());
   const [reasons, setReasons] = useState<CleaningReason[]>([]);
   const [optsLoaded, setOptsLoaded] = useState(false);
 
@@ -49,12 +70,10 @@ export function BulkStatusUpdatePanel({
         .catch(() => [id, null] as const),
     )).then(results => {
       if (cancelled) return;
-      const m = new Map<string, Set<string>>();
+      const m = new Map<string, FilterTargets>();
       let firstReasons: CleaningReason[] = [];
       for (const [id, resp] of results) {
-        const valid = new Set<string>();
-        for (const o of resp?.options ?? []) if (o.allowed && !o.isCurrent) valid.add(o.state);
-        m.set(id, valid);
+        m.set(id, targetsFor(resp));
         if (firstReasons.length === 0 && resp?.cleaningReasons?.length) firstReasons = resp.cleaningReasons;
       }
       setValidByFilter(m);
@@ -64,15 +83,19 @@ export function BulkStatusUpdatePanel({
     return () => { cancelled = true; };
   }, [idsKey]);
 
-  const validCount = (st: string) => { let c = 0; validByFilter.forEach(set => { if (set.has(st)) c++; }); return c; };
+  const validCount = (st: string) => { let c = 0; validByFilter.forEach(t => { if (t.valid.has(st)) c++; }); return c; };
 
   // Reason + justification are required only when moving into a cleaning stage;
-  // the server ignores them for filters whose move doesn't start a cycle.
+  // the server ignores them for filters whose move doesn't start a cycle — and a
+  // filter with no cleaning profile never starts one, so only a PROFILED filter
+  // that can take the stage makes the reason required (D5).
   const [reasonKey, setReasonKey] = useState('');
   const [justification, setJustification] = useState('');
   useEffect(() => { setReasonKey(''); setJustification(''); }, [state]);
 
-  const needsReason = CLEANING_STAGES.includes(state);
+  const profiledCanTake = (st: string) => { let any = false; validByFilter.forEach(t => { if (t.hasProfile && t.valid.has(st)) any = true; }); return any; };
+  // Until the options load, stay conservative and ask (as before).
+  const needsReason = CLEANING_STAGES.includes(state) && (!optsLoaded || profiledCanTake(state));
   const chosenReason = reasons.find(r => r.key === reasonKey) ?? null;
   const needsJustification = !!chosenReason?.requiresJustification;
   const reasonIncomplete = needsReason && (!reasonKey || (needsJustification && justification.trim().length < 10));

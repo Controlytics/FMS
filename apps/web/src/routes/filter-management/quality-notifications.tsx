@@ -54,7 +54,10 @@ export function QualityNotificationsPage() {
   // 2026-09-02: page size now comes from the app-wide Pagination Settings
   // config, like every other paged list, instead of a hard-coded 50.
   const { options: paginationOptions, defaultLimit } = usePaginationDefaults();
-  const [perPage, setPerPage] = useState(defaultLimit);
+  // FOLLOWS the configured default until the operator picks a size: seeding state
+  // from defaultLimit captured the pre-load fallback (20) on a cold load (2026-10-21, D6).
+  const [perPageChoice, setPerPageChoice] = useState<number | null>(null);
+  const perPage = perPageChoice ?? defaultLimit;
   const [downloading, setDownloading] = useState(false);
   const { data: vis } = useSWR<{ visible: boolean }>('/api/pm-schedules/qnn/visible');
 
@@ -277,7 +280,7 @@ export function QualityNotificationsPage() {
               pageSize={perPage}
               totalItems={total}
               onPageChange={setPage}
-              onPageSizeChange={setPerPage}
+              onPageSizeChange={setPerPageChoice}
               pageSizeOptions={paginationOptions}
             />
           </div>

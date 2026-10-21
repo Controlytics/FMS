@@ -333,3 +333,57 @@ describe('BulkStatusUpdatePanel', () => {
     expect(onClose).toHaveBeenCalledTimes(3);
   });
 });
+
+// D5 (2026-10-21): the bulk panel must apply the single panel's hasProfile rule.
+describe('BulkStatusUpdatePanel — filters with no cleaning profile', () => {
+  const noProfile = (currentStage: string | null = null) => ({
+    hasProfile: false, hasActiveCycle: false, profileName: null, currentStage, orderedStages: [], immediateNext: [],
+    options: [{ state: 'CLEANING_CYCLE_COMPLETED', classification: 'COMPLETE', allowed: true, isCurrent: false, startsCycle: false }], cleaningReasons: [],
+  });
+
+  it('every stage is valid except the one the filter is already in, and no cleaning reason is asked for', async () => {
+    const onSubmit = vi.fn();
+    const api = mockApi([{ path: '/api/filters/f1/stage-options', body: noProfile('DRY_IN') }]);
+    renderPage(<Bulk selected={[THREE[0]]} onSubmit={onSubmit} />, { api });
+    await waitFor(() => expect(screen.queryByText(/Checking which stages/)).toBeNull());
+    expect(optionTexts(screen.getByRole('combobox'))).toEqual([
+      'Select status…', 'Wash In', 'Wash Out', 'Dry In — out of sequence', 'Dry Out', 'Storage In', 'Storage Out', 'Cleaning Cycle Completed',
+    ]);
+    expect(screen.getByRole('option', { name: 'Dry In — out of sequence' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'STORAGE_OUT' } });
+    expect(screen.queryByText(/a cleaning reason is required/)).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Enter reason for status change...'), { target: { value: 'Manual fix' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update 1 Filter(s)' }));
+    expect(onSubmit).toHaveBeenCalledWith(undefined);
+  });
+
+  it('mixed with a profiled filter: a reason is required only when a PROFILED filter can take the cleaning stage', async () => {
+    const onSubmit = vi.fn();
+    const api = mockApi([
+      { path: '/api/filters/f1/stage-options', body: noProfile() },
+      { path: '/api/filters/f2/stage-options', body: { hasProfile: true, options: [opt('WASH_IN'), opt('CLEANING_CYCLE_COMPLETED')], cleaningReasons: REASONS } },
+    ]);
+    renderPage(<Bulk selected={THREE.slice(0, 2)} onSubmit={onSubmit} />, { api });
+    await waitFor(() => expect(screen.queryByText(/Checking which stages/)).toBeNull());
+    // Wash In: both can take it, and the profiled one starts a cycle -> reason required
+    expect(screen.getByRole('option', { name: 'Wash In' })).toBeEnabled();
+    expect(screen.getByRole('option', { name: 'Dry In — valid for 1 of 2' })).toBeEnabled();
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'WASH_IN' } });
+    expect(screen.getByText(/a cleaning reason is required/)).toBeInTheDocument();
+    // Dry In: only the no-profile filter can take it -> no reason, the other is skipped
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'DRY_IN' } });
+    expect(screen.queryByText(/a cleaning reason is required/)).toBeNull();
+    expect(screen.getByText(/Only/)).toHaveTextContent('Only 1 of 2 selected filters can move to this stage — the other 1 will be skipped.');
+    fireEvent.change(screen.getByPlaceholderText('Enter reason for status change...'), { target: { value: 'Manual fix' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update 2 Filter(s)' }));
+    expect(onSubmit).toHaveBeenCalledWith(undefined);
+  });
+
+  it('a filter whose stage options could not be read stays conservative: nothing is valid for it', async () => {
+    allowConsoleError(/\[SWR Error\]/);
+    const api = mockApi([{ path: '/api/filters/f1/stage-options', status: 500, body: { error: 'X', message: 'down' } }]);
+    renderPage(<Bulk selected={[THREE[0]]} />, { api });
+    await waitFor(() => expect(screen.queryByText(/Checking which stages/)).toBeNull());
+    expect(screen.getByRole('option', { name: 'Wash In — out of sequence' })).toBeDisabled();
+  });
+});

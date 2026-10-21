@@ -228,9 +228,6 @@ describe('Filter Cleaning Record — query', () => {
   it('pagination: Next asks for page 2; changing rows per page asks for that limit', async () => {
     const api = open(SA, [], {}, recordRoute(ROWS, ROWS, 60));
     await screen.findByText('FLT-001', { selector: 'td div' });
-    // The search debounce also fires 350ms after MOUNT and resets to page 1 (see report);
-    // let it pass so this test exercises paging, not that race.
-    await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
     await waitFor(() => expect(lastList(api).query.get('page')).toBe('2'));
     // second page numbers continue from the first
@@ -241,14 +238,17 @@ describe('Filter Cleaning Record — query', () => {
   });
 
   it('an inverted date range is refused by the control (To before From)', async () => {
-    open();
+    const api = open();
     await screen.findByText('FLT-001', { selector: 'td div' });
     const from = screen.getByLabelText('Cleaning history from date and time');
     const to = screen.getByLabelText('Cleaning history to date and time');
     fireEvent.change(to, { target: { value: '2026-10-01T00:00' } });
+    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-01T00:00:59.999Z'));
+    await screen.findByText('FLT-001', { selector: 'td div' });
     fireEvent.change(from, { target: { value: '2026-10-05T00:00' } });
     expect(from).toHaveValue('');
     expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
+    expect(lastList(api).query.get('from')).toBeNull();
   });
 
 
@@ -458,5 +458,81 @@ describe('Filter Cleaning Record — edges', () => {
     await exportVia('PDF');
     expect(await screen.findByText('This selection contains no cleaning cycles.')).toBeInTheDocument();
     expect(api.calls('GET', '/api/filters/cleaning-record').filter((r) => r.query.get('limit') === '100')).toHaveLength(1);
+  });
+});
+
+// Regressions for the 2026-10-21 coverage-campaign defects D4 / D6 / D10.
+describe('Filter Cleaning Record — date range, page size, search debounce', () => {
+  it('D4: a picked From/To reaches the server as instants in the configured zone; To covers its whole minute', async () => {
+    const api = open();
+    await screen.findByText('FLT-001', { selector: 'td div' });
+    fireEvent.change(screen.getByLabelText('Cleaning history from date and time'), { target: { value: '2026-10-01T08:30' } });
+    fireEvent.change(screen.getByLabelText('Cleaning history to date and time'), { target: { value: '2026-10-02T17:45' } });
+    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-02T17:45:59.999Z'));
+    expect(lastList(api).query.get('from')).toBe('2026-10-01T08:30:00.000Z');
+    expect(lastList(api).query.get('page')).toBe('1');
+  });
+
+  it('D4: the bounds follow the configured timezone, not UTC', async () => {
+    const kolkata: MockRoute = { path: '/api/config/datetime/current', body: { dateFormat: 'YYYY-MM-DD', timeFormat: '24-hour', timezone: 'Asia/Kolkata' } };
+    const api = open(SA, [kolkata]);
+    await screen.findByText('FLT-001', { selector: 'td div' });
+    fireEvent.change(screen.getByLabelText('Cleaning history from date and time'), { target: { value: '2026-10-01T08:30' } });
+    await waitFor(() => expect(lastList(api).query.get('from')).toBe('2026-10-01T03:00:00.000Z'));
+    expect(lastList(api).query.get('to')).toBeNull();
+  });
+
+  it('D4: the export reads the same bounded range as the list', async () => {
+    const api = open();
+    await screen.findByText('FLT-001', { selector: 'td div' });
+    fireEvent.change(screen.getByLabelText('Cleaning history from date and time'), { target: { value: '2026-10-01T00:00' } });
+    fireEvent.change(screen.getByLabelText('Cleaning history to date and time'), { target: { value: '2026-10-09T23:59' } });
+    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-09T23:59:59.999Z'));
+    await exportVia('Excel');
+    await waitFor(() => expect(exportToExcel).toHaveBeenCalled());
+    const exportReads = api.calls('GET', '/api/filters/cleaning-record').filter((r) => r.query.get('limit') === '100');
+    expect(exportReads.length).toBeGreaterThan(0);
+    for (const r of exportReads) {
+      expect(r.query.get('from')).toBe('2026-10-01T00:00:00.000Z');
+      expect(r.query.get('to')).toBe('2026-10-09T23:59:59.999Z');
+    }
+  });
+
+  it('D6: the configured page size is used on a cold load', async () => {
+    const api = open(SA, [], { pagination: { limit: 50, count: 50, options: [10, 25, 50] } });
+    await screen.findByText('FLT-001', { selector: 'td div' });
+    await waitFor(() => expect(lastList(api).query.get('limit')).toBe('50'));
+  });
+
+  it('D10: the search debounce does not reset a page change made right after mount', async () => {
+    // Intercept ONLY the page's 350 ms search-debounce timers so the test decides
+    // when they fire; every other timer (SWR, React, polling) stays real.
+    const pending = new Map<unknown, () => void>();
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: (...a: any[]) => void, ms?: number, ...args: any[]) => {
+      if (ms !== 350) return realSet(fn, ms, ...args);
+      const h = realSet(() => {}, 2 ** 30);
+      pending.set(h, () => fn(...args));
+      return h;
+    }) as typeof setTimeout);
+    vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((h: any) => { pending.delete(h); realClear(h); }) as typeof clearTimeout);
+    const fireDebounce = () => act(() => { for (const [h, f] of [...pending]) { pending.delete(h); realClear(h as any); f(); } });
+
+    const api = open(SA, [], {}, recordRoute(ROWS, ROWS, 60));
+    await screen.findByText('FLT-001', { selector: 'td div' });
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(lastList(api).query.get('page')).toBe('2'));
+    const firstRowOnPage2 = String(Number(lastList(api).query.get('limit')) + 1);
+    await waitFor(() => expect(cells('FLT-001')[0]).toBe(firstRowOnPage2));
+    // whatever the mount scheduled now fires: the operator must still be on page 2
+    await fireDebounce();
+    await act(async () => { await new Promise((r) => realSet(r, 50)); });
+    expect(cells('FLT-001')[0]).toBe(firstRowOnPage2);
+    // typing still debounces into a server-side search from page 1
+    fireEvent.change(screen.getByPlaceholderText('Filter name…'), { target: { value: 'FLT' } });
+    await fireDebounce();
+    await waitFor(() => expect(listReads(api).some((r) => r.query.get('search') === 'FLT' && r.query.get('page') === '1')).toBe(true));
+    await waitFor(() => expect(cells('FLT-001')[0]).toBe('1'));
   });
 });

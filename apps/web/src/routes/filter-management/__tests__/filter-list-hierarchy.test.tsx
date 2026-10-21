@@ -109,7 +109,8 @@ describe('Filters page — edit / delete hierarchy nodes', () => {
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
     fireEvent.change(input, { target: { value: ' Block A1 ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
-    expect(await screen.findByText('" Block A1 " saved')).toBeInTheDocument();
+    // the toast names what was SAVED: the trimmed name, as sent
+    expect(await screen.findByText('"Block A1" saved')).toBeInTheDocument();
     expect(api.calls('PUT', '/api/assets/instances/b1')[0].json).toEqual({ name: 'Block A1' });
     expect(screen.queryByRole('heading', { name: 'Edit BLOCK' })).toBeNull();
   });
