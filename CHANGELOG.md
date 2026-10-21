@@ -43,10 +43,11 @@ test that fails without the fix:
   checklist writes `CHECKLIST_*`, cleaning-profile writes `CP_PAGE_*`). The replacement-task list accepts
   `FILTER_REPLACE`. No live role loses a capability its toggles grant (checked on digilog_db). The shared
   `FCP_CREATE/UPDATE/DELETE` constants are kept (no toggle grants them now).
-- **P4-10 permission changes take a reason.** `PUT /api/config/roles/:role`, `PUT /api/config/users/:userId`
+- **P4-10 permission changes take a reason.** `PUT /api/config/roles/:role` (when `permissions` OR
+  `sidebarItems` is sent — a sidebar save grants each enabled page's primary permission), `PUT /api/config/users/:userId`
   (when `permissions` is sent) and `PUT /api/roles/:name` (permissions or hierarchy level) refuse without a
   `reason` of ≥ 5 characters (400 `REASON_REQUIRED`, checked before the signature); the reason is on the audit
-  row. The Permissions tab and the role edit dialog show the shared `components/ui/reason-box.tsx` (moved
+  row. The Permissions tab, the Sidebar tab (role mode) and the role edit dialog show the shared `components/ui/reason-box.tsx` (moved
   out of Filter Data Management). The role edit dialog no longer re-sends permissions it never edits.
 - **P5-01 a filter's status is lifecycle-owned.** `PUT /api/assets/instances/:id` and `PATCH .../status`
   copied a free-text status, so `{status:"Active"}` dropped a retired filter from the Retirement List while it

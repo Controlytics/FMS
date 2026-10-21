@@ -7,16 +7,17 @@ customer builds; PM year-end gap left; fonts + `qa_sa_01` deleted; chain-test ro
 - [x] Placeholder CA in `res/raw/rootca.pem` (key destroyed) + guard test; build-site-apk docs
 - [x] Old fonts deleted; `qa_sa_01` deleted (clone); M27/M37 on digilog_db = 0 rows
 - [x] Phase 4 role matrix (`QA/PHASE4_ROLE_MATRIX.md`), Phase 5 write abuse (`QA/PHASE5_WRITE_ABUSE.md`), Phase 12 coverage (API 63.3% lines, web 19.7%)
-- [ ] Fix P4-02 export-log gates on the export permission, not read
-- [ ] Fix P4-04 PM entry edit gate + `pm.upload`/`pm.resubmit` granting PM_CREATE
-- [ ] Fix P4-03 checklist ↔ cleaning-profile cross-unlock
-- [ ] Fix P4-10 role-config change takes a mandatory reason
-- [ ] Fix P5-01 generic instance update can un-retire via free-text status
-- [ ] Fix P5-02 retire/replace offline-replay payload + replayExemptGates
-- [ ] Fix P5-03 PrismaClientUnknownRequestError → 400; P4-09 small error codes
-- [ ] P4-01 doc: align ROLE-PRIVILEGES-DOC-ALIGNMENT + target matrix to 10-08 live roles
-- [ ] UI Phase 2 (waiting for operator "go")
-- [ ] Full suites, docs/CHANGELOG/counts, web build → APK → Setup 1.2.3, commit (no push)
+- [x] Fix P4-02 export-log gates on the export permission, not read
+- [x] Fix P4-04 PM entry edit gate + `pm.upload`/`pm.resubmit` granting PM_CREATE
+- [x] Fix P4-03 checklist ↔ cleaning-profile cross-unlock
+- [x] Fix P4-10 role-config change takes a mandatory reason
+- [x] Fix P5-01 generic instance update can un-retire via free-text status
+- [x] Fix P5-02 retire/replace offline-replay payload + replayExemptGates
+- [x] Fix P5-03 PrismaClientUnknownRequestError → 400; P4-09 small error codes
+- [x] P4-01 doc: align ROLE-PRIVILEGES-DOC-ALIGNMENT + target matrix to 10-08 live roles
+- [x] VIEWER + MAINTENANCE removed everywhere (operator 2026-10-21) — `edf0955`; live settings via 4 audited rows (chain 22956–22959)
+- [ ] UI Phase 2 — operator said GO 2026-10-21 (no rebuild wanted)
+- [x] Full suites green + docs/CHANGELOG + commit `70adf40` (no push). Operator: NO rebuild of APK/installer this session
 
 # QA campaign: exhaustive feature / workflow / abuse testing (started 2026-10-19)
 

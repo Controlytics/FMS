@@ -90,9 +90,11 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     // P4-10 (2026-10-21): a permission change needs a reason - checked BEFORE the
-    // re-auth so a refused save does not leave a signature row for nothing.
-    const { permissions: permissionsIn } = req.body as { permissions?: Record<string, boolean> };
-    const reason = permissionsIn !== undefined ? requireChangeReason(req.body) : undefined;
+    // re-auth so a refused save does not leave a signature row for nothing. A
+    // Sidebar save counts: enabling a menu item GRANTS that page's primary
+    // permission (updateRoleConfig's sidebar <-> permission link).
+    const { permissions: permissionsIn, sidebarItems: sidebarIn } = req.body as { permissions?: Record<string, boolean>; sidebarItems?: string[] };
+    const reason = permissionsIn !== undefined || sidebarIn !== undefined ? requireChangeReason(req.body) : undefined;
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
     if (!ok) return;
 

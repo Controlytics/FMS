@@ -9,6 +9,7 @@ import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useToast } from '@/hooks/use-toast';
 import { SIDEBAR_ITEMS } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
+import { ReasonBox, reasonOk } from '@/components/ui/reason-box';
 
 interface User {
   id: string;
@@ -39,6 +40,9 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     const [searchQuery, setSearchQuery] = useState('');
     const [sidebarSaving, setSidebarSaving] = useState(false);
     const [sidebarDirty, setSidebarDirty] = useState(false);
+    // P4-10 (2026-10-21): a role's sidebar save can GRANT permissions (each enabled
+    // item adds its page's primary permission), so the API requires a reason.
+    const [changeReason, setChangeReason] = useState('');
     const [isTransitioning, setIsTransitioning] = useState(false);
 
     const allRoles = activeRoles || [];
@@ -69,7 +73,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     );
 
     const handleSidebarRoleChange = useCallback((role: string) => {
-      if (role !== sidebarSelectedRole) { setIsTransitioning(true); setEnabledItems([]); setSidebarDirty(false); setSidebarSelectedRole(role); }
+      if (role !== sidebarSelectedRole) { setIsTransitioning(true); setEnabledItems([]); setSidebarDirty(false); setChangeReason(''); setSidebarSelectedRole(role); }
     }, [sidebarSelectedRole]);
 
     const handleUserChange = useCallback((u: User) => {
@@ -88,16 +92,21 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     const disableAllSidebar = () => { setEnabledItems([]); setSidebarDirty(true); };
 
     const handleSaveSidebarRole = useCallback(async () => {
+      if (!reasonOk(changeReason)) {
+        toast.warning('Reason required', "Enter why this role's menu is changing (at least 5 characters).");
+        return;
+      }
       setSidebarSaving(true);
       try {
         // UPDATE_ROLE_CONFIG / UPDATE_USER_CONFIG were enforced by the API but
         // never prompted for here (2026-09-24).
         await reauth.executeWithResult('UPDATE_ROLE_CONFIG', (pw) => pw
-          ? api.putWithReauth(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems }, pw)
-          : api.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems }));
+          ? api.putWithReauth(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems, reason: changeReason.trim() }, pw)
+          : api.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems, reason: changeReason.trim() }));
         setSidebarDirty(false);
+        setChangeReason('');
       } catch (error: any) { if (!isReauthCancelled(error)) toast.error('Save Failed', error.message || 'Failed to save sidebar configuration'); } finally { setSidebarSaving(false); }
-    }, [sidebarSelectedRole, enabledItems, sidebarRoleConfig, toast]);
+    }, [sidebarSelectedRole, enabledItems, sidebarRoleConfig, toast, changeReason]);
 
     const handleSaveSidebarUser = useCallback(async () => {
       if (!selectedUser) return;
@@ -367,6 +376,12 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
               )}
 
               {!sidebarIsLoading && renderOrderPanel()}
+
+              {sidebarDirty && (
+                <ReasonBox value={changeReason} onChange={setChangeReason}
+                  placeholder="Why is this role's menu changing?"
+                  hint="Required to save: enabling a menu item also grants that page's view permission. Recorded on the audit trail." />
+              )}
             </div>
           ) : (
             /* User-wise Configuration */

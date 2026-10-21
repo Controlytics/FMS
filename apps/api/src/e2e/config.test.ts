@@ -512,28 +512,29 @@ describe('Config endpoints', () => {
   // 12. Role Config — PUT
   // =============================================
   describe('PUT /api/config/roles/:role', () => {
-    it('updates role config sidebarItems and restores', async () => {
-      // Read current
-      const getRes = await authGet(app, '/api/config/roles/TEST_READONLY', adminToken);
-      const original = JSON.parse(getRes.body);
+    // A sidebar save GRANTS each enabled item's primary permission (additive, never
+    // revoked), so it runs on its own throwaway role - on a shared fixture it would
+    // leave permissions behind. P4-10: it also needs a reason.
+    it('updates role config sidebarItems (reason required)', async () => {
+      const role = `QASB${Date.now() % 1e8}`;
+      await prisma.role.create({ data: { name: role, displayName: role, hierarchyLevel: 1, permissions: [], createdBy: 'qa-sidebar-test' } });
+      try {
+        const refused = await authPut(app, `/api/config/roles/${role}`, adminToken, { sidebarItems: ['notifications'] }, ADMIN_PASSWORD);
+        expect(refused.statusCode).toBe(400);
+        expect(JSON.parse(refused.body).error).toBe('REASON_REQUIRED');
 
-      // Update
-      const putRes = await authPut(app, '/api/config/roles/TEST_READONLY', adminToken, {
-        sidebarItems: ['dashboard', 'notifications'],
-        homeWidgets: original.homeWidgets ?? [],
-      }, ADMIN_PASSWORD);
-      expect(putRes.statusCode).toBe(200);
-      const putBody = JSON.parse(putRes.body);
-      expect(putBody.success).toBe(true);
-
-      // Restore original
-      await authPut(app, '/api/config/roles/TEST_READONLY', adminToken, {
-        sidebarItems: original.sidebarItems ?? [],
-        homeWidgets: original.homeWidgets ?? [],
-      }, ADMIN_PASSWORD);
+        const putRes = await authPut(app, `/api/config/roles/${role}`, adminToken, {
+          sidebarItems: ['dashboard', 'notifications'], reason: 'e2e sidebar save',
+        }, ADMIN_PASSWORD);
+        expect(putRes.statusCode).toBe(200);
+        expect(JSON.parse(putRes.body).success).toBe(true);
+      } finally {
+        await prisma.roleConfig.deleteMany({ where: { role } });
+        await prisma.role.deleteMany({ where: { name: role } });
+      }
     });
 
-    // P4-10 (2026-10-21): a PERMISSION change needs a reason (sidebar-only saves above do not).
+    // P4-10 (2026-10-21): a PERMISSION change needs a reason, audited.
     // Uses its OWN throwaway role: saving permissions re-expands roles.permissions from the
     // toggles, which on a shared fixture (then VIEWER) handed it FILTER_OPERATE and broke
     // phase4-perms-themes-reports.test.ts.
