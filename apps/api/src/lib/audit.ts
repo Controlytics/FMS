@@ -85,6 +85,22 @@ export type AuditTx = Prisma.TransactionClient;
 const AUDIT_CHAIN_LOCK_ID = 7421151037n;
 
 /**
+ * audit_trail.signature_meaning is varchar(255), and many meanings quote a name
+ * the user typed (AHU, filter, checklist, report title: up to 255 characters
+ * each). An over-long meaning failed the INSERT and with it the audited action
+ * (report reviews, 2026-10-21). Shortened from the MIDDLE, so the subject at the
+ * start and the act at the end ("... approved") both survive; the full names
+ * stay in the before/after values.
+ */
+export const SIGNATURE_MEANING_MAX = 255;
+export function boundSignatureMeaning(meaning: string | undefined): string | undefined {
+  if (meaning == null || meaning.length <= SIGNATURE_MEANING_MAX) return meaning ?? undefined;
+  const keep = SIGNATURE_MEANING_MAX - 1; // one character for the ellipsis
+  const head = Math.ceil(keep * 0.6);
+  return `${meaning.slice(0, head)}…${meaning.slice(meaning.length - (keep - head))}`;
+}
+
+/**
  * Standalone audit logging function. Writes a chained audit row.
  *
  * Two modes:
@@ -126,6 +142,9 @@ export async function auditLog(entry: AuditEntry, tx?: AuditTx): Promise<string>
       `SYSTEM_AUDIT_ACTIONS in apps/api/src/lib/audit.ts and document why.`,
     );
   }
+  // Bounded once, before it is hashed or stored, so the checksum covers exactly
+  // what is written (both the checksum payload and writeAuditRow read `entry`).
+  entry = { ...entry, signatureMeaning: boundSignatureMeaning(entry.signatureMeaning) };
   // Back-dated manual records pass an explicit timestamp; everything else is
   // stamped now. One variable feeds BOTH the checksum payload and the INSERT,
   // so the two can never disagree.

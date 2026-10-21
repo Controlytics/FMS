@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] - API coverage wave 1: super-admin, backup, notifications fixes (2026-10-21)
+
+Found by the API coverage tests; each fixed failing-first. Full API suite after: 223 files, 2,415
+passed, 0 failed.
+
+- **Backup (HIGH):** a pg_dump restore left the audit chain's position sequence behind the audit rows
+  it brings back, so the next rows reused positions and `verify-chain` reported the chain broken after
+  EVERY dump restore. An in-app `.sql` restore ignored the export's parent-link UPDATE pass, so the
+  whole Block → Area → AHU → Filter hierarchy came back unparented, with HTTP 200. Both fixed
+  (`419358e`). Also: CSV restore of multi-line cells, the pg_dump version gate (always read 0), zip bomb /
+  malformed ZIP now 400, temp dir of a failed export removed, no raw Prisma text in restore errors.
+- **Notifications:** a throwing SMS send no longer strands its log row PENDING; in-app / SMS / subject
+  text is no longer HTML-escaped (only the e-mail body is); a new rule keeps its `priority`;
+  `createNotification` is typed with Prisma's `NotificationType`, and every insert site is checked by an
+  AST scan test (A-15).
+- **Super-admin console (`fc2242f`):**
+  - retirement and filter edits validate before the first write; the retirement edit is one transaction;
+  - the replacement edit's meta-audit keeps the original values;
+  - `/data/audit-trail` no longer always 500s;
+  - audit actors are usernames;
+  - RFID edits store the canonical form (A-11).
+- **Elsewhere in `fc2242f`:**
+  - debug traces cover a bare-date `to`;
+  - report reviews commit each decision with its signature row (a long title used to leave an applied,
+    unaudited decision);
+  - the deployment check no longer returns raw error text (A-04).
+- **`auditLog` bounds `signature_meaning` (varchar 255) centrally.** Meanings quote user-typed names of
+  up to 255 characters, so an over-long one failed the INSERT and with it the audited action anywhere in
+  the app (36 files build such meanings). It is shortened from the middle, so the subject and the act
+  ("… approved") both survive, BEFORE hashing, so the stored row verifies. Full names stay in the
+  before/after values. Test: `lib/__tests__/audit-signature-bound.test.ts`.
+- **Left for the operator:** CSV backup → restore keeps the spreadsheet-safety `'` prefix on values
+  starting with `= + - @` (e.g. `+9198…` → `'+9198…`); the SMS channel still strips `<…>` sequences.
+
 ## [Unreleased] - Web: one API error shape; a wrong password no longer signs the tablet out (2026-10-21)
 
 Found by the web coverage tests (F1-F3). One root cause: `api-client` put re-auth codes on `.error`
