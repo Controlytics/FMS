@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] - Web: one API error shape; a wrong password no longer signs the tablet out (2026-10-21)
+
+Found by the web coverage tests (F1-F3). One root cause: `api-client` put re-auth codes on `.error`
+and every other code on `.code`, and treated EVERY 401 as an ended session.
+
+- **F1 (HIGH, tablet):** a mistyped password in the sign-once prompt (`POST /api/auth/verify` → 401
+  `INVALID_PASSWORD`) cleared the session and sent the operator to the login page. 401s that mean "this
+  credential was wrong" (`INVALID_PASSWORD`, `INVALID_CREDENTIALS`, `PASSWORD_REQUIRED`) no longer end
+  the session; the prompt says "Incorrect password".
+- **F2 (HIGH, §11):** a re-auth that LOCKED the account (403 `ACCOUNT_LOCKED`) was not recognised by
+  the export logger, which then took its fail-open path: the report file was produced with no audit
+  record. Worse, that path allowed the download on ANY error the server returned (a 403 for a missing
+  export permission included), though it is meant only for an unreachable server. Now
+  `isServerUnreachable`: only no response / 502 / 503 / 504 fails open; every other refusal stops the file.
+- **F3:** the Replacement Schedule and PM uploads built their own errors with only `.code`, so a wrong
+  password closed the prompt and a stale gate never opened it.
+- **Fix:** `apiErrorFromResponse()` (`lib/api-client.ts`) is the one error shape, the code on BOTH
+  `.code` and `.error`, used by the client and by the two pages that call `fetch` for multipart.
+  Regression tests: `api-client-reauth-shape.test.ts`, `retirement-list-page.test.tsx` (locked account,
+  403, offline control), `drying-filters-panel-flow.test.tsx`, `replacement-schedule-page.test.tsx`; all
+  8 fail on the previous code.
+
 ## [Unreleased] - PM schedules: nine defects from the coverage campaign (2026-10-21)
 
 Found by the PM coverage tests (each confirmed by a failing test first). Regression file:

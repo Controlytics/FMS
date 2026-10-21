@@ -548,4 +548,32 @@ describe('Replacement Schedule page — upload', () => {
     expect(screen.getByLabelText('Schedule file (.xlsx)')).toBeInTheDocument();
     expect(screen.queryByText('2 row(s) ready — no errors.')).toBeNull();
   });
+
+  // 2026-10-21 (web coverage F3): the page built its upload error with the code
+  // on `.code` only, while the re-auth hook reads `.error`, so neither refusal
+  // below reached the prompt. Errors now come from apiErrorFromResponse.
+  it('a wrong password on the gated upload keeps the prompt open with "Incorrect password"', async () => {
+    const api = setup([
+      { method: 'POST', path: '/api/replacement-schedules/validate', body: PREVIEW },
+      { method: 'POST', path: '/api/replacement-schedules', status: 401, times: 1, body: { error: 'REAUTH_FAILED', message: 'Invalid password' } },
+      { method: 'POST', path: '/api/replacement-schedules', status: 201, body: { created: 2, failed: 0, results: [] } },
+    ], { reauthActions: ['UPLOAD_REPLACEMENT_SCHEDULE'] });
+    await openAndPick(api);
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload 2 row(s)' }));
+    await passReauth('wrong');
+    expect(await screen.findByText('Incorrect password. Please try again.')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument();
+  });
+
+  it('a stale gate (server says REAUTH_REQUIRED) opens the prompt for the upload', async () => {
+    const api = setup([
+      { method: 'POST', path: '/api/replacement-schedules/validate', body: PREVIEW },
+      { method: 'POST', path: '/api/replacement-schedules', status: 401, times: 1, body: { error: 'REAUTH_REQUIRED', message: 'Re-authentication required' } },
+      { method: 'POST', path: '/api/replacement-schedules', status: 201, body: { created: 2, failed: 0, results: [] } },
+    ]);
+    await openAndPick(api);
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload 2 row(s)' }));
+    expect(await screen.findByPlaceholderText('Enter your password')).toBeInTheDocument();
+  });
 });

@@ -40,8 +40,23 @@ export async function logReportExport(input: ReportExportLogInput, password?: st
 
 /** A re-auth outcome must never be swallowed by the fail-open path below. */
 export function isReauthError(e: unknown): boolean {
-  const code = (e as { error?: string } | null)?.error ?? '';
+  const err = e as { error?: string; code?: string } | null;
+  const code = err?.error ?? err?.code ?? '';
   return code === 'REAUTH_REQUIRED' || code === 'REAUTH_FAILED' || code === 'REAUTH_CANCELLED' || code === 'ACCOUNT_LOCKED';
+}
+
+/**
+ * True only when the server could not be REACHED: no HTTP status at all (fetch
+ * itself failed, i.e. offline) or a gateway / unavailable answer, including the
+ * client's own read-only hard cutoff (503). Any other answer is the server
+ * deciding: a 403 (no export permission), a 400, a 401 or a 500 means the
+ * audit row was refused or not written, so the file must not be produced
+ * (2026-10-21: the fail-open path used to allow the download on ANY non-re-auth
+ * error, so a refused export still produced an unaudited file).
+ */
+export function isServerUnreachable(e: unknown): boolean {
+  const status = (e as { status?: number } | null)?.status;
+  return status === undefined || status === 502 || status === 503 || status === 504;
 }
 
 /**
@@ -51,7 +66,8 @@ export function isReauthError(e: unknown): boolean {
  * must not be blocked by connectivity. (The Audit Trail export uses the strict
  * `logReportExport` — fail-closed — because it already needs the server anyway.)
  *
- * Re-auth refusals are NOT connectivity failures and are rethrown.
+ * Re-auth outcomes and every other answer the server actually gave are NOT
+ * connectivity failures and are rethrown (`isServerUnreachable`).
  */
 export async function logReportExportOrWarn(
   input: ReportExportLogInput,
@@ -61,7 +77,7 @@ export async function logReportExportOrWarn(
   try {
     await logReportExport(input, password);
   } catch (e: any) {
-    if (isReauthError(e)) throw e;
+    if (isReauthError(e) || !isServerUnreachable(e)) throw e;
     warn(
       'Not recorded in audit trail',
       `This download couldn't be recorded in the audit trail (${e?.message ?? 'offline?'}), but the file was still generated.`,

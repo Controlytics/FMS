@@ -19,6 +19,46 @@ function isHardCutoffBlocked(method: string | undefined, url: string): boolean {
   return isHardCutoffExceeded();
 }
 
+/**
+ * The ONE shape a failed request takes (2026-10-21): an Error carrying the
+ * server's message, its code on BOTH `.code` and `.error`, and `.status`.
+ * Callers were split between reading `.error` (the re-auth hook, export
+ * logging) and `.code` (most pages), so an error built with only one of them
+ * took the wrong branch: a re-auth that LOCKED the account let a report
+ * download proceed with no audit record, and an upload's REAUTH_FAILED never
+ * re-prompted. Pages that must call `fetch` themselves (multipart uploads)
+ * build their errors here too.
+ */
+export function apiErrorFromResponse(
+  status: number,
+  body: any,
+  fallback = `Request failed: ${status}`,
+): Error & { status: number; code?: string; error?: string } {
+  const e = new Error(body?.message ?? body?.error ?? fallback) as any;
+  e.status = status;
+  e.code = body?.error;
+  e.error = body?.error;
+  e.connectionInfo = body?.details ?? body?.connectionInfo;
+  e.activeSession = body?.activeSession;
+  // Lockout-progress field — backend sends this on INVALID_PASSWORD so the
+  // login UI can show "X attempts remaining before lockout".
+  if (body?.attemptsRemaining !== undefined) e.attemptsRemaining = body.attemptsRemaining;
+  // Phase 8.3 STALE_TAPE: lift currentTapeVersion from `details` to a
+  // top-level field so callers (sync-engine, mobile-operations) don't have
+  // to dig through connectionInfo. Only present on 409 STALE_TAPE.
+  if (body?.details?.currentTapeVersion !== undefined) e.currentTapeVersion = body.details.currentTapeVersion;
+  return e;
+}
+
+/**
+ * 401 codes that mean "this password/credential was wrong", not "your session
+ * is over". A 401 like this must not sign the user out: a mistyped password in
+ * the tablet's sign-once prompt (`POST /api/auth/verify` → INVALID_PASSWORD)
+ * used to clear the session and bounce the operator to the login page before
+ * the prompt could say "Incorrect password" (2026-10-21, web coverage F1).
+ */
+const CREDENTIAL_401_CODES = new Set(['INVALID_PASSWORD', 'INVALID_CREDENTIALS', 'PASSWORD_REQUIRED']);
+
 class ApiClient {
   private getToken(): string | null {
     return sessionStorage.getItem('access_token');
@@ -78,6 +118,10 @@ class ApiClient {
         }
         throw err;
       }
+      // A wrong password is a refused credential, not an ended session.
+      if (res.status === 401 && CREDENTIAL_401_CODES.has(err.error)) {
+        throw apiErrorFromResponse(401, err, 'Invalid credentials');
+      }
       // Generic 401 = session expired, log out (but not during login itself)
       if (res.status === 401) {
         if (!url.includes('/api/auth/login')) {
@@ -104,27 +148,9 @@ class ApiClient {
         // in swr-config.ts) can recognise this as an auth failure. Without
         // these, a 401 like "Missing token" (e.g. an ungated SWR firing before
         // login) leaked through onError as a visible "Load Error" toast.
-        const authError = new Error(err.message ?? 'Invalid credentials');
-        (authError as any).status = 401;
-        (authError as any).code = err.error;
-        throw authError;
+        throw apiErrorFromResponse(401, err, 'Invalid credentials');
       }
-      const error = new Error(err.message ?? err.error ?? `Request failed: ${res.status}`);
-      (error as any).status = res.status;
-      (error as any).code = err.error;
-      (error as any).connectionInfo = err.details ?? err.connectionInfo;
-      (error as any).activeSession = err.activeSession;
-      // Lockout-progress field — backend sends this on INVALID_PASSWORD so the
-      // login UI can show "X attempts remaining before lockout".
-      if (err.attemptsRemaining !== undefined) (error as any).attemptsRemaining = err.attemptsRemaining;
-      // Phase 8.3 STALE_TAPE: lift currentTapeVersion from `details` to a
-      // top-level field so callers (sync-engine, mobile-operations) don't have
-      // to dig through connectionInfo. Mirrors the attemptsRemaining lift just
-      // above. Only present on 409 STALE_TAPE — caller branches on err.code.
-      if (err.details?.currentTapeVersion !== undefined) {
-        (error as any).currentTapeVersion = err.details.currentTapeVersion;
-      }
-      throw error;
+      throw apiErrorFromResponse(res.status, err);
     }
 
     if (res.status === 204) return undefined as T;

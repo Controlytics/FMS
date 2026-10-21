@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, apiErrorFromResponse } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
 import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
@@ -319,9 +319,9 @@ export function ReplacementSchedulePage() {
       const res = await fetch(apiUrl('/api/replacement-schedules'), { method: 'POST', headers, body: fd });
       const d = await res.json().catch(() => ({}));
       if (!res.ok && !Array.isArray(d.results)) {
-        const err: any = new Error(d.message || `Upload failed (HTTP ${res.status})`);
-        err.code = d.error;
-        throw err;
+        // One error shape (lib/api-client): the code on `.error` is what lets
+        // the re-auth hook re-prompt on REAUTH_FAILED / REAUTH_REQUIRED.
+        throw apiErrorFromResponse(res.status, d, `Upload failed (HTTP ${res.status})`);
       }
       setResults(d.results || []); setCreated(d.created || 0); setFailed(d.failed || 0); setStep('results');
       if ((d.created || 0) > 0) { mutate('/api/replacement-schedules'); toast.success('Schedule uploaded', `${d.created} entr${d.created === 1 ? 'y' : 'ies'} created`); }

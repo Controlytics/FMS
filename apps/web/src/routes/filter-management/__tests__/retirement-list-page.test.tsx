@@ -166,6 +166,43 @@ describe('Retirement List page', () => {
     expect(screen.queryByText('Export failed')).toBeNull();
   });
 
+  // 2026-10-21 (web coverage F2): the fail-open path is for an UNREACHABLE
+  // server only. A re-auth that locks the account, or any other refusal, must
+  // not still produce an unaudited file.
+  it('a re-auth that locks the account produces no file', async () => {
+    const api = setup(ROWS, [{ method: 'POST', path: '/api/audit/report-export-log', status: 403, body: { error: 'ACCOUNT_LOCKED', message: 'Account locked due to multiple failed attempts. Contact administrator.' } }], { reauthActions: ['EXPORT_RETIREMENT_LIST'] });
+    renderPage(<RetirementListPage />, { user: SA, api });
+    await screen.findByText('FLT-001');
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Export as Excel/ }));
+    await passReauth('wrong-5th-time');
+    await waitFor(() => expect(api.calls('POST', '/api/audit/report-export-log')).toHaveLength(1));
+    expect(await screen.findByText(/Account locked/)).toBeInTheDocument();
+    expect(exportToExcel).not.toHaveBeenCalled();
+  });
+
+  it('a refused export log (403, no export permission) produces no file', async () => {
+    const api = setup(ROWS, [{ method: 'POST', path: '/api/audit/report-export-log', status: 403, body: { error: 'FORBIDDEN', message: 'Missing permission: REPORT_EXPORT' } }]);
+    renderPage(<RetirementListPage />, { user: SA, api });
+    await screen.findByText('FLT-001');
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Export as Excel/ }));
+    expect(await screen.findByText('Export failed')).toBeInTheDocument();
+    expect(exportToExcel).not.toHaveBeenCalled();
+    expect(screen.queryByText('Not recorded in audit trail')).toBeNull();
+  });
+
+  it('control: an unreachable server (offline) still produces the file, with the audit warning', async () => {
+    const api = setup(ROWS, [{ method: 'POST', path: '/api/audit/report-export-log', body: () => { throw new TypeError('Failed to fetch'); } }]);
+    renderPage(<RetirementListPage />, { user: SA, api });
+    await screen.findByText('FLT-001');
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Export as Excel/ }));
+    await waitFor(() => expect(exportToExcel).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Not recorded in audit trail')).toBeInTheDocument();
+  });
+
   it('a PDF build failure is reported as "Export failed"', async () => {
     const api = setup();
     vi.mocked(createReport).mockRejectedValueOnce(new Error('font missing'));

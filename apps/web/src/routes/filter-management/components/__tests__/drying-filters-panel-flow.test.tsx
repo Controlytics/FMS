@@ -425,3 +425,29 @@ describe('DryingFiltersPanel — edge cases', () => {
     await waitFor(() => expect(s.onError).toHaveBeenCalledWith('Request failed: 400'));
   });
 });
+
+// 2026-10-21 (web coverage F1): /api/auth/verify answers a mistyped password
+// with 401 INVALID_PASSWORD. The api-client used to treat every 401 as an ended
+// session, so the operator was signed out before the prompt could say so.
+describe('DryingFiltersPanel - a wrong password in the sign-once prompt', () => {
+  it('stays in the prompt with "Incorrect password" and keeps the session', async () => {
+    const G1 = { id: 'g1', instruments: [{ id: 't1', description: 'Dryer Temperature', stageKey: 'DRY_IN', uom: '°C', operatingMin: 60, operatingMax: 62, leastCount: 1 }] };
+    const api = mockApi([
+      { method: 'POST', path: '/api/auth/verify', status: 401, body: { error: 'INVALID_PASSWORD', message: 'Password is incorrect' } },
+      { path: '/api/filters/f1/current-state', body: { currentCycle: { id: 'c1', dryerStartedAt: ago(60), dryerDurationMinutes: 10 }, equipmentGroup: G1 } },
+      ...baseRoutes({ reauthActions: ['ADVANCE_FILTER_STAGE'] }),
+    ]);
+    const executeOrQueue = vi.fn(async () => ({ executed: true }));
+    renderPage(<DryingFiltersPanel filters={[{ id: 'f1', name: 'FLT-1' }]} online variant="desktop" executeOrQueue={executeOrQueue}
+      getCache={vi.fn(async () => null) as any} cacheData={vi.fn()} onSuccess={vi.fn()} onError={vi.fn()} />, { user: OPERATOR, api });
+    await waitFor(() => expect(screen.getByText('1 of 1 ready filter(s) selected')).toBeInTheDocument());
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: '60' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Submit/ }));
+    await passReauth('typo-password');
+    await waitFor(() => expect(api.calls('POST', '/api/auth/verify')).toHaveLength(1));
+    expect(await screen.findByText('Incorrect password. Please try again.')).toBeInTheDocument();
+    expect(sessionStorage.getItem('access_token')).toBe('test-token');
+    expect(executeOrQueue).not.toHaveBeenCalled();
+  });
+});

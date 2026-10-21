@@ -2,7 +2,7 @@ import React, { useRef, useState, useMemo } from 'react';
 import { ALL_ROWS } from '@/lib/page-size';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { Link } from 'react-router-dom';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, apiErrorFromResponse } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useCan } from '../../hooks/use-can';
 import { useReauth } from '../../hooks/use-reauth';
@@ -448,9 +448,8 @@ export function PmScheduleListPage() {
           // Throw with the server's structured error so reauth.execute can
           // re-prompt on REAUTH_REQUIRED / REAUTH_FAILED, otherwise treat as
           // a real upload failure.
-          const err: any = new Error(body?.message ?? `Upload failed (HTTP ${res.status})`);
-          err.code = body?.error;
-          throw err;
+          // One error shape (lib/api-client): `.error` carries the code the hook reads.
+          throw apiErrorFromResponse(res.status, body, `Upload failed (HTTP ${res.status})`);
         }
 
         // Auto-widen the date range + force statusFilter=ALL so the freshly
