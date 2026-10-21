@@ -189,6 +189,7 @@ export function NotificationRulesPage() {
 
 // ─── Rules Tab ────────────────────────────────────────────────────────
 function RulesTab() {
+  const { toast } = useToast();
   // GET /api/notification-rules answers `{ data, total }`, not a bare array.
   // Typed as NotificationRule[] this read `rules?.length` on the envelope
   // object → undefined → the page rendered "No notification rules yet" while
@@ -265,9 +266,12 @@ function RulesTab() {
   const testRule = async (id: string) => {
     try {
       const result = await apiClient.post<{ success: boolean; message?: string; error?: string }>(`/api/notification-rules/${id}/test`, {});
-      alert(result.success ? result.message : result.error);
+      // The app's own toasts, never the browser's blocking alert() (it froze
+      // the page, and browser automation cannot dismiss it).
+      if (result.success) toast.success('Test sent', result.message || 'The test notification was sent.');
+      else toast.error('Test failed', result.error || 'The test notification could not be sent.');
     } catch (err: any) {
-      alert(err.message);
+      toast.error('Test failed', err?.message || 'The test notification could not be sent.');
     }
   };
 
@@ -764,7 +768,7 @@ function TemplatesTab() {
       mutate();
       setEditing(null);
     } catch (err: any) {
-      alert(err.message);
+      toast.error('Save failed', err?.message || 'The template could not be saved.');
     }
     setSaving(false);
   };

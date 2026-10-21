@@ -330,14 +330,15 @@ describe('Notification Rules — Templates tab', () => {
     expect(api.calls('PUT', '/api/notification-settings/templates/t5')[0].json).toMatchObject({ subject: 'Now with subject' });
   });
 
-  it('a refused save alerts the server message and keeps the editor open', async () => {
+  it('a refused save shows the server message (a toast, never alert()) and keeps the editor open', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     setup([{ method: 'PUT', path: '/api/notification-settings/templates/t1', status: 400, body: { error: 'VALIDATION', message: 'Body too long' } }]);
     openTab(/Templates/);
     await screen.findByText('Cycle mail');
     fireEvent.click(within(tplCard('Cycle mail')).getAllByRole('button')[0]);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Update' })); });
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Body too long'));
+    expect(await screen.findByText('Body too long')).toBeInTheDocument();
+    expect(alertSpy).not.toHaveBeenCalled();
     expect(screen.getByRole('heading', { name: 'Edit Template' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Update' })).not.toBeDisabled();
   });

@@ -411,7 +411,7 @@ describe('Notification Rules — Rules tab', () => {
     expect(screen.getByText('Cycle alert')).toBeInTheDocument();
   });
 
-  it('Test sends POST /test and alerts the result message, the error, or the transport failure', async () => {
+  it('Test sends POST /test and shows the result, the error or the transport failure as a toast - never alert()', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
     const P = '/api/notification-rules/r1/test';
     const api = setup([
@@ -421,12 +421,17 @@ describe('Notification Rules — Rules tab', () => {
     ]);
     await screen.findByText('Cycle alert');
     const test = () => within(card('Cycle alert')).getByTitle('Test');
+    // Messages are one acknowledgement dialog at a time: dismiss each with OK.
+    const acknowledge = () => fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     await act(async () => { fireEvent.click(test()); });
-    await waitFor(() => expect(alertSpy).toHaveBeenLastCalledWith('Sent to 3 recipients'));
+    expect(await screen.findByText('Sent to 3 recipients')).toBeInTheDocument();
+    acknowledge();
     await act(async () => { fireEvent.click(test()); });
-    await waitFor(() => expect(alertSpy).toHaveBeenLastCalledWith('No recipients resolved'));
+    expect(await screen.findByText('No recipients resolved')).toBeInTheDocument();
+    acknowledge();
     await act(async () => { fireEvent.click(test()); });
-    await waitFor(() => expect(alertSpy).toHaveBeenLastCalledWith('SMTP down'));
+    expect(await screen.findByText('SMTP down')).toBeInTheDocument();
+    expect(alertSpy).not.toHaveBeenCalled();
     expect(api.calls('POST', P)).toHaveLength(3);
     expect(api.calls('POST', P)[0].json).toEqual({});
   });
