@@ -134,6 +134,11 @@ change the token, not 189 files.
   `focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15`.
 - **Touch:** shared Button / Input / Select grow to 44px under
   `[@media(pointer:coarse)]`, so the tablet keeps its targets.
+- **Page title = `<PageHeader>`, stat tiles = `<StatCard>`** (`components/ui/`, 2026-10-21). Both wrap
+  long text, never truncate. Don't hand-roll a new title block or tile.
+- **No hover-only controls.** `opacity-0 group-hover:opacity-100` must also carry
+  `[@media(pointer:coarse)]:opacity-100` (and ideally `focus-visible:opacity-100`) — a tablet has no
+  hover. Locked by `src/__tests__/no-hover-only-controls.test.ts`.
 - **Signed-out screens** (sign in, forgot password, change password, contact admin,
   guest request, and the tablet's `/m/login` + `/m/forgot-password`) all render inside
   `components/auth-shell.tsx` (`AuthShell`, `AuthError`, `AuthSuccess`).

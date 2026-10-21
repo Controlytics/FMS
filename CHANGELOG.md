@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] - UI redesign Phase 2: shared page header + stat tiles, ~115 pages restyled (2026-10-21)
+
+- **`components/ui/page-header.tsx` + `stat-card.tsx`** replace ~60 hand-rolled title blocks and four
+  identical page-local stat tiles. Titles and tile labels wrap, never truncate.
+- Admin/other (27 files), configuration (45) and filter/cleaning/PM/dashboard (38) pages: shared table
+  look, shared Input/Select in filter bars (every prop kept), no text below 11 px, decorative gradients
+  replaced by `brand-*`. Status, stage, role and branding colours untouched. `filter-operations.tsx` and
+  the tablet pages were left out.
+- Verified: web tsc clean, full web suite 99 files / 1,051 tests, a 92-route screenshot sweep (SUPERVISOR,
+  ADMIN and superadmin on the QA clone; 1440 px desktop + 820 px tablet) with 0 console errors.
+- **Fixes found on the way:** Audit Trail inverted date range refused silently (hint never rendered since
+  d723575); five hover-only controls invisible on touch screens (checklist delete, profile photo upload,
+  hierarchy-diagram edit/delete ×3) plus the pipeline editor's node delete (dark-theme `hover:bg-red-900`
+  made it unreadable). Guard test `src/__tests__/no-hover-only-controls.test.ts`.
+
 ## [Unreleased] - VIEWER and MAINTENANCE roles removed (2026-10-21)
 
 Operator: "viewer role should not be there in the application" (MAINTENANCE, in the same state, too).

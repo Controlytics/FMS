@@ -35,7 +35,7 @@ customer builds; PM year-end gap left; fonts + `qa_sa_01` deleted; chain-test ro
 - [x] Fix P5-03 PrismaClientUnknownRequestError → 400; P4-09 small error codes
 - [x] P4-01 doc: align ROLE-PRIVILEGES-DOC-ALIGNMENT + target matrix to 10-08 live roles
 - [x] VIEWER + MAINTENANCE removed everywhere (operator 2026-10-21) — `edf0955`; live settings via 4 audited rows (chain 22956–22959)
-- [ ] UI Phase 2 — operator said GO 2026-10-21 (no rebuild wanted)
+- [x] UI Phase 2 — `7d26909` `0bb90ee` `6ca851d` `fbfd0ec`; 92-route screenshot sweep, 0 console errors
 - [x] Full suites green + docs/CHANGELOG + commit `70adf40` (no push). Operator: NO rebuild of APK/installer this session
 
 # QA campaign: exhaustive feature / workflow / abuse testing (started 2026-10-19)
