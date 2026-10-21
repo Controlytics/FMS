@@ -69,8 +69,8 @@ export class PmScheduleService {
   }
 
   // ─── CSV / XLSX bulk import ───────────────────────────────
-  importSchedules(ctx: RequestContext, rows: Array<Record<string, any>>) {
-    return importer.importSchedules(ctx, rows);
+  importSchedules(ctx: RequestContext, rows: Array<Record<string, any>>, lineNumbers?: number[]) {
+    return importer.importSchedules(ctx, rows, lineNumbers);
   }
 
   getTemplateCsv(): string {

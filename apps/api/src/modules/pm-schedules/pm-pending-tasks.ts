@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
-import { resolvePmReasonKeys } from './pm-shared.js';
+import { resolvePmReasonKeys, loadCountedFilters } from './pm-shared.js';
 import { formatConfiguredDate } from '../../lib/format-datetime.js';
 
 /**
@@ -84,13 +84,13 @@ export async function getPendingEarlierPmTasks(
   });
   if (entries.length === 0) return [];
 
-  // Sibling filters under the same AHU — a PM covers the AHU, and the task is
-  // satisfied by cleaning its filters, so credit is looked up across all of them.
-  const siblings = await prisma.assetInstance.findMany({
-    where: { parentId: ahuId, isActive: true, status: { not: 'Retired' } },
-    select: { id: true },
-  });
-  const siblingIds = siblings.map((s) => s.id);
+  // The AHU's COUNTED filters — the same resolution My Tasks and the sweep use
+  // (D4a, 2026-10-21). DISABLED means the AHU has no PM obligation; SET_A/SET_B
+  // means only that set's cleanings count. A PM covers the AHU, and the task is
+  // satisfied by cleaning its filters, so credit is looked up across them.
+  const counted = (await loadCountedFilters([ahuId])).get(ahuId);
+  if (!counted || counted.mode === 'DISABLED') return [];
+  const siblingIds = counted.filters.map((f) => f.id);
   if (siblingIds.length === 0) return [];
 
   const pmReasonKeys = await resolvePmReasonKeys();
@@ -104,8 +104,6 @@ export async function getPendingEarlierPmTasks(
     (c) => c.completedAt != null && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey)),
   );
 
-  const ahu = await prisma.assetInstance.findUnique({ where: { id: ahuId }, select: { name: true } });
-
   const pending: PendingPmTask[] = [];
   for (const e of entries) {
     // Mirrors pm-due-tasks.ts: for a CLOSED window, any PM cleaning on or after
@@ -118,7 +116,7 @@ export async function getPendingEarlierPmTasks(
       entryId: e.id,
       scheduleId: e.scheduleId,
       ahuId,
-      ahuName: ahu?.name ?? 'this AHU',
+      ahuName: counted.ahuName,
       plannedDate: e.plannedDate,
       windowStart: e.windowStart,
       windowEnd: e.windowEnd,

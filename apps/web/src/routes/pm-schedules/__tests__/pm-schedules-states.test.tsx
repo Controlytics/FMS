@@ -104,6 +104,22 @@ describe('OQ-08 / OQ-09 — messages follow the configured flow, never "QA appro
     expect(msg).not.toMatch(/QA approval/);
   });
 
+  it('D10: the reviewer\'s Modify on an edit under review starts from the PROPOSED date, not the approved one', async () => {
+    auth.user = { role: 'MANAGER', username: 'mgr1', permissions: ['PM_REVIEW', 'PM_READ'] };
+    const proposed = new Date(Date.now() + 10 * 86_400_000).toISOString();
+    st.entries = { data: { data: [entry({
+      approvalStatus: 'PENDING_REVIEW', submittedByName: 'editor', toleranceDays: 5,
+      pendingPlannedDate: proposed, pendingToleranceDays: 3,
+    })] } };
+    render(<PmScheduleListPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Modify' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const [url, body] = put.mock.calls[0];
+    expect(url).toBe('/api/pm-schedules/entries/e1/review-edit');
+    expect(body).toEqual({ plannedDate: proposed.slice(0, 10), toleranceDays: 3 });
+  });
+
   it('re-submitting a rejected entry with the workflow off says "sent for approval"', async () => {
     st.wf = { data: WF_OFF };
     st.entries = { data: { data: [entry({ approvalStatus: 'REJECTED', rejectedByName: 'qa2', rejectionStage: 'APPROVAL', approvalRemarks: 'wrong date' })] } };

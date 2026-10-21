@@ -12,7 +12,10 @@ vi.mock('../../../lib/prisma.js', () => ({
     $transaction: vi.fn(),
   },
 }));
-vi.mock('../pm-shared.js', () => ({ checkPmEnabled: vi.fn(async () => {}) }));
+vi.mock('../pm-shared.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../pm-shared.js')>()), // readPmSettings stays real, on the mocked prisma
+  checkPmEnabled: vi.fn(async () => {}),
+}));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: vi.fn() }));
 vi.mock('../pm-workflow.js', () => ({
   getPmWorkflowConfig: vi.fn(),

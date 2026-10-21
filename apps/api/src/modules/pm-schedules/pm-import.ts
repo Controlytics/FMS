@@ -17,7 +17,7 @@ import type { RequestContext } from '../../types/context.js';
 import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
-import { checkPmEnabled } from './pm-shared.js';
+import { checkPmEnabled, readPmSettings } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag } from './pm-workflow.js';
 import { checkSeparation } from './pm-separation.js';
 import { getDatetimeConfig, formatDateWith } from '../../lib/format-datetime.js';
@@ -72,15 +72,18 @@ export async function evaluateGuards(
   return null;
 }
 
-export async function importSchedules(ctx: RequestContext, rows: Array<Record<string, any>>) {
+/**
+ * `lineNumbers[i]` is the file line of `rows[i]` (the upload route passes it).
+ * Without it a row is numbered as if the file had no blank or comment lines.
+ */
+export async function importSchedules(ctx: RequestContext, rows: Array<Record<string, any>>, lineNumbers?: number[]) {
   // Dates quoted back to the operator (skipped-row reasons) follow Config →
   // Date & Time, like the page they read them on. Read once, format per row.
   const dtCfg = await getDatetimeConfig();
   await checkPmEnabled();
 
   // Load default tolerance from config
-  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
-  const settings = (cfg?.configValue as any) ?? {};
+  const settings = await readPmSettings();
   const defaultToleranceDays = Number(settings.defaultToleranceDays ?? 3);
 
   // 3-step workflow: when enabled, uploads land in PENDING_REVIEW (no auto-approve,
@@ -116,7 +119,7 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const rowNum = i + 2; // +1 for header row, +1 for 1-indexed display
+    const rowNum = lineNumbers?.[i] ?? i + 2; // fallback: +1 for header row, +1 for 1-indexed display
 
     // Accept several column name variants for friendliness
     const rawName = (row.ahu_name ?? row.ahuName ?? row.AHU ?? row['AHU Name'] ?? '').toString().trim();

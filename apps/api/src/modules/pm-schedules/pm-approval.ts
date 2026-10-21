@@ -15,7 +15,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from './pm-workflow.js';
-import { assertSeparation } from './pm-separation-guard.js';
+import { assertSeparation, assertBatchSeparation } from './pm-separation-guard.js';
 
 const MS_DAY = 86400000;
 function windowsFor(planned: Date, tol: number) {
@@ -189,6 +189,10 @@ export async function reviewEntries(
           approvalStatus: 'REJECTED', rejectionStage: 'REVIEW',
           rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
           approvalRemarks: remarks!.trim(),
+          // The rejected proposal dies here, as at approval-stage reject. Left
+          // behind, a later resubmit + approval laid this stale date over the
+          // resubmitted one (D11, 2026-10-21).
+          pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null, pendingEditAt: null,
         },
       });
       qnns.push(await mintQnn('REJECT', entry, ahuName, ctx, 'Rejected at review',
@@ -224,31 +228,38 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
   // units one bulk action covered without opening every row.
   const batchAhus = [...new Set(entries.filter(isApprovable).map((e) => ahuNames.get(e.id) ?? '?'))];
   const batchRef = batchTotal > 1 ? newQnnBatchRef() : null;
+  const goingLive = (e: typeof entries[number]) => {
+    const hasPendingEdit = e.pendingPlannedDate != null;
+    return {
+      hasPendingEdit,
+      plannedDate: hasPendingEdit ? e.pendingPlannedDate! : e.plannedDate,
+      toleranceDays: hasPendingEdit && e.pendingToleranceDays != null ? e.pendingToleranceDays : e.toleranceDays,
+    };
+  };
+
+  // Re-check the separation rule at the moment staged edits go LIVE — for the
+  // whole batch, before anything is written (D3, see assertBatchSeparation).
+  //
+  // editApprovedEntry() already validated each date when it was proposed, but
+  // approval happens later and the schedule can move underneath it — another
+  // entry added, or another pending edit approved first. Validating only at
+  // request time would let two approvals, each fine on its own, combine into
+  // an overlap. This is the last point at which it can still be refused.
+  await assertBatchSeparation(
+    entries.filter((e) => isApprovable(e) && e.pendingPlannedDate != null).map((e) => {
+      const live = goingLive(e);
+      return { scheduleId: e.scheduleId, entryId: e.id, plannedDate: live.plannedDate, toleranceDays: live.toleranceDays };
+    }),
+    'This approved change',
+  );
+
   for (const entry of entries) {
     const approvable = isApprovable(entry);
     if (!approvable) {
       results.push(`${entry.id}: not awaiting approval (${entry.approvalStatus})`);
       continue;
     }
-    const hasPendingEdit = entry.pendingPlannedDate != null;
-    const newPlannedDate = hasPendingEdit ? entry.pendingPlannedDate! : entry.plannedDate;
-    const newTolerance = hasPendingEdit && entry.pendingToleranceDays != null ? entry.pendingToleranceDays : entry.toleranceDays;
-
-    // Re-check the separation rule at the moment a staged edit goes LIVE.
-    //
-    // editApprovedEntry() already validated the date when it was proposed, but
-    // approval happens later and the schedule can move underneath it — another
-    // entry added, or another pending edit approved first. Validating only at
-    // request time would let two approvals, each fine on its own, combine into
-    // an overlap. This is the last point at which it can still be refused.
-    if (hasPendingEdit) {
-      await assertSeparation(
-        entry.scheduleId,
-        { plannedDate: newPlannedDate, toleranceDays: newTolerance, entryId: entry.id },
-        'This approved change',
-      );
-    }
-
+    const { hasPendingEdit, plannedDate: newPlannedDate, toleranceDays: newTolerance } = goingLive(entry);
     const { windowStart, windowEnd } = windowsFor(newPlannedDate, newTolerance);
 
     await prisma.pmScheduleEntry.update({
@@ -349,6 +360,9 @@ export async function resubmitEntry(
       approvedBy: null, approvedByName: null, approvedAt: null,
       rejectedBy: null, rejectedByName: null, rejectedAt: null, rejectionStage: null,
       submittedBy: ctx.userSub, submittedByName: ctx.userId,
+      // The resubmitted date IS the proposal; a staged edit left by a review
+      // reject before D11 was fixed must not be applied over it at approval.
+      pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null, pendingEditAt: null,
     },
   });
   const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
@@ -423,7 +437,13 @@ export async function modifyReviewEntry(
   }
   const planned = new Date(data.plannedDate);
   if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
-  const tol = data.toleranceDays ?? entry.toleranceDays;
+  // An entry under review may be an EDIT of an approved visit: its live columns
+  // hold the approved date and the proposal sits in pending* (D10, 2026-10-21).
+  // The reviewer adjusts the PROPOSAL. Writing the live columns changed an
+  // approved visit with no approval, and the approval then laid the old
+  // proposal on top, discarding the reviewer's change.
+  const isEdit = entry.pendingPlannedDate != null;
+  const tol = data.toleranceDays ?? (isEdit ? entry.pendingToleranceDays ?? entry.toleranceDays : entry.toleranceDays);
   const { windowStart, windowEnd } = windowsFor(planned, tol);
   // Audit 2026-09-24 (C-F4): the review-edit was the one single-entry write with
   // no separation check — a reviewer could move a visit onto a sibling's window.
@@ -432,14 +452,25 @@ export async function modifyReviewEntry(
   const updated = await prisma.pmScheduleEntry.update({
     where: { id: entryId },
     data: {
-      plannedDate: planned, toleranceDays: tol, windowStart, windowEnd,
+      ...(isEdit
+        ? { pendingPlannedDate: planned, pendingToleranceDays: tol }
+        : { plannedDate: planned, toleranceDays: tol, windowStart, windowEnd }),
       // Record the reviewer touched it, but keep it in the review stage.
       reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(),
     },
   });
   const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
   const qnn = await mintQnn('EDIT', entry, ahuName, ctx, 'Modified at review');
-  await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REVIEW_MODIFIED', targetType: 'pm_schedule_entry', targetId: entryId, beforeValue: { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays }, afterValue: { plannedDate: data.plannedDate, toleranceDays: tol }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+  await auditLog({
+    userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REVIEW_MODIFIED', targetType: 'pm_schedule_entry', targetId: entryId,
+    beforeValue: isEdit
+      ? { pendingPlannedDate: entry.pendingPlannedDate, pendingToleranceDays: entry.pendingToleranceDays }
+      : { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays },
+    afterValue: isEdit
+      ? { pendingPlannedDate: data.plannedDate, pendingToleranceDays: tol }
+      : { plannedDate: data.plannedDate, toleranceDays: tol },
+    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+  });
   return { ...updated, qnn };
 }
 

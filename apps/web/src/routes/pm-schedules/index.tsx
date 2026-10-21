@@ -1134,7 +1134,8 @@ export function PmScheduleListPage() {
                                         className="whitespace-nowrap px-3 py-1.5 bg-red-500 text-white text-[11px] font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Reject
                                       </button>
-                                      <button onClick={() => { setEditingId(entry.id); setEditDate(entry.plannedDate.slice(0, 10)); setEditTolerance(String(entry.toleranceDays)); }}
+                                      {/* An edit of an approved visit is reviewed as its PROPOSAL (pending*); the server modifies that, not the approved date. */}
+                                      <button onClick={() => { setEditingId(entry.id); setEditDate((entry.pendingPlannedDate ?? entry.plannedDate).slice(0, 10)); setEditTolerance(String(entry.pendingToleranceDays ?? entry.toleranceDays)); }}
                                         className="whitespace-nowrap px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-[11px] font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all">
                                         Modify
                                       </button>
@@ -1240,9 +1241,9 @@ export function PmScheduleListPage() {
                   {uploading ? (
                     <><div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-2" style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }} /><p className="text-sm font-semibold text-slate-700">Uploading...</p></>
                   ) : (
-                    <><p className="text-sm font-semibold text-slate-700">{dragActive ? 'Drop the file here' : 'Drag and drop or click to choose'}</p><p className="text-xs text-slate-400 mt-1">Accepts .csv, .xls, .xlsx</p></>
+                    <><p className="text-sm font-semibold text-slate-700">{dragActive ? 'Drop the file here' : 'Drag and drop or click to choose'}</p><p className="text-xs text-slate-400 mt-1">Accepts .csv, .xlsx</p></>
                   )}
-                  <input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+                  <input ref={fileInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
                 </div>
               )}
               {uploadError && <div className="mt-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm">{uploadError}</div>}

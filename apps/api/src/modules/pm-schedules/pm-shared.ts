@@ -5,14 +5,78 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 
 /**
+ * The `pm-schedule-settings` value, unwrapped. Every site stores it flat
+ * (`{ enabled, ... }`), but a `{ value: {...} }` wrapper is accepted too, so
+ * every reader goes through this ONE unwrap. The settings endpoint and the
+ * module guard used to read it differently and could answer "enabled" and
+ * "disabled" for the same row (D7, 2026-10-21). A missing row is `{}`.
+ */
+export async function readPmSettings(): Promise<Record<string, any>> {
+  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
+  const stored = row?.configValue as any;
+  const inner = stored && typeof stored === 'object' && 'value' in stored ? stored.value : stored;
+  return inner && typeof inner === 'object' ? inner : {};
+}
+
+/** The one "is PM on?" predicate. Off unless explicitly enabled — the def default is off. */
+export function isPmEnabled(settings: Record<string, any>): boolean {
+  return settings.enabled === true;
+}
+
+/**
  * Throws PM_DISABLED (404) if the `pm-schedule-settings` config key is not
  * marked enabled. Every public service entry point calls this first so the
  * module can be cleanly toggled off without leaking partial behaviour.
  */
 export async function checkPmEnabled() {
-  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
-  const val = cfg?.configValue as any;
-  if (!val?.enabled) throw new AppError(404, 'PM_DISABLED', 'PM scheduling module is not enabled');
+  if (!isPmEnabled(await readPmSettings())) throw new AppError(404, 'PM_DISABLED', 'PM scheduling module is not enabled');
+}
+
+export interface CountedAhu {
+  ahuId: string;
+  ahuName: string;
+  mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED';
+  filters: { id: string; name: string }[];
+}
+
+/**
+ * For the given AHU ids, resolve the per-AHU filter-set mode
+ * (customAttributes.pmFilterSetMode) and the CHILD filters that count toward PM
+ * completion. Mirrors pm-due-tasks.ts. Shared by the deviation sweep and the
+ * missed-PM gate so the two cannot count different filters (D4a, 2026-10-21:
+ * the gate used every sibling and ignored the mode).
+ */
+export async function loadCountedFilters(ahuIds: string[]): Promise<Map<string, CountedAhu>> {
+  if (!ahuIds.length) return new Map();
+  const [ahus, childRaw] = await Promise.all([
+    prisma.assetInstance.findMany({
+      where: { id: { in: ahuIds } },
+      select: { id: true, name: true, customAttributes: true },
+    }),
+    prisma.assetInstance.findMany({
+      where: { parentId: { in: ahuIds }, isActive: true, status: { not: 'Retired' } },
+      select: { id: true, name: true, parentId: true, filterDetails: { select: { filterSet: true } } },
+    }),
+  ]);
+  const byAhu = new Map<string, { id: string; name: string; filterSet: string | null }[]>();
+  for (const f of childRaw) {
+    if (!f.parentId) continue;
+    if (!byAhu.has(f.parentId)) byAhu.set(f.parentId, []);
+    byAhu.get(f.parentId)!.push({ id: f.id, name: f.name, filterSet: f.filterDetails?.filterSet ?? null });
+  }
+  const out = new Map<string, CountedAhu>();
+  for (const a of ahus) {
+    const attrs = (a.customAttributes as any) ?? {};
+    const mode: CountedAhu['mode'] =
+      attrs.pmFilterSetMode === 'SET_A' || attrs.pmFilterSetMode === 'SET_B' || attrs.pmFilterSetMode === 'DISABLED'
+        ? attrs.pmFilterSetMode
+        : 'BOTH';
+    let filters = byAhu.get(a.id) ?? [];
+    if (mode === 'SET_A') filters = filters.filter((f) => f.filterSet === 'SET_A');
+    else if (mode === 'SET_B') filters = filters.filter((f) => f.filterSet === 'SET_B');
+    out.set(a.id, { ahuId: a.id, ahuName: a.name, mode, filters: filters.map((f) => ({ id: f.id, name: f.name })) });
+  }
+  return out;
 }
 
 /**

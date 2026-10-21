@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] - PM schedules: nine defects from the coverage campaign (2026-10-21)
+
+Found by the PM coverage tests (each confirmed by a failing test first). Regression file:
+`apps/api/src/e2e/pm-schedules-defects.test.ts`.
+
+- **D1 (false §11 record):** the overdue sweep ignored a written-off visit. It opened a deviation for
+  it, and a later cleaning closed that deviation as "completed late"; when the write-off had already
+  closed one, every sweep raised a DEVIATION_OPEN_BLOCKED alarm. The sweep now skips written-off
+  visits and closes any open deviation on one as SKIPPED. (Live digilog_db and the QA clone: no
+  affected rows.)
+- **D3:** bulk approve checked separation entry by entry, between writes. A refusal on the second
+  entry left the first approved, with its QNN and audit row, while the client saw only the 409. The
+  whole batch is now checked in its final state before anything is written (`assertBatchSeparation`).
+- **D4a:** the missed-PM gate ignored the AHU's filter-set mode. It asked write-off reasons for a
+  DISABLED AHU and let a SET_B cleaning satisfy a SET_A visit. It now counts the same filters as My
+  Tasks and the sweep (`loadCountedFilters`, moved to `pm-shared.ts`).
+- **D5:** `GET /api/pm-schedules/:entityId` with no schedule returned `{}`, and the AHU page showed
+  "Version: vundefined". It now returns `null`.
+- **D6:** the manual sweep's audit rows named the actor by uuid; they now use the username.
+- **D7:** `GET /settings` reported PM enabled when its config row was missing, while every PM endpoint
+  answered 404 PM_DISABLED. Both now use one reader (`readPmSettings` / `isPmEnabled`).
+- **D8:** upload error messages numbered rows as if the file had no blank or comment lines. They now
+  name the file line (CSV line, XLSX row).
+- **D9:** `.xls` was accepted but could never be read. It is now refused up front with "save as .xlsx
+  or .csv", and the web picker no longer offers it.
+- **D10 (found while fixing):** a reviewer's Modify on an edit of an APPROVED visit changed the live
+  approved date (no approval), and the approval then applied the old proposal on top. It now
+  changes the proposal; the web Modify pre-fills the proposal.
+- **D11 (found while fixing):** a review-stage reject kept the staged edit, so resubmit + approve
+  applied the rejected date over the resubmitted one. Review reject and resubmit now clear it.
+- **Waiting on operator decisions:** D2 (an edit takes the approved visit off My Tasks / gate / sweep
+  until approved, and rejecting the edit rejects the visit; the UI toast says the opposite) and D4b
+  (one cleaned sibling satisfies the missed-PM gate, while My Tasks needs every counted filter).
+
 ## [Unreleased] - Fresh install could not create its first block (2026-10-21)
 
 - **Go-live blocker, found by the coverage campaign.** A fresh database had **0 `asset_templates`**.

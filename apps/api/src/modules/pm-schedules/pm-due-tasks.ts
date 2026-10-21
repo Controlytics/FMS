@@ -12,7 +12,7 @@
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
-import { checkPmEnabled, resolvePmReasonKeys } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys, readPmSettings } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
 
@@ -21,8 +21,7 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
 
   // Load the PM schedule settings (default tolerance isn't relevant here —
   // only visibility mode and the overdue-section toggle).
-  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
-  const settings = (cfg?.configValue as any) ?? {};
+  const settings = await readPmSettings();
   const taskVisibility: string = settings.taskVisibility ?? 'GLOBAL';
   const showOverdueSeparately: boolean = settings.showOverdueSeparately ?? true;
 

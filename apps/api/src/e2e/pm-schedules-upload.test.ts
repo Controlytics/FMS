@@ -122,7 +122,7 @@ describe('file validation', () => {
     expect(res.json()).toMatchObject({ error: 'NO_FILE' });
   });
 
-  it('only .csv/.xls/.xlsx extensions are accepted', async () => {
+  it('only .csv/.xlsx extensions are accepted', async () => {
     const res = await upload('sa', { name: 'schedule.txt', content: Buffer.from('ahu_name\nx\n') });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ error: 'INVALID_FILE_TYPE' });
@@ -145,11 +145,12 @@ describe('file validation', () => {
     expect(res.json().message).toMatch(/^Failed to parse file: /);
   });
 
-  it('a legacy BIFF .xls is refused with a 400 and writes nothing', async () => {
-    // The extension is accepted, but exceljs reads only OOXML — see the report.
+  it('a legacy BIFF .xls is refused up front with a save-as hint, and writes nothing', async () => {
+    // exceljs reads only OOXML, so .xls is refused before parsing (D9, 2026-10-21).
     const biff = Buffer.concat([Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), Buffer.alloc(504)]);
     const res = await upload('sa', { name: 'legacy.xls', content: biff });
     expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'INVALID_FILE_TYPE' });
     expect(await entriesOf(aId)).toHaveLength(0);
   });
 

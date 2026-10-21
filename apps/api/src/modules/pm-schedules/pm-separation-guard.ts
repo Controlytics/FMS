@@ -75,6 +75,39 @@ export async function assertSeparation(
 }
 
 /**
+ * Validate staged edits that go live TOGETHER (bulk approve), before any of
+ * them is written (D3, 2026-10-21).
+ *
+ * Checking entry by entry inside the approval loop had two faults: a refusal on
+ * the second entry left the first already approved (QNN and audit row written)
+ * while the client saw only the 409, and each check compared the entry's NEW
+ * date with its siblings' OLD dates, although every edit in the batch goes live
+ * at once. So each affected schedule is checked in its final state, and only
+ * violations involving an edited entry refuse; overlaps between two untouched
+ * entries stay grandfathered, as in assertSeparation.
+ */
+export async function assertBatchSeparation(
+  edits: Array<{ scheduleId: string; entryId: string; plannedDate: Date; toleranceDays: number }>,
+  label = 'This approval',
+): Promise<void> {
+  const bySchedule = new Map<string, typeof edits>();
+  for (const e of edits) {
+    if (!bySchedule.has(e.scheduleId)) bySchedule.set(e.scheduleId, []);
+    bySchedule.get(e.scheduleId)!.push(e);
+  }
+  for (const [scheduleId, mine] of bySchedule) {
+    const edited = new Set(mine.map((e) => e.entryId));
+    const untouched = (await siblingsOf(scheduleId)).filter((s) => !edited.has(String(s.ref)));
+    const violations = checkSeparation([
+      ...untouched,
+      ...mine.map((e) => ({ ref: e.entryId, plannedDate: e.plannedDate, toleranceDays: e.toleranceDays })),
+    ]);
+    const hit = violations.find((v) => edited.has(String(v.earlier.ref)) || edited.has(String(v.later.ref)));
+    if (hit) throw new AppError(409, 'PM_VISIT_OVERLAP', `${label} cannot be scheduled here. ${hit.message}`);
+  }
+}
+
+/**
  * Validate a whole proposed entry set before it replaces a schedule's entries.
  * Used by create/replace, where nothing exists to compare against yet.
  */

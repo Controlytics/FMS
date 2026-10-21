@@ -8,6 +8,7 @@ import { PmScheduleService } from './pm-schedule.service.js';
 import { sweepOverdueDeviations, listDeviations, acknowledgeDeviation } from './pm-deviations.js';
 import { canSeeQnn, listQnn } from './qnn.js';
 import { getPmWorkflowConfig } from './pm-workflow.js';
+import { readPmSettings, isPmEnabled } from './pm-shared.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
@@ -53,18 +54,23 @@ function splitCsvLine(line: string): string[] {
 // registry fix (audit 2026-05-30). CSV stays string-valued so "YYYY-MM-DD"
 // reaches importSchedules' string branch directly instead of being coerced to
 // an Excel serial number (a strict improvement — kills the old TZ-drift footgun).
-async function parseUploadRows(buffer: Buffer, isCsv: boolean): Promise<Record<string, any>[]> {
+//
+// Each row carries `line`, its line in the FILE (1-based, header = line 1 when
+// it is the first line). Blank lines and empty sheet rows are dropped here and
+// comment rows later, so numbering by array index named the wrong line in every
+// skipped-row message after the first gap (D8, 2026-10-21).
+async function parseUploadRows(buffer: Buffer, isCsv: boolean): Promise<{ line: number; data: Record<string, any> }[]> {
   if (isCsv) {
     const text = buffer.toString('utf8').replace(/^﻿/, '');
-    const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+    const lines = text.split(/\r?\n/).map((l, i) => ({ text: l, line: i + 1 })).filter(l => l.text.trim() !== '');
     if (lines.length === 0) return [];
-    const headers = splitCsvLine(lines[0]).map(h => h.trim());
-    const rows: Record<string, any>[] = [];
+    const headers = splitCsvLine(lines[0].text).map(h => h.trim());
+    const rows: { line: number; data: Record<string, any> }[] = [];
     for (let i = 1; i < lines.length; i++) {
-      const cells = splitCsvLine(lines[i]);
+      const cells = splitCsvLine(lines[i].text);
       const obj: Record<string, any> = {};
       headers.forEach((h, idx) => { obj[h] = (cells[idx] ?? '').trim(); });
-      rows.push(obj);
+      rows.push({ line: lines[i].line, data: obj });
     }
     return rows;
   }
@@ -77,12 +83,12 @@ async function parseUploadRows(buffer: Buffer, isCsv: boolean): Promise<Record<s
     const name = String(normalizeCell(cell.value)).trim();
     if (name) headerCols.push({ col, name });
   });
-  const rows: Record<string, any>[] = [];
+  const rows: { line: number; data: Record<string, any> }[] = [];
   ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (rowNumber === 1) return;
     const obj: Record<string, any> = {};
     for (const { col, name } of headerCols) obj[name] = normalizeCell(row.getCell(col).value);
-    rows.push(obj);
+    rows.push({ line: rowNumber, data: obj });
   });
   return rows;
 }
@@ -145,15 +151,10 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       },
     },
   }, async () => {
-    const row = await prisma.systemConfig.findUnique({
-      where: { configKey: 'pm-schedule-settings' },
-    });
-    // configValue stored shape can be either `{ value: { enabled } }` (dynamic-routes
-    // PUT spreads request body which has `{ value }`) or directly `{ enabled }`
-    // (older seed format). Handle both.
-    const stored = (row?.configValue ?? {}) as any;
-    const inner = stored && typeof stored === 'object' && 'value' in stored ? stored.value : stored;
-    return { enabled: (inner?.enabled ?? true) === true };
+    // The same reader and predicate as checkPmEnabled (D7, 2026-10-21): this
+    // used to default a missing row to ENABLED while every PM endpoint answered
+    // 404 PM_DISABLED for it.
+    return { enabled: isPmEnabled(await readPmSettings()) };
   });
 
   // Workflow config for the PM Schedules page — lets the FE gate the
@@ -227,10 +228,19 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
 
       const filename = data.filename ?? 'upload';
       const lower = filename.toLowerCase();
-      const isXlsx = lower.endsWith('.xlsx') || lower.endsWith('.xls');
+      // D9 (2026-10-21): exceljs reads only the .xlsx (zip) format, so a real
+      // .xls (Excel 97-2003) always failed with a zip error. Refuse it up front
+      // with the fix the operator needs.
+      if (lower.endsWith('.xls')) {
+        return reply.code(400).send({
+          error: 'INVALID_FILE_TYPE',
+          message: 'Old Excel .xls files cannot be read. Save the file as Excel Workbook (.xlsx) or as .csv and upload it again.',
+        });
+      }
+      const isXlsx = lower.endsWith('.xlsx');
       const isCsv = lower.endsWith('.csv');
       if (!isXlsx && !isCsv) {
-        return reply.code(400).send({ error: 'INVALID_FILE_TYPE', message: 'Only .csv, .xls, and .xlsx files are accepted' });
+        return reply.code(400).send({ error: 'INVALID_FILE_TYPE', message: 'Only .csv and .xlsx files are accepted' });
       }
 
       // Buffer the file — xlsx lib needs the full content in memory
@@ -251,7 +261,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       // "YYYY-MM-DD" date reaches importSchedules' string branch as UTC midnight
       // (no locale re-parse / day-shift); XLSX date cells arrive as Date objects,
       // which importSchedules reads via getUTC*. See parseUploadRows above.
-      let rawRows: Record<string, any>[];
+      let rawRows: { line: number; data: Record<string, any> }[];
       try {
         rawRows = await parseUploadRows(buffer, isCsv);
       } catch (e: any) {
@@ -263,7 +273,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
 
       // Skip any row that looks like a comment line (starts with '#' in any column)
       const rows = rawRows.filter(r => {
-        const first = Object.values(r)[0];
+        const first = Object.values(r.data)[0];
         return !(typeof first === 'string' && first.trim().startsWith('#'));
       });
 
@@ -272,7 +282,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       }
 
       const ctx = buildContext(req);
-      const result = await service.importSchedules(ctx, rows);
+      const result = await service.importSchedules(ctx, rows.map(r => r.data), rows.map(r => r.line));
       return result;
     } catch (err: any) {
       app.log.error({ err }, 'PM schedule upload failed');
@@ -648,9 +658,13 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     schema: {
       tags: ['PM Schedules'],
       summary: 'Get active PM schedule for an entity',
+      description: 'Returns the schedule, or `null` when the entity has none for the year.',
       params: { type: 'object', required: ['entityId'], properties: { entityId: { type: 'string', format: 'uuid' } } },
       querystring: { type: 'object', properties: { year: { type: 'integer' } } },
-      response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
+      // `null` is a real answer here (D5, 2026-10-21). With `type: 'object'` the
+      // serializer turned it into `{}`, which the detail page read as a schedule
+      // and rendered "Version: vundefined" instead of "No PM schedule exists".
+      response: { 200: { type: ['object', 'null'], additionalProperties: true }, ...errorResponses },
     },
   }, async (req) => {
     const ctx = buildContext(req);

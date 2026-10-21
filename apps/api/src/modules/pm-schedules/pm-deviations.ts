@@ -3,7 +3,7 @@
  *
  * The `deviations` row is the single state machine: OPEN → ACKNOWLEDGED → CLOSED.
  * `sweepOverdueDeviations()` does BOTH halves and is idempotent by construction:
- *   - OPEN:  every APPROVED PM entry past its tolerance window whose counted
+ *   - OPEN:  every APPROVED, not written-off PM entry past its tolerance window whose counted
  *            filters aren't all cleaned → insert ONE deviation (UNIQUE
  *            pm_schedule_entry_id → no daily duplicates). Overdue notification
  *            fires only on first insert, guarded by `notified_at`.
@@ -31,7 +31,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { formatConfiguredDate } from '../../lib/format-datetime.js';
-import { checkPmEnabled, resolvePmReasonKeys } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, loadCountedFilters, type CountedAhu } from './pm-shared.js';
 
 const DAY = 86400000;
 // Don't auto-open deviations for entries whose window closed more than this many
@@ -45,56 +45,8 @@ export function dayDiff(to: Date, from: Date): number {
 
 /** Read the configurable overdue-notification role list (default ["ADMIN"]). */
 async function readNotifyRoles(): Promise<string[]> {
-  const cfg = await prisma.systemConfig.findUnique({ where: { configKey: 'pm-schedule-settings' } });
-  const stored = (cfg?.configValue ?? {}) as any;
-  const inner = stored && typeof stored === 'object' && 'value' in stored ? stored.value : stored;
-  const roles = inner?.overdueNotificationRoles;
+  const roles = (await readPmSettings()).overdueNotificationRoles;
   return Array.isArray(roles) && roles.length ? roles.map(String) : ['ADMIN'];
-}
-
-interface CountedAhu {
-  ahuId: string;
-  ahuName: string;
-  mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED';
-  filters: { id: string; name: string }[];
-}
-
-/**
- * For the given AHU ids, resolve the per-AHU filter-set mode
- * (customAttributes.pmFilterSetMode) and the list of CHILD filters that count
- * toward PM completion. Mirrors pm-due-tasks.ts.
- */
-async function loadCountedFilters(ahuIds: string[]): Promise<Map<string, CountedAhu>> {
-  if (!ahuIds.length) return new Map();
-  const [ahus, childRaw] = await Promise.all([
-    prisma.assetInstance.findMany({
-      where: { id: { in: ahuIds } },
-      select: { id: true, name: true, customAttributes: true },
-    }),
-    prisma.assetInstance.findMany({
-      where: { parentId: { in: ahuIds }, isActive: true, status: { not: 'Retired' } },
-      select: { id: true, name: true, parentId: true, filterDetails: { select: { filterSet: true } } },
-    }),
-  ]);
-  const byAhu = new Map<string, { id: string; name: string; filterSet: string | null }[]>();
-  for (const f of childRaw) {
-    if (!f.parentId) continue;
-    if (!byAhu.has(f.parentId)) byAhu.set(f.parentId, []);
-    byAhu.get(f.parentId)!.push({ id: f.id, name: f.name, filterSet: f.filterDetails?.filterSet ?? null });
-  }
-  const out = new Map<string, CountedAhu>();
-  for (const a of ahus) {
-    const attrs = (a.customAttributes as any) ?? {};
-    const mode: CountedAhu['mode'] =
-      attrs.pmFilterSetMode === 'SET_A' || attrs.pmFilterSetMode === 'SET_B' || attrs.pmFilterSetMode === 'DISABLED'
-        ? attrs.pmFilterSetMode
-        : 'BOTH';
-    let filters = byAhu.get(a.id) ?? [];
-    if (mode === 'SET_A') filters = filters.filter((f) => f.filterSet === 'SET_A');
-    else if (mode === 'SET_B') filters = filters.filter((f) => f.filterSet === 'SET_B');
-    out.set(a.id, { ahuId: a.id, ahuName: a.name, mode, filters: filters.map((f) => ({ id: f.id, name: f.name })) });
-  }
-  return out;
 }
 
 /**
@@ -222,7 +174,7 @@ async function recordBlockedDeviation(
     await createNotification({ type: 'PM_OVERDUE', title, message, forRole: role, metadata });
   }
   await auditLog({
-    userId: ctx?.userSub, userRole: ctx?.userRole ?? 'SYSTEM',
+    userId: ctx?.userId, userRole: ctx?.userRole ?? 'SYSTEM', // username, not uuid (compliance F3)
     action: 'DEVIATION_OPEN_BLOCKED', targetType: 'deviation', targetId: existing.id,
     beforeValue: { existingDeviationNumber: existing.deviationNumber, existingStatus: existing.status },
     afterValue: { ahuName: ahu.ahuName, pmScheduleEntryId: entry.id, overdueDays, filterCount: ahu.filters.length },
@@ -260,7 +212,12 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
   // ── OPEN ──────────────────────────────────────────────────────────────
   const horizon = new Date(now.getTime() - OPEN_HORIZON_DAYS * DAY);
   const candidates = await prisma.pmScheduleEntry.findMany({
-    where: { schedule: { status: 'ACTIVE' }, approvalStatus: 'APPROVED', windowEnd: { lt: now, gte: horizon } },
+    // `skippedAt: null` (D1, 2026-10-21): a visit written off as NOT performed is
+    // finished business. Without it the sweep opened a deviation for it, and a
+    // later cleaning then closed that deviation as "completed late"; when the
+    // write-off had already closed one, every sweep raised a daily
+    // DEVIATION_OPEN_BLOCKED alarm instead. The missed-PM gate has always had it.
+    where: { schedule: { status: 'ACTIVE' }, approvalStatus: 'APPROVED', skippedAt: null, windowEnd: { lt: now, gte: horizon } },
     include: { schedule: true },
   });
   const counted = await loadCountedFilters([...new Set(candidates.map((e) => e.schedule.entityId))]);
@@ -284,7 +241,7 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
       await notifyOverdue(dev, ahu, roles, now);
       await prisma.deviation.update({ where: { id: dev.id }, data: { notifiedAt: new Date() } });
       await auditLog({
-        userId: ctx?.userSub, userRole: ctx?.userRole ?? 'SYSTEM',
+        userId: ctx?.userId, userRole: ctx?.userRole ?? 'SYSTEM', // username, not uuid (compliance F3)
         action: 'DEVIATION_OPENED', targetType: 'deviation', targetId: dev.id,
         afterValue: { deviationNumber: dev.deviationNumber, ahuName: ahu.ahuName, overdueDays: dev.overdueDaysAtOpen, filterCount: filterIds.length },
         reason: `PM task for ${ahu.ahuName} overdue by ${dev.overdueDaysAtOpen} day(s) — deviation ${dev.deviationNumber} opened`,
@@ -304,7 +261,35 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
 
   // ── CLOSE ─────────────────────────────────────────────────────────────
   const open = await prisma.deviation.findMany({ where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] } } });
+  // A deviation whose visit has been written off closes as NOT performed, never
+  // as completed — even when a later cleaning satisfies the completion test
+  // below. The write-off normally closes its own deviation (applyPmSkips); this
+  // catches rows it never reached, e.g. ones the OPEN half created before D1.
+  const writtenOff = new Map(
+    (await prisma.pmScheduleEntry.findMany({
+      where: { id: { in: open.map((d) => d.pmScheduleEntryId) }, skippedAt: { not: null } },
+      select: { id: true, skipReason: true },
+    })).map((e) => [e.id, e.skipReason]),
+  );
   for (const dev of open) {
+    if (writtenOff.has(dev.pmScheduleEntryId)) {
+      const closureReason = writtenOff.get(dev.pmScheduleEntryId) ?? null;
+      await prisma.deviation.update({
+        where: { id: dev.id },
+        data: { status: 'CLOSED', closedAt: now, closureKind: 'SKIPPED', closureReason },
+      });
+      closed++;
+      await auditLog({
+        userId: ctx?.userId, userRole: ctx?.userRole ?? 'SYSTEM', // username, not uuid (compliance F3)
+        action: 'DEVIATION_CLOSED', targetType: 'deviation', targetId: dev.id,
+        beforeValue: { status: dev.status },
+        afterValue: { deviationNumber: dev.deviationNumber, closureKind: 'SKIPPED', closureReason },
+        reason: `PM task for ${dev.ahuName} was written off as not performed — deviation ${dev.deviationNumber} closed as SKIPPED`,
+        signatureMeaning: `Deviation ${dev.deviationNumber} closed: the scheduled PM for AHU "${dev.ahuName}" was written off as NOT performed`,
+        ipAddress: ctx?.ipAddress ?? '127.0.0.1', userAgent: ctx?.userAgent, sessionId: ctx?.sessionId,
+      });
+      continue;
+    }
     const filterIds = Array.isArray(dev.filterIds) ? (dev.filterIds as string[]) : [];
     if (!filterIds.length) continue;
     const since = dev.windowStart ?? dev.scheduledDate;
@@ -329,7 +314,7 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
       await prisma.deviation.update({ where: { id: dev.id }, data: { completionNotifiedAt: new Date() } });
     }
     await auditLog({
-      userId: ctx?.userSub, userRole: ctx?.userRole ?? 'SYSTEM',
+      userId: ctx?.userId, userRole: ctx?.userRole ?? 'SYSTEM', // username, not uuid (compliance F3)
       action: 'DEVIATION_CLOSED', targetType: 'deviation', targetId: dev.id,
       afterValue: { deviationNumber: dev.deviationNumber, completedByName, delayDays, completedAt: latestAt.toISOString() },
       reason: `Overdue cleaning for ${dev.ahuName} completed — deviation ${dev.deviationNumber} closed (${delayDays}-day delay)`,
