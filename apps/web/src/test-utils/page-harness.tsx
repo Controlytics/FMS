@@ -21,7 +21,7 @@
  */
 import { render, type RenderResult } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { SWRConfig } from 'swr';
+import { SWRConfig, mutate as globalMutate } from 'swr';
 import { vi } from 'vitest';
 import { swrConfig } from '@/lib/swr-config';
 import { ToastProvider } from '@/components/toast-provider';
@@ -33,6 +33,7 @@ export interface MockRequest {
   query: URLSearchParams;
   headers: Record<string, string>;
   json: any;          // parsed JSON body, or undefined
+  form?: FormData;    // the body of a multipart request (uploads), when it was one
 }
 
 export interface MockRoute {
@@ -73,6 +74,7 @@ export function mockApi(routes: MockRoute[] = []): MockApi {
     const u = new URL(raw, 'http://localhost');
     let json: any;
     if (typeof init.body === 'string') { try { json = JSON.parse(init.body); } catch { json = init.body; } }
+    const form = typeof FormData !== 'undefined' && init.body instanceof FormData ? init.body : undefined;
     const req: MockRequest = {
       method: (init.method ?? 'GET').toUpperCase(),
       url: u.pathname + u.search,
@@ -80,6 +82,7 @@ export function mockApi(routes: MockRoute[] = []): MockApi {
       query: u.searchParams,
       headers: Object.fromEntries(Object.entries((init.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), String(v)])),
       json,
+      ...(form ? { form } : {}),
     };
     api.requests.push(req);
     const route = api.routes.find((r) => {
@@ -112,7 +115,34 @@ export interface RenderPageOptions {
   route?: string;      // the URL to open (default '/')
   path?: string;       // the route pattern the page is mounted on (default '*')
   user?: TestUser;     // signed-in user; omit for a signed-out render
-  api?: MockApi;       // from mockApi(); created empty if omitted
+  api?: MockApi;       // from mockApi(); created empty if omitted. Pass the one you made:
+                       // a second mockApi() replaces the fetch stub and drops its routes.
+  /**
+   * 'production' keeps the app's `dedupingInterval` (5000 ms) instead of 0. Use
+   * it to reproduce bugs that only exist because SWR reuses a recent answer -
+   * e.g. a form seeded from `onSuccess`, which never fires for a deduped key.
+   */
+  dedupe?: 'test' | 'production';
+  /**
+   * Mount on SWR's DEFAULT cache instead of a fresh per-render one, so a page
+   * that refreshes through the global `mutate(key)` from 'swr' can be checked.
+   * Share-state warning: call `await clearGlobalSwrCache()` before each test.
+   */
+  globalCache?: boolean;
+}
+
+/** Empty SWR's default cache (for `globalCache: true` renders). */
+export async function clearGlobalSwrCache(): Promise<void> {
+  await globalMutate(() => true, undefined, { revalidate: false });
+}
+
+/**
+ * Forget the signed-in user `useAuth` caches in localStorage. Two renders as
+ * DIFFERENT roles in one test must call this in between, or the second render
+ * starts with the first role's permissions until /api/auth/me answers.
+ */
+export function forgetSignedInUser(): void {
+  localStorage.removeItem('digilog_cached_user');
 }
 
 /** Renders `ui` under the real SWR config, ToastProvider and a MemoryRouter. */
@@ -129,7 +159,13 @@ export function renderPage(ui: React.ReactElement, opts: RenderPageOptions = {})
     sessionStorage.removeItem('access_token');
   }
   const view = render(
-    <SWRConfig value={{ ...swrConfig, provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false, revalidateOnFocus: false }}>
+    <SWRConfig value={{
+      ...swrConfig,
+      ...(opts.globalCache ? {} : { provider: () => new Map() }),
+      dedupingInterval: opts.dedupe === 'production' ? swrConfig.dedupingInterval : 0,
+      shouldRetryOnError: false,
+      revalidateOnFocus: false,
+    }}>
       <ToastProvider>
         <MemoryRouter initialEntries={[opts.route ?? '/']}>
           <Routes>

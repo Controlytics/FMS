@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { screen, waitFor, cleanup } from '@testing-library/react';
-import useSWR from 'swr';
-import { mockApi, renderPage, type MockRequest } from '../page-harness';
+import { screen, waitFor, cleanup, fireEvent, act } from '@testing-library/react';
+import { useState } from 'react';
+import useSWR, { mutate as globalMutate } from 'swr';
+import { mockApi, renderPage, clearGlobalSwrCache, forgetSignedInUser, type MockRequest } from '../page-harness';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
@@ -48,5 +49,73 @@ describe('page harness', () => {
     const api = mockApi([{ path: '/api/things', status: 500, body: { error: 'INTERNAL_ERROR', message: 'boom' } }]);
     renderPage(<Probe />, { user: { role: 'ADMIN' }, api });
     expect(await screen.findByText(/error:/)).toBeInTheDocument();
+  });
+});
+
+// Options added 2026-10-21 for bug classes the default set-up hid.
+function KeySwitcher() {
+  const [k, setK] = useState('a');
+  const { data } = useSWR<{ v: string }>(`/api/keys/${k}`);
+  return (
+    <div>
+      <p>value:{data?.v ?? '-'}</p>
+      <button onClick={() => setK('a')}>A</button>
+      <button onClick={() => setK('b')}>B</button>
+    </div>
+  );
+}
+
+describe('page harness options', () => {
+  const keyRoutes = () => mockApi([
+    { path: '/api/keys/a', body: { v: 'A' } },
+    { path: '/api/keys/b', body: { v: 'B' } },
+  ]);
+  const goA_B_A = async () => {
+    expect(await screen.findByText('value:A')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+    expect(await screen.findByText('value:B')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'A' }));
+    expect(await screen.findByText('value:A')).toBeInTheDocument();
+  };
+
+  it("dedupe: 'production' reuses a recent answer (A -> B -> A asks for A once), as the app does", async () => {
+    const api = keyRoutes();
+    renderPage(<KeySwitcher />, { user: { role: 'ADMIN' }, api, dedupe: 'production' });
+    await goA_B_A();
+    expect(api.calls('GET', '/api/keys/a')).toHaveLength(1);
+  });
+
+  it('control: the default set-up re-asks on every mount of a key', async () => {
+    const api = keyRoutes();
+    renderPage(<KeySwitcher />, { user: { role: 'ADMIN' }, api });
+    await goA_B_A();
+    await waitFor(() => expect(api.calls('GET', '/api/keys/a')).toHaveLength(2));
+  });
+
+  it('globalCache: a page refresh through the global mutate(key) reaches the rendered page', async () => {
+    await clearGlobalSwrCache();
+    let n = 0;
+    const api = mockApi([{ path: '/api/things', body: () => ({ items: [`v${++n}`] }) }]);
+    renderPage(<Probe />, { user: { role: 'ADMIN' }, api, globalCache: true });
+    expect(await screen.findByText('v1')).toBeInTheDocument();
+    await act(async () => { await globalMutate('/api/things?page=1'); });
+    expect(await screen.findByText('v2')).toBeInTheDocument();
+    await clearGlobalSwrCache();
+  });
+
+  it('records a multipart body as `form`', async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/upload', body: { ok: true } }]);
+    const fd = new FormData();
+    fd.append('file', new File(['x'], 'schedule.csv'));
+    await fetch('/api/upload', { method: 'POST', body: fd });
+    const req = api.calls('POST', '/api/upload')[0];
+    expect(req.json).toBeUndefined();
+    expect((req.form?.get('file') as File).name).toBe('schedule.csv');
+  });
+
+  it('forgetSignedInUser drops the cached user useAuth would start from', () => {
+    localStorage.setItem('digilog_cached_user', JSON.stringify({ role: 'QA' }));
+    forgetSignedInUser();
+    expect(localStorage.getItem('digilog_cached_user')).toBeNull();
   });
 });
