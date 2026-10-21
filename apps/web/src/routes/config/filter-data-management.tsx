@@ -89,6 +89,41 @@ function statesWith(current?: string): string[] {
   return v && !LIFECYCLE_STATES.includes(v) ? [v, ...LIFECYCLE_STATES] : LIFECYCLE_STATES;
 }
 
+/**
+ * `options` plus the field's current value when it is not one of them. A
+ * controlled <select> whose value matches no option silently DISPLAYS another
+ * one (the first), so an edit dialog showed a legacy RESET_PASSWORD request as
+ * CREATE_USER and an EXPIRED block change as PENDING while the form still held
+ * the stored value. Same rule as `statesWith`, for every select Field.
+ */
+function withCurrent(options: string[], current: unknown): string[] {
+  const v = current === null || current === undefined ? '' : String(current);
+  return options.includes(v) ? options : [v, ...options];
+}
+
+// The PmEntryApprovalStatus enum (schema.prisma), 3-step workflow states first.
+// One list for the tab filter and both dialogs — the dialogs had drifted to
+// PENDING/APPROVED/REJECTED only.
+const PM_APPROVAL_OPTIONS = [
+  { value: 'PENDING_REVIEW', label: 'Pending Review' },
+  { value: 'PENDING_APPROVAL', label: 'Pending Approval' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'REJECTED', label: 'Rejected' },
+];
+const PM_APPROVAL_STATUSES = PM_APPROVAL_OPTIONS.map(o => o.value);
+
+// The BlockChangeStatus enum (schema.prisma). A used approval is EXPIRED
+// (block-change.service.ts consumes it); the dialogs offered a CONSUMED value
+// the API refuses (400 INVALID_VALUE) and had no EXPIRED.
+const BLOCK_CHANGE_OPTIONS = [
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'REJECTED', label: 'Rejected' },
+  { value: 'EXPIRED', label: 'Expired' },
+];
+const BLOCK_CHANGE_STATUSES = BLOCK_CHANGE_OPTIONS.map(o => o.value);
+
 // PM entry helpers — month names + status derivation matches /pm-schedules/:entityId detail page
 const PM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // Audit-trail Success/Fail: import the /audit page's own rule rather than
@@ -136,7 +171,8 @@ const BLOCK_CHANGE_STATUS: Record<string, { label: string; bg: string; text: str
   PENDING: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400', bar: 'bg-gradient-to-r from-amber-400 to-orange-400' },
   APPROVED: { label: 'Approved', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400', bar: 'bg-gradient-to-r from-emerald-400 to-green-500' },
   REJECTED: { label: 'Rejected', bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-400', bar: 'bg-gradient-to-r from-red-400 to-rose-500' },
-  CONSUMED: { label: 'Consumed', bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400', bar: 'bg-gradient-to-r from-slate-300 to-slate-400' },
+  // The server stores a used approval as EXPIRED; /approvals labels it "Used".
+  EXPIRED: { label: 'Used', bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400', bar: 'bg-gradient-to-r from-slate-300 to-slate-400' },
 };
 
 function getPmEntryStatus(entry: any): { label: string; bg: string; text: string; border: string; cardBorder: string } {
@@ -181,7 +217,7 @@ function Field(props: {
         </Select>
       ) : select ? (
         <Select value={value ?? ''} onChange={e => onChange(e.target.value)}>
-          {(options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
+          {withCurrent(options ?? [], value).map(o => <option key={o} value={o}>{o}</option>)}
         </Select>
       ) : textarea ? (
         <textarea value={value ?? ''} onChange={e => onChange(e.target.value)} rows={2} className={cls} />
@@ -245,13 +281,7 @@ const FILTERS_BY_TAB: Record<string, { label: string; options: { value: string; 
   },
   'pm-entries': {
     label: 'Approval',
-    options: [
-      { value: 'PENDING_REVIEW', label: 'Pending Review' },
-      { value: 'PENDING_APPROVAL', label: 'Pending Approval' },
-      { value: 'PENDING', label: 'Pending' },
-      { value: 'APPROVED', label: 'Approved' },
-      { value: 'REJECTED', label: 'Rejected' },
-    ],
+    options: PM_APPROVAL_OPTIONS,
   },
   notifications: {
     label: 'Type',
@@ -267,12 +297,7 @@ const FILTERS_BY_TAB: Record<string, { label: string; options: { value: string; 
   },
   'block-changes': {
     label: 'Status',
-    options: [
-      { value: 'PENDING', label: 'Pending' },
-      { value: 'APPROVED', label: 'Approved' },
-      { value: 'REJECTED', label: 'Rejected' },
-      { value: 'EXPIRED', label: 'Expired' },
-    ],
+    options: BLOCK_CHANGE_OPTIONS,
   },
 };
 
@@ -427,7 +452,11 @@ export function FilterDataManagementPage() {
   // set, so those are filtered and paged client-side — which is correct there.
   const { options: pageSizeOptions, defaultLimit } = usePaginationDefaults();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(defaultLimit);
+  // The page size FOLLOWS the Pagination Settings default until the operator
+  // picks one. Seeding state from `defaultLimit` captured the hook's pre-load
+  // fallback (20) on a cold load, so the configured size never applied (D6).
+  const [pageSizeChoice, setPageSize] = useState<number | null>(null);
+  const pageSize = pageSizeChoice ?? defaultLimit;
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   /** Status / type filter — meaning depends on the tab (see FILTERS_BY_TAB). */
@@ -749,7 +778,14 @@ export function FilterDataManagementPage() {
     value: s.id,
     label: `${s.entityName ?? `Entity ${String(s.entityId).slice(0, 8)}`} — ${s.year}${s.version ? ` (v${s.version})` : ''}`,
   }));
+  // Filter pickers for the manual retirement / replacement dialogs. Retirement
+  // needs filters that are NOT already retired; replacement needs any filter on
+  // either side (a replaced filter is retired, so both lists are unfiltered).
+  const manualFiltersData = useSWR<any>(manualRecordDialog ? '/api/hierarchy/filters' : null);
+  const manualFilters: any[] = manualFiltersData.data?.data ?? [];
 
+  // Every hook above this line: React requires the same hooks on every render,
+  // and the first render can come before /api/auth/me has said who the user is.
   if (user?.role !== 'SUPER_ADMIN') {
     return (
       <div className="p-8 flex items-center justify-center min-h-[60vh]">
@@ -1244,12 +1280,6 @@ export function FilterDataManagementPage() {
       },
     });
   };
-
-  // Filter pickers for the manual retirement / replacement dialogs. Retirement
-  // needs filters that are NOT already retired; replacement needs any filter on
-  // either side (a replaced filter is retired, so both lists are unfiltered).
-  const manualFiltersData = useSWR<any>(manualRecordDialog ? '/api/hierarchy/filters' : null);
-  const manualFilters: any[] = manualFiltersData.data?.data ?? [];
 
   const submitManualRecord = async () => {
     if (!manualRecordDialog || manualRecordSaving || !reasonOk(changeReason)) return;
@@ -2435,7 +2465,7 @@ export function FilterDataManagementPage() {
                   <Field label="Window End" value={rowEditFields.windowEnd} onChange={v => setRowEditFields(p => ({ ...p, windowEnd: v }))} type="datetime-local" />
                   <Field label="Tolerance Days" value={rowEditFields.toleranceDays} onChange={v => setRowEditFields(p => ({ ...p, toleranceDays: v }))} type="number" />
                   <Field label="Approval Status" value={rowEditFields.approvalStatus} onChange={v => setRowEditFields(p => ({ ...p, approvalStatus: v }))}
-                    select options={['', 'PENDING', 'APPROVED', 'REJECTED']} />
+                    select options={PM_APPROVAL_STATUSES} />
                   <Field label="Approval Remarks" value={rowEditFields.approvalRemarks} onChange={v => setRowEditFields(p => ({ ...p, approvalRemarks: v }))} textarea />
                   <Field label="Notes" value={rowEditFields.notes} onChange={v => setRowEditFields(p => ({ ...p, notes: v }))} textarea />
                   <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -2468,7 +2498,7 @@ export function FilterDataManagementPage() {
               ) : (
                 <>
                   <Field label="Status" value={rowEditFields.status} onChange={v => setRowEditFields(p => ({ ...p, status: v }))}
-                    select options={['PENDING', 'APPROVED', 'REJECTED', 'CONSUMED']} />
+                    select options={BLOCK_CHANGE_STATUSES} />
                   <Field label="Reason" value={rowEditFields.reason} onChange={v => setRowEditFields(p => ({ ...p, reason: v }))} textarea />
                   <Field label="Processed Comment" value={rowEditFields.processedComment} onChange={v => setRowEditFields(p => ({ ...p, processedComment: v }))} textarea />
                   <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -2561,7 +2591,7 @@ export function FilterDataManagementPage() {
                   <Field label="Window Start" type="datetime-local" placeholder="Defaults to planned date" value={createFields.windowStart} onChange={v => setCreateFields(p => ({ ...p, windowStart: v }))} />
                   <Field label="Window End" type="datetime-local" placeholder="Defaults to planned date" value={createFields.windowEnd} onChange={v => setCreateFields(p => ({ ...p, windowEnd: v }))} />
                   <Field label="Tolerance Days" type="number" value={createFields.toleranceDays} onChange={v => setCreateFields(p => ({ ...p, toleranceDays: v }))} />
-                  <Field label="Approval Status" select options={['', 'PENDING', 'APPROVED', 'REJECTED']} value={createFields.approvalStatus} onChange={v => setCreateFields(p => ({ ...p, approvalStatus: v }))} />
+                  <Field label="Approval Status" select options={['', ...PM_APPROVAL_STATUSES]} value={createFields.approvalStatus} onChange={v => setCreateFields(p => ({ ...p, approvalStatus: v }))} />
                   <Field label="Approval Remarks" textarea value={createFields.approvalRemarks} onChange={v => setCreateFields(p => ({ ...p, approvalRemarks: v }))} />
                   <Field label="Notes" textarea value={createFields.notes} onChange={v => setCreateFields(p => ({ ...p, notes: v }))} />
                 </>
@@ -2596,7 +2626,7 @@ export function FilterDataManagementPage() {
                   <Field label="From Block Name" required value={createFields.fromBlockName} onChange={v => setCreateFields(p => ({ ...p, fromBlockName: v }))} />
                   <Field label="To Block ID" required value={createFields.toBlockId} onChange={v => setCreateFields(p => ({ ...p, toBlockId: v }))} />
                   <Field label="To Block Name" required value={createFields.toBlockName} onChange={v => setCreateFields(p => ({ ...p, toBlockName: v }))} />
-                  <Field label="Status" select options={['PENDING', 'APPROVED', 'REJECTED', 'CONSUMED']} value={createFields.status} onChange={v => setCreateFields(p => ({ ...p, status: v }))} />
+                  <Field label="Status" select options={BLOCK_CHANGE_STATUSES} value={createFields.status} onChange={v => setCreateFields(p => ({ ...p, status: v }))} />
                   <Field label="Reason" textarea value={createFields.reason} onChange={v => setCreateFields(p => ({ ...p, reason: v }))} />
                   <Field label="Processed Comment" textarea value={createFields.processedComment} onChange={v => setCreateFields(p => ({ ...p, processedComment: v }))} />
                   <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
@@ -2818,6 +2848,7 @@ export function FilterDataManagementPage() {
         isVerifying={reauth.isVerifying}
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
+        actionLabel={reauth.pendingActionLabel}
         onCancel={() => { reauth.cancel(); setProcessing(false); setPromptBusy(false); setRowEditSaving(false); setCreateSaving(false); setAuditEditSaving(false); setManualRecordSaving(false); }}
       />
 

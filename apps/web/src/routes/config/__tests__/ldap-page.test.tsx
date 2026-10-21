@@ -45,7 +45,7 @@ const byPlaceholder = (p: string) => screen.getByPlaceholderText(p) as HTMLInput
 const serverUrl = () => byPlaceholder('ldaps://ad.company.com:636');
 const labelled = (label: string) => (screen.getByText(label).parentElement as HTMLElement).querySelector('input') as HTMLInputElement;
 const checkbox = (label: string) => (screen.getByText(label).closest('label') as HTMLElement).querySelector('input') as HTMLInputElement;
-const enableToggle = () => (screen.getByText('Enable LDAP Authentication').closest('div.flex') as HTMLElement).querySelector('button') as HTMLButtonElement;
+const enableToggle = () => screen.getByRole('switch', { name: 'Enable LDAP authentication' }) as HTMLButtonElement;
 const saveBtn = () => screen.getByRole('button', { name: /Save Configuration|Saving/ });
 const testBtn = () => screen.getByRole('button', { name: /Test Connection|Testing/ });
 const defaultRoleSelect = () => (screen.getByText('Default Role (when no group matches)').parentElement as HTMLElement).querySelector('select') as HTMLSelectElement;
@@ -124,6 +124,17 @@ describe('LDAP / Active Directory config page', () => {
     expect(await screen.findByText('LDAP configuration saved successfully')).toBeInTheDocument();
   });
 
+  it('the Enable control is a named switch that reports its state', async () => {
+    setup({ data: {} });
+    await waitFor(() => expect(screen.getByText('Disabled')).toBeInTheDocument());
+    const sw = await screen.findByRole('switch', { name: 'Enable LDAP authentication' });
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    expect(sw).toHaveAttribute('type', 'button');
+    fireEvent.click(sw);
+    expect(screen.getByRole('switch', { name: 'Enable LDAP authentication' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('Enabled')).toBeInTheDocument();
+  });
+
   it('removing a mapping row drops it from the form', async () => {
     setup();
     await loaded();
@@ -162,7 +173,7 @@ describe('LDAP / Active Directory config page', () => {
     expect(await screen.findByText('LDAP configuration saved successfully')).toBeInTheDocument();
   });
 
-  it('cancelling the signature frees the Save button and reports the cancel', async () => {
+  it('cancelling the signature frees the Save button and reports nothing', async () => {
     const api = setup({ reauth: ['UPDATE_LDAP_CONFIG'] });
     await loaded();
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
@@ -170,8 +181,22 @@ describe('LDAP / Active Directory config page', () => {
     fireEvent.click(saveBtn());
     await cancelReauth();
     await waitFor(() => expect(saveBtn()).not.toBeDisabled());
-    expect(screen.getByText(/Cancelled — password confirmation was not completed/)).toBeInTheDocument();
+    expect(screen.queryByText(/password confirmation was not completed/)).toBeNull();
+    expect(document.querySelector('.bg-red-50')).toBeNull();
+    expect(serverUrl().value).toBe('ldaps://x:636');
     expect(api.calls('PUT', PATH)).toHaveLength(0);
+  });
+
+  it('cancelling a signature the server demanded after the fact reports nothing either', async () => {
+    const api = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await loaded();
+    fireEvent.change(serverUrl(), { target: { value: 'ldaps://later:636' } });
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(saveBtn()).not.toBeDisabled());
+    expect(screen.queryByText(/password confirmation was not completed/)).toBeNull();
+    expect(document.querySelector('.bg-red-50')).toBeNull();
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
   });
 
   it('a retroactive REAUTH_REQUIRED from the server opens the prompt and retries', async () => {
@@ -237,16 +262,37 @@ describe('LDAP / Active Directory config page', () => {
   it('a role without CONFIG_UPDATE cannot save or test', async () => {
     setup({ user: { role: 'QA', permissions: ['CONFIG_READ'] } });
     await loaded();
-    fireEvent.change(serverUrl(), { target: { value: 'ldaps://z:636' } });
     expect(saveBtn()).toBeDisabled();
     expect(saveBtn()).toHaveAttribute('title', 'CONFIG_UPDATE permission required');
     expect(testBtn()).toBeDisabled();
     expect(testBtn()).toHaveAttribute('title', 'CONFIG_UPDATE permission required');
   });
 
+  it('a role without CONFIG_UPDATE sees a read-only form: the Enable switch, every field and the mapping controls are disabled', async () => {
+    setup({ user: { role: 'QA', permissions: ['CONFIG_READ'] } });
+    await loaded();
+    await waitFor(() => expect(screen.getAllByRole('option', { name: 'Quality Assurance' }).length).toBeGreaterThan(0));
+    // The page comment promised "gate Save / Test / Enable on CONFIG_UPDATE".
+    await waitFor(() => expect(enableToggle()).toBeDisabled());
+    fireEvent.click(enableToggle());
+    expect(screen.getByText('Enabled')).toBeInTheDocument();
+    const fields = Array.from(document.querySelectorAll('input, select')) as (HTMLInputElement | HTMLSelectElement)[];
+    expect(fields.length).toBeGreaterThan(15);
+    expect(fields.filter((f) => !f.disabled).map((f) => f.getAttribute('placeholder') ?? f.type)).toEqual([]);
+    expect(screen.getByRole('button', { name: /Add Mapping/ })).toBeDisabled();
+    const row = byPlaceholder('CN=Admins,OU=Groups,DC=company,DC=com').closest('div.flex.items-center') as HTMLElement;
+    const rowButtons = within(row).getAllByRole('button');
+    expect(rowButtons[rowButtons.length - 1]).toBeDisabled();
+    // Leaving is still possible.
+    expect(screen.getByRole('button', { name: 'Cancel' })).not.toBeDisabled();
+  });
+
   it('a non-super-admin with CONFIG_UPDATE can save and test', async () => {
     setup({ user: { role: 'ADMIN', permissions: ['CONFIG_READ', 'CONFIG_UPDATE'] } });
     await loaded();
+    await waitFor(() => expect(enableToggle()).not.toBeDisabled());
+    expect(screen.getByRole('button', { name: /Add Mapping/ })).not.toBeDisabled();
+    expect(byPlaceholder('OU=Users,DC=company,DC=com')).not.toBeDisabled();
     fireEvent.change(serverUrl(), { target: { value: 'ldaps://z:636' } });
     await waitFor(() => expect(saveBtn()).not.toBeDisabled());
     expect(testBtn()).not.toBeDisabled();

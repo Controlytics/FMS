@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle, type ReactNode } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +28,10 @@ interface SidebarTabProps {
   onStateChange: (state: { dirty: boolean; saving: boolean; canSave: boolean }) => void;
 }
 
+type SidebarConfig = { sidebarItems?: string[] | null } & Record<string, unknown>;
+const ALL_ITEM_IDS = SIDEBAR_ITEMS.map(i => i.id);
+const NO_ITEMS: string[] = [];
+
 export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
   function SidebarTab({ activeRoles, onStateChange }, ref) {
     const { toast } = useToast();
@@ -36,14 +40,18 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     const [sidebarSubTab, setSidebarSubTab] = useState<'role' | 'user'>('role');
     const [sidebarSelectedRole, setSidebarSelectedRole] = useState<string>('');
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
-    const [enabledItems, setEnabledItems] = useState<string[]>([]);
+    // The unsaved menu edit, tagged with the config key (role or user) it belongs
+    // to. The menu shown is DERIVED: this draft for the open key, else that key's
+    // stored items. It used to be copied into state from SWR `onSuccess`, which
+    // never runs for a failed load (the tab spun forever with the role picker
+    // disabled) and runs on every background revalidation (silently dropping
+    // unsaved edits) - 2026-10-21.
+    const [draft, setDraft] = useState<{ key: string; items: string[] } | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [sidebarSaving, setSidebarSaving] = useState(false);
-    const [sidebarDirty, setSidebarDirty] = useState(false);
     // P4-10 (2026-10-21): a role's sidebar save can GRANT permissions (each enabled
     // item adds its page's primary permission), so the API requires a reason.
     const [changeReason, setChangeReason] = useState('');
-    const [isTransitioning, setIsTransitioning] = useState(false);
 
     const allRoles = activeRoles || [];
 
@@ -56,77 +64,110 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
 
     const { data: usersData, isLoading: loadingUsers } = useSWR('/api/users');
 
-    const { data: sidebarRoleConfig, isLoading: loadingSidebarRoleConfig, isValidating: validatingSidebarRoleConfig } = useSWR(
-      sidebarSubTab === 'role' && sidebarSelectedRole ? `/api/config/roles/${sidebarSelectedRole}` : null,
-      {
-        revalidateOnMount: true, dedupingInterval: 0,
-        onSuccess: (data) => { setEnabledItems(data.sidebarItems || SIDEBAR_ITEMS.map(i => i.id)); setSidebarDirty(false); setIsTransitioning(false); },
-      }
+    const { mutate } = useSWRConfig();
+    const roleKey = sidebarSubTab === 'role' && sidebarSelectedRole ? `/api/config/roles/${sidebarSelectedRole}` : null;
+    const userKey = sidebarSubTab === 'user' && selectedUser ? `/api/config/users/${selectedUser.id}` : null;
+    const { data: sidebarRoleConfig, error: roleConfigError, isValidating: validatingSidebarRoleConfig, mutate: reloadRoleConfig } = useSWR<SidebarConfig>(
+      roleKey, { revalidateOnMount: true, dedupingInterval: 0 },
+    );
+    const { data: userConfig, error: userConfigError, isValidating: validatingUserConfig, mutate: reloadUserConfig } = useSWR<SidebarConfig>(
+      userKey, { revalidateOnMount: true, dedupingInterval: 0 },
     );
 
-    const { data: userConfig, isLoading: loadingUserConfig, isValidating: validatingUserConfig } = useSWR(
-      sidebarSubTab === 'user' && selectedUser ? `/api/config/users/${selectedUser.id}` : null,
-      {
-        revalidateOnMount: true, dedupingInterval: 0,
-        onSuccess: (data) => { setEnabledItems(data.sidebarItems || []); setSidebarDirty(false); setIsTransitioning(false); },
-      }
-    );
+    // The open config (role or user) and what it stores. A role with no saved
+    // menu gets every item; a user with none falls back to the role (empty list).
+    const activeKey = sidebarSubTab === 'role' ? roleKey : userKey;
+    const activeConfig = sidebarSubTab === 'role' ? sidebarRoleConfig : userConfig;
+    const activeError = sidebarSubTab === 'role' ? roleConfigError : userConfigError;
+    const activeValidating = sidebarSubTab === 'role' ? validatingSidebarRoleConfig : validatingUserConfig;
+    const storedItems = !activeConfig ? NO_ITEMS
+      : sidebarSubTab === 'role' ? (activeConfig.sidebarItems || ALL_ITEM_IDS) : (activeConfig.sidebarItems || NO_ITEMS);
+    const sidebarDirty = !!activeKey && draft?.key === activeKey;
+    const enabledItems = draft && sidebarDirty ? draft.items : storedItems;
+    // Nothing arrived for this key: show the error, offer nothing to edit or save.
+    const loadFailed = !!activeKey && !activeConfig && !!activeError;
+    // Spin while the key has no data yet, or while it re-validates with no
+    // unsaved edit on screen (an edit is never replaced by a refetch).
+    const sidebarIsLoading = !!activeKey && !loadFailed && (!activeConfig || (activeValidating && !sidebarDirty));
+    const canEdit = !!activeKey && !!activeConfig;
 
     const handleSidebarRoleChange = useCallback((role: string) => {
-      if (role !== sidebarSelectedRole) { setIsTransitioning(true); setEnabledItems([]); setSidebarDirty(false); setChangeReason(''); setSidebarSelectedRole(role); }
+      if (role !== sidebarSelectedRole) { setDraft(null); setChangeReason(''); setSidebarSelectedRole(role); }
     }, [sidebarSelectedRole]);
 
     const handleUserChange = useCallback((u: User) => {
-      if (u.id !== selectedUser?.id) { setIsTransitioning(true); setEnabledItems([]); setSidebarDirty(false); setSelectedUser(u); }
+      if (u.id !== selectedUser?.id) { setDraft(null); setSelectedUser(u); }
     }, [selectedUser]);
 
     const handleSidebarSubTabChange = useCallback((tab: 'role' | 'user') => {
-      if (tab !== sidebarSubTab) { setIsTransitioning(true); setEnabledItems([]); setSidebarDirty(false); setSidebarSubTab(tab); if (tab === 'role') setSelectedUser(null); }
+      if (tab !== sidebarSubTab) { setDraft(null); setChangeReason(''); setSidebarSubTab(tab); if (tab === 'role') setSelectedUser(null); }
     }, [sidebarSubTab]);
 
-    const toggleSidebarItem = (itemId: string) => {
-      setEnabledItems(prev => prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]);
-      setSidebarDirty(true);
+    // Every edit starts from the open key's current draft, else its stored items.
+    const edit = (change: (prev: string[]) => string[]) => {
+      if (!canEdit || !activeKey) return;
+      const key = activeKey;
+      const base = storedItems;
+      setDraft(d => ({ key, items: change(d?.key === key ? d.items : base) }));
     };
-    const enableAllSidebar = () => { setEnabledItems(SIDEBAR_ITEMS.map(i => i.id)); setSidebarDirty(true); };
-    const disableAllSidebar = () => { setEnabledItems([]); setSidebarDirty(true); };
+    const toggleSidebarItem = (itemId: string) => {
+      edit(prev => prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]);
+    };
+    const enableAllSidebar = () => { edit(() => ALL_ITEM_IDS); };
+    const disableAllSidebar = () => { edit(() => []); };
+
+    // Store what was saved (the server's row when it returns one) BEFORE
+    // dropping the draft, so the menu never flashes back to the old items.
+    const storeSaved = async (key: string, items: string[], res: { data?: SidebarConfig } | undefined) => {
+      const saved = res?.data;
+      await mutate(key, (cur: SidebarConfig | undefined) => ({
+        ...(cur ?? {}), ...(saved ?? {}), sidebarItems: saved?.sidebarItems ?? items,
+      }), { revalidate: false });
+      setDraft(d => (d?.key === key ? null : d));
+    };
 
     const handleSaveSidebarRole = useCallback(async () => {
+      if (!draft || !roleKey || draft.key !== roleKey) return;
       if (!reasonOk(changeReason)) {
         toast.warning('Reason required', "Enter why this role's menu is changing (at least 5 characters).");
         return;
       }
+      const key = roleKey;
+      const body = { sidebarItems: draft.items, reason: changeReason.trim() };
       setSidebarSaving(true);
       try {
         // UPDATE_ROLE_CONFIG / UPDATE_USER_CONFIG were enforced by the API but
         // never prompted for here (2026-09-24).
-        await reauth.executeWithResult('UPDATE_ROLE_CONFIG', (pw) => pw
-          ? api.putWithReauth(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems, reason: changeReason.trim() }, pw)
-          : api.put(`/api/config/roles/${sidebarSelectedRole}`, { sidebarItems: enabledItems, reason: changeReason.trim() }));
-        setSidebarDirty(false);
+        const res = await reauth.executeWithResult<{ data?: SidebarConfig } | undefined>('UPDATE_ROLE_CONFIG', (pw) => pw
+          ? api.putWithReauth(key, body, pw)
+          : api.put(key, body));
+        await storeSaved(key, body.sidebarItems, res);
         setChangeReason('');
       } catch (error: any) { if (!isReauthCancelled(error)) toast.error('Save Failed', error.message || 'Failed to save sidebar configuration'); } finally { setSidebarSaving(false); }
-    }, [sidebarSelectedRole, enabledItems, sidebarRoleConfig, toast, changeReason]);
+    }, [draft, roleKey, toast, changeReason, reauth, mutate]);
 
     const handleSaveSidebarUser = useCallback(async () => {
-      if (!selectedUser) return;
+      if (!draft || !userKey || draft.key !== userKey) return;
+      const key = userKey;
+      const body = { sidebarItems: draft.items };
       setSidebarSaving(true);
       try {
-        await reauth.executeWithResult('UPDATE_USER_CONFIG', (pw) => pw
-          ? api.putWithReauth(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems }, pw)
-          : api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: enabledItems }));
-        setSidebarDirty(false);
+        const res = await reauth.executeWithResult<{ data?: SidebarConfig } | undefined>('UPDATE_USER_CONFIG', (pw) => pw
+          ? api.putWithReauth(key, body, pw)
+          : api.put(key, body));
+        await storeSaved(key, body.sidebarItems, res);
       } catch (error: any) { if (!isReauthCancelled(error)) toast.error('Save Failed', error.message || 'Failed to save user sidebar configuration'); } finally { setSidebarSaving(false); }
-    }, [selectedUser, enabledItems, userConfig, toast]);
+    }, [draft, userKey, toast, reauth, mutate]);
 
     const resetUserToRoleDefault = async () => {
-      if (!selectedUser) return;
+      if (!userKey) return;
+      const key = userKey;
       setSidebarSaving(true);
       try {
-        await reauth.executeWithResult('UPDATE_USER_CONFIG', (pw) => pw
-          ? api.putWithReauth(`/api/config/users/${selectedUser.id}`, { sidebarItems: [] }, pw)
-          : api.put(`/api/config/users/${selectedUser.id}`, { sidebarItems: [] }));
-        setEnabledItems([]); setSidebarDirty(false);
+        const res = await reauth.executeWithResult<{ data?: SidebarConfig } | undefined>('UPDATE_USER_CONFIG', (pw) => pw
+          ? api.putWithReauth(key, { sidebarItems: [] }, pw)
+          : api.put(key, { sidebarItems: [] }));
+        await storeSaved(key, [], res);
       } catch (error: any) { if (!isReauthCancelled(error)) toast.error('Reset Failed', error.message || 'Failed to reset user to role defaults'); } finally { setSidebarSaving(false); }
     };
 
@@ -134,9 +175,6 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       u.username.toLowerCase().includes(searchQuery.toLowerCase()) || u.fullName.toLowerCase().includes(searchQuery.toLowerCase())
     ) || [];
 
-    const sidebarIsLoading = sidebarSubTab === 'role'
-      ? (loadingSidebarRoleConfig || validatingSidebarRoleConfig || isTransitioning)
-      : (loadingUserConfig || validatingUserConfig || isTransitioning);
     const handleSaveSidebar = sidebarSubTab === 'role' ? handleSaveSidebarRole : handleSaveSidebarUser;
     const canSave = sidebarSubTab === 'role' || !!selectedUser;
 
@@ -156,8 +194,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
     const itemsInGroup = (g: string) => SIDEBAR_ITEMS.filter(i => i.group === g);
     const enableGroup = (g: string, on: boolean) => {
       const ids = itemsInGroup(g).map(i => i.id);
-      setEnabledItems(prev => on ? [...new Set([...prev, ...ids])] : prev.filter(id => !ids.includes(id)));
-      setSidebarDirty(true);
+      edit(prev => on ? [...new Set([...prev, ...ids])] : prev.filter(id => !ids.includes(id)));
     };
 
     const renderRoleCard = (item: typeof SIDEBAR_ITEMS[number]) => {
@@ -255,7 +292,8 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       const j = index + dir;
       if (j < 0 || j >= units.length) return;
       [units[index], units[j]] = [units[j], units[index]];
-      setEnabledItems(flattenUnits(units)); setSidebarDirty(true);
+      const next = flattenUnits(units);
+      edit(() => next);
     };
     const moveChild = (groupName: string, ci: number, dir: -1 | 1) => {
       const units = buildOrderUnits(enabledItems);
@@ -264,7 +302,8 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       const j = ci + dir;
       if (j < 0 || j >= gu.children.length) return;
       [gu.children[ci], gu.children[j]] = [gu.children[j], gu.children[ci]];
-      setEnabledItems(flattenUnits(units)); setSidebarDirty(true);
+      const next = flattenUnits(units);
+      edit(() => next);
     };
     const arrowBtn = (onClick: () => void, disabled: boolean, dir: 'up' | 'down') => (
       <button type="button" onClick={onClick} disabled={disabled}
@@ -313,6 +352,14 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
       );
     };
 
+    const renderLoadError = (what: 'role' | 'user') => (
+      <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <p className="font-semibold">Could not load this {what}&apos;s sidebar configuration.</p>
+        <p className="mt-1">{(activeError as { message?: string })?.message || 'The server did not return the stored menu.'} Nothing can be changed until it loads.</p>
+        <Button size="sm" variant="outline" className="mt-3" onClick={() => (what === 'role' ? reloadRoleConfig() : reloadUserConfig())}>Retry</Button>
+      </div>
+    );
+
     return (
       <div className="bg-white rounded-2xl border border-slate-200/60 shadow-soft overflow-hidden">
         <ReauthPrompt reauth={reauth} actionLabel="Save sidebar configuration" />
@@ -339,10 +386,10 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                 <label className="block text-xs font-semibold text-slate-500 mb-3">Select Role</label>
                 <div className="flex flex-wrap gap-2">
                   {allRoles.map((role) => (
-                    <button key={role.name} onClick={() => handleSidebarRoleChange(role.name)} disabled={isTransitioning}
-                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all text-white shadow-md ${
+                    <button key={role.name} onClick={() => handleSidebarRoleChange(role.name)} disabled={sidebarSaving}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all text-white shadow-md disabled:opacity-50 disabled:cursor-wait ${
                         sidebarSelectedRole === role.name ? role.color + ' ring-2 ring-offset-2 ring-brand-500' : 'bg-slate-100 !text-slate-600 hover:bg-slate-200 !shadow-none'
-                      } ${isTransitioning ? 'opacity-50 cursor-wait' : ''}`}>
+                      }`}>
                       {role.displayName}
                     </button>
                   ))}
@@ -356,12 +403,12 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                   <span className="font-semibold">{allRoles.find(r => r.name === sidebarSelectedRole)?.displayName || sidebarSelectedRole}</span>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={enableAllSidebar}>Enable All</Button>
-                  <Button variant="outline" size="sm" onClick={disableAllSidebar}>Disable All</Button>
+                  <Button variant="outline" size="sm" onClick={enableAllSidebar} disabled={!canEdit}>Enable All</Button>
+                  <Button variant="outline" size="sm" onClick={disableAllSidebar} disabled={!canEdit}>Disable All</Button>
                 </div>
               </div>
 
-              {sidebarIsLoading ? (
+              {loadFailed ? renderLoadError('role') : sidebarIsLoading ? (
                 <div className="p-8 text-center">
                   <svg className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                   <p className="text-slate-500">Loading configuration...</p>
@@ -375,7 +422,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                 </div>
               )}
 
-              {!sidebarIsLoading && renderOrderPanel()}
+              {!sidebarIsLoading && !loadFailed && renderOrderPanel()}
 
               {sidebarDirty && (
                 <ReasonBox value={changeReason} onChange={setChangeReason}
@@ -411,7 +458,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                       {filteredUsers.map((u: User) => (
                         <div key={u.id} onClick={() => handleUserChange(u)} className={`p-3 cursor-pointer transition-colors ${
                           selectedUser?.id === u.id ? 'bg-brand-100' : 'bg-white hover:bg-slate-50'
-                        } ${isTransitioning ? 'opacity-50 cursor-wait' : ''}`}>
+                        }`}>
                           <div className="flex items-center gap-3">
                             <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${
                               selectedUser?.id === u.id ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-600'
@@ -452,12 +499,13 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={enableAllSidebar}>Enable All</Button>
-                        <Button variant="outline" size="sm" onClick={disableAllSidebar}>Disable All</Button>
-                        <Button variant="outline" size="sm" onClick={resetUserToRoleDefault} className="text-amber-600 hover:text-amber-700">Reset to Role Default</Button>
+                        <Button variant="outline" size="sm" onClick={enableAllSidebar} disabled={!canEdit}>Enable All</Button>
+                        <Button variant="outline" size="sm" onClick={disableAllSidebar} disabled={!canEdit}>Disable All</Button>
+                        <Button variant="outline" size="sm" onClick={resetUserToRoleDefault} disabled={!canEdit} className="text-amber-600 hover:text-amber-700">Reset to Role Default</Button>
                       </div>
                     </div>
 
+                    {loadFailed ? renderLoadError('user') : (<>
                     {sidebarIsLoading ? (
                       <div className="p-8 text-center">
                         <svg className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
@@ -489,6 +537,7 @@ export const SidebarTab = forwardRef<SidebarTabHandle, SidebarTabProps>(
                       <span> / {SIDEBAR_ITEMS.length} items enabled</span>
                       {enabledItems.length === 0 && <span className="text-slate-400 ml-2">(Using role defaults)</span>}
                     </div>
+                    </>)}
                   </div>
                 )}
               </div>

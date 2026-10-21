@@ -4,9 +4,10 @@ import { mockApi, renderPage, type MockRoute, type MockApi } from '@/test-utils/
 import { ReportSignatoriesPage } from '../report-signatories';
 import { REPORT_TYPES } from '@/lib/report-types';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth, ackMessage } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 vi.setConfig({ testTimeout: 30000 });
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const PATH = '/api/config/report-signatories';
 const W = { timeout: 5000 };
@@ -125,7 +126,8 @@ describe('Report signatories panel', () => {
     await ackMessage('Saved');
   });
 
-  it('signature required up front names UPDATE_REPORT_SIGNATORIES; cancel is silent and frees Save', async () => {
+  it('signature required up front names UPDATE_REPORT_SIGNATORIES; cancel is silent and frees Save (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['UPDATE_REPORT_SIGNATORIES'] });
     await ready();
     await catalogLoaded(api);
@@ -136,6 +138,22 @@ describe('Report signatories panel', () => {
     await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
     expect(api.calls('PUT', PATH)).toHaveLength(0);
     expect(screen.queryByRole('heading', { name: 'Save failed' })).toBeNull();
+    expectSilentCancel(consoleError);
+    expect(saveBtn()).toHaveTextContent('Save Changes');
+    expect(saveBtn()).not.toBeDisabled();
+  });
+
+  it('cancelling a server-demanded signature is silent and frees Save (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await ready();
+    fireEvent.change(cell('Filters', 0), { target: { value: 'Reviewed By' } });
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    expect(screen.queryByRole('heading', { name: 'Save failed' })).toBeNull();
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
     expect(saveBtn()).toHaveTextContent('Save Changes');
     expect(saveBtn()).not.toBeDisabled();
   });

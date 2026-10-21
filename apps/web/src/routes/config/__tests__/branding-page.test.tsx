@@ -5,6 +5,7 @@ import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { getThemeById } from '@/lib/themes';
 import { BrandingConfigPage } from '../branding';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 vi.setConfig({ testTimeout: 30000 });
 afterEach(() => { resetEnv(); vi.restoreAllMocks(); });
@@ -357,7 +358,8 @@ describe('Branding config page', () => {
     expect(await popup('Success!')).toBeInTheDocument();
   });
 
-  it('cancelling the signature sends nothing and keeps the edit', async () => {
+  it('cancelling the signature sends nothing, keeps the edit and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['UPDATE_BRANDING'] });
     await loaded();
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0), WAIT);
@@ -365,7 +367,22 @@ describe('Branding config page', () => {
     await submit();
     await cancelReauth();
     await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull(), WAIT);
+    expectSilentCancel(consoleError);
     expect(api.calls('PUT', PATH)).toHaveLength(0);
+    expect(appName().value).toBe('Never saved');
+    expect(saveBtn()).not.toBeDisabled();
+  });
+
+  it('cancelling a server-demanded signature reports no failure either (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await loaded();
+    fireEvent.change(appName(), { target: { value: 'Never saved' } });
+    await submit();
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull(), WAIT);
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
     expect(appName().value).toBe('Never saved');
     expect(saveBtn()).not.toBeDisabled();
   });

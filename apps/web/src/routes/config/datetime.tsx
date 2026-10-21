@@ -43,6 +43,9 @@ export function DatetimeConfigPage() {
       reset(formData);
     }, {
       onError: (err: any) => setError(err.message || 'Failed to update'),
+      // A dismissed password prompt is not a failure (item 9): nothing was
+      // sent and nothing is busy, so there is nothing to undo or report.
+      onCancel: () => {},
     });
   };
 

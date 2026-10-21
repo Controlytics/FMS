@@ -10,6 +10,22 @@ type Matrix = Record<string, boolean>; // role -> enabled
 interface Role { name: string; displayName: string; }
 
 /**
+ * One on/off toggle. Module-level on purpose (2026-10-21): it used to be
+ * declared inside the page, so every render made a NEW component type and
+ * React replaced the button on each toggle - keyboard focus was lost after
+ * every press. It also had no accessible name, so a screen reader announced
+ * eight identical unnamed buttons.
+ */
+function Switch({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onClick}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${on ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+    </button>
+  );
+}
+
+/**
  * Schedule AHU Filters — ONE page, BOTH matrices. Per role, two independent
  * toggles: "PM Schedule" and "Replacement Schedule" decide whether that role
  * may expand an AHU to see its filters on the respective page. Stored under two
@@ -64,14 +80,6 @@ export function ReplacementScheduleFiltersPage() {
     }
   };
 
-  const Switch = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
-    <button onClick={onClick}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${on ? 'bg-emerald-500' : 'bg-slate-300'}`}
-      aria-pressed={on}>
-      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
-    </button>
-  );
-
   return (
     <div className="p-6 max-w-[760px] mx-auto">
       <ReauthPrompt reauth={reauth} />
@@ -100,13 +108,16 @@ export function ReplacementScheduleFiltersPage() {
             <div className="w-28 text-center">Replacement</div>
           </div>
           <div className="divide-y divide-slate-100">
-            {roles.map((r) => (
-              <div key={r.name} className="flex items-center px-4 py-3">
-                <div className="flex-1 text-[14px] font-medium text-slate-700">{r.displayName || r.name}</div>
-                <div className="w-28 flex justify-center"><Switch on={!!pmDraft[r.name]} onClick={() => togglePm(r.name)} /></div>
-                <div className="w-28 flex justify-center"><Switch on={!!repDraft[r.name]} onClick={() => toggleRep(r.name)} /></div>
-              </div>
-            ))}
+            {roles.map((r) => {
+              const roleLabel = r.displayName || r.name;
+              return (
+                <div key={r.name} className="flex items-center px-4 py-3">
+                  <div className="flex-1 text-[14px] font-medium text-slate-700">{roleLabel}</div>
+                  <div className="w-28 flex justify-center"><Switch on={!!pmDraft[r.name]} onClick={() => togglePm(r.name)} label={`PM Schedule filters for ${roleLabel}`} /></div>
+                  <div className="w-28 flex justify-center"><Switch on={!!repDraft[r.name]} onClick={() => toggleRep(r.name)} label={`Replacement Schedule filters for ${roleLabel}`} /></div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

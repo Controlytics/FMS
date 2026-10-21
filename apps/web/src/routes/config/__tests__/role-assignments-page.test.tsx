@@ -53,9 +53,9 @@ function setup(opts: { cfg?: Record<string, any>; extra?: MockRoute[]; reauth?: 
 const section = (title: string) => screen.getByRole('heading', { name: title }).closest('section') as HTMLElement;
 /** Toggle switches have no text — only aria-pressed. */
 const switches = (el: HTMLElement) => within(el).getAllByRole('button').filter((b) => b.hasAttribute('aria-pressed') && !b.textContent?.trim());
-// By text, not accessible name: the multi-role Upload chips sit inside a <label>,
-// which makes the label's whole text the FIRST chip's accessible name.
-const chip = (el: HTMLElement, label: string) => within(el).getByText(label, { selector: 'button' });
+// A role chip, found by its text (accessible names are locked separately in
+// role-assignments-load-errors.test.tsx).
+const chip =(el: HTMLElement, label: string) => within(el).getByText(label, { selector: 'button' });
 const saveBtn = () => screen.getByRole('button', { name: /Save All|Saving/ });
 const loaded = () => screen.findByRole('heading', { name: 'Role Assignments' });
 

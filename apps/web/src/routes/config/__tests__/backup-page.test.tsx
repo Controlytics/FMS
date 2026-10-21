@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, act, within, configure } from '@testing-lib
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { BackupRestorePage } from '../backup';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 // Multi-request flows: the 5s / 1s defaults are too tight when the suite runs
 // under coverage alongside other workers.
@@ -66,6 +67,33 @@ async function pickFile(container: HTMLElement, name = 'backup.json', size = 204
 }
 
 describe('Backup - export', () => {
+  it('cancelling an up-front export signature downloads nothing and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const { api } = setup({ reauth: ['EXPORT_BACKUP'] });
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    await waitFor(() => expect(exportBtn()).toHaveTextContent('Download JSON Backup'));
+    await act(async () => { fireEvent.click(exportBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(exportBtn()).toHaveTextContent('Download JSON Backup'));
+    expect(exportBtn()).not.toBeDisabled();
+    expectSilentCancel(consoleError);
+    expect(api.calls('GET', EXPORT)).toHaveLength(0);
+    expect(downloads).toHaveLength(0);
+  });
+
+  it('cancelling a server-demanded export signature downloads nothing and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const { api } = setup({ extra: [reauthRequired('GET', EXPORT)] });
+    await waitFor(() => expect(exportBtn()).toHaveTextContent('Download JSON Backup'));
+    await act(async () => { fireEvent.click(exportBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(exportBtn()).toHaveTextContent('Download JSON Backup'));
+    expect(exportBtn()).not.toBeDisabled();
+    expectSilentCancel(consoleError);
+    expect(api.calls('GET', EXPORT)).toHaveLength(1);
+    expect(downloads).toHaveLength(0);
+  });
+
   it('preselects the configured default format, marks an override, and downloads with the server filename', async () => {
     const { api } = setup({ extra: [{ path: EXPORT, body: {} }] });
     wrapFetch((url, res) => (url.includes(EXPORT)
@@ -396,7 +424,8 @@ describe('Backup - restore', () => {
     expect(await screen.findByText('Restore Successful')).toBeInTheDocument();
   });
 
-  it('cancelling the restore signature sends nothing and reports nothing', async () => {
+  it('cancelling the restore signature sends nothing and reports nothing (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const { api, container } = setup({ reauth: ['RESTORE_BACKUP'], extra: [{ method: 'POST', path: VALIDATE, body: VALID }] });
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
     await toConfirm(container);
@@ -405,6 +434,21 @@ describe('Backup - restore', () => {
     await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
     expect(api.calls('POST', RESTORE)).toHaveLength(0);
     expect(screen.queryByText('Restore Failed')).toBeNull();
+    expectSilentCancel(consoleError);
+    expect(screen.getByRole('button', { name: /Restore Database from This Backup/ })).not.toBeDisabled();
+  });
+
+  it('cancelling a server-demanded restore signature reports nothing (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const { api, container } = setup({ extra: [{ method: 'POST', path: VALIDATE, body: VALID }, reauthRequired('POST', RESTORE)] });
+    await toConfirm(container);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expect(api.calls('POST', RESTORE)).toHaveLength(1);
+    expect(screen.queryByText('Restore Failed')).toBeNull();
+    expect(screen.queryByText('Restore Successful')).toBeNull();
+    expectSilentCancel(consoleError);
     expect(screen.getByRole('button', { name: /Restore Database from This Backup/ })).not.toBeDisabled();
   });
 

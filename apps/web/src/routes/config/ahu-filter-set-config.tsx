@@ -80,6 +80,9 @@ export function AhuFilterSetConfigPage() {
           setError(e.message ?? 'Failed to save AHU mode');
           setSavingAhuId(null);
         },
+        // A dismissed password prompt is not a failure (item 9): unlock the
+        // row, say nothing. Without this the hook routes the cancel to onError.
+        onCancel: () => setSavingAhuId(null),
       },
     );
   };

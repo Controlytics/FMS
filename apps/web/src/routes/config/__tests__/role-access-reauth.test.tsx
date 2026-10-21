@@ -216,3 +216,54 @@ describe('Role & Access — Re-auth tab', { timeout: 30000 }, () => {
     expect(statValue('Roles')).toContain('4');
   });
 });
+
+/** 2026-10-21 (§11): see action-reauth.test.tsx - the same `{}` fallback lived in this tab. */
+describe('Role & Access — Re-auth tab, the stored policy did not load', { timeout: 30000 }, () => {
+  async function openFailedTab() {
+    await screen.findByText('Quality', { selector: 'span' });
+    fireEvent.click(screen.getByRole('button', { name: 'Re-auth' }));
+  }
+
+  it('a 500 shows the server message, offers no matrix and no Save/Discard, and nothing is PUT', async () => {
+    const api = setup({ extra: [{ path: PATH, status: 500, body: { error: 'INTERNAL', message: 'policy store unavailable' } }] });
+    await openFailedTab();
+    expect(await screen.findByRole('alert')).toHaveTextContent('policy store unavailable');
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(headerSave()).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
+    expect(api.calls('PUT', PATH)).toHaveLength(0);
+  });
+
+  it('a 403 shows the server message and nothing is editable', async () => {
+    const api = setup({ extra: [{ path: PATH, status: 403, body: { error: 'FORBIDDEN', message: 'Insufficient permissions' } }] });
+    await openFailedTab();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Insufficient permissions');
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(headerSave()).toBeNull();
+    expect(api.calls('PUT', PATH)).toHaveLength(0);
+  });
+
+  it('Retry reloads the policy, which is then shown and editable', async () => {
+    const api = setup({ extra: [
+      { path: PATH, status: 500, times: 1, body: { error: 'INTERNAL', message: 'policy store unavailable' } },
+      { method: 'PUT', path: PATH, body: { ok: true } },
+    ] });
+    await openFailedTab();
+    expect(await screen.findByRole('alert')).toHaveTextContent('policy store unavailable');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry' })); });
+    await waitFor(() => expect(boxes('Delete Role').map((b) => b.checked)).toEqual([true, true, false]));
+    fireEvent.click(boxes('Delete Role')[2]);
+    await act(async () => { fireEvent.click(headerSave()!); });
+    await waitFor(() => expect(api.calls('PUT', PATH)).toHaveLength(1));
+    expect(api.calls('PUT', PATH)[0].json).toEqual({ CREATE_HELP_ARTICLE: ['ADMIN'], DELETE_ROLE: ['ADMIN', 'QA', 'OPERATOR'] });
+  });
+
+  it('a genuinely empty stored policy (200 with {}) stays editable and saveable', async () => {
+    const api = setup({ config: {}, extra: [{ method: 'PUT', path: PATH, body: { ok: true } }] });
+    await openTab();
+    fireEvent.click(boxes('Delete Role')[0]);
+    await act(async () => { fireEvent.click(headerSave()!); });
+    await waitFor(() => expect(api.calls('PUT', PATH)).toHaveLength(1));
+    expect(api.calls('PUT', PATH)[0].json).toEqual({ DELETE_ROLE: ['ADMIN'] });
+  });
+});

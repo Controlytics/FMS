@@ -219,6 +219,9 @@ export function CleaningProfileAssignmentPage() {
           toast.error('Save failed', e.message || 'Failed to save configuration');
           setSaving(false);
         },
+        // A dismissed password prompt is not a failure (item 9): free Save,
+        // say nothing. Without this the hook routes the cancel to onError.
+        onCancel: () => setSaving(false),
       },
     );
   };

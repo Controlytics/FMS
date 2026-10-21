@@ -215,6 +215,10 @@ export function EquipmentGroupsConfigPage() {
       {
         onSuccess: () => mutate(groupsKey),
         onError: (e: any) => setDeleteError(e.message || 'Failed to delete'),
+        // A dismissed password prompt is not a failure (item 9): nothing was
+        // deleted and nothing is busy. Without this the hook routes the cancel
+        // to onError, which showed it as a red delete error.
+        onCancel: () => {},
       },
     );
   };
@@ -292,6 +296,9 @@ export function EquipmentGroupsConfigPage() {
           setError(e.message || 'Failed to save');
           setSaving(false);
         },
+        // A dismissed password prompt is not a failure (item 9): free Save,
+        // keep the editor and its input, say nothing.
+        onCancel: () => setSaving(false),
       },
     );
   };

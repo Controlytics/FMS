@@ -1,11 +1,12 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { DatetimeConfigPage } from '../datetime';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const PATH = '/api/config/datetime';
 const SAVED = { dateFormat: 'DD/MM/YYYY', timeFormat: '24-hour', timezone: 'Asia/Kolkata' };
@@ -98,15 +99,35 @@ describe('Date/Time format config page', () => {
     expect(await screen.findByText('Date/time format updated successfully')).toBeInTheDocument();
   });
 
-  it('a server-side REAUTH_REQUIRED opens the prompt retroactively; cancel shows the cancel message', async () => {
+  it('a server-side REAUTH_REQUIRED opens the prompt retroactively; cancelling it reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ extra: [reauthRequired('PUT', PATH)] });
     await loaded();
     fireEvent.change(timeSelect(), { target: { value: '12-hour' } });
     await waitFor(() => expect(saveBtn()).not.toBeDisabled());
     await act(async () => { fireEvent.click(saveBtn()); });
     await cancelReauth();
-    expect(await screen.findByText(/Cancelled — password confirmation was not completed/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
     expect(api.calls('PUT', PATH)).toHaveLength(1);
+    // The edit is still pending and can be saved again.
+    expect(timeSelect().value).toBe('12-hour');
+    expect(saveBtn()).not.toBeDisabled();
+  });
+
+  it('cancelling an up-front signature sends nothing and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ reauth: ['UPDATE_DATETIME_CONFIG'] });
+    await loaded();
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.change(timeSelect(), { target: { value: '12-hour' } });
+    await waitFor(() => expect(saveBtn()).not.toBeDisabled());
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', PATH)).toHaveLength(0);
+    expect(saveBtn()).not.toBeDisabled();
   });
 
   it('a refused save shows the server message inline', async () => {

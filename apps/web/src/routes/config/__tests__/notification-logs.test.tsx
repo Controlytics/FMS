@@ -201,3 +201,27 @@ describe('Notification Logs page', () => {
     expect(await ackMessage('Delete Failed')).toContain('Missing NOTIFICATION_DELETE');
   });
 });
+
+describe('D6 — the configured page size applies on a cold load', () => {
+  // The default setup configures options [10, 25, 50]: options[0] equals the
+  // pre-load fallback (10), which is how the bug stayed invisible.
+  const CONFIGURED = { path: '/api/config/pagination/current', body: { limit: 50, count: 3, options: [25, 50, 100] } };
+
+  it('lists with the configured first page size, not the 10-row fallback the state was seeded from', async () => {
+    const api = setup([CONFIGURED], { logs: { data: ROWS, total: 120 } });
+    await screen.findByText('qa@acme.test');
+    await waitFor(() => expect(lastLogQuery(api).get('limit')).toBe('25'));
+    const rows = screen.getByText('Rows:').querySelector('select') as HTMLSelectElement;
+    expect(rows.value).toBe('25');
+    expect(await screen.findByText(/of/, { selector: 'p' })).toHaveTextContent('Showing 1–25 of 120');
+  });
+
+  it('a size the operator picks still sticks', async () => {
+    const api = setup([CONFIGURED], { logs: { data: ROWS, total: 120 } });
+    await screen.findByText('qa@acme.test');
+    await waitFor(() => expect(lastLogQuery(api).get('limit')).toBe('25'));
+    fireEvent.change(screen.getByText('Rows:').querySelector('select')!, { target: { value: '100' } });
+    await waitFor(() => expect(lastLogQuery(api).get('limit')).toBe('100'));
+    expect((screen.getByText('Rows:').querySelector('select') as HTMLSelectElement).value).toBe('100');
+  });
+});

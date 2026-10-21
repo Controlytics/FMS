@@ -3,9 +3,10 @@ import { screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { mockApi, renderPage, type MockRoute, type MockApi } from '@/test-utils/page-harness';
 import DashboardCardsConfig from '../dashboard-cards';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 vi.setConfig({ testTimeout: 30000 });
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const PUT = '/api/config/dashboard-cards';
 const CURRENT = '/api/config/dashboard-cards/current';
@@ -118,7 +119,8 @@ describe('Dashboard cards panel', () => {
     expect(await screen.findByText('Saved')).toBeInTheDocument();
   });
 
-  it('signature required up front: the prompt names the action; cancel sends nothing and frees Save', async () => {
+  it('signature required up front: the prompt names the action; cancel sends nothing, frees Save and shows no notice (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['UPDATE_CONFIG_PAGE'] });
     await waitFor(() => expect(within(block('Administrator')).getByText('(2/12 cards)')).toBeInTheDocument(), W);
     await catalogLoaded(api);
@@ -128,7 +130,25 @@ describe('Dashboard cards panel', () => {
     expect(saveBtn()).toHaveTextContent('Saving…');
     await cancelReauth();
     await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    // The notice that normally says "Saved" must not carry the cancel either.
+    expect(screen.queryByText('Saved')).toBeNull();
     expect(api.calls('PUT', PUT)).toHaveLength(0);
+    expect(saveBtn()).toHaveTextContent('Save Changes');
+    expect(saveBtn()).not.toBeDisabled();
+  });
+
+  it('cancelling a server-demanded signature frees Save and shows no notice (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ extra: [reauthRequired('PUT', PUT)] });
+    await waitFor(() => expect(within(block('Administrator')).getByText('(2/12 cards)')).toBeInTheDocument(), W);
+    fireEvent.click(box('Administrator', 'Notifications'));
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    expect(screen.queryByText('Saved')).toBeNull();
+    expect(api.calls('PUT', PUT)).toHaveLength(1);
     expect(saveBtn()).toHaveTextContent('Save Changes');
     expect(saveBtn()).not.toBeDisabled();
   });

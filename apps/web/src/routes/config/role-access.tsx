@@ -89,6 +89,9 @@ export function RoleAccessPage() {
       setShowCreateDialog(false); resetForm();
     }, {
       onError: (err: unknown) => { setError((err as any)?.message || 'Failed to create role'); },
+      // Dismissing the password prompt is a choice, not a failure: the form
+      // stays open with no error (the hook's fallback would report it as one).
+      onCancel: () => {},
     });
     setSaving(false);
   };
@@ -111,6 +114,7 @@ export function RoleAccessPage() {
       setShowEditDialog(false); setSelectedRoleForEdit(null);
     }, {
       onError: (err: unknown) => { setError((err as any)?.message || 'Failed to update role'); },
+      onCancel: () => {},
     });
     setSaving(false);
   };
@@ -126,6 +130,7 @@ export function RoleAccessPage() {
       setShowDeleteDialog(false); setDeleteTarget(null);
     }, {
       onError: (err: unknown) => { setDeleteError((err as any)?.message || 'Failed to delete role'); },
+      onCancel: () => {},
     });
     setDeleting(false);
   };

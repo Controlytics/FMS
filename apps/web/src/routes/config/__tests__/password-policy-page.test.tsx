@@ -1,11 +1,12 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { PasswordPolicyPage } from '../password-policy';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const PATH = '/api/config/password-policy';
 const SAVED = {
@@ -144,15 +145,33 @@ describe('General & Password Settings page', () => {
     expect(await screen.findByText('Settings updated successfully')).toBeInTheDocument();
   });
 
-  it('cancelling a retroactive REAUTH_REQUIRED shows the cancel notice and sends nothing more', async () => {
+  it('cancelling a retroactive REAUTH_REQUIRED sends nothing more and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ extra: [reauthRequired('PUT', PATH)] });
     await loaded();
     fireEvent.change(field('Expiry Notification'), { target: { value: '7' } });
     await waitFor(() => expect(saveBtn()).not.toBeDisabled());
     await act(async () => { fireEvent.click(saveBtn()); });
     await cancelReauth();
-    expect(await screen.findByText(/Cancelled — password confirmation was not completed/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
     expect(api.calls('PUT', PATH)).toHaveLength(1);
+    expect(saveBtn()).not.toBeDisabled();
+  });
+
+  it('cancelling an up-front signature sends nothing and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ reauth: ['UPDATE_PASSWORD_POLICY'] });
+    await loaded();
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.change(field('Expiry Notification'), { target: { value: '7' } });
+    await waitFor(() => expect(saveBtn()).not.toBeDisabled());
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', PATH)).toHaveLength(0);
+    expect(saveBtn()).not.toBeDisabled();
   });
 
   it('a server refusal is shown inline', async () => {

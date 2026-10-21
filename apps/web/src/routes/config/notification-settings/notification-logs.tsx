@@ -45,7 +45,11 @@ export function NotificationLogsPage() {
   const [page, setPage] = useState(1);
   const { toast } = useToast();
   const reauth = useReauth();
-  const [perPage, setPerPage] = useState(paginationOptions[0]);
+  // Derived, not seeded: useState(paginationOptions[0]) captured the pre-load
+  // fallback (10) on a cold load and never took the configured size (D6). A
+  // size the operator picks is kept in perPageChoice.
+  const [perPageChoice, setPerPage] = useState<number | null>(null);
+  const perPage = perPageChoice ?? paginationOptions[0] ?? 10;
   const [channel, setChannel] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');

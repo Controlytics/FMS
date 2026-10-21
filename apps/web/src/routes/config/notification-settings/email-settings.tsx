@@ -212,6 +212,9 @@ function EmailTab() {
           reset(formData);
         },
         onError: (err: any) => setError(err.message || 'Failed to save'),
+        // A dismissed password prompt is not a failure. The submit is
+        // synchronous (no busy flag is held), so there is nothing to undo.
+        onCancel: () => {},
       },
     );
   };
@@ -703,6 +706,8 @@ function SmsTab() {
           reset(formData);
         },
         onError: (err: any) => setError(err.message || 'Failed to save'),
+        // A dismissed password prompt is not a failure (see the Email tab).
+        onCancel: () => {},
       },
     );
   };

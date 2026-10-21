@@ -3,9 +3,10 @@ import { screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { mockApi, renderPage, type MockRoute, type MockApi } from '@/test-utils/page-harness';
 import { FilterFieldOptionsConfigPage } from '../filter-field-options';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 vi.setConfig({ testTimeout: 30000 });
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const PATH = '/api/config/dynamic/filter-field-options';
 const W = { timeout: 5000 };
@@ -145,7 +146,8 @@ describe('Filter field options panel', () => {
     expect(retry.json).toEqual({ value: { ahuType: ['Process', 'Non Process'], filterType: ['HEPA', 'Pre-filter'], micronSize: [] }, _currentPassword: 'pw-ffo' });
   });
 
-  it('signature required up front names the action; cancel sends nothing and frees Save', async () => {
+  it('signature required up front names the action; cancel sends nothing, frees Save and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['UPDATE_CONFIG_PAGE'] });
     await waitFor(() => expect(items('Filter Type')).toEqual(['HEPA', 'Pre-filter']), W);
     await catalogLoaded(api);
@@ -155,7 +157,22 @@ describe('Filter field options panel', () => {
     expect(saveBtn()).toHaveTextContent('Saving…');
     await cancelReauth();
     await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
     expect(api.calls('PUT', PATH)).toHaveLength(0);
+    expect(saveBtn()).toHaveTextContent('Save Changes');
+    expect(saveBtn()).not.toBeDisabled();
+  });
+
+  it('cancelling a server-demanded signature frees Save and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await waitFor(() => expect(items('Filter Type')).toEqual(['HEPA', 'Pre-filter']), W);
+    fireEvent.click(itemButtons('Micron Size', '0.3').remove);
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
     expect(saveBtn()).toHaveTextContent('Save Changes');
     expect(saveBtn()).not.toBeDisabled();
   });

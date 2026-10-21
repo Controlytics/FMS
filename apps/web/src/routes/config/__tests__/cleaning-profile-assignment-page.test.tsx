@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { CleaningProfileAssignmentPage } from '../cleaning-profile-assignment';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth, ackMessage } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
@@ -224,14 +225,31 @@ describe('Cleaning profile assignment panel', () => {
     await ackMessage('Configuration saved');
   });
 
-  it('cancelling the signature frees Save and sends nothing', async () => {
+  it('cancelling a server-demanded signature frees Save, sends nothing more and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ extra: [reauthRequired('PUT', CFG)] });
     await waitFor(() => expect(selectsIn(rows()[0])[1].value).toBe('p1'));
     fireEvent.change(selectsIn(rows()[0])[1], { target: { value: 'p3' } });
     await act(async () => { fireEvent.click(saveBtn()); });
     await cancelReauth();
     await waitFor(() => expect(saveBtn()).not.toBeDisabled());
+    expectSilentCancel(consoleError);
     expect(api.calls('PUT', CFG)).toHaveLength(1);
+  });
+
+  it('cancelling an up-front signature frees Save, sends nothing and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ reauth: ['UPDATE_CONFIG_PAGE'] });
+    await waitFor(() => expect(selectsIn(rows()[0])[1].value).toBe('p1'));
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.change(selectsIn(rows()[0])[1], { target: { value: 'p3' } });
+    await act(async () => { fireEvent.click(saveBtn()); });
+    expect(saveBtn()).toBeDisabled();
+    await cancelReauth();
+    await waitFor(() => expect(saveBtn()).not.toBeDisabled());
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', CFG)).toHaveLength(0);
+    expect(selectsIn(rows()[0])[1].value).toBe('p3');
   });
 
   it('a refused save shows the server message in an error dialog', async () => {

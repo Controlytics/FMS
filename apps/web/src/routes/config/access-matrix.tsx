@@ -144,6 +144,8 @@ export function AccessMatrixPage() {
           toast.error('Save failed', err?.message ?? 'Could not save access matrix');
           setSaving(false);
         },
+        // Dismissing the password prompt is a choice, not a failure: no dialog.
+        onCancel: () => setSaving(false),
       },
     );
   };

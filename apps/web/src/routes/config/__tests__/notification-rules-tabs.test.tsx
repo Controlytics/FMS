@@ -289,12 +289,9 @@ describe('Notification Rules — Templates tab', () => {
     fireEvent.click(within(tplCard('Cycle sms')).getAllByRole('button')[0]);
     expect(screen.getByRole('heading', { name: 'Edit Template' })).toBeInTheDocument();
     expect(await screen.findByText('Available variables:')).toBeInTheDocument();
-    // One hint per variable of the template's event type. (The exact rendering is
-    // reported as a defect: it shows `${$entityName}`, not the engine's `${entityName}`.)
+    // One hint per variable of the template's event type, in the engine's syntax.
     const hints = Array.from(document.querySelectorAll('code')).map((c) => c.textContent ?? '');
-    expect(hints).toHaveLength(2);
-    expect(hints[0]).toContain('entityName');
-    expect(hints[1]).toContain('eventType');
+    expect(hints).toEqual(['${entityName}', '${eventType}']);
     fireEvent.change(document.querySelector('textarea')!, { target: { value: 'Cycle ${entityName} done' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Update' })); });
     await waitFor(() => expect(api.calls('PUT', '/api/notification-settings/templates/t2')).toHaveLength(1));

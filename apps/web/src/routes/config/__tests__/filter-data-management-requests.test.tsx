@@ -334,12 +334,13 @@ describe('Block Changes tab', () => {
     const dlg = modal('Edit Block Change Request');
     expect(dlg).toHaveTextContent('filter / from-block / to-block references and the requester are not editable here');
     expect(field(dlg, 'Status').value).toBe('APPROVED');
-    setField(dlg, 'Status', 'CONSUMED');
+    // A used approval is EXPIRED (BlockChangeStatus); CONSUMED was never a value the API accepts.
+    setField(dlg, 'Status', 'EXPIRED');
     setField(dlg, 'Processed Comment', 'applied');
     typeReason(dlg, 'Request was applied');
     await click(within(dlg).getByRole('button', { name: 'Save Changes' }));
     const [put] = await waitForCalls(api, 'PUT', `${SA_BCR}/b1`, 1);
-    expect(put.json).toEqual({ status: 'CONSUMED', reason: 'moved', processedComment: 'applied', _changeReason: 'Request was applied' });
+    expect(put.json).toEqual({ status: 'EXPIRED', reason: 'moved', processedComment: 'applied', _changeReason: 'Request was applied' });
     expect(await ackMessage('Updated')).toContain('Block change updated and audited');
   });
 

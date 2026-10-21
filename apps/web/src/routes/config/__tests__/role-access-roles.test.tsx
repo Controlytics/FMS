@@ -334,3 +334,62 @@ describe('Role & Access — Roles tab', { timeout: 30000 }, () => {
     expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/);
   });
 });
+
+/**
+ * Item 9 (2026-10-21): cancelling the password prompt is a deliberate choice,
+ * not a failure. The three role writes passed no `onCancel`, so the hook fell
+ * back to `onError` and the dialog showed "Cancelled — password confirmation
+ * was not completed." in its red error box.
+ */
+describe('Role & Access — Roles tab, cancelling the signature', { timeout: 30000 }, () => {
+  async function ready(api: ReturnType<typeof setup>) {
+    await screen.findByText('QA Lead');
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+  }
+  async function cancelPrompt() {
+    await screen.findByPlaceholderText('Enter your password');
+    const prompt = screen.getByText('Confirm Your Identity').closest('div.relative') as HTMLElement;
+    await act(async () => { fireEvent.click(within(prompt).getByRole('button', { name: 'Cancel' })); });
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+  }
+
+  it('create: cancel leaves the form open with no error and sends nothing', async () => {
+    const api = setup({ reauth: ['CREATE_ROLE'] });
+    await ready(api);
+    fireEvent.click(screen.getByRole('button', { name: /Create Role/ }));
+    const dlg = dialogOf('Create New Role');
+    fireEvent.change(within(dlg).getByPlaceholderText('e.g., QUALITY_ASSURANCE'), { target: { value: 'NEW' } });
+    fireEvent.change(within(dlg).getByPlaceholderText('e.g., Quality Assurance'), { target: { value: 'New' } });
+    await act(async () => { fireEvent.click(within(dlg).getByRole('button', { name: 'Create Role' })); });
+    await cancelPrompt();
+    expect(screen.queryByText(/Cancelled —/)).toBeNull();
+    expect(within(dialogOf('Create New Role')).queryByText(/fail/i)).toBeNull();
+    expect(within(dialogOf('Create New Role')).getByRole('button', { name: 'Create Role' })).not.toBeDisabled();
+    expect(api.calls('POST', '/api/roles')).toHaveLength(0);
+  });
+
+  it('edit: cancel leaves the form open with no error and sends nothing', async () => {
+    const api = setup({ reauth: ['UPDATE_ROLE'] });
+    await ready(api);
+    fireEvent.click(within(rowOf('QA Lead')).getAllByRole('button')[0]);
+    const dlg = dialogOf('Edit Role: QA Lead');
+    fireEvent.change(inputs(dlg)[1], { target: { value: 'QA Leader' } });
+    await act(async () => { fireEvent.click(within(dlg).getByRole('button', { name: 'Save Changes' })); });
+    await cancelPrompt();
+    expect(screen.queryByText(/Cancelled —/)).toBeNull();
+    expect(within(dialogOf('Edit Role: QA Lead')).getByRole('button', { name: 'Save Changes' })).not.toBeDisabled();
+    expect(api.calls('PUT', '/api/roles/QA_LEAD')).toHaveLength(0);
+  });
+
+  it('delete: cancel leaves the confirmation open with no error and sends nothing', async () => {
+    const api = setup({ reauth: ['DELETE_ROLE'] });
+    await ready(api);
+    fireEvent.click(within(rowOf('QA Lead')).getAllByRole('button')[1]);
+    const dlg = dialogOf('Delete Role');
+    await act(async () => { fireEvent.click(within(dlg).getByRole('button', { name: 'Delete Role' })); });
+    await cancelPrompt();
+    expect(screen.queryByText(/Cancelled —/)).toBeNull();
+    expect(within(dialogOf('Delete Role')).getByRole('button', { name: 'Delete Role' })).not.toBeDisabled();
+    expect(api.calls('DELETE', '/api/roles/QA_LEAD')).toHaveLength(0);
+  });
+});

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api-client';
@@ -25,6 +25,9 @@ interface PermissionsTabProps {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_ROLE_ICON = 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z';
+const NO_PERMISSIONS: Readonly<Record<string, boolean>> = Object.freeze({});
+
+type RoleConfig = { permissions?: Record<string, boolean> } & Record<string, unknown>;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -34,40 +37,58 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     const reauth = useReauth();
 
     const [permSelectedRole, setPermSelectedRole] = useState<string>('ADMIN');
-    const [permissions, setPermissions] = useState<Record<string, boolean>>({});
+    // The unsaved edit, tagged with the role it belongs to. The boxes are DERIVED:
+    // this draft for the selected role, else that role's stored map. They used to
+    // be copied into state from SWR `onSuccess`, which does not run for a deduped
+    // (cached) key or a failed load and DOES run on every background revalidation
+    // - so the tab could show, and save, another role's permissions, or silently
+    // drop unsaved edits (2026-10-21).
+    const [draft, setDraft] = useState<{ role: string; perms: Record<string, boolean> } | null>(null);
     const [permSaving, setPermSaving] = useState(false);
-    const [permDirty, setPermDirty] = useState(false);
     // P4-10 (2026-10-21): a permission change is a §11 decision - the API refuses
     // it (400 REASON_REQUIRED) without a reason, which lands on the audit row.
     const [changeReason, setChangeReason] = useState('');
 
     // Load role config — contract: SWR /api/config/roles/${role} → data.permissions
-    const { data: roleConfig, isLoading: permLoading } = useSWR(
-      `/api/config/roles/${permSelectedRole}`,
-      { onSuccess: (data) => { setPermissions(data.permissions || {}); setPermDirty(false); setChangeReason(''); } }
-    );
+    const { mutate } = useSWRConfig();
+    const { data: roleConfig, error: roleConfigError, isLoading: permLoading, mutate: reloadRoleConfig } = useSWR<RoleConfig>(`/api/config/roles/${permSelectedRole}`);
+    const stored = roleConfig?.permissions ?? NO_PERMISSIONS;
+    // A role whose map never arrived has nothing to show or edit (a failed
+    // background refresh of a loaded role keeps the last stored map).
+    const loadFailed = !roleConfig && !!roleConfigError;
+    const permDirty = draft?.role === permSelectedRole;
+    const permissions = draft && permDirty ? draft.perms : stored;
 
     // Save — contract: PUT /api/config/roles/${role} with { permissions: Record<featureId, boolean> }
     const handlePermSave = useCallback(async () => {
+      if (!draft || draft.role !== permSelectedRole) return;
       if (!reasonOk(changeReason)) {
         toast.warning('Reason required', 'Enter why these permissions are changing (at least 5 characters).');
         return;
       }
+      const role = draft.role;
+      const body = { permissions: draft.perms, reason: changeReason.trim() };
       setPermSaving(true);
       try {
         // The API has gated this on UPDATE_ROLE_CONFIG all along; the tab never
         // asked for the password, so an enabled row was a bare 401 (2026-09-24).
-        await reauth.executeWithResult('UPDATE_ROLE_CONFIG', (pw) => pw
-          ? api.putWithReauth(`/api/config/roles/${permSelectedRole}`, { permissions, reason: changeReason.trim() }, pw)
-          : api.put(`/api/config/roles/${permSelectedRole}`, { permissions, reason: changeReason.trim() }));
-        setPermDirty(false);
+        const res = await reauth.executeWithResult<{ data?: RoleConfig } | undefined>('UPDATE_ROLE_CONFIG', (pw) => pw
+          ? api.putWithReauth(`/api/config/roles/${role}`, body, pw)
+          : api.put(`/api/config/roles/${role}`, body));
+        // Store what was saved (the server's row when it returns one) BEFORE
+        // dropping the draft, so the boxes never flash back to the old map.
+        const saved = res?.data;
+        await mutate(`/api/config/roles/${role}`, (cur: RoleConfig | undefined) => ({
+          ...(cur ?? {}), ...(saved ?? {}), permissions: saved?.permissions ?? body.permissions,
+        }), { revalidate: false });
+        setDraft((d) => (d?.role === role ? null : d));
         setChangeReason('');
       } catch (error: any) {
         if (!isReauthCancelled(error)) toast.error('Save Failed', error.message || 'Failed to save permissions');
       } finally {
         setPermSaving(false);
       }
-    }, [permSelectedRole, permissions, roleConfig, toast, changeReason]);
+    }, [draft, permSelectedRole, toast, changeReason, mutate, reauth]);
 
     useEffect(() => {
       onStateChange({ dirty: permDirty, saving: permSaving });
@@ -76,16 +97,20 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     useImperativeHandle(ref, () => ({ save: handlePermSave }), [handlePermSave]);
 
     // ── Permission toggle helpers ──────────────────────────────────────────
+    // Every edit starts from the selected role's current draft, else its stored map.
+    const edit = (change: (prev: Record<string, boolean>) => Record<string, boolean>) => {
+      const role = permSelectedRole;
+      setDraft(d => ({ role, perms: change(d?.role === role ? d.perms : stored) }));
+    };
+
     const togglePermission = (featureId: string) => {
-      setPermissions(prev => ({ ...prev, [featureId]: !prev[featureId] }));
-      setPermDirty(true);
+      edit(prev => ({ ...prev, [featureId]: !prev[featureId] }));
     };
 
     const toggleGroup = (fpNodeIds: string[], value: boolean) => {
       const updates: Record<string, boolean> = {};
       fpNodeIds.forEach(id => { updates[id] = value; });
-      setPermissions(prev => ({ ...prev, ...updates }));
-      setPermDirty(true);
+      edit(prev => ({ ...prev, ...updates }));
     };
 
     const isGroupFullyEnabled = (fpNodeIds: string[]) =>
@@ -131,7 +156,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
               {selectableRoles.map((role) => {
                 const color = role.color || '#64748b';
                 return (
-                  <button key={role.name} onClick={() => { setPermSelectedRole(role.name); setPermDirty(false); setChangeReason(''); }}
+                  <button key={role.name} onClick={() => { setPermSelectedRole(role.name); setDraft(null); setChangeReason(''); }}
                     className={`relative group p-4 rounded-2xl border-2 transition-all duration-300 ${
                       permSelectedRole === role.name ? 'border-transparent shadow-xl scale-[1.02]' : 'border-slate-200 hover:border-slate-300 hover:shadow-lg'
                     }`}>
@@ -253,7 +278,13 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         {/* Permissions Tree — Sidebar → Page → Action */}
         <Card className="overflow-hidden">
           <CardContent className="p-0">
-            {permLoading ? (
+            {loadFailed ? (
+              <div role="alert" className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                <p className="font-semibold">Could not load this role&apos;s permissions.</p>
+                <p className="mt-1">{(roleConfigError as { message?: string })?.message || 'The server did not return the stored permissions.'} Nothing can be changed until they load.</p>
+                <Button size="sm" variant="outline" className="mt-3" onClick={() => reloadRoleConfig()}>Retry</Button>
+              </div>
+            ) : permLoading ? (
               <div className="p-16 text-center">
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-600 mb-4 animate-pulse">
                   <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">

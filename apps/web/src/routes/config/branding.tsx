@@ -137,6 +137,10 @@ export function BrandingConfigPage() {
         setError(errorMsg);
         setShowErrorPopup(true);
       },
+      // A dismissed password prompt is the operator's choice, not a failure:
+      // nothing was sent and nothing is busy, so there is nothing to undo.
+      // Without this the hook routes the cancel to onError (item 9).
+      onCancel: () => {},
     });
   };
 

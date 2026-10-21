@@ -202,17 +202,78 @@ describe('Audit Text Templates', () => {
     expect(topSave()).not.toBeDisabled();
     expect(unsaved()).toBeInTheDocument();
     expect(api.calls('PUT', PATH)).toHaveLength(0);
+    expect(screen.queryByText(/password confirmation was not completed/)).toBeNull();
+    expect(document.querySelector('.bg-red-50')).toBeNull();
   });
 
-  it('a refused save does not claim success and keeps the edits', async () => {
+  it('a signature the server demands, then cancelled, reports nothing and keeps the edits', async () => {
+    const { api } = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await loaded();
+    fireEvent.change(inputOf('USER_CREATED'), { target: { value: 'Later {actor}' } });
+    await act(async () => { fireEvent.click(topSave()); });
+    await cancelReauth();
+    await waitFor(() => expect(topSave()).toHaveTextContent('Save Changes'), WAIT);
+    expect(screen.queryByText(/password confirmation was not completed/)).toBeNull();
+    expect(document.querySelector('.bg-red-50')).toBeNull();
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
+    expect(inputOf('USER_CREATED').value).toBe('Later {actor}');
+  });
+
+  it('a refused save shows the server message, does not claim success and keeps the edits', async () => {
     const { api } = setup({ extra: [{ method: 'PUT', path: PATH, status: 500, body: { error: 'INTERNAL', message: 'db down' } }] });
     await loaded();
     fireEvent.change(inputOf('USER_CREATED'), { target: { value: 'Refused {actor}' } });
     await act(async () => { fireEvent.click(topSave()); });
     await waitFor(() => expect(api.calls('PUT', PATH)).toHaveLength(1), WAIT);
     await waitFor(() => expect(topSave()).toHaveTextContent('Save Changes'), WAIT);
+    expect(await screen.findByText('db down', undefined, WAIT)).toBeInTheDocument();
     expect(screen.queryByText('Audit text templates saved successfully.')).toBeNull();
     expect(inputOf('USER_CREATED').value).toBe('Refused {actor}');
     expect(unsaved()).toBeInTheDocument();
+    // The next edit clears the stale error.
+    fireEvent.change(inputOf('USER_CREATED'), { target: { value: 'Refused again {actor}' } });
+    expect(screen.queryByText('db down')).toBeNull();
+  });
+});
+
+describe('Audit Text Templates - previews fill every placeholder', () => {
+  // Built from the shared catalog, not from the page: a placeholder added to any
+  // template (or declared on one) shows up here automatically, and fails until
+  // the page gives it a sample value.
+  const declared = new Set<string>();
+  for (const def of Object.values(AUDIT_TEMPLATE_DEFAULTS)) {
+    for (const p of def.placeholders) declared.add(p);
+    for (const m of def.template.matchAll(/\{(\w+)\}/g)) declared.add(m[1]);
+  }
+
+  it('no default template preview shows a raw {placeholder}', async () => {
+    setup({ data: {} });
+    await loaded();
+    const previews = Array.from(document.querySelectorAll('span.italic')).map((el) => el.textContent ?? '');
+    expect(previews).toHaveLength(Object.keys(AUDIT_TEMPLATE_DEFAULTS).length);
+    const raw = previews.filter((t) => /\{\w+\}/.test(t));
+    expect(raw).toEqual([]);
+  });
+
+  it('every placeholder any template declares or uses has its own sample value', async () => {
+    setup();
+    await loaded();
+    expect(declared.size).toBeGreaterThan(7);
+    for (const p of declared) {
+      fireEvent.change(inputOf('USER_UPDATED'), { target: { value: `<{${p}}>` } });
+      const shown = previewOf('USER_UPDATED') ?? '';
+      // Substituted (no braces left) and not just the placeholder's own name.
+      expect({ p, shown, raw: /\{\w+\}/.test(shown) }).toEqual({ p, shown, raw: false });
+      expect(shown).not.toBe(`<${p}>`);
+      expect(shown).not.toBe('<>');
+    }
+  });
+
+  it('an unknown placeholder an admin types is left visible, not silently dropped', async () => {
+    setup();
+    await loaded();
+    fireEvent.change(inputOf('USER_UPDATED'), { target: { value: '{actor} did {noSuchField} {toString}' } });
+    // `{toString}` is not a sample just because every object inherits one.
+    expect(previewOf('USER_UPDATED')).toBe('operator1 did {noSuchField} {toString}');
   });
 });

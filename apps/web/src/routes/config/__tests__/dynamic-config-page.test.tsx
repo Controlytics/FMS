@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
@@ -60,15 +60,35 @@ function Pages() {
   );
 }
 
-function setup(opts: { user?: any; extra?: MockRoute[]; saved?: unknown; savedStatus?: number; manifest?: unknown[]; reauth?: string[]; key?: string; roles?: MockRoute } = {}) {
+/**
+ * Holds every request whose URL matches `re` until `release()` - the harness
+ * answers instantly, so this is how a test sees the page while a GET is still
+ * in flight. Wraps the harness's fetch stub (installed by mockApi).
+ */
+function holdRequests(re: RegExp) {
+  const inner = globalThis.fetch;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (re.test(url)) await gate;
+    return inner(input, init);
+  });
+  return release;
+}
+
+let releaseHeld: () => void = () => {};
+
+function setup(opts: { user?: any; extra?: MockRoute[]; saved?: unknown; savedStatus?: number; manifest?: unknown; manifestStatus?: number; reauth?: string[]; key?: string; roles?: MockRoute; hold?: RegExp } = {}) {
   const key = opts.key ?? KEY;
   const api = mockApi([
     ...(opts.extra ?? []),
-    { path: MANIFEST, body: opts.manifest ?? [PLANT] },
+    { path: MANIFEST, status: opts.manifestStatus ?? 200, body: opts.manifest ?? [PLANT] },
     { path: `/api/config/dynamic/${key}`, status: opts.savedStatus ?? 200, body: opts.saved ?? SAVED },
     opts.roles ?? { path: '/api/roles/active', body: ROLES },
     ...commonRoutes({ reauth: opts.reauth }),
   ]);
+  if (opts.hold) releaseHeld = holdRequests(opts.hold);
   renderPage(<Pages />, { user: opts.user ?? SUPER_ADMIN, api, route: `/config/dynamic/${key}` });
   return api;
 }
@@ -202,15 +222,35 @@ describe('Dynamic config page', () => {
     expect(screen.queryByText('threshold must be <= 99')).toBeNull();
   });
 
-  it('a REAUTH_REQUIRED the page did not foresee opens the prompt; cancel reports it', async () => {
+  it('a REAUTH_REQUIRED the page did not foresee opens the prompt; cancelling it is not a failure', async () => {
     const api = setup({ extra: [reauthRequired('PUT', DYN)] });
     await loaded();
     fireEvent.change(inputOf('Threshold'), { target: { value: '11' } });
     await act(async () => { fireEvent.click(saveBtn()); });
     await cancelReauth();
-    expect(await screen.findByText(/Cancelled — password confirmation was not completed/)).toBeInTheDocument();
+    await waitFor(() => expect(saveBtn()).toHaveTextContent('Save Changes'));
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(document.querySelector('.bg-red-50')).toBeNull();
     expect(saveBtn()).not.toBeDisabled();
+    // Only the refused first attempt went out, and the edit is kept.
     expect(api.calls('PUT', DYN)).toHaveLength(1);
+    expect(inputOf('Threshold').value).toBe('11');
+  });
+
+  it('an up-front prompt that is cancelled sends nothing and reports nothing', async () => {
+    const api = setup({ reauth: ['UPDATE_CONFIG_PAGE'] });
+    await loaded();
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.change(inputOf('Threshold'), { target: { value: '12' } });
+    fireEvent.click(saveBtn());
+    await screen.findByPlaceholderText('Enter your password');
+    expect(saveBtn()).toHaveTextContent('Saving...');
+    await cancelReauth();
+    await waitFor(() => expect(saveBtn()).toHaveTextContent('Save Changes'));
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(document.querySelector('.bg-red-50')).toBeNull();
+    expect(saveBtn()).not.toBeDisabled();
+    expect(api.calls('PUT', DYN)).toHaveLength(0);
   });
 
   it('without a reauthAction the key falls back to UPDATE_<MODULE_KEY>', async () => {
@@ -272,10 +312,10 @@ describe('Dynamic config page', () => {
     await waitFor(() => expect(Array.from(inputOf('Pick').options).map((o) => o.textContent)).toEqual(
       ['Select...', 'Label One', '7', 'Display Three', 'n4', ''],
     ));
-    // Nothing saved yet -> empty values, Save disabled until an edit.
-    expect(saveBtn()).toBeDisabled();
-    fireEvent.change(inputOf('Pick'), { target: { value: 'n3' } });
+    // Never saved ({}): the def defaults are on offer, so Save starts enabled.
     expect(saveBtn()).not.toBeDisabled();
+    fireEvent.change(inputOf('Pick'), { target: { value: 'n3' } });
+    expect(inputOf('Pick').value).toBe('n3');
   });
 
   it('a def with no settings says it uses a custom page', async () => {
@@ -305,7 +345,7 @@ describe('Dynamic config page', () => {
 
   it('a 500 on the saved values raises a visible load error', async () => {
     setup({ savedStatus: 500, saved: { error: 'INTERNAL', message: 'database unavailable' } });
-    expect(await screen.findByText('database unavailable')).toBeInTheDocument();
+    expect((await screen.findAllByText('database unavailable')).length).toBeGreaterThan(0);
     expect(screen.getByText('Load Error')).toBeInTheDocument();
   });
 
@@ -336,5 +376,83 @@ describe('Dynamic config page', () => {
     await loaded();
     fireEvent.click(screen.getByRole('button', { name: 'Back to Settings' }));
     expect(screen.getByText('CONFIG INDEX')).toBeInTheDocument();
+  });
+});
+
+describe('Dynamic config page - load states (never present a guess as the stored value)', () => {
+  const LIMIT = {
+    ...PLANT,
+    moduleKey: 'export-limit',
+    moduleName: 'Export Limit',
+    settings: [
+      { key: 'maxRecords', type: 'number', label: 'Max Records', default: 10000 },
+      { key: 'message', type: 'text', label: 'Message', default: 'Too many records to export' },
+      { key: 'note', type: 'text', label: 'Note' },
+    ],
+  };
+  const LIMIT_PATH = '/api/config/dynamic/export-limit';
+
+  it('a 500 on the saved values offers no form and no Save - nothing can overwrite the stored config', async () => {
+    const api = setup({ key: 'export-limit', manifest: [LIMIT], savedStatus: 500, saved: { error: 'INTERNAL', message: 'db down' } });
+    await waitFor(() => expect(api.calls('GET', LIMIT_PATH).length).toBeGreaterThan(0));
+    expect((await screen.findAllByText('db down')).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /Save Changes/ })).toBeNull();
+    // The defaults are NOT shown as if they were the current values.
+    expect(screen.queryByDisplayValue('10000')).toBeNull();
+    expect(screen.queryByText('Max Records')).toBeNull();
+    expect(screen.getByText(/Could not load the current settings/)).toBeInTheDocument();
+    expect(api.calls('PUT', LIMIT_PATH)).toHaveLength(0);
+  });
+
+  it('Retry after a failed load re-reads the stored values and shows them clean', async () => {
+    const api = setup({
+      key: 'export-limit', manifest: [LIMIT], saved: { maxRecords: 250, message: 'stored msg' },
+      extra: [{ path: LIMIT_PATH, status: 500, times: 1, body: { error: 'INTERNAL', message: 'db down' } }],
+    });
+    expect(await screen.findByText(/Could not load the current settings/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(inputOf('Max Records').value).toBe('250'));
+    expect(inputOf('Message').value).toBe('stored msg');
+    expect(saveBtn()).toBeDisabled();
+    expect(api.calls('GET', LIMIT_PATH)).toHaveLength(2);
+  });
+
+  it('while the saved values are loading, no form and no Save are offered', async () => {
+    const api = setup({ key: 'export-limit', manifest: [LIMIT], saved: { maxRecords: 250 }, hold: /\/api\/config\/dynamic\/export-limit/ });
+    expect(await screen.findByRole('heading', { name: 'Export Limit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Save Changes/ })).toBeNull();
+    expect(screen.queryByDisplayValue('10000')).toBeNull();
+    expect(screen.getByText('Loading current settings…')).toBeInTheDocument();
+    expect(api.calls('PUT', LIMIT_PATH)).toHaveLength(0);
+    releaseHeld();
+    await waitFor(() => expect(inputOf('Max Records').value).toBe('250'));
+    expect(saveBtn()).toBeDisabled();
+  });
+
+  it('a key that was never saved ({}) shows the def defaults and offers to save them', async () => {
+    const api = setup({ key: 'export-limit', manifest: [LIMIT], saved: {}, extra: [{ method: 'PUT', path: LIMIT_PATH, body: { ok: true } }] });
+    await waitFor(() => expect(inputOf('Max Records').value).toBe('10000'));
+    expect(inputOf('Message').value).toBe('Too many records to export');
+    expect(inputOf('Note').value).toBe('');
+    expect(saveBtn()).not.toBeDisabled();
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await waitFor(() => expect(api.calls('PUT', LIMIT_PATH)).toHaveLength(1));
+    expect(api.calls('PUT', LIMIT_PATH)[0].json).toEqual({ maxRecords: 10000, message: 'Too many records to export' });
+  });
+
+  it('while the module registry loads, the page does not claim the module is unregistered', async () => {
+    setup({ hold: /\/api\/config\/registry\/manifest/ });
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(screen.queryByText('Configuration Not Found')).toBeNull();
+    expect(screen.getByText('Loading configuration…')).toBeInTheDocument();
+    releaseHeld();
+    await loaded();
+  });
+
+  it('a registry that fails to load says so, instead of "not registered"', async () => {
+    setup({ manifestStatus: 500, manifest: { error: 'INTERNAL', message: 'registry down' } });
+    expect(await screen.findByText(/Could not load the configuration registry/)).toBeInTheDocument();
+    expect(screen.queryByText('Configuration Not Found')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Save Changes/ })).toBeNull();
   });
 });

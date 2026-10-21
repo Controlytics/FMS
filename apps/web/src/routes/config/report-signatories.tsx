@@ -60,8 +60,8 @@ export function ReportSignatoriesPage() {
     try {
       // Signed: the backend gates this on UPDATE_REPORT_SIGNATORIES
       // (enforceReauthAlways) — it decides who is NAMED as signing each report.
-      // `saving` clears on both exits; a cancel arrives through onError as
-      // REAUTH_CANCELLED, which is not an error worth a toast.
+      // `saving` clears on every exit; a dismissed password prompt arrives
+      // through onCancel and is not an error worth a toast.
       await reauth.execute(
         'UPDATE_REPORT_SIGNATORIES',
         async (password?: string) => {
@@ -75,11 +75,10 @@ export function ReportSignatoriesPage() {
             setSaving(false);
           },
           onError: (err: any) => {
-            if (err?.error !== 'REAUTH_CANCELLED') {
-              toast.error('Save failed', err?.message ?? 'Could not save report signatories.');
-            }
+            toast.error('Save failed', err?.message ?? 'Could not save report signatories.');
             setSaving(false);
           },
+          onCancel: () => setSaving(false),
         },
       );
     } catch (err: any) {

@@ -99,9 +99,9 @@ export function TabletAccessConfigPage() {
       );
       // Signed: the backend gates this on UPDATE_TABLET_ACCESS
       // (enforceReauthAlways), because it decides which roles may log in on the
-      // tablet at all. `saving` is cleared on BOTH exits — a cancel arrives
-      // through onError as REAUTH_CANCELLED, and without that the button would
-      // stick on "Saving…".
+      // tablet at all. `saving` is cleared on EVERY exit — including a
+      // dismissed password prompt (onCancel, which says nothing); without that
+      // the button would stick on "Saving…".
       await reauth.execute(
         'UPDATE_TABLET_ACCESS',
         async (password?: string) => {
@@ -116,9 +116,10 @@ export function TabletAccessConfigPage() {
             setSaving(false);
           },
           onError: (e: any) => {
-            if (e?.error !== 'REAUTH_CANCELLED') toast.error('Error', e?.message ?? 'Failed to save');
+            toast.error('Error', e?.message ?? 'Failed to save');
             setSaving(false);
           },
+          onCancel: () => setSaving(false),
         },
       );
     } catch (e: any) {

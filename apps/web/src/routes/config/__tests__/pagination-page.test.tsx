@@ -3,9 +3,10 @@ import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute, type MockRequest } from '@/test-utils/page-harness';
 import { PaginationConfigPage } from '../pagination';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 vi.setConfig({ testTimeout: 30000 });
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const PATH = '/api/config/pagination';
 const W = { timeout: 5000 };
@@ -197,7 +198,8 @@ describe('Pagination settings page', () => {
     expect(await screen.findByText('Pagination settings saved successfully.', undefined, W)).toBeInTheDocument();
   });
 
-  it('signature required up front: cancelling sends nothing and shows no error', async () => {
+  it('signature required up front: cancelling sends nothing and shows no error (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['UPDATE_CONFIG_PAGE'] });
     await waitFor(() => expect(limitInput().value).toBe('200'), W);
     fireEvent.change(optionInputs()[0], { target: { value: '15' } });
@@ -209,6 +211,20 @@ describe('Pagination settings page', () => {
     await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
     expect(api.calls('PUT', PATH)).toHaveLength(0);
     expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expectSilentCancel(consoleError);
+    expect(saveBtn()).not.toBeDisabled();
+  });
+
+  it('cancelling a server-demanded signature shows no error and frees Save (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await waitFor(() => expect(limitInput().value).toBe('200'), W);
+    fireEvent.change(optionInputs()[0], { target: { value: '15' } });
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
     expect(saveBtn()).not.toBeDisabled();
   });
 });

@@ -129,7 +129,7 @@ describe('Help Articles — create', () => {
     expect(within(dlg).getByRole('button', { name: 'Create Article' })).not.toBeDisabled();
   });
 
-  it('create the server wants signed: prompt, retry with password; cancelling instead reports it', async () => {
+  it('create the server wants signed: prompt, retry with password; cancelling instead is silent', async () => {
     const api = setup([
       reauthRequired('POST', '/api/help'),
       reauthRequired('POST', '/api/help'),
@@ -143,8 +143,10 @@ describe('Help Articles — create', () => {
     fireEvent.change(within(dlg).getByPlaceholderText(/Write article content here/), { target: { value: 'c' } });
     await act(async () => { fireEvent.click(within(dlg).getByRole('button', { name: 'Create Article' })); });
     await cancelReauth();
-    expect(await within(dlg).findByText(/password confirmation was not completed/)).toBeInTheDocument();
-    expect(within(dlg).getByRole('button', { name: 'Create Article' })).not.toBeDisabled();
+    // 2026-10-21 (item 9): a dismissed prompt is not a failure, so the dialog
+    // shows no error (it used to show the hook's "Cancelled — …" text).
+    await waitFor(() => expect(within(dlg).getByRole('button', { name: 'Create Article' })).not.toBeDisabled());
+    expect(within(dlg).queryByText(/password confirmation was not completed/)).toBeNull();
 
     await act(async () => { fireEvent.click(within(dlg).getByRole('button', { name: 'Create Article' })); });
     await signReauth('pw-help');

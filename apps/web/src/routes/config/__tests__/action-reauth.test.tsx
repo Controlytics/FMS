@@ -163,8 +163,9 @@ describe('Action Re-authentication page', { timeout: 30000 }, () => {
     expect(saveBtn()).not.toBeDisabled();
     expect(api.calls('PUT', PATH)).toHaveLength(0);
     expect(screen.queryByText('Action re-authentication settings saved successfully.')).toBeNull();
-    // The hook's documented cancel fallback reaches onError with an honest text.
-    expect(screen.getByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
+    // Item 9: a deliberate cancel is not an error - no red banner, edits kept.
+    expect(screen.queryByText(/Cancelled —/)).toBeNull();
+    expect(screen.queryByText(/Failed to save/)).toBeNull();
     expect(screen.getByText('You have unsaved changes')).toBeInTheDocument();
   });
 
@@ -317,5 +318,67 @@ describe('Action Re-authentication page', { timeout: 30000 }, () => {
     expect(statValue('Actions Configured')).toContain('0');
     expect(statValue('Total Checks')).toContain('0');
     expect(boxes('Delete Role').every((b) => !b.checked)).toBe(true);
+  });
+});
+
+/**
+ * 2026-10-21 (§11): a failed policy load fell back to `{}` - the matrix rendered
+ * every action as "no password", stayed editable, and one tick + Save PUT
+ * `{"DELETE_ROLE":["ADMIN"]}` over the WHOLE stored policy, switching off every
+ * other signature requirement. A policy that did not load must not be editable.
+ */
+describe('Action Re-authentication page — the stored policy did not load', { timeout: 30000 }, () => {
+  const nothingEditable = (api: ReturnType<typeof setup>) => {
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: /Save Configuration/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^All$/ })).toBeNull();
+    expect(api.calls('PUT', PATH)).toHaveLength(0);
+  };
+
+  it('a 500 shows the server message, offers no matrix and no Save, and nothing is PUT', async () => {
+    const api = setup({ extra: [{ path: PATH, status: 500, body: { error: 'INTERNAL', message: 'policy store unavailable' } }] });
+    expect(await screen.findByRole('alert')).toHaveTextContent('policy store unavailable');
+    nothingEditable(api);
+  });
+
+  it('a 403 shows the server message, offers no matrix and no Save, and nothing is PUT', async () => {
+    const api = setup({ extra: [{ path: PATH, status: 403, body: { error: 'FORBIDDEN', message: 'Insufficient permissions' } }] });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Insufficient permissions');
+    nothingEditable(api);
+  });
+
+  it('Retry reloads the policy, which is then shown and editable', async () => {
+    const api = setup({ extra: [
+      { path: PATH, status: 500, times: 1, body: { error: 'INTERNAL', message: 'policy store unavailable' } },
+      { method: 'PUT', path: PATH, body: { ok: true } },
+    ] });
+    expect(await screen.findByRole('alert')).toHaveTextContent('policy store unavailable');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry' })); });
+    await waitFor(() => expect(boxes('Delete Role').map((b) => b.checked)).toEqual([true, true, false]));
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(boxes('Delete Role')[2]);
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await waitFor(() => expect(api.calls('PUT', PATH)).toHaveLength(1));
+    expect(api.calls('PUT', PATH)[0].json).toEqual({ CREATE_HELP_ARTICLE: ['ADMIN'], DELETE_ROLE: ['ADMIN', 'QA', 'OPERATOR'] });
+  });
+
+  it('while the policy is loading there is no matrix and no Save', async () => {
+    setup();
+    expect(screen.getByText('Loading re-authentication configuration...')).toBeInTheDocument();
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: /Save Configuration/ })).toBeNull();
+    // Let the reads settle inside the test (no state update after it ends).
+    await waitFor(() => expect(screen.queryByText('Loading re-authentication configuration...')).toBeNull());
+    expect(screen.getAllByRole('checkbox').length).toBeGreaterThan(0);
+  });
+
+  it('a genuinely empty stored policy (200 with {}) stays editable and saveable', async () => {
+    const api = setup({ config: {}, extra: [{ method: 'PUT', path: PATH, body: { ok: true } }] });
+    await loaded();
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(boxes('Delete Role')[0]);
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await waitFor(() => expect(api.calls('PUT', PATH)).toHaveLength(1));
+    expect(api.calls('PUT', PATH)[0].json).toEqual({ DELETE_ROLE: ['ADMIN'] });
   });
 });

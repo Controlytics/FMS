@@ -54,6 +54,8 @@ const DEFAULTS: LdapConfig = {
 
 export default function LdapConfigPage() {
   // 2026-05-26 audit fix (PA-FE-1): gate Save / Test / Enable on CONFIG_UPDATE.
+  // 2026-10-21: and every field. Only Save and Test were gated, so a read-only
+  // role could flip Enable and edit every field of a form it can never save.
   const { user } = useAuth();
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -109,6 +111,9 @@ export default function LdapConfigPage() {
           setSaveMsg({ type: 'error', text: e.message || 'Failed to save' });
           setSaving(false);
         },
+        // Dismissing the password prompt is not a failure: free the button,
+        // keep the edits, say nothing.
+        onCancel: () => setSaving(false),
       },
     );
   };
@@ -174,8 +179,10 @@ export default function LdapConfigPage() {
             <h3 className="font-semibold text-slate-800">Enable LDAP Authentication</h3>
             <p className="text-sm text-slate-500 mt-1">When enabled, users can authenticate via LDAP/Active Directory. Local authentication remains available for Super Admin.</p>
           </div>
-          <button onClick={() => updateField('enabled', !config.enabled)}
-            className={`relative w-14 h-7 rounded-full transition-colors ${config.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+          <button type="button" role="switch" aria-checked={config.enabled} aria-label="Enable LDAP authentication"
+            onClick={() => updateField('enabled', !config.enabled)} disabled={!canWrite}
+            title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
+            className={`relative w-14 h-7 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${config.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}>
             <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${config.enabled ? 'translate-x-7' : 'translate-x-0.5'}`}></span>
           </button>
         </div>
@@ -193,29 +200,29 @@ export default function LdapConfigPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Server URL <span className="text-red-500">*</span></label>
-              <Input value={config.serverUrl} onChange={e => updateField('serverUrl', e.target.value)} placeholder="ldaps://ad.company.com:636"
+              <Input disabled={!canWrite} value={config.serverUrl} onChange={e => updateField('serverUrl', e.target.value)} placeholder="ldaps://ad.company.com:636"
                 className="font-mono" />
               <p className="text-xs text-slate-400 mt-1">Use ldaps:// for secure connection (port 636) or ldap:// for plain (port 389)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind DN <span className="text-red-500">*</span></label>
-              <Input value={config.bindDN} onChange={e => updateField('bindDN', e.target.value)} placeholder="CN=svc_digilog,OU=Service Accounts,DC=company,DC=com"
+              <Input disabled={!canWrite} value={config.bindDN} onChange={e => updateField('bindDN', e.target.value)} placeholder="CN=svc_digilog,OU=Service Accounts,DC=company,DC=com"
                 className="font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind Password <span className="text-red-500">*</span></label>
-              <input type="password" value={config.bindPassword} onChange={e => updateField('bindPassword', e.target.value)} placeholder="Service account password"
-                className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 [@media(pointer:coarse)]:h-11" />
+              <input type="password" disabled={!canWrite} value={config.bindPassword} onChange={e => updateField('bindPassword', e.target.value)} placeholder="Service account password"
+                className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 [@media(pointer:coarse)]:h-11 disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-50 disabled:hover:border-slate-300" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Connection Timeout (ms)</label>
-              <Input type="number" value={config.connectionTimeout} onChange={e => updateField('connectionTimeout', Number(e.target.value))} />
+              <Input disabled={!canWrite} type="number" value={config.connectionTimeout} onChange={e => updateField('connectionTimeout', Number(e.target.value))} />
             </div>
             <div className="flex items-end pb-1">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={config.tlsRejectUnauthorized} onChange={e => updateField('tlsRejectUnauthorized', e.target.checked)}
+                <input type="checkbox" disabled={!canWrite} checked={config.tlsRejectUnauthorized} onChange={e => updateField('tlsRejectUnauthorized', e.target.checked)}
                   className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-brand-600/15" />
                 <span className="text-sm text-slate-700">Verify TLS Certificate</span>
               </label>
@@ -253,25 +260,25 @@ export default function LdapConfigPage() {
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Base DN <span className="text-red-500">*</span></label>
-            <Input value={config.searchBase} onChange={e => updateField('searchBase', e.target.value)} placeholder="OU=Users,DC=company,DC=com"
+            <Input disabled={!canWrite} value={config.searchBase} onChange={e => updateField('searchBase', e.target.value)} placeholder="OU=Users,DC=company,DC=com"
               className="font-mono" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Filter</label>
-            <Input value={config.searchFilter} onChange={e => updateField('searchFilter', e.target.value)} placeholder="(sAMAccountName={{username}})"
+            <Input disabled={!canWrite} value={config.searchFilter} onChange={e => updateField('searchFilter', e.target.value)} placeholder="(sAMAccountName={{username}})"
               className="font-mono" />
             <p className="text-xs text-slate-400 mt-1">Use {'{{username}}'} as placeholder for the login username</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Username Attribute</label>
-              <Input value={config.usernameAttribute} onChange={e => updateField('usernameAttribute', e.target.value)}
+              <Input disabled={!canWrite} value={config.usernameAttribute} onChange={e => updateField('usernameAttribute', e.target.value)}
                 className="font-mono" />
               <p className="text-xs text-slate-400 mt-1">AD: sAMAccountName, OpenLDAP: uid</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Group Attribute</label>
-              <Input value={config.groupAttribute} onChange={e => updateField('groupAttribute', e.target.value)}
+              <Input disabled={!canWrite} value={config.groupAttribute} onChange={e => updateField('groupAttribute', e.target.value)}
                 className="font-mono" />
             </div>
           </div>
@@ -290,23 +297,23 @@ export default function LdapConfigPage() {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-              <Input value={config.fullNameAttribute} onChange={e => updateField('fullNameAttribute', e.target.value)}
+              <Input disabled={!canWrite} value={config.fullNameAttribute} onChange={e => updateField('fullNameAttribute', e.target.value)}
                 className="font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-              <Input value={config.emailAttribute} onChange={e => updateField('emailAttribute', e.target.value)}
+              <Input disabled={!canWrite} value={config.emailAttribute} onChange={e => updateField('emailAttribute', e.target.value)}
                 className="font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-              <Input value={config.departmentAttribute} onChange={e => updateField('departmentAttribute', e.target.value)}
+              <Input disabled={!canWrite} value={config.departmentAttribute} onChange={e => updateField('departmentAttribute', e.target.value)}
                 className="font-mono" />
             </div>
           </div>
           <div className="mt-4">
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={config.syncAttributes} onChange={e => updateField('syncAttributes', e.target.checked)}
+              <input type="checkbox" disabled={!canWrite} checked={config.syncAttributes} onChange={e => updateField('syncAttributes', e.target.checked)}
                 className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-brand-600/15" />
               <span className="text-sm text-slate-700">Sync attributes on every login</span>
             </label>
@@ -322,7 +329,7 @@ export default function LdapConfigPage() {
               <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               Group-to-Role Mapping
             </h3>
-            <button onClick={addRoleMapping} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-green-50 text-green-700 rounded-lg hover:bg-green-100">
+            <button onClick={addRoleMapping} disabled={!canWrite} className="disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-green-50 text-green-700 rounded-lg hover:bg-green-100">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
               Add Mapping
             </button>
@@ -335,15 +342,15 @@ export default function LdapConfigPage() {
             config.roleMappings.map((mapping, i) => (
               <div key={i} className="flex items-center gap-3">
                 <div className="flex-1">
-                  <Input value={mapping.ldapGroup} onChange={e => updateRoleMapping(i, 'ldapGroup', e.target.value)} placeholder="CN=Admins,OU=Groups,DC=company,DC=com"
+                  <Input disabled={!canWrite} value={mapping.ldapGroup} onChange={e => updateRoleMapping(i, 'ldapGroup', e.target.value)} placeholder="CN=Admins,OU=Groups,DC=company,DC=com"
                     className="font-mono" />
                 </div>
                 <svg className="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
-                <Select value={mapping.role} onChange={e => updateRoleMapping(i, 'role', e.target.value)}
+                <Select disabled={!canWrite} value={mapping.role} onChange={e => updateRoleMapping(i, 'role', e.target.value)}
                   className="w-48">
                   {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
                 </Select>
-                <button onClick={() => removeRoleMapping(i)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                <button onClick={() => removeRoleMapping(i)} disabled={!canWrite} className="disabled:opacity-50 disabled:cursor-not-allowed p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
@@ -351,7 +358,7 @@ export default function LdapConfigPage() {
           )}
           <div className="pt-2">
             <label className="block text-sm font-medium text-slate-700 mb-1">Default Role (when no group matches)</label>
-            <Select value={config.defaultRole} onChange={e => updateField('defaultRole', e.target.value)}
+            <Select disabled={!canWrite} value={config.defaultRole} onChange={e => updateField('defaultRole', e.target.value)}
               className="w-64">
               {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
             </Select>

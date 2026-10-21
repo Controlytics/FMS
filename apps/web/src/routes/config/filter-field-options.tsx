@@ -104,6 +104,9 @@ export function FilterFieldOptionsConfigPage() {
           setError(e.message || 'Failed to save field options');
           setSaving(false);
         },
+        // A dismissed password prompt is not a failure (item 9): free Save,
+        // keep the edits, say nothing.
+        onCancel: () => setSaving(false),
       },
     );
   };

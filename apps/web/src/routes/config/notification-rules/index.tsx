@@ -211,8 +211,18 @@ function RulesTab() {
 
   const [editing, setEditing] = useState<Partial<NotificationRule> | null>(null);
   const [saving, setSaving] = useState(false);
+  // Two error slots, one per view: a failed save belongs to the editor, a
+  // failed delete/toggle to the list. Sharing one slot hid list failures (only
+  // the editor rendered it) and then showed them in the NEXT editor opened.
   const [error, setError] = useState('');
+  const [listError, setListError] = useState('');
   const reauth = useReauth();
+
+  const openEditor = (rule: Partial<NotificationRule>) => {
+    setError('');
+    setListError('');
+    setEditing(rule);
+  };
 
   const saveRule = async () => {
     if (!editing?.name || !(editing?.eventTypes?.length)) return;
@@ -233,21 +243,23 @@ function RulesTab() {
 
   const deleteRule = async (id: string) => {
     if (!confirm('Delete this notification rule?')) return;
+    setListError('');
     try {
       await reauth.executeWithResult('MANAGE_NOTIFICATION_RULES', (pw) => pw
         ? apiClient.deleteWithReauth(`/api/notification-rules/${id}`, pw)
         : apiClient.delete(`/api/notification-rules/${id}`));
       mutate();
-    } catch (err: any) { if (!isReauthCancelled(err)) setError(err.message || 'Failed to delete'); }
+    } catch (err: any) { if (!isReauthCancelled(err)) setListError(err.message || 'Failed to delete'); }
   };
 
   const toggleRule = async (id: string) => {
+    setListError('');
     try {
       await reauth.executeWithResult('MANAGE_NOTIFICATION_RULES', (pw) => pw
         ? apiClient.putWithReauth(`/api/notification-rules/${id}/toggle`, {}, pw)
         : apiClient.put(`/api/notification-rules/${id}/toggle`, {}));
       mutate();
-    } catch (err: any) { if (!isReauthCancelled(err)) setError(err.message || 'Failed to toggle'); }
+    } catch (err: any) { if (!isReauthCancelled(err)) setListError(err.message || 'Failed to toggle'); }
   };
 
   const testRule = async (id: string) => {
@@ -278,256 +290,258 @@ function RulesTab() {
     setEditing({ ...editing, recipients });
   };
 
-  // Rule editor dialog
-  if (editing) {
-    return (
-      <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Rule' : 'New Notification Rule'}</h3>
-          <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
-            <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-
-        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>}
-
-        {/* Basic Info */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Rule Name *</label>
-            <Input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Cycle Completion Alert" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Event Types *</label>
-            <MultiSelectEventTypes
-              eventTypes={eventTypes ?? []}
-              selected={editing.eventTypes ?? (editing.eventType ? [editing.eventType] : [])}
-              onChange={(vals) => setEditing({ ...editing, eventTypes: vals, eventType: vals[0] ?? '' })}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-          <Input value={editing.description ?? ''} onChange={e => setEditing({ ...editing, description: e.target.value })} placeholder="Optional description" />
-        </div>
-
-        {/* Channels */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">Notification Channels</label>
-          <div className="flex gap-4">
-            {[
-              { key: 'emailEnabled', label: 'Email', color: 'blue' },
-              { key: 'smsEnabled', label: 'SMS', color: 'green' },
-              { key: 'inAppEnabled', label: 'In-App', color: 'purple' },
-            ].map(ch => (
-              <label key={ch.key} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={(editing as any)[ch.key] ?? (ch.key === 'inAppEnabled')}
-                  onChange={e => setEditing({ ...editing, [ch.key]: e.target.checked })}
-                  className={`rounded border-gray-300 text-${ch.color}-600 focus:ring-${ch.color}-500`}
-                />
-                <span className="text-sm text-slate-700">{ch.label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        {/* Templates */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {editing.emailEnabled && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email Template</label>
-              <Select
-                value={editing.emailTemplateId ?? ''}
-                onChange={e => setEditing({ ...editing, emailTemplateId: e.target.value || undefined })}
-              >
-                <option value="">Use default template</option>
-                {templates?.filter(t => t.channel === 'EMAIL' && t.isActive).map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </Select>
-            </div>
-          )}
-          {editing.smsEnabled && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">SMS Template</label>
-              <Select
-                value={editing.smsTemplateId ?? ''}
-                onChange={e => setEditing({ ...editing, smsTemplateId: e.target.value || undefined })}
-              >
-                <option value="">Use default template</option>
-                {templates?.filter(t => t.channel === 'SMS' && t.isActive).map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </Select>
-            </div>
-          )}
-        </div>
-
-        {/* Recipients */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">Recipients</label>
-          <div className="space-y-2">
-            {(editing.recipients ?? []).map((r, idx) => (
-              <div key={idx} className="flex items-center gap-2 bg-slate-50 p-3 rounded-lg">
-                <Select
-                  value={r.recipientType}
-                  onChange={e => updateRecipient(idx, 'recipientType', e.target.value)}
-                  className="w-28"
-                >
-                  <option value="ROLE">Role</option>
-                  <option value="GROUP">Group</option>
-                  <option value="USER">User</option>
-                </Select>
-
-                {r.recipientType === 'ROLE' && (
-                  <Select
-                    value={r.roleValue ?? ''}
-                    onChange={e => updateRecipient(idx, 'roleValue', e.target.value)}
-                    className="w-auto flex-1"
-                  >
-                    <option value="">Select role...</option>
-                    {roles.map(role => <option key={role.name} value={role.name}>{role.displayName}</option>)}
-                  </Select>
-                )}
-
-                {r.recipientType === 'GROUP' && (
-                  <Select
-                    value={r.groupId ?? ''}
-                    onChange={e => updateRecipient(idx, 'groupId', e.target.value)}
-                    className="w-auto flex-1"
-                  >
-                    <option value="">Select group...</option>
-                    {groups?.map(g => <option key={g.id} value={g.id}>{g.name} ({g.memberCount} members)</option>)}
-                  </Select>
-                )}
-
-                {r.recipientType === 'USER' && (
-                  <Select
-                    value={r.userId ?? ''}
-                    onChange={e => updateRecipient(idx, 'userId', e.target.value)}
-                    className="w-auto flex-1"
-                  >
-                    <option value="">Select user...</option>
-                    {users.map((u: UserOption) => <option key={u.id} value={u.id}>{u.fullName} ({u.username})</option>)}
-                  </Select>
-                )}
-
-                <button onClick={() => removeRecipient(idx)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-500">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-2 mt-2">
-            <button onClick={() => addRecipient('ROLE')} className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100">+ Add Role</button>
-            <button onClick={() => addRecipient('GROUP')} className="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-700 rounded-lg hover:bg-green-100">+ Add Group</button>
-            <button onClick={() => addRecipient('USER')} className="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100">+ Add User</button>
-          </div>
-        </div>
-
-        {/* Cooldown & Priority */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Cooldown (minutes)</label>
-            <Input type="number" min={0} value={editing.cooldownMinutes ?? 0} onChange={e => setEditing({ ...editing, cooldownMinutes: Number(e.target.value) })} />
-            <p className="text-xs text-slate-400 mt-1">0 = no cooldown, send every time</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
-            <Input type="number" value={editing.priority ?? 0} onChange={e => setEditing({ ...editing, priority: Number(e.target.value) })} />
-            <p className="text-xs text-slate-400 mt-1">Higher = evaluated first</p>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-          <Button onClick={saveRule} disabled={saving || !editing.name || !(editing.eventTypes?.length)}>
-            {saving ? 'Saving...' : editing.id ? 'Update Rule' : 'Create Rule'}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Rules list
+  // ONE password prompt for every view of this tab. The editor used to return
+  // early without it, so a signed save opened a dialog nothing rendered and
+  // sat on "Saving..." forever (2026-10-21).
   return (
-    <div className="space-y-4">
+    <>
       <ReauthPrompt reauth={reauth} />
-      <div className="flex justify-between items-center">
-        <p className="text-sm text-slate-500">{rules?.length ?? 0} notification rules configured</p>
-        <Button onClick={() => setEditing({ name: '', eventType: '', eventTypes: [], emailEnabled: true, inAppEnabled: true, smsEnabled: false, cooldownMinutes: 0, priority: 0, isActive: true, recipients: [], conditions: {} })}>
-          + New Rule
-        </Button>
-      </div>
+      {editing ? (
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Rule' : 'New Notification Rule'}</h3>
+            <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
+              <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
 
-      {!rules?.length ? (
-        <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center">
-          <svg className="w-12 h-12 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-          <p className="text-slate-500 font-medium">No notification rules yet</p>
-          <p className="text-sm text-slate-400 mt-1">Create rules to send alerts when events occur</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {rules.map(rule => (
-            <div key={rule.id} className={`bg-white rounded-xl border-2 p-4 transition-all ${rule.isActive ? 'border-slate-200' : 'border-slate-100 opacity-60'}`}>
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h4 className="font-semibold text-slate-800">{rule.name}</h4>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${rule.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {rule.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1.5">
-                    {(rule.eventTypesMeta?.length ? rule.eventTypesMeta : [rule.eventTypeMeta].filter(Boolean)).map((meta, i) => (
-                      <span key={i} className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium">
-                        {meta?.label ?? rule.eventType}
-                      </span>
-                    ))}
-                    <div className="flex gap-1">
-                      {rule.emailEnabled && <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-xs">Email</span>}
-                      {rule.smsEnabled && <span className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded text-xs">SMS</span>}
-                      {rule.inAppEnabled && <span className="px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded text-xs">In-App</span>}
-                    </div>
-                  </div>
-                  {rule.recipients.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {rule.recipients.map((r, i) => (
-                        <span key={i} className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          r.recipientType === 'ROLE' ? 'bg-blue-100 text-blue-700' :
-                          r.recipientType === 'GROUP' ? 'bg-green-100 text-green-700' :
-                          'bg-purple-100 text-purple-700'
-                        }`}>
-                          {r.recipientType === 'ROLE' ? 'Role: ' : r.recipientType === 'GROUP' ? 'Group: ' : 'User: '}
-                          {r.displayName}
-                        </span>
-                      ))}
-                    </div>
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>}
+
+          {/* Basic Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Rule Name *</label>
+              <Input value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Cycle Completion Alert" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Event Types *</label>
+              <MultiSelectEventTypes
+                eventTypes={eventTypes ?? []}
+                selected={editing.eventTypes ?? (editing.eventType ? [editing.eventType] : [])}
+                onChange={(vals) => setEditing({ ...editing, eventTypes: vals, eventType: vals[0] ?? '' })}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+            <Input value={editing.description ?? ''} onChange={e => setEditing({ ...editing, description: e.target.value })} placeholder="Optional description" />
+          </div>
+
+          {/* Channels */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Notification Channels</label>
+            <div className="flex gap-4">
+              {[
+                { key: 'emailEnabled', label: 'Email', color: 'blue' },
+                { key: 'smsEnabled', label: 'SMS', color: 'green' },
+                { key: 'inAppEnabled', label: 'In-App', color: 'purple' },
+              ].map(ch => (
+                <label key={ch.key} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={(editing as any)[ch.key] ?? (ch.key === 'inAppEnabled')}
+                    onChange={e => setEditing({ ...editing, [ch.key]: e.target.checked })}
+                    className={`rounded border-gray-300 text-${ch.color}-600 focus:ring-${ch.color}-500`}
+                  />
+                  <span className="text-sm text-slate-700">{ch.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Templates */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {editing.emailEnabled && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Email Template</label>
+                <Select
+                  value={editing.emailTemplateId ?? ''}
+                  onChange={e => setEditing({ ...editing, emailTemplateId: e.target.value || undefined })}
+                >
+                  <option value="">Use default template</option>
+                  {templates?.filter(t => t.channel === 'EMAIL' && t.isActive).map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+            {editing.smsEnabled && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">SMS Template</label>
+                <Select
+                  value={editing.smsTemplateId ?? ''}
+                  onChange={e => setEditing({ ...editing, smsTemplateId: e.target.value || undefined })}
+                >
+                  <option value="">Use default template</option>
+                  {templates?.filter(t => t.channel === 'SMS' && t.isActive).map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+          </div>
+
+          {/* Recipients */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Recipients</label>
+            <div className="space-y-2">
+              {(editing.recipients ?? []).map((r, idx) => (
+                <div key={idx} className="flex items-center gap-2 bg-slate-50 p-3 rounded-lg">
+                  <Select
+                    value={r.recipientType}
+                    onChange={e => updateRecipient(idx, 'recipientType', e.target.value)}
+                    className="w-28"
+                  >
+                    <option value="ROLE">Role</option>
+                    <option value="GROUP">Group</option>
+                    <option value="USER">User</option>
+                  </Select>
+
+                  {r.recipientType === 'ROLE' && (
+                    <Select
+                      value={r.roleValue ?? ''}
+                      onChange={e => updateRecipient(idx, 'roleValue', e.target.value)}
+                      className="w-auto flex-1"
+                    >
+                      <option value="">Select role...</option>
+                      {roles.map(role => <option key={role.name} value={role.name}>{role.displayName}</option>)}
+                    </Select>
                   )}
-                </div>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => testRule(rule.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-blue-600" title="Test">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </button>
-                  <button onClick={() => toggleRule(rule.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-amber-600" title="Toggle">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={rule.isActive ? "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" : "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"} /></svg>
-                  </button>
-                  <button onClick={() => setEditing(rule)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Edit">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                  </button>
-                  <button onClick={() => deleteRule(rule.id)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
+
+                  {r.recipientType === 'GROUP' && (
+                    <Select
+                      value={r.groupId ?? ''}
+                      onChange={e => updateRecipient(idx, 'groupId', e.target.value)}
+                      className="w-auto flex-1"
+                    >
+                      <option value="">Select group...</option>
+                      {groups?.map(g => <option key={g.id} value={g.id}>{g.name} ({g.memberCount} members)</option>)}
+                    </Select>
+                  )}
+
+                  {r.recipientType === 'USER' && (
+                    <Select
+                      value={r.userId ?? ''}
+                      onChange={e => updateRecipient(idx, 'userId', e.target.value)}
+                      className="w-auto flex-1"
+                    >
+                      <option value="">Select user...</option>
+                      {users.map((u: UserOption) => <option key={u.id} value={u.id}>{u.fullName} ({u.username})</option>)}
+                    </Select>
+                  )}
+
+                  <button onClick={() => removeRecipient(idx)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-500">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
                 </div>
-              </div>
+              ))}
             </div>
-          ))}
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => addRecipient('ROLE')} className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100">+ Add Role</button>
+              <button onClick={() => addRecipient('GROUP')} className="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-700 rounded-lg hover:bg-green-100">+ Add Group</button>
+              <button onClick={() => addRecipient('USER')} className="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100">+ Add User</button>
+            </div>
+          </div>
+
+          {/* Cooldown & Priority */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Cooldown (minutes)</label>
+              <Input type="number" min={0} value={editing.cooldownMinutes ?? 0} onChange={e => setEditing({ ...editing, cooldownMinutes: Number(e.target.value) })} />
+              <p className="text-xs text-slate-400 mt-1">0 = no cooldown, send every time</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
+              <Input type="number" value={editing.priority ?? 0} onChange={e => setEditing({ ...editing, priority: Number(e.target.value) })} />
+              <p className="text-xs text-slate-400 mt-1">Higher = evaluated first</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button onClick={saveRule} disabled={saving || !editing.name || !(editing.eventTypes?.length)}>
+              {saving ? 'Saving...' : editing.id ? 'Update Rule' : 'Create Rule'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {listError && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">{listError}</div>}
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-slate-500">{rules?.length ?? 0} notification rules configured</p>
+            <Button onClick={() => openEditor({ name: '', eventType: '', eventTypes: [], emailEnabled: true, inAppEnabled: true, smsEnabled: false, cooldownMinutes: 0, priority: 0, isActive: true, recipients: [], conditions: {} })}>
+              + New Rule
+            </Button>
+          </div>
+
+          {!rules?.length ? (
+            <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center">
+              <svg className="w-12 h-12 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+              <p className="text-slate-500 font-medium">No notification rules yet</p>
+              <p className="text-sm text-slate-400 mt-1">Create rules to send alerts when events occur</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {rules.map(rule => (
+                <div key={rule.id} className={`bg-white rounded-xl border-2 p-4 transition-all ${rule.isActive ? 'border-slate-200' : 'border-slate-100 opacity-60'}`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-slate-800">{rule.name}</h4>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${rule.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {rule.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5">
+                        {(rule.eventTypesMeta?.length ? rule.eventTypesMeta : [rule.eventTypeMeta].filter(Boolean)).map((meta, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium">
+                            {meta?.label ?? rule.eventType}
+                          </span>
+                        ))}
+                        <div className="flex gap-1">
+                          {rule.emailEnabled && <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-xs">Email</span>}
+                          {rule.smsEnabled && <span className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded text-xs">SMS</span>}
+                          {rule.inAppEnabled && <span className="px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded text-xs">In-App</span>}
+                        </div>
+                      </div>
+                      {rule.recipients.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {rule.recipients.map((r, i) => (
+                            <span key={i} className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                              r.recipientType === 'ROLE' ? 'bg-blue-100 text-blue-700' :
+                              r.recipientType === 'GROUP' ? 'bg-green-100 text-green-700' :
+                              'bg-purple-100 text-purple-700'
+                            }`}>
+                              {r.recipientType === 'ROLE' ? 'Role: ' : r.recipientType === 'GROUP' ? 'Group: ' : 'User: '}
+                              {r.displayName}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => testRule(rule.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-blue-600" title="Test">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      </button>
+                      <button onClick={() => toggleRule(rule.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-amber-600" title="Toggle">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={rule.isActive ? "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" : "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"} /></svg>
+                      </button>
+                      <button onClick={() => openEditor(rule)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Edit">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                      </button>
+                      <button onClick={() => deleteRule(rule.id)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -541,18 +555,30 @@ function GroupsTab() {
   const [newDesc, setNewDesc] = useState('');
   const [managingId, setManagingId] = useState<string | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
+  // True when the member list could not be read: the view then shows the
+  // error instead of claiming the group has no members.
+  const [membersFailed, setMembersFailed] = useState(false);
+  // The last refused write (or failed member load) of whichever view is open.
+  // A dismissed signature (REAUTH_CANCELLED) is not a failure and sets nothing.
+  const [error, setError] = useState('');
   const reauth = useReauth();
   const [addUserId, setAddUserId] = useState('');
 
+  const failed = (err: any, fallback: string) => {
+    if (!isReauthCancelled(err)) setError(err?.message || fallback);
+  };
+
   // MANAGE_USER_GROUPS is a configurable re-auth row (2026-09-24). A dismissed
-  // dialog rejects with REAUTH_CANCELLED and simply leaves the group as it was.
+  // dialog rejects with REAUTH_CANCELLED and simply leaves the group as it was;
+  // any other refusal is shown (these used to be `catch { return; }`, silent).
   const createGroup = async () => {
     if (!newName) return;
     const body = { name: newName, description: newDesc };
+    setError('');
     try {
       await reauth.executeWithResult('MANAGE_USER_GROUPS', (pw) => pw
         ? apiClient.postWithReauth('/api/user-groups', body, pw) : apiClient.post('/api/user-groups', body));
-    } catch { return; }
+    } catch (err) { failed(err, 'Failed to create group'); return; }
     mutate();
     setCreating(false);
     setNewName('');
@@ -561,27 +587,42 @@ function GroupsTab() {
 
   const deleteGroup = async (id: string) => {
     if (!confirm('Delete this group?')) return;
+    setError('');
     try {
       await reauth.executeWithResult('MANAGE_USER_GROUPS', (pw) => pw
         ? apiClient.deleteWithReauth(`/api/user-groups/${id}`, pw) : apiClient.delete(`/api/user-groups/${id}`));
-    } catch { return; }
+    } catch (err) { failed(err, 'Failed to delete group'); return; }
     mutate();
   };
 
   const loadMembers = async (groupId: string) => {
     setManagingId(groupId);
-    const data = await apiClient.get<GroupMember[]>(`/api/user-groups/${groupId}/members`);
-    setMembers(data);
+    setError('');
+    try {
+      setMembers(await apiClient.get<GroupMember[]>(`/api/user-groups/${groupId}/members`));
+      setMembersFailed(false);
+    } catch (err) {
+      setMembers([]);
+      setMembersFailed(true);
+      failed(err, 'Failed to load group members');
+    }
+  };
+
+  const closeMembers = () => {
+    setManagingId(null);
+    setMembersFailed(false);
+    setError('');
   };
 
   const addMember = async () => {
     if (!managingId || !addUserId) return;
     const body = { userIds: [addUserId] };
+    setError('');
     try {
       await reauth.executeWithResult('MANAGE_USER_GROUPS', (pw) => pw
         ? apiClient.postWithReauth(`/api/user-groups/${managingId}/members`, body, pw)
         : apiClient.post(`/api/user-groups/${managingId}/members`, body));
-    } catch { return; }
+    } catch (err) { failed(err, 'Failed to add member'); return; }
     setAddUserId('');
     loadMembers(managingId);
     mutate();
@@ -589,106 +630,117 @@ function GroupsTab() {
 
   const removeMember = async (userId: string) => {
     if (!managingId) return;
+    setError('');
     try {
       await reauth.executeWithResult('MANAGE_USER_GROUPS', (pw) => pw
         ? apiClient.deleteWithReauth(`/api/user-groups/${managingId}/members/${userId}`, pw)
         : apiClient.delete(`/api/user-groups/${managingId}/members/${userId}`));
-    } catch { return; }
+    } catch (err) { failed(err, 'Failed to remove member'); return; }
     loadMembers(managingId);
     mutate();
   };
 
-  if (managingId) {
-    const group = groups?.find(g => g.id === managingId);
-    return (
-      <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-800">Members of &quot;{group?.name}&quot;</h3>
-          <button onClick={() => setManagingId(null)} className="p-2 rounded-lg hover:bg-slate-100">
-            <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
+  const errorBanner = error
+    ? <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>
+    : null;
 
-        <div className="flex gap-2">
-          <Select value={addUserId} onChange={e => setAddUserId(e.target.value)} className="w-auto flex-1">
-            <option value="">Select user to add...</option>
-            {users.filter((u: UserOption) => !members.some(m => m.userId === u.id)).map((u: UserOption) => (
-              <option key={u.id} value={u.id}>{u.fullName} ({u.username}) - {u.role}</option>
-            ))}
-          </Select>
-          <Button onClick={addMember} disabled={!addUserId}>Add</Button>
-        </div>
+  const managedGroup = managingId ? groups?.find(g => g.id === managingId) : undefined;
 
-        {members.length === 0 ? (
-          <p className="text-sm text-slate-400 text-center py-4">No members in this group yet</p>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {members.map(m => (
-              <div key={m.id} className="flex items-center justify-between py-3">
-                <div>
-                  <span className="font-medium text-slate-800">{m.user?.fullName ?? m.userId}</span>
-                  <span className="text-sm text-slate-400 ml-2">{m.user?.username} - {m.user?.email}</span>
-                  <span className="ml-2 px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-500">{m.user?.role}</span>
-                </div>
-                <button onClick={() => removeMember(m.userId)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
+  // ONE password prompt for both views (see RulesTab): the members view used
+  // to return early without it, so a signed add/remove never completed.
   return (
-    <div className="space-y-4">
+    <>
       <ReauthPrompt reauth={reauth} />
-      <div className="flex justify-between items-center">
-        <p className="text-sm text-slate-500">{groups?.length ?? 0} user groups</p>
-        <Button onClick={() => setCreating(true)}>+ New Group</Button>
-      </div>
-
-      {creating && (
-        <div className="bg-white rounded-xl border-2 border-blue-200 p-4 space-y-3">
-          <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Group name" />
-          <Input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Description (optional)" />
-          <div className="flex gap-2">
-            <Button onClick={createGroup} disabled={!newName}>Create</Button>
-            <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
+      {managingId ? (
+        <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-slate-800">Members of &quot;{managedGroup?.name}&quot;</h3>
+            <button onClick={closeMembers} className="p-2 rounded-lg hover:bg-slate-100">
+              <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
           </div>
-        </div>
-      )}
 
-      {!groups?.length && !creating ? (
-        <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center">
-          <p className="text-slate-500 font-medium">No user groups yet</p>
-          <p className="text-sm text-slate-400 mt-1">Create groups to organize notification recipients</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {groups?.map(group => (
-            <div key={group.id} className="bg-white rounded-xl border border-slate-300 p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h4 className="font-semibold text-slate-800">{group.name}</h4>
-                  {group.description && <p className="text-sm text-slate-400 mt-0.5">{group.description}</p>}
-                  <p className="text-sm text-slate-500 mt-1">{group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</p>
-                </div>
-                <div className="flex gap-1">
-                  <button onClick={() => loadMembers(group.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Manage Members">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                  </button>
-                  <button onClick={() => deleteGroup(group.id)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
+          {errorBanner}
+
+          <div className="flex gap-2">
+            <Select value={addUserId} onChange={e => setAddUserId(e.target.value)} className="w-auto flex-1">
+              <option value="">Select user to add...</option>
+              {users.filter((u: UserOption) => !members.some(m => m.userId === u.id)).map((u: UserOption) => (
+                <option key={u.id} value={u.id}>{u.fullName} ({u.username}) - {u.role}</option>
+              ))}
+            </Select>
+            <Button onClick={addMember} disabled={!addUserId}>Add</Button>
+          </div>
+
+          {members.length === 0 ? (
+            !membersFailed && <p className="text-sm text-slate-400 text-center py-4">No members in this group yet</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {members.map(m => (
+                <div key={m.id} className="flex items-center justify-between py-3">
+                  <div>
+                    <span className="font-medium text-slate-800">{m.user?.fullName ?? m.userId}</span>
+                    <span className="text-sm text-slate-400 ml-2">{m.user?.username} - {m.user?.email}</span>
+                    <span className="ml-2 px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-500">{m.user?.role}</span>
+                  </div>
+                  <button onClick={() => removeMember(m.userId)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
                 </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {errorBanner}
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-slate-500">{groups?.length ?? 0} user groups</p>
+            <Button onClick={() => setCreating(true)}>+ New Group</Button>
+          </div>
+
+          {creating && (
+            <div className="bg-white rounded-xl border-2 border-blue-200 p-4 space-y-3">
+              <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Group name" />
+              <Input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Description (optional)" />
+              <div className="flex gap-2">
+                <Button onClick={createGroup} disabled={!newName}>Create</Button>
+                <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
               </div>
             </div>
-          ))}
+          )}
+
+          {!groups?.length && !creating ? (
+            <div className="bg-white rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center">
+              <p className="text-slate-500 font-medium">No user groups yet</p>
+              <p className="text-sm text-slate-400 mt-1">Create groups to organize notification recipients</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {groups?.map(group => (
+                <div key={group.id} className="bg-white rounded-xl border border-slate-300 p-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h4 className="font-semibold text-slate-800">{group.name}</h4>
+                      {group.description && <p className="text-sm text-slate-400 mt-0.5">{group.description}</p>}
+                      <p className="text-sm text-slate-500 mt-1">{group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => loadMembers(group.id)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Manage Members">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                      </button>
+                      <button onClick={() => deleteGroup(group.id)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Delete">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -698,6 +750,7 @@ function TemplatesTab() {
   const { data: eventTypes } = useSWR<EventTypeMeta[]>('/api/notification-rules/event-types', { revalidateOnMount: true, dedupingInterval: 0 });
   const [editing, setEditing] = useState<Partial<Template> | null>(null);
   const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
 
   const saveTemplate = async () => {
     if (!editing?.name || !editing?.bodyTemplate) return;
@@ -718,7 +771,14 @@ function TemplatesTab() {
 
   const deleteTemplate = async (id: string) => {
     if (!confirm('Delete this template?')) return;
-    await apiClient.delete(`/api/notification-settings/templates/${id}`);
+    // The template routes take no signature (CONFIG_UPDATE only), so there is
+    // no cancel case here. A refusal used to be an unhandled rejection.
+    try {
+      await apiClient.delete(`/api/notification-settings/templates/${id}`);
+    } catch (err: any) {
+      toast.error('Delete failed', err?.message || 'The template could not be deleted.');
+      return;
+    }
     mutate();
   };
 
@@ -769,8 +829,10 @@ function TemplatesTab() {
           <div className="bg-blue-50 rounded-lg p-3">
             <p className="text-xs font-medium text-blue-700 mb-1">Available variables:</p>
             <div className="flex flex-wrap gap-1">
+              {/* The engine's syntax, `${name}` (template-engine.ts). JSX text
+                  `$` + `{v}` printed an extra `$`: `${$name}`, never substituted. */}
               {selectedEvent.variables.map(v => (
-                <code key={v} className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">${'{'}${v}{'}'}</code>
+                <code key={v} className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">{'${' + v + '}'}</code>
               ))}
             </div>
           </div>

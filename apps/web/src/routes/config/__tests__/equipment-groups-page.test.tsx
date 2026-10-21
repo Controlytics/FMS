@@ -4,6 +4,7 @@ import { Routes, Route } from 'react-router-dom';
 import { mockApi, renderPage, type MockRoute, type MockRequest } from '@/test-utils/page-harness';
 import { EquipmentGroupsConfigPage } from '../equipment-groups';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 // Multi-request flows: the 5s / 1s defaults are too tight when the suite runs
 // under coverage alongside other workers.
@@ -193,6 +194,20 @@ describe('Equipment Groups page - delete', () => {
     await waitFor(() => expect(api.calls('DELETE', p)).toHaveLength(2));
     expect(api.calls('DELETE', p)[1].headers['x-reauth-password']).toBe('del-pw');
     expect(api.calls('DELETE', p)[1].json).toEqual({ _currentPassword: 'del-pw' });
+  });
+
+  it('cancelling the delete signature deletes nothing and reports no failure (item 9)', async () => {
+    const p = `${groupsPath}/g1`;
+    const api = setup({ extra: [reauthRequired('DELETE', p)] });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await screen.findByRole('heading', { name: 'EG Alpha' });
+    const consoleError = spyConsoleError();
+    await act(async () => { fireEvent.click(within(groupCard('EG Alpha')).getByRole('button', { name: 'Delete' })); });
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    expect(api.calls('DELETE', p)).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'EG Alpha' })).toBeInTheDocument();
   });
 });
 
@@ -405,7 +420,8 @@ describe('Equipment Groups page - create', () => {
     expect(await screen.findByText('Equipment group created')).toBeInTheDocument();
   });
 
-  it('cancelling the signature frees the Save button and sends nothing more', async () => {
+  it('cancelling the signature frees the Save button, sends nothing more and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['CREATE_EQUIPMENT_GROUP'] });
     await openCreate({} as any);
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
@@ -415,6 +431,7 @@ describe('Equipment Groups page - create', () => {
     expect(saveBtn()).toHaveTextContent('Saving...');
     await cancelReauth();
     await waitFor(() => expect(saveBtn()).toHaveTextContent('Save Equipment Group'));
+    expectSilentCancel(consoleError);
     expect(api.calls('POST', groupsPath)).toHaveLength(0);
     // The editor stays open with the operator's input.
     expect((within(dialog()).getByPlaceholderText('e.g. Equipment Group 1') as HTMLInputElement).value).toBe('EG New');

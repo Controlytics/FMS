@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { screen, fireEvent, waitFor, act, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute, type MockApi } from '@/test-utils/page-harness';
 import { ReplacementScheduleFiltersPage } from '../replacement-schedule-filters';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth, ackMessage } from './config-test-helpers';
@@ -33,16 +33,15 @@ async function catalogLoaded(api: MockApi) {
   await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
 }
 
-// The switches carry no accessible name, so they are located by their row: [PM, Replacement].
-const switches = (roleLabel: string) => {
-  const row = screen.getByText(roleLabel).closest('div.flex') as HTMLElement;
-  const [pm, rep] = within(row).getAllByRole('button');
-  return { pm, rep };
-};
+// Each toggle is a named switch (2026-10-21; it used to be an unnamed button found by its row).
+const switches = (roleLabel: string) => ({
+  pm: screen.getByRole('switch', { name: `PM Schedule filters for ${roleLabel}` }),
+  rep: screen.getByRole('switch', { name: `Replacement Schedule filters for ${roleLabel}` }),
+});
 const saveBtn = () => screen.getByRole('button', { name: /Save Changes|Saving/ });
 async function ready() {
-  await waitFor(() => expect(switches('Supervisor').pm).toHaveAttribute('aria-pressed', 'true'), W);
-  await waitFor(() => expect(switches('OPERATOR').rep).toHaveAttribute('aria-pressed', 'true'), W);
+  await waitFor(() => expect(switches('Supervisor').pm).toHaveAttribute('aria-checked', 'true'), W);
+  await waitFor(() => expect(switches('OPERATOR').rep).toHaveAttribute('aria-checked', 'true'), W);
 }
 
 describe('Schedule AHU filters page', () => {
@@ -51,8 +50,8 @@ describe('Schedule AHU filters page', () => {
     expect(screen.getByRole('heading', { name: 'Schedule AHU Filters' })).toBeInTheDocument();
     await ready();
     expect(screen.queryByText('Super Admin')).toBeNull();
-    expect(switches('Supervisor').rep).toHaveAttribute('aria-pressed', 'false');
-    expect(switches('OPERATOR').pm).toHaveAttribute('aria-pressed', 'false');
+    expect(switches('Supervisor').rep).toHaveAttribute('aria-checked', 'false');
+    expect(switches('OPERATOR').pm).toHaveAttribute('aria-checked', 'false');
     expect(saveBtn()).toBeDisabled();
     expect(api.unmatched).toEqual([]);
   });
@@ -66,7 +65,7 @@ describe('Schedule AHU filters page', () => {
     setup();
     await ready();
     fireEvent.click(switches('OPERATOR').pm);
-    expect(switches('OPERATOR').pm).toHaveAttribute('aria-pressed', 'true');
+    expect(switches('OPERATOR').pm).toHaveAttribute('aria-checked', 'true');
     expect(saveBtn()).not.toBeDisabled();
     fireEvent.click(switches('OPERATOR').pm);
     expect(saveBtn()).toBeDisabled();
@@ -130,5 +129,33 @@ describe('Schedule AHU filters page', () => {
     expect(api.calls('PUT', PM)).toHaveLength(0);
     expect(api.calls('PUT', REP)).toHaveLength(0);
     expect(screen.queryByRole('heading', { name: 'Save failed' })).toBeNull();
+    expect(screen.queryByText(/password confirmation was not completed/)).toBeNull();
+  });
+});
+
+describe('Schedule AHU filters page - accessibility', () => {
+  it('every toggle is a named switch that reports its state', async () => {
+    setup();
+    const sup = await screen.findByRole('switch', { name: 'PM Schedule filters for Supervisor' }, W);
+    expect(sup).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Replacement Schedule filters for Supervisor' })).toHaveAttribute('aria-checked', 'false');
+    // A role with no display name is named by its key.
+    expect(screen.getByRole('switch', { name: 'PM Schedule filters for OPERATOR' })).toHaveAttribute('aria-checked', 'false');
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Replacement Schedule filters for OPERATOR' })).toHaveAttribute('aria-checked', 'true'), W);
+    // SUPER_ADMIN is not configurable here.
+    expect(screen.queryByRole('switch', { name: /Super Admin/ })).toBeNull();
+    expect(screen.getAllByRole('switch')).toHaveLength(4);
+  });
+
+  it('toggling a switch flips its state and keeps keyboard focus on it', async () => {
+    setup();
+    const sw = await screen.findByRole('switch', { name: 'PM Schedule filters for OPERATOR' }, W);
+    sw.focus();
+    fireEvent.click(sw);
+    const after = screen.getByRole('switch', { name: 'PM Schedule filters for OPERATOR' });
+    expect(after).toHaveAttribute('aria-checked', 'true');
+    // The same element survives the re-render (it used to be re-created).
+    expect(after).toBe(sw);
+    expect(document.activeElement).toBe(sw);
   });
 });

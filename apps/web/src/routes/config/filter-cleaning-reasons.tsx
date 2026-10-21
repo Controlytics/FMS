@@ -13,6 +13,8 @@ interface CleaningReason {
 
 export function CleaningReasonsConfigPage() {
   // 2026-05-26 audit fix (PA-FE-1): gate Add/Edit/Save on CONFIG_UPDATE.
+  // 2026-10-21: Edit and the Active boxes were in fact NOT gated, so a
+  // read-only role could change a list it can never save. Both are now.
   const { user } = useAuth();
   const perms = (user?.permissions as string[] | undefined) ?? [];
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -54,6 +56,10 @@ export function CleaningReasonsConfigPage() {
           console.error(e);
           setSaving(false);
         },
+        // Dismissing the password prompt is not a failure: free the button,
+        // keep the edits, say nothing (it used to land in onError - red banner
+        // and a console.error for a deliberate cancel).
+        onCancel: () => setSaving(false),
       },
     );
   };
@@ -176,13 +182,14 @@ export function CleaningReasonsConfigPage() {
                   </span>
                 )}
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={r.isActive} disabled={r.key === 'PM'}
+                  <input type="checkbox" checked={r.isActive} disabled={!canWrite || r.key === 'PM'}
                     onChange={e => setReasons(reasons.map(x => x.key === r.key ? { ...x, isActive: e.target.checked } : x))}
                     className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-brand-600/15" />
                   <span className="text-sm text-slate-500">Active</span>
                 </label>
-                <button onClick={() => openEdit(r)}
-                  className="text-slate-400 hover:text-cyan-600 text-sm font-medium transition-colors">
+                <button onClick={() => openEdit(r)} disabled={!canWrite}
+                  title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
+                  className="text-slate-400 hover:text-cyan-600 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400">
                   Edit
                 </button>
               </div>

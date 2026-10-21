@@ -3,9 +3,10 @@ import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute, type MockApi } from '@/test-utils/page-harness';
 import { OfflineCacheConfigPage } from '../offline-cache';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 vi.setConfig({ testTimeout: 30000 });
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const PATH = '/api/config/offline-cache';
 const W = { timeout: 5000 };
@@ -130,7 +131,8 @@ describe('Offline cache settings page', () => {
     expect(await screen.findByText('Offline cache settings updated.', undefined, W)).toBeInTheDocument();
   });
 
-  it('signature required up front names UPDATE_OFFLINE_CACHE_CONFIG; cancel sends nothing', async () => {
+  it('signature required up front names UPDATE_OFFLINE_CACHE_CONFIG; cancel sends nothing and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['UPDATE_OFFLINE_CACHE_CONFIG'] });
     await loaded();
     await catalogLoaded(api);
@@ -140,9 +142,25 @@ describe('Offline cache settings page', () => {
     expect(await screen.findByText(/Performing "Update Offline Cache Config" requires identity verification/)).toBeInTheDocument();
     await cancelReauth();
     await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
     expect(api.calls('PUT', PATH)).toHaveLength(0);
     expect(screen.queryByText('Offline cache settings updated.')).toBeNull();
     // The edit is kept, so it can be saved again.
+    expect(staleness().value).toBe('6');
+    expect(saveBtn()).not.toBeDisabled();
+  });
+
+  it('cancelling a server-demanded signature reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await loaded();
+    fireEvent.change(staleness(), { target: { value: '6' } });
+    await waitFor(() => expect(saveBtn()).not.toBeDisabled());
+    await submit();
+    await cancelReauth();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
     expect(staleness().value).toBe('6');
     expect(saveBtn()).not.toBeDisabled();
   });

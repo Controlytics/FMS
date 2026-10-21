@@ -117,6 +117,10 @@ export default function DashboardCardsConfig() {
           setToast(e.message ?? 'Save failed');
           setSaving(false);
         },
+        // A dismissed password prompt is not a failure (item 9): free Save and
+        // show no notice. Without this the cancel text landed in the green
+        // notice that normally says "Saved".
+        onCancel: () => setSaving(false),
       },
     );
   };

@@ -75,6 +75,15 @@ function normalise(values: Record<string, any>): string {
   return JSON.stringify(sortValue(values));
 }
 
+/**
+ * True when the server holds a saved row for this module. The API answers a
+ * key that was never saved with `{}` (config/dynamic-routes.ts `row?.configValue
+ * ?? {}`), so an empty object means "never saved", not "saved as empty".
+ */
+function hasStoredValues(v: unknown): v is Record<string, any> {
+  return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
+}
+
 function groupSettings(settings: SettingDef[]) {
   const map = new Map<string, SettingDef[]>();
   for (const s of settings) {
@@ -98,16 +107,29 @@ export function DynamicConfigPage() {
   const canWrite = isSuperAdmin || perms.includes('CONFIG_UPDATE');
   const reauth = useReauth();
 
-  const { data: manifest } = useSWR<ManifestEntry[]>(
+  const { data: manifest, error: manifestError, mutate: reloadManifest } = useSWR<ManifestEntry[]>(
     '/api/config/registry/manifest',
     { revalidateOnMount: true, dedupingInterval: 5000 }
   );
   const moduleDef = manifest?.find(m => m.moduleKey === moduleKey);
 
-  const { data: savedValues, error: savedValuesError, mutate } = useSWR(
+  const { data: savedValues, error: savedValuesError, isLoading: savedLoading, mutate } = useSWR(
     moduleKey ? `/api/config/dynamic/${moduleKey}` : null,
     { revalidateOnMount: true, dedupingInterval: 0 }
   );
+  // Three outcomes of the saved-values read, kept apart (2026-10-21). The page
+  // used to seed the def DEFAULTS whenever `savedValues` was missing - while the
+  // GET was still in flight and after it failed - and, with no baseline, that
+  // enabled Save: one click wrote the defaults over the real stored config.
+  //  - loading:    nothing is known yet; no form, no Save.
+  //  - loadFailed: the read failed and nothing was ever loaded; say so, offer
+  //                Retry, no form, no Save. (A failed REVALIDATION keeps the
+  //                last good values on screen - `savedValues` is still set.)
+  //  - ready:      loaded; `{}` means never saved (defaults offered, Save on),
+  //                anything else is the stored row.
+  const loadFailed = savedValues === undefined && !!savedValuesError;
+  const loading = savedValues === undefined && !savedValuesError && savedLoading;
+  const ready = !loading && !loadFailed;
 
   const [values, setValues] = useState<Record<string, any>>({});
   // Snapshot of the values as last seeded from the server, used to gate the
@@ -118,6 +140,9 @@ export function DynamicConfigPage() {
   // `null` means "this module has no saved row yet", in which case Save stays
   // enabled so an admin can persist the def defaults on a first visit.
   const [baseline, setBaseline] = useState<string | null>(null);
+  // The form renders only after `values` has been seeded from a completed read,
+  // so not even one frame shows unseeded fields with Save enabled.
+  const [seeded, setSeeded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -159,10 +184,14 @@ export function DynamicConfigPage() {
   }, [moduleDef]);
 
   useEffect(() => {
-    if (savedValues) {
+    if (!moduleDef || !ready) {
+      setSeeded(false);
+      return;
+    }
+    if (hasStoredValues(savedValues)) {
       setValues(savedValues);
       setBaseline(normalise(savedValues));
-    } else if (moduleDef) {
+    } else {
       const defaults: Record<string, any> = {};
       for (const s of moduleDef.settings) {
         if (s.default !== undefined) defaults[s.key] = s.default;
@@ -170,7 +199,31 @@ export function DynamicConfigPage() {
       setValues(defaults);
       setBaseline(null);
     }
-  }, [savedValues, moduleDef]);
+    setSeeded(true);
+  }, [savedValues, moduleDef, ready]);
+
+  // The registry itself is still loading or failed: not knowing the module is
+  // not the same as the module not existing.
+  if (!manifest) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center space-y-3 max-w-md">
+          {manifestError ? (
+            <>
+              <h2 className="text-lg font-semibold text-slate-800">Could not load the configuration registry</h2>
+              <p className="text-sm text-red-600">{manifestError.message}</p>
+              <div className="flex justify-center gap-2">
+                <Button variant="outline" onClick={() => reloadManifest()}>Retry</Button>
+                <Button variant="outline" onClick={() => navigate('/config')}>Back to Settings</Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">Loading configuration…</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (!moduleDef) {
     return (
@@ -243,45 +296,43 @@ export function DynamicConfigPage() {
     setError('');
     setSuccess('');
 
-    try {
-      // 2026-05-26 audit fix (PA-CLEANUP-2): pre-fix this constructed
-      // `UPDATE_${KEY}` from the URL path. For `session` that produced
-      // `UPDATE_SESSION` — which is NOT declared in shared types.
-      // The declared key is `UPDATE_SESSION_CONFIG`. Maintain a small
-      // override map for the keys that don't follow the suffix-strip
-      // convention; the BE hardcoded fallback in config/routes.ts:99
-      // already enforces reauth, so the failure mode pre-fix was that
-      // operators got a retroactive 401 instead of a clean dialog.
-      const reauthActionByModuleKey: Record<string, string> = {
-        session: 'UPDATE_SESSION_CONFIG',
-        datetime: 'UPDATE_DATETIME_CONFIG',
-      };
-      // 2026-09-24: the manifest now says which row the API enforces
-      // (`def.reauthAction`, e.g. the UPDATE_CONFIG_PAGE umbrella), so the
-      // dialog opens up front instead of on a retroactive 401.
-      const action =
-        moduleDef?.reauthAction ??
-        reauthActionByModuleKey[moduleKey!] ??
-        `UPDATE_${moduleKey!.toUpperCase().replace(/-/g, '_')}`;
-      await reauth.execute(action, async (password?) => {
-        const body = { ...values };
-        if (password) (body as any)._currentPassword = password;
-        await apiClient.put(`/api/config/dynamic/${moduleKey}`, body);
-        mutate();
-      }, {
-        onSuccess: () => {
-          setSuccess('Settings saved successfully');
-          setSaving(false);
-        },
-        onError: (err: any) => {
-          setError(err?.message || 'Failed to save');
-          setSaving(false);
-        },
-      });
-    } catch (err: any) {
-      setError(err?.message || 'Failed to save');
-      setSaving(false);
-    }
+    // 2026-05-26 audit fix (PA-CLEANUP-2): pre-fix this constructed
+    // `UPDATE_${KEY}` from the URL path. For `session` that produced
+    // `UPDATE_SESSION` — which is NOT declared in shared types.
+    // The declared key is `UPDATE_SESSION_CONFIG`. Maintain a small
+    // override map for the keys that don't follow the suffix-strip
+    // convention; the BE hardcoded fallback in config/routes.ts:99
+    // already enforces reauth, so the failure mode pre-fix was that
+    // operators got a retroactive 401 instead of a clean dialog.
+    const reauthActionByModuleKey: Record<string, string> = {
+      session: 'UPDATE_SESSION_CONFIG',
+      datetime: 'UPDATE_DATETIME_CONFIG',
+    };
+    // 2026-09-24: the manifest now says which row the API enforces
+    // (`def.reauthAction`, e.g. the UPDATE_CONFIG_PAGE umbrella), so the
+    // dialog opens up front instead of on a retroactive 401.
+    const action =
+      moduleDef?.reauthAction ??
+      reauthActionByModuleKey[moduleKey!] ??
+      `UPDATE_${moduleKey!.toUpperCase().replace(/-/g, '_')}`;
+    await reauth.execute(action, async (password?) => {
+      const body = { ...values };
+      if (password) (body as any)._currentPassword = password;
+      await apiClient.put(`/api/config/dynamic/${moduleKey}`, body);
+      mutate();
+    }, {
+      onSuccess: () => {
+        setSuccess('Settings saved successfully');
+        setSaving(false);
+      },
+      onError: (err: any) => {
+        setError(err?.message || 'Failed to save');
+        setSaving(false);
+      },
+      // Dismissing the password prompt is not a failure: free the button,
+      // keep the edits, say nothing.
+      onCancel: () => setSaving(false),
+    });
   };
 
   const groups = groupSettings(moduleDef.settings);
@@ -309,6 +360,22 @@ export function DynamicConfigPage() {
         </div>
       )}
 
+      {loadFailed ? (
+        <Card>
+          <CardContent className="py-8 text-center space-y-3">
+            <p className="text-sm font-medium text-slate-800">Could not load the current settings.</p>
+            <p className="text-sm text-red-600">{savedValuesError?.message}</p>
+            <p className="text-xs text-slate-500">Nothing is shown and nothing can be saved until they load, so the stored values cannot be overwritten by mistake.</p>
+            <Button variant="outline" onClick={() => mutate()}>Retry</Button>
+          </CardContent>
+        </Card>
+      ) : !seeded ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <p className="text-sm text-slate-500">Loading current settings…</p>
+          </CardContent>
+        </Card>
+      ) : (<>
       {groups.map(group => (
         <Card key={group.name}>
           <CardHeader className="pb-3">
@@ -467,6 +534,7 @@ export function DynamicConfigPage() {
           {saving ? 'Saving...' : 'Save Changes'}
         </Button>
       </div>
+      </>)}
 
       <ReauthDialog
         open={reauth.isOpen}

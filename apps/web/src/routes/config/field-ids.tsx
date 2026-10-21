@@ -93,9 +93,8 @@ export function FieldIdsPage() {
    *
    * One `useReauth` covers both: each callback closes over the row it acts on,
    * so no row identity has to survive the dialog. `saving` is set BEFORE
-   * execute(), which means it must be cleared on the cancel path too — a cancel
-   * arrives through onError as REAUTH_CANCELLED and is not worth an error
-   * message.
+   * execute(), which means it must be cleared on the cancel path too — that is
+   * `onCancel`, which says nothing: a dismissed prompt is not a failure.
    */
   const signedPut = (fieldId: string, displayName: string, failMsg: string) =>
     reauth.execute(
@@ -114,9 +113,10 @@ export function FieldIdsPage() {
           setSaving(false);
         },
         onError: (err: any) => {
-          if (err?.error !== 'REAUTH_CANCELLED') setError(err?.message || failMsg);
+          setError(err?.message || failMsg);
           setSaving(false);
         },
+        onCancel: () => setSaving(false),
       },
     );
 

@@ -123,7 +123,7 @@ const actionsByCategory = REAUTH_ACTION_CATEGORIES.map((category) => ({
 })).filter(g => g.actions.length > 0);
 
 export function ActionReauthPage() {
-  const { data: config, isLoading: configLoading } = useSWR<ActionReauthConfig>('/api/config/action-reauth', { revalidateOnMount: true, dedupingInterval: 0 });
+  const { data: config, error: configError, isLoading: configLoading, mutate: reloadConfig } = useSWR<ActionReauthConfig>('/api/config/action-reauth', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: rolesData, isLoading: rolesLoading } = useSWR<RoleData[]>('/api/roles/active', { revalidateOnMount: true, dedupingInterval: 0 });
 
   const reauth = useReauth();
@@ -251,6 +251,8 @@ export function ActionReauthPage() {
   // password-challenged. Backend gate also enforces this independently
   // (apps/api/src/modules/config/static-routes/action-reauth.routes.ts).
   const handleSave = () => {
+    // Never write a policy built on one that did not load (see the load-error view).
+    if (!config) return;
     setSaving(true);
     setSaveMessage(null);
     reauth.execute(
@@ -274,6 +276,8 @@ export function ActionReauthPage() {
           setSaveMessage({ type: 'error', text: err.message ?? 'Failed to save settings.' });
           setSaving(false);
         },
+        // Dismissing the password prompt is a choice, not a failure: no banner.
+        onCancel: () => setSaving(false),
       },
     );
   };
@@ -302,29 +306,50 @@ export function ActionReauthPage() {
     return Object.values(currentConfig).filter(arr => arr?.includes(roleName)).length;
   };
 
+  const pageHeader = (actions?: React.ReactNode) => (
+    <PageHeader
+      title="Action Re-authentication"
+      subtitle="Require password verification for sensitive actions per role"
+      icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}
+      back={
+        <Link
+          to="/config"
+          className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:shadow-md transition-all"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </Link>
+      }
+      actions={actions}
+    />
+  );
+
+  // The stored policy did not load (2026-10-21, §11). It used to fall back to
+  // `{}`: every action showed "no password", the matrix stayed editable, and one
+  // tick + Save replaced the WHOLE stored policy - switching off every other
+  // signature requirement. Nothing is editable until the real policy arrives.
+  if (!config) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {pageHeader()}
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <p className="font-semibold">Could not load the re-authentication policy.</p>
+          <p className="mt-1">{(configError as { message?: string } | undefined)?.message || 'The server did not return the stored policy.'} Nothing can be changed until it loads - saving now would replace the stored policy.</p>
+          <Button size="sm" variant="outline" className="mt-3" onClick={() => reloadConfig()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in pb-24">
       {/* ── Header ── */}
-      <PageHeader
-        title="Action Re-authentication"
-        subtitle="Require password verification for sensitive actions per role"
-        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}
-        back={
-          <Link
-            to="/config"
-            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:shadow-md transition-all"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Link>
-        }
-        actions={hasChanges && (
+      {pageHeader(hasChanges && (
           <Badge className="bg-amber-100 text-amber-700 border border-amber-300 animate-pulse text-xs px-3 py-1">
             Unsaved Changes
           </Badge>
-        )}
-      />
+      ))}
 
       {/* ── Stats Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

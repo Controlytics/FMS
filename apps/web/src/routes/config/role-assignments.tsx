@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
 import useSWR from 'swr';
@@ -117,16 +117,22 @@ const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel,
   /** Many roles may hold this step (Upload, since 2026-09-04). The stored value
    *  may still be the legacy single-role string; it is shown as one selected chip. */
   multi?: boolean;
-}) => (
+}) => {
+  const titleId = useId();
+  return (
   <div className="relative flex gap-3">
     {/* connector line down to the next step */}
     {!last && <span className="absolute left-[13px] top-7 bottom-[-14px] w-px bg-slate-200" aria-hidden />}
     <span className="relative z-10 mt-0.5 shrink-0 grid place-items-center w-[26px] h-[26px] rounded-full bg-cyan-600 text-white text-[12px] font-bold ring-4 ring-white">
       {n}
     </span>
-    <label className="flex-1 min-w-0">
-      <span className="block text-[13px] font-semibold text-slate-700">{title}</span>
-      {multi ? (() => {
+    {/* A <label> labels its FIRST labelable descendant - for the chip picker
+        that was the first chip button, whose accessible name became the whole
+        label text. Chips sit in a named group; a single select keeps its label. */}
+    {multi ? (
+    <div className="flex-1 min-w-0" role="group" aria-labelledby={titleId}>
+      <span id={titleId} className="block text-[13px] font-semibold text-slate-700">{title}</span>
+      {(() => {
         const raw = cfg[k]?.[field];
         const sel: string[] = Array.isArray(raw) ? raw : (typeof raw === 'string' && raw.trim() ? [raw.trim()] : []);
         const toggle = (name: string) => patch(k, field, sel.includes(name) ? sel.filter((r) => r !== name) : [...sel, name]);
@@ -148,20 +154,26 @@ const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel,
             <p className="mt-1 text-[11px] text-slate-400">{sel.length === 0 ? blankLabel : `${sel.length} role${sel.length === 1 ? '' : 's'} selected`}</p>
           </div>
         );
-      })() : (
+      })()}
+    </div>
+    ) : (
+    <label className="flex-1 min-w-0">
+      <span className="block text-[13px] font-semibold text-slate-700">{title}</span>
       <Select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
         className="mt-1">
         <option value="">{blankLabel}</option>
         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
       </Select>
-      )}
     </label>
+    )}
   </div>
-);
+  );
+};
 
-const Switch = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
-  <button type="button" onClick={onClick} aria-pressed={on}
-    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-3 focus-visible:ring-brand-600/15 ${on ? 'bg-cyan-600' : 'bg-slate-300'}`}>
+/** `label` is the switch's accessible name - it has no text of its own. */
+const Switch = ({ on, onClick, label, disabled }: { on: boolean; onClick: () => void; label: string; disabled?: boolean }) => (
+  <button type="button" onClick={onClick} aria-pressed={on} aria-label={label} disabled={disabled}
+    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-3 focus-visible:ring-brand-600/15 disabled:opacity-40 disabled:cursor-not-allowed ${on ? 'bg-cyan-600' : 'bg-slate-300'}`}>
     <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
   </button>
 );
@@ -199,8 +211,11 @@ const RoleChips = ({ cfg, roles, toggleArr, k, field }: {
   );
 };
 
-const Card = ({ icon, tint, title, desc, wide, children }: {
-  icon: React.ReactNode; tint: 'cyan' | 'teal'; title: string; desc: string; wide?: boolean; children: React.ReactNode;
+const Card = ({ icon, tint, title, desc, wide, loadError, children }: {
+  icon: React.ReactNode; tint: 'cyan' | 'teal'; title: string; desc: string; wide?: boolean;
+  /** The section's config failed to load: show why, never its defaults or controls. */
+  loadError?: string;
+  children: React.ReactNode;
 }) => (
   <section className={`flex flex-col bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden ${wide ? 'lg:col-span-2' : ''}`}>
     <header className="flex items-start gap-3 px-5 py-4 border-b border-slate-100 bg-slate-50/60">
@@ -212,11 +227,18 @@ const Card = ({ icon, tint, title, desc, wide, children }: {
         <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
       </div>
     </header>
-    <div className="p-5 flex-1">{children}</div>
+    <div className="p-5 flex-1">
+      {loadError ? (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="font-semibold">Could not load this section.</p>
+          <p className="mt-1">{loadError} Its stored settings are not shown, and Save All leaves them unchanged. Reload the page to try again.</p>
+        </div>
+      ) : children}
+    </div>
   </section>
 );
 
-const WorkflowToggle = ({ on, onClick, hint }: { on: boolean; onClick: () => void; hint?: string }) => (
+const WorkflowToggle = ({ on, onClick, hint, disabled }: { on: boolean; onClick: () => void; hint?: string; disabled?: boolean }) => (
   <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 mb-5">
     <div className="min-w-0">
       <span className="block text-[13px] font-semibold text-slate-700">Review &amp; approval workflow</span>
@@ -225,7 +247,7 @@ const WorkflowToggle = ({ on, onClick, hint }: { on: boolean; onClick: () => voi
         {hint && <span className="ml-1 text-slate-400">{hint}</span>}
       </span>
     </div>
-    <Switch on={on} onClick={onClick} />
+    <Switch on={on} onClick={onClick} label="Review & approval workflow" disabled={disabled} />
   </div>
 );
 
@@ -238,16 +260,25 @@ export function RoleAssignmentsPage() {
   const [baseline, setBaseline] = useState<Record<CfgKey, Record<string, any>>>(EMPTY_CFG);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Sections whose config could not be read. They used to fall back to `{}` -
+  // their defaults, indistinguishable from "never configured" - and stay
+  // editable, so Save All could write those defaults over the stored config.
+  const [loadErrors, setLoadErrors] = useState<Partial<Record<CfgKey, string>>>({});
 
   useEffect(() => {
     let alive = true;
     (async () => {
+      const failed: Partial<Record<CfgKey, string>> = {};
       const entries = await Promise.all(CONFIG_KEYS.map(async (k) => {
         try { return [k, (await apiClient.get<any>(`/api/config/dynamic/${k}`)) ?? {}] as const; }
-        catch { return [k, {}] as const; }
+        catch (e: any) {
+          failed[k] = e?.message || 'The server did not return this section.';
+          return [k, {}] as const;
+        }
       }));
       if (!alive) return;
       const obj = Object.fromEntries(entries) as Record<CfgKey, Record<string, any>>;
+      setLoadErrors(failed);
       setCfg(obj);
       // Independent clone so editing cfg never mutates the comparison baseline.
       setBaseline(JSON.parse(JSON.stringify(obj)));
@@ -265,8 +296,9 @@ export function RoleAssignmentsPage() {
     patch(key, field, cur.includes(role) ? cur.filter((r) => r !== role) : [...cur, role]);
   };
 
-  // Only the sections whose value differs from the saved baseline get written.
-  const changedKeys = loaded ? CONFIG_KEYS.filter((k) => !jsonEqual(cfg[k] ?? {}, baseline[k] ?? {})) : [];
+  // Only the sections whose value differs from the saved baseline get written -
+  // never one that failed to load (its real stored value is unknown).
+  const changedKeys = loaded ? CONFIG_KEYS.filter((k) => !loadErrors[k] && !jsonEqual(cfg[k] ?? {}, baseline[k] ?? {})) : [];
   const dirty = changedKeys.length > 0;
 
   const saveAll = async () => {
@@ -304,6 +336,8 @@ export function RoleAssignmentsPage() {
   const filterWfOn = cfg['filter-approval']?.workflowEnabled === true;
   const rsInheriting = typeof rsWf !== 'boolean';
   const rsEffective = rsInheriting ? pmWfOn : rsWf === true;
+  // Inheriting from a PM setting that could not be read: the effective value is unknown.
+  const rsInheritsUnknown = rsInheriting && !!loadErrors['pm-schedule-approval'];
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -330,7 +364,7 @@ export function RoleAssignmentsPage() {
 
       {/* 2-up grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-        <Card icon={Icons.pm} tint="cyan" title="PM Schedule Workflow"
+        <Card icon={Icons.pm} tint="cyan" title="PM Schedule Workflow" loadError={loadErrors['pm-schedule-approval']}
           desc="Who uploads, reviews, and approves PM schedules.">
           <WorkflowToggle on={pmWfOn} onClick={() => patch('pm-schedule-approval', 'workflowEnabled', !pmWfOn)} />
           <div className="space-y-3.5">
@@ -340,11 +374,11 @@ export function RoleAssignmentsPage() {
           </div>
         </Card>
 
-        <Card icon={Icons.replacement} tint="cyan" title="Replacement Schedule Workflow"
+        <Card icon={Icons.replacement} tint="cyan" title="Replacement Schedule Workflow" loadError={loadErrors['replacement-schedule-approval']}
           desc="Who uploads, reviews, and approves replacement schedules. Leave a field on “Inherit from PM” to reuse the PM setting.">
-          <WorkflowToggle on={rsEffective}
+          <WorkflowToggle on={rsEffective} disabled={rsInheritsUnknown}
             onClick={() => patch('replacement-schedule-approval', 'workflowEnabled', !rsEffective)}
-            hint={rsInheriting ? '(inheriting from PM)' : undefined} />
+            hint={rsInheritsUnknown ? '(inherits from PM, which could not be loaded)' : rsInheriting ? '(inheriting from PM)' : undefined} />
           <div className="space-y-3.5">
             <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="uploadRole" n={1} multi title="Upload" blankLabel="Inherit from PM" />
             <WorkflowStep cfg={cfg} patch={patch} roles={roles} k="replacement-schedule-approval" field="reviewRole" n={2} title="Review" blankLabel="Inherit from PM" />
@@ -357,7 +391,7 @@ export function RoleAssignmentsPage() {
             old shared config, and coupling filter creation to the PM schedule
             roles would let one setting silently govern two unrelated surfaces.
             Blank = anyone holding the create/upload permission. */}
-        <Card icon={Icons.filter} tint="cyan" title="Filter Creation Workflow"
+        <Card icon={Icons.filter} tint="cyan" title="Filter Creation Workflow" loadError={loadErrors['filter-approval']}
           desc="Who creates/uploads, reviews, and approves NEW filters. While ON, a new filter is visible but cannot be operated until approved.">
           <WorkflowToggle on={filterWfOn} onClick={() => patch('filter-approval', 'workflowEnabled', !filterWfOn)} />
           <div className="space-y-3.5">
@@ -367,17 +401,17 @@ export function RoleAssignmentsPage() {
           </div>
         </Card>
 
-        <Card icon={Icons.qnn} tint="teal" title="QNN Notifications"
+        <Card icon={Icons.qnn} tint="teal" title="QNN Notifications" loadError={loadErrors['qnn-notifications']}
           desc="Which roles see Quality Notification (QNN) entries in the Notifications center.">
           <RoleChips cfg={cfg} roles={roles} toggleArr={toggleArr} k="qnn-notifications" field="visibleRoles" />
         </Card>
 
-        <Card icon={Icons.guest} tint="teal" title="Guest Cleaning Requests"
+        <Card icon={Icons.guest} tint="teal" title="Guest Cleaning Requests" loadError={loadErrors['guest-cleaning-requests']}
           desc="Which roles receive guest filter-cleaning requests sent from the login page.">
           <RoleChips cfg={cfg} roles={roles} toggleArr={toggleArr} k="guest-cleaning-requests" field="recipientRoles" />
         </Card>
 
-        <Card icon={Icons.block} tint="cyan" wide title="Cross-Block Cleaning"
+        <Card icon={Icons.block} tint="cyan" wide title="Cross-Block Cleaning" loadError={loadErrors['block-change-approval']}
           desc="How cleaning a filter in a block other than its home block is handled, and who approves it.">
           {(() => {
             const bk: CfgKey = 'block-change-approval';
@@ -422,7 +456,7 @@ export function RoleAssignmentsPage() {
                     <div>
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Require reason</span>
                       <div className="flex items-center gap-2 h-10">
-                        <Switch on={cfg[bk]?.requireReason !== false}
+                        <Switch on={cfg[bk]?.requireReason !== false} label="Require reason"
                           onClick={() => patch(bk, 'requireReason', !(cfg[bk]?.requireReason !== false))} />
                         <span className="text-xs text-slate-500">{cfg[bk]?.requireReason !== false ? 'Operator must give a reason' : 'Reason optional'}</span>
                       </div>
@@ -434,7 +468,7 @@ export function RoleAssignmentsPage() {
           })()}
         </Card>
 
-        <Card icon={Icons.interlock} tint="cyan" wide title="Cleaning Stage Interlock"
+        <Card icon={Icons.interlock} tint="cyan" wide title="Cleaning Stage Interlock" loadError={loadErrors['stage-interlock']}
           desc="Require a QA approval signature after Wash Out and after Dry Out before a filter can continue cleaning.">
           {(() => {
             const ik: CfgKey = 'stage-interlock';
@@ -450,7 +484,7 @@ export function RoleAssignmentsPage() {
                         : 'Off — cleaning advances without a QA approval gate.'}
                     </span>
                   </div>
-                  <Switch on={on} onClick={() => patch(ik, 'enabled', !on)} />
+                  <Switch on={on} onClick={() => patch(ik, 'enabled', !on)} label="Stage interlock" />
                 </div>
 
                 {on && (
@@ -486,7 +520,7 @@ export function RoleAssignmentsPage() {
           })()}
         </Card>
 
-        <Card icon={Icons.pmSettings} tint="teal" wide title="PM Schedule Settings"
+        <Card icon={Icons.pmSettings} tint="teal" wide title="PM Schedule Settings" loadError={loadErrors['pm-schedule-settings']}
           desc="Turn preventive-maintenance scheduling on, set the default tolerance, and choose who sees and is notified about tasks.">
           {(() => {
             const pk: CfgKey = 'pm-schedule-settings';
@@ -502,7 +536,7 @@ export function RoleAssignmentsPage() {
                       {on ? 'Preventive-maintenance tasks are generated and shown on My Tasks.' : 'Off — all PM endpoints are disabled.'}
                     </span>
                   </div>
-                  <Switch on={on} onClick={() => patch(pk, 'enabled', !on)} />
+                  <Switch on={on} onClick={() => patch(pk, 'enabled', !on)} label="PM scheduling" />
                 </div>
 
                 {on && (
@@ -530,7 +564,7 @@ export function RoleAssignmentsPage() {
                       <div>
                         <span className="block text-[13px] font-semibold text-slate-700 mb-1">Show overdue separately</span>
                         <div className="flex items-center gap-2 h-10">
-                          <Switch on={overdueSep} onClick={() => patch(pk, 'showOverdueSeparately', !overdueSep)} />
+                          <Switch on={overdueSep} onClick={() => patch(pk, 'showOverdueSeparately', !overdueSep)} label="Show overdue separately" />
                           <span className="text-xs text-slate-500">{overdueSep ? 'Own “Overdue” section' : 'Hidden'}</span>
                         </div>
                       </div>

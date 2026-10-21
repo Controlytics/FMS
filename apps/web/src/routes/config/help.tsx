@@ -190,6 +190,8 @@ export function HelpArticlesPage() {
           setFormError(msg);
           setSaving(false);
         },
+        // A dismissed password prompt is not a failure: free the button, say nothing.
+        onCancel: () => setSaving(false),
       },
     );
   };
@@ -254,6 +256,7 @@ export function HelpArticlesPage() {
           setFormError(msg);
           setSaving(false);
         },
+        onCancel: () => setSaving(false),
       },
     );
   };
@@ -292,6 +295,7 @@ export function HelpArticlesPage() {
           setDeleteError(msg);
           setDeleting(false);
         },
+        onCancel: () => setDeleting(false),
       },
     );
   };
@@ -837,6 +841,8 @@ export function HelpArticlesPage() {
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
         onCancel={reauth.cancel}
+        /* One dialog signs create, update and delete: name the one in progress. */
+        actionLabel={reauth.pendingActionLabel}
       />
     </div>
   );

@@ -139,6 +139,9 @@ describe('Configuration Access matrix', () => {
     await waitFor(() => expect(saveBtn()).toHaveTextContent('Save Changes'));
     expect(saveBtn()).not.toBeDisabled();
     expect(api.calls('PUT', PATH)).toHaveLength(0);
+    // Item 9: a deliberate cancel is not a failure - no "Save failed" dialog.
+    expect(screen.queryByRole('heading', { name: 'Save failed' })).toBeNull();
+    expect(screen.queryByText(/Cancelled —/)).toBeNull();
   });
 
   it('a refused save shows the server message', async () => {

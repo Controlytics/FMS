@@ -4,9 +4,10 @@ import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { AhuFilterSetConfigPage } from '../ahu-filter-set-config';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 vi.setConfig({ testTimeout: 30000 });
-afterEach(() => { resetEnv(); window.history.replaceState(null, ''); });
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); window.history.replaceState(null, ''); });
 
 const LIST = '/api/pm-schedules/ahu-configs';
 const PAGE = '/config/ahu-filter-set-config';
@@ -151,8 +152,8 @@ describe('AHU Filter Set Configuration', () => {
     expect(await screen.findByText('Saved', undefined, WAIT)).toBeInTheDocument();
   });
 
-  it('an up-front signature that is cancelled sends nothing and unlocks the row', async () => {
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('an up-front signature that is cancelled sends nothing, unlocks the row and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['UPDATE_CONFIG_PAGE'] });
     await loaded();
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0), WAIT);
@@ -161,8 +162,20 @@ describe('AHU Filter Set Configuration', () => {
     expect(selectOf('AHU-0A')).toBeDisabled();
     await cancelReauth();
     await waitFor(() => expect(selectOf('AHU-0A')).not.toBeDisabled(), WAIT);
+    expectSilentCancel(consoleError);
     expect(api.calls('PUT', `${LIST}/a1`)).toHaveLength(0);
-    err.mockRestore();
+  });
+
+  it('cancelling a server-demanded signature unlocks the row and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ extra: [reauthRequired('PUT', `${LIST}/a1`)] });
+    await loaded();
+    fireEvent.change(selectOf('AHU-0A'), { target: { value: 'SET_A' } });
+    await screen.findByPlaceholderText('Enter your password', undefined, WAIT);
+    await cancelReauth();
+    await waitFor(() => expect(selectOf('AHU-0A')).not.toBeDisabled(), WAIT);
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', `${LIST}/a1`)).toHaveLength(1);
   });
 
   it('PM_READ alone: every mode dropdown is disabled with the reason', async () => {

@@ -10,12 +10,62 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { AUDIT_TEMPLATE_DEFAULTS, AUDIT_TEMPLATE_CATEGORIES } from '@digilog/shared';
 import type { AuditTemplateDefinition } from '@digilog/shared';
 
+/**
+ * Sample data for the live preview - one value for EVERY placeholder any
+ * template in AUDIT_TEMPLATE_DEFAULTS declares or uses (2026-10-21: only 7 of
+ * 31 had one, so 40 of the default previews showed raw "{signedAction}",
+ * "{reason}", ...). The clause placeholders carry their real shape from
+ * routes/audit/audit-helpers.ts (leading space / dash included). A placeholder
+ * with no sample is left visible as typed, never blanked, and
+ * audit-templates-page.test.tsx fails until it gets one here.
+ */
+const PREVIEW_SAMPLES: Record<string, string> = {
+  actor: 'operator1',
+  actorRole: 'QA',
+  targetUser: 'user123',
+  targetName: 'Daily Check',
+  targetType: 'Template',
+  targetKind: 'Filter',
+  configKey: 'password-policy',
+  recordType: 'Cleaning Cycle',
+  entityKind: 'AHU',
+  parentClause: ' under Block "B1"',
+  sourceName: 'AHU-91',
+  sourceKind: 'AHU',
+  beforeStatus: 'Active',
+  afterStatus: 'Inactive',
+  status: 'ACTIVE',
+  version: '3',
+  oldFilterName: 'L9/AHU-91/SB/00-05',
+  newFilterName: 'L9/AHU-91/SB/00-06',
+  filterName: 'L9/AHU-91/SB/00-05',
+  identifierType: 'RFID',
+  identifierValue: 'E28011606000020866A1B2C3',
+  stage: 'DRY_IN',
+  stageKey: 'WASH_OUT',
+  fromStage: 'WASH_IN',
+  currentState: 'DRY_OUT',
+  rejectToStateKey: 'WASH_IN',
+  reason: 'Wrong reading entered',
+  signedAction: 'Update Password Policy',
+  requesterClause: 'requested by EMP-014 (OPERATOR)',
+  outcomeClause: ' — the account was already enabled',
+  remarksClause: ' — reason: Duplicate request',
+};
+
+const renderPreview = (templateStr: string) =>
+  templateStr.replace(/\{(\w+)\}/g, (match, key: string) =>
+    (Object.prototype.hasOwnProperty.call(PREVIEW_SAMPLES, key) ? PREVIEW_SAMPLES[key] : match));
+
 export function AuditTemplatesConfigPage() {
   const { data: saved, mutate } = useSWR<Record<string, string>>('/api/config/audit-templates');
   const [templates, setTemplates] = useState<Record<string, string> | null>(null);
   const [saving, setSaving] = useState(false);
   const reauth = useReauth();
   const [successMsg, setSuccessMsg] = useState('');
+  // A refused save used to be silent (onError only cleared `saving`): the
+  // button re-enabled and the operator had no idea the templates were not saved.
+  const [errorMsg, setErrorMsg] = useState('');
 
   // Initialize local state from fetched data
   const currentTemplates = useMemo(() => {
@@ -43,6 +93,7 @@ export function AuditTemplatesConfigPage() {
       [key]: value,
     }));
     setSuccessMsg('');
+    setErrorMsg('');
   };
 
   const handleReset = (key: string) => {
@@ -57,36 +108,40 @@ export function AuditTemplatesConfigPage() {
     }
     setTemplates(defaults);
     setSuccessMsg('');
+    setErrorMsg('');
   };
 
   const handleSave = async () => {
     if (!currentTemplates) return;
     setSaving(true);
     setSuccessMsg('');
-    try {
-      // Signed: the backend gates this on UPDATE_AUDIT_TEMPLATES
-      // (enforceReauthAlways) — these strings decide how every 21 CFR §11 audit
-      // row is rendered to an inspector. `saving` clears on both exits; a
-      // cancel arrives through onError as REAUTH_CANCELLED.
-      await reauth.execute(
-        'UPDATE_AUDIT_TEMPLATES',
-        async (password?: string) => {
-          if (password) await apiClient.putWithReauth('/api/config/audit-templates', currentTemplates, password);
-          else await apiClient.put('/api/config/audit-templates', currentTemplates);
+    setErrorMsg('');
+    // Signed: the backend gates this on UPDATE_AUDIT_TEMPLATES
+    // (enforceReauthAlways) — these strings decide how every 21 CFR §11 audit
+    // row is rendered to an inspector. `saving` clears on every exit:
+    // success, refusal (shown) and a cancelled prompt (silent).
+    await reauth.execute(
+      'UPDATE_AUDIT_TEMPLATES',
+      async (password?: string) => {
+        if (password) await apiClient.putWithReauth('/api/config/audit-templates', currentTemplates, password);
+        else await apiClient.put('/api/config/audit-templates', currentTemplates);
+      },
+      {
+        onSuccess: async () => {
+          await mutate();
+          setTemplates(null);
+          setSuccessMsg('Audit text templates saved successfully.');
+          setSaving(false);
         },
-        {
-          onSuccess: async () => {
-            await mutate();
-            setTemplates(null);
-            setSuccessMsg('Audit text templates saved successfully.');
-            setSaving(false);
-          },
-          onError: () => setSaving(false),
+        onError: (err: any) => {
+          setErrorMsg(err?.message || 'Failed to save audit text templates.');
+          setSaving(false);
         },
-      );
-    } catch {
-      setSaving(false);
-    }
+        // Dismissing the password prompt is not a failure: free the button,
+        // keep the edits, say nothing.
+        onCancel: () => setSaving(false),
+      },
+    );
   };
 
   const hasChanges = useMemo(() => {
@@ -105,34 +160,7 @@ export function AuditTemplatesConfigPage() {
     );
   }
 
-  // Sample data for live preview.
-  // MUST cover every placeholder any template declares — a placeholder missing
-  // here renders LITERALLY in the preview (the admin editing FILTER_REPLACED
-  // would see the text "{newFilterName}"), which is the same class of bug the
-  // dated comments in audit-helpers.ts getAuditSummary record. When you add a
-  // placeholder to a template, add it here AND to renderPreview AND to
-  // placeholderColors (a missing colour key yields an undefined chip class).
-  const sampleValues: Record<string, string> = {
-    actor: 'operator1',
-    targetUser: 'user123',
-    targetName: 'Daily Check',
-    configKey: 'password-policy',
-    targetType: 'Template',
-    oldFilterName: 'L9/AHU-91/SB/00-05',
-    newFilterName: 'L9/AHU-91/SB/00-06',
-  };
-
-  const renderPreview = (templateStr: string) => {
-    return templateStr
-      .replace(/\{actor\}/g, sampleValues.actor)
-      .replace(/\{targetUser\}/g, sampleValues.targetUser)
-      .replace(/\{targetName\}/g, sampleValues.targetName)
-      .replace(/\{configKey\}/g, sampleValues.configKey)
-      .replace(/\{targetType\}/g, sampleValues.targetType)
-      .replace(/\{oldFilterName\}/g, sampleValues.oldFilterName)
-      .replace(/\{newFilterName\}/g, sampleValues.newFilterName);
-  };
-
+  // Placeholder chips: a key without a colour falls back to neutral slate.
   const placeholderColors: Record<string, string> = {
     actor: 'bg-blue-100 text-blue-700 border-blue-200',
     targetUser: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -178,6 +206,15 @@ export function AuditTemplatesConfigPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           {successMsg}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium flex items-center gap-2" role="alert">
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>{errorMsg}</span>
         </div>
       )}
 
@@ -268,7 +305,7 @@ export function AuditTemplatesConfigPage() {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-4 flex items-center justify-between border-t border-t-slate-100">
             <p className="text-sm text-slate-500">You have unsaved changes.</p>
             <div className="flex items-center gap-3">
-              <Button variant="outline" size="sm" onClick={() => { setTemplates(null); setSuccessMsg(''); }}>
+              <Button variant="outline" size="sm" onClick={() => { setTemplates(null); setSuccessMsg(''); setErrorMsg(''); }}>
                 Discard
               </Button>
               <Button size="sm" onClick={handleSave} disabled={saving}>

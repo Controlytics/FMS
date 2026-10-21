@@ -3,13 +3,14 @@ import { screen, fireEvent, waitFor, act, configure } from '@testing-library/rea
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { TabletAccessConfigPage } from '../tablet-access';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth, ackMessage } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
 // Multi-request flows: the 5s / 1s defaults are too tight when the suite runs
 // under coverage alongside other workers.
 vi.setConfig({ testTimeout: 30_000 });
 configure({ asyncUtilTimeout: 5_000 });
 
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const PATH = '/api/config/tablet-access';
 const ROLES = [
@@ -119,7 +120,8 @@ describe('Tablet App Access page', () => {
     await ackMessage('Saved');
   });
 
-  it('when the policy requires a signature up front, cancelling sends nothing and frees Save', async () => {
+  it('when the policy requires a signature up front, cancelling sends nothing and frees Save (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ reauth: ['UPDATE_TABLET_ACCESS'] });
     await screen.findByText('Operator');
     // Let /my-actions resolve so the hook knows the action is gated.
@@ -133,6 +135,21 @@ describe('Tablet App Access page', () => {
     expect(api.calls('PUT', PATH)).toHaveLength(0);
     // A cancel is not an error.
     expect(screen.queryByRole('heading', { name: 'Error' })).toBeNull();
+    expectSilentCancel(consoleError);
+  });
+
+  it('cancelling a server-demanded signature frees Save and reports nothing (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await screen.findByText('Operator');
+    fireEvent.click(btn('Login for QA'));
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(saveBtn()).toHaveTextContent('Save Changes'));
+    expect(saveBtn()).not.toBeDisabled();
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Error' })).toBeNull();
+    expectSilentCancel(consoleError);
   });
 
   it('a refused save shows the server message and re-enables Save', async () => {

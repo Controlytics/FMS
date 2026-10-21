@@ -204,6 +204,27 @@ describe('Filter Cleaning Reasons config', () => {
     await waitFor(() => expect(saveBtn()).toHaveTextContent('Save Changes'), WAIT);
     expect(saveBtn()).not.toBeDisabled();
     expect(api.calls('PUT', PATH)).toHaveLength(0);
+    // A dismissed prompt is not a failure: no banner, nothing logged as an error.
+    expect(screen.queryByText(/password confirmation was not completed/)).toBeNull();
+    expect(document.querySelector('.bg-red-50')).toBeNull();
+    expect(err).not.toHaveBeenCalled();
+    // The edit survives for a later save.
+    expect(activeBox('Breakdown').checked).toBe(false);
+    err.mockRestore();
+  });
+
+  it('cancelling a signature the server demanded after the fact reports nothing either', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const api = setup({ extra: [reauthRequired('PUT', PATH)] });
+    await loaded();
+    fireEvent.click(activeBox('Breakdown'));
+    await act(async () => { fireEvent.click(saveBtn()); });
+    await cancelReauth();
+    await waitFor(() => expect(saveBtn()).toHaveTextContent('Save Changes'), WAIT);
+    expect(screen.queryByText(/password confirmation was not completed/)).toBeNull();
+    expect(document.querySelector('.bg-red-50')).toBeNull();
+    expect(err).not.toHaveBeenCalled();
+    expect(api.calls('PUT', PATH)).toHaveLength(1);
     err.mockRestore();
   });
 
@@ -217,10 +238,28 @@ describe('Filter Cleaning Reasons config', () => {
     expect(saveBtn()).toHaveAttribute('title', 'CONFIG_UPDATE permission required');
   });
 
-  it('a role holding CONFIG_UPDATE can add', async () => {
+  it('a role without CONFIG_UPDATE cannot edit a reason or change Active either', async () => {
+    setup({ user: { role: 'ADMIN', permissions: ['CONFIG_READ'] } });
+    await loaded();
+    const edit = () => within(rowOf('Breakdown')).getByRole('button', { name: 'Edit' });
+    await waitFor(() => expect(edit()).toBeDisabled(), WAIT);
+    expect(edit()).toHaveAttribute('title', 'CONFIG_UPDATE permission required');
+    fireEvent.click(edit());
+    expect(screen.queryByRole('heading', { name: 'Edit Reason' })).toBeNull();
+    expect(activeBox('Breakdown')).toBeDisabled();
+    expect(activeBox('Preventive Maintenance')).toBeDisabled();
+  });
+
+  it('a role holding CONFIG_UPDATE can add, edit and change Active', async () => {
     setup({ user: { role: 'ADMIN', permissions: ['CONFIG_READ', 'CONFIG_UPDATE'] } });
     await loaded();
     await waitFor(() => expect(addBtn()).not.toBeDisabled(), WAIT);
     expect(addBtn()).not.toHaveAttribute('title');
+    const edit = within(rowOf('Breakdown')).getByRole('button', { name: 'Edit' });
+    expect(edit).not.toBeDisabled();
+    expect(edit).not.toHaveAttribute('title');
+    expect(activeBox('Breakdown')).not.toBeDisabled();
+    // PM stays locked active for everyone.
+    expect(activeBox('Preventive Maintenance')).toBeDisabled();
   });
 });

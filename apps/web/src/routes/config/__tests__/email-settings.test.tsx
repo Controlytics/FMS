@@ -102,14 +102,18 @@ describe('Notification Channels — Email (SMTP)', () => {
     expect(await screen.findByText('Email settings saved successfully')).toBeInTheDocument();
   });
 
-  it('cancelling the signature shows it was not saved', async () => {
+  it('cancelling the signature saves nothing and is not reported as a failure', async () => {
     const api = setup([reauthRequired('PUT', EMAIL)]);
     await loaded();
     fireEvent.change(field('host'), { target: { value: 'smtp3.acme.test' } });
     await act(async () => { fireEvent.click(saveBtn()); });
     await cancelReauth();
-    expect(await screen.findByText(/password confirmation was not completed/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    // 2026-10-21 (item 9): a dismissed prompt used to show the hook's
+    // "Cancelled — password confirmation was not completed." as an error.
+    expect(screen.queryByText(/password confirmation was not completed/)).toBeNull();
     expect(screen.queryByText('Email settings saved successfully')).toBeNull();
+    expect(saveBtn()).not.toBeDisabled();
     expect(api.calls('PUT', EMAIL)).toHaveLength(1);
   });
 

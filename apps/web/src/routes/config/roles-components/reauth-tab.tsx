@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { StatCard } from '@/components/ui/stat-card';
@@ -129,7 +130,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
     const { mutate } = useSWRConfig();
     const reauth = useReauth();
 
-    const { data: reauthConfig, isLoading: reauthLoading } = useSWR<Record<string, string[]>>(
+    const { data: reauthConfig, error: reauthConfigError, isLoading: reauthLoading, mutate: reloadReauthConfig } = useSWR<Record<string, string[]>>(
       '/api/config/action-reauth',
       { revalidateOnMount: true, dedupingInterval: 0 }
     );
@@ -244,6 +245,8 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
     }, []);
 
     const handleReauthSave = useCallback(async () => {
+      // Never write a policy built on one that did not load (see the load-error view).
+      if (!reauthConfig) return;
       setReauthSaving(true);
       setReauthSaveMessage(null);
       try {
@@ -261,7 +264,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
       } finally {
         setReauthSaving(false);
       }
-    }, [reauthCurrentConfig, mutate, reauth]);
+    }, [reauthConfig, reauthCurrentConfig, mutate, reauth]);
 
     const handleReauthReset = useCallback(() => {
       setReauthLocalConfig(null);
@@ -292,6 +295,15 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
               </div>
               <p className="text-sm font-medium">Loading re-authentication configuration...</p>
             </div>
+          </div>
+        ) : !reauthConfig ? (
+          // The stored policy did not load (2026-10-21, §11): it used to fall
+          // back to `{}` and stay editable, so one tick + Save replaced the whole
+          // stored policy. Nothing is editable until the real policy arrives.
+          <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <p className="font-semibold">Could not load the re-authentication policy.</p>
+            <p className="mt-1">{(reauthConfigError as { message?: string } | undefined)?.message || 'The server did not return the stored policy.'} Nothing can be changed until it loads - saving now would replace the stored policy.</p>
+            <Button size="sm" variant="outline" className="mt-3" onClick={() => reloadReauthConfig()}>Retry</Button>
           </div>
         ) : (
           <div className="space-y-6">

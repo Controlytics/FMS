@@ -1,10 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { FieldIdsPage } from '../field-ids';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
+import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
-afterEach(resetEnv);
+afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
 
 const LIST = '/api/config/field-ids';
 const FIELDS = [
@@ -155,7 +156,8 @@ describe('Field IDs panel', () => {
     await waitFor(() => expect(within(rowOf('FLD_USER_001')).getByRole('button', { name: /Reset/ })).not.toBeDisabled());
   });
 
-  it('cancelling the signature shows no error and frees the buttons', async () => {
+  it('cancelling the signature shows no error and frees the buttons (item 9)', async () => {
+    const consoleError = spyConsoleError();
     const api = setup({ extra: [reauthRequired('PUT', '/api/config/field-ids/FLD_USER_002')] });
     await screen.findByText('FLD_USER_002');
     fireEvent.click(within(rowOf('FLD_USER_002')).getByRole('button', { name: /Edit/ }));
@@ -164,7 +166,21 @@ describe('Field IDs panel', () => {
     await cancelReauth();
     await waitFor(() => expect(within(rowOf('FLD_USER_002')).getByRole('button', { name: 'Save' })).not.toBeDisabled());
     expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expectSilentCancel(consoleError);
     expect(api.calls('PUT', '/api/config/field-ids/FLD_USER_002')).toHaveLength(1);
+  });
+
+  it('cancelling an up-front signature on Reset sends nothing and reports no failure (item 9)', async () => {
+    const consoleError = spyConsoleError();
+    const api = setup({ reauth: ['UPDATE_FIELD_ID'] });
+    await screen.findByText('FLD_USER_001');
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    await act(async () => { fireEvent.click(within(rowOf('FLD_USER_001')).getByRole('button', { name: /Reset/ })); });
+    expect(within(rowOf('FLD_USER_001')).getByRole('button', { name: /Reset/ })).toBeDisabled();
+    await cancelReauth();
+    await waitFor(() => expect(within(rowOf('FLD_USER_001')).getByRole('button', { name: /Reset/ })).not.toBeDisabled());
+    expectSilentCancel(consoleError);
+    expect(api.calls('PUT', '/api/config/field-ids/FLD_USER_001')).toHaveLength(0);
   });
 
   it('empty server messages fall back to the save / reset wording', async () => {
