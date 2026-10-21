@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { screen, waitFor, cleanup } from '@testing-library/react';
 import useSWR from 'swr';
-import { mockApi, renderPage } from '../page-harness';
+import { mockApi, renderPage, type MockRequest } from '../page-harness';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
@@ -36,7 +36,7 @@ describe('page harness', () => {
   });
 
   it('records request bodies and reports unmocked calls', async () => {
-    const api = mockApi([{ path: '/api/things', body: { items: [] } }, { method: 'POST', path: '/api/things', status: 201, body: (r) => ({ ok: r.json.name }) }]);
+    const api = mockApi([{ path: '/api/things', body: { items: [] } }, { method: 'POST', path: '/api/things', status: 201, body: (r: MockRequest) => ({ ok: r.json.name }) }]);
     renderPage(<Probe />, { user: { role: 'ADMIN', permissions: [] }, api });
     screen.getByText('add').click();
     await waitFor(() => expect(api.calls('POST', '/api/things')).toHaveLength(1));

@@ -10,7 +10,7 @@
  *
  *   const api = mockApi([
  *     { path: '/api/users', body: { data: [...], total: 1 } },
- *     { method: 'POST', path: '/api/users', status: 201, body: (req) => ({ id: 'u1', ...req.json }) },
+ *     { method: 'POST', path: '/api/users', status: 201, body: (req: MockRequest) => ({ id: 'u1', ...req.json }) },
  *   ]);
  *   renderPage(<UsersPage />, { route: '/users', user: { role: 'ADMIN', permissions: ['USER_READ'] }, api });
  *   await screen.findByText('Jane');
@@ -39,6 +39,8 @@ export interface MockRoute {
   method?: string;                      // default GET
   path: string | RegExp;                // exact pathname, or RegExp tested on path+query
   status?: number;                      // default 200
+  // `unknown` absorbs the function member, so a handler gets no contextual type:
+  // annotate it — `body: (req: MockRequest) => ...`.
   body?: unknown | ((req: MockRequest) => unknown);
   /** Answer only this many times, then fall through to the next matching route. */
   times?: number;
