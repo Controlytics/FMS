@@ -16,10 +16,10 @@ vi.mock('../../../lib/prisma.js', () => ({
 vi.mock('../../../lib/audit.js', () => ({ auditLog: vi.fn() }));
 
 // Reads system_config; irrelevant to these paths and stubbed so the stale guard
-// is reached. requireDifferentApprover:false keeps segregation-of-duties out of
-// the way — the assertion under test is the stale 409, not SoD.
+// is reached. (Segregation of duties is always on since 2026-10-21; these paths
+// use a different approver, so it does not interfere with the stale 409 under test.)
 vi.mock('../../filter-operations/stage-interlock.js', () => ({
-  getInterlockConfig: vi.fn(async () => ({ requireDifferentApprover: false })),
+  getInterlockConfig: vi.fn(async () => ({})),
   prettyStage: (s: string) => s,
 }));
 

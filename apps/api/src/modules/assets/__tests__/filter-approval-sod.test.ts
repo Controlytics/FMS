@@ -74,3 +74,65 @@ describe('filter approval — segregation of duties (OQ-18)', () => {
     expect(rows.every((r) => r.approvalStatus === 'PENDING_REVIEW')).toBe(true);
   });
 });
+
+/**
+ * A-06 / A-07 (operator decisions 2026-10-21): each step is rejected by ITS role,
+ * like PM and replacement schedules — the reviewer no longer acts at the
+ * approval step — and a caller with no id is refused (fail closed).
+ */
+describe('filter approval — reject by step (A-06) and fail-closed SoD (A-07)', () => {
+  let cfgExisted = false;
+  let cfgOriginal: unknown;
+  beforeAll(async () => {
+    const row = await prisma.systemConfig.findUnique({ where: { configKey: 'filter-approval' } });
+    cfgExisted = !!row; cfgOriginal = row?.configValue;
+    // The first group's afterAll deleted its template; this group owns its own.
+    templateId = (await prisma.assetTemplate.create({ data: { name: `SOD Tpl2 ${SUFFIX}`, templateKind: 'FILTER' } })).id;
+    const value = { workflowEnabled: true, uploadRole: ['SUPERVISOR'], reviewRole: 'MANAGER', approvalRole: 'QA' };
+    await prisma.systemConfig.upsert({
+      where: { configKey: 'filter-approval' },
+      update: { configValue: value }, create: { configKey: 'filter-approval', configValue: value, configType: 'workflow' },
+    });
+  });
+  afterAll(async () => {
+    try {
+      await prisma.filterDetails.deleteMany({ where: { assetInstanceId: { in: ids } } });
+      await prisma.assetInstance.deleteMany({ where: { id: { in: ids } } });
+      await prisma.assetTemplate.delete({ where: { id: templateId } }).catch(() => undefined);
+    } catch { /* cleanup must never mask a failure */ }
+    if (cfgExisted) await prisma.systemConfig.update({ where: { configKey: 'filter-approval' }, data: { configValue: cfgOriginal as any } });
+    else await prisma.systemConfig.deleteMany({ where: { configKey: 'filter-approval' } });
+  });
+
+  it('the reviewer may reject at the REVIEW step', async () => {
+    const id = await filter('PENDING_REVIEW');
+    await rejectFilters(reviewer, [id], 'wrong micron size');
+    expect((await prisma.assetInstance.findUnique({ where: { id } }))?.approvalStatus).toBe('REJECTED');
+  });
+
+  it('the reviewer may NOT reject at the APPROVAL step (was allowed before A-06)', async () => {
+    const id = await filter('PENDING_APPROVAL', randomUUID());
+    await expect(rejectFilters(reviewer, [id], 'second thoughts')).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN_ROLE' });
+    expect((await prisma.assetInstance.findUnique({ where: { id } }))?.approvalStatus).toBe('PENDING_APPROVAL');
+  });
+
+  it('the approver may NOT reject at the REVIEW step, and may at the APPROVAL step', async () => {
+    const atReview = await filter('PENDING_REVIEW');
+    await expect(rejectFilters(approver, [atReview], 'skip review')).rejects.toMatchObject({ code: 'FORBIDDEN_ROLE' });
+    const atApproval = await filter('PENDING_APPROVAL', reviewer.userSub);
+    await rejectFilters(approver, [atApproval], 'label does not match the AHU');
+    expect((await prisma.assetInstance.findUnique({ where: { id: atApproval } }))?.approvalStatus).toBe('REJECTED');
+  });
+
+  it('whoever reviewed a filter cannot reject it at the approval step either (SoD)', async () => {
+    const both = mk('both', 'QA');
+    const id = await filter('PENDING_APPROVAL', both.userSub);
+    await expect(rejectFilters(both, [id], 'reviewed it myself')).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
+  });
+
+  it('a caller with no id is refused (fail closed)', async () => {
+    const id = await filter('PENDING_APPROVAL', reviewer.userSub);
+    const anonymous = { ...approver, userSub: undefined } as unknown as RequestContext;
+    await expect(approveFilters(anonymous, [id])).rejects.toMatchObject({ statusCode: 403, code: 'SELF_APPROVAL_FORBIDDEN' });
+  });
+});

@@ -69,14 +69,13 @@ export interface StageApprovalSummary {
   decidedAt?: string | null;
   decisionRemarks?: string | null;
   /**
-   * True when segregation of duties is ON *and* the reader is the person who
-   * performed this stage — so approve/reject would 403 SELF_APPROVAL_FORBIDDEN.
+   * True when the reader is the person who performed this stage (segregation
+   * of duties is always on since 2026-10-21) — so approve/reject would 403 SELF_APPROVAL_FORBIDDEN.
    * The row stays in the queue (another holder of the approver role can decide
    * it); it is simply not actionable by this reader.
    *
-   * The SERVER computes this — never re-derive it here. It needs
-   * `requireDifferentApprover` from the stage-interlock config, which an
-   * approver role typically cannot read. Optional so an older/cached response
+   * The SERVER computes this — never re-derive it here (the requester id is not
+   * sent to the client). Optional so an older/cached response
    * degrades to "actionable" rather than hiding every button.
    */
   selfRequested?: boolean;

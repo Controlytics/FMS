@@ -15,7 +15,7 @@ describe('validateAgainstSettings — what used to be stored verbatim is now ref
   it('refuses a non-boolean for a boolean gate (stage interlock "enabled")', () => {
     expect(v(stageInterlockDef, { enabled: 'yes' })).toHaveLength(1);
     expect(v(stageInterlockDef, { enabled: 1 })).toHaveLength(1);
-    expect(v(stageInterlockDef, { requireDifferentApprover: 'false' })).toHaveLength(1);
+    expect(v(stageInterlockDef, { enabled: 'false' })).toHaveLength(1);
   });
 
   it('refuses an out-of-range or non-numeric number (export limit)', () => {

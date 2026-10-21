@@ -14,7 +14,7 @@
  * Guards (per locked decisions 2026-06-12):
  *   - role match: decider's role === the approval's frozen approverRole (SUPER_ADMIN
  *     always allowed).
- *   - segregation of duties (config requireDifferentApprover): the operator who
+ *   - segregation of duties (always on since 2026-10-21, A-03): the operator who
  *     performed the stage cannot sign their own approval.
  *
  * The reauth password check is the digital signature; it happens in routes.ts via
@@ -26,7 +26,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { computeChecksum } from '../filter-operations/helpers.js';
 import { lockAndVerifyFilterState } from '../filter-operations/cycle-write/locking.js';
-import { getInterlockConfig, prettyStage } from '../filter-operations/stage-interlock.js';
+import { prettyStage } from '../filter-operations/stage-interlock.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { getLogger } from '../../lib/logger.js';
 import { collectStageDetails, type StageDetails } from './stage-details.js';
@@ -61,8 +61,8 @@ function assertRoleAllowed(ctx: RequestContext, approverRole: string) {
 
 /** Segregation of duties — the performer cannot sign their own stage. */
 async function assertDifferentApprover(ctx: RequestContext, requestedBy: string) {
-  const cfg = await getInterlockConfig();
-  if (cfg.requireDifferentApprover && ctx.userSub === requestedBy) {
+  // Fail closed (A-07): a missing caller id is never "a different person".
+  if (!ctx.userSub || ctx.userSub === requestedBy) {
     throw new AppError(
       403,
       'SELF_APPROVAL_FORBIDDEN',
@@ -82,8 +82,7 @@ async function assertDifferentApprover(ctx: RequestContext, requestedBy: string)
  * guaranteed failure.
  *
  * Computed here rather than in the client because the client cannot compute it:
- * the answer needs `requireDifferentApprover`, and an approver role (SHIFTOFFICER
- * on this deployment) holds no CONFIG_READ. `requestedBy` is dropped on the way
+ * the answer needs the requester id, which is dropped from the response. `requestedBy` is dropped on the way
  * out — the flag is the whole answer, and the UUID adds nothing over the name
  * the row already carries.
  */
@@ -92,10 +91,9 @@ async function withSelfFlag<T extends { requestedBy: string }>(
   rows: T[],
 ): Promise<(Omit<T, 'requestedBy'> & { selfRequested: boolean })[]> {
   if (rows.length === 0) return [];
-  const cfg = await getInterlockConfig();
   return rows.map(({ requestedBy, ...rest }) => ({
     ...rest,
-    selfRequested: cfg.requireDifferentApprover && requestedBy === ctx.userSub,
+    selfRequested: requestedBy === ctx.userSub,
   }));
 }
 

@@ -35,16 +35,18 @@ export const INTERLOCK_POINTS: Record<string, { rejectToStateKey: string }> = {
   DRY_OUT: { rejectToStateKey: 'DRY_IN' },
 };
 
+// Segregation of duties is NOT configurable (operator decision 2026-10-21, A-03):
+// the performer of a stage can never approve it, like PM, replacement, filter,
+// block-change and report-review approvals. The old `requireDifferentApprover`
+// key may still sit in stored config; it is ignored.
 export interface StageInterlockConfig {
   enabled: boolean;
-  requireDifferentApprover: boolean;
   washOutApproverRole: string;
   dryOutApproverRole: string;
 }
 
 const DEFAULTS: StageInterlockConfig = {
   enabled: false,
-  requireDifferentApprover: true,
   washOutApproverRole: 'ADMIN',
   dryOutApproverRole: 'ADMIN',
 };
@@ -59,7 +61,6 @@ export async function getInterlockConfig(cache?: BatchReadCache): Promise<StageI
     (typeof x === 'string' && x.trim()) ? x.trim() : fallback;
   return {
     enabled: v.enabled === true,
-    requireDifferentApprover: v.requireDifferentApprover !== false,
     washOutApproverRole: role(v.washOutApproverRole, DEFAULTS.washOutApproverRole),
     dryOutApproverRole: role(v.dryOutApproverRole, DEFAULTS.dryOutApproverRole),
   };

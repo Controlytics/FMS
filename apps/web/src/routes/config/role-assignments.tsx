@@ -439,7 +439,6 @@ export function RoleAssignmentsPage() {
           {(() => {
             const ik: CfgKey = 'stage-interlock';
             const on = cfg[ik]?.enabled === true;
-            const diff = cfg[ik]?.requireDifferentApprover !== false;
             return (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
@@ -476,11 +475,9 @@ export function RoleAssignmentsPage() {
 
                     <div>
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Different approver</span>
-                      <div className="flex items-center gap-2 h-10">
-                        <Switch on={diff} onClick={() => patch(ik, 'requireDifferentApprover', !diff)} />
-                        <span className="text-xs text-slate-500">{diff ? 'Operator can’t approve own stage' : 'Same person may approve'}</span>
-                      </div>
-                      <span className="mt-1 block text-[11px] text-slate-400">Recommended for 21 CFR Part 11.</span>
+                      {/* Always on since 2026-10-21 (A-03) - no longer a switch. */}
+                      <div className="flex items-center h-10 text-xs text-slate-600">Always required: the operator can’t approve their own stage.</div>
+                      <span className="mt-1 block text-[11px] text-slate-400">21 CFR Part 11 segregation of duties.</span>
                     </div>
                   </div>
                 )}

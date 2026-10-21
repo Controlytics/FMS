@@ -60,7 +60,11 @@ function assertNotOwnEntry(
   entries: Array<{ submittedBy: string | null; reviewedBy: string | null }>,
   step: 'review' | 'approve' | 'reject',
 ) {
-  if (!ctx.userSub) return;
+  // A-07 (2026-10-21): fail CLOSED. A request with no caller id cannot prove it
+  // is a different person, so it is refused rather than waved through.
+  if (!ctx.userSub) {
+    throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', 'The signing user could not be identified, so separation of duties cannot be verified.');
+  }
   const own = entries.some((e) => e.submittedBy === ctx.userSub || (step !== 'review' && e.reviewedBy === ctx.userSub));
   if (own) {
     throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', `You cannot ${step} a replacement schedule entry you uploaded or reviewed yourself. A different user must sign off.`);

@@ -37,14 +37,7 @@ export const stageInterlockDef: ModuleConfigDefinition = {
       group: 'General',
       default: false,
     },
-    {
-      key: 'requireDifferentApprover',
-      type: 'boolean',
-      label: 'Require a Different Approver',
-      description: 'The operator who performed the cleaning cannot approve their own stage (segregation of duties). Strongly recommended for 21 CFR Part 11.',
-      group: 'General',
-      default: true,
-    },
+    // `requireDifferentApprover` removed 2026-10-21 (A-03): segregation of duties is always on.
     {
       key: 'washOutApproverRole',
       type: 'select',

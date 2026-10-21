@@ -20,7 +20,7 @@ vi.mock('../../../lib/prisma.js', () => ({
 }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: vi.fn() }));
 vi.mock('../../filter-operations/stage-interlock.js', () => ({
-  getInterlockConfig: vi.fn(async () => ({ requireDifferentApprover: false })),
+  getInterlockConfig: vi.fn(async () => ({})),
   prettyStage: (s: string) => s,
 }));
 

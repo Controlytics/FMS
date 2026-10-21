@@ -78,11 +78,18 @@ async function loadInState(filterIds: string[], expected: string[], action: stri
  */
 function assertNotOwnFilter(
   ctx: RequestContext,
-  rows: Array<{ name: string; submittedBy: string | null; reviewedBy: string | null }>,
+  rows: Array<{ name: string; submittedBy: string | null; reviewedBy: string | null; approvalStatus?: unknown }>,
   step: 'review' | 'approve' | 'reject',
 ) {
-  if (!ctx.userSub) return;
-  const own = rows.filter((r) => r.submittedBy === ctx.userSub || (step === 'approve' && r.reviewedBy === ctx.userSub));
+  // A-07 (2026-10-21): fail CLOSED. A request with no caller id cannot prove it
+  // is a different person, so it is refused rather than waved through.
+  if (!ctx.userSub) {
+    throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN', 'The signing user could not be identified, so separation of duties cannot be verified.');
+  }
+  // The reviewer may not also sign the APPROVAL step - approving it, or (since
+  // 2026-10-21, A-06) rejecting it there - same rule as PM and replacement.
+  const atApproval = (r: { approvalStatus?: unknown }) => step === 'approve' || (step === 'reject' && r.approvalStatus === 'PENDING_APPROVAL');
+  const own = rows.filter((r) => r.submittedBy === ctx.userSub || (atApproval(r) && r.reviewedBy === ctx.userSub));
   if (own.length) {
     throw new AppError(403, 'SELF_APPROVAL_FORBIDDEN',
       `You cannot ${step} a filter you created or reviewed yourself (${own.map((r) => `"${r.name}"`).join(', ')}). A different user must sign off.`);
@@ -147,8 +154,11 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
 }
 
 /**
- * Reject. Either workflow role may reject — a reviewer who spots a bad row
- * should not have to pass it on to the approver to get it turned back.
+ * Reject. Each step is rejected by ITS role (operator decision 2026-10-21, A-06,
+ * matching PM and replacement schedules): a filter waiting for review is
+ * rejected by the review role, one waiting for approval only by the approval
+ * role - the reviewer no longer acts at the approval step. With no review role
+ * configured the review step is a no-op, so the approval role may reject there.
  *
  * The row SURVIVES as REJECTED rather than being deleted: the rejection reason
  * and attribution are the record of why it was refused, and the uploader
@@ -157,12 +167,15 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
 export async function rejectFilters(ctx: RequestContext, filterIds: string[], remarks: string) {
   if (!remarks?.trim()) throw new AppError(400, 'REASON_REQUIRED', 'A rejection reason is required');
   const cfg = await getFilterWorkflowConfig();
-  if (ctx.userRole !== 'SUPER_ADMIN' && cfg.reviewRole && cfg.approvalRole
-      && ctx.userRole !== cfg.reviewRole && ctx.userRole !== cfg.approvalRole) {
-    throw new AppError(403, 'FORBIDDEN_ROLE',
-      `Only users with role "${cfg.reviewRole}" or "${cfg.approvalRole}" can reject filters`);
-  }
   const rows = await loadInState(filterIds, ['PENDING_REVIEW', 'PENDING_APPROVAL'], 'reject');
+  if (ctx.userRole !== 'SUPER_ADMIN') {
+    const roleFor = (status: unknown) => (status === 'PENDING_REVIEW' && cfg.reviewRole ? cfg.reviewRole : cfg.approvalRole);
+    const notMine = rows.filter((r) => { const role = roleFor(r.approvalStatus); return role && role !== ctx.userRole; });
+    if (notMine.length) {
+      throw new AppError(403, 'FORBIDDEN_ROLE',
+        `You cannot reject ${notMine.map((r) => `"${r.name}"`).join(', ')} at its current step: ${[...new Set(notMine.map((r) => `${r.approvalStatus === 'PENDING_REVIEW' ? 'review' : 'approval'} is decided by role "${roleFor(r.approvalStatus)}"`))].join('; ')}.`);
+    }
+  }
   assertNotOwnFilter(ctx, rows, 'reject');
 
   await prisma.assetInstance.updateMany({
