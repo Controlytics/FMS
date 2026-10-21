@@ -7,6 +7,8 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 
@@ -89,22 +91,18 @@ function ChannelSettingsPage({ defaultTab = 'email' }: { defaultTab?: 'email' | 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-          <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </Link>
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Notification Channels</h1>
-          <p className="text-sm text-slate-500">Configure email SMTP and SMS provider settings</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Notification Channels"
+        subtitle="Configure email SMTP and SMS provider settings"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />}
+        back={
+          <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
+            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </Link>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
@@ -489,7 +487,7 @@ function EmailTab() {
               )}
 
               {(oauth2Provider === 'microsoft' || oauth2Provider === 'office365' || oauth2Provider === 'google') && (
-                <div className="mt-4 p-5 bg-gradient-to-r from-brand-50 to-brand-50 rounded-xl border border-brand-200 space-y-4">
+                <div className="mt-4 p-5 bg-brand-50 rounded-xl border border-brand-200 space-y-4">
                   <h4 className="font-semibold text-brand-800 text-sm">OAuth2 Authorization Code Flow</h4>
 
                   <div>
@@ -497,11 +495,11 @@ function EmailTab() {
                       Redirect URI <span className="text-brand-500">(copy this to your {oauth2Provider === 'google' ? 'Google Cloud Console' : 'Azure AD App Registration'})</span>
                     </label>
                     <div className="flex gap-2">
-                      <input
+                      <Input
                         type="text"
                         readOnly
                         value={redirectData?.redirectUri ?? 'Loading...'}
-                        className="flex-1 px-3 py-2 bg-white border border-brand-200 rounded-lg text-sm text-slate-700 font-mono"
+                        className="flex-1 border-brand-200 text-slate-700 font-mono"
                       />
                       <button
                         type="button"
@@ -550,7 +548,7 @@ function EmailTab() {
                     <button
                       type="button"
                       onClick={startOAuth2Flow}
-                      className="px-5 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-lg text-sm font-semibold hover:from-brand-700 hover:to-brand-800 transition-all shadow-md flex items-center gap-2"
+                      className="px-5 py-2.5 bg-brand-600 text-white rounded-lg text-sm font-semibold hover:bg-brand-700 transition-colors shadow-xs flex items-center gap-2"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -601,9 +599,9 @@ function EmailTab() {
 
       {/* Setup Guides */}
       {authType === 'oauth2' && (oauth2Provider === 'microsoft' || oauth2Provider === 'office365') && (
-        <div className="bg-gradient-to-r from-brand-50 to-brand-50 rounded-2xl border border-blue-200 p-6">
-          <h3 className="font-semibold text-blue-800 mb-3">Microsoft Azure AD OAuth2 Setup Guide</h3>
-          <ol className="space-y-2 text-sm text-blue-700 list-decimal list-inside">
+        <div className="bg-brand-50 rounded-2xl border border-brand-200 p-6">
+          <h3 className="font-semibold text-brand-800 mb-3">Microsoft Azure AD OAuth2 Setup Guide</h3>
+          <ol className="space-y-2 text-sm text-brand-700 list-decimal list-inside">
             <li>Go to <strong>Azure Portal</strong> &gt; Azure Active Directory &gt; App Registrations</li>
             <li>Click <strong>New Registration</strong>, name it (e.g. &quot;DigiLog Mail&quot;), select &quot;Accounts in this organizational directory only&quot;</li>
             <li>Under <strong>Redirect URIs</strong>, add the redirect URI shown above as a <strong>Web</strong> platform URI</li>
@@ -619,9 +617,9 @@ function EmailTab() {
       )}
 
       {authType === 'oauth2' && oauth2Provider === 'google' && (
-        <div className="bg-gradient-to-r from-brand-50 to-brand-50 rounded-2xl border border-blue-200 p-6">
-          <h3 className="font-semibold text-blue-800 mb-3">Google OAuth2 Setup Guide</h3>
-          <ol className="space-y-2 text-sm text-blue-700 list-decimal list-inside">
+        <div className="bg-brand-50 rounded-2xl border border-brand-200 p-6">
+          <h3 className="font-semibold text-brand-800 mb-3">Google OAuth2 Setup Guide</h3>
+          <ol className="space-y-2 text-sm text-brand-700 list-decimal list-inside">
             <li>Go to <strong>Google Cloud Console</strong> &gt; APIs &amp; Services &gt; Credentials</li>
             <li>Create an <strong>OAuth 2.0 Client ID</strong> (Web application type)</li>
             <li>Under <strong>Authorized redirect URIs</strong>, add the redirect URI shown above</li>
@@ -633,9 +631,9 @@ function EmailTab() {
       )}
 
       {authType === 'basic' && (
-        <div className="bg-gradient-to-r from-brand-50 to-brand-50 rounded-2xl border border-blue-200 p-6">
-          <h3 className="font-semibold text-blue-800 mb-3">Provider Setup Guide</h3>
-          <div className="grid gap-3 text-sm text-blue-700">
+        <div className="bg-brand-50 rounded-2xl border border-brand-200 p-6">
+          <h3 className="font-semibold text-brand-800 mb-3">Provider Setup Guide</h3>
+          <div className="grid gap-3 text-sm text-brand-700">
             <div><strong>Gmail:</strong> Use App Passwords (Settings &gt; Security &gt; App passwords). Host: smtp.gmail.com, Port: 587</div>
             <div><strong>Office 365:</strong> Enable &quot;Authenticated SMTP&quot; in Admin Center &gt; Users &gt; Mail &gt; Manage email apps. Host: smtp.office365.com, Port: 587</div>
             <div><strong>AWS SES:</strong> Create SMTP credentials in AWS console. Host: email-smtp.&#123;region&#125;.amazonaws.com, Port: 587</div>
@@ -834,10 +832,10 @@ function SmsTab() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">HTTP Method</label>
-                <select {...register('httpGatewayMethod')} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                <Select {...register('httpGatewayMethod')}>
                   <option value="POST">POST</option>
                   <option value="GET">GET</option>
-                </select>
+                </Select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Body Template (for POST)</label>

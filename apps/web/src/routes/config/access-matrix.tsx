@@ -4,6 +4,7 @@ import { apiClient, api } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { PageHeader } from '@/components/ui/page-header';
 
 type Matrix = Record<string, string[]>;
 
@@ -155,21 +156,11 @@ export function AccessMatrixPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Configuration Access</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Assign configuration modules to roles. SUPER_ADMIN always has access to all modules.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Configuration Access"
+        subtitle="Assign configuration modules to roles. SUPER_ADMIN always has access to all modules."
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />}
+        actions={<>
           <button
             type="button"
             onClick={reset}
@@ -182,57 +173,57 @@ export function AccessMatrixPage() {
             type="button"
             onClick={save}
             disabled={!dirty || saving}
-            className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-brand-700 hover:bg-brand-700 disabled:opacity-50 transition-colors"
+            className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {roles.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500">
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
           No assignable roles found. SUPER_ADMIN always has access.
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 z-10">
                 <tr>
-                  <th className="text-left px-5 py-3 text-xs font-bold text-slate-500">Module</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Module</th>
                   {roles.map(r => (
-                    <th key={r.name} className="px-3 py-3 text-center text-xs font-bold text-slate-500 whitespace-nowrap">
+                    <th key={r.name} className="h-10 px-3 py-2 text-center text-xs font-semibold text-slate-600 whitespace-nowrap">
                       <div className="flex flex-col items-center gap-1">
                         <span>{r.displayName}</span>
                         <button
                           type="button"
                           onClick={() => toggleColumnAll(r.name)}
-                          className="text-[10px] font-semibold text-brand-700 hover:text-brand-700"
+                          className="text-[11px] font-semibold text-brand-700 hover:text-brand-800"
                         >
                           toggle all
                         </button>
                       </div>
                     </th>
                   ))}
-                  <th className="px-3 py-3 text-center text-xs font-bold text-slate-500">Row</th>
+                  <th className="h-10 px-3 text-center text-xs font-semibold text-slate-600 whitespace-nowrap">Row</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {[...modulesByCategory.entries()].map(([category, modules]) => (
                   <Fragment key={category}>
                     <tr className="bg-slate-50/50">
-                      <td colSpan={roles.length + 2} className="px-5 py-2 text-xs font-bold text-slate-600">
+                      <td colSpan={roles.length + 2} className="px-4 py-2 text-xs font-semibold text-slate-600">
                         {category}
                       </td>
                     </tr>
                     {modules.map(m => (
-                      <tr key={m.moduleKey} className="hover:bg-slate-50/50">
-                        <td className="px-5 py-3">
+                      <tr key={m.moduleKey} className="hover:bg-slate-50">
+                        <td className="px-4 py-2.5 text-slate-700">
                           <div className="font-semibold text-[13px] text-slate-800">{m.moduleName}</div>
                           <div className="text-[12px] text-slate-400 mt-0.5">{m.description}</div>
                         </td>
                         {roles.map(r => (
-                          <td key={r.name} className="px-3 py-3 text-center">
+                          <td key={r.name} className="px-3 py-2.5 text-center">
                             <input
                               type="checkbox"
                               checked={isAssigned(m.moduleKey, r.name)}
@@ -241,11 +232,11 @@ export function AccessMatrixPage() {
                             />
                           </td>
                         ))}
-                        <td className="px-3 py-3 text-center">
+                        <td className="px-3 py-2.5 text-center whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => toggleRowAll(m.moduleKey)}
-                            className="text-[11px] font-semibold text-brand-700 hover:text-brand-700"
+                            className="text-[11px] font-semibold text-brand-700 hover:text-brand-800"
                           >
                             all
                           </button>

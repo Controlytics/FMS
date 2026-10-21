@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BrandingConfigPage } from './branding';
 import DashboardCardsConfig from './dashboard-cards';
+import { PageHeader } from '@/components/ui/page-header';
 
 /**
  * Branding & Dashboard — one SUPER_ADMIN page combining the Branding editor and
@@ -21,17 +22,11 @@ export function AppearanceConfigPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <span className="grid place-items-center w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-          </svg>
-        </span>
-        <div>
-          <h1 className="text-xl font-bold text-slate-800 leading-tight">Branding &amp; Dashboard</h1>
-          <p className="text-sm text-slate-500">Logo, colors, themes, and company/app name — plus which dashboard cards each role sees.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Branding & Dashboard"
+        subtitle="Logo, colors, themes, and company/app name — plus which dashboard cards each role sees."
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />}
+      />
 
       {/* Tab bar */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-full sm:w-fit">

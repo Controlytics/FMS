@@ -6,6 +6,8 @@ import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { usePaginationConfig } from '../../../hooks/use-pagination-config';
@@ -77,24 +79,18 @@ export function NotificationLogsPage() {
     <div className="space-y-6 animate-fade-in">
       <ReauthPrompt reauth={reauth} />
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <PageHeader
+        title="Notification Logs"
+        subtitle="View email and SMS delivery history"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />}
+        back={
           <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Notification Logs</h1>
-            <p className="text-sm text-slate-500">View email and SMS delivery history</p>
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Stats */}
       {stats && (
@@ -123,7 +119,7 @@ export function NotificationLogsPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-slate-300 p-4 shadow-sm">
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-slate-600 mb-1">Search</label>
@@ -135,46 +131,46 @@ export function NotificationLogsPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Channel</label>
-            <select
+            <Select
               value={channel}
               onChange={(e) => { setChannel(e.target.value); setPage(1); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-auto"
             >
               <option value="">All</option>
               <option value="EMAIL">Email</option>
               <option value="SMS">SMS</option>
-            </select>
+            </Select>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Status</label>
-            <select
+            <Select
               value={status}
               onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-auto"
             >
               <option value="">All</option>
               <option value="SENT">Sent</option>
               <option value="FAILED">Failed</option>
               <option value="PENDING">Pending</option>
               <option value="RETRYING">Retrying</option>
-            </select>
+            </Select>
           </div>
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Channel</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Recipient</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Subject</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Triggered By</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Time</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Actions</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Channel</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Recipient</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Subject</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Status</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Triggered By</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Time</th>
+                <th className="h-10 px-4 text-right text-xs font-semibold text-slate-600 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -182,19 +178,19 @@ export function NotificationLogsPage() {
                 <tr><td colSpan={7} className="text-center py-12 text-slate-400">No notification logs found</td></tr>
               )}
               {logs.map((log) => (
-                <tr key={log.id} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
-                  <td className="px-4 py-3">
+                <tr key={log.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
+                  <td className="px-4 py-2.5">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${CHANNEL_COLORS[log.channel] ?? 'bg-slate-100 text-slate-600'}`}>{log.channel}</span>
                   </td>
-                  <td className="px-4 py-3 text-slate-700 max-w-[200px] truncate">{log.recipient}</td>
-                  <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{log.subject ?? '-'}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-2.5 text-slate-700 max-w-[200px] truncate">{log.recipient}</td>
+                  <td className="px-4 py-2.5 text-slate-600 max-w-[200px] truncate">{log.subject ?? '-'}</td>
+                  <td className="px-4 py-2.5">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[log.status] ?? 'bg-slate-100'}`}>{log.status}</span>
                     {log.retryCount > 0 && <span className="ml-1 text-xs text-slate-400">(retry {log.retryCount})</span>}
                   </td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-2.5 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(log.id); }}
                       className="text-red-500 hover:text-red-700 text-xs"

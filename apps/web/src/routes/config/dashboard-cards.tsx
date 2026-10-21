@@ -132,7 +132,7 @@ export default function DashboardCardsConfig() {
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-slate-500 max-w-2xl">Configure which cards are visible on the dashboard for each role.</p>
         <button onClick={handleSave} disabled={saving || !dirty}
-          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+          className="shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>

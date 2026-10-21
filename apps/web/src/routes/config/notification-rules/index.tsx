@@ -8,6 +8,8 @@ import { ReauthPrompt } from '@/components/reauth-prompt';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 
@@ -141,22 +143,18 @@ export function NotificationRulesPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
-          <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </Link>
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Notification Rules</h1>
-          <p className="text-sm text-slate-500">Configure event-based alerts, recipients, templates, and delivery logs</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Notification Rules"
+        subtitle="Configure event-based alerts, recipients, templates, and delivery logs"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />}
+        back={
+          <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
+            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </Link>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
@@ -341,31 +339,29 @@ function RulesTab() {
           {editing.emailEnabled && (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email Template</label>
-              <select
+              <Select
                 value={editing.emailTemplateId ?? ''}
                 onChange={e => setEditing({ ...editing, emailTemplateId: e.target.value || undefined })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
               >
                 <option value="">Use default template</option>
                 {templates?.filter(t => t.channel === 'EMAIL' && t.isActive).map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
           {editing.smsEnabled && (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">SMS Template</label>
-              <select
+              <Select
                 value={editing.smsTemplateId ?? ''}
                 onChange={e => setEditing({ ...editing, smsTemplateId: e.target.value || undefined })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
               >
                 <option value="">Use default template</option>
                 {templates?.filter(t => t.channel === 'SMS' && t.isActive).map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
         </div>
@@ -376,47 +372,47 @@ function RulesTab() {
           <div className="space-y-2">
             {(editing.recipients ?? []).map((r, idx) => (
               <div key={idx} className="flex items-center gap-2 bg-slate-50 p-3 rounded-lg">
-                <select
+                <Select
                   value={r.recipientType}
                   onChange={e => updateRecipient(idx, 'recipientType', e.target.value)}
-                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm w-28"
+                  className="w-28"
                 >
                   <option value="ROLE">Role</option>
                   <option value="GROUP">Group</option>
                   <option value="USER">User</option>
-                </select>
+                </Select>
 
                 {r.recipientType === 'ROLE' && (
-                  <select
+                  <Select
                     value={r.roleValue ?? ''}
                     onChange={e => updateRecipient(idx, 'roleValue', e.target.value)}
-                    className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+                    className="w-auto flex-1"
                   >
                     <option value="">Select role...</option>
                     {roles.map(role => <option key={role.name} value={role.name}>{role.displayName}</option>)}
-                  </select>
+                  </Select>
                 )}
 
                 {r.recipientType === 'GROUP' && (
-                  <select
+                  <Select
                     value={r.groupId ?? ''}
                     onChange={e => updateRecipient(idx, 'groupId', e.target.value)}
-                    className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+                    className="w-auto flex-1"
                   >
                     <option value="">Select group...</option>
                     {groups?.map(g => <option key={g.id} value={g.id}>{g.name} ({g.memberCount} members)</option>)}
-                  </select>
+                  </Select>
                 )}
 
                 {r.recipientType === 'USER' && (
-                  <select
+                  <Select
                     value={r.userId ?? ''}
                     onChange={e => updateRecipient(idx, 'userId', e.target.value)}
-                    className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+                    className="w-auto flex-1"
                   >
                     <option value="">Select user...</option>
                     {users.map((u: UserOption) => <option key={u.id} value={u.id}>{u.fullName} ({u.username})</option>)}
-                  </select>
+                  </Select>
                 )}
 
                 <button onClick={() => removeRecipient(idx)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-500">
@@ -614,12 +610,12 @@ function GroupsTab() {
         </div>
 
         <div className="flex gap-2">
-          <select value={addUserId} onChange={e => setAddUserId(e.target.value)} className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+          <Select value={addUserId} onChange={e => setAddUserId(e.target.value)} className="w-auto flex-1">
             <option value="">Select user to add...</option>
             {users.filter((u: UserOption) => !members.some(m => m.userId === u.id)).map((u: UserOption) => (
               <option key={u.id} value={u.id}>{u.fullName} ({u.username}) - {u.role}</option>
             ))}
-          </select>
+          </Select>
           <Button onClick={addMember} disabled={!addUserId}>Add</Button>
         </div>
 
@@ -744,10 +740,10 @@ function TemplatesTab() {
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Channel *</label>
-            <select value={editing.channel ?? 'EMAIL'} onChange={e => setEditing({ ...editing, channel: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <Select value={editing.channel ?? 'EMAIL'} onChange={e => setEditing({ ...editing, channel: e.target.value })}>
               <option value="EMAIL">Email</option>
               <option value="SMS">SMS</option>
-            </select>
+            </Select>
           </div>
         </div>
 
@@ -896,7 +892,7 @@ function LogsTab() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-slate-300 p-4 shadow-sm">
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-slate-600 mb-1">Search</label>
@@ -908,46 +904,46 @@ function LogsTab() {
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Channel</label>
-            <select
+            <Select
               value={channel}
               onChange={(e) => { setChannel(e.target.value); setPage(1); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-auto"
             >
               <option value="">All</option>
               <option value="EMAIL">Email</option>
               <option value="SMS">SMS</option>
-            </select>
+            </Select>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Status</label>
-            <select
+            <Select
               value={status}
               onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-auto"
             >
               <option value="">All</option>
               <option value="SENT">Sent</option>
               <option value="FAILED">Failed</option>
               <option value="PENDING">Pending</option>
               <option value="RETRYING">Retrying</option>
-            </select>
+            </Select>
           </div>
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Channel</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Recipient</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Subject</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Triggered By</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Time</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Actions</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Channel</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Recipient</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Subject</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Status</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Triggered By</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Time</th>
+                <th className="h-10 px-4 text-right text-xs font-semibold text-slate-600 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -955,19 +951,19 @@ function LogsTab() {
                 <tr><td colSpan={7} className="text-center py-12 text-slate-400">No notification logs found</td></tr>
               )}
               {logs.map((log) => (
-                <tr key={log.id} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
-                  <td className="px-4 py-3">
+                <tr key={log.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}>
+                  <td className="px-4 py-2.5">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${CHANNEL_COLORS[log.channel] ?? 'bg-slate-100 text-slate-600'}`}>{log.channel}</span>
                   </td>
-                  <td className="px-4 py-3 text-slate-700 max-w-[200px] truncate">{log.recipient}</td>
-                  <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{log.subject ?? '-'}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-2.5 text-slate-700 max-w-[200px] truncate">{log.recipient}</td>
+                  <td className="px-4 py-2.5 text-slate-600 max-w-[200px] truncate">{log.subject ?? '-'}</td>
+                  <td className="px-4 py-2.5">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[log.status] ?? 'bg-slate-100'}`}>{log.status}</span>
                     {log.retryCount > 0 && <span className="ml-1 text-xs text-slate-400">(retry {log.retryCount})</span>}
                   </td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-2.5 text-slate-500 text-xs">{log.triggeredBy ?? '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500 text-xs">{formatDateTime(log.createdAt)}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(log.id); }}
                       className="text-red-500 hover:text-red-700 text-xs"

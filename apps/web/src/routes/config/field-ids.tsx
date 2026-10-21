@@ -165,7 +165,7 @@ export function FieldIdsPage() {
           onClick={() => setActiveModule(null)}
           className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
             !activeModule
-              ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-lg'
+              ? 'bg-brand-600 text-white shadow-sm'
               : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
           }`}
         >
@@ -191,8 +191,8 @@ export function FieldIdsPage() {
       </div>
 
       {/* Search Section */}
-      <Card className="border-0 shadow-xl bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-brand-600 to-brand-700" />
+      <Card className="overflow-hidden">
+        <div className="h-1 bg-brand-600" />
         <CardContent className="p-5">
           <div className="flex items-center gap-4">
             <div className="flex-1 relative group">
@@ -225,9 +225,9 @@ export function FieldIdsPage() {
 
       {/* Fields grouped by module */}
       {isLoading ? (
-        <Card className="border-0 shadow-xl overflow-hidden">
+        <Card className="overflow-hidden">
           <CardContent className="p-16 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-brand-600 to-brand-700 mb-4 animate-pulse">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-600 mb-4 animate-pulse">
               <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -237,7 +237,7 @@ export function FieldIdsPage() {
           </CardContent>
         </Card>
       ) : Object.keys(groupedFields).length === 0 ? (
-        <Card className="border-0 shadow-xl overflow-hidden">
+        <Card className="overflow-hidden">
           <CardContent className="p-16 text-center">
             <p className="text-slate-700 font-semibold text-lg">No fields found</p>
             <p className="text-sm text-slate-400 mt-1">
@@ -250,9 +250,9 @@ export function FieldIdsPage() {
           const colors = MODULE_COLORS[module] || { from: 'from-slate-500', to: 'to-slate-600', text: 'text-slate-700', bg: 'bg-slate-50' };
           const iconPath = MODULE_ICONS[module] || 'M4 6h16M4 10h16M4 14h16M4 18h16';
           return (
-            <Card key={module} className="border-0 shadow-xl overflow-hidden">
+            <Card key={module} className="overflow-hidden">
               <div className={`h-1 bg-gradient-to-r ${colors.from} ${colors.to}`} />
-              <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 flex items-center gap-3">
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center gap-3">
                 <div className={`p-2.5 rounded-xl bg-gradient-to-br ${colors.from} ${colors.to} text-white shadow-md`}>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={iconPath} />
@@ -266,17 +266,17 @@ export function FieldIdsPage() {
               <CardContent className="p-0">
                 <div className="divide-y divide-slate-100">
                   {moduleFields.map((field) => (
-                    <div key={field.fieldId} className="group flex items-center justify-between p-5 hover:bg-gradient-to-r hover:from-brand-50/50 hover:to-brand-50/30 transition-all duration-200">
+                    <div key={field.fieldId} className="group flex items-center justify-between p-5 hover:bg-brand-50/40 transition-colors duration-200">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-4">
-                          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-brand-600/10 to-brand-700/10 flex items-center justify-center group-hover:from-brand-700/20 group-hover:to-brand-800/20 transition-all">
+                          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-brand-600/10 flex items-center justify-center group-hover:bg-brand-700/20 transition-colors">
                             <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
                             </svg>
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-3 flex-wrap">
-                              <code className="inline-flex items-center px-3 py-1.5 text-xs font-mono bg-gradient-to-r from-slate-100 to-slate-50 rounded-lg text-slate-600 border border-slate-200/60">
+                              <code className="inline-flex items-center px-3 py-1.5 text-xs font-mono bg-slate-50 rounded-lg text-slate-600 border border-slate-200/60">
                                 <svg className="w-3 h-3 mr-1.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                                 </svg>
@@ -358,10 +358,9 @@ export function FieldIdsPage() {
       )}
 
       {/* Info Banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-50 to-brand-50 border border-cyan-100/50 p-5">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-brand-600/10 to-brand-700/10 rounded-full blur-3xl" />
+      <div className="relative overflow-hidden rounded-2xl bg-brand-50 border border-brand-100 p-5">
         <div className="relative flex items-start gap-4">
-          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
+          <div className="flex-shrink-0 p-3 rounded-xl bg-brand-600 text-white shadow-sm">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>

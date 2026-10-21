@@ -185,7 +185,6 @@ export function RoleFormDialog({
           <Button
             onClick={onSubmit}
             disabled={saving || (!!reasonRequired && !reasonOk(reason))}
-            className="bg-gradient-to-r from-purple-500 to-indigo-600"
           >
             {saving
               ? (isEdit ? 'Saving...' : 'Creating...')

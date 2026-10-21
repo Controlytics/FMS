@@ -5,6 +5,9 @@ import useSWR from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { themeButton } from '@/lib/theme-styles';
+import { PageHeader } from '@/components/ui/page-header';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 // One page that gathers every "who-does-what" role assignment across the app:
 // PM Schedule workflow, Replacement Schedule workflow, QNN visibility, Guest
@@ -146,11 +149,11 @@ const WorkflowStep = ({ cfg, patch, roles, k, field, n, last, title, blankLabel,
           </div>
         );
       })() : (
-      <select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
-        className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+      <Select value={cfg[k]?.[field] ?? ''} onChange={(e) => patch(k, field, e.target.value)}
+        className="mt-1">
         <option value="">{blankLabel}</option>
         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
-      </select>
+      </Select>
       )}
     </label>
   </div>
@@ -306,19 +309,11 @@ export function RoleAssignmentsPage() {
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <ReauthPrompt reauth={reauth} />
       {/* Header / action bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="grid place-items-center w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-1.35M9 9a3 3 0 10-2.5 4.65" />
-            </svg>
-          </span>
-          <div>
-            <h1 className="text-xl font-bold text-slate-800 leading-tight">Role Assignments</h1>
-            <p className="text-sm text-slate-500">Decide which roles run each workflow and see each notification. Super Admin always has access.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="Role Assignments"
+        subtitle="Decide which roles run each workflow and see each notification. Super Admin always has access."
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4zm6 0a3 3 0 10-2.5-1.35M9 9a3 3 0 10-2.5 4.65" />}
+        actions={<>
           {dirty && (
             <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-amber-600">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
@@ -330,8 +325,8 @@ export function RoleAssignmentsPage() {
             style={themeButton}>
             {saving ? 'Saving…' : 'Save All'}
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* 2-up grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
@@ -410,25 +405,23 @@ export function RoleAssignmentsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
                     <label className="block">
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Approval role</span>
-                      <select value={cfg[bk]?.approvalRole ?? ''} onChange={(e) => patch(bk, 'approvalRole', e.target.value)}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+                      <Select value={cfg[bk]?.approvalRole ?? ''} onChange={(e) => patch(bk, 'approvalRole', e.target.value)}>
                         <option value="">Anyone with permission</option>
                         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
-                      </select>
+                      </Select>
                       <span className="mt-1 block text-[11px] text-slate-400">Super Admin can always approve.</span>
                     </label>
 
                     <label className="block">
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Auto-expire (hours)</span>
-                      <input type="number" min={0} value={cfg[bk]?.autoExpireHours ?? 24}
-                        onChange={(e) => patch(bk, 'autoExpireHours', e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
+                      <Input type="number" min={0} value={cfg[bk]?.autoExpireHours ?? 24}
+                        onChange={(e) => patch(bk, 'autoExpireHours', e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))} />
                       <span className="mt-1 block text-[11px] text-slate-400">0 = approved requests never expire.</span>
                     </label>
 
                     <div>
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Require reason</span>
-                      <div className="flex items-center gap-2 h-[38px]">
+                      <div className="flex items-center gap-2 h-10">
                         <Switch on={cfg[bk]?.requireReason !== false}
                           onClick={() => patch(bk, 'requireReason', !(cfg[bk]?.requireReason !== false))} />
                         <span className="text-xs text-slate-500">{cfg[bk]?.requireReason !== false ? 'Operator must give a reason' : 'Reason optional'}</span>
@@ -465,27 +458,25 @@ export function RoleAssignmentsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
                     <label className="block">
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Wash Out approver</span>
-                      <select value={cfg[ik]?.washOutApproverRole ?? ''} onChange={(e) => patch(ik, 'washOutApproverRole', e.target.value)}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+                      <Select value={cfg[ik]?.washOutApproverRole ?? ''} onChange={(e) => patch(ik, 'washOutApproverRole', e.target.value)}>
                         <option value="">Super Admin only</option>
                         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
-                      </select>
+                      </Select>
                       <span className="mt-1 block text-[11px] text-slate-400">Plus Super Admin, always.</span>
                     </label>
 
                     <label className="block">
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Dry Out approver</span>
-                      <select value={cfg[ik]?.dryOutApproverRole ?? ''} onChange={(e) => patch(ik, 'dryOutApproverRole', e.target.value)}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+                      <Select value={cfg[ik]?.dryOutApproverRole ?? ''} onChange={(e) => patch(ik, 'dryOutApproverRole', e.target.value)}>
                         <option value="">Super Admin only</option>
                         {roles.map((r) => <option key={r.name} value={r.name}>{r.label}</option>)}
-                      </select>
+                      </Select>
                       <span className="mt-1 block text-[11px] text-slate-400">Plus Super Admin, always.</span>
                     </label>
 
                     <div>
                       <span className="block text-[13px] font-semibold text-slate-700 mb-1">Different approver</span>
-                      <div className="flex items-center gap-2 h-[38px]">
+                      <div className="flex items-center gap-2 h-10">
                         <Switch on={diff} onClick={() => patch(ik, 'requireDifferentApprover', !diff)} />
                         <span className="text-xs text-slate-500">{diff ? 'Operator can’t approve own stage' : 'Same person may approve'}</span>
                       </div>
@@ -522,20 +513,18 @@ export function RoleAssignmentsPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
                       <label className="block">
                         <span className="block text-[13px] font-semibold text-slate-700 mb-1">Default tolerance (days)</span>
-                        <input type="number" min={0} max={365} value={cfg[pk]?.defaultToleranceDays ?? 3}
-                          onChange={(e) => patch(pk, 'defaultToleranceDays', e.target.value === '' ? '' : Math.min(365, Math.max(0, Number(e.target.value))))}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600" />
+                        <Input type="number" min={0} max={365} value={cfg[pk]?.defaultToleranceDays ?? 3}
+                          onChange={(e) => patch(pk, 'defaultToleranceDays', e.target.value === '' ? '' : Math.min(365, Math.max(0, Number(e.target.value))))} />
                         <span className="mt-1 block text-[11px] text-slate-400">Used when a CSV row leaves tolerance blank (± days).</span>
                       </label>
 
                       <label className="block">
                         <span className="block text-[13px] font-semibold text-slate-700 mb-1">Task visibility</span>
-                        <select value={visibility} onChange={(e) => patch(pk, 'taskVisibility', e.target.value)}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600">
+                        <Select value={visibility} onChange={(e) => patch(pk, 'taskVisibility', e.target.value)}>
                           <option value="GLOBAL">Everyone with PM access</option>
                           <option value="PER_USER">Per-user assignment (not yet implemented)</option>
                           <option value="ROLE_GATED">Role-gated (not yet implemented)</option>
-                        </select>
+                        </Select>
                         {visibility !== 'GLOBAL' && (
                           <span className="mt-1 block text-[11px] text-amber-600">Not yet implemented — the task list will error until this is GLOBAL.</span>
                         )}
@@ -543,7 +532,7 @@ export function RoleAssignmentsPage() {
 
                       <div>
                         <span className="block text-[13px] font-semibold text-slate-700 mb-1">Show overdue separately</span>
-                        <div className="flex items-center gap-2 h-[38px]">
+                        <div className="flex items-center gap-2 h-10">
                           <Switch on={overdueSep} onClick={() => patch(pk, 'showOverdueSeparately', !overdueSep)} />
                           <span className="text-xs text-slate-500">{overdueSep ? 'Own “Overdue” section' : 'Hidden'}</span>
                         </div>

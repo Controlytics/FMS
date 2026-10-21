@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useBranding } from '@/hooks/use-branding';
+import { Input } from '@/components/ui/input';
 
 type Draft = { companyName?: string; appName?: string };
 
@@ -45,8 +46,6 @@ export function ReportPageTitlesPage() {
     } finally { setSaving(false); }
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:bg-slate-50';
-
   const FIELDS = [
     { key: 'companyName' as const, label: 'Company name', brandingVal: branding.companyName },
     { key: 'appName' as const, label: 'Application name', brandingVal: branding.appName },
@@ -59,7 +58,7 @@ export function ReportPageTitlesPage() {
         <p className="text-sm text-slate-500 max-w-2xl">Company &amp; application name shown in the header and footer of every report. Leave blank to use the values from <span className="font-medium text-slate-600">Branding</span>; the logo always comes from Branding.</p>
         <button onClick={save} disabled={!canWrite || !dirty || saving}
           title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
@@ -74,9 +73,9 @@ export function ReportPageTitlesPage() {
                 <p className="text-xs text-slate-500 mt-0.5">Shown in the report header &amp; footer.</p>
               </div>
               <div>
-                <input type="text" value={value} disabled={!canWrite}
+                <Input type="text" value={value} disabled={!canWrite}
                   placeholder={f.brandingVal || '(from Branding)'}
-                  onChange={(e) => set(f.key, e.target.value)} className={inputCls} />
+                  onChange={(e) => set(f.key, e.target.value)} />
                 <p className="text-[11px] text-slate-400 mt-1">
                   {value.trim()
                     ? <>Reports show: <span className="text-slate-600 font-medium">{value}</span></>

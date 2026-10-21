@@ -14,7 +14,7 @@ interface RoleTableProps {
 
 export function RoleTable({ roles, isLoading, isSuperAdmin, onEdit, onDelete }: RoleTableProps) {
   return (
-    <Card className="border-0 shadow-xl overflow-hidden">
+    <Card className="border-0 shadow-none overflow-hidden">
       <CardContent className="p-0">
         {isLoading ? (
           <div className="p-16 text-center">
@@ -35,13 +35,13 @@ export function RoleTable({ roles, isLoading, isSuperAdmin, onEdit, onDelete }: 
                 <TableHead className="font-semibold text-slate-600 text-center">Type</TableHead>
                 <TableHead className="font-semibold text-slate-600 text-center">Status</TableHead>
                 {isSuperAdmin && (
-                  <TableHead className="font-semibold text-slate-600 text-center">Actions</TableHead>
+                  <TableHead className="font-semibold text-slate-600 text-right whitespace-nowrap">Actions</TableHead>
                 )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {roles?.map((role) => (
-                <TableRow key={role.id} className="hover:bg-slate-50/50 transition-colors">
+                <TableRow key={role.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <span className={`inline-flex px-3 py-1.5 rounded-full text-xs font-semibold text-white ${role.color}`}>
@@ -80,8 +80,8 @@ export function RoleTable({ roles, isLoading, isSuperAdmin, onEdit, onDelete }: 
                     )}
                   </TableCell>
                   {isSuperAdmin && (
-                    <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-2">
+                    <TableCell className="text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
                           size="sm"

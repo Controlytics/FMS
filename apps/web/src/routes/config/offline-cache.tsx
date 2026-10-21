@@ -9,6 +9,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
 
 export function OfflineCacheConfigPage() {
   const navigate = useNavigate();
@@ -65,18 +67,14 @@ export function OfflineCacheConfigPage() {
         <Link to="/config" className="text-sm text-slate-500 hover:text-slate-700">← Configuration</Link>
       </div>
 
-      <header className="flex items-start gap-4">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-white shadow-lg">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-            <line x1="3" y1="3" x2="21" y2="21" strokeLinecap="round" strokeWidth={1.5} stroke="currentColor" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Offline Cache & Lockout</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Control how long client caches stay fresh and when the app enters read-only mode after losing server contact</p>
-        </div>
-      </header>
+      <PageHeader
+        title="Offline Cache & Lockout"
+        subtitle="Control how long client caches stay fresh and when the app enters read-only mode after losing server contact"
+        icon={<>
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+          <line x1="3" y1="3" x2="21" y2="21" strokeLinecap="round" strokeWidth={1.5} stroke="currentColor" />
+        </>}
+      />
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
@@ -94,13 +92,13 @@ export function OfflineCacheConfigPage() {
 
           <label className="block">
             <span className="text-xs font-semibold text-slate-500">cacheStalenessHours</span>
-            <input
+            <Input
               type="number"
               step="0.01"
               min={0.01}
               max={168}
               {...register('cacheStalenessHours', { valueAsNumber: true })}
-              className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
+              className="mt-1"
             />
             <span className="text-xs text-slate-400 mt-1 block">Range 0.01–168 (one week). Default 24. Current: {staleness}h.</span>
             {errors.cacheStalenessHours && <span className="text-xs text-red-600 mt-1 block">{errors.cacheStalenessHours.message}</span>}
@@ -117,13 +115,13 @@ export function OfflineCacheConfigPage() {
 
           <label className="block">
             <span className="text-xs font-semibold text-slate-500">cacheHardCutoffHours</span>
-            <input
+            <Input
               type="number"
               step="0.01"
               min={0.01}
               max={168}
               {...register('cacheHardCutoffHours', { valueAsNumber: true })}
-              className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
+              className="mt-1"
             />
             <span className="text-xs text-slate-400 mt-1 block">Range 0.01–168 (one week). Default 24. Current: {hardCutoff}h.</span>
             {errors.cacheHardCutoffHours && <span className="text-xs text-red-600 mt-1 block">{errors.cacheHardCutoffHours.message}</span>}

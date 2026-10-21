@@ -17,8 +17,7 @@ export function ColorSettingsSection({
   return (
     <>
       {/* Primary Colors Section */}
-      <Card className="border-0 shadow-xl overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-brand-600 to-brand-700" />
+      <Card className="overflow-hidden">
         <CardContent className="p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="p-2.5 rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-lg">
@@ -76,7 +75,7 @@ export function ColorSettingsSection({
       </Card>
 
       {/* Gradient Colors Section */}
-      <Card className="border-0 shadow-xl overflow-hidden">
+      <Card className="overflow-hidden">
         <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500" />
         <CardContent className="p-6">
           <div className="flex items-center gap-3 mb-5">

@@ -4,6 +4,7 @@ import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { Input } from '@/components/ui/input';
 
 
 interface CleaningReason {
@@ -128,7 +129,7 @@ export function CleaningReasonsConfigPage() {
           </button>
           <button onClick={save} disabled={saving || !canWrite || !dirty}
             title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-            className="px-4 py-2 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-lg hover:from-brand-700 hover:to-brand-800 disabled:opacity-50 transition-all shadow-sm font-medium text-sm">
+            className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-sm font-medium text-sm">
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
@@ -148,7 +149,7 @@ export function CleaningReasonsConfigPage() {
       )}
 
       {/* Reasons list */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         {reasons.length === 0 ? (
           <div className="p-12 text-center text-slate-400">
             <svg className="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -208,8 +209,7 @@ export function CleaningReasonsConfigPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Name</label>
-                <input
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-transparent"
+                <Input
                   placeholder="e.g. Scheduled Cleaning"
                   value={editing.name}
                   onChange={e => setEditing({
@@ -223,8 +223,8 @@ export function CleaningReasonsConfigPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Key</label>
-                <input
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 font-mono placeholder-slate-400 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-transparent"
+                <Input
+                  className="font-mono"
                   placeholder="e.g. SCHEDULED_CLEANING"
                   value={editing.key}
                   onChange={e => setEditing({ ...editing, key: e.target.value })}
@@ -257,7 +257,7 @@ export function CleaningReasonsConfigPage() {
                 Cancel
               </button>
               <button onClick={handleModalSave}
-                className="flex-1 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-lg hover:from-brand-700 hover:to-brand-800 transition-all font-medium text-sm">
+                className="flex-1 py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors font-medium text-sm">
                 {isNewReason ? 'Add' : 'Update'}
               </button>
             </div>

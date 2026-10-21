@@ -77,7 +77,7 @@ export function ReplacementScheduleFiltersPage() {
       <ReauthPrompt reauth={reauth} />
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Schedule AHU Filters</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">Schedule AHU Filters</h1>
           <p className="text-sm text-slate-500 mt-1">
             For each role, choose whether it can expand an AHU to see the filters under it — set
             independently for the PM Schedule and Replacement Schedule pages. Disabled (default) hides them.
@@ -85,7 +85,7 @@ export function ReplacementScheduleFiltersPage() {
           </p>
         </div>
         <button onClick={save} disabled={saving || !dirty}
-          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-50">
+          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-xs disabled:opacity-50">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>

@@ -5,6 +5,9 @@ import { api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { PageHeader } from '@/components/ui/page-header';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 interface RoleMappingRow {
   ldapGroup: string;
@@ -139,26 +142,22 @@ export default function LdapConfigPage() {
   return (
     <div className="p-6 space-y-6 animate-fade-in max-w-4xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <PageHeader
+        title="LDAP / Active Directory"
+        subtitle="Configure LDAP authentication and user provisioning"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />}
+        back={
           <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </Link>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">LDAP / Active Directory</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Configure LDAP authentication and user provisioning</p>
-          </div>
-        </div>
-        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${config.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-          <span className={`w-2 h-2 rounded-full ${config.enabled ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-          {config.enabled ? 'Enabled' : 'Disabled'}
-        </span>
-      </div>
+        }
+        actions={
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${config.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+            <span className={`w-2 h-2 rounded-full ${config.enabled ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+            {config.enabled ? 'Enabled' : 'Disabled'}
+          </span>
+        }
+      />
 
       {/* Messages */}
       {saveMsg && (
@@ -169,7 +168,7 @@ export default function LdapConfigPage() {
       )}
 
       {/* Enable Toggle */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-slate-800">Enable LDAP Authentication</h3>
@@ -183,8 +182,8 @@ export default function LdapConfigPage() {
       </div>
 
       {/* Connection Settings */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
           <h3 className="font-semibold text-slate-800 flex items-center gap-2">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" /></svg>
             Connection Settings
@@ -194,26 +193,25 @@ export default function LdapConfigPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Server URL <span className="text-red-500">*</span></label>
-              <input value={config.serverUrl} onChange={e => updateField('serverUrl', e.target.value)} placeholder="ldaps://ad.company.com:636"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+              <Input value={config.serverUrl} onChange={e => updateField('serverUrl', e.target.value)} placeholder="ldaps://ad.company.com:636"
+                className="font-mono" />
               <p className="text-xs text-slate-400 mt-1">Use ldaps:// for secure connection (port 636) or ldap:// for plain (port 389)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind DN <span className="text-red-500">*</span></label>
-              <input value={config.bindDN} onChange={e => updateField('bindDN', e.target.value)} placeholder="CN=svc_digilog,OU=Service Accounts,DC=company,DC=com"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+              <Input value={config.bindDN} onChange={e => updateField('bindDN', e.target.value)} placeholder="CN=svc_digilog,OU=Service Accounts,DC=company,DC=com"
+                className="font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind Password <span className="text-red-500">*</span></label>
               <input type="password" value={config.bindPassword} onChange={e => updateField('bindPassword', e.target.value)} placeholder="Service account password"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+                className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 [@media(pointer:coarse)]:h-11" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Connection Timeout (ms)</label>
-              <input type="number" value={config.connectionTimeout} onChange={e => updateField('connectionTimeout', Number(e.target.value))}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+              <Input type="number" value={config.connectionTimeout} onChange={e => updateField('connectionTimeout', Number(e.target.value))} />
             </div>
             <div className="flex items-end pb-1">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -245,8 +243,8 @@ export default function LdapConfigPage() {
       </div>
 
       {/* Search Settings */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
           <h3 className="font-semibold text-slate-800 flex items-center gap-2">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             User Search Settings
@@ -255,34 +253,34 @@ export default function LdapConfigPage() {
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Base DN <span className="text-red-500">*</span></label>
-            <input value={config.searchBase} onChange={e => updateField('searchBase', e.target.value)} placeholder="OU=Users,DC=company,DC=com"
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+            <Input value={config.searchBase} onChange={e => updateField('searchBase', e.target.value)} placeholder="OU=Users,DC=company,DC=com"
+              className="font-mono" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Search Filter</label>
-            <input value={config.searchFilter} onChange={e => updateField('searchFilter', e.target.value)} placeholder="(sAMAccountName={{username}})"
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+            <Input value={config.searchFilter} onChange={e => updateField('searchFilter', e.target.value)} placeholder="(sAMAccountName={{username}})"
+              className="font-mono" />
             <p className="text-xs text-slate-400 mt-1">Use {'{{username}}'} as placeholder for the login username</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Username Attribute</label>
-              <input value={config.usernameAttribute} onChange={e => updateField('usernameAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+              <Input value={config.usernameAttribute} onChange={e => updateField('usernameAttribute', e.target.value)}
+                className="font-mono" />
               <p className="text-xs text-slate-400 mt-1">AD: sAMAccountName, OpenLDAP: uid</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Group Attribute</label>
-              <input value={config.groupAttribute} onChange={e => updateField('groupAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+              <Input value={config.groupAttribute} onChange={e => updateField('groupAttribute', e.target.value)}
+                className="font-mono" />
             </div>
           </div>
         </div>
       </div>
 
       {/* Attribute Mapping */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
           <h3 className="font-semibold text-slate-800 flex items-center gap-2">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
             Attribute Mapping
@@ -292,18 +290,18 @@ export default function LdapConfigPage() {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-              <input value={config.fullNameAttribute} onChange={e => updateField('fullNameAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+              <Input value={config.fullNameAttribute} onChange={e => updateField('fullNameAttribute', e.target.value)}
+                className="font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-              <input value={config.emailAttribute} onChange={e => updateField('emailAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+              <Input value={config.emailAttribute} onChange={e => updateField('emailAttribute', e.target.value)}
+                className="font-mono" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-              <input value={config.departmentAttribute} onChange={e => updateField('departmentAttribute', e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+              <Input value={config.departmentAttribute} onChange={e => updateField('departmentAttribute', e.target.value)}
+                className="font-mono" />
             </div>
           </div>
           <div className="mt-4">
@@ -317,8 +315,8 @@ export default function LdapConfigPage() {
       </div>
 
       {/* Group-to-Role Mapping */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-slate-800 flex items-center gap-2">
               <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -337,14 +335,14 @@ export default function LdapConfigPage() {
             config.roleMappings.map((mapping, i) => (
               <div key={i} className="flex items-center gap-3">
                 <div className="flex-1">
-                  <input value={mapping.ldapGroup} onChange={e => updateRoleMapping(i, 'ldapGroup', e.target.value)} placeholder="CN=Admins,OU=Groups,DC=company,DC=com"
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+                  <Input value={mapping.ldapGroup} onChange={e => updateRoleMapping(i, 'ldapGroup', e.target.value)} placeholder="CN=Admins,OU=Groups,DC=company,DC=com"
+                    className="font-mono" />
                 </div>
                 <svg className="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
-                <select value={mapping.role} onChange={e => updateRoleMapping(i, 'role', e.target.value)}
-                  className="w-48 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15">
+                <Select value={mapping.role} onChange={e => updateRoleMapping(i, 'role', e.target.value)}
+                  className="w-48">
                   {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
-                </select>
+                </Select>
                 <button onClick={() => removeRoleMapping(i)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
@@ -353,10 +351,10 @@ export default function LdapConfigPage() {
           )}
           <div className="pt-2">
             <label className="block text-sm font-medium text-slate-700 mb-1">Default Role (when no group matches)</label>
-            <select value={config.defaultRole} onChange={e => updateField('defaultRole', e.target.value)}
-              className="w-64 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15">
+            <Select value={config.defaultRole} onChange={e => updateField('defaultRole', e.target.value)}
+              className="w-64">
               {rolesData?.map(r => <option key={r.name} value={r.name}>{r.displayName}</option>)}
-            </select>
+            </Select>
           </div>
         </div>
       </div>

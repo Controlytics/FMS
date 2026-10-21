@@ -97,7 +97,7 @@ export function ReportSignatoriesPage() {
           Unset cells default to <span className="font-semibold text-sky-700">Printed By</span>. SUPER_ADMIN always uses Printed By.
         </p>
         <button onClick={save} disabled={saving || !dirty}
-          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
@@ -106,15 +106,15 @@ export function ReportSignatoriesPage() {
         <div className="text-sm text-slate-400 py-12 text-center">No roles to configure.</div>
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 sticky left-0 bg-slate-50">Report</th>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap sticky left-0 bg-slate-50">Report</th>
                 {roles.map((r) => (
                   <th key={r.name} className="px-3 py-2 text-center min-w-[140px]">
-                    <div className="text-[12px] font-bold text-slate-700">{r.displayName || r.name}</div>
+                    <div className="text-xs font-semibold text-slate-600">{r.displayName || r.name}</div>
                     <select value="" onChange={(e) => { if (e.target.value) setWholeRole(r.name, e.target.value); }}
-                      className="mt-1 text-[10px] text-slate-400 bg-transparent border border-slate-200 rounded px-1 py-0.5 cursor-pointer">
+                      className="mt-1 text-[11px] text-slate-400 bg-transparent border border-slate-200 rounded px-1 py-0.5 cursor-pointer">
                       <option value="">set all…</option>
                       {LABELS.map((l) => <option key={l} value={l}>{l}</option>)}
                     </select>
@@ -122,9 +122,9 @@ export function ReportSignatoriesPage() {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {REPORT_TYPES.map((rt) => (
-                <tr key={rt.key} className="hover:bg-slate-50/40">
+                <tr key={rt.key} className="hover:bg-slate-50">
                   <td className="px-4 py-2.5 text-[13px] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white">{rt.label}</td>
                   {roles.map((r) => {
                     const val = cell(r.name, rt.key);

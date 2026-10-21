@@ -57,6 +57,8 @@ function getCycleDuration(cycle: any) {
 import { getAuditStatus } from '../audit/audit-helpers';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { Pagination } from '@/components/ui/pagination';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -173,18 +175,18 @@ function Field(props: {
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </label>
       {optionObjs ? (
-        <select value={value ?? ''} onChange={e => onChange(e.target.value)} className={cls}>
+        <Select value={value ?? ''} onChange={e => onChange(e.target.value)}>
           <option value="">{placeholder ?? 'Select…'}</option>
           {optionObjs.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        </Select>
       ) : select ? (
-        <select value={value ?? ''} onChange={e => onChange(e.target.value)} className={cls}>
+        <Select value={value ?? ''} onChange={e => onChange(e.target.value)}>
           {(options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
+        </Select>
       ) : textarea ? (
         <textarea value={value ?? ''} onChange={e => onChange(e.target.value)} rows={2} className={cls} />
       ) : (
-        <input type={type} value={value ?? ''} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={cls} />
+        <Input type={type} value={value ?? ''} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
       )}
     </div>
   );
@@ -332,7 +334,7 @@ function LifecyclePanel({
         {events.map((ev, i) => (
           <div key={ev.id} className="group flex items-start gap-3 px-4 py-2.5 hover:bg-slate-50/60">
             {/* Step number + the transition, which is what an operator scans for. */}
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
               {i + 1}
             </span>
             <div className="min-w-0 flex-1">
@@ -366,9 +368,9 @@ function LifecyclePanel({
             </div>
             <div className="flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100">
               <button onClick={() => onEditEvent(ev)}
-                className="rounded-lg px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-100">Edit</button>
+                className="rounded-lg px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-100">Edit</button>
               <button onClick={() => onDeleteEvent(ev)}
-                className="rounded-lg px-2 py-1 text-[10px] font-medium text-red-500 hover:bg-red-50">Delete</button>
+                className="rounded-lg px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50">Delete</button>
             </div>
           </div>
         ))}
@@ -1372,7 +1374,7 @@ export function FilterDataManagementPage() {
             <div>
               <h1 className="text-xl font-bold text-slate-800 tracking-tight">Filter Data Management</h1>
               <div className="flex items-center gap-2 mt-1">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-[10px] font-bold border border-red-100">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-[11px] font-bold border border-red-100">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01" /></svg>
                   SUPER ADMIN
                 </span>
@@ -1418,7 +1420,7 @@ export function FilterDataManagementPage() {
           {(tab === 'retirements' || tab === 'replacements') && (
             <button
               onClick={() => { setChangeReason(''); setManualRecordDialog({ kind: tab === 'retirements' ? 'retirement' : 'replacement' }); setManualRecordFields({}); }}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold shadow-sm hover:from-brand-700 hover:to-brand-800">
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold shadow-sm hover:bg-brand-700">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Create
             </button>
@@ -1426,7 +1428,7 @@ export function FilterDataManagementPage() {
           {TAB_CREATE_ENTITY[tab] && (
             <button
               onClick={() => openCreate(TAB_CREATE_ENTITY[tab])}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold shadow-sm hover:from-brand-700 hover:to-brand-800">
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-600 text-white rounded-xl text-sm font-semibold shadow-sm hover:bg-brand-700">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Create
             </button>
@@ -1435,8 +1437,8 @@ export function FilterDataManagementPage() {
             <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input value={search} onChange={e => { setSearch(e.target.value); resetPaging(); }} placeholder="Search..."
-              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 w-52 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none" />
+            <Input value={search} onChange={e => { setSearch(e.target.value); resetPaging(); }} placeholder="Search..."
+              className="h-9 w-52 pl-9 pr-4" />
           </div>
         </div>
       </div>
@@ -1463,16 +1465,17 @@ export function FilterDataManagementPage() {
               <span className="text-xs font-semibold text-slate-500">
                 {FILTERS_BY_TAB[tab].label}
               </span>
-              <select
+              <Select
+                selectSize="sm"
+                className="w-auto"
                 value={kindFilter}
                 onChange={e => { setKindFilter(e.target.value); resetPaging(); }}
-                className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[12px] text-slate-700 focus:bg-white focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 focus:outline-none transition-all"
               >
                 <option value="">All</option>
                 {FILTERS_BY_TAB[tab].options.map(o => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
-              </select>
+              </Select>
             </label>
           </>
         )}
@@ -1507,22 +1510,22 @@ export function FilterDataManagementPage() {
               <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No retired filters'}</span>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-                  <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500">Filter Name</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500">Original Parent</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500">Filter Set</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-bold text-slate-500">Retired At</th>
-                  <th className="text-right px-5 py-3.5 text-xs font-bold text-slate-500">Actions</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Filter Name</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Original Parent</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Filter Set</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Retired At</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {clientPage(filteredRetirements).map(r => {
                   const isEditing = editingId === r.id;
                   return (
-                    <tr key={r.id} className={`group transition-colors ${isEditing ? 'bg-cyan-50/30' : 'hover:bg-slate-50/50'}`}>
-                      <td className="px-5 py-3.5">
+                    <tr key={r.id} className={`group transition-colors ${isEditing ? 'bg-cyan-50/30' : 'hover:bg-slate-50'}`}>
+                      <td className="px-4 py-2.5">
                         {isEditing ? (
                           <input value={editFields.name ?? r.name} onChange={e => setEditFields(p => ({ ...p, name: e.target.value }))} autoFocus
                             className="border border-cyan-300 rounded-lg px-3 py-1.5 text-[13px] w-56 bg-white focus:ring-3 focus:ring-brand-600/15 outline-none" />
@@ -1535,14 +1538,14 @@ export function FilterDataManagementPage() {
                           </div>
                         )}
                       </td>
-                      <td className="px-5 py-3.5 text-[13px]">
+                      <td className="px-4 py-2.5 text-[13px]">
                         {r.preRetireParentName ? (
                           <span className="text-slate-600">{r.preRetireParentName}</span>
                         ) : (
                           <span className="text-slate-300 text-[12px]">--</span>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5">
                         {isEditing ? (
                           <select value={editFields.filterSet ?? r.filterSet ?? ''} onChange={e => setEditFields(p => ({ ...p, filterSet: e.target.value }))}
                             className="border border-cyan-300 rounded-lg px-3 py-1.5 text-[13px] bg-white focus:ring-3 focus:ring-brand-600/15 outline-none">
@@ -1558,7 +1561,7 @@ export function FilterDataManagementPage() {
                           )
                         )}
                       </td>
-                      <td className="px-5 py-3.5 text-[12px] tabular-nums whitespace-nowrap">
+                      <td className="px-4 py-2.5 text-[12px] tabular-nums whitespace-nowrap">
                         {isEditing ? (
                           <input type="datetime-local" value={editFields.updatedAt ?? toInput(r.updatedAt)}
                             onChange={e => setEditFields(p => ({ ...p, updatedAt: e.target.value }))}
@@ -1567,7 +1570,7 @@ export function FilterDataManagementPage() {
                           <span className="text-slate-400">{formatDateTime(r.updatedAt)}</span>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1.5 justify-end">
                           {isEditing ? (
                             <>
@@ -1618,25 +1621,25 @@ export function FilterDataManagementPage() {
               <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No replacement records'}</span>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Old Filter Name</th>
-                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Old Filter ID</th>
-                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">New Filter Name</th>
-                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">New Filter ID</th>
-                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Performed By</th>
-                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Remarks</th>
-                  <th className="text-left px-3 py-3.5 text-[11px] font-bold text-slate-500">Date</th>
-                  <th className="text-right px-3 py-3.5 text-[11px] font-bold text-slate-500">Actions</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Old Filter Name</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Old Filter ID</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">New Filter Name</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">New Filter ID</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Performed By</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Remarks</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">Date</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {clientPage(filteredReplacements).map(r => {
                   const isEditing = editingId === r.id;
                   return (
-                    <tr key={r.id} className={`group transition-colors ${isEditing ? 'bg-cyan-50/30' : 'hover:bg-slate-50/50'}`}>
-                      <td className="px-3 py-3">
+                    <tr key={r.id} className={`group transition-colors ${isEditing ? 'bg-cyan-50/30' : 'hover:bg-slate-50'}`}>
+                      <td className="px-4 py-2.5">
                         {isEditing ? (
                           <input value={editFields.oldFilterName ?? r.oldFilterName} onChange={e => setEditFields(p => ({ ...p, oldFilterName: e.target.value }))}
                             className="border border-cyan-300 rounded px-2 py-1 text-[11px] bg-white w-32" />
@@ -1644,15 +1647,15 @@ export function FilterDataManagementPage() {
                           <span className="text-[12px] font-semibold text-slate-500 line-through">{r.oldFilterName}</span>
                         )}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-4 py-2.5">
                         {isEditing ? (
                           <input value={editFields.oldFilterId ?? r.oldFilterId} onChange={e => setEditFields(p => ({ ...p, oldFilterId: e.target.value }))}
-                            className="border border-cyan-300 rounded px-2 py-1 text-[10px] font-mono bg-white w-36" />
+                            className="border border-cyan-300 rounded px-2 py-1 text-[11px] font-mono bg-white w-36" />
                         ) : (
-                          <span className="text-[10px] font-mono text-slate-300" title={r.oldFilterId}>{r.oldFilterId?.slice(0, 8)}...</span>
+                          <span className="text-[11px] font-mono text-slate-300" title={r.oldFilterId}>{r.oldFilterId?.slice(0, 8)}...</span>
                         )}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-4 py-2.5">
                         {isEditing ? (
                           <input value={editFields.newFilterName ?? r.newFilterName} onChange={e => setEditFields(p => ({ ...p, newFilterName: e.target.value }))}
                             className="border border-cyan-300 rounded px-2 py-1 text-[11px] bg-white w-32" />
@@ -1660,15 +1663,15 @@ export function FilterDataManagementPage() {
                           <span className="text-[12px] font-semibold text-slate-800">{r.newFilterName}</span>
                         )}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-4 py-2.5">
                         {isEditing ? (
                           <input value={editFields.newFilterId ?? r.newFilterId} onChange={e => setEditFields(p => ({ ...p, newFilterId: e.target.value }))}
-                            className="border border-cyan-300 rounded px-2 py-1 text-[10px] font-mono bg-white w-36" />
+                            className="border border-cyan-300 rounded px-2 py-1 text-[11px] font-mono bg-white w-36" />
                         ) : (
-                          <span className="text-[10px] font-mono text-slate-300" title={r.newFilterId}>{r.newFilterId?.slice(0, 8)}...</span>
+                          <span className="text-[11px] font-mono text-slate-300" title={r.newFilterId}>{r.newFilterId?.slice(0, 8)}...</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-[12px]">
+                      <td className="px-4 py-2.5 text-[12px]">
                         {isEditing ? (
                           <input value={editFields.performedBy ?? r.performedBy} onChange={e => setEditFields(p => ({ ...p, performedBy: e.target.value }))}
                             className="border border-cyan-300 rounded px-2 py-1 text-[11px] bg-white w-28" />
@@ -1676,7 +1679,7 @@ export function FilterDataManagementPage() {
                           <span className="text-slate-600">{r.performedBy}</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-[12px] max-w-[150px]">
+                      <td className="px-4 py-2.5 text-[12px] max-w-[150px]">
                         {isEditing ? (
                           <input value={editFields.remarks ?? r.remarks ?? ''} onChange={e => setEditFields(p => ({ ...p, remarks: e.target.value }))}
                             className="border border-cyan-300 rounded px-2 py-1 text-[11px] bg-white w-32" />
@@ -1684,7 +1687,7 @@ export function FilterDataManagementPage() {
                           <span className="text-slate-400 truncate block" title={r.remarks ?? ''}>{r.remarks || '--'}</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-[12px] tabular-nums whitespace-nowrap">
+                      <td className="px-4 py-2.5 text-[12px] tabular-nums whitespace-nowrap">
                         {isEditing ? (
                           <input type="datetime-local" value={editFields.replacedAt ?? toInput(r.replacedAt)}
                             onChange={e => setEditFields(p => ({ ...p, replacedAt: e.target.value }))}
@@ -1693,7 +1696,7 @@ export function FilterDataManagementPage() {
                           <span className="text-slate-400">{formatDateTime(r.replacedAt)}</span>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1.5 justify-end">
                           {isEditing ? (
                             <>
@@ -1736,11 +1739,11 @@ export function FilterDataManagementPage() {
               <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No cleaning cycles'}</span>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {['S.No', 'Filter', 'Micron Size', 'Air Pressure', 'RO Water', 'Wash In', 'Wash Out', 'Wash By', 'Dryer Temp', 'Dry In', 'Dry Out', 'Dry By', 'Duration', 'Status', 'Actions'].map((h, i) => (
-                    <th key={i} className="text-left px-3 py-3 text-[11px] font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className={`h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap bg-slate-50 ${h === 'Actions' ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1757,29 +1760,29 @@ export function FilterDataManagementPage() {
                   const sc = CYCLE_STATUS_CONFIG[c.status] ?? { label: c.status, bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-200' };
                   return (
                     <Fragment key={c.id}>
-                    <tr className="hover:bg-slate-50/50 group">
-                      <td className="px-3 py-2.5 text-[12px] text-slate-400 tabular-nums">{idx + 1}</td>
-                      <td className="px-3 py-2.5 text-[12px] font-semibold text-slate-800"><span className="inline-flex items-center gap-1.5">{c.filterName ?? '-'}<ManualEntryBadge manual={c.manualEntry} /></span></td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{attrs.micronSize ?? '-'}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'air pressure')}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'ro water')}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{washIn ? formatDateTime(washIn.time) : '-'}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{washOut ? formatDateTime(washOut.time) : '-'}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{washIn?.performedBy ?? washOut?.performedBy ?? '-'}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{dryerTemp}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{dryIn ? formatDateTime(dryIn.time) : '-'}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{dryOut ? formatDateTime(dryOut.time) : '-'}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-600">{dryIn?.performedBy ?? dryOut?.performedBy ?? '-'}</td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-600 tabular-nums">{getCycleDuration(c)}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${sc.bg} ${sc.text} border ${sc.border}`}>{sc.label}</span>
+                    <tr className="hover:bg-slate-50 group">
+                      <td className="px-4 py-2.5 text-[12px] text-slate-400 tabular-nums">{idx + 1}</td>
+                      <td className="px-4 py-2.5 text-[12px] font-semibold text-slate-800"><span className="inline-flex items-center gap-1.5">{c.filterName ?? '-'}<ManualEntryBadge manual={c.manualEntry} /></span></td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600">{attrs.micronSize ?? '-'}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'air pressure')}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{getReadingValue(washReadings, 'ro water')}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{washIn ? formatDateTime(washIn.time) : '-'}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{washOut ? formatDateTime(washOut.time) : '-'}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600">{washIn?.performedBy ?? washOut?.performedBy ?? '-'}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600 font-mono tabular-nums">{dryerTemp}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{dryIn ? formatDateTime(dryIn.time) : '-'}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">{dryOut ? formatDateTime(dryOut.time) : '-'}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600">{dryIn?.performedBy ?? dryOut?.performedBy ?? '-'}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600 tabular-nums">{getCycleDuration(c)}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${sc.bg} ${sc.text} border ${sc.border}`}>{sc.label}</span>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1 justify-end">
                           <button
                             onClick={() => setOpenLifecycle(openLifecycle === c.id ? null : c.id)}
                             title="Show this cycle's stage history — each step can be edited here"
-                            className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg transition-colors ${
+                            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-lg transition-colors ${
                               openLifecycle === c.id ? 'bg-cyan-50 text-cyan-700' : 'text-slate-500 hover:bg-slate-100'
                             }`}>
                             <svg className={`w-3 h-3 transition-transform ${openLifecycle === c.id ? 'rotate-180' : ''}`}
@@ -1790,12 +1793,12 @@ export function FilterDataManagementPage() {
                             <span className="ml-0.5 text-slate-400">({(c.events ?? []).length})</span>
                           </button>
                           <button onClick={() => openRowEdit(c, 'cycle', c.cycleCode ?? c.filterName ?? 'Cycle')}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
+                            className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                             Edit
                           </button>
                           <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: c.id, name: c.cycleCode ?? c.filterName ?? 'Cycle' }); }}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">
+                            className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             Delete
                           </button>
@@ -1837,11 +1840,11 @@ export function FilterDataManagementPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-400">{formatDateTime(e.performedAt)}</span>
                       <button onClick={() => openRowEdit(e, 'event', e.eventType ?? 'Event')}
-                        className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
+                        className="px-2 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">
                         Edit
                       </button>
                       <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: e.id, name: e.eventType ?? 'Event' }); }}
-                        className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">
+                        className="px-2 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">
                         Delete
                       </button>
                     </div>
@@ -1938,11 +1941,11 @@ export function FilterDataManagementPage() {
               <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No audit records'}</span>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {['Timestamp', 'Action', 'Performed By', 'Target', 'Status', 'Actions'].map((h, i) => (
-                    <th key={i} className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className={`h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap bg-slate-50 ${h === 'Actions' ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1950,31 +1953,31 @@ export function FilterDataManagementPage() {
                 {filteredEnrichedAudit.map((a: any) => {
                   const status = getAuditStatus(a.action ?? '');
                   return (
-                    <tr key={a.id} className="hover:bg-slate-50/50 group">
-                      <td className="px-4 py-3 text-[12px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(a.timestamp)}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">{a.action}</span>
+                    <tr key={a.id} className="hover:bg-slate-50 group">
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(a.timestamp)}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="inline-flex px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">{a.action}</span>
                       </td>
-                      <td className="px-4 py-3 text-[12px]">
+                      <td className="px-4 py-2.5 text-[12px]">
                         <div className="font-semibold text-slate-700">{a.userId ?? '-'}</div>
-                        {a.userRole && <div className="text-[10px] text-slate-400">{a.userRole}</div>}
+                        {a.userRole && <div className="text-[11px] text-slate-400">{a.userRole}</div>}
                       </td>
-                      <td className="px-4 py-3 text-[11px] text-slate-500">
+                      <td className="px-4 py-2.5 text-[11px] text-slate-500">
                         {a.targetType ? <span>{a.targetType}{a.targetId ? <span className="text-slate-300 ml-1">({String(a.targetId).slice(0, 8)})</span> : null}</span> : '-'}
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${status === 'Success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                      <td className="px-4 py-2.5">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${status === 'Success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                           {status}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1 justify-end opacity-60 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => openAuditEdit(a)} title="Correct this record. Breaks the hash chain from here onward."
-                            className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
+                            className="px-2 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
                           <button onClick={() => handleRedactAuditRow(a)} title="Mask the payload but keep the record and its chain link (recommended)."
-                            className="px-2 py-1 text-amber-600 text-[10px] font-medium rounded-lg hover:bg-amber-50">Redact</button>
+                            className="px-2 py-1 text-amber-600 text-[11px] font-medium rounded-lg hover:bg-amber-50">Redact</button>
                           <button onClick={() => handleDeleteAuditRow(a)} title="Destroy this record. Permanently breaks the hash chain."
-                            className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50">Delete</button>
+                            className="px-2 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">Delete</button>
                         </div>
                       </td>
                     </tr>
@@ -2000,8 +2003,8 @@ export function FilterDataManagementPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold border ${tCol}`}>{n.type?.replace(/_/g, ' ')}</span>
-                          {!n.isRead && <span className="text-[10px] text-cyan-600 font-bold">UNREAD</span>}
+                          <span className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-bold border ${tCol}`}>{n.type?.replace(/_/g, ' ')}</span>
+                          {!n.isRead && <span className="text-[11px] text-cyan-600 font-bold">UNREAD</span>}
                           <ManualEntryBadge manual={n.manualEntry} />
                         </div>
                         <div className="text-[13px] font-semibold text-slate-800">{n.title}</div>
@@ -2015,9 +2018,9 @@ export function FilterDataManagementPage() {
                       </div>
                       <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => openRowEdit(n, 'notification', n.title ?? 'Notification')}
-                          className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
+                          className="px-2 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
                         <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: n.id, name: n.title ?? 'Notification' }); }}
-                          className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50">Delete</button>
+                          className="px-2 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">Delete</button>
                       </div>
                     </div>
                   </div>
@@ -2034,11 +2037,11 @@ export function FilterDataManagementPage() {
               <span className="text-slate-400 font-medium">{search ? 'No results found' : 'No admin requests'}</span>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-slate-50 border-b border-slate-200">
                   {['Requester', 'Type', 'Status', 'Submitted', 'Processed By', 'Actions'].map((h, i) => (
-                    <th key={i} className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
+                    <th key={i} className={`h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap bg-slate-50 ${h === 'Actions' ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -2047,25 +2050,25 @@ export function FilterDataManagementPage() {
                   const typeLabel = ADMIN_REQ_TYPE_LABELS[req.requestType] ?? req.requestType;
                   const sCol = ADMIN_REQ_STATUS_COLORS[req.status] ?? 'bg-slate-50 text-slate-600 border-slate-200';
                   return (
-                    <tr key={req.id} className="hover:bg-slate-50/50 group">
-                      <td className="px-5 py-3.5">
+                    <tr key={req.id} className="hover:bg-slate-50 group">
+                      <td className="px-4 py-2.5">
                         <div className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-800">{req.requesterName}<ManualEntryBadge manual={req.manualEntry} /></div>
                         {req.requesterEmployeeId && <div className="text-[11px] text-slate-400">{req.requesterEmployeeId}</div>}
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5">
                         <span className="inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">{typeLabel}</span>
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5">
                         <span className={`inline-flex px-2.5 py-1 rounded-full text-[11px] font-bold border ${sCol}`}>{req.status}</span>
                       </td>
-                      <td className="px-5 py-3.5 text-[12px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
-                      <td className="px-5 py-3.5 text-[12px] text-slate-500">{req.processedByName ?? req.processedBy ?? '-'}</td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-[12px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
+                      <td className="px-4 py-2.5 text-[12px] text-slate-500">{req.processedByName ?? req.processedBy ?? '-'}</td>
+                      <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1 justify-end">
                           <button onClick={() => openRowEdit(req, 'admin-request', `${typeLabel} - ${req.requesterName}`)}
-                            className="px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">Edit</button>
+                            className="px-2 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 opacity-60 group-hover:opacity-100 transition-opacity">Edit</button>
                           <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: req.id, name: `${typeLabel} - ${req.requesterName}` }); }}
-                            className="px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">Delete</button>
+                            className="px-2 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 opacity-60 group-hover:opacity-100 transition-opacity">Delete</button>
                         </div>
                       </td>
                     </tr>
@@ -2140,13 +2143,13 @@ export function FilterDataManagementPage() {
               <span className="text-slate-400 font-medium">No records found</span>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
                   {activeGenericTab.columns.map(col => (
-                    <th key={col} className="text-left px-3 py-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">{col.replace(/([A-Z])/g, ' $1').trim()}</th>
+                    <th key={col} className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-left">{col.replace(/([A-Z])/g, ' $1').trim()}</th>
                   ))}
-                  <th className="text-right px-3 py-3 text-[11px] font-bold text-slate-500 sticky right-0 bg-slate-50/80">Actions</th>
+                  <th className="h-10 px-4 text-xs font-semibold text-slate-600 whitespace-nowrap text-right sticky right-0 bg-slate-50/80">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -2154,7 +2157,7 @@ export function FilterDataManagementPage() {
                   const rowId = row[activeGenericTab.idField];
                   const isRowEditing = editingId === rowId;
                   return (
-                    <tr key={rowId} className={`group transition-colors ${isRowEditing ? 'bg-cyan-50/30' : 'hover:bg-slate-50/50'}`}>
+                    <tr key={rowId} className={`group transition-colors ${isRowEditing ? 'bg-cyan-50/30' : 'hover:bg-slate-50'}`}>
                       {activeGenericTab.columns.map(col => {
                         const rawVal = row[col];
                         const isDate = rawVal && typeof rawVal === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(rawVal);
@@ -2164,7 +2167,7 @@ export function FilterDataManagementPage() {
 
                         if (isRowEditing) {
                           return (
-                            <td key={col} className="px-3 py-2">
+                            <td key={col} className="px-4 py-2">
                               {isBool ? (
                                 <select value={editFields[col] ?? String(rawVal)} onChange={e => setEditFields(p => ({ ...p, [col]: e.target.value }))}
                                   className="border border-cyan-300 rounded px-2 py-1 text-[11px] bg-white w-16">
@@ -2185,16 +2188,16 @@ export function FilterDataManagementPage() {
                         }
 
                         return (
-                          <td key={col} className="px-3 py-2.5 text-[11px] text-slate-600 max-w-[180px] truncate" title={displayVal}>
+                          <td key={col} className="px-4 py-2.5 text-[11px] text-slate-600 max-w-[180px] truncate" title={displayVal}>
                             {isBadge ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
                                 {displayVal}
                               </span>
                             ) : displayVal}
                           </td>
                         );
                       })}
-                      <td className="px-3 py-2 sticky right-0 bg-white">
+                      <td className="px-4 py-2 sticky right-0 bg-white">
                         <div className="flex items-center gap-1 justify-end">
                           {isRowEditing ? (
                             <>
@@ -2213,12 +2216,12 @@ export function FilterDataManagementPage() {
                                 } catch (e: any) { if (!isReauthAbort(e)) toast.error('Error', e?.message ?? 'Failed'); }
                                 setProcessing(false);
                               }} disabled={processing}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-600 text-white text-[10px] font-semibold rounded-lg disabled:opacity-50">
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-cyan-600 text-white text-[11px] font-semibold rounded-lg disabled:opacity-50">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                 Save
                               </button>
                               <button onClick={() => { setEditingId(null); setEditFields({}); }}
-                                className="px-2.5 py-1 bg-slate-100 text-slate-600 text-[10px] font-semibold rounded-lg">Cancel</button>
+                                className="px-2.5 py-1 bg-slate-100 text-slate-600 text-[11px] font-semibold rounded-lg">Cancel</button>
                             </>
                           ) : (
                             <>
@@ -2233,12 +2236,12 @@ export function FilterDataManagementPage() {
                                 });
                                 setEditFields(fields);
                               }}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[10px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
+                                className="inline-flex items-center gap-1 px-2 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                 Edit
                               </button>
                               <button onClick={() => { setChangeReason(''); setConfirmDelete({ id: rowId, name: row.cycleCode || row.filterName || row.action || row.message || row.title || row.requestType || 'Record' }); }}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[10px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
+                                className="inline-flex items-center gap-1 px-2 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50 transition-colors opacity-60 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 Delete
                               </button>
@@ -2316,7 +2319,7 @@ export function FilterDataManagementPage() {
       {rowEditDialog && (
         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="h-1.5 bg-gradient-to-r from-brand-600 to-brand-700" />
+            <div className="h-1.5 bg-brand-600" />
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-[15px] font-bold text-slate-800">
@@ -2484,7 +2487,7 @@ export function FilterDataManagementPage() {
               </button>
               <button onClick={submitRowEdit} disabled={rowEditSaving || !reasonOk(changeReason)}
                 title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
-                className="flex-1 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-brand-700 hover:to-brand-800">
+                className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-brand-700">
                 {rowEditSaving ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
@@ -2496,7 +2499,7 @@ export function FilterDataManagementPage() {
       {createDialog && (
         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-            <div className="h-1.5 bg-gradient-to-r from-brand-600 to-brand-700" />
+            <div className="h-1.5 bg-brand-600" />
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="text-[15px] font-bold text-slate-800">
@@ -2612,7 +2615,7 @@ export function FilterDataManagementPage() {
               </button>
               <button onClick={submitCreate} disabled={createSaving || !reasonOk(changeReason)}
                 title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
-                className="flex-1 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-brand-700 hover:to-brand-800">
+                className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-brand-700">
                 {createSaving ? 'Creating…' : 'Create Record'}
               </button>
             </div>
@@ -2629,7 +2632,7 @@ export function FilterDataManagementPage() {
       {reasonPrompt && (
         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className={`h-1.5 bg-gradient-to-r ${reasonPrompt.danger ? 'from-red-500 to-rose-500' : 'from-brand-600 to-brand-700'}`} />
+            <div className={`h-1.5 ${reasonPrompt.danger ? 'bg-gradient-to-r from-red-500 to-rose-500' : 'bg-brand-600'}`} />
             <div className="p-6">
               <h3 className="text-[15px] font-bold text-slate-800 mb-2">{reasonPrompt.title}</h3>
               <div className={`text-[13px] rounded-xl p-3 border ${reasonPrompt.danger ? 'bg-red-50 border-red-100 text-red-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
@@ -2641,7 +2644,7 @@ export function FilterDataManagementPage() {
                   className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
                 <button onClick={runReasonPrompt} disabled={promptBusy || !reasonOk(promptReason)}
                   title={reasonOk(promptReason) ? undefined : 'Enter a reason for this change'}
-                  className={`flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition-colors ${reasonPrompt.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800'}`}>
+                  className={`flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition-colors ${reasonPrompt.danger ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700'}`}>
                   {promptBusy ? 'Working…' : reasonPrompt.confirmLabel}
                 </button>
               </div>
@@ -2703,7 +2706,7 @@ export function FilterDataManagementPage() {
       {manualRecordDialog && (
         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="h-1.5 bg-gradient-to-r from-brand-600 to-brand-700" />
+            <div className="h-1.5 bg-brand-600" />
             <div className="px-6 pt-5 pb-3">
               <h3 className="text-[15px] font-bold text-slate-800">
                 {manualRecordDialog.kind === 'retirement' ? 'Create retirement record' : 'Create replacement record'}
@@ -2756,7 +2759,7 @@ export function FilterDataManagementPage() {
                 className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100">Cancel</button>
               <button onClick={submitManualRecord} disabled={manualRecordSaving || !reasonOk(changeReason)}
                 title={reasonOk(changeReason) ? undefined : 'Enter a reason for this change'}
-                className="flex-1 py-2.5 bg-gradient-to-r from-brand-600 to-brand-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:from-brand-700 hover:to-brand-800">
+                className="flex-1 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-brand-700">
                 {manualRecordSaving ? 'Creating…' : 'Create Record'}
               </button>
             </div>
@@ -2768,7 +2771,7 @@ export function FilterDataManagementPage() {
       {unretireDialog && (
         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="h-1.5 bg-gradient-to-r from-emerald-500 to-emerald-500" />
+            <div className="h-1.5 bg-emerald-500" />
             <div className="p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
@@ -2797,7 +2800,7 @@ export function FilterDataManagementPage() {
                   className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
                 <button onClick={() => handleUnretire(unretireDialog.id)} disabled={processing || !reasonOk(changeReason)}
                   title={reasonOk(changeReason) ? undefined : 'Enter a reason for restoring this filter'}
-                  className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg hover:from-emerald-500 hover:to-emerald-500 transition-all">
+                  className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg hover:bg-emerald-500 transition-all">
                   {processing ? 'Restoring...' : 'Restore Filter'}
                 </button>
               </div>

@@ -7,6 +7,9 @@ import { useReauth } from '@/hooks/use-reauth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ReauthDialog } from '@/components/reauth-dialog';
 
@@ -317,66 +320,53 @@ export function HelpArticlesPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── Header ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 text-white shadow-2xl">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYgMi42ODYgNiA2cy0yLjY4NiA2LTYgNi02LTIuNjg2LTYtNiAyLjY4Ni02IDYtNiIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMSkiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4=')] opacity-30" />
-        <div className="relative flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              to="/config"
-              className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all duration-200 border border-white/10"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </Link>
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-xl bg-white/20 backdrop-blur-sm shadow-lg">
-                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">Help Articles</h1>
-                <p className="text-teal-100/80 text-sm">Manage in-app help content and documentation</p>
-              </div>
-            </div>
+      <PageHeader
+        title="Help Articles"
+        subtitle="Manage in-app help content and documentation"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />}
+        back={
+          <Link
+            to="/config"
+            className="p-2 rounded-xl hover:bg-slate-100 transition-colors"
+          >
+            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </Link>
+        }
+        actions={<>
+          <div className="px-4 py-1.5 rounded-xl bg-white border border-slate-200 text-center">
+            <p className="text-xs text-slate-500">Articles</p>
+            <p className="text-xl font-semibold text-slate-900 tabular-nums">{articleList.length}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="px-4 py-2 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10 text-center">
-              <p className="text-xs text-teal-100">Articles</p>
-              <p className="text-2xl font-bold">{articleList.length}</p>
-            </div>
-            <button
-              onClick={openCreate}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-teal-700 hover:bg-teal-50 font-semibold shadow-lg transition-all duration-200 text-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              New Article
-            </button>
-          </div>
-        </div>
-      </div>
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-2 px-4 h-10 rounded-lg bg-brand-600 text-white hover:bg-brand-700 font-semibold shadow-xs transition-colors text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Article
+          </button>
+        </>}
+      />
 
       {/* ── Filters ── */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-emerald-500 to-emerald-500" />
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-5">
           <div className="flex items-center gap-4">
             {/* Search */}
             <div className="flex-1 relative group">
-              <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-emerald-500/20 to-emerald-500/20 blur-sm opacity-0 group-hover:opacity-100 transition-opacity" />
               <div className="relative">
-                <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-hover:text-emerald-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <input
+                <Input
                   type="text"
                   placeholder="Search by title, key, or content..."
                   value={rawSearch}
                   onChange={(e) => setRawSearch(e.target.value)}
-                  className="w-full pl-12 pr-4 h-11 rounded-xl border-2 border-slate-200 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all"
+                  className="pl-11 pr-4"
                 />
               </div>
             </div>
@@ -386,10 +376,10 @@ export function HelpArticlesPage() {
               <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
               </svg>
-              <select
+              <Select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="appearance-none pl-10 pr-9 h-11 rounded-xl border-2 border-slate-200 text-sm text-slate-700 font-medium bg-white focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all cursor-pointer min-w-[160px]"
+                className="w-auto min-w-[160px] pl-10 font-medium"
               >
                 <option value="">All Categories</option>
                 {CATEGORIES.map((cat) => (
@@ -397,7 +387,7 @@ export function HelpArticlesPage() {
                     {getCategoryLabel(cat)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
 
             {/* Clear button */}
@@ -405,7 +395,7 @@ export function HelpArticlesPage() {
               <Button
                 variant="outline"
                 onClick={() => { setRawSearch(''); setCategoryFilter(''); }}
-                className="h-11 px-4 rounded-xl hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all text-sm"
+                className="px-4 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all text-sm"
               >
                 <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -423,10 +413,10 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {isLoading ? (
           <div className="p-16 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 mb-4 animate-pulse">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-600 mb-4 animate-pulse">
               <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -437,7 +427,7 @@ export function HelpArticlesPage() {
           </div>
         ) : articleList.length === 0 ? (
           <div className="p-16 text-center">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 mb-4">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-slate-100 mb-4">
               <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -451,27 +441,27 @@ export function HelpArticlesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-200">
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500">Title</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500">Key</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500">Category</th>
-                  <th className="text-center px-6 py-4 text-xs font-semibold text-slate-500">Version</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-500">Updated At</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-slate-500">Actions</th>
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Title</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Key</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Category</th>
+                  <th className="h-10 px-4 text-center text-xs font-semibold text-slate-600 whitespace-nowrap">Version</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Updated At</th>
+                  <th className="h-10 px-4 text-right text-xs font-semibold text-slate-600 whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {articleList.map((article) => (
                   <tr
                     key={article.id}
-                    className="group hover:bg-gradient-to-r hover:from-emerald-50/40 hover:to-emerald-50/20 transition-all duration-200"
+                    className="group hover:bg-slate-50 transition-colors"
                   >
                     {/* Title */}
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-2.5">
                       <div className="flex items-center gap-3">
-                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500/10 to-emerald-500/10 flex items-center justify-center group-hover:from-emerald-500/20 group-hover:to-emerald-500/20 transition-all">
+                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
                           <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
@@ -481,21 +471,21 @@ export function HelpArticlesPage() {
                     </td>
 
                     {/* Key */}
-                    <td className="px-6 py-4">
-                      <code className="inline-flex items-center px-2.5 py-1 text-xs font-mono bg-gradient-to-r from-slate-100 to-slate-50 rounded-lg text-slate-600 border border-slate-200/60">
+                    <td className="px-4 py-2.5">
+                      <code className="inline-flex items-center px-2.5 py-1 text-xs font-mono bg-slate-100 rounded-lg text-slate-600 border border-slate-200/60">
                         {article.key}
                       </code>
                     </td>
 
                     {/* Category */}
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-2.5">
                       <Badge className={`border ${getCategoryColor(article.category)}`}>
                         {getCategoryLabel(article.category)}
                       </Badge>
                     </td>
 
                     {/* Version */}
-                    <td className="px-6 py-4 text-center">
+                    <td className="px-4 py-2.5 text-center">
                       <button
                         onClick={() => openVersions(article)}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-700 text-xs font-semibold transition-all duration-200"
@@ -509,12 +499,12 @@ export function HelpArticlesPage() {
                     </td>
 
                     {/* Updated At */}
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-2.5">
                       <span className="text-sm text-slate-500">{formatDateTime(article.updatedAt)}</span>
                     </td>
 
                     {/* Actions */}
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-2.5 whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
                         {/* Versions */}
                         <button
@@ -559,10 +549,9 @@ export function HelpArticlesPage() {
       </div>
 
       {/* ── Info Banner ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-50 to-emerald-50 border border-emerald-100/50 p-5">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-emerald-500/10 to-emerald-500/10 rounded-full blur-3xl" />
+      <div className="relative overflow-hidden rounded-xl bg-emerald-50 border border-emerald-100 p-5">
         <div className="relative flex items-start gap-4">
-          <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg">
+          <div className="flex-shrink-0 p-3 rounded-xl bg-emerald-600 text-white shadow-xs">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -649,7 +638,7 @@ export function HelpArticlesPage() {
       <Dialog open={showEdit} onClose={() => setShowEdit(false)} className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-md">
+            <div className="p-2.5 rounded-xl bg-brand-600 text-white shadow-xs">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
@@ -678,7 +667,7 @@ export function HelpArticlesPage() {
           <Button
             onClick={handleEdit}
             disabled={saving}
-            className="bg-gradient-to-r from-brand-600 to-brand-700 hover:from-brand-700 hover:to-brand-800 text-white"
+            className="bg-brand-600 hover:bg-brand-700 text-white"
           >
             {saving ? (
               <span className="flex items-center gap-2">
@@ -699,7 +688,7 @@ export function HelpArticlesPage() {
       <Dialog open={showVersions} onClose={() => setShowVersions(false)} className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-md">
+            <div className="p-2.5 rounded-xl bg-brand-600 text-white shadow-xs">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -738,7 +727,7 @@ export function HelpArticlesPage() {
                   <div className="flex items-center gap-2.5">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
                       idx === 0
-                        ? 'bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-sm'
+                        ? 'bg-brand-600 text-white shadow-sm'
                         : 'bg-slate-200 text-slate-600'
                     }`}>
                       v{v.version}
@@ -747,7 +736,7 @@ export function HelpArticlesPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-slate-800">Version {v.version}</span>
                         {idx === 0 && (
-                          <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-[10px] py-0.5 px-1.5">
+                          <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-[11px] leading-4 py-0.5 px-1.5">
                             Latest
                           </Badge>
                         )}
@@ -884,18 +873,14 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
             <span className="ml-2 text-xs font-normal text-slate-400">(read-only)</span>
           )}
         </label>
-        <input
+        <Input
           type="text"
           value={form.key}
           onChange={(e) => set({ key: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
           readOnly={keyReadOnly}
           disabled={keyReadOnly}
           placeholder="e.g. entity-overview, audit-guide"
-          className={`w-full h-10 px-3.5 rounded-xl border-2 text-sm font-mono text-slate-700 placeholder-slate-400 focus:outline-none transition-all ${
-            keyReadOnly
-              ? 'border-slate-200 bg-slate-50 text-slate-500 cursor-not-allowed'
-              : 'border-slate-200 bg-white focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15'
-          }`}
+          className="font-mono"
         />
         {!keyReadOnly && (
           <p className="mt-1 text-xs text-slate-400">Unique identifier used to retrieve this article in code. Use lowercase with hyphens.</p>
@@ -907,12 +892,11 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
         <label className="block text-sm font-semibold text-slate-700 mb-1.5">
           Title <span className="text-red-500">*</span>
         </label>
-        <input
+        <Input
           type="text"
           value={form.title}
           onChange={(e) => set({ title: e.target.value })}
           placeholder="e.g. Getting Started with Entities"
-          className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all"
         />
       </div>
 
@@ -920,26 +904,24 @@ function ArticleFormFields({ form, onChange, error, keyReadOnly }: ArticleFormFi
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-semibold text-slate-700 mb-1.5">Category</label>
-          <select
+          <Select
             value={form.category}
             onChange={(e) => set({ category: e.target.value })}
-            className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all appearance-none cursor-pointer"
           >
             {CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
                 {getCategoryLabel(cat)}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div>
           <label className="block text-sm font-semibold text-slate-700 mb-1.5">Sort Order</label>
-          <input
+          <Input
             type="number"
             min={0}
             value={form.sortOrder}
             onChange={(e) => set({ sortOrder: parseInt(e.target.value) || 0 })}
-            className="w-full h-10 px-3.5 rounded-xl border-2 border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 transition-all"
           />
         </div>
       </div>

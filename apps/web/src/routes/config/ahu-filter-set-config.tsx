@@ -6,6 +6,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { useConfigBack } from '@/hooks/use-config-back';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
+import { Input } from '@/components/ui/input';
 
 type AhuMode = 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED';
 
@@ -98,41 +101,30 @@ export function AhuFilterSetConfigPage() {
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       {/* ─── Header ─── */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      <PageHeader
+        title="AHU Filter Set Configuration"
+        subtitle="Control which filter set counts toward PM completion in My Tasks, per AHU. Changes apply immediately."
+        icon={AHU_ICON}
+        actions={
+          <button
+            onClick={goBack}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">AHU Filter Set Configuration</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Control which filter set counts toward PM completion in My Tasks, per AHU. Changes apply immediately.
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={goBack}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Settings
-        </button>
-      </div>
+            Back to Settings
+          </button>
+        }
+      />
 
       {/* ─── Stat cards ─── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg">
-          <div className="text-2xl font-bold">{stats.total}</div>
-          <div className="text-cyan-100 text-sm font-medium mt-0.5">Total AHUs</div>
-        </div>
-        <StatCard label="Both Sets" value={stats.both} bg="bg-cyan-50" color="text-cyan-600" />
-        <StatCard label="Only Set A" value={stats.setA} bg="bg-blue-50" color="text-blue-600" />
-        <StatCard label="Only Set B" value={stats.setB} bg="bg-purple-50" color="text-purple-600" />
-        <StatCard label="Disabled" value={stats.disabled} bg="bg-slate-100" color="text-slate-500" />
+        <StatCard label="Total AHUs" value={stats.total} icon={AHU_ICON} />
+        <StatCard label="Both Sets" value={stats.both} icon={AHU_ICON} iconBg="bg-cyan-50" iconColor="text-cyan-600" />
+        <StatCard label="Only Set A" value={stats.setA} icon={AHU_ICON} iconBg="bg-blue-50" iconColor="text-blue-600" />
+        <StatCard label="Only Set B" value={stats.setB} icon={AHU_ICON} iconBg="bg-purple-50" iconColor="text-purple-600" />
+        <StatCard label="Disabled" value={stats.disabled} icon={AHU_ICON} iconBg="bg-slate-100" iconColor="text-slate-500" />
       </div>
 
       {/* ─── Search bar ─── */}
@@ -141,12 +133,12 @@ export function AhuFilterSetConfigPage() {
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input
+          <Input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search AHU name..."
-            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15 outline-none"
+            className="pl-10 pr-4"
           />
         </div>
         {success && (
@@ -166,8 +158,7 @@ export function AhuFilterSetConfigPage() {
       )}
 
       {/* ─── Table ─── */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
 
         {isLoading && !data ? (
           <div className="p-4 space-y-2">
@@ -177,8 +168,8 @@ export function AhuFilterSetConfigPage() {
           </div>
         ) : visible.length === 0 ? (
           <div className="p-16 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-teal-50 to-cyan-50 flex items-center justify-center">
-              <svg className="w-8 h-8 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-brand-50 flex items-center justify-center">
+              <svg className="w-8 h-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
               </svg>
             </div>
@@ -191,23 +182,23 @@ export function AhuFilterSetConfigPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200">
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">AHU</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Filter Counts</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500">Schedule</th>
-                  <th className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 w-72">Mode</th>
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">AHU</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Filter Counts</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Schedule</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap w-72">Mode</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {visible.map(a => {
                   const isSaving = savingAhuId === a.ahuId;
                   return (
-                    <tr key={a.ahuId} className="hover:bg-cyan-50/30 transition-colors">
-                      <td className="px-5 py-3.5">
+                    <tr key={a.ahuId} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shrink-0">
+                          <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
                             <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                             </svg>
@@ -215,7 +206,7 @@ export function AhuFilterSetConfigPage() {
                           <span className="text-sm font-semibold text-slate-800">{a.ahuName}</span>
                         </div>
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {a.setACount > 0 && (
                             <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-semibold bg-blue-50 text-blue-700 border border-blue-100">
@@ -239,7 +230,7 @@ export function AhuFilterSetConfigPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         {a.hasActiveSchedule ? (
                           <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
                             <span className="w-1 h-1 rounded-full bg-emerald-500" />
@@ -249,7 +240,7 @@ export function AhuFilterSetConfigPage() {
                           <span className="text-[11px] text-slate-400">—</span>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <div className="flex items-center gap-2">
                           <select
                             value={a.mode}
@@ -282,19 +273,19 @@ export function AhuFilterSetConfigPage() {
         <h3 className="text-sm font-semibold text-slate-800 mb-3">How the modes behave in My Tasks</h3>
         <div className="grid gap-3 md:grid-cols-2 text-xs text-slate-600">
           <div className="flex gap-2">
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-cyan-50 text-cyan-700 border border-cyan-200 shrink-0 h-5">Both Sets</span>
+            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded font-semibold bg-cyan-50 text-cyan-700 border border-cyan-200 shrink-0 h-5">Both Sets</span>
             <span>All Set A + Set B + unclassified filters count toward completion. Default for all AHUs.</span>
           </div>
           <div className="flex gap-2">
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-blue-50 text-blue-700 border border-blue-200 shrink-0 h-5">Set A</span>
+            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded font-semibold bg-blue-50 text-blue-700 border border-blue-200 shrink-0 h-5">Set A</span>
             <span>Only Set A filters appear in the task card. Unclassified and Set B filters are ignored.</span>
           </div>
           <div className="flex gap-2">
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0 h-5">Set B</span>
+            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0 h-5">Set B</span>
             <span>Only Set B filters appear in the task card. Unclassified and Set A filters are ignored.</span>
           </div>
           <div className="flex gap-2">
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-slate-100 text-slate-600 border border-slate-200 shrink-0 h-5">Disabled</span>
+            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded font-semibold bg-slate-100 text-slate-600 border border-slate-200 shrink-0 h-5">Disabled</span>
             <span>The AHU is hidden from My Tasks entirely, even if its schedule window is open. Use when the AHU is temporarily out of service.</span>
           </div>
         </div>
@@ -316,22 +307,5 @@ export function AhuFilterSetConfigPage() {
 
 // ─── Helper ───────────────────────────────────────────
 
-function StatCard({ label, value, bg, color }: {
-  label: string; value: number; bg: string; color: string;
-}) {
-  return (
-    <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shrink-0`}>
-          <svg className={`w-5 h-5 ${color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-        </div>
-        <div className="min-w-0">
-          <div className="text-xl font-bold text-slate-800 leading-tight">{value}</div>
-          <div className="text-xs text-slate-400 font-medium truncate">{label}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
+/** The AHU icon used by the page header and every stat tile. */
+const AHU_ICON = <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />;

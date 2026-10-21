@@ -4,6 +4,9 @@ import useSWR from 'swr';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -285,15 +288,15 @@ export function DynamicConfigPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{moduleDef.moduleName}</h1>
-          <p className="text-sm text-slate-500 mt-1">{moduleDef.description}</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => navigate('/config')}>
-          Back to Settings
-        </Button>
-      </div>
+      <PageHeader
+        title={moduleDef.moduleName}
+        subtitle={moduleDef.description}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => navigate('/config')}>
+            Back to Settings
+          </Button>
+        }
+      />
 
       {success && (
         <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
@@ -347,11 +350,11 @@ export function DynamicConfigPage() {
                       const currentValue = values[setting.key] ?? '';
                       const loading = setting.dynamicOptionsSource && !(setting.dynamicOptionsSource in dynamicOptions);
                       return (
-                        <select
+                        <Select
                           value={currentValue}
                           onChange={e => handleChange(setting.key, e.target.value)}
                           disabled={!!loading}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 disabled:opacity-60 disabled:cursor-wait"
+                          className="disabled:cursor-wait"
                         >
                           <option value="">{loading ? 'Loading…' : 'Select...'}</option>
                           {!loading && finalOptions.length === 0 && (
@@ -364,7 +367,7 @@ export function DynamicConfigPage() {
                           {currentValue && !finalOptions.some(o => String(o.value) === String(currentValue)) && !loading && (
                             <option key={`stale-${currentValue}`} value={currentValue}>{currentValue} (not found)</option>
                           )}
-                        </select>
+                        </Select>
                       );
                     })()
                   ) : setting.type === 'multiselect' ? (
@@ -399,22 +402,20 @@ export function DynamicConfigPage() {
                       );
                     })()
                   ) : setting.type === 'number' ? (
-                    <input
+                    <Input
                       type="number"
                       value={values[setting.key] ?? ''}
                       min={setting.min}
                       max={setting.max}
                       onChange={e => handleChange(setting.key, e.target.value ? Number(e.target.value) : '')}
                       placeholder={setting.placeholder}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                     />
                   ) : setting.type === 'secret' ? (
-                    <input
+                    <Input
                       type="password"
                       value={values[setting.key] ?? ''}
                       onChange={e => handleChange(setting.key, e.target.value)}
                       placeholder={setting.placeholder || '••••••••'}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                     />
                   ) : setting.type === 'textarea' || setting.type === 'json' ? (
                     <textarea
@@ -435,20 +436,19 @@ export function DynamicConfigPage() {
                         onChange={e => handleChange(setting.key, e.target.value)}
                         className="w-10 h-10 rounded border border-slate-300 cursor-pointer"
                       />
-                      <input
+                      <Input
                         type="text"
                         value={values[setting.key] ?? ''}
                         onChange={e => handleChange(setting.key, e.target.value)}
-                        className="w-32 px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        className="w-32"
                       />
                     </div>
                   ) : (
-                    <input
+                    <Input
                       type={setting.type === 'email' ? 'email' : setting.type === 'url' ? 'url' : 'text'}
                       value={values[setting.key] ?? ''}
                       onChange={e => handleChange(setting.key, e.target.value)}
                       placeholder={setting.placeholder}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
                     />
                   )}
 

@@ -5,6 +5,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useAuth } from '@/hooks/use-auth';
+import { PageHeader } from '@/components/ui/page-header';
 
 const FEATURES = [
   { key: 'login', label: 'Login', description: 'Allow this role to log into the tablet app' },
@@ -137,30 +138,21 @@ export function TabletAccessConfigPage() {
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="h-1 bg-gradient-to-r from-brand-600 to-brand-700" />
-        <div className="p-6 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-800">Tablet App Access Control</h1>
-              <p className="text-sm text-slate-500 mt-0.5">Configure which roles can access tablet features</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
+      <PageHeader
+        title="Tablet App Access Control"
+        subtitle="Configure which roles can access tablet features"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />}
+        actions={
+          <>
             {dirty && <span className="text-xs text-amber-600 font-medium">Unsaved changes</span>}
             <button onClick={save} disabled={!canWrite || saving || !dirty}
               title={!canWrite ? 'Read-only: changing tablet access needs the CONFIG_UPDATE permission' : undefined}
-              className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 text-white rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50 hover:from-cyan-500 hover:to-teal-500 transition-all">
+              className="px-5 py-2.5 bg-brand-600 text-white rounded-lg text-sm font-semibold shadow-xs disabled:opacity-50 hover:bg-brand-700 transition-colors">
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {!canWrite && (
         <div role="note" className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-[13px] text-amber-800">
@@ -169,29 +161,29 @@ export function TabletAccessConfigPage() {
       )}
 
       {/* Matrix Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="text-left px-5 py-4 text-xs font-bold text-slate-500 w-44">Role</th>
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="h-10 px-4 py-2.5 text-left text-xs font-semibold text-slate-600 whitespace-nowrap w-44">Role</th>
               {FEATURES.map(f => (
-                <th key={f.key} className="text-center px-3 py-4 text-xs font-bold text-slate-500">
-                  <div>{f.label}</div>
-                  <div className="font-normal normal-case text-[10px] text-slate-400 mt-0.5 tracking-normal">{f.description}</div>
+                <th key={f.key} className="h-10 px-3 py-2.5 text-center text-xs font-semibold text-slate-600 align-top">
+                  <div className="whitespace-nowrap">{f.label}</div>
+                  <div className="font-normal normal-case text-[11px] text-slate-400 mt-0.5 tracking-normal">{f.description}</div>
                 </th>
               ))}
-              <th className="text-center px-3 py-4 text-xs font-bold text-slate-500">All</th>
+              <th className="h-10 px-3 py-2.5 text-center text-xs font-semibold text-slate-600 whitespace-nowrap align-top">All</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {roles.map(role => {
               const features = localConfig[role.name] ?? [];
               const allEnabled = FEATURES.every(f => features.includes(f.key));
               const loginDisabled = !features.includes('login');
 
               return (
-                <tr key={role.name} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-5 py-4">
+                <tr key={role.name} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-2.5 text-slate-700">
                     <div className="text-[13px] font-bold text-slate-800">{role.displayName}</div>
                     <div className="text-[11px] text-slate-400 font-mono">{role.name}</div>
                   </td>
@@ -201,7 +193,7 @@ export function TabletAccessConfigPage() {
                     const isDisabledByLogin = !isLogin && loginDisabled;
 
                     return (
-                      <td key={f.key} className="text-center px-3 py-4">
+                      <td key={f.key} className="text-center px-3 py-2.5">
                         <button
                           onClick={() => toggle(role.name, f.key)}
                           disabled={!canWrite || isDisabledByLogin}
@@ -220,7 +212,7 @@ export function TabletAccessConfigPage() {
                       </td>
                     );
                   })}
-                  <td className="text-center px-3 py-4">
+                  <td className="text-center px-3 py-2.5">
                     <button onClick={() => toggleAll(role.name)} disabled={!canWrite}
                       aria-label={`All features for ${role.displayName}`} aria-pressed={allEnabled}
                       className={`w-10 h-6 rounded-full relative transition-all disabled:cursor-not-allowed disabled:opacity-70 ${allEnabled ? 'bg-cyan-500' : 'bg-slate-200'}`}>

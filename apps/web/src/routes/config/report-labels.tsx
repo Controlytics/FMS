@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { REPORT_DEFS, type ReportLabelsConfig } from '@/lib/report-labels';
+import { Input } from '@/components/ui/input';
 
 export function ReportLabelsPage() {
   const { user } = useAuth();
@@ -60,8 +61,6 @@ export function ReportLabelsPage() {
     setDirty(true);
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 bg-white focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600';
-
   return (
     <div className="space-y-5">
       <ReauthPrompt reauth={reauth} />
@@ -75,7 +74,7 @@ export function ReportLabelsPage() {
           </button>
           <button onClick={handleSave} disabled={saving || !dirty || !canWrite}
             title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
@@ -89,13 +88,13 @@ export function ReportLabelsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Report Title / Heading</label>
-                <input type="text" value={ov.title ?? ''} placeholder={def.defaultTitle}
-                  onChange={(e) => setTitle(def.key, e.target.value)} className={inputCls} />
+                <Input type="text" value={ov.title ?? ''} placeholder={def.defaultTitle}
+                  onChange={(e) => setTitle(def.key, e.target.value)} />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">Subtitle <span className="font-normal text-slate-400">(blank = auto period/totals)</span></label>
-                <input type="text" value={ov.subtitle ?? ''} placeholder="Auto-generated"
-                  onChange={(e) => setSubtitle(def.key, e.target.value)} className={inputCls} />
+                <Input type="text" value={ov.subtitle ?? ''} placeholder="Auto-generated"
+                  onChange={(e) => setSubtitle(def.key, e.target.value)} />
               </div>
             </div>
             <div>
@@ -104,8 +103,8 @@ export function ReportLabelsPage() {
                 {def.columns.map((col) => (
                   <div key={col.key}>
                     <label className="block text-[11px] text-slate-400 mb-1">{col.default}</label>
-                    <input type="text" value={ov.columns?.[col.key] ?? ''} placeholder={col.default}
-                      onChange={(e) => setColumn(def.key, col.key, e.target.value)} className={inputCls} />
+                    <Input type="text" value={ov.columns?.[col.key] ?? ''} placeholder={col.default}
+                      onChange={(e) => setColumn(def.key, col.key, e.target.value)} />
                   </div>
                 ))}
               </div>
@@ -116,7 +115,7 @@ export function ReportLabelsPage() {
 
       <div className="flex justify-end">
         <button onClick={handleSave} disabled={saving || !dirty || !canWrite}
-          className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+          className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>

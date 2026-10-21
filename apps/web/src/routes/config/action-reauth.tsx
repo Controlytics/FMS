@@ -4,6 +4,9 @@ import useSWR, { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
 import { api } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -302,8 +305,11 @@ export function ActionReauthPage() {
   return (
     <div className="space-y-6 animate-fade-in pb-24">
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
+      <PageHeader
+        title="Action Re-authentication"
+        subtitle="Require password verification for sensitive actions per role"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}
+        back={
           <Link
             to="/config"
             className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:shadow-md transition-all"
@@ -312,85 +318,48 @@ export function ActionReauthPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
-              Action Re-authentication
-            </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Require password verification for sensitive actions per role
-            </p>
-          </div>
-        </div>
-        {hasChanges && (
+        }
+        actions={hasChanges && (
           <Badge className="bg-amber-100 text-amber-700 border border-amber-300 animate-pulse text-xs px-3 py-1">
             Unsaved Changes
           </Badge>
         )}
-      </div>
+      />
 
       {/* ── Stats Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-blue-50">
-              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-slate-800">{stats.totalActions}</p>
-              <p className="text-xs text-slate-500">Total Actions</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-emerald-50">
-              <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-emerald-700">{stats.configuredActions}</p>
-              <p className="text-xs text-slate-500">Actions Configured</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-brand-50">
-              <svg className="w-5 h-5 text-brand-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-brand-700">{stats.totalChecks}</p>
-              <p className="text-xs text-slate-500">Total Checks</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-orange-50">
-              <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-orange-700">{roles.length}</p>
-              <p className="text-xs text-slate-500">Roles</p>
-            </div>
-          </div>
-        </div>
+        <StatCard
+          label="Total Actions"
+          value={stats.totalActions}
+          iconBg="bg-blue-50"
+          iconColor="text-blue-600"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />}
+        />
+        <StatCard
+          label="Actions Configured"
+          value={<span className="text-emerald-700">{stats.configuredActions}</span>}
+          iconBg="bg-emerald-50"
+          iconColor="text-emerald-600"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />}
+        />
+        <StatCard
+          label="Total Checks"
+          value={<span className="text-brand-700">{stats.totalChecks}</span>}
+          iconBg="bg-brand-50"
+          iconColor="text-brand-700"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />}
+        />
+        <StatCard
+          label="Roles"
+          value={<span className="text-orange-700">{roles.length}</span>}
+          iconBg="bg-orange-50"
+          iconColor="text-orange-600"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />}
+        />
       </div>
 
       {/* ── Info Banner ── */}
-      <div className="bg-gradient-to-r from-brand-50 to-brand-50 rounded-xl border border-blue-200/60 p-4">
+      <div className="bg-brand-50 rounded-xl border border-brand-200/60 p-4">
         <div className="flex items-start gap-3">
           <div className="p-1.5 rounded-lg bg-blue-100 flex-shrink-0 mt-0.5">
             <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -451,50 +420,49 @@ export function ActionReauthPage() {
         </div>
         <div className="flex items-center gap-2">
           <label className="text-sm text-slate-500 whitespace-nowrap">Filter Role:</label>
-          <select
+          <Select
             value={selectedRole}
             onChange={e => setSelectedRole(e.target.value)}
-            className="h-10 px-3 pr-8 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600 cursor-pointer appearance-none"
-            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', backgroundSize: '16px' }}
+            className="w-auto"
           >
             <option value="all">All Roles ({roles.length})</option>
             {roles.map(r => (
               <option key={r.name} value={r.name}>{r.displayName} ({getRoleConfiguredCount(r.name)} configured)</option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
       {/* ── Matrix Table ── */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl">
-        <div className="overflow-x-auto rounded-2xl">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-200" style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
-                <th className="text-left px-5 pt-4 pb-3 text-xs font-semibold text-slate-500" style={{ minWidth: visibleRoles.length > 3 ? '240px' : '300px' }}>
+      <div className="bg-white rounded-xl border border-slate-200">
+        <div className="overflow-x-auto rounded-xl">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="text-left px-4 pt-4 pb-3 text-xs font-semibold text-slate-600 whitespace-nowrap" style={{ minWidth: visibleRoles.length > 3 ? '240px' : '300px' }}>
                   Action
                 </th>
                 {visibleRoles.map(role => (
                   <th key={role.name} className="px-2 pt-4 pb-3 text-center" style={{ minWidth: visibleRoles.length > 3 ? '105px' : '140px' }}>
                     <div className="flex flex-col items-center gap-1">
                       <div
-                        className={`inline-flex items-center rounded-lg font-bold text-white shadow-sm whitespace-nowrap ${visibleRoles.length > 3 ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]'} ${role.color || 'bg-slate-500'}`}
+                        className={`inline-flex items-center rounded-lg font-bold text-white shadow-sm whitespace-nowrap ${visibleRoles.length > 3 ? 'px-2 py-1 text-[11px]' : 'px-3 py-1.5 text-[11px]'} ${role.color || 'bg-slate-500'}`}
                       >
                         {role.displayName}
                       </div>
-                      <span className="text-[10px] text-slate-400 font-medium tabular-nums whitespace-nowrap">
+                      <span className="text-[11px] text-slate-400 font-medium tabular-nums whitespace-nowrap">
                         {getRoleConfiguredCount(role.name)} / {stats.totalActions}
                       </span>
                       <div className="flex gap-1">
                         <button
                           onClick={() => selectAllRole(role.name)}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors"
+                          className="text-[11px] leading-4 px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors"
                         >
                           All
                         </button>
                         <button
                           onClick={() => clearRole(role.name)}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 font-medium transition-colors"
+                          className="text-[11px] leading-4 px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 font-medium transition-colors"
                         >
                           None
                         </button>
@@ -637,8 +605,8 @@ function CategorySection({
   return (
     <>
       {/* Category Header Row */}
-      <tr className="bg-gradient-to-r from-slate-50 to-white border-y border-slate-100">
-        <td className="px-5 py-3 sticky left-0 bg-gradient-to-r from-slate-50 to-white z-10" colSpan={1}>
+      <tr className="bg-slate-50">
+        <td className="px-4 py-3 sticky left-0 bg-slate-50 z-10" colSpan={1}>
           <div className="flex items-center gap-3">
             <button
               onClick={onToggleCollapse}
@@ -652,7 +620,7 @@ function CategorySection({
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-slate-700">{category}</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${meta.bgLight}`}>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] leading-4 font-medium border ${meta.bgLight}`}>
                     {configuredCount}/{totalCount}
                   </span>
                 </div>
@@ -668,13 +636,13 @@ function CategorySection({
             <div className="flex gap-1">
               <button
                 onClick={onSelectAll}
-                className="text-[10px] px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors border border-blue-100"
+                className="text-[11px] px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors border border-blue-100"
               >
                 Select All
               </button>
               <button
                 onClick={onClear}
-                className="text-[10px] px-2 py-1 rounded-md bg-slate-50 text-slate-500 hover:bg-slate-100 font-medium transition-colors border border-slate-200"
+                className="text-[11px] px-2 py-1 rounded-md bg-slate-50 text-slate-500 hover:bg-slate-100 font-medium transition-colors border border-slate-200"
               >
                 Clear
               </button>
@@ -687,11 +655,11 @@ function CategorySection({
       {!isCollapsed && actions.map(({ key, label }, idx) => (
         <tr
           key={key}
-          className={`border-b border-slate-50 hover:bg-blue-50/40 transition-colors ${
+          className={`hover:bg-slate-50 transition-colors ${
             idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'
           }`}
         >
-          <td className="px-5 py-2.5 sticky left-0 z-10" style={{ background: idx % 2 === 0 ? 'white' : 'rgb(248 250 252 / 0.3)' }}>
+          <td className="px-4 py-2.5 sticky left-0 z-10 text-slate-700" style={{ background: idx % 2 === 0 ? 'white' : 'rgb(248 250 252 / 0.3)' }}>
             <div className="flex items-center gap-2">
               <span className="w-1 h-1 rounded-full bg-slate-300" />
               <span className="text-sm text-slate-700 font-medium">{label}</span>

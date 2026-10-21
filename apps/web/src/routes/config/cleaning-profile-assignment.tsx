@@ -5,6 +5,7 @@ import { apiClient, api } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { Select } from '@/components/ui/select';
 
 type AssignmentMode = 'BY_FILTER_SIZE' | 'BY_ENTITY' | 'BY_AHU' | 'BY_BLOCK' | 'BY_FILTER_SET';
 
@@ -247,64 +248,60 @@ export function CleaningProfileAssignmentPage() {
       case 'BY_FILTER_SIZE': {
         const available = filterSizes.filter(s => s === rule.matchValue || !used.has(s));
         return (
-          <select
+          <Select
             value={rule.matchValue}
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
           >
             <option value="">Select filter dimensions...</option>
             {available.map(s => (
               <option key={s} value={s}>{s}</option>
             ))}
-          </select>
+          </Select>
         );
       }
 
       case 'BY_ENTITY': {
         const available = filterInstances.filter(f => f.id === rule.matchValue || !used.has(f.id));
         return (
-          <select
+          <Select
             value={rule.matchValue}
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
           >
             <option value="">Select filter...</option>
             {available.map(f => (
               <option key={f.id} value={f.id}>{f.name || f.id}</option>
             ))}
-          </select>
+          </Select>
         );
       }
 
       case 'BY_AHU': {
         const available = ahuInstances.filter(a => a.id === rule.matchValue || !used.has(a.id));
         return (
-          <select
+          <Select
             value={rule.matchValue}
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
           >
             <option value="">Select AHU...</option>
             {available.map(a => (
               <option key={a.id} value={a.id}>{a.name || a.id}</option>
             ))}
-          </select>
+          </Select>
         );
       }
 
       case 'BY_BLOCK': {
         const available = blockAndAreaInstances.filter(b => b.id === rule.matchValue || !used.has(b.id));
         return (
-          <select
+          <Select
             value={rule.matchValue}
             onChange={e => updateRule(index, 'matchValue', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
           >
             <option value="">Select block / area...</option>
             {available.map(b => (
               <option key={b.id} value={b.id}>{b.name || b.id}</option>
             ))}
-          </select>
+          </Select>
         );
       }
 
@@ -344,7 +341,7 @@ export function CleaningProfileAssignmentPage() {
           <button
             onClick={handleSave}
             disabled={saving || !dirty}
-            className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving…' : 'Save Configuration'}
           </button>
@@ -420,34 +417,33 @@ export function CleaningProfileAssignmentPage() {
                 <p className="text-xs mt-1">Click "Add Rule" to create your first mapping</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className="text-left text-xs font-semibold text-slate-500 pb-3 pr-4">{getMatchColumnLabel()}</th>
-                      <th className="text-left text-xs font-semibold text-slate-500 pb-3 pr-4">Cleaning Profile</th>
-                      <th className="text-right text-xs font-semibold text-slate-500 pb-3 w-16">Actions</th>
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">{getMatchColumnLabel()}</th>
+                      <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Cleaning Profile</th>
+                      <th className="h-10 px-4 text-right text-xs font-semibold text-slate-600 whitespace-nowrap w-16">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody>
                     {rules.map((rule, index) => (
-                      <tr key={index} className="group">
-                        <td className="py-3 pr-4 w-[45%]">
+                      <tr key={index} className="group hover:bg-slate-50">
+                        <td className="px-4 py-2.5 text-slate-700 w-[45%]">
                           {renderMatchDropdown(rule, index)}
                         </td>
-                        <td className="py-3 pr-4 w-[45%]">
-                          <select
+                        <td className="px-4 py-2.5 text-slate-700 w-[45%]">
+                          <Select
                             value={rule.profileId}
                             onChange={e => updateRule(index, 'profileId', e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-600 focus:ring-1 focus:ring-brand-600/15 outline-none"
                           >
                             <option value="">Select profile...</option>
                             {activeProfiles.map(p => (
                               <option key={p.id} value={p.id}>{p.name}{p.status && p.status !== 'ACTIVE' ? ` (${p.status.toLowerCase()})` : ''}</option>
                             ))}
-                          </select>
+                          </Select>
                         </td>
-                        <td className="py-3 text-right w-16">
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap w-16">
                           {mode !== 'BY_FILTER_SET' && (
                             <button
                               onClick={() => removeRule(index)}

@@ -159,11 +159,11 @@ export function BrandingConfigPage() {
             />
 
             {/* App Identity Section */}
-            <Card className="border-0 shadow-xl overflow-hidden">
-              <div className="h-1 bg-gradient-to-r from-brand-600 to-brand-700" />
+            <Card className="overflow-hidden">
+              <div className="h-1 bg-brand-600" />
               <CardContent className="p-6">
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
+                  <div className="p-2.5 rounded-xl bg-brand-600 text-white shadow-sm">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
                     </svg>
@@ -206,11 +206,11 @@ export function BrandingConfigPage() {
             />
 
             {/* Company Info Section */}
-            <Card className="border-0 shadow-xl overflow-hidden">
-              <div className="h-1 bg-gradient-to-r from-emerald-500 to-emerald-500" />
+            <Card className="overflow-hidden">
+              <div className="h-1 bg-emerald-500" />
               <CardContent className="p-6">
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-lg">
+                  <div className="p-2.5 rounded-xl bg-emerald-600 text-white shadow-sm">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
@@ -237,11 +237,11 @@ export function BrandingConfigPage() {
             </Card>
 
             {/* Theme Selector */}
-            <Card className="border-0 shadow-xl overflow-hidden">
-              <div className="h-1 bg-gradient-to-r from-brand-600 to-brand-700" />
+            <Card className="overflow-hidden">
+              <div className="h-1 bg-brand-600" />
               <CardContent className="p-6">
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
+                  <div className="p-2.5 rounded-xl bg-brand-600 text-white shadow-sm">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
                     </svg>
@@ -281,7 +281,7 @@ export function BrandingConfigPage() {
                         {/* Gradient bar */}
                         <div className="h-1.5 rounded-full mb-2" style={{ background: `linear-gradient(to right, ${theme.colors.gradientFrom}, ${theme.colors.gradientTo})` }} />
                         <p className="text-xs font-semibold text-slate-700">{theme.name}</p>
-                        <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{theme.description.split('—')[1]?.trim() || theme.description}</p>
+                        <p className="text-[11px] text-slate-400 leading-tight mt-0.5">{theme.description.split('—')[1]?.trim() || theme.description}</p>
                         {isSelected && (
                           <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: theme.colors.primary }}>
                             <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
@@ -311,7 +311,7 @@ export function BrandingConfigPage() {
             <BrandingPreview watchedValues={watchedValues} />
 
             {/* Action Buttons */}
-            <Card className="border-0 shadow-xl overflow-hidden">
+            <Card className="overflow-hidden">
               <CardContent className="p-6">
                 <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                   <Button type="button" variant="outline" onClick={() => navigate('/config')}>
@@ -325,10 +325,9 @@ export function BrandingConfigPage() {
             </Card>
 
             {/* Info Banner */}
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-50 to-brand-50 border border-brand-100/50 p-5">
-              <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-brand-600/10 to-brand-700/10 rounded-full blur-3xl" />
+            <div className="relative overflow-hidden rounded-2xl bg-brand-50 border border-brand-100 p-5">
               <div className="relative flex items-start gap-4">
-                <div className="flex-shrink-0 p-3 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
+                <div className="flex-shrink-0 p-3 rounded-xl bg-brand-600 text-white shadow-sm">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>

@@ -4,6 +4,7 @@ import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { Input } from '@/components/ui/input';
 
 // Filter Size is NOT managed here — it's a free-text field on the add/edit
 // dialogs (no dropdown), so this page only manages the three list-backed fields.
@@ -114,7 +115,7 @@ export function FilterFieldOptionsConfigPage() {
         <p className="text-sm text-slate-500 max-w-xl">Configure the dropdown values shown on the single-filter add/edit screens.</p>
         <button onClick={save} disabled={saving || !canWrite || !dirty}
           title={!canWrite ? 'CONFIG_UPDATE permission required' : undefined}
-          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+          className="shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
@@ -127,7 +128,7 @@ export function FilterFieldOptionsConfigPage() {
       )}
 
       {/* Three sections — one per list */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl divide-y divide-slate-100">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs divide-y divide-slate-100">
         {SECTIONS.map(({ key, title, placeholder }) => (
           <div key={key} className="px-5 py-5 space-y-3">
             <div className="flex items-center justify-between">
@@ -154,13 +155,13 @@ export function FilterFieldOptionsConfigPage() {
             )}
 
             <div className="flex gap-2 pt-1">
-              <input value={draft[key]} disabled={!canWrite}
+              <Input value={draft[key]} disabled={!canWrite}
                 onChange={e => setDraft({ ...draft, [key]: e.target.value })}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addValue(key); } }}
                 placeholder={placeholder}
-                className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-transparent disabled:bg-slate-50" />
+                className="flex-1" />
               <button disabled={!canWrite || !draft[key].trim()} onClick={() => addValue(key)}
-                className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium text-sm">
+                className="h-10 px-4 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium text-sm">
                 + Add
               </button>
             </div>

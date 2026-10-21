@@ -85,7 +85,7 @@ export function ExportOptionsPage() {
           <span className="font-semibold text-emerald-700"> Both</span>. SUPER_ADMIN always has both.
         </p>
         <button onClick={save} disabled={saving || !dirty}
-          className="shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+          className="shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
@@ -94,15 +94,15 @@ export function ExportOptionsPage() {
         <div className="text-sm text-slate-400 py-12 text-center">No roles to configure.</div>
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 sticky left-0 bg-slate-50">Page</th>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap sticky left-0 bg-slate-50">Page</th>
                 {roles.map((r) => (
-                  <th key={r.name} className="px-3 py-2 text-center min-w-[130px]">
-                    <div className="text-[12px] font-bold text-slate-700">{r.displayName || r.name}</div>
+                  <th key={r.name} className="px-3 py-2 text-center text-xs font-semibold text-slate-600 min-w-[130px]">
+                    <div className="text-xs font-semibold text-slate-600">{r.displayName || r.name}</div>
                     <select value="" onChange={(e) => { if (e.target.value) setWholeRole(r.name, e.target.value); }}
-                      className="mt-1 text-[10px] text-slate-400 bg-transparent border border-slate-200 rounded px-1 py-0.5 cursor-pointer">
+                      className="mt-1 text-[11px] text-slate-400 bg-transparent border border-slate-200 rounded px-1 py-0.5 cursor-pointer">
                       <option value="">set all…</option>
                       {FORMATS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                     </select>
@@ -110,14 +110,14 @@ export function ExportOptionsPage() {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {EXPORT_SURFACES.map((s) => (
-                <tr key={s.key} className="hover:bg-slate-50/40">
+                <tr key={s.key} className="hover:bg-slate-50">
                   <td className="px-4 py-2.5 text-[13px] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white">{s.label}</td>
                   {roles.map((r) => {
                     const val = cell(r.name, s.key);
                     return (
-                      <td key={r.name} className="px-3 py-2 text-center">
+                      <td key={r.name} className="px-4 py-2.5 text-center">
                         <select value={val} onChange={(e) => setCell(r.name, s.key, e.target.value)}
                           className={`text-[12px] font-semibold rounded-md border px-2 py-1 cursor-pointer outline-none ${FMT_CLS[val] ?? FMT_CLS.BOTH}`}>
                           {FORMATS.map((f) => <option key={f.value} value={f.value} className="bg-white text-slate-700">{f.label}</option>)}

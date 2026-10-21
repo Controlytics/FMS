@@ -112,11 +112,11 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
       <>
         <ReauthPrompt reauth={reauth} actionLabel="Save role permissions" />
         {/* Role Selection Card */}
-        <Card className="border-0 shadow-xl bg-gradient-to-br from-white via-white to-slate-50/50 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-brand-600 to-brand-700" />
+        <Card className="overflow-hidden">
+          <div className="h-1 bg-brand-600" />
           <CardContent className="p-6">
             <div className="flex items-center gap-3 mb-5">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
+              <div className="p-2.5 rounded-xl bg-brand-600 text-white shadow-sm">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
@@ -135,7 +135,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                     className={`relative group p-4 rounded-2xl border-2 transition-all duration-300 ${
                       permSelectedRole === role.name ? 'border-transparent shadow-xl scale-[1.02]' : 'border-slate-200 hover:border-slate-300 hover:shadow-lg'
                     }`}>
-                    {permSelectedRole === role.name && <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-slate-500 to-slate-600 opacity-10" />}
+                    {permSelectedRole === role.name && <div className="absolute inset-0 rounded-2xl bg-slate-500 opacity-10" />}
                     <div className="relative">
                       <div className={`w-12 h-12 mx-auto rounded-xl flex items-center justify-center mb-3 transition-all ${
                         permSelectedRole === role.name ? 'text-white shadow-lg' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
@@ -184,7 +184,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="border-0 shadow-lg overflow-hidden">
+          <Card className="overflow-hidden">
             <div className="h-1" style={{ background: selectableRoles.find(r => r.name === permSelectedRole)?.color || '#64748b' }} />
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -201,7 +201,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-lg overflow-hidden">
+          <Card className="overflow-hidden">
             <div className="h-1 bg-gradient-to-r from-emerald-500 to-green-500" />
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -218,12 +218,12 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-lg overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-brand-600 to-brand-700" />
+          <Card className="overflow-hidden">
+            <div className="h-1 bg-brand-600" />
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 flex items-center justify-center text-white shadow-lg">
+                  <div className="w-12 h-12 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-sm">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                     </svg>
@@ -251,11 +251,11 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
         </div>
 
         {/* Permissions Tree — Sidebar → Page → Action */}
-        <Card className="border-0 shadow-xl overflow-hidden">
+        <Card className="overflow-hidden">
           <CardContent className="p-0">
             {permLoading ? (
               <div className="p-16 text-center">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-brand-600 to-brand-700 mb-4 animate-pulse">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-600 mb-4 animate-pulse">
                   <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />

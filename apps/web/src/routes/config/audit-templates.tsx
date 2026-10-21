@@ -201,7 +201,7 @@ export function AuditTemplatesConfigPage() {
         if (!items || items.length === 0) return null;
 
         return (
-          <Card key={category} className="border-slate-200/60 shadow-xl overflow-hidden">
+          <Card key={category} className="border-slate-200 shadow-xs overflow-hidden">
             <div className={`h-1 bg-gradient-to-r ${categoryGradients[category] || 'from-slate-400 to-slate-500'}`} />
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
               <h2 className="text-lg font-semibold text-slate-800">{category}</h2>
@@ -221,7 +221,7 @@ export function AuditTemplatesConfigPage() {
                           <p className="text-xs text-slate-400 font-mono mt-0.5">{key}</p>
                           <div className="flex flex-wrap gap-1 mt-2">
                             {def.placeholders.map(p => (
-                              <span key={p} className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium border ${placeholderColors[p] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                              <span key={p} className={`inline-flex px-1.5 py-0.5 rounded text-[11px] leading-4 font-medium border ${placeholderColors[p] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                                 {`{${p}}`}
                               </span>
                             ))}
