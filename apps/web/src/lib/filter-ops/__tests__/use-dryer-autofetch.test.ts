@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
 /**
@@ -145,5 +145,62 @@ describe('useDryerAutoFetch — getValues (explicit re-read) + provenance', () =
     await act(async () => { await hook.result.current.getValues(); });
     expect(apiClient.post).not.toHaveBeenCalled();
     expect(onValue).not.toHaveBeenCalled();
+  });
+});
+
+describe('useDryerAutoFetch — retry loop (coverage campaign 2026-10-21)', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('retries every 5 s until the instrument answers, telling the operator it is retrying', async () => {
+    vi.useFakeTimers();
+    (apiClient.post as any)
+      .mockRejectedValueOnce(new Error('ECONNRESET'))            // a thrown request is treated as "no reading"
+      .mockResolvedValueOnce({})                                  // a body with no results
+      .mockResolvedValueOnce({ results: [{ instrumentId: 'i-temp', ok: true, value: 71.5 }] });
+    const { hook, onValue } = setup();
+    let done: Promise<void> | undefined;
+    await act(async () => { done = hook.result.current.getValues(); await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(hook.result.current.status).toBe('No reading yet. Retrying…');
+    expect(hook.result.current.fetching).toBe(true);
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(apiClient.post).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); await done; });
+    expect(apiClient.post).toHaveBeenCalledTimes(3);
+    expect(onValue).toHaveBeenCalledWith(71.5);
+    expect(hook.result.current).toMatchObject({ source: 'AUTO', fetching: false, timedOut: false, status: 'Temperature fetched from the instrument.' });
+  });
+
+  it('a second getValues while one is in flight does not start a second poll', async () => {
+    vi.useFakeTimers();
+    (apiClient.post as any).mockResolvedValue({ results: [] });
+    const { hook } = setup();
+    await act(async () => { void hook.result.current.getValues(); await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await hook.result.current.getValues(); });
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    hook.unmount();
+  });
+
+  it('unmounting mid-wait stops the loop: no further request after the 5 s sleep', async () => {
+    vi.useFakeTimers();
+    (apiClient.post as any).mockResolvedValue({ results: [] });
+    const { hook } = setup();
+    let done: Promise<void> | undefined;
+    await act(async () => { done = hook.result.current.getValues(); await vi.advanceTimersByTimeAsync(0); });
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    hook.unmount();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await done;
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('reset() clears a fetched value back to a manual, empty state', async () => {
+    (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: true, value: 70 }, { instrumentId: 'i-hum', ok: true, value: 40 }] });
+    const { hook } = setup();
+    await act(async () => { await hook.result.current.getValues(); });
+    expect(hook.result.current.fetched).toEqual({ 'i-temp': 70, 'i-hum': 40 });
+    act(() => { hook.result.current.reset(); });
+    expect(hook.result.current).toMatchObject({ source: 'MANUAL', fetched: {}, status: '', timedOut: false });
   });
 });

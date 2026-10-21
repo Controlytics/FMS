@@ -59,6 +59,23 @@ describe('toWinAnsi', () => {
     expect(toWinAnsi('π ω')).toBe('? ?');
   });
 
+  it('drops each decorative range and joiner, but not neighbouring non-WinAnsi text', () => {
+    // U+2600 / U+27BF are the edges of the misc-symbols + dingbats block.
+    expect(toWinAnsi('a☀b➿c')).toBe('abc');
+    // Just past the dingbats block (braille blank) is NOT decorative -> visible '?'.
+    expect(toWinAnsi('a⠀b')).toBe('a?b');
+    // Zero-width joiner and the emoji variation selector vanish on their own.
+    expect(toWinAnsi('x‍y️z')).toBe('xyz');
+    // Edges of the emoji block.
+    expect(toWinAnsi('[\u{1F000}\u{1FAFF}]')).toBe('[]');
+  });
+
+  it('treats the C1 control block as unencodable except its 27 printable cp1252 members', () => {
+    expect(toWinAnsi('a\u0081b')).toBe('a?b');
+    expect(toWinAnsi('€ ™ Ÿ')).toBe('€ ™ Ÿ');
+    expect(toWinAnsi(' ÿ')).toBe(' ÿ');
+  });
+
   it('output is ALWAYS encodable — the property that matters', () => {
     const samples = [
       'Wash Out → Dry In · enttiiii',

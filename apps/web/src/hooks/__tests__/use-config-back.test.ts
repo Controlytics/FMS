@@ -39,6 +39,23 @@ describe('useConfigBack', () => {
     expect(navigate).toHaveBeenLastCalledWith(-1);
   });
 
+  it('no signed-in user (or no permissions array) never goes to /config', () => {
+    auth = { user: null };
+    useConfigBack()();
+    expect(navigate).toHaveBeenLastCalledWith('/');
+    auth = { user: { role: 'QA' } };
+    useConfigBack()();
+    expect(navigate).toHaveBeenLastCalledWith('/');
+    expect(navigate).not.toHaveBeenCalledWith('/config');
+  });
+
+  it('a history entry without router state counts as a fresh tab', () => {
+    auth = { user: { role: 'QA', permissions: [] } };
+    window.history.replaceState(null, '');
+    useConfigBack()();
+    expect(navigate).toHaveBeenLastCalledWith('/');
+  });
+
   it('AHU Filter Set Config and Roles & Access use it instead of a fixed /config', () => {
     for (const f of ['ahu-filter-set-config.tsx', 'role-access.tsx']) {
       const src = readFileSync(resolve(__dirname, '../../routes/config', f), 'utf8');

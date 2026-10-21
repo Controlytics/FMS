@@ -1586,4 +1586,214 @@ describe('useFilterOperationsCore — queued SET_DURATION writes the dryer timin
     });
     expect(dryerWrite()).toBeUndefined();
   });
+
+  it.each([[0], [-5], ['abc'], [undefined]])('a queued SET_DURATION with an invalid duration (%s) writes no dryer timing', async (minutes) => {
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({
+        filterId: 'f1', filterName: 'F-1', targetState: 'DRY_IN',
+        dryerAction: 'SET_DURATION', dryerDurationMinutes: minutes as any,
+      });
+    });
+    expect(mockCacheData.mock.calls.some(([, row]) => row?.currentCycle?.dryerStartedAt)).toBe(false);
+    expect(mockRecomputeCache).toHaveBeenCalledWith('f1', 'DRY_IN', false, null);
+  });
+
+  it('with no cached row and no block given, the dryer write keeps the cycle’s own block (or null)', async () => {
+    mockGetCachedData.mockResolvedValueOnce(null);
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'DRY_IN', dryerAction: 'SET_DURATION', dryerDurationMinutes: 30 });
+    });
+    expect(dryerWrite()![1].currentCycle).toMatchObject({ status: 'IN_PROGRESS', cleaningAreaId: null });
+    expect(dryerWrite()![1].currentCycle.id).toBeUndefined(); // an advance never invents a cycle id
+
+    mockCacheData.mockClear();
+    mockGetCachedData.mockResolvedValueOnce({ currentCycle: { id: 'cyc-1', cleaningAreaId: 'blk-own' } });
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'DRY_IN', dryerAction: 'SET_DURATION', dryerDurationMinutes: 30 });
+    });
+    expect(dryerWrite()![1].currentCycle).toMatchObject({ id: 'cyc-1', cleaningAreaId: 'blk-own' });
+  });
+
+  it('an IndexedDB failure while mirroring the dryer start does not fail the queued op', async () => {
+    mockGetCachedData.mockRejectedValueOnce(new Error('IDB closed'));
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'DRY_IN', dryerAction: 'SET_DURATION', dryerDurationMinutes: 30 });
+    });
+    expect(outcome).toMatchObject({ executed: false, deferred: false });
+    expect(mockRecomputeCache).toHaveBeenCalledWith('f1', 'DRY_IN', false, null);
+    expect(result.current.error).toBeNull();
+  });
+});
+
+describe('useFilterOperationsCore — page veto, batch walk and error messages (coverage campaign 2026-10-21)', () => {
+  const CHECKLIST = [{ checklistProfileId: 'cp1', questions: [{ id: 'q1', question: 'Ok?', questionType: 'YES_NO' }] }];
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecuteOrQueue.mockResolvedValue({ executed: true, result: { actions: [] } });
+    mockResolvePending.mockResolvedValue(null);
+    mockFindNext.mockResolvedValue(null);
+    mockRecomputeCache.mockResolvedValue(undefined);
+    mockAppendCompletion.mockResolvedValue(undefined);
+    mockGetCachedData.mockResolvedValue({});
+    mockCacheData.mockResolvedValue(undefined);
+    mockGetCurrentActions.mockResolvedValue([]);
+    mockResolveForTarget.mockResolvedValue([]);
+    mockCacheServerState.mockResolvedValue(undefined);
+    onlineRef.current = true;
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('advance(): the page veto (AHU pre-flight) can block a deferred checklist — nothing is written, no dialog', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    const veto = vi.fn(async () => 'blocked' as const);
+    const { result } = renderHook(() => useFilterOperationsCore({ onBeforeDeferredChecklist: veto }));
+    let outcome: any;
+    await act(async () => { outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'STORAGE_OUT' }); });
+    expect(veto).toHaveBeenCalledWith('f1', 'STORAGE_OUT');
+    expect(outcome).toEqual({ executed: false, deferred: true, dialogOpened: false, blocked: true });
+    expect(mockExecuteOrQueue).not.toHaveBeenCalled();
+    expect(result.current.dialogState.kind).toBe('none');
+  });
+
+  it('advance(): a veto that throws is logged and treated as "proceed" — the dialog still opens', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    const { result } = renderHook(() => useFilterOperationsCore({ onBeforeDeferredChecklist: async () => { throw new Error('AHU check 500'); } }));
+    let outcome: any;
+    await act(async () => { outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'STORAGE_OUT' }); });
+    expect(consoleError).toHaveBeenCalledWith('[filter-ops] onBeforeDeferredChecklist failed; proceeding', expect.any(Error));
+    expect(outcome).toMatchObject({ deferred: true, dialogOpened: true });
+    expect(result.current.dialogState.kind).toBe('awaiting_checklist');
+  });
+
+  it('advance(): the LATEST veto closure is used, not the first render’s', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    const first = vi.fn(async () => 'proceed' as const);
+    const latest = vi.fn(async () => 'blocked' as const);
+    const { result, rerender } = renderHook((p: { veto: () => Promise<'proceed' | 'blocked'> }) => useFilterOperationsCore({ onBeforeDeferredChecklist: p.veto }), { initialProps: { veto: first as () => Promise<'proceed' | 'blocked'> } });
+    rerender({ veto: latest });
+    let outcome: any;
+    await act(async () => { outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'STORAGE_OUT' }); });
+    expect(first).not.toHaveBeenCalled();
+    expect(outcome.blocked).toBe(true);
+  });
+
+  it('startAndAdvance(): the veto blocks the deferred start too — not even the start is written', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    const { result } = renderHook(() => useFilterOperationsCore({ onBeforeDeferredChecklist: async () => 'blocked' }));
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.startAndAdvance({ filterId: 'f1', filterName: 'F-1', cyclePayload: { cleaningReasonKey: 'ROUTINE' }, advancePayload: { targetState: 'WASH_IN' }, targetState: 'WASH_IN' });
+    });
+    expect(outcome).toEqual({ executed: false, deferred: true, dialogOpened: false, blocked: true });
+    expect(mockExecuteOrQueue).not.toHaveBeenCalled();
+  });
+
+  it('advance(): a clean filter in a batch walks on to the next filter that has a checklist', async () => {
+    const next = { item: { filterId: 'f2', filterName: 'F-2' }, checklists: CHECKLIST, remaining: [{ filterId: 'f3', filterName: 'F-3' }] };
+    mockFindNext.mockResolvedValue(next);
+    const remainder = [{ filterId: 'f2', filterName: 'F-2' }, { filterId: 'f3', filterName: 'F-3' }];
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => { outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'WASH_IN', batchRemainder: remainder as any }); });
+    expect(mockFindNext).toHaveBeenCalledWith(remainder, mockResolvePending);
+    expect(outcome.dialogOpened).toBe(true);
+    const d = result.current.dialogState;
+    expect(d.kind).toBe('awaiting_checklist');
+    if (d.kind === 'awaiting_checklist') {
+      expect(d.filterId).toBe('f2');
+      expect(d.remainingBatch).toEqual([{ filterId: 'f3', filterName: 'F-3' }]);
+    }
+  });
+
+  it('advance(): a batch with no further checklist leaves the dialog closed', async () => {
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => { outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'WASH_IN', batchRemainder: [{ filterId: 'f2', filterName: 'F-2' }] as any }); });
+    expect(outcome.dialogOpened).toBe(false);
+    expect(result.current.dialogState.kind).toBe('none');
+  });
+
+  it('advance(): an executed op with no result body hands the resolver no server tape', async () => {
+    onlineRef.current = false;
+    mockExecuteOrQueue.mockResolvedValue({ executed: true, result: undefined });
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => { await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'WASH_IN' }); });
+    expect(mockResolvePending).toHaveBeenCalledWith('f1', null);
+  });
+
+  it.each([
+    ['advance', 'Advance failed'],
+    ['startAndAdvance', 'Start-and-advance failed'],
+  ] as const)('%s(): an error without a message shows "%s" and is re-thrown', async (fn, fallback) => {
+    onlineRef.current = false;
+    const refusal = { code: 'X' };
+    mockExecuteOrQueue.mockRejectedValue(refusal);
+    const { result } = renderHook(() => useFilterOperationsCore());
+    const run = () => (fn === 'advance'
+      ? result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'WASH_IN' })
+      : result.current.startAndAdvance({ filterId: 'f1', filterName: 'F-1', cyclePayload: {}, advancePayload: { targetState: 'WASH_IN' }, targetState: 'WASH_IN' }));
+    await act(async () => { await expect(run()).rejects.toBe(refusal); });
+    expect(result.current.error).toBe(fallback);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('startAndAdvance(): a server refusal shows its message and is re-thrown (never painted as "queued")', async () => {
+    onlineRef.current = false;
+    mockExecuteOrQueue.mockRejectedValue(new Error('JUSTIFICATION_REQUIRED'));
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await expect(result.current.startAndAdvance({ filterId: 'f1', filterName: 'F-1', cyclePayload: {}, advancePayload: { targetState: 'WASH_IN' }, targetState: 'WASH_IN' })).rejects.toThrow('JUSTIFICATION_REQUIRED');
+    });
+    expect(result.current.error).toBe('JUSTIFICATION_REQUIRED');
+  });
+
+  it('startAndAdvance(): OFFLINE_CACHE_RECOMPUTE_FAILED propagates without being turned into page error text', async () => {
+    onlineRef.current = false;
+    mockExecuteOrQueue.mockResolvedValue({ executed: false });
+    const err = Object.assign(new Error('recompute'), { code: 'OFFLINE_CACHE_RECOMPUTE_FAILED' });
+    mockRecomputeCache.mockRejectedValue(err);
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await expect(result.current.startAndAdvance({ filterId: 'f1', filterName: 'F-1', cyclePayload: {}, advancePayload: { targetState: 'WASH_IN' }, targetState: 'WASH_IN' })).rejects.toBe(err);
+    });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('submitChecklist(): a refusal shows its message (or the fallback) and is re-thrown', async () => {
+    mockExecuteOrQueue.mockRejectedValueOnce(new Error('CHECKLIST_SCHEMA_DRIFT')).mockRejectedValueOnce({});
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await expect(result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: {} })).rejects.toThrow('CHECKLIST_SCHEMA_DRIFT');
+    });
+    expect(result.current.error).toBe('CHECKLIST_SCHEMA_DRIFT');
+    await act(async () => {
+      await expect(result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: {} })).rejects.toEqual({});
+    });
+    expect(result.current.error).toBe('Checklist submission failed');
+  });
+
+  it('submitChecklist(): the operator’s Set A/B choice rides on the plain submit and on the combined op', async () => {
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => { await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' }, filterSet: 'SET_A' } as any); });
+    expect(mockExecuteOrQueue).toHaveBeenLastCalledWith('submit-checklist', 'f1', 'F-1', { answers: { q1: 'YES' }, expectedProfileVersions: {}, filterSet: 'SET_A' }, undefined, undefined);
+
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    await act(async () => { await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'STORAGE_OUT' }); });
+    await act(async () => { await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' }, filterSet: 'SET_B' } as any); });
+    const combined = mockExecuteOrQueue.mock.calls.find(([type]) => type === 'advance-with-checklist');
+    expect(combined![3]).toMatchObject({ targetState: 'STORAGE_OUT', answers: { q1: 'YES' }, filterSet: 'SET_B' });
+  });
+
+  it('submitChecklist(): a missing cache row is treated as empty when clearing pendingChecklist', async () => {
+    mockGetCachedData.mockResolvedValue(null);
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => { await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: {} }); });
+    expect(mockCacheData).toHaveBeenCalledWith('filter-state-f1', expect.objectContaining({ pendingChecklist: [] }), 86_400_000);
+  });
 });

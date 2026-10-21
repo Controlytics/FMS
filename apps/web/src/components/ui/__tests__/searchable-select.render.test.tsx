@@ -98,6 +98,62 @@ describe('SearchableSelect', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  test('the clear-search button empties the query, restores the list and refocuses the search box', () => {
+    render(<SearchableSelect value="" onChange={vi.fn()} options={manyFilters} />);
+
+    openPanel();
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+    searchFor('HF-0042');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+
+    const search = screen.getByPlaceholderText(/search/i);
+    expect(search).toHaveValue('');
+    expect(document.activeElement).toBe(search);
+    expect(screen.getAllByRole('option')).toHaveLength(MAX_VISIBLE_OPTIONS);
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+  });
+
+  test('marks the current value as the selected option', () => {
+    render(<SearchableSelect value="f1" onChange={vi.fn()} options={manyFilters.slice(0, 3)} />);
+
+    openPanel();
+
+    expect(screen.getByRole('option', { name: 'HF-0001' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: 'HF-0000' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('button', { expanded: true })).toHaveAttribute('aria-haspopup', 'listbox');
+  });
+
+  test('anchors the panel to the right edge when asked, the left by default', () => {
+    const { unmount } = render(<SearchableSelect value="" onChange={vi.fn()} options={manyFilters.slice(0, 2)} align="right" />);
+    openPanel();
+    expect(screen.getByRole('listbox').parentElement).toHaveClass('right-0');
+    unmount();
+
+    render(<SearchableSelect value="" onChange={vi.fn()} options={manyFilters.slice(0, 2)} />);
+    openPanel();
+    expect(screen.getByRole('listbox').parentElement).toHaveClass('left-0');
+  });
+
+  test('a disabled trigger does not open', () => {
+    render(<SearchableSelect value="" onChange={vi.fn()} options={manyFilters} disabled />);
+
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  test('a tap inside the panel or another key does not close it; the trigger toggles it shut', () => {
+    render(<SearchableSelect value="" onChange={vi.fn()} options={manyFilters.slice(0, 3)} searchPlaceholder="Find a filter" />);
+
+    openPanel();
+    fireEvent.pointerDown(screen.getByPlaceholderText('Find a filter'));
+    fireEvent.keyDown(document, { key: 'ArrowDown' });
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { expanded: true }));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
   test('a stale query does not survive reopening the panel', () => {
     render(<SearchableSelect value="" onChange={vi.fn()} options={manyFilters} />);
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { applyDocumentTitle, applyFavicon, DEFAULT_FAVICON_HREF } from '../document-branding';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -26,6 +26,14 @@ describe('applyDocumentTitle', () => {
   it('trims surrounding whitespace', () => {
     applyDocumentTitle('  Padded Title  ');
     expect(document.title).toBe('Padded Title');
+  });
+
+  it('does not rewrite an unchanged title (idempotent)', () => {
+    const setter = vi.spyOn(Document.prototype, 'title', 'set');
+    applyDocumentTitle('Filter Management System');
+    applyDocumentTitle('  Filter Management System ');
+    expect(setter).not.toHaveBeenCalled();
+    setter.mockRestore();
   });
 
   it('IGNORES a blank value instead of blanking the tab', () => {
@@ -61,6 +69,15 @@ describe('applyFavicon', () => {
     applyFavicon('');
     expect(iconLinks()).toHaveLength(1);
     expect(iconLinks()[0].getAttribute('href')).toBe(DEFAULT_FAVICON_HREF);
+  });
+
+  it('treats null / undefined like empty: the bundled icon', () => {
+    applyFavicon(PNG);
+    applyFavicon(null);
+    expect(iconLinks().map((l) => l.getAttribute('href'))).toEqual([DEFAULT_FAVICON_HREF]);
+    applyFavicon(PNG);
+    applyFavicon(undefined);
+    expect(iconLinks().map((l) => l.getAttribute('href'))).toEqual([DEFAULT_FAVICON_HREF]);
   });
 
   it('clears a legacy `shortcut icon` link too', () => {

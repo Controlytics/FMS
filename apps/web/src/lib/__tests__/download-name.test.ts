@@ -49,6 +49,11 @@ describe('safeFilePart', () => {
     expect(safeFilePart('  Block A // Filter  ')).toBe('Block-A-Filter');
     expect(safeFilePart('///')).toBe('');
   });
+
+  it('turns a null / undefined segment into an empty string instead of "null"', () => {
+    expect(safeFilePart(null as unknown as string)).toBe('');
+    expect(safeFilePart(undefined as unknown as string)).toBe('');
+  });
 });
 
 describe('downloadName', () => {

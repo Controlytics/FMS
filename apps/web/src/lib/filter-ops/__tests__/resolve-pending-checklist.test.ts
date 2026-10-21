@@ -81,6 +81,30 @@ describe('resolvePendingChecklistDialog — questions invariant', () => {
     const rows = await resolvePendingChecklistDialog('filter-1');
     expect(rows).toBeNull();
   });
+
+  it('defensive: a tape whose checklist rows convert to nothing still falls back to the cache', async () => {
+    (getCurrentActions as any).mockResolvedValue([SUBMIT_ACTION]);
+    (dialogChecklistsFromActions as any).mockReturnValue([]);
+    (getCachedPendingChecklists as any).mockResolvedValue([{ pipelineNodeId: 'c', checklistProfileId: 'p', checklistProfileName: 'P', questions: [] }]);
+    const rows = await resolvePendingChecklistDialog('filter-1');
+    expect(getCachedPendingChecklists).toHaveBeenCalledWith('filter-1');
+    expect(rows).toEqual([{ pipelineNodeId: 'c', checklistProfileId: 'p', checklistProfileName: 'P', questions: [] }]);
+  });
+
+  it('a tape row with no questions key at all also triggers the cache fallback', async () => {
+    (getCurrentActions as any).mockResolvedValue([SUBMIT_ACTION]);
+    (dialogChecklistsFromActions as any).mockReturnValue([{ pipelineNodeId: 'n', checklistProfileId: 'p', checklistProfileName: 'P' }]);
+    (getCachedPendingChecklists as any).mockResolvedValue([]);
+    expect(await resolvePendingChecklistDialog('filter-1')).toBeNull();
+    expect(getCachedPendingChecklists).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null when neither the tape nor the cache has a row to show', async () => {
+    (getCurrentActions as any).mockResolvedValue([SUBMIT_ACTION]);
+    (dialogChecklistsFromActions as any).mockReturnValue([]);
+    (getCachedPendingChecklists as any).mockResolvedValue([]);
+    expect(await resolvePendingChecklistDialog('filter-1')).toBeNull();
+  });
 });
 
 /**

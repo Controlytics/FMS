@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stageDetailGroups, formatReading, type StageDetails } from '../stage-approval';
+import { stageDetailGroups, formatReading, prettyStage, detailRows, type StageDetails } from '../stage-approval';
 
 const fmt = (iso: string) => `T(${iso})`;
 
@@ -97,5 +97,50 @@ describe('stageDetailGroups — edges', () => {
       { title: 'Storage In', rows: [{ label: 'Cleaning reason', value: 'PM' }] },
     ]);
     expect(stageDetailGroups('STORAGE_IN', { cleaningReason: null }, fmt)).toEqual([]);
+  });
+});
+
+describe('prettyStage', () => {
+  it('labels the six stations, passes unknown keys through, blanks a missing key', () => {
+    expect(['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'].map(prettyStage))
+      .toEqual(['Wash In', 'Wash Out', 'Dry In', 'Dry Out', 'Storage In', 'Storage Out']);
+    expect(prettyStage('IN_USE')).toBe('IN_USE');
+    expect(prettyStage(null)).toBe('');
+    expect(prettyStage(undefined)).toBe('');
+    expect(prettyStage('')).toBe('');
+  });
+});
+
+describe('detailRows', () => {
+  it('lists the nine identity rows in display order, dashing every missing value', () => {
+    const empty = { filterName: null, block: null, area: null, ahu: null, ahuType: null, micronSize: null, filterType: null, filterDimensions: null, filterSet: null };
+    const rows = detailRows(empty);
+    expect(rows.map((r) => r.label)).toEqual(['Filter', 'Block', 'Area', 'AHU', 'AHU Type', 'Micron Size', 'Filter Type', 'Filter Dimensions', 'Filter Set']);
+    expect(rows.every((r) => r.value === '—')).toBe(true);
+    const full = detailRows({ filterName: 'F-1', block: 'B', area: 'A', ahu: 'AHU-1', ahuType: 'Supply', micronSize: '0.3', filterType: 'HEPA', filterDimensions: '610x610', filterSet: 'Set A' });
+    expect(full.map((r) => r.value)).toEqual(['F-1', 'B', 'A', 'AHU-1', 'Supply', '0.3', 'HEPA', '610x610', 'Set A']);
+  });
+});
+
+describe('stageDetailGroups — DRY_OUT fallbacks', () => {
+  it('with no dryIn / dryOut recorded prints dashes; a reading without description is labelled "Reading"', () => {
+    const g = stageDetailGroups('DRY_OUT', { cleaningReason: null }, fmt);
+    expect(g[0].rows).toEqual([
+      { label: 'Started at', value: '—' },
+      { label: 'Duration', value: '—' },
+      { label: 'Ended at', value: '—' },
+      { label: 'Cleaning reason', value: '—' },
+      { label: 'By', value: '—' },
+    ]);
+    expect(g[1].rows).toEqual([{ label: 'Done at', value: '—' }, { label: 'By', value: '—' }]);
+  });
+
+  it('shows the one known name when only the starter (or only the ender) is recorded', () => {
+    const onlyStart = stageDetailGroups('DRY_OUT', { cleaningReason: null, dryIn: { startedAt: null, startedBy: 'starter', durationMinutes: null, endedAt: null, endedBy: null, readings: [{ description: null, value: 3, uom: null, leastCount: null }] } }, fmt);
+    expect(onlyStart[0].rows.find((r) => r.label === 'By')?.value).toBe('starter');
+    expect(onlyStart[0].rows.find((r) => r.label === 'Reading')?.value).toBe('3');
+    const same = stageDetailGroups('DRY_OUT', { cleaningReason: null, dryIn: { startedAt: null, startedBy: 'x', durationMinutes: 0, endedAt: null, endedBy: 'x', readings: [] } }, fmt);
+    expect(same[0].rows.find((r) => r.label === 'By')?.value).toBe('x');
+    expect(same[0].rows.find((r) => r.label === 'Duration')?.value).toBe('0m');
   });
 });
