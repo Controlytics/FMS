@@ -113,6 +113,12 @@ describe('page harness options', () => {
     expect((req.form?.get('file') as File).name).toBe('schedule.csv');
   });
 
+  it('an explicit null body answers a literal JSON null; an omitted body answers {}', async () => {
+    mockApi([{ path: '/api/none', body: null }, { path: '/api/empty' }]);
+    expect(await (await fetch('/api/none')).text()).toBe('null');
+    expect(await (await fetch('/api/empty')).text()).toBe('{}');
+  });
+
   it('forgetSignedInUser drops the cached user useAuth would start from', () => {
     localStorage.setItem('digilog_cached_user', JSON.stringify({ role: 'QA' }));
     forgetSignedInUser();

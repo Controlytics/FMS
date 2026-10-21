@@ -97,7 +97,9 @@ export function mockApi(routes: MockRoute[] = []): MockApi {
     used.set(route, (used.get(route) ?? 0) + 1);
     const body = typeof route.body === 'function' ? (route.body as (r: MockRequest) => unknown)(req) : route.body;
     const status = route.status ?? 200;
-    return new Response(status === 204 ? null : JSON.stringify(body ?? {}), { status, headers: { 'Content-Type': 'application/json' } });
+    // An omitted body answers `{}`; an explicit `null` answers a literal JSON
+    // null - a real API answer (e.g. GET /api/pm-schedules/:entityId with no schedule).
+    return new Response(status === 204 ? null : JSON.stringify(body === undefined ? {} : body), { status, headers: { 'Content-Type': 'application/json' } });
   }));
   return api;
 }
