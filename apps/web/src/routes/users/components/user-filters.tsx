@@ -31,9 +31,9 @@ export function UserFilters({
   rolesData,
 }: UserFiltersProps) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
+    <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
       <div className="flex items-center gap-2 mb-4">
-        <div className="p-2 rounded-lg bg-gradient-to-br from-brand-600 to-brand-700">
+        <div className="p-2 rounded-lg bg-brand-600">
           <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
           </svg>
@@ -66,7 +66,7 @@ export function UserFilters({
           <div className="min-w-[200px]">
             <label className="block text-xs font-semibold text-slate-500 mb-2">Role</label>
             <div className="relative group">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-brand-100 to-brand-100 z-10 pointer-events-none">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-100 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
@@ -87,7 +87,7 @@ export function UserFilters({
           <div className="min-w-[180px]">
             <label className="block text-xs font-semibold text-slate-500 mb-2">Status</label>
             <div className="relative group">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-100 z-10 pointer-events-none">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-emerald-100 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>

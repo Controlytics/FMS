@@ -8,6 +8,9 @@ import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Pagination } from '@/components/ui/pagination';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
+import { Input } from '@/components/ui/input';
 import type { PaginatedResponse } from '../../types/filter';
 
 const TYPE_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
@@ -105,39 +108,29 @@ export function ChecklistProfileListPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Checklist Profiles</h1>
-          <p className="text-sm text-slate-500 mt-1">Create and manage checklist templates with configurable questions</p>
-        </div>
-        {canCreate && (
+      <PageHeader
+        title="Checklist Profiles"
+        subtitle="Create and manage checklist templates with configurable questions"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />}
+        actions={canCreate && (
           <button onClick={() => setShowCreate(true)}
-            className="px-5 py-2.5 text-white rounded-xl transition-all text-sm font-semibold flex items-center gap-2"
-            style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+            className="h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors text-sm font-semibold flex items-center gap-2 shadow-xs">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             Create Checklist
           </button>
         )}
-      </div>
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="rounded-2xl p-4 text-white shadow-lg" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-          <div className="text-2xl font-bold">{allProfiles.length}</div>
-          <div className="text-sm font-medium" style={{ color: 'var(--theme-primary-light)' }}>Total Checklists</div>
-        </div>
-        <div className="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl p-4 text-white shadow-lg">
-          <div className="text-2xl font-bold">{activeCount}</div>
-          <div className="text-emerald-100 text-sm font-medium">Active</div>
-        </div>
-        <div className="bg-gradient-to-br from-slate-400 to-slate-500 rounded-2xl p-4 text-white shadow-lg">
-          <div className="text-2xl font-bold">{inactiveCount}</div>
-          <div className="text-slate-200 text-sm font-medium">Inactive</div>
-        </div>
-        <div className="rounded-2xl p-4 text-white shadow-lg" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-to), var(--theme-gradient-from))' }}>
-          <div className="text-2xl font-bold">{totalQuestions}</div>
-          <div className="text-sm font-medium" style={{ color: 'var(--theme-primary-light)' }}>Total Questions</div>
-        </div>
+        <StatCard label="Total Checklists" value={allProfiles.length}
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />} />
+        <StatCard label="Active" value={activeCount} iconBg="bg-emerald-50" iconColor="text-emerald-600"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />} />
+        <StatCard label="Inactive" value={inactiveCount} iconBg="bg-slate-100" iconColor="text-slate-500"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />} />
+        <StatCard label="Total Questions" value={totalQuestions}
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />} />
       </div>
 
       {/* Search & Filter Bar */}
@@ -146,23 +139,22 @@ export function ChecklistProfileListPage() {
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 outline-none"
+          <Input className="pl-10"
             style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as React.CSSProperties}
             onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
             onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
             placeholder="Search checklists..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+        <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
           {[
             { key: 'all' as const, label: 'All', count: allProfiles.length },
             { key: 'active' as const, label: 'Active', count: activeCount },
             { key: 'inactive' as const, label: 'Inactive', count: inactiveCount },
           ].map(f => (
             <button key={f.key} onClick={() => setFilter(f.key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filter === f.key
-                ? 'bg-white shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'}`}
-              style={filter === f.key ? { color: 'var(--theme-primary)' } : undefined}>
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${filter === f.key
+                ? 'bg-white shadow-xs text-brand-700'
+                : 'text-slate-500 hover:text-slate-700'}`}>
               {f.label} <span className="text-xs opacity-60">({f.count})</span>
             </button>
           ))}
@@ -178,27 +170,28 @@ export function ChecklistProfileListPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {pagedProfiles.map((p: any) => (
             <div key={p.id}
-              className="bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer group"
+              className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs hover:border-brand-300 hover:shadow-md transition-all duration-200 cursor-pointer group"
               onClick={() => navigate(`/checklists/${p.id}`)}>
               {/* Color strip */}
               <div className={`h-1.5 ${p.isActive ? 'bg-gradient-to-r from-emerald-400 to-green-500' : 'bg-gradient-to-r from-slate-300 to-slate-400'}`} />
               <div className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shadow-sm ${p.isActive ? '' : 'bg-slate-100'}`}
-                      style={p.isActive ? { background: 'var(--theme-primary-light)' } : undefined}>
-                      <svg className={`w-5 h-5 ${p.isActive ? '' : 'text-slate-400'}`} style={p.isActive ? { color: 'var(--theme-primary)' } : undefined} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg ${p.isActive ? 'bg-brand-50' : 'bg-slate-100'}`}>
+                      <svg className={`w-5 h-5 ${p.isActive ? 'text-brand-600' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                       </svg>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-bold text-slate-800 truncate">{p.name}</h3>
-                      {p.description && <p className="text-xs text-slate-400 truncate mt-0.5">{p.description}</p>}
+                      <h3 className="text-sm font-semibold text-slate-900 truncate">{p.name}</h3>
+                      {p.description && <p className="text-xs text-slate-500 truncate mt-0.5">{p.description}</p>}
                     </div>
                   </div>
                   {canDelete && (
-                    <button onClick={(e) => deleteProfile(p.id, p.name, e)}
-                      className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={(e) => deleteProfile(p.id, p.name, e)} aria-label={`Delete ${p.name}`}
+                      // 2026-10-21: was hover-only (opacity-0 group-hover) - invisible on a touch screen
+                      // and to keyboard users. Always shown on coarse pointers; shown on focus.
+                      className="w-7 h-7 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11 transition-all">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                     </button>
                   )}
@@ -243,7 +236,7 @@ export function ChecklistProfileListPage() {
       )}
 
       {!isLoading && filtered.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-xs">
           <Pagination
             page={safePage}
             pageSize={pageSize}
@@ -272,7 +265,7 @@ export function ChecklistProfileListPage() {
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Name</label>
-                  <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none"
+                  <Input
                     style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as React.CSSProperties}
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
@@ -281,17 +274,16 @@ export function ChecklistProfileListPage() {
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Description (optional)</label>
-                  <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none" rows={3}
+                  <textarea className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm placeholder:text-slate-400 hover:border-slate-400 outline-none" rows={3}
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                     value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Brief description of this checklist..." />
                 </div>
               </div>
               <div className="flex gap-3 mt-6">
-                <button onClick={() => setShowCreate(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+                <button onClick={() => setShowCreate(false)} className="flex-1 h-10 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">Cancel</button>
                 <button onClick={handleCreate} disabled={creating || !newName.trim()}
-                  className="flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition-all shadow-lg"
-                  style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+                  className="flex-1 h-10 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors shadow-xs">
                   {creating ? 'Creating...' : 'Create Checklist'}
                 </button>
               </div>

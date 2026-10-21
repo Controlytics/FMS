@@ -6,6 +6,8 @@ import { useReauth } from '@/hooks/use-reauth';
 import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { PageHeader } from '@/components/ui/page-header';
+import { Select } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
 import { downloadReview, canDownloadReview, type ReviewSummary } from '@/lib/report-review';
 
@@ -89,7 +91,7 @@ export function ReportReviewsPage() {
       ? can('report_reviews.review')   // /review endpoint — requires REPORT_REVIEW
       : can('report_reviews.approve'); // /approve endpoint — requires REPORT_APPROVE
     return (
-      <div className="grid grid-cols-[1.6fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 hover:bg-slate-50/50">
+      <div className="grid grid-cols-[1.6fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 hover:bg-slate-50">
         <div>
           <div className="text-[14px] font-medium text-slate-800">{r.title}</div>
           <div className="text-[11px] text-slate-400">{r.reportType}{r.subtitle ? ` · ${r.subtitle}` : ''}</div>
@@ -133,14 +135,17 @@ export function ReportReviewsPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-800">Report Reviews</h1>
-      <p className="text-sm text-slate-500 mt-1 mb-5">Reports sent for review/approval. Approved reports carry Printed By / Reviewed By / Approved By when downloaded.</p>
+      <PageHeader
+        className="mb-5"
+        title="Report Reviews"
+        subtitle="Reports sent for review/approval. Approved reports carry Printed By / Reviewed By / Approved By when downloaded."
+      />
 
       <div className="flex items-center gap-2 mb-4">
-        <button onClick={() => setTab('queue')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'queue' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600' : 'text-slate-600 bg-slate-100'}`}>
+        <button onClick={() => setTab('queue')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'queue' ? 'text-white bg-brand-600' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'}`}>
           To Action {queue.length > 0 && <span className="ml-1 px-1.5 rounded-full bg-white/30 text-[11px]">{queue.length}</span>}
         </button>
-        <button onClick={() => setTab('all')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'all' ? 'text-white bg-gradient-to-r from-teal-500 to-cyan-600' : 'text-slate-600 bg-slate-100'}`}>All Reports</button>
+        <button onClick={() => setTab('all')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${tab === 'all' ? 'text-white bg-brand-600' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'}`}>All Reports</button>
       </div>
 
       <div className="border border-slate-200 rounded-xl bg-white overflow-hidden divide-y divide-slate-100">
@@ -163,17 +168,17 @@ export function ReportReviewsPage() {
               {dlg.item.stage === 'REVIEW' && dlg.action === 'approve' && (
                 <div>
                   <label className="text-xs font-semibold text-slate-500">Send to (approver role)</label>
-                  <select value={approverRole} onChange={(e) => setApproverRole(e.target.value)}
-                    className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white focus:outline-none focus:ring-3 focus:ring-brand-600/15">
+                  <Select value={approverRole} onChange={(e) => setApproverRole(e.target.value)}
+                    className="mt-1">
                     <option value="">Select a role…</option>
                     {roles.map((r) => <option key={r.name} value={r.name}>{r.displayName || r.name}</option>)}
-                  </select>
+                  </Select>
                 </div>
               )}
               <div>
                 <label className="text-xs font-semibold text-slate-500">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
                 <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
-                  className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15"
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15"
                   placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'Optional remarks'} />
               </div>
             </div>

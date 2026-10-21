@@ -6,7 +6,7 @@ import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { type PasswordPolicyConfig } from '@digilog/shared';
@@ -160,33 +160,25 @@ export function ResetRequestsPage() {
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+      <PageHeader
+        title="Password Reset Requests"
+        subtitle="Review and process password reset requests from users"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />}
+        actions={
+          <Link to="/users">
+            <Button variant="outline" className="gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Password Reset Requests</h1>
-              <p className="text-sm text-slate-500 mt-0.5">Review and process password reset requests from users</p>
-            </div>
-          </div>
-        </div>
-        <Link to="/users">
-          <Button variant="outline" className="gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to Users
-          </Button>
-        </Link>
-      </div>
+              Back to Users
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Success Message */}
       {successMessage && (
-        <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-50 to-emerald-50 border border-emerald-200/60 p-4 shadow-sm">
+        <div className="flex items-center gap-3 rounded-xl bg-emerald-50 border border-emerald-200 p-4">
           <div className="p-2 rounded-xl bg-emerald-100">
             <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -205,8 +197,8 @@ export function ResetRequestsPage() {
       )}
 
       {/* Pending Requests */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-5 border-b border-slate-100 bg-slate-50">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-100">
               <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -216,7 +208,7 @@ export function ResetRequestsPage() {
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold text-slate-800">Pending Requests</h2>
               {pendingRequests.length > 0 && (
-                <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm">
+                <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-amber-500 text-white">
                   {pendingRequests.length}
                 </span>
               )}
@@ -239,10 +231,10 @@ export function ResetRequestsPage() {
               {pendingRequests.map((request) => (
                 <div
                   key={request.id}
-                  className="group flex items-center justify-between p-5 rounded-2xl bg-gradient-to-r from-slate-50 to-white border border-slate-200/60 hover:border-amber-200 hover:shadow-lg transition-all duration-200"
+                  className="group flex items-center justify-between p-5 rounded-xl bg-slate-50 border border-slate-200 hover:border-amber-200 hover:shadow-sm transition-all duration-200"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+                    <div className="w-14 h-14 rounded-xl bg-amber-500 flex items-center justify-center">
                       <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                       </svg>
@@ -295,7 +287,7 @@ export function ResetRequestsPage() {
                     </Button>
                     <Button
                       size="sm"
-                      className="bg-gradient-to-r from-emerald-500 to-emerald-500 hover:from-emerald-600 hover:to-emerald-600 shadow-lg"
+                      className="bg-emerald-700 hover:bg-emerald-800"
                       onClick={() => openApproveDialog(request)}
                     >
                       <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -312,8 +304,8 @@ export function ResetRequestsPage() {
       </div>
 
       {/* Processed Requests History */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-5 border-b border-slate-100 bg-slate-50">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-slate-100">
               <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -335,21 +327,21 @@ export function ResetRequestsPage() {
               <p className="text-sm text-slate-400 mt-1">Processed requests will appear here</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">User</th>
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">Status</th>
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">Requested</th>
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">Processed</th>
-                    <th className="text-left py-4 px-4 font-semibold text-slate-600 text-sm">Processed By</th>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">User</th>
+                    <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Status</th>
+                    <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Requested</th>
+                    <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Processed</th>
+                    <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Processed By</th>
                   </tr>
                 </thead>
                 <tbody>
                   {processedRequests.map((request) => (
-                    <tr key={request.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-                      <td className="py-4 px-4">
+                    <tr key={request.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-sm font-semibold text-slate-600">
                             {(request.userFullName || request.userId).split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
@@ -360,12 +352,12 @@ export function ResetRequestsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="py-4 px-4">{getStatusBadge(request.status)}</td>
-                      <td className="py-4 px-4 text-sm text-slate-500">
+                      <td className="px-4 py-2.5 text-slate-700">{getStatusBadge(request.status)}</td>
+                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap">
                         {formatDate(request.requestedAt)}
                         <span className="block text-xs text-slate-400">{formatTime(request.requestedAt)}</span>
                       </td>
-                      <td className="py-4 px-4 text-sm text-slate-500">
+                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap">
                         {request.processedAt ? (
                           <>
                             {formatDate(request.processedAt)}
@@ -373,7 +365,7 @@ export function ResetRequestsPage() {
                           </>
                         ) : '-'}
                       </td>
-                      <td className="py-4 px-4">
+                      <td className="px-4 py-2.5 text-slate-700">
                         {request.processedBy ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-sm text-slate-600">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -470,7 +462,7 @@ export function ResetRequestsPage() {
             </div>
           </div>
 
-          <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 p-4">
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
             <div className="flex gap-3">
               <div className="p-2 rounded-lg bg-amber-100 h-fit">
                 <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -489,7 +481,7 @@ export function ResetRequestsPage() {
         <DialogFooter>
           <Button variant="outline" onClick={closeDialog}>Cancel</Button>
           <Button
-            className="bg-gradient-to-r from-emerald-500 to-emerald-500 hover:from-emerald-600 hover:to-emerald-600 shadow-lg"
+            className="bg-emerald-700 hover:bg-emerald-800"
             onClick={handleProcess}
             disabled={isProcessing || !newPassword}
           >
@@ -561,7 +553,6 @@ export function ResetRequestsPage() {
             variant="destructive"
             onClick={handleProcess}
             disabled={isProcessing}
-            className="bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600"
           >
             {isProcessing ? (
               <>

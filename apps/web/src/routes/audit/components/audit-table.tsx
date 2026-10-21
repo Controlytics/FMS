@@ -102,7 +102,7 @@ export function AuditTable({
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50/80">
+                <TableRow className="hover:bg-transparent">
                   {canDestroy && (
                     <TableHead className="w-10">
                       <input
@@ -141,7 +141,7 @@ export function AuditTable({
                   <TableHead className="font-semibold text-slate-600">Status</TableHead>
                   {/* Always shown: opening a record is a READ, available to anyone
                       who can see the trail. Only the buttons inside are gated. */}
-                  <TableHead className="font-semibold text-slate-600 text-center">Details</TableHead>
+                  <TableHead className="font-semibold text-slate-600 text-right whitespace-nowrap">Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -280,7 +280,7 @@ export function AuditTable({
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-xs font-bold text-slate-600">
+                        <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600">
                           {record.userId?.charAt(0)?.toUpperCase() || '?'}
                         </div>
                         <span className="text-sm font-medium text-slate-700">{record.userId}</span>
@@ -303,8 +303,8 @@ export function AuditTable({
                         </span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-1">
+                    <TableCell className="text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1">
                         <Button
                           variant="ghost"
                           size="sm"

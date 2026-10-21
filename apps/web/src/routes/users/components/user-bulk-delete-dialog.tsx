@@ -68,7 +68,6 @@ export function UserBulkDeleteDialog({
           variant="destructive"
           onClick={onConfirm}
           disabled={bulkDeleting}
-          className="bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600"
         >
           {bulkDeleting ? 'Deleting...' : `Delete ${selectedIds.size} User${selectedIds.size !== 1 ? 's' : ''}`}
         </Button>

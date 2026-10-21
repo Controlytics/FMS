@@ -7,6 +7,9 @@ import { useBlockChangeApproval } from '@/hooks/use-block-change-approval';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Pagination } from '@/components/ui/pagination';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatCard } from '@/components/ui/stat-card';
+import { Input } from '@/components/ui/input';
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string }> = {
   PENDING: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500' },
@@ -63,68 +66,45 @@ export function ApprovalsPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-lg" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Approvals</h1>
-            <p className="text-sm text-slate-500">
-              {isApprover ? 'Review and process block change requests' : 'Track your block change requests'}
-            </p>
-          </div>
-        </div>
-        {isApprover && pendingCount > 0 && (
+      <PageHeader
+        title="Approvals"
+        subtitle={isApprover ? 'Review and process block change requests' : 'Track your block change requests'}
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />}
+        actions={isApprover && pendingCount > 0 && (
           <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-sm font-semibold">
             {pendingCount} pending request{pendingCount !== 1 ? 's' : ''}
           </div>
         )}
-      </div>
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="rounded-2xl p-4 text-white shadow-lg" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-          <div className="text-2xl font-bold">{data?.total ?? 0}</div>
-          <div className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.8)' }}>Total Requests</div>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
-              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
-            <div>
-              <div className="text-lg font-bold text-slate-800">{pendingCount}</div>
-              <div className="text-xs text-slate-400">Pending</div>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
-              <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-            </div>
-            <div>
-              <div className="text-lg font-bold text-slate-800">
-                {requests.filter((r: any) => r.status === 'APPROVED').length}
-              </div>
-              <div className="text-xs text-slate-400">Approved</div>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </div>
-            <div>
-              <div className="text-lg font-bold text-slate-800">
-                {requests.filter((r: any) => r.status === 'REJECTED').length}
-              </div>
-              <div className="text-xs text-slate-400">Rejected</div>
-            </div>
-          </div>
-        </div>
+        <StatCard
+          label="Total Requests"
+          value={data?.total ?? 0}
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />}
+        />
+        <StatCard
+          label="Pending"
+          value={pendingCount}
+          iconBg="bg-amber-50"
+          iconColor="text-amber-600"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />}
+        />
+        <StatCard
+          label="Approved"
+          value={requests.filter((r: any) => r.status === 'APPROVED').length}
+          iconBg="bg-emerald-50"
+          iconColor="text-emerald-600"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />}
+        />
+        <StatCard
+          label="Rejected"
+          value={requests.filter((r: any) => r.status === 'REJECTED').length}
+          iconBg="bg-red-50"
+          iconColor="text-red-500"
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />}
+        />
       </div>
 
       {/* Filter Tabs */}
@@ -137,8 +117,7 @@ export function ApprovalsPage() {
         ].map(f => (
           <button key={f.key} onClick={() => { setFilter(f.key); setPage(1); }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filter === f.key
-              ? 'bg-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            style={filter === f.key ? { color: 'var(--theme-primary)' } : undefined}>
+              ? 'bg-white shadow-xs text-brand-700' : 'text-slate-500 hover:text-slate-700'}`}>
             {f.label}
           </button>
         ))}
@@ -147,7 +126,7 @@ export function ApprovalsPage() {
       {/* Requests List */}
       {isLoading ? (
         <div className="flex justify-center py-20">
-          <div className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }} />
+          <div className="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : requests.length === 0 ? (
         <div className="text-center py-20">
@@ -161,7 +140,7 @@ export function ApprovalsPage() {
           {requests.map((r: any) => {
             const sc = STATUS_CONFIG[r.status] ?? STATUS_CONFIG.PENDING;
             return (
-              <div key={r.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-md transition-shadow">
+              <div key={r.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs hover:border-slate-300 transition-colors">
                 <div className={`h-1 ${r.status === 'PENDING' ? 'bg-gradient-to-r from-amber-400 to-orange-400' : r.status === 'APPROVED' ? 'bg-gradient-to-r from-emerald-400 to-green-500' : r.status === 'REJECTED' ? 'bg-gradient-to-r from-red-400 to-rose-500' : 'bg-gradient-to-r from-slate-300 to-slate-400'}`} />
                 <div className="p-5">
                   <div className="flex items-start justify-between">
@@ -177,7 +156,7 @@ export function ApprovalsPage() {
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium text-slate-700">{r.fromBlockName}</span>
                           <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-                          <span className="font-medium text-theme-primary">{r.toBlockName}</span>
+                          <span className="font-medium text-brand-700">{r.toBlockName}</span>
                         </div>
                       </div>
                       {r.reason && <p className="text-sm text-slate-400 mt-2">Reason: {r.reason}</p>}
@@ -192,8 +171,8 @@ export function ApprovalsPage() {
                     {/* Actions for approver — both nodes share gate ['BLOCK_CHANGE_APPROVE'] */}
                     {can('block_change.approve') && r.status === 'PENDING' && (
                       <div className="flex items-center gap-2 ml-4 shrink-0">
-                        <input
-                          className="w-48 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 outline-none"
+                        <Input
+                          className="w-48 h-8 text-xs [@media(pointer:coarse)]:h-10"
                           style={{ ['--tw-ring-color' as any]: 'var(--theme-focus-ring)' }}
                           onFocus={e => e.currentTarget.style.borderColor = 'var(--theme-primary-light)'}
                           onBlur={e => e.currentTarget.style.borderColor = ''}
@@ -203,12 +182,12 @@ export function ApprovalsPage() {
                         />
                         <button onClick={() => handleProcess(r.id, 'approve')}
                           disabled={!(processingId === r.id && processComment.trim())}
-                          className="px-4 py-1.5 bg-emerald-500 text-white text-xs font-semibold rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50">
+                          className="h-8 px-4 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50">
                           Approve
                         </button>
                         <button onClick={() => handleProcess(r.id, 'reject')}
                           disabled={!(processingId === r.id && processComment.trim())}
-                          className="px-4 py-1.5 bg-red-500 text-white text-xs font-semibold rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50">
+                          className="h-8 px-4 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
                           Reject
                         </button>
                       </div>

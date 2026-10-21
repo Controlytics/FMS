@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
 
 import type { PaginatedTracesResponse, PipelineTrace, TraceStats } from './types';
 import {
@@ -194,23 +195,12 @@ export function DebugTracesPage() {
     <div className="space-y-6 animate-fade-in">
       <ReauthPrompt reauth={reauth} />
       {/* Page Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 text-white shadow-lg">
-            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
-              Pipeline Debug Traces
-            </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Ingestion pipeline stages + every API write operation (filter cleaning, status updates, …) — SUCCESS / FAILED
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Pipeline Debug Traces"
+        subtitle="Ingestion pipeline stages + every API write operation (filter cleaning, status updates, …) — SUCCESS / FAILED"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />}
+        actions={
+          <>
           <button
             onClick={toggleOpTrace}
             title="When on, every API write operation (filter cleaning, status updates, …) is recorded as a trace"
@@ -234,17 +224,18 @@ export function DebugTracesPage() {
             </svg>
             Refresh
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
       <StatsCards stats={stats} total={total} />
 
       {/* Filters Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
         <div className="flex items-center gap-2 mb-4">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-brand-600 to-brand-700">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="p-2 rounded-lg bg-brand-50">
+            <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
           </div>
@@ -348,20 +339,20 @@ export function DebugTracesPage() {
       </div>
 
       {/* Traces Table Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gradient-to-r from-slate-50 to-slate-100/80 border-b border-slate-200">
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs w-8" />
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Time</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Entity</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Type</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Transport</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Pipeline</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Status</th>
-                <th className="text-left px-5 py-4 font-semibold text-slate-600 text-xs">Error Code</th>
-                <th className="text-right px-5 py-4 font-semibold text-slate-600 text-xs">Duration</th>
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap w-8" />
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Time</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Entity</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Type</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Transport</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Pipeline</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Status</th>
+                <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Error Code</th>
+                <th className="h-10 px-4 text-right text-xs font-semibold text-slate-600 whitespace-nowrap">Duration</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -416,11 +407,11 @@ export function DebugTracesPage() {
                       className={`cursor-pointer transition-colors ${
                         isExpanded
                           ? 'bg-cyan-50/60 hover:bg-cyan-50'
-                          : 'hover:bg-slate-50/80'
+                          : 'hover:bg-slate-50'
                       }`}
                     >
                       {/* Expand chevron */}
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <svg
                           className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                           fill="none"
@@ -432,14 +423,14 @@ export function DebugTracesPage() {
                       </td>
 
                       {/* Time */}
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <span className="text-xs text-slate-600 font-mono whitespace-nowrap">
                           {formatDateTime(trace.time)}
                         </span>
                       </td>
 
                       {/* Entity */}
-                      <td className="px-5 py-3.5 max-w-[160px]">
+                      <td className="px-4 py-2.5 text-slate-700 max-w-[160px]">
                         {trace.entityName ? (
                           <div>
                             <p className="text-sm font-medium text-slate-700 truncate">{trace.entityName}</p>
@@ -455,26 +446,26 @@ export function DebugTracesPage() {
                       </td>
 
                       {/* Message Type */}
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <Badge className={getMessageTypeBadgeClass(trace.messageType)}>
                           {trace.messageType}
                         </Badge>
                       </td>
 
                       {/* Transport */}
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <Badge className={getTransportBadgeClass(trace.transport)}>
                           {trace.transport}
                         </Badge>
                       </td>
 
                       {/* Pipeline Progress */}
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <PipelineProgressBar stages={trace.stages} />
                       </td>
 
                       {/* Final Status */}
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         <div className="flex items-center gap-1.5">
                           <StatusIcon status={trace.finalStatus} />
                           <Badge className={getStatusBadgeClass(trace.finalStatus)}>
@@ -484,7 +475,7 @@ export function DebugTracesPage() {
                       </td>
 
                       {/* Error Code */}
-                      <td className="px-5 py-3.5">
+                      <td className="px-4 py-2.5 text-slate-700">
                         {trace.errorCode ? (
                           <span className="text-xs font-mono text-red-600 bg-red-50 border border-red-200 px-2 py-1 rounded-lg">
                             {trace.errorCode}
@@ -495,7 +486,7 @@ export function DebugTracesPage() {
                       </td>
 
                       {/* Duration */}
-                      <td className="px-5 py-3.5 text-right">
+                      <td className="px-4 py-2.5 text-slate-700 text-right whitespace-nowrap">
                         <span className="text-xs font-mono font-semibold text-slate-600">
                           {formatDuration(trace.totalDurationMs)}
                         </span>
@@ -529,7 +520,7 @@ export function DebugTracesPage() {
 
       {/* Pagination */}
       {data && totalPages > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4">
           <div className="flex items-center justify-between flex-wrap gap-4">
             {/* Rows per page + page info */}
             <div className="flex items-center gap-3 text-sm text-slate-600 flex-wrap">
@@ -590,10 +581,10 @@ export function DebugTracesPage() {
 
       {/* Top Errors Panel (shown when stats available) */}
       {stats && stats.topErrors.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
           <div className="flex items-center gap-2 mb-4">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-red-500 to-rose-600">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="p-2 rounded-lg bg-red-50">
+              <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
@@ -637,10 +628,11 @@ export function DebugTracesPage() {
 
       {/* Transport Breakdown (shown when stats available) */}
       {stats && Object.keys(stats.byTransport).length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
           <div className="flex items-center gap-2 mb-4">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-brand-600 to-brand-700">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="p-2 rounded-lg bg-brand-50">
+              <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>

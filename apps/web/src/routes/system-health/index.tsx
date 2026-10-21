@@ -1,6 +1,7 @@
 import useSWR from 'swr';
 import { useEffect, useState } from 'react';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface SystemHealthData {
   os: {
@@ -101,20 +102,20 @@ function StatusDot({ connected }: { connected: boolean }) {
 function MetricCard({
   title,
   icon,
-  gradient,
+  tone,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
-  gradient: string;
+  /** Tinted icon-tile classes (background + icon colour). */
+  tone: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200/60 shadow-soft">
-      <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
-      <div className="p-6">
+    <div className="rounded-xl bg-white border border-slate-200 shadow-xs">
+      <div className="p-5">
         <div className="flex items-center gap-3 mb-4">
-          <div className={`p-2.5 rounded-xl ${gradient} text-white shadow-lg`}>{icon}</div>
+          <div className={`p-2 rounded-lg ${tone}`}>{icon}</div>
           <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
         </div>
         {children}
@@ -146,7 +147,7 @@ export function SystemHealthPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-8 w-8 border border-slate-300 border-t-blue-600" />
+          <div className="animate-spin rounded-full h-8 w-8 border border-slate-300 border-t-brand-600" />
           <p className="text-sm text-slate-500">Loading system metrics...</p>
         </div>
       </div>
@@ -159,7 +160,7 @@ export function SystemHealthPage() {
         <p className="text-slate-500">Failed to load system health data.</p>
         <button
           onClick={() => mutate()}
-          className="mt-3 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          className="mt-3 px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
           Retry
         </button>
@@ -170,15 +171,16 @@ export function SystemHealthPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">System Health</h1>
-          <p className="text-sm text-slate-500 mt-1">
+      <PageHeader
+        title="System Health"
+        subtitle={
+          <>
             Server: {data.os.hostname} &middot; Last updated:{' '}
             {formatTime(data.timestamp)}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+          </>
+        }
+        actions={
+          <>
           <button
             onClick={() => mutate()}
             className="px-4 py-2 text-sm bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-700 transition-colors"
@@ -198,32 +200,33 @@ export function SystemHealthPage() {
           >
             {autoRefresh ? `Auto-refresh (${countdown}s)` : 'Auto-refresh off'}
           </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Top-level summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl bg-gradient-to-r from-brand-600 to-brand-700 p-5 text-white shadow-lg">
-          <p className="text-blue-100 text-xs">OS Uptime</p>
-          <p className="text-2xl font-bold mt-1">{formatUptime(data.os.uptimeSeconds)}</p>
-          <p className="text-blue-200 text-xs mt-1">{data.os.platform} {data.os.arch}</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+          <p className="text-xs font-medium text-slate-500">OS Uptime</p>
+          <p className="text-2xl font-semibold text-slate-900 tabular-nums mt-1">{formatUptime(data.os.uptimeSeconds)}</p>
+          <p className="text-xs text-slate-400 mt-1">{data.os.platform} {data.os.arch}</p>
         </div>
-        <div className="rounded-xl bg-gradient-to-r from-brand-600 to-brand-700 p-5 text-white shadow-lg">
-          <p className="text-brand-100 text-xs">API Requests</p>
-          <p className="text-2xl font-bold mt-1">{data.api.totalRequests.toLocaleString()}</p>
-          <p className="text-brand-200 text-xs mt-1">{data.api.requestsPerMinute} req/min</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+          <p className="text-xs font-medium text-slate-500">API Requests</p>
+          <p className="text-2xl font-semibold text-slate-900 tabular-nums mt-1">{data.api.totalRequests.toLocaleString()}</p>
+          <p className="text-xs text-slate-400 mt-1">{data.api.requestsPerMinute} req/min</p>
         </div>
-        <div className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 p-5 text-white shadow-lg">
-          <p className="text-amber-100 text-xs">RAM Usage</p>
-          <p className="text-2xl font-bold mt-1">{data.memory.usagePercent}%</p>
-          <p className="text-amber-200 text-xs mt-1">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+          <p className="text-xs font-medium text-slate-500">RAM Usage</p>
+          <p className="text-2xl font-semibold text-slate-900 tabular-nums mt-1">{data.memory.usagePercent}%</p>
+          <p className="text-xs text-slate-400 mt-1">
             {formatBytes(data.memory.usedBytes)} / {formatBytes(data.memory.totalBytes)}
           </p>
         </div>
-        <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 p-5 text-white shadow-lg">
-          <p className="text-emerald-100 text-xs">CPU Usage</p>
-          <p className="text-2xl font-bold mt-1">{data.cpu.usagePercent}%</p>
-          <p className="text-emerald-200 text-xs mt-1">{data.cpu.cores} cores</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+          <p className="text-xs font-medium text-slate-500">CPU Usage</p>
+          <p className="text-2xl font-semibold text-slate-900 tabular-nums mt-1">{data.cpu.usagePercent}%</p>
+          <p className="text-xs text-slate-400 mt-1">{data.cpu.cores} cores</p>
         </div>
       </div>
 
@@ -232,7 +235,7 @@ export function SystemHealthPage() {
         {/* Memory */}
         <MetricCard
           title="Memory (RAM)"
-          gradient="bg-gradient-to-r from-amber-500 to-orange-600"
+          tone="bg-amber-50 text-amber-600"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -263,7 +266,7 @@ export function SystemHealthPage() {
         {/* CPU */}
         <MetricCard
           title="CPU"
-          gradient="bg-gradient-to-r from-emerald-500 to-emerald-600"
+          tone="bg-emerald-50 text-emerald-600"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
@@ -308,7 +311,7 @@ export function SystemHealthPage() {
         {/* Disk */}
         <MetricCard
           title="Disk"
-          gradient="bg-gradient-to-r from-brand-600 to-brand-700"
+          tone="bg-brand-50 text-brand-600"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
@@ -328,7 +331,7 @@ export function SystemHealthPage() {
                 {formatBytes(data.disk.usedBytes ?? 0)} / {formatBytes(data.disk.totalBytes ?? 0)}
               </span>
             </div>
-            <ProgressBar percent={data.disk.usagePercent} color="bg-blue-500" />
+            <ProgressBar percent={data.disk.usagePercent} color="bg-brand-500" />
             <div className="grid grid-cols-2 gap-4 pt-2">
               <div>
                 <p className="text-xs text-slate-400">Free</p>
@@ -346,7 +349,7 @@ export function SystemHealthPage() {
         {/* Database */}
         <MetricCard
           title="Database (PostgreSQL)"
-          gradient="bg-gradient-to-r from-brand-600 to-brand-700"
+          tone="bg-brand-50 text-brand-600"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
@@ -380,7 +383,7 @@ export function SystemHealthPage() {
         {/* Node.js Process */}
         <MetricCard
           title="Node.js Process"
-          gradient="bg-gradient-to-r from-lime-500 to-green-600"
+          tone="bg-lime-50 text-lime-700"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -429,7 +432,7 @@ export function SystemHealthPage() {
         {/* API Requests */}
         <MetricCard
           title="API Requests"
-          gradient="bg-gradient-to-r from-brand-600 to-brand-700"
+          tone="bg-brand-50 text-brand-600"
           icon={
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />

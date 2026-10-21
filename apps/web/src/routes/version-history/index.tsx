@@ -22,6 +22,7 @@ import { ALL_ROWS } from '@/lib/page-size';
 import { useSearchParams } from 'react-router-dom';
 import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { PageHeader } from '@/components/ui/page-header';
 
 export type EntityKind = 'cleaning-profile' | 'checklist-profile' | 'equipment-group';
 
@@ -110,17 +111,11 @@ export function VersionHistoryPage() {
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <div className="flex items-center gap-3">
-        <div className="p-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 shadow-lg">
-          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Version History</h1>
-          <p className="text-sm text-slate-500">Audit-replay history for versioned definitions. Updates archive the previous state into a sidecar; cycles pin to a specific version at start.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Version History"
+        subtitle="Audit-replay history for versioned definitions. Updates archive the previous state into a sidecar; cycles pin to a specific version at start."
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />}
+      />
 
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
         {TABS.map(t => (
@@ -142,7 +137,7 @@ export function VersionHistoryPage() {
           selectedId={selected?.id ?? null}
           onSelect={(id, name) => { setSelected({ kind: tab, id, name }); setSnapshot(null); }}
         />
-        <div className="md:col-span-2 bg-white rounded-2xl border border-slate-300 p-6 shadow-sm min-h-[20rem]">
+        <div className="md:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-xs min-h-[20rem]">
           {selected ? (
             <VersionTimeline
               kind={selected.kind}
@@ -185,26 +180,26 @@ function EntityList({
 
   if (error) {
     return (
-      <div className="bg-white rounded-2xl border-2 border-red-200 p-4 text-sm text-red-700">
+      <div className="bg-white rounded-xl border border-red-200 p-4 text-sm text-red-700">
         Failed to load: {error.message}
       </div>
     );
   }
   if (!data) {
     return (
-      <div className="bg-white rounded-2xl border border-slate-300 p-4 text-sm text-slate-400">Loading…</div>
+      <div className="bg-white rounded-xl border border-slate-200 p-4 text-sm text-slate-400">Loading…</div>
     );
   }
   if (items.length === 0) {
     return (
-      <div className="bg-white rounded-2xl border border-slate-300 p-4 text-sm text-slate-400">
+      <div className="bg-white rounded-xl border border-slate-200 p-4 text-sm text-slate-400">
         No {tabConfig.label.toLowerCase()} yet.
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-500">
         {items.length} {tabConfig.label}
       </div>
@@ -646,7 +641,7 @@ function SnapshotModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl border border-slate-300 shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col"
+        className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
@@ -821,21 +816,23 @@ function CleaningProfileSnapshot({ data }: { data: any }) {
         {stages.length === 0 ? (
           <p className="text-sm text-slate-400">No stages.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-xs text-slate-500 border-b border-slate-200">
-              <tr><th className="text-left py-1 pr-2">Order</th><th className="text-left py-1 pr-2">Type</th><th className="text-left py-1 pr-2">State key</th><th className="text-left py-1">Configuration</th></tr>
-            </thead>
-            <tbody>
-              {[...stages].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((s: any) => (
-                <tr key={s.id ?? `${s.sortOrder}-${s.nodeType}`} className="border-b border-slate-100 last:border-0">
-                  <td className="py-1 pr-2 text-slate-500">{s.sortOrder ?? '—'}</td>
-                  <td className="py-1 pr-2"><code className="text-xs">{s.nodeType}</code></td>
-                  <td className="py-1 pr-2 text-slate-700">{s.stateKey ?? '—'}</td>
-                  <td className="py-1 text-xs text-slate-500 truncate max-w-md">{s.configuration ? JSON.stringify(s.configuration) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr><th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Order</th><th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Type</th><th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">State key</th><th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Configuration</th></tr>
+              </thead>
+              <tbody>
+                {[...stages].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((s: any) => (
+                  <tr key={s.id ?? `${s.sortOrder}-${s.nodeType}`} className="hover:bg-slate-50">
+                    <td className="px-4 py-2.5 text-slate-500">{s.sortOrder ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-slate-700"><code className="text-xs">{s.nodeType}</code></td>
+                    <td className="px-4 py-2.5 text-slate-700">{s.stateKey ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs text-slate-500 truncate max-w-md">{s.configuration ? JSON.stringify(s.configuration) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -925,32 +922,34 @@ function EquipmentGroupSnapshot({ data }: { data: any }) {
       {Object.entries(byStage).map(([stage, items]) => (
         <div key={stage} className="bg-white border border-slate-200 rounded-xl p-4">
           <h5 className="text-xs text-slate-500 mb-2">{stage} ({items.length})</h5>
-          <table className="w-full text-sm">
-            <thead className="text-xs text-slate-500 border-b border-slate-200">
-              <tr>
-                <th className="text-left py-1 pr-2">Description</th>
-                <th className="text-left py-1 pr-2">Instrument ID</th>
-                <th className="text-left py-1 pr-2">SN</th>
-                <th className="text-left py-1 pr-2">UOM</th>
-                <th className="text-left py-1 pr-2">Operating range</th>
-                <th className="text-left py-1 pr-2">Instrument range</th>
-                <th className="text-left py-1">Least count</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((inst: any) => (
-                <tr key={inst.id ?? `${stage}-${inst.sortOrder}`} className="border-b border-slate-100 last:border-0">
-                  <td className="py-1 pr-2 font-medium text-slate-800">{inst.description}</td>
-                  <td className="py-1 pr-2"><code className="text-xs">{inst.instrumentId}</code></td>
-                  <td className="py-1 pr-2 text-slate-600">{inst.serialNumber}</td>
-                  <td className="py-1 pr-2 text-slate-600">{inst.uom}</td>
-                  <td className="py-1 pr-2 text-slate-700">{inst.operatingMin}–{inst.operatingMax}</td>
-                  <td className="py-1 pr-2 text-slate-500">{inst.instrumentMin}–{inst.instrumentMax}</td>
-                  <td className="py-1 text-slate-500">{inst.leastCount}</td>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Description</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Instrument ID</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">SN</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">UOM</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Operating range</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Instrument range</th>
+                  <th className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">Least count</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {[...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((inst: any) => (
+                  <tr key={inst.id ?? `${stage}-${inst.sortOrder}`} className="hover:bg-slate-50">
+                    <td className="px-4 py-2.5 font-medium text-slate-800">{inst.description}</td>
+                    <td className="px-4 py-2.5 text-slate-700"><code className="text-xs">{inst.instrumentId}</code></td>
+                    <td className="px-4 py-2.5 text-slate-600">{inst.serialNumber}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{inst.uom}</td>
+                    <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap">{inst.operatingMin}–{inst.operatingMax}</td>
+                    <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{inst.instrumentMin}–{inst.instrumentMax}</td>
+                    <td className="px-4 py-2.5 text-slate-500">{inst.leastCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ))}
     </div>

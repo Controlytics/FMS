@@ -15,6 +15,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig } from '@/hooks/use-pagination-config';
 import { Pagination } from '@/components/ui/pagination';
+import { PageHeader } from '@/components/ui/page-header';
 import { ALL_ROWS } from '@/lib/page-size';
 import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 
@@ -381,25 +382,17 @@ export function NotificationsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">Notifications</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              {data?.unreadCount > 0 ? (
-                <span className="text-amber-600 font-medium">{data.unreadCount} unread notification{data.unreadCount > 1 ? 's' : ''}</span>
-              ) : (
-                'All caught up!'
-              )}
-            </p>
-          </div>
-        </div>
-        {data?.unreadCount > 0 && can('notifications.mark') && (
+      <PageHeader
+        title="Notifications"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />}
+        subtitle={
+          data?.unreadCount > 0 ? (
+            <span className="text-amber-600 font-medium">{data.unreadCount} unread notification{data.unreadCount > 1 ? 's' : ''}</span>
+          ) : (
+            'All caught up!'
+          )
+        }
+        actions={data?.unreadCount > 0 && can('notifications.mark') && (
           <Button
             onClick={markAllAsRead}
             variant="outline"
@@ -411,11 +404,11 @@ export function NotificationsPage() {
             Mark All as Read
           </Button>
         )}
-      </div>
+      />
 
       {/* Selection Toolbar */}
       {isSomeSelected && (
-        <div className="bg-white rounded-2xl border-2 border-indigo-200 shadow-xl p-4 flex items-center justify-between">
+        <div className="bg-white rounded-xl border-2 border-indigo-200 shadow-md p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-indigo-100">
               <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -457,10 +450,10 @@ export function NotificationsPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl p-6">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
         <div className="flex items-center gap-2 mb-4">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="p-2 rounded-lg bg-brand-50">
+            <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
           </div>
@@ -475,8 +468,8 @@ export function NotificationsPage() {
           <div className="min-w-[260px] flex-1">
             <label className="text-xs font-semibold text-slate-500 mb-2 block">Search</label>
             <div className="relative group">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-cyan-100 to-sky-100 z-10 pointer-events-none">
-                <svg className="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-50 z-10 pointer-events-none">
+                <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
                 </svg>
               </div>
@@ -506,8 +499,8 @@ export function NotificationsPage() {
           <div className="min-w-[200px]">
             <label className="text-xs font-semibold text-slate-500 mb-2 block">Time Period</label>
             <div className="relative group">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-blue-100 to-indigo-100 z-10 pointer-events-none">
-                <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-50 z-10 pointer-events-none">
+                <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </div>
@@ -553,8 +546,8 @@ export function NotificationsPage() {
           <div className="min-w-[180px]">
             <label className="text-xs font-semibold text-slate-500 mb-2 block">Status</label>
             <div className="relative group">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-amber-100 to-orange-100 z-10 pointer-events-none">
-                <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-50 z-10 pointer-events-none">
+                <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
@@ -635,11 +628,11 @@ export function NotificationsPage() {
           return (
           <div
             key={notification.id}
-            className={`bg-white rounded-2xl border shadow-sm p-5 transition-all hover:shadow-md ${
+            className={`bg-white rounded-xl border shadow-xs p-5 transition-all hover:shadow-md ${
               isSelected
                 ? 'border-indigo-300 bg-indigo-50/30 ring-1 ring-indigo-200'
                 : notification.isRead
-                  ? 'border-slate-200/60 opacity-75'
+                  ? 'border-slate-200 opacity-75'
                   : 'border-amber-200'
             }`}
           >
@@ -749,7 +742,7 @@ export function NotificationsPage() {
 
         {/* Empty State */}
         {(!data?.data || data.data.length === 0) && (
-          <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-16 text-center">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-16 text-center">
             <div className="flex flex-col items-center gap-4">
               <div className="p-4 rounded-2xl bg-slate-100">
                 <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -774,7 +767,8 @@ export function NotificationsPage() {
 
       {/* Pagination */}
       {data && data.total > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs">
+
           <Pagination
             page={page}
             pageSize={perPage}

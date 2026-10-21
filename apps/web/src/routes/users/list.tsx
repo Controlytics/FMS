@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useFieldLabels } from '@/hooks/use-field-labels';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { apiClient } from '@/lib/api-client';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
@@ -251,19 +252,12 @@ export function UserListPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">User Management</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Manage system users and their access permissions</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="User Management"
+        subtitle="Manage system users and their access permissions"
+        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />}
+        actions={
+          <>
           {can('users.reset_password') && (
           <Link to="/users/reset-requests">
             <Button variant="outline" className="gap-2 relative border-amber-200 text-amber-700 hover:bg-amber-50">
@@ -272,7 +266,7 @@ export function UserListPage() {
               </svg>
               Password Reset Requests
               {pendingData && pendingData.count > 0 && (
-                <span className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center text-xs font-bold bg-gradient-to-r from-red-500 to-rose-500 text-white rounded-full shadow-lg">
+                <span className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center text-xs font-bold bg-red-600 text-white rounded-full shadow-xs">
                   {pendingData.count}
                 </span>
               )}
@@ -281,7 +275,7 @@ export function UserListPage() {
           )}
           {canCreateUsers && (
           <Link to="/users/create">
-            <Button className="gap-2 shadow-lg text-white hover:opacity-90" style={{ backgroundImage: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+            <Button className="gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
@@ -289,8 +283,9 @@ export function UserListPage() {
             </Button>
           </Link>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Filters */}
       <UserFilters
@@ -312,7 +307,7 @@ export function UserListPage() {
 
       {/* Bulk Selection Toolbar */}
       {canDeleteUsers && selectedIds.size > 0 && (
-        <div className="bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl border border-red-200 p-4 flex items-center justify-between">
+        <div className="bg-red-50 rounded-xl border border-red-200 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-red-100">
               <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -336,7 +331,7 @@ export function UserListPage() {
               variant="destructive"
               size="sm"
               onClick={() => setBulkDeleteDialog(true)}
-              className="gap-2 bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600"
+              className="gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -373,7 +368,7 @@ export function UserListPage() {
 
       {/* Pagination — always rendered so the rows-per-page selector is available */}
       {data && data.total > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs">
           <Pagination
             page={page}
             pageSize={perPage}

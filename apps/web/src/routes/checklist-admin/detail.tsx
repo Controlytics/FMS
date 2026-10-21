@@ -5,6 +5,8 @@ import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 const QUESTION_TYPES = [
   { value: 'YES_NO',       label: 'Yes / No',       color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -173,29 +175,28 @@ export function ChecklistProfileDetailPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="h-1.5" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }} />
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
               <button onClick={() => navigate('/checklists')}
-                className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors">
+                className="w-10 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </button>
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-lg" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+              <div className="w-11 h-11 shrink-0 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-xs">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
               </div>
               <div className="flex-1">
                 {editProfileMode ? (
                   <div className="space-y-2 max-w-xl">
-                    <input type="text" value={editProfileForm.name}
+                    <Input type="text" value={editProfileForm.name}
                            onChange={e => setEditProfileForm(f => ({ ...f, name: e.target.value }))}
                            placeholder="Profile name"
-                           className="w-full px-3 py-2 text-base font-bold text-slate-800 border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
-                    <input type="text" value={editProfileForm.description}
+                           className="text-base font-semibold" />
+                    <Input type="text" value={editProfileForm.description}
                            onChange={e => setEditProfileForm(f => ({ ...f, description: e.target.value }))}
                            placeholder="Description (optional)"
-                           className="w-full px-3 py-1.5 text-sm text-slate-600 border border-slate-300 rounded-lg focus:border-brand-600 focus:outline-none focus:ring-3 focus:ring-brand-600/15" />
+                           className="text-slate-600" />
                     <label className="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
                       <input type="checkbox" checked={editProfileForm.isActive}
                              onChange={e => setEditProfileForm(f => ({ ...f, isActive: e.target.checked }))}
@@ -204,11 +205,11 @@ export function ChecklistProfileDetailPage() {
                     </label>
                     <div className="flex items-center gap-2 pt-1">
                       <button onClick={submitEditProfile} disabled={savingProfile || !editProfileForm.name.trim()}
-                              className="px-3 py-1.5 bg-cyan-600 text-white rounded-lg text-xs font-semibold hover:bg-cyan-700 disabled:opacity-50">
+                              className="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-semibold hover:bg-brand-700 disabled:opacity-50">
                         {savingProfile ? 'Saving…' : 'Save'}
                       </button>
                       <button onClick={() => setEditProfileMode(false)} disabled={savingProfile}
-                              className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-200 disabled:opacity-50">
+                              className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50 disabled:opacity-50">
                         Cancel
                       </button>
                     </div>
@@ -216,14 +217,14 @@ export function ChecklistProfileDetailPage() {
                 ) : (
                   <div className="flex items-center gap-2">
                     <div>
-                      <h1 className="text-xl font-bold text-slate-800">{profile?.name ?? 'Checklist'}</h1>
-                      {profile?.description && <p className="text-sm text-slate-400 mt-0.5">{profile.description}</p>}
+                      <h1 className="text-2xl font-semibold text-slate-900">{profile?.name ?? 'Checklist'}</h1>
+                      {profile?.description && <p className="text-sm text-slate-500 mt-0.5">{profile.description}</p>}
                     </div>
                     {canEdit && profile && (
                       <button onClick={openEditProfile}
                               aria-label="Edit profile metadata"
                               title="Edit profile name / description / active status"
-                              className="ml-1 w-7 h-7 rounded text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors flex items-center justify-center">
+                              className="ml-1 w-7 h-7 rounded-md text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors flex items-center justify-center">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                         </svg>
@@ -264,8 +265,8 @@ export function ChecklistProfileDetailPage() {
                 <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <div className="text-lg font-bold text-slate-800">{questions.length}</div>
-                <div className="text-xs text-slate-400">Questions</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{questions.length}</div>
+                <div className="text-xs font-medium text-slate-500">Questions</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -273,8 +274,8 @@ export function ChecklistProfileDetailPage() {
                 <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
               </div>
               <div>
-                <div className="text-lg font-bold text-slate-800">{requiredCount}</div>
-                <div className="text-xs text-slate-400">Required</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{requiredCount}</div>
+                <div className="text-xs font-medium text-slate-500">Required</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -282,8 +283,8 @@ export function ChecklistProfileDetailPage() {
                 <svg className="w-4 h-4 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" /></svg>
               </div>
               <div>
-                <div className="text-lg font-bold text-slate-800">{sections.length}</div>
-                <div className="text-xs text-slate-400">Sections</div>
+                <div className="text-lg font-semibold text-slate-900 tabular-nums">{sections.length}</div>
+                <div className="text-xs font-medium text-slate-500">Sections</div>
               </div>
             </div>
           </div>
@@ -299,11 +300,10 @@ export function ChecklistProfileDetailPage() {
 
       {/* Questions */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-slate-800">Questions</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Questions</h2>
         {canEdit && (
           <button onClick={openAdd}
-            className="px-4 py-2 text-white rounded-xl text-sm font-semibold transition-all shadow-lg flex items-center gap-2"
-            style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+            className="h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-xs flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             Add Question
           </button>
@@ -311,20 +311,20 @@ export function ChecklistProfileDetailPage() {
       </div>
 
       {questions.length === 0 ? (
-        <div className="text-center py-20 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'var(--theme-primary-light)' }}>
-            <svg className="w-8 h-8 text-theme-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        <div className="text-center py-20 bg-white rounded-xl border-2 border-dashed border-slate-200">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-brand-50 flex items-center justify-center">
+            <svg className="w-8 h-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
           <p className="text-slate-600 font-semibold">No questions yet</p>
           <p className="text-sm text-slate-400 mt-1">Add your first question to this checklist</p>
-          {canEdit && <button onClick={openAdd} className="mt-4 px-4 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: 'var(--theme-primary)' }}>Add First Question</button>}
+          {canEdit && <button onClick={openAdd} className="mt-4 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">Add First Question</button>}
         </div>
       ) : (
         <div className="space-y-3">
           {questions.map((q: any, idx: number) => {
             const typeInfo = getTypeInfo(q.questionType);
             return (
-              <div key={q.id} className="bg-white border border-slate-200 rounded-2xl p-5 flex items-start gap-4 group hover:shadow-md transition-all">
+              <div key={q.id} className="bg-white border border-slate-200 rounded-xl p-5 flex items-start gap-4 group shadow-xs hover:border-slate-300 transition-colors">
                 {/* Number + reorder */}
                 <div className="flex flex-col items-center gap-1 shrink-0">
                   {canEdit && (
@@ -333,7 +333,7 @@ export function ChecklistProfileDetailPage() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
                     </button>
                   )}
-                  <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center text-sm font-bold shadow-sm" style={{ background: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+                  <div className="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center text-sm font-semibold tabular-nums">
                     {idx + 1}
                   </div>
                   {canEdit && (
@@ -366,7 +366,7 @@ export function ChecklistProfileDetailPage() {
                 <div className="flex gap-2 shrink-0">
                   {canEdit && (
                     <button onClick={() => openEdit(q)}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors" style={{ color: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)' }}>Edit</button>
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-brand-50 text-brand-700 hover:bg-brand-100">Edit</button>
                   )}
                   {canDelete && (
                     <button onClick={() => deleteQuestion(q.id)}
@@ -398,7 +398,7 @@ export function ChecklistProfileDetailPage() {
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               <div>
                 <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Question *</label>
-                <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none" rows={2}
+                <textarea className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm placeholder:text-slate-400 hover:border-slate-400 outline-none" rows={2}
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                   onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                   value={form.question} onChange={e => setForm({ ...form, question: e.target.value })} placeholder="Enter your question..." autoFocus />
@@ -406,16 +406,16 @@ export function ChecklistProfileDetailPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Type</label>
-                  <select className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none"
+                  <Select
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                     value={form.questionType} onChange={e => setForm({ ...form, questionType: e.target.value, options: TYPES_WITH_OPTIONS.includes(e.target.value) ? form.options : [] })}>
                     {QUESTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
+                  </Select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Section</label>
-                  <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none"
+                  <Input
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                     value={form.section} onChange={e => setForm({ ...form, section: e.target.value })} placeholder="e.g. Pre-checks" />
@@ -430,7 +430,7 @@ export function ChecklistProfileDetailPage() {
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Help Text</label>
-                <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm outline-none"
+                <Input
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                   onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                   value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Additional guidance for this question" />
@@ -442,17 +442,17 @@ export function ChecklistProfileDetailPage() {
                   <div className="space-y-1.5 mb-2">
                     {form.options.map((opt, i) => (
                       <div key={i} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
-                        <span className="w-5 h-5 rounded flex items-center justify-center text-xs font-bold" style={{ backgroundColor: 'var(--theme-primary-light)', color: 'var(--theme-primary)' }}>{i + 1}</span>
+                        <span className="w-5 h-5 rounded bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-semibold">{i + 1}</span>
                         <span className="text-sm text-slate-700 flex-1">{opt}</span>
                         <button onClick={() => removeOption(i)} className="text-xs text-slate-400 hover:text-red-500">&times;</button>
                       </div>
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    <input className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm"
+                    <Input className="flex-1"
                       value={optionInput} onChange={e => setOptionInput(e.target.value)} placeholder="Add option..."
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addOption(); } }} />
-                    <button onClick={addOption} className="px-4 py-2 font-medium rounded-lg text-sm" style={{ backgroundColor: 'var(--theme-primary-light)', color: 'var(--theme-primary)' }}>Add</button>
+                    <button onClick={addOption} className="h-10 px-4 font-medium rounded-lg text-sm bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors">Add</button>
                   </div>
                 </div>
               )}
@@ -461,17 +461,17 @@ export function ChecklistProfileDetailPage() {
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Min</label>
-                    <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm"
+                    <Input type="number"
                       value={form.validation.min ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, min: e.target.value ? Number(e.target.value) : undefined } })} />
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Max</label>
-                    <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm"
+                    <Input type="number"
                       value={form.validation.max ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, max: e.target.value ? Number(e.target.value) : undefined } })} />
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Unit</label>
-                    <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm"
+                    <Input
                       value={form.validation.unit ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, unit: e.target.value } })} placeholder="e.g. degC" />
                   </div>
                 </div>
@@ -480,16 +480,15 @@ export function ChecklistProfileDetailPage() {
               {form.questionType === 'CALCULATED' && (
                 <div>
                   <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Expression</label>
-                  <input className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 text-sm font-mono"
+                  <Input className="font-mono"
                     value={form.validation.expression ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, expression: e.target.value } })} placeholder="e.g. q_1 + q_2" />
                 </div>
               )}
             </div>
             <div className="p-4 border-t border-slate-100 flex gap-3">
-              <button onClick={() => { setShowAdd(false); setEditingId(null); }} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200">Cancel</button>
+              <button onClick={() => { setShowAdd(false); setEditingId(null); }} className="flex-1 h-10 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">Cancel</button>
               <button onClick={saveQuestion} disabled={saving || !form.question.trim()}
-                className="flex-1 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 shadow-lg"
-                style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
+                className="flex-1 h-10 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors shadow-xs">
                 {saving ? 'Saving...' : editingId ? 'Update Question' : 'Add Question'}
               </button>
             </div>

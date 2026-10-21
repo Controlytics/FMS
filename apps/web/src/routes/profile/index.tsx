@@ -147,11 +147,11 @@ export function ProfilePage() {
                 <img
                   src={getPhotoUrl(formData.photoUrl)}
                   alt={formData.fullName}
-                  className="w-24 h-24 rounded-2xl object-cover border-4 border-white shadow-xl"
+                  className="w-24 h-24 rounded-2xl object-cover border-4 border-white shadow-md"
                 />
               ) : (
                 <div
-                  className="w-24 h-24 rounded-2xl flex items-center justify-center text-white text-2xl font-bold border-4 border-white shadow-xl"
+                  className="w-24 h-24 rounded-2xl flex items-center justify-center text-white text-2xl font-bold border-4 border-white shadow-md"
                   style={{ background: `linear-gradient(135deg, ${branding.secondaryColor}, ${branding.accentColor})` }}
                 >
                   {formData.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
@@ -161,7 +161,10 @@ export function ProfilePage() {
                 type="button"
                 onClick={triggerFileSelect}
                 disabled={isUploading}
-                className="absolute inset-0 rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center disabled:cursor-not-allowed"
+                aria-label="Change profile photo"
+                // 2026-10-21: was hover-only - a touch screen could never find the photo upload.
+                // Coarse pointers always see a lighter overlay; keyboard focus reveals it too.
+                className="absolute inset-0 rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:bg-black/30 transition-opacity flex items-center justify-center disabled:cursor-not-allowed"
               >
                 {isUploading ? (
                   <svg className="animate-spin w-6 h-6 text-white" viewBox="0 0 24 24">
@@ -189,7 +192,7 @@ export function ProfilePage() {
         <CardContent className="pt-16 pb-6">
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">{user.fullName}</h1>
+              <h1 className="text-2xl font-semibold text-slate-900">{user.fullName}</h1>
               <div className="flex items-center gap-3 mt-2">
                 <Badge className={`${roleColors[user.role] ?? ''}`}>
                   {roleLabels[user.role] ?? user.role}

@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api-client';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
 import { Pagination } from '@/components/ui/pagination';
+import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
 import { ALL_ROWS } from '@/lib/page-size';
 import { SuperAdminRecordEditDialog, SuperAdminEditButton, useIsSuperAdmin, userOptions, type EditFieldSpec } from '@/components/super-admin-record-edit';
 
@@ -279,39 +281,30 @@ export function AdminRequestsPage() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0 space-y-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl shadow-lg" style={{ backgroundImage: 'linear-gradient(to bottom right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        <PageHeader
+          title="Admin Requests"
+          subtitle={loadFailed ? 'Request list unavailable' : pendingCount > 0 ? (
+            <><span className="text-amber-600 font-semibold">{pendingCount} pending</span> request{pendingCount !== 1 ? 's' : ''} awaiting review</>
+          ) : 'All requests have been processed'}
+          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />}
+          actions={
+            /* Search */
+            <div className="relative w-72 max-w-full">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
               </svg>
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search requester or ID…"
+                className="pl-9 pr-8"
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
+              )}
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight">Admin Requests</h1>
-              <p className="text-[13px] text-slate-400 mt-0.5">
-                {loadFailed ? 'Request list unavailable' : pendingCount > 0 ? (
-                  <><span className="text-amber-600 font-semibold">{pendingCount} pending</span> request{pendingCount !== 1 ? 's' : ''} awaiting review</>
-                ) : 'All requests have been processed'}
-              </p>
-            </div>
-          </div>
-
-          {/* Search */}
-          <div className="relative w-full sm:w-72">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
-            </svg>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search requester or ID…"
-              className="w-full pl-9 pr-8 py-2 text-[13px] border border-slate-200 rounded-lg bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-3 focus:ring-brand-600/15 focus:border-brand-600"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
-            )}
-          </div>
-        </div>
+          }
+        />
 
         {/* Stat / filter cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -325,8 +318,8 @@ export function AdminRequestsPage() {
                 className={`flex items-center gap-3 p-3.5 rounded-xl border bg-white text-left transition-all ${active ? `${a.ring} shadow-sm` : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'}`}>
                 <span className={`grid place-items-center w-10 h-10 rounded-lg shrink-0 ${a.iconBg}`}>{c.icon}</span>
                 <div className="min-w-0">
-                  <div className="text-xl font-bold text-slate-800 tabular-nums leading-none">{counts[c.countKey]}</div>
-                  <div className="text-[12px] text-slate-500 mt-1 truncate">{c.label}</div>
+                  <div className="text-xl font-semibold text-slate-900 tabular-nums leading-none">{counts[c.countKey]}</div>
+                  <div className="text-xs font-medium text-slate-500 mt-1 truncate">{c.label}</div>
                 </div>
               </button>
             );
@@ -354,7 +347,7 @@ export function AdminRequestsPage() {
           </div>
         ) : isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
-            <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
             <span className="text-[13px] text-slate-400">Loading requests...</span>
           </div>
         ) : requests.length === 0 ? (
@@ -372,23 +365,23 @@ export function AdminRequestsPage() {
                 <span className="text-slate-400 font-medium text-[14px]">No matching requests</span>
                 <span className="text-[13px] text-slate-300">Try a different filter or search term</span>
                 <button onClick={() => { setStatusFilter(''); setSearch(''); }}
-                  className="mt-1 text-[12px] font-semibold text-cyan-600 hover:text-cyan-700">Clear filters</button>
+                  className="mt-1 text-[12px] font-semibold text-brand-600 hover:text-brand-700">Clear filters</button>
               </>
             )}
           </div>
         ) : (
-          <table className="w-full">
+          <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-slate-50 border-b border-slate-200">
+              <tr className="bg-slate-50">
                 {['Requester', 'Type', 'Status', 'Submitted', 'Time', ''].map((h, i) => (
                   // The last header is the empty action column — it labels no
                   // column of data, so it gets no scope (an unscoped empty th is
                   // announced as a stray column header by screen readers).
-                  <th key={i} scope={h ? 'col' : undefined} className="text-left px-5 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-slate-50">{h}</th>
+                  <th key={i} scope={h ? 'col' : undefined} className="h-10 px-4 text-left text-xs font-semibold text-slate-600 whitespace-nowrap bg-slate-50">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody className="bg-white">
               {pagedRequests.map((req: any) => {
                 const tc = TYPE_CFG[req.requestType] ?? { label: req.requestType, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: '?' };
                 const sc = STATUS_CFG[req.status] ?? { label: req.status, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', dot: 'bg-slate-400' };
@@ -402,7 +395,7 @@ export function AdminRequestsPage() {
                   // `onClick`-only, which locked keyboard/AT users out of the
                   // approval queue entirely. role=button + tabIndex + Enter/Space
                   // is the standard non-native-control pattern.
-                  <tr key={req.id} className={`hover:bg-cyan-50/30 transition-colors group cursor-pointer focus:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-brand-600/15 ${isPending ? 'bg-amber-50/20' : ''}`}
+                  <tr key={req.id} className={`hover:bg-slate-50 transition-colors group cursor-pointer focus:outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-brand-600/15 ${isPending ? 'bg-amber-50/20' : ''}`}
                     role="button"
                     tabIndex={0}
                     aria-label={`${isPending ? 'Review' : 'View'} ${tc.label} request from ${req.requesterName}`}
@@ -413,9 +406,9 @@ export function AdminRequestsPage() {
                         openRequest();
                       }
                     }}>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5 text-slate-700">
                       <div className="flex items-center gap-3">
-                        <span className="grid place-items-center w-9 h-9 rounded-full bg-cyan-100 text-cyan-700 font-bold text-[13px] shrink-0">
+                        <span className="grid place-items-center w-9 h-9 rounded-full bg-brand-100 text-brand-700 font-semibold text-[13px] shrink-0">
                           {(req.requesterName ?? '?')[0].toUpperCase()}
                         </span>
                         <div className="min-w-0">
@@ -424,27 +417,27 @@ export function AdminRequestsPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5 text-slate-700">
                       <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${tc.bg} ${tc.text} ${tc.border}`}>
-                        <span className="grid place-items-center w-4 h-4 rounded-full bg-white/70 text-[10px] leading-none">{tc.icon}</span>
+                        <span className="grid place-items-center w-4 h-4 rounded-full bg-white/70 text-[11px] leading-none">{tc.icon}</span>
                         {tc.label}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-4 py-2.5 text-slate-700">
                       <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border font-bold ${sc.bg} ${sc.text} ${sc.border}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
                         {sc.label}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
-                    <td className="px-5 py-3.5 text-[12px] text-slate-400">{timeAgo(req.requestedAt)}</td>
-                    <td className="px-5 py-3.5 text-right">
+                    <td className="px-4 py-2.5 text-[13px] text-slate-700 whitespace-nowrap tabular-nums">{formatDateTime(req.requestedAt)}</td>
+                    <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{timeAgo(req.requestedAt)}</td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
                       <span className="inline-flex items-center gap-2">
                         {isSuperAdmin && (
                           // stopPropagation: the row itself opens the review panel.
                           <SuperAdminEditButton onClick={(e) => { e.stopPropagation(); setEditReq(req); }} />
                         )}
-                        <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-cyan-600 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-600 opacity-60 group-hover:opacity-100 transition-opacity">
                           {isPending ? 'Review' : 'View'}
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                         </span>
@@ -515,7 +508,7 @@ export function AdminRequestsPage() {
               <div>
                 <h4 className="text-xs font-bold text-slate-500 mb-2">Requester</h4>
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600 font-bold text-sm">
+                  <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
                     {(selectedRequest.requesterName ?? '?')[0].toUpperCase()}
                   </div>
                   <div>
@@ -708,7 +701,7 @@ export function AdminRequestsPage() {
               <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
                 <button
                   onClick={() => { setApprovalResult(null); setCopied(''); }}
-                  className="px-5 py-2 rounded-lg text-[13px] font-semibold text-white bg-cyan-600 hover:bg-cyan-700 transition-colors"
+                  className="px-5 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700 transition-colors"
                 >
                   Done
                 </button>

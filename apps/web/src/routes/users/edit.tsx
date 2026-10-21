@@ -199,7 +199,7 @@ export function EditUserPage() {
           </div>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">{userData.fullName}</h1>
+              <h1 className="text-2xl font-semibold text-slate-900">{userData.fullName}</h1>
               <Badge className={`${status.bg} text-white border-0 shadow-sm`}>{userData.status}</Badge>
             </div>
             <p className="text-sm text-slate-500 mt-0.5 font-mono">@{userData.username}</p>
@@ -216,7 +216,7 @@ export function EditUserPage() {
       </div>
 
       {/* Form Card */}
-      <div className="bg-white rounded-2xl border border-slate-200/60 shadow-xl overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <form onSubmit={handleSubmit(onSubmit)}>
           {/* Error Message */}
           {error && (
@@ -303,7 +303,7 @@ export function EditUserPage() {
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">{userLabels.role}</label>
                 <div className="relative group">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-gradient-to-br from-brand-100 to-brand-100 z-10 pointer-events-none">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-100 z-10 pointer-events-none">
                     <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                     </svg>
@@ -328,7 +328,7 @@ export function EditUserPage() {
           </div>
 
                     {/* Account Activity Section */}
-          <div className="p-6 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+          <div className="p-6 bg-slate-50 border-b border-slate-100">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 rounded-lg bg-blue-100">
                 <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -339,7 +339,7 @@ export function EditUserPage() {
             </div>
 
             <div className="grid grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -349,7 +349,7 @@ export function EditUserPage() {
                 <p className="font-semibold text-slate-800">{formatDate(userData.createdAt)}</p>
                 <p className="text-xs text-slate-400 mt-1">by {userData.createdBy ?? 'system'}</p>
               </div>
-              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
@@ -363,7 +363,7 @@ export function EditUserPage() {
                   <p className="text-xs text-slate-400 mt-1">{formatTime(userData.lastLogin)}</p>
                 )}
               </div>
-              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+              <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
                 <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
@@ -484,7 +484,7 @@ export function EditUserPage() {
             </div>
           </div>
 
-          <div className="rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 p-4">
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
             <div className="flex gap-3">
               <div className="p-2 rounded-lg bg-amber-100 h-fit">
                 <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -505,7 +505,7 @@ export function EditUserPage() {
           <Button
             onClick={handleGenerateTempPassword}
             disabled={isGenerating}
-            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg"
+            className="bg-amber-700 hover:bg-amber-800"
           >
             {isGenerating ? (
               <>
