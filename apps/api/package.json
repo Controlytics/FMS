@@ -9,7 +9,7 @@
     "start": "node dist/app.js",
     "lint": "tsc --noEmit",
     "test": "vitest run --pool=forks --poolOptions.forks.singleFork=true",
-    "test:e2e": "vitest run --pool=forks --poolOptions.forks.singleFork=true --testPathPattern=e2e",
+    "test:e2e": "vitest run --pool=forks --poolOptions.forks.singleFork=true src/e2e",
     "lint:js": "eslint \"src/**/*.ts\" --max-warnings 10000",
     "test:coverage": "vitest run --pool=forks --poolOptions.forks.singleFork=true --coverage",
     "logs:sample": "tsx src/scripts/generate-sample-logs.ts"
