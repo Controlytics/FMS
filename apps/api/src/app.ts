@@ -66,9 +66,8 @@ import { sweepExpiredSessions } from './modules/auth/session-sweep.js';
 import { sweepPasswordExpiryNotifications } from './modules/auth/password-expiry-sweep.js';
 import { sweepOrphanPhotos } from './lib/photo-orphan-sweep.js';
 import { failStrandedRetries } from './modules/notification-delivery/delivery.service.js';
-import { AppError, isClientDataPrismaError, fastifyClientError } from './lib/errors.js';
+import { buildErrorHandler } from './lib/error-handler.js';
 import { extractRefusal, type Refusal } from './lib/refusal-log.js';
-import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
 import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
@@ -294,226 +293,37 @@ await app.register(rbacPlugin);
 // Rate limiter for error notifications (max 1 per minute)
 let lastErrorNotification = 0;
 
-// Global error handler — maps AppError to HTTP responses
-app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
-  if (err instanceof AppError) {
-    return reply.code(err.statusCode).send({
-      error: err.code,
-      message: err.message,
-      ...(err.details ? { details: err.details } : {}),
-    });
-  }
-  // Audit 2026-05-04 fix C2: bounded offlinePerformedAt validator. Map the
-  // dedicated error class to a clean 400 with a stable error code so the
-  // client knows whether to retry, re-perform the action, or contact admin.
-  if (err instanceof OfflineTimeError) {
-    return reply.code(400).send({
-      error: err.code,
-      message: err.message,
-      ...(err.details ? { details: err.details } : {}),
-    });
-  }
-  // Rate limit errors from @fastify/rate-limit
-  if (err.statusCode === 429) {
-    return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
-  }
-  // Body too large (e.g. base64 images in checklist submissions)
-  if ((err as any).code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
-    const contentLength = _req.headers['content-length'];
-    const sizeMB = contentLength ? (parseInt(contentLength as string) / 1024 / 1024).toFixed(1) : 'unknown';
-    app.log.warn({ url: _req.url, contentLength, sizeMB }, 'Request body too large');
-    return reply.code(413).send({
-      error: 'BODY_TOO_LARGE',
-      message: `Request body too large (${sizeMB} MB). Maximum allowed is 10 MB. Try reducing image size or quality.`,
-    });
-  }
-  // Fastify validation errors (body/query/params schema validation)
-  if ((err as any).code === 'FST_ERR_VALIDATION' || (err as any).validation) {
-    return reply.code(400).send({
-      error: 'VALIDATION_ERROR',
-      message: err.message,
-      ...(err as any).validation ? { details: (err as any).validation } : {},
-    });
-  }
-  // Zod validation errors — 400, NOT 500.
-  //
-  // Four routes validate with zod directly rather than a Fastify JSON schema
-  // (`<schema>.parse(req.query)` in users / audit / assets instance + template
-  // routes). A ZodError has no `statusCode` and no `.validation`, so it fell
-  // past every branch above into the "Genuine internal errors" block below:
-  // any bad query param answered **500 INTERNAL_ERROR** and additionally fired
-  // a SYSTEM_ERROR notification dispatch — an operator typo paged the system as
-  // if the server had crashed. Surfaced 2026-08-08 as an error toast on the
-  // Notification Rules config page, whose user picker requested `?limit=500`
-  // against a schema capped at 100.
-  //
-  // Placed BEFORE the SYSTEM_ERROR dispatch precisely so client-side validation
-  // failures never generate that notification.
-  if ((err as any).name === 'ZodError' && Array.isArray((err as any).issues)) {
-    const issues = (err as any).issues as Array<{ path: (string | number)[]; message: string }>;
-    return reply.code(400).send({
-      error: 'VALIDATION_ERROR',
-      message: issues
-        .map(i => (i.path?.length ? `${i.path.join('.')}: ${i.message}` : i.message))
-        .join('; ') || 'Request validation failed',
-      details: issues,
-    });
-  }
-  // Unsupported Media Type — 415 (audit API-3)
-  if ((err as any).code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
-    return reply.code(415).send({
-      error: 'UNSUPPORTED_MEDIA_TYPE',
-      message: err.message || 'Unsupported Media Type',
-    });
-  }
-  // JSON parse errors — 400 (audit API-3)
-  if (
-    (err as any).code === 'FST_ERR_CTP_INVALID_JSON_BODY' ||
-    (err as any).code === 'FST_ERR_CTP_EMPTY_JSON_BODY'
-  ) {
-    return reply.code(400).send({
-      error: 'PARSE_ERROR',
-      message: 'Request body is not valid JSON',
-    });
-  }
-  // Prisma unique-constraint violation → 409 (not 500). #low-batch: the four
-  // version sidecars (equipment-groups / checklist-profiles / cleaning-profiles /
-  // filter-profiles) read the live version unlocked then INSERT
-  // (id, versionNumber); two concurrent edits to the same record collide on the
-  // unique index and the loser raises P2002. Surface it as a clean, retryable
-  // conflict instead of a 500 + a spurious SYSTEM_ERROR notification. Systemic —
-  // covers every current + future unique constraint.
-  if ((err as any).code === 'P2002') {
-    return reply.code(409).send({
-      error: 'CONFLICT',
-      message: 'This record was modified concurrently. Please reload and try again.',
-    });
-  }
-  // M29 residual (QA 2026-10-19): "record to update/delete not found" is a 404,
-  // not a data constraint. Same generic message class as the other Prisma
-  // branches — no Prisma text reaches the client.
-  if ((err as any).code === 'P2025') {
-    return reply.code(404).send({ error: 'NOT_FOUND', message: 'The record was not found. It may have been deleted.' });
-  }
-  // Prisma "value too long for the column" → 400, not 500 (VAPT-5, 2026-08-18).
-  // Discovered when an input that passed the schema's max-length check overflowed
-  // a column AFTER server-side sanitization *escaped* the HTML (e.g. `<script>`
-  // → `&lt;script&gt;`, +12 chars), so a schema-valid string became too long.
-  // A rejected-input constraint is a client error, and the raw Prisma error text
-  // (source path + code snippet) must never reach the caller.
-  if ((err as any).code === 'P2000') {
-    return reply.code(400).send({
-      error: 'VALUE_TOO_LONG',
-      message: 'One or more fields exceed the maximum allowed length.',
-    });
-  }
-  // 2026-10-17 load test: a connection-pool timeout (P2024) or an interactive-
-  // transaction timeout (P2028) means the SERVER is busy, not that the client's
-  // data is wrong. Reported as 400 DATA_CONSTRAINT, the tablet's sync engine
-  // treated it as the operation's own failure and could mark queued operator
-  // work permanently failed after five busy minutes (sync-engine.ts). 503 with
-  // the same generic wording (nothing from Prisma leaks) tells clients to wait.
-  if ((err as any).code === 'P2024' || (err as any).code === 'P2028') {
-    app.log.warn({ url: _req.url, prismaCode: (err as any).code }, 'Database busy (pool or transaction timeout) — capacity, not data');
-    return reply.code(503).send({
-      error: 'SERVICE_BUSY',
-      message: 'The server is busy. Please try again in a moment.',
-    });
-  }
-  // Any other Prisma known-request error: return a generic 400 and log the detail
-  // server-side. Without this, an unmapped P-code fell to the catch-all, which
-  // echoes err.message when NODE_ENV=development — and a Prisma message embeds the
-  // absolute source-file path, line, and a code snippet (CWE-209). Never leak that,
-  // in any environment; the full error is still on app.log for diagnosis.
-  if (
-    (err as any).name === 'PrismaClientKnownRequestError' ||
-    (typeof (err as any).code === 'string' && /^P\d{4}$/.test((err as any).code))
-  ) {
-    app.log.error({ err, url: _req.url, prismaCode: (err as any).code }, 'Unmapped Prisma error');
-    return reply.code(400).send({
-      error: 'DATA_CONSTRAINT',
-      message: 'The request could not be completed due to a data constraint.',
-    });
-  }
-  // QA 2026-10-19 (M15/M50 class): a PrismaClientValidationError carries NO
-  // code, so it skipped the branch above and fell to the 500 + SYSTEM_ERROR
-  // notification path — every invalid date / unknown enum value that slipped past
-  // a route schema paged the admins as a system failure. It means the query
-  // ARGUMENTS were invalid (input reached Prisma unchecked): a 400, still logged
-  // at error level with the full detail so the missing route validation is found.
-  if ((err as any).name === 'PrismaClientValidationError') {
-    app.log.error({ err, url: _req.url }, 'Prisma validation error — input reached the database unvalidated');
-    return reply.code(400).send({
-      error: 'VALIDATION_ERROR',
-      message: 'One or more values are not valid.',
-    });
-  }
-
-  // P5-03 (2026-10-21): bad client data that reached Postgres as an "unknown"
-  // request error (NUL byte, out-of-range integer) - see isClientDataPrismaError.
-  if (isClientDataPrismaError(err)) {
-    app.log.error({ err, url: _req.url }, 'Invalid value reached the database (NUL byte / out-of-range number) - input unvalidated');
-    return reply.code(400).send({
-      error: 'VALIDATION_ERROR',
-      message: 'One or more values are not valid.',
-    });
-  }
-
-  // P4-09 (2026-10-21): an unmapped Fastify/plugin 4xx (FST_*) is a client
-  // error, not an internal one - no "Unhandled error" line, no SYSTEM_ERROR page.
-  const clientErr = fastifyClientError(err);
-  if (clientErr) {
-    app.log.warn({ url: _req.url, code: (err as any).code, statusCode: clientErr.status }, 'Client request error');
-    return reply.code(clientErr.status).send(clientErr.body);
-  }
-
-  // Genuine internal errors
-  //
-  // This is the single most important line in the error log, so it carries the
-  // context needed to act on it without a developer: which request, which user,
-  // and the full stack. Previously `app.log.error(err)` alone — a stack with no
-  // idea who hit it or what they were doing.
-  app.log.error(
-    {
-      err,
-      reqId: _req.id,
-      method: _req.method,
-      url: _req.url,
-      user: _req.user?.username,
-      userId: _req.user?.sub,
-      role: _req.user?.role,
-      ip: _req.ip,
-    },
-    `Unhandled error on ${_req.method} ${_req.url}`,
-  );
+// Global error handler: lib/error-handler.ts, the same function the e2e harness
+// installs (A-05). Only the reaction to a genuine internal error lives here.
+app.setErrorHandler(buildErrorHandler({
+  log: app.log,
+  exposeInternalMessage: process.env.NODE_ENV === 'development',
   // Dispatch SYSTEM_ERROR notification (fire-and-forget, rate-limited to 1 per minute)
-  const now = Date.now();
-  if (now - lastErrorNotification > 60000) {
-    lastErrorNotification = now;
-    dispatchNotification({
-      eventType: 'SYSTEM_ERROR',
-      context: {},
-      variables: {
-        errorType: err.constructor?.name ?? 'Error',
-        errorMessage: err.message ?? 'Unknown error',
-        url: _req.url ?? 'N/A',
-        timestamp: new Date().toISOString(),
-      },
-    }).catch((dispatchErr) => {
-      // Log but do not rethrow — rethrowing would re-enter the error handler
-      // and cause an infinite loop (the SYSTEM_ERROR notification itself
-      // failing would generate another SYSTEM_ERROR notification).
-      app.log.warn(
-        { dispatchErr, originalErr: err.message, url: _req.url },
-        'Failed to dispatch SYSTEM_ERROR notification — original error is still returned to the caller.',
-      );
-    });
-  }
-  return reply.code(err.statusCode ?? 500).send({
-    error: 'INTERNAL_ERROR',
-    message: process.env.NODE_ENV === 'development' ? (err.message || 'Internal server error').substring(0, 500) : 'Internal server error',
-  });
-});
+  onInternalError: (err, _req) => {
+    const now = Date.now();
+    if (now - lastErrorNotification > 60000) {
+      lastErrorNotification = now;
+      dispatchNotification({
+        eventType: 'SYSTEM_ERROR',
+        context: {},
+        variables: {
+          errorType: err.constructor?.name ?? 'Error',
+          errorMessage: err.message ?? 'Unknown error',
+          url: _req.url ?? 'N/A',
+          timestamp: new Date().toISOString(),
+        },
+      }).catch((dispatchErr) => {
+        // Log but do not rethrow — rethrowing would re-enter the error handler
+        // and cause an infinite loop (the SYSTEM_ERROR notification itself
+        // failing would generate another SYSTEM_ERROR notification).
+        app.log.warn(
+          { dispatchErr, originalErr: err.message, url: _req.url },
+          'Failed to dispatch SYSTEM_ERROR notification — original error is still returned to the caller.',
+        );
+      });
+    }
+  },
+}));
 
 // Request tracking hook for system health metrics
 app.addHook('onRequest', (_req, _reply, done) => {

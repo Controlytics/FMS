@@ -3,16 +3,17 @@
  * found") must answer 404 NOT_FOUND, not 400 DATA_CONSTRAINT — a stale id from
  * an open tab is a missing record, not bad data.
  *
- * app.ts cannot be imported without starting the server, so this checks the
- * harness mirror (test-helper.ts) with a REAL P2025 and asserts the production
- * handler carries the same branch, so the two cannot drift.
+ * Since A-05 (2026-10-21) the harness and app.ts install the SAME handler
+ * (lib/error-handler.ts), so these runtime checks exercise production's mapping
+ * directly; the source-regex checks against app.ts they used to carry are gone.
+ * `internalErrors` is what app.ts would page as SYSTEM_ERROR: it must stay empty.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { buildApp, loginAs } from './test-helper.js';
+import { buildApp, loginAs, internalErrors } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 
 let app: FastifyInstance;
@@ -55,16 +56,17 @@ describe('Prisma P2025 → 404 NOT_FOUND (M29)', () => {
   });
 
   it('a PrismaClientValidationError (no code) answers 400, not 500 + SYSTEM_ERROR', async () => {
+    internalErrors.length = 0;
     const token = await loginAs(app);
     const res = await app.inject({ method: 'GET', url: '/__qa/invalid-arg', headers: { authorization: `Bearer ${token}` } });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe('VALIDATION_ERROR');
     expect(res.body).not.toMatch(/prisma|node_modules|Invalid `/i);
-    const src = readFileSync(resolve(__dirname, '../app.ts'), 'utf8');
-    expect(src).toMatch(/name === 'PrismaClientValidationError'\)\s*\{[\s\S]{0,200}reply\.code\(400\)/);
+    expect(internalErrors).toEqual([]);
   });
 
   it('P5-03: a NUL byte or an out-of-INT4 number answers 400, not 500 + SYSTEM_ERROR', async () => {
+    internalErrors.length = 0;
     const token = await loginAs(app);
     for (const url of ['/__qa/nul-byte', '/__qa/int-overflow']) {
       const res = await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${token}` } });
@@ -72,11 +74,11 @@ describe('Prisma P2025 → 404 NOT_FOUND (M29)', () => {
       expect(res.json().error, url).toBe('VALIDATION_ERROR');
       expect(res.body, url).not.toMatch(/prisma|node_modules|Postgres|ConversionError/i);
     }
-    const src = readFileSync(resolve(__dirname, '../app.ts'), 'utf8');
-    expect(src).toMatch(/if \(isClientDataPrismaError\(err\)\) \{[\s\S]{0,200}reply\.code\(400\)/);
+    expect(internalErrors).toEqual([]);
   });
 
   it('P4-09: JSON posted to a multipart route is a client error (406 INVALID_REQUEST), not INTERNAL_ERROR', async () => {
+    internalErrors.length = 0;
     const token = await loginAs(app);
     const res = await app.inject({
       method: 'POST', url: '/api/backup/validate',
@@ -85,12 +87,11 @@ describe('Prisma P2025 → 404 NOT_FOUND (M29)', () => {
     });
     expect(res.statusCode).toBe(406);
     expect(res.json().error).toBe('INVALID_REQUEST');
-    const src = readFileSync(resolve(__dirname, '../app.ts'), 'utf8');
-    expect(src).toMatch(/const clientErr = fastifyClientError\(err\);\s*if \(clientErr\)/);
+    expect(internalErrors).toEqual([]);
   });
 
-  it('the production handler (app.ts) has the same P2025 → 404 branch', () => {
+  it('production installs the very handler these requests ran through', () => {
     const src = readFileSync(resolve(__dirname, '../app.ts'), 'utf8');
-    expect(src).toMatch(/code === 'P2025'\)\s*\{\s*return reply\.code\(404\)\.send\(\{ error: 'NOT_FOUND'/);
+    expect(src).toMatch(/setErrorHandler\(buildErrorHandler\(/);
   });
 });

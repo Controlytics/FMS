@@ -15,7 +15,14 @@ import userGroupRoutes from '../modules/user-groups/routes.js';
 import backupRoutes from '../modules/backup/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
 import { prisma } from '../lib/prisma.js';
-import { AppError, isClientDataPrismaError, fastifyClientError } from '../lib/errors.js';
+import { buildErrorHandler } from '../lib/error-handler.js';
+
+/**
+ * Every genuine internal error (the 500 path) a harness app answered, in order.
+ * Production would dispatch a SYSTEM_ERROR notification for each. Clear it in a
+ * test's setup and assert it is empty after a client error.
+ */
+export const internalErrors: Array<{ err: Error; method: string; url: string }> = [];
 
 /** Default admin password used in tests */
 export const ADMIN_PASSWORD = 'Admin@123';
@@ -49,71 +56,15 @@ export async function buildApp(extraRoutes: ExtraRoute[] = []): Promise<FastifyI
   await app.register(authPlugin);
   await app.register(rbacPlugin);
 
-  // Global error handler — matches production app.ts behavior
-  // Must be set before routes so child contexts inherit it
-  app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
-    if (err instanceof AppError) {
-      return reply.code(err.statusCode).send({
-        error: err.code,
-        message: err.message,
-        ...(err.details ? { details: err.details } : {}),
-      });
-    }
-    if (err.statusCode === 429) {
-      return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', message: err.message });
-    }
-    // Mirrors the ZodError branch in app.ts (2026-08-08). Routes that validate
-    // with `<schema>.parse(req.query)` throw a ZodError carrying no statusCode,
-    // which otherwise falls through to 500 here — the exact production bug that
-    // made a bad query param look like a server crash. Without this the harness
-    // would keep passing tests that production fails, and vice versa.
-    if ((err as any).name === 'ZodError' && Array.isArray((err as any).issues)) {
-      const issues = (err as any).issues as Array<{ path: (string | number)[]; message: string }>;
-      return reply.code(400).send({
-        error: 'VALIDATION_ERROR',
-        message: issues
-          .map(i => (i.path?.length ? `${i.path.join('.')}: ${i.message}` : i.message))
-          .join('; ') || 'Request validation failed',
-        details: issues,
-      });
-    }
-    // Mirrors the Prisma branches in app.ts (P2002/P2000/generic). Kept in sync
-    // so the harness reflects production error mapping — see the ZodError note
-    // above. VAPT-5 (2026-08-18): a P2000 (value too long) must surface as a clean
-    // 400 VALUE_TOO_LONG, never as a 500 carrying raw Prisma text.
-    if ((err as any).code === 'P2002') {
-      return reply.code(409).send({ error: 'CONFLICT', message: 'This record was modified concurrently. Please reload and try again.' });
-    }
-    if ((err as any).code === 'P2025') {
-      return reply.code(404).send({ error: 'NOT_FOUND', message: 'The record was not found. It may have been deleted.' });
-    }
-    if ((err as any).code === 'P2000') {
-      return reply.code(400).send({ error: 'VALUE_TOO_LONG', message: 'One or more fields exceed the maximum allowed length.' });
-    }
-    // Mirrors app.ts: pool / transaction timeouts are capacity (503), not data (400).
-    if ((err as any).code === 'P2024' || (err as any).code === 'P2028') {
-      return reply.code(503).send({ error: 'SERVICE_BUSY', message: 'The server is busy. Please try again in a moment.' });
-    }
-    if (
-      (err as any).name === 'PrismaClientKnownRequestError' ||
-      (typeof (err as any).code === 'string' && /^P\d{4}$/.test((err as any).code))
-    ) {
-      return reply.code(400).send({ error: 'DATA_CONSTRAINT', message: 'The request could not be completed due to a data constraint.' });
-    }
-    // Mirrors app.ts (QA 2026-10-19): PrismaClientValidationError has no code.
-    if ((err as any).name === 'PrismaClientValidationError') {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'One or more values are not valid.' });
-    }
-    // Mirrors app.ts (P5-03, 2026-10-21): NUL byte / out-of-range integer.
-    if (isClientDataPrismaError(err)) {
-      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'One or more values are not valid.' });
-    }
-    // Mirrors app.ts (P4-09, 2026-10-21): unmapped Fastify 4xx = client error.
-    const clientErr = fastifyClientError(err);
-    if (clientErr) return reply.code(clientErr.status).send(clientErr.body);
-    const status = err.statusCode ?? 500;
-    return reply.code(status).send({ error: err.message || 'Internal Server Error' });
-  });
+  // Global error handler: the SAME function app.ts installs (lib/error-handler.ts,
+  // A-05). This file used to carry its own copy, which had drifted from
+  // production. A genuine internal error is recorded in `internalErrors` (app.ts
+  // pages the admins with SYSTEM_ERROR instead), so a test can assert none happened.
+  // Must be set before routes so child contexts inherit it.
+  app.setErrorHandler(buildErrorHandler({
+    log: app.log,
+    onInternalError: (err, req) => { internalErrors.push({ err, method: req.method, url: req.url }); },
+  }));
 
   // Health check
   app.get('/api/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
