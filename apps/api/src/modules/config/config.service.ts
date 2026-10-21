@@ -2,8 +2,10 @@ import type { RequestContext } from '../../types/context.js';
 import { auditLog } from '../../lib/audit.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { configRepository } from './config.repository.js';
-import { getActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
-import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, SIDEBAR_PRIVILEGE_MAP } from '@digilog/shared';
+import { getActionReauthConfig, getEditableActionReauthConfig, invalidateReauthCache, isReauthRequired } from '../../lib/reauth-check.js';
+import { getDefaultTemplates, FEATURE_TO_PERMISSION_MAP, FEATURE_PRIVILEGES, SIDEBAR_PRIVILEGE_MAP, REAUTH_ACTIONS } from '@digilog/shared';
+
+const KNOWN_REAUTH_ACTIONS: ReadonlySet<string> = new Set(Object.keys(REAUTH_ACTIONS));
 import { validateUserId } from '../../lib/user-id-validator.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../plugins/rbac.js';
@@ -346,12 +348,28 @@ export const configService = {
 
   // Action Reauth
   async getActionReauth() {
-    return getActionReauthConfig();
+    return getEditableActionReauthConfig(KNOWN_REAUTH_ACTIONS);
   },
 
   async updateActionReauth(data: any, schema: any, ctx: RequestContext) {
     const parsed = schema.safeParse(data);
     if (!parsed.success) throw new ValidationError('VALIDATION_ERROR', parsed.error.flatten());
+
+    // A-02 (2026-10-21): the policy decides which actions need an electronic
+    // signature, so it must name real actions and real roles. A typo was stored
+    // and simply never matched anything - a gate the operator believed was on.
+    const unknownActions = Object.keys(parsed.data).filter((a) => !KNOWN_REAUTH_ACTIONS.has(a));
+    const liveRoles = new Set((await prisma.role.findMany({ select: { name: true } })).map((r) => r.name));
+    const unknownRoles = [...new Set(Object.values(parsed.data as Record<string, string[]>).flat().filter((r) => !liveRoles.has(r)))];
+    if (unknownActions.length || unknownRoles.length) {
+      throw new ValidationError(
+        `The re-authentication policy names ${[
+          unknownActions.length ? `unknown action(s): ${unknownActions.join(', ')}` : '',
+          unknownRoles.length ? `unknown role(s): ${unknownRoles.join(', ')}` : '',
+        ].filter(Boolean).join('; ')}.`,
+        { unknownActions, unknownRoles },
+      );
+    }
 
     const existing = await configRepository.getSystemConfig('action-reauth');
     const beforeValue = existing?.configValue;

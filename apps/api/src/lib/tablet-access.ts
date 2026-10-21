@@ -8,6 +8,9 @@ const SUPER_ADMIN_FEATURES = [
   'stage_approvals', 'rfid_assign', 'logout',
 ];
 
+/** Every tablet feature key a role can be granted (= what SUPER_ADMIN has). */
+export const TABLET_FEATURES: ReadonlySet<string> = new Set(SUPER_ADMIN_FEATURES);
+
 export interface TabletAccess {
   allowed: string[];
   /** true = the allowlist applies to this role; false = legacy default-allow. */

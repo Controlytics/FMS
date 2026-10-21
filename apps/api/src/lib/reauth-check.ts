@@ -115,6 +115,18 @@ export async function getActionReauthConfig(): Promise<ActionReauthConfig> {
  * because the on-disk config is the legacy nested shape (`legacyShape`) or the
  * policy is genuinely empty. On a 21 CFR Part 11 system that is a compliance red flag.
  */
+/**
+ * The stored policy as the Action Re-auth page should see it: only actions the
+ * code still knows (2026-10-21). Ten removed actions (reports / templates)
+ * linger in older databases; the page echoed them back on every save, so they
+ * could never be refused. They are now hidden on read and refused on write, and
+ * drop out of storage at the next save.
+ */
+export async function getEditableActionReauthConfig(known: ReadonlySet<string>): Promise<ActionReauthConfig> {
+  const config = await getActionReauthConfig();
+  return Object.fromEntries(Object.entries(config).filter(([action]) => known.has(action)));
+}
+
 export async function getReauthHealth(): Promise<{
   actionsConfigured: number;
   legacyShape: boolean;
@@ -167,21 +179,28 @@ function normalizeActionReauthConfig(raw: unknown): ActionReauthConfig {
     && 'roles' in (legacyActions[0] as object);
   if (looksLegacy) {
     lastConfigWasLegacy = true;
-    // Legacy data was non-functional — return empty so behavior matches the
-    // de-facto reauth-OFF state. Operators must re-save via the UI to
-    // (re)establish a policy. LOUD warning (once per process) so a bad restore
-    // / migration that silently disables ALL re-auth on a 21 CFR system doesn't
-    // go unnoticed — the previous silent `{}` was itself a finding.
+    // BR-086 (operator decision 2026-10-21): CONVERT, don't disable. The legacy
+    // entries name the action and the roles that must sign it - that IS the
+    // policy, just in the old shape. Treating it as {} (the previous behaviour)
+    // silently switched off every §11 re-authentication gate after, e.g., a
+    // restore of an old backup. Fail closed: enforce what the data says, and
+    // still log it (once) so the operator re-saves it in the current shape.
+    const converted: ActionReauthConfig = {};
+    for (const entry of legacyActions as Array<Record<string, unknown>>) {
+      const action = entry?.action;
+      const roles = entry?.roles;
+      if (typeof action === 'string' && Array.isArray(roles) && roles.every((r) => typeof r === 'string')) {
+        converted[action] = [...new Set([...(converted[action] ?? []), ...(roles as string[])])];
+      }
+    }
     if (!legacyShapeWarned) {
       legacyShapeWarned = true;
-      // ERROR, not warn: every §11 re-authentication gate is off. That belongs
-      // in the error log an operator is told to read first, not buried in the
-      // application log at warn.
-      reauthLog.error(
-        'action-reauth config is in the legacy nested shape — ALL re-authentication gates are currently DISABLED. Re-save the policy via the Action Re-auth config page to restore enforcement.',
+      reauthLog.warn(
+        { actions: Object.keys(converted).length },
+        'action-reauth config is in the legacy nested shape — it was CONVERTED and is enforced. Re-save the policy on the Action Re-auth page to store it in the current shape.',
       );
     }
-    return {};
+    return converted;
   }
   // Already in flat shape (or empty). Drop any non-array values defensively.
   const flat: ActionReauthConfig = {};

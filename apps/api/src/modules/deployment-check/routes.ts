@@ -418,7 +418,9 @@ async function checkConfigEntries(): Promise<SubCheck[]> {
   try {
     const reauth = await getReauthHealth();
     if (reauth.legacyShape) {
-      checks.push({ name: 'reauth-policy', status: 'FAIL', expected: 'flat config with roles', found: 'legacy nested shape', message: 'Re-auth (e-signature) is DISABLED — on-disk action-reauth config is the legacy shape. Re-save it on Config → Action Re-auth to restore §11 enforcement.' });
+      // BR-086 (2026-10-21): the legacy shape is converted and ENFORCED, so this is
+      // housekeeping (re-save to store the current shape), not a disabled control.
+      checks.push({ name: 'reauth-policy', status: 'WARN', expected: 'flat config with roles', found: `legacy nested shape (converted, ${reauth.actionsConfigured} actions enforced)`, message: 'The re-auth policy is stored in the old format. It is converted and enforced; re-save it on Config → Action Re-auth to store it in the current format.' });
     } else if (reauth.effectivelyDisabled) {
       checks.push({ name: 'reauth-policy', status: 'WARN', expected: '>=1 action with roles', found: '0 actions configured', message: 'No re-auth actions are configured — electronic-signature enforcement is OFF. Configure on Config → Action Re-auth.' });
     } else {

@@ -3,7 +3,10 @@ import { enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { auditLog } from '../../../lib/audit.js';
 import { prisma } from '../../../lib/prisma.js';
-import { resolveTabletAccess } from '../../../lib/tablet-access.js';
+import { resolveTabletAccess, TABLET_FEATURES } from '../../../lib/tablet-access.js';
+import { ValidationError } from '../../../lib/errors.js';
+
+const liveRoleNames = async () => new Set((await prisma.role.findMany({ select: { name: true } })).map((r) => r.name));
 
 export async function tabletAccessRoutes(app: FastifyInstance) {
   app.get('/tablet-access', {
@@ -11,7 +14,11 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
     schema: { tags: ['Config'], summary: 'Get tablet app access configuration' },
   }, async () => {
     const row = await prisma.systemConfig.findUnique({ where: { configKey: 'tablet-access' } });
-    return (row?.configValue as any) ?? {};
+    const stored = (row?.configValue as Record<string, unknown> | null) ?? {};
+    // A-02 (2026-10-21): entries for roles that no longer exist are hidden - the
+    // page echoes the stored value back on save, and the save now refuses them.
+    const roles = await liveRoleNames();
+    return Object.fromEntries(Object.entries(stored).filter(([role]) => roles.has(role)));
   });
 
   app.put('/tablet-access', {
@@ -30,12 +37,26 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
     const { ok } = await enforceReauthAlways('UPDATE_TABLET_ACCESS', req, reply);
     if (!ok) return;
 
-    const body = req.body as any;
+    const body = req.body as Record<string, unknown>;
+    // A-02 (2026-10-21): this decides which roles may sign in on a tablet, and it
+    // stored any object as-is (`{OPERATOR: "yes"}` included). Refuse a wrong
+    // shape, unknown or SUPER_ADMIN roles (SA is never configurable) and unknown
+    // feature keys, naming each.
+    const roles = await liveRoleNames();
+    const problems: string[] = [];
+    for (const [role, features] of Object.entries(body)) {
+      if (role === 'SUPER_ADMIN') { problems.push('SUPER_ADMIN cannot be configured (it always has every tablet feature)'); continue; }
+      if (!roles.has(role)) problems.push(`unknown role ${role}`);
+      if (!Array.isArray(features) || !features.every((f) => typeof f === 'string')) { problems.push(`${role} must be a list of feature names`); continue; }
+      const unknown = (features as string[]).filter((f) => !TABLET_FEATURES.has(f));
+      if (unknown.length) problems.push(`${role}: unknown feature(s) ${unknown.join(', ')}`);
+    }
+    if (problems.length) throw new ValidationError(`Tablet access not saved: ${problems.join('; ')}.`, { problems });
     const ctx = buildContext(req);
     await prisma.systemConfig.upsert({
       where: { configKey: 'tablet-access' },
-      update: { configValue: body },
-      create: { configKey: 'tablet-access', configValue: body, configType: 'security' },
+      update: { configValue: body as any },
+      create: { configKey: 'tablet-access', configValue: body as any, configType: 'security' },
     });
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'CONFIG_CHANGED',
