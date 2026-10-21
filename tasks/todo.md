@@ -1,3 +1,23 @@
+# Pending-items pass (2026-10-21, operator: "complete the pending ones")
+
+Decisions 2026-10-21: password reuse = keep strict rule (no 12-month window); dev CA out of
+customer builds; PM year-end gap left; fonts + `qa_sa_01` deleted; chain-test rows already gone
+(10-07 wipe); P4-01 = 10-08 live roles are correct (update the doc); P4-07 = report reviews stay SA-only.
+
+- [x] Placeholder CA in `res/raw/rootca.pem` (key destroyed) + guard test; build-site-apk docs
+- [x] Old fonts deleted; `qa_sa_01` deleted (clone); M27/M37 on digilog_db = 0 rows
+- [x] Phase 4 role matrix (`QA/PHASE4_ROLE_MATRIX.md`), Phase 5 write abuse (`QA/PHASE5_WRITE_ABUSE.md`), Phase 12 coverage (API 63.3% lines, web 19.7%)
+- [ ] Fix P4-02 export-log gates on the export permission, not read
+- [ ] Fix P4-04 PM entry edit gate + `pm.upload`/`pm.resubmit` granting PM_CREATE
+- [ ] Fix P4-03 checklist ↔ cleaning-profile cross-unlock
+- [ ] Fix P4-10 role-config change takes a mandatory reason
+- [ ] Fix P5-01 generic instance update can un-retire via free-text status
+- [ ] Fix P5-02 retire/replace offline-replay payload + replayExemptGates
+- [ ] Fix P5-03 PrismaClientUnknownRequestError → 400; P4-09 small error codes
+- [ ] P4-01 doc: align ROLE-PRIVILEGES-DOC-ALIGNMENT + target matrix to 10-08 live roles
+- [ ] UI Phase 2 (waiting for operator "go")
+- [ ] Full suites, docs/CHANGELOG/counts, web build → APK → Setup 1.2.3, commit (no push)
+
 # QA campaign: exhaustive feature / workflow / abuse testing (started 2026-10-19)
 
 Operator pasted "MASTER PROMPT 2" (14 phases, deliverables under `QA/`). Rules carried over from the

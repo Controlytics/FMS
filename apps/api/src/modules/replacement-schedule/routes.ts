@@ -160,7 +160,7 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
   // FILTER_OPERATE (the tablet operating roles). Every role that runs
   // replacements holds one of them; SUPER_ADMIN bypasses.
   app.get('/due', {
-    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE')],
+    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE', 'FILTER_REPLACE')],
     schema: { tags: ['Replacement Schedule'], summary: 'List currently-due replacement entries (any role)', response: { 200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } } }, ...errorResponses } },
   }, async () => {
     const data = await listDueEntries();
@@ -171,7 +171,7 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
   // the tablet Replacement Tasks page (Pending / Completed tabs + full details).
   // Same gate as /due; the execute still requires REPLACE_FILTER reauth.
   app.get('/tasks', {
-    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE')],
+    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE', 'FILTER_REPLACE')],
     schema: { tags: ['Replacement Schedule'], summary: 'List all replacement task entries with AHU progress (any role)', response: { 200: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } } }, ...errorResponses } },
   }, async () => {
     const data = await listTaskEntries();
@@ -182,7 +182,7 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
   // /tasks — operators need it to know which filters they may start cleaning.
   // Returns only filter ids.
   app.get('/blocked-filters', {
-    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE')],
+    preHandler: [app.requireAnyPermission('REPLACEMENT_SCHEDULE_VIEW', 'FILTER_OPERATE', 'FILTER_REPLACE')],
     schema: {
       tags: ['Replacement Schedule'],
       summary: 'Filter ids blocked from starting a cleaning cycle (overdue AHU replacement)',

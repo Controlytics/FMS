@@ -7,7 +7,7 @@ import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { sanitizeAuditValue } from '../../../lib/audit-diff.js';
-import { ConflictError, ValidationError } from '../../../lib/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../../lib/errors.js';
 import { validateAndBuildFilterAttributes, FILTER_ATTRIBUTE_FIELDS, type FilterFieldInput } from './filter-fields.service.js';
 import { identifierService } from './identifier.service.js';
 import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole } from '../filter-workflow.js';
@@ -114,9 +114,17 @@ export const filterService = {
   // FilterDetails sidecar; the reverse-mirror trigger keeps asset_instances in
   // sync. No asset-template / attributeSchema. Field-option values are
   // re-validated against the live config and replace the attributes JSON.
-  async update(id: string, input: FilterFieldInput & { name?: string; filterSet?: 'A' | 'B' }, ctx: RequestContext) {
-    const existing = await prisma.filter.findUnique({ where: { id }, select: { name: true, attributes: true } });
-    if (!existing) throw new ValidationError('Filter not found');
+  async update(id: string, input: FilterFieldInput & { name?: string; filterSet?: 'A' | 'B' }, ctx: RequestContext, opts: { allowInactive?: boolean } = {}) {
+    const existing = await prisma.filter.findUnique({ where: { id }, select: { name: true, attributes: true, isActive: true } });
+    // P4-09 (2026-10-21): a missing filter is 404, not 400.
+    if (!existing) throw new NotFoundError('Filter not found');
+    // P5-01 (2026-10-21): same rule as instance.service.update - a retired /
+    // deactivated filter is a §11 record; restore it before editing. The
+    // SUPER_ADMIN record console (audited, mandatory reason) opts out - that
+    // console exists to correct records, retired ones included.
+    if (!existing.isActive && !opts.allowInactive) {
+      throw new ConflictError('This filter is retired or deactivated. Restore it before editing.', 'FILTER_INACTIVE');
+    }
     const existingDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { filterSet: true } });
 
     const data: Record<string, unknown> = { updatedBy: ctx.userId };

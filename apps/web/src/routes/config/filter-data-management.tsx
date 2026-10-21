@@ -61,6 +61,7 @@ import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
+import { ReasonBox, reasonOk } from '@/components/ui/reason-box';
 
 /**
  * Lifecycle states offered by the From/To dropdowns.
@@ -93,40 +94,6 @@ const PM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'
 // substring heuristic, so anything containing REJECT/DENIED (e.g.
 // STAGE_APPROVAL_REJECTED, PASSWORD_RESET_REQUEST_REJECTED) rendered "Fail"
 // here and "Success" on /audit for the same row.
-
-/** Minimum length of the mandatory change reason — mirrors the API's check. */
-const MIN_REASON_LEN = 5;
-const reasonOk = (r: string) => r.trim().length >= MIN_REASON_LEN;
-
-/**
- * Mandatory justification input. Every create / edit / delete on this page is
- * written to the audit trail with this text, so it is a required field, not a
- * courtesy note. Declared at module scope (not inline in the page component)
- * so React keeps the same element across re-renders and the textarea does not
- * lose focus on every keystroke.
- */
-function ReasonBox({ value, onChange, danger, hint }: { value: string; onChange: (v: string) => void; danger?: boolean; hint?: string }) {
-  const short = MIN_REASON_LEN - value.trim().length;
-  return (
-    <div className="mt-4">
-      <label className="block text-xs font-bold text-slate-500 mb-1.5">
-        Reason for this change <span className="text-red-500">*</span>
-      </label>
-      <textarea
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        rows={2}
-        placeholder="Why is this record being changed?"
-        className={`w-full px-3 py-2 border rounded-lg text-[13px] resize-none focus:ring-3 focus:outline-none ${
-          danger ? 'border-red-200 focus:ring-red-500/30 focus:border-red-400' : 'border-slate-200 focus:ring-brand-600/15 focus:border-brand-600'
-        }`}
-      />
-      <p className="text-[11px] text-slate-400 mt-1">
-        {short > 0 ? `${short} more character${short === 1 ? '' : 's'} required` : (hint ?? 'Recorded on the audit trail alongside the before/after values.')}
-      </p>
-    </div>
-  );
-}
 
 // Notification type → color (matches /notifications typeColors)
 const NOTIFICATION_TYPE_COLORS: Record<string, string> = {

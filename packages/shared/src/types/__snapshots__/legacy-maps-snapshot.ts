@@ -147,9 +147,9 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'dashboard.create': ['DASHBOARD_CREATE', 'DASHBOARD_VIEW'],
   'dashboard.manage': ['DASHBOARD_MANAGE', 'DASHBOARD_VIEW'],
   'dashboard.assign': ['DASHBOARD_ASSIGN', 'DASHBOARD_VIEW'],
-  'checklists.create': ['CHECKLIST_CREATE', 'FCP_CREATE'],
-  'checklists.edit': ['CHECKLIST_EDIT', 'FCP_UPDATE'],
-  'checklists.delete': ['CHECKLIST_DELETE', 'FCP_DELETE'],
+  'checklists.create': ['CHECKLIST_CREATE'], // 2026-10-21 P4-03
+  'checklists.edit': ['CHECKLIST_EDIT'], // 2026-10-21 P4-03
+  'checklists.delete': ['CHECKLIST_DELETE'], // 2026-10-21 P4-03
   'filters.operate': ['FILTER_OPERATE', 'ASSET_READ'],
   'filters.bypass': ['FILTER_BYPASS', 'ASSET_READ'],
   'filters.events': ['EVENT_READ', 'ASSET_READ'],
@@ -160,7 +160,7 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   // Action perm + read dep only. Review must NOT confer approve.
   'filters.review': ['FILTER_REVIEW', 'ASSET_READ'],
   'filters.approve': ['FILTER_APPROVE', 'ASSET_READ'],
-  'filters.replace': ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
+  'filters.replace': ['FILTER_REPLACE', 'ASSET_READ'], // 2026-10-21 P4-05
   'filters.status_update': ['FILTER_STATUS_UPDATE', 'ASSET_READ'],
   'filters.create': ['FILTER_CREATE', 'ASSET_READ'],
   'filters.edit': ['FILTER_EDIT', 'ASSET_READ'],
@@ -187,9 +187,9 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'stage_approvals.view': ['STAGE_APPROVAL_VIEW'],
   'stage_approvals.decide': ['STAGE_APPROVAL_DECIDE'],
   'cleaning_profiles.view': ['FCP_READ'],
-  'cleaning_profiles.create': ['CP_PAGE_CREATE', 'FCP_CREATE', 'FCP_READ'],
-  'cleaning_profiles.edit': ['CP_PAGE_EDIT', 'FCP_UPDATE', 'FCP_READ'],
-  'cleaning_profiles.delete': ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
+  'cleaning_profiles.create': ['CP_PAGE_CREATE', 'FCP_READ'], // 2026-10-21 P4-03
+  'cleaning_profiles.edit': ['CP_PAGE_EDIT', 'FCP_READ'], // 2026-10-21 P4-03
+  'cleaning_profiles.delete': ['CP_PAGE_DELETE', 'FCP_READ'], // 2026-10-21 P4-03
   'filter_profiles.view': ['FP_READ'],
   'filter_profiles.create': ['FP_CREATE', 'FP_READ'],
   'filter_profiles.edit': ['FP_UPDATE', 'FP_READ'],
@@ -204,9 +204,9 @@ export const FEATURE_TO_PERMISSION_MAP_SNAPSHOT: Record<string, string[]> = {
   'pm.approve': ['PM_APPROVE', 'PM_READ'],
   'pm.review': ['PM_REVIEW', 'PM_READ'],
   'pm.download_template': ['PM_DOWNLOAD_TEMPLATE', 'PM_READ'],
-  'pm.upload': ['PM_UPLOAD', 'PM_CREATE', 'PM_READ'],
-  'pm.edit_entry': ['PM_EDIT_ENTRY', 'PM_UPDATE', 'PM_READ'],
-  'pm.resubmit': ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
+  'pm.upload': ['PM_UPLOAD', 'PM_READ'], // 2026-10-21 P4-04
+  'pm.edit_entry': ['PM_EDIT_ENTRY', 'PM_READ'], // 2026-10-21 P4-04
+  'pm.resubmit': ['PM_RESUBMIT', 'PM_READ'], // 2026-10-21 P4-04
   'equipment_groups.view': ['EG_VIEW', 'ASSET_READ'],
   'equipment_groups.create': ['EG_CREATE', 'ASSET_READ'],
   'equipment_groups.edit': ['EG_EDIT', 'ASSET_READ'],

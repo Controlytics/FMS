@@ -309,7 +309,7 @@ degrade.
   They are served from `apps/web/public/fonts/plex/` (16 `.woff2`, Latin + Latin-ext)
   via `public/fonts/plex.css`; `index.html` loads `/fonts/plex.css`. Still no external
   reference. The previous faces' files (`public/fonts/*.woff2` + `fonts.css`) are no
-  longer referenced and can be deleted.
+  longer referenced; **deleted 2026-10-21** (11 `.woff2` + `fonts.css`, operator OK).
 
 ## 12. Recommended Changes (to reach a perfectly clean air-gapped deployment)
 

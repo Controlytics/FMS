@@ -56,7 +56,11 @@ export async function assertRoleWithinCallerPrivilege(
 // ---------------------------------------------------------------------------
 
 const createRoleSchema = z.object({
-  name: z.string().min(2).max(50).regex(/^[A-Z][A-Z0-9_]*$/, 'Name must be uppercase with underscores only'),
+  // 2026-10-21 (found by the P4-02 test): every audit row stores the role in
+  // audit_trail.user_role VarChar(20). A longer role name was accepted here
+  // (roles.name is 50), and then every login of its users failed the audit
+  // insert -> 400 DATA_CONSTRAINT. Cap at the narrowest column that holds it.
+  name: z.string().min(2).max(20, 'Name must be 20 characters or fewer').regex(/^[A-Z][A-Z0-9_]*$/, 'Name must be uppercase with underscores only'),
   displayName: z.string().min(2).max(100),
   description: z.string().max(500).optional(),
   hierarchyLevel: z.number().int().min(1).max(10),
@@ -287,7 +291,7 @@ export const roleService = {
   },
 
   /** Update an existing role. System roles have restricted updates. */
-  async update(name: string, data: unknown, ctx: RequestContext) {
+  async update(name: string, data: unknown, ctx: RequestContext, reason?: string) {
     const parsed = updateRoleSchema.safeParse(data);
     if (!parsed.success) {
       throw new ValidationError('VALIDATION_ERROR', parsed.error.flatten());
@@ -334,6 +338,7 @@ export const roleService = {
       targetId: role.name,
       beforeValue: existing,
       afterValue: role,
+      ...(reason ? { reason } : {}),
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
       sessionId: ctx.sessionId,

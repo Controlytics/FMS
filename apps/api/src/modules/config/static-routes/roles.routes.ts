@@ -2,6 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { enforceReauth } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
+import { requireChangeReason, changeReasonSchemaProp } from '../../../lib/change-reason.js';
 
 export async function rolesConfigRoutes(app: FastifyInstance) {
   app.get('/roles', {
@@ -74,6 +75,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
           sidebarItems: { type: 'array', items: { type: 'string' } },
           homeWidgets: { type: 'array', items: { type: 'string' } },
           permissions: { type: 'object', additionalProperties: { type: 'boolean' } },
+          ...changeReasonSchemaProp,
         },
       },
       response: {
@@ -87,6 +89,10 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // P4-10 (2026-10-21): a permission change needs a reason - checked BEFORE the
+    // re-auth so a refused save does not leave a signature row for nothing.
+    const { permissions: permissionsIn } = req.body as { permissions?: Record<string, boolean> };
+    const reason = permissionsIn !== undefined ? requireChangeReason(req.body) : undefined;
     const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
     if (!ok) return;
 
@@ -97,7 +103,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
       permissions?: Record<string, boolean>;
     };
     const ctx = buildContext(req);
-    const config = await configService.updateRoleConfig(role, { sidebarItems, homeWidgets, permissions }, ctx);
+    const config = await configService.updateRoleConfig(role, { sidebarItems, homeWidgets, permissions }, ctx, reason);
     return { success: true, data: config };
   });
 
@@ -147,6 +153,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
           sidebarItems: { type: 'array', items: { type: 'string' } },
           homeWidgets: { type: 'array', items: { type: 'string' } },
           permissions: { type: 'object', additionalProperties: { type: 'boolean' } },
+          ...changeReasonSchemaProp,
         },
       },
       response: {
@@ -160,6 +167,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const reason = (req.body as { permissions?: unknown }).permissions !== undefined ? requireChangeReason(req.body) : undefined;
     const { ok } = await enforceReauth('UPDATE_USER_CONFIG', req, reply);
     if (!ok) return;
     const { userId } = req.params as { userId: string };
@@ -169,7 +177,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
       permissions?: Record<string, boolean>;
     };
     const ctx = buildContext(req);
-    const config = await configService.updateUserConfig(userId, { sidebarItems, homeWidgets, permissions }, ctx);
+    const config = await configService.updateUserConfig(userId, { sidebarItems, homeWidgets, permissions }, ctx, reason);
     return { success: true, data: config };
   });
 

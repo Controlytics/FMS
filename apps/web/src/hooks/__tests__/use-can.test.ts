@@ -60,24 +60,32 @@ describe('useCan()', () => {
   });
 
   // ── OR-gate: user holds ONE of the required perms ─────────────────────────
-  // cleaning_profiles.toggle has a real OR-gate ['FCP_UPDATE','CP_PAGE_EDIT'] (the toggle
-  // theater-fix). (checklists.create was narrowed to single-perm [CHECKLIST_CREATE] in 5C.)
-  it('grants an OR-gated action when user holds the first perm (FCP_UPDATE)', () => {
-    setupUser('QA', ['FCP_UPDATE']);
+  // cleaning_record.export has a real OR-gate ['REPORT_EXPORT','REPORT_GENERATE'].
+  // (cleaning_profiles.toggle used to be the example - ['FCP_UPDATE','CP_PAGE_EDIT'] - until
+  // 2026-10-21, P4-03: FCP_UPDATE is shared with Checklists, so the gate is CP_PAGE_EDIT alone.)
+  it('grants an OR-gated action when user holds the first perm (REPORT_EXPORT)', () => {
+    setupUser('QA', ['REPORT_EXPORT']);
     const { result } = renderHook(() => useCan());
-    expect(result.current('cleaning_profiles.toggle')).toBe(true);
+    expect(result.current('cleaning_record.export')).toBe(true);
   });
 
-  it('grants an OR-gated action when user holds the second perm (CP_PAGE_EDIT)', () => {
-    setupUser('QA', ['CP_PAGE_EDIT']);
+  it('grants an OR-gated action when user holds the second perm (REPORT_GENERATE)', () => {
+    setupUser('QA', ['REPORT_GENERATE']);
     const { result } = renderHook(() => useCan());
-    expect(result.current('cleaning_profiles.toggle')).toBe(true);
+    expect(result.current('cleaning_record.export')).toBe(true);
   });
 
   it('denies an OR-gated action when user holds neither perm', () => {
     setupUser('OPERATOR', ['FILTER_OPERATE', 'CYCLE_READ']);
     const { result } = renderHook(() => useCan());
+    expect(result.current('cleaning_record.export')).toBe(false);
+  });
+
+  it('P4-03: FCP_UPDATE no longer unlocks the cleaning-profile toggle (or checklist edits)', () => {
+    setupUser('QA', ['FCP_UPDATE']);
+    const { result } = renderHook(() => useCan());
     expect(result.current('cleaning_profiles.toggle')).toBe(false);
+    expect(result.current('checklists.edit')).toBe(false);
   });
 
   // ── SA-only: holding the GRANT-SET perm does NOT grant the action ──────────

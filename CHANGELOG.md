@@ -1,5 +1,62 @@
 # Changelog
 
+## [Unreleased] - Pending-items pass: QA Phase 4/5 fixes, placeholder tablet CA (2026-10-21)
+
+Operator: "complete the pending ones". QA Phase 4 (per-role permission matrix, `QA/PHASE4_ROLE_MATRIX.md`,
+2,574 live requests, 0 code-level leaks), Phase 5 (write-path abuse, `QA/PHASE5_WRITE_ABUSE.md`, 0
+authorization / re-auth / mass-assignment bypasses) and Phase 12 (coverage: API 63.3 % lines / 73.7 %
+branches, web 19.7 % / 65.7 %) were run against the QA clone. Every defect they found was fixed, each with a
+test that fails without the fix:
+
+- **P4-02 export toggles enforced by the server.** `POST /api/audit/report-export-log` (the audit write
+  every download makes first) gated on the report's READ permission, so the Audit Trail / Filters /
+  Retirement List / Replacement List / cleaning-report export toggles only hid the button (ADMIN without
+  `AUDIT_EXPORT` exported the Audit Trail through the API). `REPORT_EXPORT_GATES` now mirrors each Export
+  button's gate; Quality Notifications was open to every signed-in user and now needs `PM_READ` like its page.
+  `e2e/report-export-gates.test.ts` (also checks every gate against `PERMISSION_TREE`).
+- **Grant sets that handed out another toggle's write gate (P4-03 / P4-04 / P4-05)** — the CLAUDE.md rule,
+  now locked by a tree-wide guard test (`permission-tree.test.ts`): `pm.upload` / `pm.resubmit` granted
+  `PM_CREATE`, `pm.edit_entry` granted `PM_UPDATE`, `cleaning_profiles.edit` granted `FCP_UPDATE`
+  (= Edit Checklists), `filters.replace` granted `FILTER_OPERATE`. The matching routes accepted the broad
+  permission as an alternative; each now takes only its button's gate (PM upload / resubmit / edit-entry;
+  checklist writes `CHECKLIST_*`, cleaning-profile writes `CP_PAGE_*`). The replacement-task list accepts
+  `FILTER_REPLACE`. No live role loses a capability its toggles grant (checked on digilog_db). The shared
+  `FCP_CREATE/UPDATE/DELETE` constants are kept (no toggle grants them now).
+- **P4-10 permission changes take a reason.** `PUT /api/config/roles/:role`, `PUT /api/config/users/:userId`
+  (when `permissions` is sent) and `PUT /api/roles/:name` (permissions or hierarchy level) refuse without a
+  `reason` of ≥ 5 characters (400 `REASON_REQUIRED`, checked before the signature); the reason is on the audit
+  row. The Permissions tab and the role edit dialog show the shared `components/ui/reason-box.tsx` (moved
+  out of Filter Data Management). The role edit dialog no longer re-sends permissions it never edits.
+- **P5-01 a filter's status is lifecycle-owned.** `PUT /api/assets/instances/:id` and `PATCH .../status`
+  copied a free-text status, so `{status:"Active"}` dropped a retired filter from the Retirement List while it
+  stayed deactivated. Changing a filter's status there is refused (409 `FILTER_STATUS_LIFECYCLE_OWNED`), and
+  editing a retired / deactivated filter is refused on both edit paths (409 `FILTER_INACTIVE`, restore first);
+  the SUPER_ADMIN record console keeps editing retired filters (explicit opt-out).
+- **P5-02 offline-replay grant scoped to the six replayed routes.** It replaced the password on every
+  `/api/filters/*` route — including `/retire`, `/replace`, `/bulk-operate`, which the tablet never queues
+  and which recorded no `replayExemptGates`. `OFFLINE_REPLAY_ROUTES` (plugins/auth.ts) lists start-cycle,
+  advance, advance-with-checklist, submit-checklist, bypass, terminate-cycle; a drift guard compares it with
+  the sync engine.
+- **P5-03 / P4-09 client errors no longer 500.** A NUL byte or an out-of-INT4 number (Postgres class 22 /
+  driver ConversionError) answers 400 `VALIDATION_ERROR`; an unmapped Fastify 4xx (`FST_*`, e.g. JSON posted to
+  a multipart route) answers its status with `INVALID_REQUEST` instead of `INTERNAL_ERROR` — neither pages
+  the admins with SYSTEM_ERROR any more. An unknown filter on `PUT /api/hierarchy/filters/:id` is 404.
+- **P5-04** profile `photoUrl` accepts only a path the photo upload generated (was any URL / path).
+- **P5-05** email / SMS settings saves merge into the stored config; `{}` used to wipe it.
+- **Found while testing:** a role name longer than 20 characters was accepted, but `audit_trail.user_role`
+  is VarChar(20), so every login of that role's users failed (400 DATA_CONSTRAINT). Role names are now
+  capped at 20 (API + form). The existing roles e2e test had been creating 23-character roles.
+- **Tablet CA.** `res/raw/rootca.pem` is now an inert placeholder authority (private key destroyed at
+  creation), so the general APK and Setup.exe no longer trust this dev PC's mkcert authority. Dev tablets:
+  `scripts/build-site-apk.ps1 -RootCa $env:LOCALAPPDATA\mkcert\rootCA.pem -ServerCert certs\server.crt -Site DevPC`.
+  Guard test fails if a mkcert authority comes back.
+- **Housekeeping:** 11 unused font files + `fonts.css` deleted; P4-01 decided (10-08 roles are correct;
+  `tasks/role-privileges-baseline/target-matrix.json` + `ROLE-PRIVILEGES-DOC-ALIGNMENT.md` updated);
+  report reviews stay SUPER_ADMIN-only (P4-07, operator); password reuse keeps the strict last-N rule.
+- **Not changed, recorded:** the access-matrix save still replaces the whole matrix (it is a full-document
+  save by design); `POST /api/admin-requests/` with a trailing slash still answers 401 (fails closed, the web
+  form never sends it); toggles that hide a page but not its data (P4-06) are as documented.
+
 ## [Unreleased] - Per-site tablet app with the server's certificate built in (2026-10-19)
 
 Operator: tablets should not need the certificate installed by hand. `scripts/build-site-apk.ps1` builds

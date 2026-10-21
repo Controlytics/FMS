@@ -108,9 +108,29 @@ describe('PermissionNode.gate (Phase 5A)', () => {
   });
 
   it('known OR-gated action lists both perms', () => {
-    // cleaning_profiles.toggle keeps the real backend OR-gate (theater-fix in 5C).
-    // (checklists.create was narrowed to per-action [CHECKLIST_CREATE] in 5C — no longer an OR example.)
-    expect(resolveNodeGate('cleaning_profiles.toggle').sort()).toEqual(['CP_PAGE_EDIT', 'FCP_UPDATE'].sort());
+    // 2026-10-21 (P4-03): cleaning_profiles.toggle is no longer an OR example - FCP_UPDATE
+    // was shared with Checklists, so its gate is the page's own CP_PAGE_EDIT now.
+    expect(resolveNodeGate('cleaning_profiles.toggle')).toEqual(['CP_PAGE_EDIT']);
+    expect(resolveNodeGate('cleaning_record.export').sort()).toEqual(['REPORT_EXPORT', 'REPORT_GENERATE'].sort());
+  });
+
+  // CLAUDE.md rule: "A node's grant set must never contain another node's GATE" -
+  // that is how a toggle silently hands out a different WRITE capability (ASSET_* 07-01,
+  // replacement_schedule.view / filters.retire 09-04, and on 2026-10-21 pm.upload /
+  // pm.resubmit -> PM_CREATE, pm.edit_entry -> PM_UPDATE, cleaning_profiles.edit ->
+  // FCP_UPDATE (checklists.edit), filters.replace -> FILTER_OPERATE). Read permissions
+  // (*_READ / *_VIEW) are the intended dependency of every action toggle and are exempt.
+  it("no configurable toggle grants another configurable toggle's write gate", () => {
+    const cfg = PERMISSION_TREE.flatMap((g) => g.nodes).filter((n) => n.configurable);
+    const leaks: string[] = [];
+    for (const a of cfg) for (const b of cfg) {
+      if (a.id === b.id) continue;
+      for (const p of b.gate ?? []) {
+        if (/_(READ|VIEW)$/.test(p)) continue;
+        if (a.permissions.includes(p) && !(a.gate ?? []).includes(p)) leaks.push(`${a.id} grants ${p} = gate of ${b.id}`);
+      }
+    }
+    expect(leaks).toEqual([]);
   });
 
   it('resolveNodeGate returns [] for an unknown node id', () => {

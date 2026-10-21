@@ -245,7 +245,7 @@ export default async function recordEditRoutes(app: FastifyInstance) {
     }
     if (body.filterSet === 'A' || body.filterSet === 'B') fieldInput.filterSet = body.filterSet;
     if (Object.keys(fieldInput).length > 0) {
-      await filterService.update(id, fieldInput as any, ctx);
+      await filterService.update(id, fieldInput as any, ctx, { allowInactive: true });
       applied.push(...Object.keys(fieldInput));
     }
     if (body.filterSet === '' && before.filterSet !== null) {

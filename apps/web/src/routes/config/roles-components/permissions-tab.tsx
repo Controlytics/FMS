@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { FEATURE_PRIVILEGES } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 import { groupFeaturePrivilegesByTree } from './permission-tree-grouping';
+import { ReasonBox, reasonOk } from '@/components/ui/reason-box';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,29 +37,37 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
     const [permissions, setPermissions] = useState<Record<string, boolean>>({});
     const [permSaving, setPermSaving] = useState(false);
     const [permDirty, setPermDirty] = useState(false);
+    // P4-10 (2026-10-21): a permission change is a §11 decision - the API refuses
+    // it (400 REASON_REQUIRED) without a reason, which lands on the audit row.
+    const [changeReason, setChangeReason] = useState('');
 
     // Load role config — contract: SWR /api/config/roles/${role} → data.permissions
     const { data: roleConfig, isLoading: permLoading } = useSWR(
       `/api/config/roles/${permSelectedRole}`,
-      { onSuccess: (data) => { setPermissions(data.permissions || {}); setPermDirty(false); } }
+      { onSuccess: (data) => { setPermissions(data.permissions || {}); setPermDirty(false); setChangeReason(''); } }
     );
 
     // Save — contract: PUT /api/config/roles/${role} with { permissions: Record<featureId, boolean> }
     const handlePermSave = useCallback(async () => {
+      if (!reasonOk(changeReason)) {
+        toast.warning('Reason required', 'Enter why these permissions are changing (at least 5 characters).');
+        return;
+      }
       setPermSaving(true);
       try {
         // The API has gated this on UPDATE_ROLE_CONFIG all along; the tab never
         // asked for the password, so an enabled row was a bare 401 (2026-09-24).
         await reauth.executeWithResult('UPDATE_ROLE_CONFIG', (pw) => pw
-          ? api.putWithReauth(`/api/config/roles/${permSelectedRole}`, { permissions }, pw)
-          : api.put(`/api/config/roles/${permSelectedRole}`, { permissions }));
+          ? api.putWithReauth(`/api/config/roles/${permSelectedRole}`, { permissions, reason: changeReason.trim() }, pw)
+          : api.put(`/api/config/roles/${permSelectedRole}`, { permissions, reason: changeReason.trim() }));
         setPermDirty(false);
+        setChangeReason('');
       } catch (error: any) {
         if (!isReauthCancelled(error)) toast.error('Save Failed', error.message || 'Failed to save permissions');
       } finally {
         setPermSaving(false);
       }
-    }, [permSelectedRole, permissions, roleConfig, toast]);
+    }, [permSelectedRole, permissions, roleConfig, toast, changeReason]);
 
     useEffect(() => {
       onStateChange({ dirty: permDirty, saving: permSaving });
@@ -122,7 +131,7 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
               {selectableRoles.map((role) => {
                 const color = role.color || '#64748b';
                 return (
-                  <button key={role.name} onClick={() => { setPermSelectedRole(role.name); setPermDirty(false); }}
+                  <button key={role.name} onClick={() => { setPermSelectedRole(role.name); setPermDirty(false); setChangeReason(''); }}
                     className={`relative group p-4 rounded-2xl border-2 transition-all duration-300 ${
                       permSelectedRole === role.name ? 'border-transparent shadow-xl scale-[1.02]' : 'border-slate-200 hover:border-slate-300 hover:shadow-lg'
                     }`}>
@@ -165,6 +174,11 @@ export const PermissionsTab = forwardRef<PermissionsTabHandle, PermissionsTabPro
                 </div>
               </div>
             </div>
+            {permDirty && (
+              <ReasonBox value={changeReason} onChange={setChangeReason}
+                placeholder="Why are this role's permissions changing?"
+                hint="Required to save. Recorded on the audit trail with the before/after permissions." />
+            )}
           </CardContent>
         </Card>
 

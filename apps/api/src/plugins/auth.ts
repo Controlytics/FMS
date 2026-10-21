@@ -471,10 +471,27 @@ async function authPlugin(app: FastifyInstance) {
  * actually replays: the per-filter cycle-write endpoints. Everything else —
  * config, users, roles, audit, backup — is never performed offline and must
  * always take a live password.
+ *
+ * QA Phase 5 (P5-02, 2026-10-21): this was `startsWith('/api/filters/')`, which
+ * also let the grant replace the password on `/:id/retire`, `/:id/replace`,
+ * `/bulk-operate` and every other filter route — none of which the tablet ever
+ * queues, and retire/replace never call `assertOfflineReplayPayload`, so the
+ * substitution was silent (no offlinePerformedAt / clientOpId, no
+ * replayExemptGates). Exact route PATTERNS now, matched against
+ * `req.routeOptions.url`; a raw URL (fallback) never matches, so it fails closed.
  */
+export const OFFLINE_REPLAY_ROUTES: ReadonlySet<string> = new Set([
+  '/api/filters/:id/start-cycle',
+  '/api/filters/:id/advance',
+  '/api/filters/:id/advance-with-checklist',
+  '/api/filters/:id/submit-checklist',
+  '/api/filters/:id/bypass',
+  '/api/filters/:id/terminate-cycle',
+]);
+
 export function isOfflineReplayRoute(routeUrl: string | undefined): boolean {
   if (!routeUrl) return false;
-  return routeUrl.startsWith('/api/filters/');
+  return OFFLINE_REPLAY_ROUTES.has(routeUrl);
 }
 
 export default fp(authPlugin, { name: 'auth' });

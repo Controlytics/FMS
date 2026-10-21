@@ -163,7 +163,7 @@ export const configService = {
     return config ?? { role, sidebarItems: [], homeWidgets: [], permissions: {} };
   },
 
-  async updateRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext) {
+  async updateRoleConfig(role: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext, reason?: string) {
     // Audit 2026-09-24 (F3): this path rewrites `roles.permissions` from the
     // feature toggles and had NONE of the guards `roleService.update` has —
     // no existence check, no own-role check, no hierarchy check, no
@@ -276,6 +276,7 @@ export const configService = {
       targetType: 'role_config', targetId: role,
       beforeValue: beforeValue as any,
       afterValue: { sidebarItems: config.sidebarItems, homeWidgets: config.homeWidgets, permissions: config.permissions },
+      ...(reason ? { reason } : {}),
       signatureMeaning: `Role configuration updated for ${role}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
@@ -289,7 +290,7 @@ export const configService = {
     return config ?? { userId, sidebarItems: [], homeWidgets: [], permissions: {} };
   },
 
-  async updateUserConfig(userId: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext) {
+  async updateUserConfig(userId: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext, reason?: string) {
     const existing = await configRepository.findUserConfig(userId);
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
 
@@ -300,6 +301,7 @@ export const configService = {
       targetType: 'user_config', targetId: userId,
       beforeValue: beforeValue as any,
       afterValue: { sidebarItems: config.sidebarItems, homeWidgets: config.homeWidgets, permissions: config.permissions },
+      ...(reason ? { reason } : {}),
       signatureMeaning: `User-specific configuration updated for ${userId}`,
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });

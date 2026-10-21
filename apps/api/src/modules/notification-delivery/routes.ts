@@ -133,17 +133,23 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       }
     }
 
+    // QA Phase 5, P5-05 (2026-10-21): merge over the stored value. A whole-object
+    // replace meant `{}` (or any partial body) silently wiped the SMTP config;
+    // config updates merge everywhere else (absent field = keep). The page always
+    // sends every field, so its behaviour is unchanged; a field is cleared by
+    // sending it empty.
+    const mergedEmail = { ...((beforeCfg ?? {}) as Record<string, unknown>), ...body };
     await prisma.systemConfig.upsert({
       where: { configKey: 'notification-email' },
-      update: { configValue: body as any, updatedBy: ctx.userId },
-      create: { configKey: 'notification-email', configValue: body as any, configType: 'notification', requiresReauth: false, updatedBy: ctx.userId },
+      update: { configValue: mergedEmail as any, updatedBy: ctx.userId },
+      create: { configKey: 'notification-email', configValue: mergedEmail as any, configType: 'notification', requiresReauth: false, updatedBy: ctx.userId },
     });
 
     invalidateNotificationConfigCache();
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_EMAIL_CONFIG', targetType: 'system_config', targetId: 'notification-email',
       beforeValue: beforeCfg ? maskSecrets(beforeCfg, EMAIL_AUDIT_SAFE_KEYS) : undefined,
-      afterValue: maskSecrets(body, EMAIL_AUDIT_SAFE_KEYS),
+      afterValue: maskSecrets(mergedEmail, EMAIL_AUDIT_SAFE_KEYS),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return { success: true };
@@ -477,17 +483,19 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
       );
     }
 
+    // P5-05 (2026-10-21): merge, never replace - see the email handler.
+    const mergedSms = { ...existingValue, ...body };
     await prisma.systemConfig.upsert({
       where: { configKey: 'notification-sms' },
-      update: { configValue: body as any, updatedBy: ctx.userId },
-      create: { configKey: 'notification-sms', configValue: body as any, configType: 'notification', requiresReauth: false, updatedBy: ctx.userId },
+      update: { configValue: mergedSms as any, updatedBy: ctx.userId },
+      create: { configKey: 'notification-sms', configValue: mergedSms as any, configType: 'notification', requiresReauth: false, updatedBy: ctx.userId },
     });
 
     invalidateNotificationConfigCache();
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'UPDATE_SMS_CONFIG', targetType: 'system_config', targetId: 'notification-sms',
       beforeValue: existing ? maskSecrets(existingValue, SMS_AUDIT_SAFE_KEYS) : undefined,
-      afterValue: maskSecrets(body, SMS_AUDIT_SAFE_KEYS),
+      afterValue: maskSecrets(mergedSms, SMS_AUDIT_SAFE_KEYS),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
     return { success: true };

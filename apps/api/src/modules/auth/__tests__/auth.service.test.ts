@@ -395,6 +395,20 @@ describe('authService', () => {
       await expect(authService.updateProfile('user-1', { email: 'taken@test.com' }, '127.0.0.1', 'agent', 'sess-1'))
         .rejects.toThrow('already in use');
     });
+
+    // P5-04 (2026-10-21): only a path the photo upload generated is accepted.
+    it('refuses an external or traversal photoUrl, accepts an uploaded one and a clear', async () => {
+      const user = makeUser();
+      mockRepo.findUserById.mockResolvedValue(user);
+      mockRepo.updateUserProfile.mockResolvedValue(user);
+      for (const photoUrl of ['https://evil.example/x.png', '../../../../Windows/win.ini', '/uploads/photos/../../.env', '/uploads/photos/not-generated.png']) {
+        await expect(authService.updateProfile('user-1', { photoUrl }, '127.0.0.1', 'agent', 'sess-1'), photoUrl)
+          .rejects.toThrow('Photo must be uploaded');
+      }
+      const ok = '/uploads/photos/11111111-2222-3333-4444-555555555555-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png';
+      await expect(authService.updateProfile('user-1', { photoUrl: ok }, '127.0.0.1', 'agent', 'sess-1')).resolves.toBeTruthy();
+      await expect(authService.updateProfile('user-1', { photoUrl: '' }, '127.0.0.1', 'agent', 'sess-1')).resolves.toBeTruthy();
+    });
   });
 
   // ── changePassword ──

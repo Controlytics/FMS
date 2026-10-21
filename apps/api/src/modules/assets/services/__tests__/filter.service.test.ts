@@ -73,7 +73,7 @@ describe('filterService.create', () => {
 describe('filterService.update — partial-update attributes contract', () => {
   const stored = { ahuType: 'Process', filterType: 'HEPA', micronSize: '0.3', filterSize: '610x610', lastCleaningDate: '2026-01-02' };
   beforeEach(() => {
-    (prisma.filter.findUnique as any).mockResolvedValue({ name: 'F1', attributes: { ...stored } });
+    (prisma.filter.findUnique as any).mockResolvedValue({ name: 'F1', attributes: { ...stored }, isActive: true });
   });
 
   it('preserves every attribute the caller omitted (name-only PUT)', async () => {

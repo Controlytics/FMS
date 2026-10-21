@@ -54,6 +54,7 @@ export function RoleAccessPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [selectedRoleForEdit, setSelectedRoleForEdit] = useState<RoleData | null>(null);
+  const [editReason, setEditReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -73,6 +74,7 @@ export function RoleAccessPage() {
   const openCreateDialog = () => { resetForm(); setShowCreateDialog(true); };
   const openEditDialog = (role: RoleData) => {
     setSelectedRoleForEdit(role);
+    setEditReason('');
     setFormData({ name: role.name, displayName: role.displayName, description: role.description || '', hierarchyLevel: role.hierarchyLevel, color: role.color, permissions: role.permissions });
     setShowEditDialog(true);
   };
@@ -94,7 +96,14 @@ export function RoleAccessPage() {
     if (!selectedRoleForEdit) return;
     setSaving(true); setError('');
     const roleName = selectedRoleForEdit.name;
-    const body = { displayName: formData.displayName, description: formData.description, hierarchyLevel: formData.hierarchyLevel, color: formData.color, permissions: formData.permissions };
+    // P4-10 (2026-10-21): this dialog never edits permissions (that is the
+    // Permissions tab), so they are no longer re-sent; the hierarchy level is sent
+    // only when it changed, and then the API requires a reason.
+    const levelChanged = formData.hierarchyLevel !== selectedRoleForEdit.hierarchyLevel;
+    const body = {
+      displayName: formData.displayName, description: formData.description, color: formData.color,
+      ...(levelChanged ? { hierarchyLevel: formData.hierarchyLevel, reason: editReason.trim() } : {}),
+    };
     await reauth.execute('UPDATE_ROLE', async (password?) => {
       if (password) await api.putWithReauth(`/api/roles/${roleName}`, body, password);
       else await api.put(`/api/roles/${roleName}`, body);
@@ -253,7 +262,9 @@ export function RoleAccessPage() {
 
           <RoleFormDialog open={showCreateDialog} onClose={() => setShowCreateDialog(false)} title="Create New Role" formData={formData} setFormData={setFormData} error={error} saving={saving} onSubmit={handleCreate} isEdit={false} />
           <RoleDeleteDialog open={showDeleteDialog} role={deleteTarget} error={deleteError} deleting={deleting} onClose={() => setShowDeleteDialog(false)} onDelete={handleDelete} />
-          <RoleFormDialog open={showEditDialog} onClose={() => setShowEditDialog(false)} title={`Edit Role: ${selectedRoleForEdit?.displayName}`} formData={formData} setFormData={setFormData} error={error} saving={saving} onSubmit={handleUpdate} isEdit={true} isSystem={selectedRoleForEdit?.isSystem} />
+          <RoleFormDialog open={showEditDialog} onClose={() => setShowEditDialog(false)} title={`Edit Role: ${selectedRoleForEdit?.displayName}`} formData={formData} setFormData={setFormData} error={error} saving={saving} onSubmit={handleUpdate} isEdit={true} isSystem={selectedRoleForEdit?.isSystem}
+            reasonRequired={!!selectedRoleForEdit && formData.hierarchyLevel !== selectedRoleForEdit.hierarchyLevel}
+            reason={editReason} onReasonChange={setEditReason} />
         </>
       )}
 

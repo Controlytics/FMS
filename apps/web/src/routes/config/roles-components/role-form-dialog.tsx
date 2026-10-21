@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { RoleColorPicker } from './role-color-picker';
+import { ReasonBox, reasonOk } from '@/components/ui/reason-box';
 
 export interface RoleFormData {
   name: string;
@@ -23,6 +24,10 @@ interface RoleFormDialogProps {
   onSubmit: () => void;
   isEdit: boolean;
   isSystem?: boolean;
+  /** P4-10: shown (and required) when an edit changes the hierarchy level. */
+  reasonRequired?: boolean;
+  reason?: string;
+  onReasonChange?: (v: string) => void;
 }
 
 export function RoleFormDialog({
@@ -36,6 +41,9 @@ export function RoleFormDialog({
   onSubmit,
   isEdit,
   isSystem,
+  reasonRequired,
+  reason = '',
+  onReasonChange,
 }: RoleFormDialogProps) {
   return (
     <Dialog open={open} onClose={onClose} className="max-w-lg">
@@ -98,9 +106,10 @@ export function RoleFormDialog({
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value.toUpperCase().replace(/\s+/g, '_') })}
                   placeholder="e.g., QUALITY_ASSURANCE"
+                  maxLength={20}
                   className="h-12 font-mono"
                 />
-                <p className="text-xs text-slate-500">Uppercase letters and underscores only</p>
+                <p className="text-xs text-slate-500">Uppercase letters and underscores only, up to 20 characters</p>
               </>
             )}
           </div>
@@ -162,6 +171,12 @@ export function RoleFormDialog({
           </p>
         </div>
 
+        {reasonRequired && onReasonChange && (
+          <ReasonBox value={reason} onChange={onReasonChange}
+            placeholder="Why is this role's hierarchy level changing?"
+            hint="A hierarchy change alters what this role may manage; it is recorded on the audit trail." />
+        )}
+
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
           <Button variant="outline" onClick={onClose}>
@@ -169,7 +184,7 @@ export function RoleFormDialog({
           </Button>
           <Button
             onClick={onSubmit}
-            disabled={saving}
+            disabled={saving || (!!reasonRequired && !reasonOk(reason))}
             className="bg-gradient-to-r from-purple-500 to-indigo-600"
           >
             {saving

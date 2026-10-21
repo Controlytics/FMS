@@ -161,4 +161,21 @@ describe('notification config PUT — audit secret masking (L136)', () => {
     expect(serializeRow(row)).not.toContain('E2E-STORED-PASSWORD');
     expect((row!.afterValue as any).host).toBe('smtp.changed.example');
   });
+
+  // QA Phase 5, P5-05 (2026-10-21): the handlers replaced the whole stored
+  // object, so an empty or partial body wiped the configuration.
+  it('an empty or partial PUT merges into the stored config instead of wiping it', async () => {
+    await app.inject({ method: 'PUT', url: '/api/notification-settings/email', headers: auth(),
+      payload: { host: 'smtp.keep.example', port: 587, fromEmail: 'keep@e2e.example', enabled: false } });
+    expect((await app.inject({ method: 'PUT', url: '/api/notification-settings/email', headers: auth(), payload: {} })).statusCode).toBe(200);
+    await app.inject({ method: 'PUT', url: '/api/notification-settings/email', headers: auth(), payload: { fromName: 'Partial' } });
+    const email = (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } }))!.configValue as any;
+    expect(email).toMatchObject({ host: 'smtp.keep.example', port: 587, fromEmail: 'keep@e2e.example', fromName: 'Partial', enabled: false });
+
+    await app.inject({ method: 'PUT', url: '/api/notification-settings/sms', headers: auth(),
+      payload: { provider: 'http-gateway', enabled: false, httpGatewayUrl: 'https://sms.keep.example/send' } });
+    expect((await app.inject({ method: 'PUT', url: '/api/notification-settings/sms', headers: auth(), payload: {} })).statusCode).toBe(200);
+    const sms = (await prisma.systemConfig.findUnique({ where: { configKey: 'notification-sms' } }))!.configValue as any;
+    expect(sms).toMatchObject({ provider: 'http-gateway', httpGatewayUrl: 'https://sms.keep.example/send' });
+  });
 });

@@ -124,3 +124,33 @@ Before-snapshot: `role-privileges-baseline/before-2026-10-01.json`. To change a
 row, use Config → Roles & Access → Permissions (the View toggle) together with
 the Sidebar tab — enabling the menu on the Sidebar tab re-grants the View
 permission on every save, so untick it there to take the page away.
+
+## 2026-10-21 — the 2026-10-08 role edits are confirmed (QA Phase 4, P4-01)
+
+QA Phase 4 (`QA/PHASE4_ROLE_MATRIX.md`) found that on 2026-10-08 (10:33–10:42)
+`superadmin` turned ON 32 toggles this document denies — SUPERVISOR 15,
+SHIFTOFFICER 11, OPERATOR 4, QA 2 — and that `apps/api/prisma/install-baseline.json`
+(FMS-Setup 1.2.0 / 1.2.2) ships exactly that state. **Operator decision
+2026-10-21: the live 10-08 setup is correct.** `role-privileges-baseline/target-matrix.json`
+now lists the live `role_configs` toggles per role (each addition named in that
+role's `_notes`); the four 10-08 audit rows carry no reason (that gap is P4-10,
+fixed the same day — permission saves now require one).
+
+What the same pass changed in CODE (so the matrix is what the API enforces):
+- **P4-02** export toggles are now enforced by the server
+  (`POST /api/audit/report-export-log` checks the Export button's gate, not the
+  page's read permission). ADMIN (audit.view, no audit.export) can no longer
+  export the Audit Trail through the API — matching doc row 33.
+- **P4-04** PM upload / resubmit / edit-entry routes take only their own
+  permission; `pm.upload` / `pm.resubmit` no longer grant PM_CREATE and
+  `pm.edit_entry` no longer grants PM_UPDATE. SHIFTOFFICER (pm.edit ON,
+  pm.edit_entry OFF) can no longer edit approved entries through the API.
+- **P4-03** Checklists and Cleaning Profiles no longer unlock each other's
+  writes (FCP_* write permissions are no longer granted or accepted).
+- **P4-05** `filters.replace` no longer grants FILTER_OPERATE; the
+  replacement-task list accepts FILTER_REPLACE instead.
+
+No live role lost a capability its toggles grant (checked against digilog_db:
+SUPERVISOR / SHIFTOFFICER both hold pm.create; SUPERVISOR holds both the
+checklist and cleaning-profile toggles; every FILTER_REPLACE holder also holds
+FILTER_OPERATE through filters.operate).

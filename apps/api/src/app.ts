@@ -66,7 +66,7 @@ import { sweepExpiredSessions } from './modules/auth/session-sweep.js';
 import { sweepPasswordExpiryNotifications } from './modules/auth/password-expiry-sweep.js';
 import { sweepOrphanPhotos } from './lib/photo-orphan-sweep.js';
 import { failStrandedRetries } from './modules/notification-delivery/delivery.service.js';
-import { AppError } from './lib/errors.js';
+import { AppError, isClientDataPrismaError, fastifyClientError } from './lib/errors.js';
 import { extractRefusal, type Refusal } from './lib/refusal-log.js';
 import { OfflineTimeError } from './lib/offline-time-window.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
@@ -447,6 +447,24 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
       error: 'VALIDATION_ERROR',
       message: 'One or more values are not valid.',
     });
+  }
+
+  // P5-03 (2026-10-21): bad client data that reached Postgres as an "unknown"
+  // request error (NUL byte, out-of-range integer) - see isClientDataPrismaError.
+  if (isClientDataPrismaError(err)) {
+    app.log.error({ err, url: _req.url }, 'Invalid value reached the database (NUL byte / out-of-range number) - input unvalidated');
+    return reply.code(400).send({
+      error: 'VALIDATION_ERROR',
+      message: 'One or more values are not valid.',
+    });
+  }
+
+  // P4-09 (2026-10-21): an unmapped Fastify/plugin 4xx (FST_*) is a client
+  // error, not an internal one - no "Unhandled error" line, no SYSTEM_ERROR page.
+  const clientErr = fastifyClientError(err);
+  if (clientErr) {
+    app.log.warn({ url: _req.url, code: (err as any).code, statusCode: clientErr.status }, 'Client request error');
+    return reply.code(clientErr.status).send(clientErr.body);
   }
 
   // Genuine internal errors

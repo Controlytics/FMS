@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { buildApp, loginAs, authGet, authPost, authPut, authDelete, ADMIN_PASSWORD } from './test-helper.js';
+import { prisma } from '../lib/prisma.js';
 
 const SUFFIX = Date.now();
-const TEST_ROLE_NAME = `TEST_ROLE_${SUFFIX}`;
+// Role names are capped at 20 chars (audit_trail.user_role VarChar(20)); `TEST_ROLE_<ms>` was 23.
+const TEST_ROLE_NAME = `TEST_ROLE_${SUFFIX % 1e8}`;
 
 describe('Roles endpoints', () => {
   let app: FastifyInstance;
@@ -157,12 +159,29 @@ describe('Roles endpoints', () => {
       expect(body.data.displayName).toBe(newDisplayName);
     });
 
+    // P4-10 (2026-10-21): changing what a role may do needs a reason, which is
+    // recorded on the ROLE_UPDATED audit row. Cosmetic edits (above) need none.
+    it('refuses a permission change without a reason (400 REASON_REQUIRED)', async () => {
+      for (const body of [{ permissions: ['AUDIT_READ'] }, { hierarchyLevel: 2 }, { permissions: ['AUDIT_READ'], reason: 'abc' }]) {
+        const res = await authPut(app, `/api/roles/${TEST_ROLE_NAME}`, adminToken, body, ADMIN_PASSWORD);
+        expect(res.statusCode, JSON.stringify(body)).toBe(400);
+        expect(JSON.parse(res.body).error).toBe('REASON_REQUIRED');
+        expect(JSON.parse(res.body).message).toMatch(/reason/i);
+      }
+    });
+
     it('updates permissions of the test role', async () => {
+      const reason = `e2e permission change ${SUFFIX}`;
       const res = await authPut(app, `/api/roles/${TEST_ROLE_NAME}`, adminToken, {
         permissions: ['AUDIT_READ', 'CONFIG_READ'],
+        reason,
       }, ADMIN_PASSWORD);
 
       expect(res.statusCode).toBe(200);
+      const row = await prisma.auditTrail.findFirst({
+        where: { action: 'ROLE_UPDATED', targetId: TEST_ROLE_NAME }, orderBy: { chainPosition: 'desc' },
+      });
+      expect(row?.reason).toBe(reason);
       const body = JSON.parse(res.body);
       expect(body.success).toBe(true);
       expect(body.data.permissions).toContain('AUDIT_READ');

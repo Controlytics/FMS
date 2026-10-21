@@ -1,12 +1,13 @@
 {
-  "_source": "Role privileges.docx (41-row Activity x Role matrix), applied 2026-09-04",
+  "_source": "Role privileges.docx (41-row Activity x Role matrix), applied 2026-09-04; amended 2026-10-21 to the live digilog_db roles (operator: the 2026-10-08 role edits are correct)",
   "_rules": [
     "EXHAUSTIVE: any privilege not listed here is OFF for that role.",
     "'Record/Report, View' includes that page's PDF/Excel export.",
     "SUPER_ADMIN is untouched (bypasses everything).",
     "Deviations from the document are recorded in each role's _notes.",
     "Only the 83 node ids present in FEATURE_TO_PERMISSION_MAP actually grant anything; the other 45 tree nodes are enforced-only and are NOT listed here. A page still reachable through its sidebar item's primary permission is noted on the role.",
-    "Dashboard is on ALL SIX roles by operator decision (2026-09-04) even though the document lists it for none. It is always the first menu item. ADMIN is the only role without CYCLE_READ, so it is the only one whose dashboard shows no filter statistics."
+    "Dashboard is on ALL SIX roles by operator decision (2026-09-04) even though the document lists it for none. It is always the first menu item. ADMIN is the only role without CYCLE_READ, so it is the only one whose dashboard shows no filter statistics.",
+    "2026-10-21: the operator confirmed the 2026-10-08 superadmin role edits (32 toggles, QA/PHASE4_ROLE_MATRIX.md P4-01) as the intended setup; 'on' lists below are the live role_configs, which also carry the 2026-10-01 retirement.view / replacement.view migration."
   ],
   "ADMIN": {
     "_doc": "Login, Logout, Notifications, Password change, Audit Trail, User management, Password policies, Backup management",
@@ -64,33 +65,51 @@
     ],
     "on": [
       "assets.view",
+      "audit.view",
+      "checklists.create",
+      "checklists.edit",
+      "cleaning_profiles.create",
+      "cleaning_profiles.edit",
+      "cleaning_profiles.view",
       "cleaning_record.export",
       "cycles.view",
       "dashboard.view",
       "equipment_groups.create",
       "equipment_groups.edit",
       "equipment_groups.view",
+      "filter_profiles.create",
+      "filter_profiles.edit",
+      "filter_profiles.view",
       "filters.bulk_upload",
       "filters.bypass",
+      "filters.create",
+      "filters.events",
+      "filters.export",
+      "filters.hierarchy_create",
       "filters.operate",
       "filters.retire",
       "filters.rfid_manage",
+      "filters.status_update",
       "lifecycle.export",
       "notifications.view",
+      "pm.create",
       "pm.download_template",
       "pm.execute",
       "pm.resubmit",
       "pm.upload",
       "pm.view",
+      "replacement.view",
       "replacement_schedule.upload",
-      "replacement_schedule.view"
+      "replacement_schedule.view",
+      "retirement.view"
     ],
     "_notes": [
       "OPERATOR DECISION 2026-09-04, AFTER the first pass: Dashboard added (the document lists it for no role). Placed first, matching every other role. This role holds CYCLE_READ, so the dashboard's filter statistic tiles load with real data.",
       "filters.operate / filters.bypass / filters.rfid_manage kept by operator decision - the tablet needs FILTER_OPERATE and FILTER_RFID_MANAGE for Cleaning Operations and RFID Assign (Tab Operations rows 37, 39).",
       "pm.resubmit kept: a QA rejection would otherwise strand the entry with nobody able to resubmit it. The document has no resubmit row.",
       "Audit Trail, Approvals (block change), and every filter create/edit/hierarchy privilege dropped: not in the document.",
-      "Enforced-only ids removed from this list because no toggle grants them (they are not among the 83 configurable privileges): deviations.export, deviations.view, notifications.mark, replacement.view, retirement.view, rfid_track.export, rfid_track.view. Each corresponding page stays reachable through its sidebar item's primary permission."
+      "Enforced-only ids removed from this list because no toggle grants them (they are not among the 83 configurable privileges): deviations.export, deviations.view, notifications.mark, replacement.view, retirement.view, rfid_track.export, rfid_track.view. Each corresponding page stays reachable through its sidebar item's primary permission.",
+      "2026-10-21: added from the live roles (10-08 edits confirmed by the operator; view toggles from the 10-01 migration): audit.view, checklists.create, checklists.edit, cleaning_profiles.create, cleaning_profiles.edit, cleaning_profiles.view, filter_profiles.create, filter_profiles.edit, filter_profiles.view, filters.create, filters.events, filters.export, filters.hierarchy_create, filters.status_update, pm.create, replacement.view, retirement.view"
     ]
   },
   "MANAGER": {
@@ -127,15 +146,18 @@
       "notifications.view",
       "pm.review",
       "pm.view",
+      "replacement.view",
       "replacement_schedule.review",
-      "replacement_schedule.view"
+      "replacement_schedule.view",
+      "retirement.view"
     ],
     "_notes": [
       "pm.edit / pm.edit_entry dropped: not in the document.",
       "OPERATOR DECISION 2026-09-04, AFTER the first pass: Dashboard added (the document lists it for no role). Placed first, matching ADMIN. Unlike ADMIN, MANAGER holds CYCLE_READ, so the dashboard's filter statistic tiles actually load for this role.",
       "Enforced-only ids removed from this list because no toggle grants them (they are not among the 83 configurable privileges): deviations.export, deviations.view, notifications.mark, pm.reject, replacement.view, retirement.view, rfid_track.export, rfid_track.view. Each corresponding page stays reachable through its sidebar item's primary permission.",
       "pm.reject dropped: it is enforced-only AND its grant set is PM_APPROVE - enabling \"Reject PM Schedule\" would have handed MANAGER the approve permission the document reserves for QA.",
-      "Doc row 13 'Filters Review' NOW APPLIED (2026-09-04): the filter create/upload -> review -> approve workflow was built, so filters.review is granted. It is inert until the workflow is enabled on Config -> Role Assignments -> Filter Creation Workflow."
+      "Doc row 13 'Filters Review' NOW APPLIED (2026-09-04): the filter create/upload -> review -> approve workflow was built, so filters.review is granted. It is inert until the workflow is enabled on Config -> Role Assignments -> Filter Creation Workflow.",
+      "2026-10-21: added from the live roles (10-08 edits confirmed by the operator; view toggles from the 10-01 migration): replacement.view, retirement.view"
     ]
   },
   "QA": {
@@ -159,11 +181,14 @@
       "cleaning_record.export",
       "cycles.view",
       "dashboard.view",
+      "equipment_groups.view",
       "filters.approve",
+      "filters.events",
       "lifecycle.export",
       "notifications.view",
       "pm.approve",
       "pm.view",
+      "replacement.view",
       "replacement_schedule.approve",
       "replacement_schedule.view"
     ],
@@ -171,7 +196,8 @@
       "OPERATOR DECISION 2026-09-04, AFTER the first pass: Dashboard added (the document lists it for no role). Placed first, matching every other role. This role holds CYCLE_READ, so the dashboard's filter statistic tiles load with real data.",
       "DEVIATION: doc row 19 gives QA no 'Replacement List View', but row 22 gives QA 'Replacement List Approve'. Approving is impossible without reaching the list, so QA keeps the page and replacement_schedule.view.",
       "Enforced-only ids removed from this list because no toggle grants them (they are not among the 83 configurable privileges): deviations.export, deviations.view, notifications.mark. Each corresponding page stays reachable through its sidebar item's primary permission.",
-      "Doc row 14 'Filter Approve' NOW APPLIED (2026-09-04): filters.approve is granted. Only an APPROVED filter can be operated. Inert until the workflow is enabled."
+      "Doc row 14 'Filter Approve' NOW APPLIED (2026-09-04): filters.approve is granted. Only an APPROVED filter can be operated. Inert until the workflow is enabled.",
+      "2026-10-21: added from the live roles (10-08 edits confirmed by the operator; view toggles from the 10-01 migration): equipment_groups.view, filters.events, replacement.view"
     ]
   },
   "SHIFTOFFICER": {
@@ -194,6 +220,7 @@
     ],
     "on": [
       "assets.view",
+      "audit.view",
       "cleaning_record.export",
       "cycles.view",
       "dashboard.view",
@@ -202,18 +229,30 @@
       "equipment_groups.view",
       "filters.bulk_upload",
       "filters.bypass",
+      "filters.create",
+      "filters.edit",
+      "filters.export",
+      "filters.hierarchy_create",
+      "filters.hierarchy_edit",
       "filters.operate",
+      "filters.replace",
       "filters.retire",
       "filters.rfid_manage",
       "lifecycle.export",
       "notifications.view",
+      "pm.create",
       "pm.download_template",
+      "pm.edit",
       "pm.execute",
       "pm.resubmit",
       "pm.upload",
       "pm.view",
+      "replacement.view",
+      "replacement_list.export",
       "replacement_schedule.upload",
       "replacement_schedule.view",
+      "retirement.view",
+      "retirement_list.export",
       "stage_approvals.decide",
       "stage_approvals.view"
     ],
@@ -221,7 +260,8 @@
       "OPERATOR DECISION 2026-09-04, AFTER the first pass: Dashboard added (the document lists it for no role). Placed first, matching every other role. This role holds CYCLE_READ, so the dashboard's filter statistic tiles load with real data.",
       "stage-approvals kept by operator decision (added 2026-09-02; also live in tablet-access for this role).",
       "KNOWN GAP: pm.upload / replacement_schedule.upload are granted, but assertPmRole still 403s this role because uploadRole is the single string 'SUPERVISOR'. Widening it is a separate change.",
-      "Enforced-only ids removed from this list because no toggle grants them (they are not among the 83 configurable privileges): deviations.export, deviations.view, notifications.mark, replacement.view, retirement.view, rfid_track.export, rfid_track.view. Each corresponding page stays reachable through its sidebar item's primary permission."
+      "Enforced-only ids removed from this list because no toggle grants them (they are not among the 83 configurable privileges): deviations.export, deviations.view, notifications.mark, replacement.view, retirement.view, rfid_track.export, rfid_track.view. Each corresponding page stays reachable through its sidebar item's primary permission.",
+      "2026-10-21: added from the live roles (10-08 edits confirmed by the operator; view toggles from the 10-01 migration): audit.view, filters.create, filters.edit, filters.export, filters.hierarchy_create, filters.hierarchy_edit, filters.replace, pm.create, pm.edit, replacement.view, replacement_list.export, retirement.view, retirement_list.export"
     ]
   },
   "OPERATOR": {
@@ -237,23 +277,29 @@
     ],
     "on": [
       "assets.view",
+      "cleaning_record.export",
       "cycles.view",
       "dashboard.view",
       "filters.bypass",
+      "filters.events",
       "filters.operate",
       "filters.replace",
       "filters.rfid_manage",
+      "lifecycle.export",
       "notifications.view",
       "pm.execute",
       "pm.view",
-      "replacement_schedule.view"
+      "replacement.view",
+      "replacement_schedule.view",
+      "retirement.view"
     ],
     "_notes": [
       "OPERATOR DECISION 2026-09-04, AFTER the first pass: Dashboard added (the document lists it for no role). Placed first, matching every other role. This role holds CYCLE_READ, so the dashboard's filter statistic tiles load with real data.",
       "DEVIATION: doc row 28 gives Operator no Cleaning Record, and the desktop page IS hidden (no cleaning-cycles sidebar item). But cycles.view (CYCLE_READ) is KEPT because the tablet's Filter Cleaning Record tile is not tablet-access gated and always renders; revoking it would 403 a screen inside the Cleaning Operations the document grants this role.",
       "filters.operate / filters.bypass / filters.rfid_manage kept by operator decision (tablet).",
       "Audit Trail, Equipment Groups, Deviations, Retirement, QNN, Lifecycle, block_change.request dropped: not in the document.",
-      "Enforced-only ids removed from this list because no toggle grants them (they are not among the 83 configurable privileges): notifications.mark, replacement.view, rfid_track.export, rfid_track.view. Each corresponding page stays reachable through its sidebar item's primary permission."
+      "Enforced-only ids removed from this list because no toggle grants them (they are not among the 83 configurable privileges): notifications.mark, replacement.view, rfid_track.export, rfid_track.view. Each corresponding page stays reachable through its sidebar item's primary permission.",
+      "2026-10-21: added from the live roles (10-08 edits confirmed by the operator; view toggles from the 10-01 migration): cleaning_record.export, filters.events, lifecycle.export, replacement.view, retirement.view"
     ]
   }
 }

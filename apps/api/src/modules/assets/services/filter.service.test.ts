@@ -42,7 +42,7 @@ describe('filterService.update — audit before/after', () => {
   });
 
   it('records the pre-edit values in beforeValue', async () => {
-    vi.mocked(prisma.filter.findUnique).mockResolvedValue({ id: 'f1', name: 'OLD', attributes: { micronSize: '3' } } as any);
+    vi.mocked(prisma.filter.findUnique).mockResolvedValue({ id: 'f1', name: 'OLD', attributes: { micronSize: '3' }, isActive: true } as any);
     vi.mocked(prisma.filter.findFirst).mockResolvedValue(null); // no name dupe
     vi.mocked(prisma.filterDetails.findUnique).mockResolvedValue({ filterSet: 'SET_A' } as any);
 
@@ -56,7 +56,7 @@ describe('filterService.update — audit before/after', () => {
   });
 
   it('keeps name/filterSet symmetric on an attributes-only edit', async () => {
-    vi.mocked(prisma.filter.findUnique).mockResolvedValue({ id: 'f1', name: 'OLD', attributes: { micronSize: '3' } } as any);
+    vi.mocked(prisma.filter.findUnique).mockResolvedValue({ id: 'f1', name: 'OLD', attributes: { micronSize: '3' }, isActive: true } as any);
     vi.mocked(prisma.filterDetails.findUnique).mockResolvedValue({ filterSet: 'SET_A' } as any);
 
     await filterService.update('f1', { micronSize: '9' } as any, ctx); // NO name, NO filterSet

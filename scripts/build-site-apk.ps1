@@ -8,15 +8,22 @@
   ("DigiLog Local CA", C:\ProgramData\DigiLog\certs\rootCA.pem, valid 10 years).
   The tablet app trusts exactly one built-in authority, the file
   apps/android/android/app/src/main/res/raw/rootca.pem (see
-  res/xml/network_security_config.xml). In the repo that file is THIS dev PC's
-  test authority, which no customer server uses.
+  res/xml/network_security_config.xml). Since 2026-10-21 the repo's file is an
+  inert PLACEHOLDER authority whose private key was destroyed at creation, so
+  the general DigiLog-FilterOps.apk (and Setup.exe, which bundles it) trusts no
+  real authority beyond the tablet's system + user-installed ones. Before that
+  it was this dev PC's mkcert authority.
+
+  Dev tablet against this PC: build a site APK from the mkcert authority,
+    -RootCa $env:LOCALAPPDATA\mkcert\rootCA.pem -ServerCert certs\server.crt -Site DevPC
+  (or install that rootCA.pem on the tablet by hand).
 
   This script:
     1. checks the given file is a certificate authority certificate and NOT a
        private key (rootCA.key sits next to rootCA.pem - a key inside an APK lets
        anyone who has the APK pretend to be the server);
     2. optionally checks the site's server.crt is signed by it (-ServerCert);
-    3. swaps it into res/raw/rootca.pem (REPLACES the dev authority - it is not
+    3. swaps it into res/raw/rootca.pem (REPLACES the placeholder - it is not
        added beside it), builds the APK with Gradle, and ALWAYS puts the original
        file back, even when the build fails;
     4. proves the result: the APK is a valid zip, its rootca.pem is byte-for-byte

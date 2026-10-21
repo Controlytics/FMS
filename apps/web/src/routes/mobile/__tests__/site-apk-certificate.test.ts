@@ -31,6 +31,16 @@ describe('site APK certificate wiring', () => {
     expect(pem.match(/-----BEGIN CERTIFICATE-----/g)?.length).toBe(1);
   });
 
+  // 2026-10-21 (operator): the general APK and Setup.exe must not trust this dev
+  // PC's mkcert authority. The tracked file is an inert placeholder whose key was
+  // destroyed; a dev tablet gets a site APK built from the mkcert authority.
+  it('the repo ships the placeholder authority, never a mkcert dev authority', () => {
+    const pem = readFileSync(resolve(repo, rawRel), 'utf8');
+    const der = Buffer.from(pem.replace(/-----[^-]+-----|\s/g, ''), 'base64').toString('latin1');
+    expect(der).not.toMatch(/mkcert/i);
+    expect(der).toContain('FMS placeholder CA - no private key exists');
+  });
+
   it('the script swaps that same file, refuses keys, and restores it', () => {
     const ps = readFileSync(scriptPath, 'utf8');
     expect(ps).toContain(`$rawRel     = '${rawRel}'`);

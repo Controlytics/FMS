@@ -26,9 +26,9 @@ export function ChecklistProfileListPage() {
   const canCreate = can('checklists.create'); // gate: ['CHECKLIST_CREATE'] — SAME as old CHECKLIST_CREATE check
   const canDelete = can('checklists.delete'); // gate: ['CHECKLIST_DELETE'] — SAME as old CHECKLIST_DELETE check
   // THEATER-FIX: old gate was CHECKLIST_TOGGLE (standalone theater perm never wired to a
-  // real backend route). Node 'checklists.toggle' gate is ['FCP_UPDATE','CHECKLIST_EDIT']
-  // — the real backend enforcement. Users holding only CHECKLIST_TOGGLE lose the toggle
-  // button; users with CHECKLIST_EDIT (which implies FCP_UPDATE rights) retain it.
+  // real backend route). Node 'checklists.toggle' gate is ['CHECKLIST_EDIT'] — the real
+  // backend enforcement (2026-10-21, P4-03: FCP_UPDATE no longer counts; it is shared with
+  // Cleaning Profiles). Users holding only CHECKLIST_TOGGLE lose the toggle button.
   const canToggle = can('checklists.toggle');
   const reauth = useReauth();
   const [showCreate, setShowCreate] = useState(false);

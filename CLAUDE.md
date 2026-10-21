@@ -75,7 +75,7 @@ cd apps/android && npx cap copy android && cd android && ./gradlew assembleDebug
   Security assessment 2026-08-17, F-01 / API-07. Never enable on a customer machine.
 
 ### TLS notes
-- **APK requires HTTPS** — plain HTTP causes a Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate) — **or, since 2026-10-19, use a per-site APK that has it built in:** `scripts/build-site-apk.ps1 -RootCa <site rootCA.pem> -ServerCert <site server.crt> -Site <name>` → `dist\site-apks\FMS-<name>.apk`. It REPLACES `res/raw/rootca.pem` (this PC's mkcert CA) for the build, restores it in `finally`, refuses a private key / non-CA / expired file, and proves the APK differs from `DigiLog-FilterOps.apk` only in that file + `META-INF/*`. Signed with this PC's `~/.android/debug.keystore` — an APK signed with another key will not update the installed app (uninstall = offline queue lost); back that key up. Rebuild only when the site CA changes, never for an IP change. Guard: `routes/mobile/__tests__/site-apk-certificate.test.ts`. `apps/web/.env.production` is **`skip-worktree` and tracked blank** on purpose (no dev's IP in the repo); it is set locally only (currently `https://192.168.1.53:3000`, = this PC's static IP). **The baked value only affects a FRESH install** — `getApiBase()` (`apps/web/src/lib/api-base.ts`) reads `localStorage['digilog.serverUrl']` FIRST, so a tablet with an existing Server Address keeps using it across APK updates; change it on-device. See the network IP-change runbook in memory.
+- **APK requires HTTPS** — plain HTTP causes a Capacitor TLS parse error on login. Tablet must trust `rootCA.pem` (Settings → Security → Install certificate) — **or, since 2026-10-19, use a per-site APK that has it built in:** `scripts/build-site-apk.ps1 -RootCa <site rootCA.pem> -ServerCert <site server.crt> -Site <name>` → `dist\site-apks\FMS-<name>.apk`. It REPLACES `res/raw/rootca.pem` for the build — **since 2026-10-21 that tracked file is an inert placeholder authority (key destroyed), so the general APK / Setup.exe trust no dev CA; a dev tablet against this PC needs `-RootCa $env:LOCALAPPDATA\mkcert\rootCA.pem -ServerCert certs\server.crt -Site DevPC` or the CA installed by hand** — restores it in `finally`, refuses a private key / non-CA / expired file, and proves the APK differs from `DigiLog-FilterOps.apk` only in that file + `META-INF/*`. Signed with this PC's `~/.android/debug.keystore` — an APK signed with another key will not update the installed app (uninstall = offline queue lost); back that key up. Rebuild only when the site CA changes, never for an IP change. Guard: `routes/mobile/__tests__/site-apk-certificate.test.ts`. `apps/web/.env.production` is **`skip-worktree` and tracked blank** on purpose (no dev's IP in the repo); it is set locally only (currently `https://192.168.1.53:3000`, = this PC's static IP). **The baked value only affects a FRESH install** — `getApiBase()` (`apps/web/src/lib/api-base.ts`) reads `localStorage['digilog.serverUrl']` FIRST, so a tablet with an existing Server Address keeps using it across APK updates; change it on-device. See the network IP-change runbook in memory.
 - **Browser dev** — `http://localhost:5175 → https://localhost:3000` is fine (browser allows it; no mixed-content issue for fetch).
 - **Verify TLS up** — `curl -sk -o /dev/null -w "%{http_code}" https://localhost:3000/health` should return a code (even 401 means TLS is up).
 - **Don't use HTTPS with self-signed in Capacitor *dev* mode** — WebView's `fetch()` rejects self-signed certs (Capacitor's `BridgeActivity` overrides the WebViewClient after `onCreate`). Keep dev cleartext if testing in-WebView, or install root CA on the device.
@@ -96,7 +96,9 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
 
 ## Important Notes
 - 🔴 **Strict audit 2026-09-24** (see CHANGELOG): the offline-replay grant is honoured ONLY on
-  `/api/filters/*` (`isOfflineReplayRoute`, `plugins/auth.ts`) — never widen it without a reason;
+  the six cycle-write routes the sync engine replays (`OFFLINE_REPLAY_ROUTES` /
+  `isOfflineReplayRoute`, `plugins/auth.ts`; was all of `/api/filters/*` until 2026-10-21, P5-02 —
+  retire/replace/bulk-operate took the grant silently) — never widen it without a reason;
   `_currentPassword` is stripped INSIDE `enforceReauth`/`enforceReauthAlways` before any early
   return, so handlers must never persist `req.body` expecting the field to be gone by other means;
   only `AppError` messages may be forwarded to clients from catch blocks (Prisma text embeds the
@@ -172,8 +174,13 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   `ASSET_*` (2026-07-01), and on **2026-09-04** `replacement_schedule.view` →
   `REPLACEMENT_SCHEDULE_UPLOAD` (viewing granted uploading) and `filters.retire` →
   `FILTER_OPERATE` (retiring granted the whole cleaning operation, though
-  `/filters/:id/retire` gates on `FILTER_RETIRE` alone). Still open, benign today
-  because its only holder has the perm anyway: `filters.replace` → `FILTER_OPERATE`.
+  `/filters/:id/retire` gates on `FILTER_RETIRE` alone). **2026-10-21 (QA Phase 4)** five more,
+  all fixed: `pm.upload`/`pm.resubmit` → `PM_CREATE`, `pm.edit_entry` → `PM_UPDATE`,
+  `cleaning_profiles.edit` → `FCP_UPDATE` (= Edit Checklists), `filters.replace` →
+  `FILTER_OPERATE`. Now locked tree-wide by `permission-tree.test.ts` ("no configurable toggle
+  grants another configurable toggle's write gate"; `*_READ`/`*_VIEW` exempt). Each matching
+  ROUTE must also take only its button's gate — an `requireAnyPermission(broad, specific)`
+  alternative is the same leak on the server side.
 - **Only the 87 ids in `FEATURE_TO_PERMISSION_MAP` grant anything**; the other 43
   `PERMISSION_TREE` nodes are enforced-only and their toggles are inert. `PM_EXECUTE`
   comes only from `pm.execute` — `my_tasks.perform` grants nothing.

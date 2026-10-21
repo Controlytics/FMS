@@ -532,6 +532,32 @@ describe('Config endpoints', () => {
         homeWidgets: original.homeWidgets ?? [],
       }, ADMIN_PASSWORD);
     });
+
+    // P4-10 (2026-10-21): a PERMISSION change needs a reason (sidebar-only saves above do not).
+    // Uses its OWN throwaway role: saving permissions re-expands roles.permissions from the
+    // toggles, which on a shared fixture (VIEWER) handed it FILTER_OPERATE and broke
+    // phase4-perms-themes-reports.test.ts.
+    it('a permission change without a reason is refused; with one it is saved and audited', async () => {
+      const role = `QAP410${Date.now() % 1e8}`;
+      await prisma.role.create({ data: { name: role, displayName: role, hierarchyLevel: 1, permissions: ['AUDIT_READ'], createdBy: 'qa-p410-test' } });
+      try {
+        const permissions = { 'audit.view': true };
+        const refused = await authPut(app, `/api/config/roles/${role}`, adminToken, { permissions }, ADMIN_PASSWORD);
+        expect(refused.statusCode).toBe(400);
+        expect(JSON.parse(refused.body).error).toBe('REASON_REQUIRED');
+
+        const reason = `e2e role-config reason ${Date.now()}`;
+        const ok = await authPut(app, `/api/config/roles/${role}`, adminToken, { permissions, reason }, ADMIN_PASSWORD);
+        expect(ok.statusCode).toBe(200);
+        const row = await prisma.auditTrail.findFirst({
+          where: { action: 'CONFIG_CHANGED', targetType: 'role_config', targetId: role }, orderBy: { chainPosition: 'desc' },
+        });
+        expect(row?.reason).toBe(reason);
+      } finally {
+        await prisma.roleConfig.deleteMany({ where: { role } });
+        await prisma.role.deleteMany({ where: { name: role } });
+      }
+    });
   });
 
   // =============================================

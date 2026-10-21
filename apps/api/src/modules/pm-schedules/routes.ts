@@ -200,7 +200,9 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
 
   // ─── Bulk upload CSV/XLSX ───
   app.post('/upload', {
-    preHandler: [app.requireAnyPermission('PM_CREATE', 'PM_UPLOAD')],
+    // 2026-10-21 (P4-04): each route takes ONLY its button's gate (pm.upload /
+    // pm.resubmit / pm.edit_entry); PM_CREATE / PM_UPDATE belong to Create / Edit.
+    preHandler: [app.requirePermission('PM_UPLOAD')],
     schema: {
       tags: ['PM Schedules'],
       summary: 'Bulk upload PM schedule entries from a CSV or XLSX file',
@@ -463,7 +465,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   });
 
   app.post('/entries/:id/resubmit', {
-    preHandler: [app.requireAnyPermission('PM_CREATE', 'PM_RESUBMIT')],
+    preHandler: [app.requirePermission('PM_RESUBMIT')],
     schema: {
       tags: ['PM Schedules'],
       summary: 'Re-submit a rejected entry with corrected data',
@@ -491,7 +493,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   });
 
   app.put('/entries/:id/edit', {
-    preHandler: [app.requireAnyPermission('PM_UPDATE', 'PM_EDIT_ENTRY')],
+    preHandler: [app.requirePermission('PM_EDIT_ENTRY')],
     schema: {
       tags: ['PM Schedules'],
       summary: 'Edit an approved entry (creates pending change for QA review)',

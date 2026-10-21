@@ -7,6 +7,7 @@ import { isPasswordExpired } from '../../lib/password-expiry.js';
 import { ldapService } from '../ldap/ldap.service.js';
 import { signToken, signVerificationToken, verifyToken } from '../../lib/jwt.js';
 import { AppError, NotFoundError, ValidationError, ConflictError } from '../../lib/errors.js';
+import { GENERATED_PHOTO_NAME } from '../../lib/photo-orphan-sweep.js';
 import { authRepository } from './auth.repository.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
@@ -386,6 +387,17 @@ export const authService = {
     }
     if (data.fullName && (data.fullName.length < 2 || data.fullName.length > 100)) {
       throw new ValidationError('Full name must be 2-100 characters');
+    }
+    // QA Phase 5, P5-04 (2026-10-21): photoUrl was free text - an external URL was
+    // stored and then fetched by every viewer's browser wherever the avatar renders
+    // (leaks who looked, from where), and a path like ../../win.ini was accepted.
+    // The only legitimate value is what POST /api/uploads/photo returns.
+    if (data.photoUrl) {
+      const prefix = '/uploads/photos/';
+      const name = data.photoUrl.startsWith(prefix) ? data.photoUrl.slice(prefix.length) : '';
+      if (!GENERATED_PHOTO_NAME.test(name)) {
+        throw new ValidationError('Photo must be uploaded through the profile page (use the photo upload).');
+      }
     }
     if (data.email && data.email !== user.email) {
       const existing = await authRepository.findUserByEmail(data.email);

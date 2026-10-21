@@ -4,6 +4,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { AppError } from '../../lib/errors.js';
 import { verifyToken } from '../../lib/jwt.js';
 import { roleService } from './role.service.js';
+import { requireChangeReason, changeReasonSchemaProp } from '../../lib/change-reason.js';
 
 /**
  * Best-effort caller role for the PUBLIC /active endpoint (auth hook skips it,
@@ -262,6 +263,7 @@ export default async function roleRoutes(app: FastifyInstance) {
           permissions: { type: 'array', items: { type: 'string' }, description: 'Updated permissions list' },
           color: { type: 'string', description: 'Updated color' },
           isActive: { type: 'boolean', description: 'Enable or disable the role' },
+          ...changeReasonSchemaProp,
         },
       },
       response: {
@@ -276,6 +278,7 @@ export default async function roleRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             error: { type: 'string' },
+            message: { type: 'string' },
             details: { type: 'object', additionalProperties: true },
           },
         },
@@ -283,17 +286,22 @@ export default async function roleRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             error: { type: 'string' },
+            message: { type: 'string' },
           },
         },
       },
     },
   }, async (req, reply) => {
+    // P4-10 (2026-10-21): changing what the role may do (permissions or its
+    // hierarchy level) needs a reason; checked before the signature.
+    const body = req.body as { permissions?: unknown; hierarchyLevel?: unknown };
+    const reason = body.permissions !== undefined || body.hierarchyLevel !== undefined ? requireChangeReason(req.body) : undefined;
     const { ok } = await enforceReauth('UPDATE_ROLE', req, reply);
     if (!ok) return;
 
     const { name } = req.params as { name: string };
     const ctx = buildContext(req);
-    return roleService.update(name, req.body, ctx);
+    return roleService.update(name, req.body, ctx, reason);
   });
 
   // DELETE /api/roles/:name — Delete role (SUPER_ADMIN only)

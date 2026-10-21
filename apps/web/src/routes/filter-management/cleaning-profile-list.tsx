@@ -26,9 +26,9 @@ export function CleaningProfileListPage() {
   const canUpdate = can('cleaning_profiles.edit');   // gate: ['CP_PAGE_EDIT'] — SAME as old CP_PAGE_EDIT check
   const canDelete = can('cleaning_profiles.delete'); // gate: ['CP_PAGE_DELETE'] — SAME as old CP_PAGE_DELETE check
   // THEATER-FIX: old gate was CP_TOGGLE (a standalone theater perm never wired to a
-  // real backend route). Node 'cleaning_profiles.toggle' gate is ['FCP_UPDATE','CP_PAGE_EDIT']
-  // — the real backend enforcement. Users holding CP_TOGGLE alone lose the toggle button;
-  // users holding CP_PAGE_EDIT (which implies FCP_UPDATE rights) retain it.
+  // real backend route). Node 'cleaning_profiles.toggle' gate is ['CP_PAGE_EDIT'] — the
+  // real backend enforcement (2026-10-21, P4-03: FCP_UPDATE no longer counts; it is shared
+  // with Checklists). Users holding CP_TOGGLE alone lose the toggle button.
   const canToggle = can('cleaning_profiles.toggle');
   const reauth = useReauth();
   const paginationOptions = usePaginationConfig();

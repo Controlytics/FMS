@@ -27,20 +27,32 @@ async function cachedAuditCount(where: unknown): Promise<number> {
 }
 
 /** Report names the web app records on export - the only values report-export-log accepts. */
-/** Permissions (any one) a role needs before it may log an export of that report. Empty = any authenticated user (config-gated reports). */
-const REPORT_READ_GATES: Record<string, string[]> = {
-  'Audit Trail': ['AUDIT_READ'],
-  'Cleaning Cycle Detail': ['CYCLE_READ', 'VERSION_HISTORY_VIEW'],
-  'Cleaning Lifecycle': ['CYCLE_READ'],
-  'Cleaning Record': ['CYCLE_READ', 'VERSION_HISTORY_VIEW'],
+/**
+ * Permissions (any one) a role needs before it may log - and so perform - an
+ * export of that report. Empty = any authenticated user.
+ *
+ * QA Phase 4, P4-02 (2026-10-21): these were the reports' READ permissions, so
+ * the dedicated export toggles (Audit Trail, Filters, Retirement List,
+ * Replacement List, the cleaning reports) only hid the button: an ADMIN without
+ * AUDIT_EXPORT got 200 here. Each entry is now the SAME gate the page's Export
+ * button checks (PERMISSION_TREE `<page>.export` node, read via useCan). Reports
+ * whose Export button has no gate of its own keep the page's read gate;
+ * Quality Notifications was [] and now mirrors GET /api/pm-schedules/qnn (PM_READ).
+ * Locked by e2e/report-export-gates.test.ts against the tree.
+ */
+const REPORT_EXPORT_GATES: Record<string, string[]> = {
+  'Audit Trail': ['AUDIT_EXPORT'],                                  // audit.export
+  'Cleaning Cycle Detail': ['REPORT_EXPORT', 'REPORT_GENERATE'],    // timeline.tsx canExportPdf
+  'Cleaning Lifecycle': ['REPORT_EXPORT', 'REPORT_GENERATE'],       // lifecycle.export
+  'Cleaning Record': ['REPORT_EXPORT', 'REPORT_GENERATE'],          // cleaning_record.export
   'Deviations': ['PM_READ', 'PM_APPROVE'],
-  'Filters': ['FILTER_OPERATE', 'ASSET_READ'],
+  'Filters': ['FILTER_LIST_EXPORT'],                                // filters.export
   'PM Schedule': ['PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_APPROVE', 'PM_EXECUTE'],
-  'Quality Notifications': [],
+  'Quality Notifications': ['PM_READ'],
   'RFID Track Record': ['ASSET_VIEW', 'ASSET_READ', 'FILTER_RFID_MANAGE'],
-  'Replacement List': ['ASSET_READ', 'ASSET_VIEW', 'FILTER_REPLACE'],
+  'Replacement List': ['REPLACEMENT_LIST_EXPORT'],                  // replacement_list.export
   'Replacement Schedule': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD', 'REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_APPROVE'],
-  'Retirement List': ['ASSET_READ', 'ASSET_VIEW', 'FILTER_RETIRE'],
+  'Retirement List': ['RETIREMENT_LIST_EXPORT'],                    // retirement_list.export
 };
 
 export const REPORT_EXPORT_NAMES = [
@@ -506,10 +518,10 @@ export default async function auditRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     // Audit 2026-09-24 (api #13): the route had no permission gate, so any role
     // could write a REPORT_GENERATED row for any report — including ones it
-    // cannot read. Each report is gated on the permissions its page requires
-    // (mirrors the <RequireRole> guards in apps/web/src/main.tsx).
+    // cannot read. Each report is gated on the permission its Export button
+    // requires (REPORT_EXPORT_GATES above, P4-02).
     const reportName = (req.body as { reportType: string }).reportType;
-    const required = REPORT_READ_GATES[reportName];
+    const required = REPORT_EXPORT_GATES[reportName];
     if (req.user.role !== 'SUPER_ADMIN' && required && required.length > 0) {
       const perms = await getRolePerms(req.user.role);
       if (!required.some((p) => hasEffectivePermission(perms, p))) {

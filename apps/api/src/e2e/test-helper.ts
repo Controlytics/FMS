@@ -15,7 +15,7 @@ import userGroupRoutes from '../modules/user-groups/routes.js';
 import backupRoutes from '../modules/backup/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
 import { prisma } from '../lib/prisma.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, isClientDataPrismaError, fastifyClientError } from '../lib/errors.js';
 
 /** Default admin password used in tests */
 export const ADMIN_PASSWORD = 'Admin@123';
@@ -104,6 +104,13 @@ export async function buildApp(extraRoutes: ExtraRoute[] = []): Promise<FastifyI
     if ((err as any).name === 'PrismaClientValidationError') {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'One or more values are not valid.' });
     }
+    // Mirrors app.ts (P5-03, 2026-10-21): NUL byte / out-of-range integer.
+    if (isClientDataPrismaError(err)) {
+      return reply.code(400).send({ error: 'VALIDATION_ERROR', message: 'One or more values are not valid.' });
+    }
+    // Mirrors app.ts (P4-09, 2026-10-21): unmapped Fastify 4xx = client error.
+    const clientErr = fastifyClientError(err);
+    if (clientErr) return reply.code(clientErr.status).send(clientErr.body);
     const status = err.statusCode ?? 500;
     return reply.code(status).send({ error: err.message || 'Internal Server Error' });
   });

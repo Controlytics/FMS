@@ -123,6 +123,18 @@ describe('roleService', () => {
         name: 'lowercase', displayName: 'Bad', hierarchyLevel: 1,
       }, ctx)).rejects.toThrow();
     });
+
+    // 2026-10-21: audit_trail.user_role is VarChar(20); a longer role name made
+    // every login of its users fail the audit insert (400 DATA_CONSTRAINT).
+    it('rejects a role name longer than 20 characters, accepts exactly 20', async () => {
+      mockRoleRepo.findByName.mockResolvedValue(null);
+      mockRoleRepo.create.mockResolvedValue({ name: 'A'.repeat(20), displayName: 'Twenty' });
+      await expect(roleService.create({
+        name: 'QUALITY_ASSURANCE_LEAD', displayName: 'Too long', hierarchyLevel: 1,
+      }, ctx)).rejects.toThrow();
+      const ok = await roleService.create({ name: 'A'.repeat(20), displayName: 'Twenty', hierarchyLevel: 1 }, ctx);
+      expect(ok.success).toBe(true);
+    });
   });
 
   describe('update', () => {

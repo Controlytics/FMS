@@ -96,4 +96,25 @@ first-load payload (design decision, open).
 | 7 | Browser pass | **done** for the pages in §6 |
 | 8 | Tablet pass (Perform first stage, overdue acknowledgement, login conflict, SIGNATURE question, offline scan of a retired filter) | **operator** — needs a tablet |
 | 9 | Push `RFID` (and merge to `main`) | **operator** |
-| 10 | Password-reuse window | removed (no recorded decision) — say so if it was deliberate |
+| 10 | Password-reuse window | removed — **confirmed by the operator 2026-10-21**: the strict last-N rule stays |
+
+## 8. Follow-up 2026-10-21 — Phases 4, 5 and 12 executed, every finding fixed
+
+| Phase | Result | Report |
+|---|---|---|
+| 4 — per-role permission matrix | 2,574 live requests (429 ops × 6 roles, SA excluded): **0** code-level leaks against each role's stored permissions. 54 cells differ from the target doc — P4-01, decided by the operator: the 2026-10-08 live roles are correct (doc updated). | `QA/PHASE4_ROLE_MATRIX.md` |
+| 5 — write-path abuse | 1,063 role probes + 218 no-token, 45 re-auth, 15 mass-assignment (DB-verified), IDOR, SSRF, upload, 1,127 fuzz: **0** bypasses. 2 P2 + 1 P3 + 2 observations. | `QA/PHASE5_WRITE_ABUSE.md` |
+| 12 — coverage | API 63.3 % lines / 73.7 % branches / 76.6 % functions (182 files, 1,707 tests); web 19.7 % / 65.7 % / 42.5 % (96 files, 1,041 tests). Web line coverage is low because most pages are checked by source-level tests, not rendered. | this section |
+
+Fixed (each with a test that fails without the fix): P4-02 export gates, P4-03/04/05 cross-granted
+write gates (+ a tree-wide guard test), P4-09 client errors labelled INTERNAL_ERROR / 400-for-404,
+P4-10 mandatory reason on permission changes, P5-01 lifecycle-owned filter status, P5-02 offline grant
+scoped to the six replayed routes, P5-03 NUL / out-of-range → 400, P5-04 photoUrl, P5-05 settings
+merge, plus a role-name > 20 chars login failure found while testing. Details: CHANGELOG 2026-10-21.
+
+Left as decided / recorded: P4-06 toggles that hide a page but not its data (documented design),
+P4-07 report reviews SUPER_ADMIN-only (operator), P4-08 tablet stage-approvals tile config (inert),
+access-matrix full-document save, admin-request trailing-slash 401 (fails closed).
+
+Still not testable here: real tablets / RFID, long soaks, clean-machine install, SUPER_ADMIN black-box.
+Clone side effects of Phases 4/5 are listed in each report (§ mutations); `digilog_qa_perf` only.

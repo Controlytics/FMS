@@ -65,6 +65,31 @@ async function validateParent(parentId: string, childTemplateId: string, childId
   return parent;
 }
 
+/**
+ * QA Phase 5, P5-01 (2026-10-21): a FILTER's `status` is owned by its
+ * lifecycle - retire() / replace() write Retired / Replaced together with
+ * isActive=false, unretire() writes Active back. The generic edit
+ * (PUT /instances/:id) and PATCH /instances/:id/status copied a free-text
+ * status verbatim, so `{status:"Active"}` on a retired filter removed it from
+ * the Retirement List (which reads status='Retired' AND isActive=false) while
+ * it stayed deactivated - a §11 record dropped by an ordinary edit. Both paths
+ * now refuse to change a filter's status, and the generic edit refuses a
+ * deactivated filter outright (use Restore first). Non-filter kinds are unchanged.
+ */
+function assertFilterStatusNotEdited(
+  existing: { status: string | null; isActive: boolean },
+  isFilterKind: boolean,
+  nextStatus: string | undefined,
+): void {
+  if (!isFilterKind) return;
+  if (nextStatus !== undefined && nextStatus.trim() !== (existing.status ?? '')) {
+    throw new ConflictError(
+      "A filter's status is set only by Retire, Replace or Restore - it cannot be edited directly.",
+      'FILTER_STATUS_LIFECYCLE_OWNED',
+    );
+  }
+}
+
 export const instanceService = {
   async list(query: { search?: string; templateId?: string; status?: string; parentId?: string | null; isActive?: string; page: number; limit?: number }, visibilityFilter?: Record<string, unknown>) {
     const where: Record<string, unknown> = { ...visibilityFilter };
@@ -250,6 +275,14 @@ export const instanceService = {
     const template = await templateRepository.findById(existing.templateId);
     const isFilterKind = (template as any)?.templateKind === 'FILTER';
 
+    assertFilterStatusNotEdited(existing, isFilterKind, data.status);
+    if (isFilterKind && !existing.isActive) {
+      throw new ConflictError(
+        'This filter is retired or deactivated. Restore it before editing.',
+        'FILTER_INACTIVE',
+      );
+    }
+
     if (data.attributes) {
       if (template) {
         const attrSchema = (template as any).attributeSchema as any[] | undefined;
@@ -427,15 +460,17 @@ export const instanceService = {
 
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
+    const existingKind = existing.templateId
+      ? ((await templateRepository.findById(existing.templateId)) as any)?.templateKind
+      : undefined;
+    assertFilterStatusNotEdited(existing, existingKind === 'FILTER', status);
 
     const instance = await instanceRepository.update(id, {
       status: status.trim(),
       updatedBy: ctx.userId,
     });
 
-    const kind = existing.templateId
-      ? ((await templateRepository.findById(existing.templateId)) as any)?.templateKind
-      : undefined;
+    const kind = existingKind;
 
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,

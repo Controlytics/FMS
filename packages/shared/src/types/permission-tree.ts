@@ -405,7 +405,7 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         reauthAction: 'APPROVE_FILTER', enforce: 'a',
         gate: ['FILTER_APPROVE'], configurable: true },
       { id: 'filters.replace', label: 'Replace Filters', sidebarId: 'filter-list', page: 'Filters', action: 'Replace',
-        icon: 'refresh', category: 'Filters Page Controls', permissions: ['FILTER_REPLACE', 'FILTER_OPERATE', 'ASSET_READ'],
+        icon: 'refresh', category: 'Filters Page Controls', permissions: ['FILTER_REPLACE', 'ASSET_READ'], // 2026-10-21 (P4-05): FILTER_OPERATE dropped - it is filters.operate's gate; the replacement-task list now accepts FILTER_REPLACE
         reauthAction: 'REPLACE_FILTER', enforce: 'a',
         gate: ['FILTER_REPLACE'], configurable: true },
       { id: 'filters.status_update', label: 'Update Filter Status', sidebarId: 'filter-list', page: 'Filters', action: 'Update Status',
@@ -624,29 +624,29 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         // 2026-07-01: made enforced-only (dropped from picker) — redundant with filters.operate (same gate).
         gate: ['FILTER_OPERATE'] },
       { id: 'checklists.create', label: 'Create Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Create',
-        icon: 'plus', category: 'Checklist Page Controls', permissions: ['CHECKLIST_CREATE', 'FCP_CREATE'],
+        icon: 'plus', category: 'Checklist Page Controls', permissions: ['CHECKLIST_CREATE'], // 2026-10-21 (P4-03): FCP_* dropped - shared with Cleaning Profiles, it unlocked that page's writes
         reauthAction: 'CREATE_CHECKLIST_PROFILE', enforce: 'a',
         gate: ['CHECKLIST_CREATE'], configurable: true }, // 5C: per-action UI intent (old canCreate=CHECKLIST_CREATE)
       { id: 'checklists.edit', label: 'Edit Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Edit',
-        icon: 'edit', category: 'Checklist Page Controls', permissions: ['CHECKLIST_EDIT', 'FCP_UPDATE'],
+        icon: 'edit', category: 'Checklist Page Controls', permissions: ['CHECKLIST_EDIT'],
         reauthAction: 'UPDATE_CHECKLIST_PROFILE', enforce: 'a',
-        gate: ['FCP_UPDATE', 'CHECKLIST_EDIT'], configurable: true },
+        gate: ['CHECKLIST_EDIT'], configurable: true }, // P4-03: was also FCP_UPDATE (= Edit Cleaning Profiles' grant)
       { id: 'checklists.delete', label: 'Delete Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'Delete',
-        icon: 'trash', category: 'Checklist Page Controls', permissions: ['CHECKLIST_DELETE', 'FCP_DELETE'],
+        icon: 'trash', category: 'Checklist Page Controls', permissions: ['CHECKLIST_DELETE'],
         reauthAction: 'DELETE_CHECKLIST_PROFILE', enforce: 'a',
         gate: ['CHECKLIST_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDelete=CHECKLIST_DELETE)
       // 2026-07-01: made enforced-only — identical gate to checklists.edit (redundant picker toggle; CHECKLIST_TOGGLE is only a read-alternate).
       { id: 'checklists.toggle', label: 'Enable / Disable Checklists', sidebarId: 'checklists', page: 'Checklists', action: 'Enable/Disable',
-        icon: 'toggle', category: 'Checklist Page Controls', permissions: ['CHECKLIST_TOGGLE', 'FCP_UPDATE'], enforce: 'a',
-        gate: ['FCP_UPDATE', 'CHECKLIST_EDIT'] },
+        icon: 'toggle', category: 'Checklist Page Controls', permissions: ['CHECKLIST_TOGGLE'], enforce: 'a',
+        gate: ['CHECKLIST_EDIT'] },
       // Enforced-only: checklist administration
       { id: 'checklists.view', label: 'View Checklist Profiles', sidebarId: 'checklists', page: 'Checklists', action: 'View',
         icon: 'eye', category: 'Checklist Page Controls', permissions: ['FCP_READ'], enforce: 'a',
         gate: ['FCP_READ', 'CHECKLIST_TOGGLE', 'VERSION_HISTORY_VIEW'] },
       { id: 'checklists.manage_questions', label: 'Manage Checklist Questions', sidebarId: 'checklists', page: 'Checklists', action: 'Manage Questions',
-        icon: 'list', category: 'Checklist Page Controls', permissions: ['FCP_UPDATE'],
+        icon: 'list', category: 'Checklist Page Controls', permissions: ['CHECKLIST_EDIT'],
         reauthAction: 'UPDATE_CHECKLIST_PROFILE', enforce: 'a',
-        gate: ['FCP_UPDATE', 'CHECKLIST_EDIT'] },
+        gate: ['CHECKLIST_EDIT'] },
     ],
   },
 
@@ -660,21 +660,21 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'eye', category: 'Cleaning Profiles', permissions: ['FCP_READ'], enforce: 'a',
         gate: ['FCP_READ', 'CP_TOGGLE', 'VERSION_HISTORY_VIEW'], configurable: true },
       { id: 'cleaning_profiles.create', label: 'Create Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Create',
-        icon: 'plus', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_CREATE', 'FCP_CREATE', 'FCP_READ'],
+        icon: 'plus', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_CREATE', 'FCP_READ'], // P4-03: FCP_CREATE dropped (shared with Checklists)
         reauthAction: 'CREATE_CLEANING_PROFILE', enforce: 'a',
         gate: ['CP_PAGE_CREATE'], configurable: true }, // 5C: per-action UI intent (old canCreate=CP_PAGE_CREATE)
       { id: 'cleaning_profiles.edit', label: 'Edit Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Edit',
-        icon: 'edit', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_EDIT', 'FCP_UPDATE', 'FCP_READ'],
+        icon: 'edit', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_EDIT', 'FCP_READ'], // P4-03: FCP_UPDATE dropped - it was checklists.edit's gate
         reauthAction: 'UPDATE_CLEANING_PROFILE', enforce: 'a',
         gate: ['CP_PAGE_EDIT'], configurable: true }, // 5C: per-action UI intent (old canUpdate=CP_PAGE_EDIT)
       { id: 'cleaning_profiles.delete', label: 'Delete Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Delete',
-        icon: 'trash', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_DELETE', 'FCP_DELETE', 'FCP_READ'],
+        icon: 'trash', category: 'Cleaning Profile Page Controls', permissions: ['CP_PAGE_DELETE', 'FCP_READ'],
         reauthAction: 'DELETE_CLEANING_PROFILE', enforce: 'a',
         gate: ['CP_PAGE_DELETE'], configurable: true }, // 5C: per-action UI intent (old canDelete=CP_PAGE_DELETE)
       // 2026-07-01: made enforced-only — redundant with cleaning_profiles.edit (edit gate covers it; CP_TOGGLE is only a read-alternate).
       { id: 'cleaning_profiles.toggle', label: 'Enable / Disable Cleaning Profiles', sidebarId: 'cleaning-profiles', page: 'Cleaning Profiles', action: 'Enable/Disable',
-        icon: 'toggle', category: 'Cleaning Profile Page Controls', permissions: ['CP_TOGGLE', 'FCP_UPDATE', 'FCP_READ'], enforce: 'a',
-        gate: ['FCP_UPDATE', 'CP_PAGE_EDIT'] },
+        icon: 'toggle', category: 'Cleaning Profile Page Controls', permissions: ['CP_TOGGLE', 'FCP_READ'], enforce: 'a',
+        gate: ['CP_PAGE_EDIT'] },
       // Filter Profiles (no standalone sidebar entry — folded under cleaning-profiles)
       { id: 'filter_profiles.view', label: 'View Filter Profiles', sidebarId: 'cleaning-profiles', page: 'Filter Profiles', action: 'View',
         icon: 'eye', category: 'Filter Profiles', permissions: ['FP_READ'], enforce: 'a',
@@ -764,15 +764,15 @@ export const PERMISSION_TREE: SidebarGroup[] = [
         icon: 'download', category: 'PM Schedules', permissions: ['PM_DOWNLOAD_TEMPLATE', 'PM_READ'], enforce: 'a',
         gate: ['PM_DOWNLOAD_TEMPLATE'], configurable: true }, // 5C: per-action UI intent (old canDownload=PM_DOWNLOAD_TEMPLATE)
       { id: 'pm.upload', label: 'Upload PM Schedules', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Upload',
-        icon: 'upload', category: 'PM Schedules', permissions: ['PM_UPLOAD', 'PM_CREATE', 'PM_READ'],
+        icon: 'upload', category: 'PM Schedules', permissions: ['PM_UPLOAD', 'PM_READ'], // 2026-10-21 (P4-04): PM_CREATE dropped - it is pm.create's gate
         reauthAction: 'UPLOAD_PM_SCHEDULES', enforce: 'a',
         gate: ['PM_UPLOAD'], configurable: true }, // 5C: per-action UI intent (old canUpload=PM_UPLOAD)
       { id: 'pm.edit_entry', label: 'Edit PM Entries', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Edit Entry',
-        icon: 'edit', category: 'PM Schedules', permissions: ['PM_EDIT_ENTRY', 'PM_UPDATE', 'PM_READ'],
+        icon: 'edit', category: 'PM Schedules', permissions: ['PM_EDIT_ENTRY', 'PM_READ'], // P4-04: PM_UPDATE dropped - it is pm.edit's gate
         reauthAction: 'EDIT_PM_SCHEDULE', enforce: 'a',
         gate: ['PM_EDIT_ENTRY'], configurable: true }, // 5C: per-action UI intent (old canEditEntry=PM_EDIT_ENTRY)
       { id: 'pm.resubmit', label: 'Resubmit Rejected Entries', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Resubmit',
-        icon: 'refresh', category: 'PM Schedules', permissions: ['PM_RESUBMIT', 'PM_CREATE', 'PM_READ'],
+        icon: 'refresh', category: 'PM Schedules', permissions: ['PM_RESUBMIT', 'PM_READ'], // P4-04: PM_CREATE dropped
         reauthAction: 'RESUBMIT_PM_ENTRY', enforce: 'a',
         gate: ['PM_RESUBMIT'], configurable: true }, // 5C: per-action UI intent (old canResubmit=PM_RESUBMIT)
       { id: 'pm.reject', label: 'Reject PM Schedule', sidebarId: 'pm-schedules', page: 'PM Schedules', action: 'Reject',

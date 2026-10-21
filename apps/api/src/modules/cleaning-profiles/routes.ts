@@ -96,7 +96,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // POST / — Create cleaning profile
   app.post('/', {
-    preHandler: [app.requireAnyPermission('FCP_CREATE', 'CP_PAGE_CREATE')],
+    preHandler: [app.requirePermission('CP_PAGE_CREATE')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'Create cleaning profile',
@@ -157,7 +157,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // PUT /:id — Update (creates new version)
   app.put('/:id', {
-    preHandler: [app.requireAnyPermission('FCP_UPDATE', 'CP_PAGE_EDIT')],
+    preHandler: [app.requirePermission('CP_PAGE_EDIT')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'Update cleaning profile (new version)',
@@ -224,7 +224,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // PATCH /:id/toggle-status — Toggle active/inactive
   app.patch('/:id/toggle-status', {
-    preHandler: [app.requireAnyPermission('FCP_UPDATE', 'CP_PAGE_EDIT')],
+    preHandler: [app.requirePermission('CP_PAGE_EDIT')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'Toggle cleaning profile active/inactive',
@@ -249,7 +249,7 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
 
   // DELETE /:id — Archive
   app.delete('/:id', {
-    preHandler: [app.requireAnyPermission('FCP_DELETE', 'CP_PAGE_DELETE')],
+    preHandler: [app.requirePermission('CP_PAGE_DELETE')],
     schema: {
       tags: ['Cleaning Profiles'],
       summary: 'Archive cleaning profile',
