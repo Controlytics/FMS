@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultRoles } from './default-roles.js';
+import { ensureHierarchyTemplates } from './hierarchy-templates.js';
 
 const prisma = new PrismaClient();
 
@@ -451,6 +452,11 @@ async function main() {
     });
   }
   console.log(`  Seeded ${systemKinds.length} system template kinds`);
+
+  // 7. One asset template per hierarchy kind - see ./hierarchy-templates.ts.
+  //    Without them a fresh install cannot create its first block (2026-10-21).
+  const { created } = await ensureHierarchyTemplates(prisma);
+  console.log(`  Hierarchy asset templates: ${created.length} created (${created.join(', ') || 'all present'})`);
 
   await applyInvariants();
 

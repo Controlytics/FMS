@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] - Fresh install could not create its first block (2026-10-21)
+
+- **Go-live blocker, found by the coverage campaign.** A fresh database had **0 `asset_templates`**.
+  Block / Area / AHU are `asset_instances` and need a `templateId`, and a typed filter insert needs an
+  active FILTER template (`fn_mirror_typed_to_asset_instance` raises without one). Nothing creates
+  templates since the templates API was removed, so on a new site "Create Block" answered 400
+  `must have required property 'templateId'` and the hierarchy could never be started.
+- **Fix:** the seed now creates one template per kind (`prisma/hierarchy-templates.ts`, seed step 7).
+  Create-only per kind like every seed write: a site that already has an active template of a kind is
+  untouched (this PC's digilog_db has all four, so an upgrade writes nothing). A name already taken by
+  an inactive / other-kind template gets `"<name> (system)"`. Bundled into `prisma/seed.mjs` by the
+  existing esbuild step; no installer change.
+- **Verified** on a new database built the way the installer builds one (extensions, `migrate deploy`,
+  seed with `SEED_INSTALL_BASELINE=1`): before, 0 templates and Create Block 400; after, 4 templates,
+  block → AHU → filter created through the API; a second seed run creates 0.
+  Guard: `src/__tests__/hierarchy-templates-seed.test.ts`. FMS-Setup-1.2.2 does NOT carry this fix.
+
 ## [Unreleased] - UI redesign Phase 2: shared page header + stat tiles, ~115 pages restyled (2026-10-21)
 
 - **`components/ui/page-header.tsx` + `stat-card.tsx`** replace ~60 hand-rolled title blocks and four
