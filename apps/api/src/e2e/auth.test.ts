@@ -23,8 +23,11 @@ describe('Auth endpoints', () => {
         lockoutUntil: null,
       },
     });
+    // Only the shared `admin` user's sessions - the only user this file signs in
+    // as. Ending EVERY active session (as this did until 2026-10-21) logged out
+    // every other e2e file running at the same time, mid-file.
     await prisma.session.updateMany({
-      where: { isActive: true },
+      where: { isActive: true, user: { username: 'admin' } },
       data: { isActive: false, terminationReason: 'test_cleanup' },
     });
   });
