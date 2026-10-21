@@ -575,8 +575,13 @@ tree since the 7cb6dba run.
 | A-08, A-09 | **ACCEPTED by the operator** — tablet cleartext + user CAs, RFID scanner signing passwords in a tracked file (values remain in history) | operator decision 2026-10-21 |
 | A-14 | **FIXED** — `check:cycles` no longer lists the deleted `packages/queue`; API `test:e2e` uses a vitest path filter | this commit |
 | A-17 | **DOCUMENTED** — root override pins vite 7.3.6; changing the web package's declared range needs a lockfile refresh, deferred to the next dependency update | — |
-| A-04, A-05, A-11 | **PENDING** — in modules the API coverage agents are testing right now; fixed after wave 1 (A-05 = one shared error handler for app.ts and the test harness, which also brings app.ts under test) | — |
+| A-04, A-11 | **IN PROGRESS** — assigned to the coverage agents that own those modules (backup restore + SMS test raw errors; deployment-check `details`; SA console RFID canonical form), failing-first | — |
+| A-05 | **PENDING** — one shared error handler for app.ts and the test harness (brings app.ts under test); done after the agents finish, as it touches the harness every e2e file uses | — |
 | A-10 | **ACCEPTED (low)** — shared synthetic password for perf/QA clone accounts only | — |
-| A-12, A-16 | **TO INVESTIGATE** | — |
+| A-12 | **INVESTIGATED — no defect, UI gap only.** Idle logout reads the Password Policy in both the server sweep and the web timer (20 min here). The `session` row's `sessionDurationHours` (8 h) is a SLIDING expiry, renewed on every request (`plugins/auth.ts:413`), so with auto-logout on it never bites; it matters only when auto-logout is off. It is editable only via `PUT /api/config/session` (re-auth gated): `session.def.ts` points at the Password Policy page, which does not render it. Hard limits: absolute 24 h (`plugins/auth.ts:282`), JWT `JWT_EXPIRY_HOURS` (1 h) with refresh. Bounded and consistent; left as is | read 2026-10-21 |
 | A-13 | **TO DECIDE** — dead-code removal touches template ingestion columns (schema); needs the pre-deletion review | — |
-| A-15 | **IN THE COVERAGE WAVES** — strict route-guard test, notification-type ↔ enum test | — |
+| A-15 | **Route guard FIXED** (`ed1f436`: every route needs `RequireRole` or a reasoned allowlist entry; proven by removing a guard). **Notification type ↔ enum** assigned to the notification coverage agent (type `createNotification` with Prisma `NotificationType`, drop the `as any` casts, literal-scan test) | — |
+| A-16 | **CLOSED — count artifact.** `invariants.sql` and the baseline define the same 6 functions; the 7th `grep` hit is a comment (`invariants.sql:156`). All 6 present in digilog_db, digilog_test_db and a fresh install DB | read-only check 2026-10-21 |
+| Fresh install | **FIXED** — a fresh database had 0 `asset_templates`, so the first block could not be created (400) and a typed filter insert raised; the seed now creates one per kind (create-only) | `19d80f5` |
+| PM D1-D11 | **FIXED** — nine PM defects from the coverage campaign, plus D2/D4b by operator decision | `dbde772`, `b88f754` |
+| `/auth/me` | **FIXED** — a missing user answered `{}` (cached by the web as the signed-in user); now 401 | `85992cb` |
