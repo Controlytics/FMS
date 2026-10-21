@@ -302,6 +302,10 @@ GET  /api/config/password-policy/current — Password policy (public endpoint)
 - Server-side enforcement: `advance()` blocks if pending checklist not completed
 - Cycle auto-completes when last STAGE leads to END node
 - Stage chain may include multiple consecutive CHECKLIST nodes — server uses `stageLookup` to resolve
+- 🔴 **Final stage + checklist = ONE call (2026-10-21, A-01).** A bare `/advance` into the last stage whose
+  enabled checklist follows it is refused online (409 `CHECKLIST_REQUIRED`); clients use
+  `/advance-with-checklist`. Exceptions: a QA-interlock final stage (enter → PENDING approval → checklist
+  after approval) and offline replay (applied, recorded `replayExemptGates: TERMINAL_CHECKLIST`).
 - 🔴 **A DISABLED checklist is skipped wherever it sits (2026-10-12)** — mid-pipeline and before END
   alike, read live (not pinned at cycle start). One rule: `enabledChecklistNodes()` (shared
   `transitions.ts`) over `LocalContext.disabledChecklistProfileIds`, filled by

@@ -8,8 +8,11 @@
 > **Every write path that enters a stage now renders its checklist BEFORE writing
 > anything** — mid-cycle + cycle-start, single + batch, online + offline. Close
 > writes nothing, at any stage. The orphan class is closed.
-> **Phase 2 still pending by design:** the server still ACCEPTS a bare advance so
-> in-flight offline queues can drain. Flip that once they have.
+> **Phase 2 DONE 2026-10-21 (operator decision, A-01):** an ONLINE bare advance into a
+> final stage whose enabled checklist follows it is refused (409 `CHECKLIST_REQUIRED`).
+> Exempt: a QA-interlock final stage (two-step by design) and offline replay (applied,
+> recorded as `replayExemptGates: TERMINAL_CHECKLIST`). Requires tablets on an APK from
+> 2026-07-16 or later.
 > Step 6 (device verification) is operator-only — the queue-replay path can't be
 > self-verified.
 

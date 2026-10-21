@@ -1,50 +1,23 @@
 /**
- * ⚠️  DEFECT-DOCUMENTING TEST — asserts CURRENT (defective) behaviour, 2026-07-15.
+ * Terminal checklist: a BARE advance into the final stage is refused (A-01, FIXED 2026-10-21).
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * THIS TEST PASSES BY ASSERTING A BUG. It is evidence, not a fix.
+ * The defect (2026-07-15 → 2026-10-21)
+ * ------------------------------------
+ * `advance()` persisted the stage transition BEFORE the operator's mandatory
+ * terminal checklist: a checksummed STATE_TRANSITION `filter_events` row, the
+ * FilterDetails state and a hash-chained `audit_trail` row - while Close on the
+ * checklist dialog sends nothing. A §11 record of an attestation that may never
+ * come. Clients moved to dialog-first `advance-with-checklist` on 2026-07-16;
+ * Phase 2 of tasks/ATOMIC-ADVANCE-CHECKLIST-PLAN.md (operator decision
+ * 2026-10-21) now REFUSES the bare route online: 409 CHECKLIST_REQUIRED.
  *
- * The defect
- * ----------
- * `advance()` (apps/api/src/modules/filter-operations/cycle-write/advance.ts)
- * persists the stage transition BEFORE the operator's mandatory terminal
- * checklist is submitted:
- *
- *   - :348-359  eventData + `computeChecksum(eventData)`
- *   - :455      `tx.filterEvent.create({ ...eventData, checksum })`   ← immutable
- *   - :474      `tx.filterDetails.update({ currentLifecycleState: targetState })`
- *   - :531      `auditLog({ action: 'STATE_TRANSITION', ... }, tx)`   ← hash-chained
- *
- * In a pipeline shaped  START → S1 → S2 → CHECKLIST(active) → END, S2 is the
- * TERMINAL stage and carries a mandatory terminal checklist. On the tablet the
- * operator taps "advance to S2"; the advance COMMITS, and only then does the UI
- * render the checklist dialog. Pressing Close makes NO API call (verified) — so
- * the operator walks away and the system permanently asserts, in a checksummed
- * `filter_events` row and a hash-chained `audit_trail` row, that the filter
- * entered its final cleaning stage with its mandatory checklist unanswered.
- * That is a 21 CFR §11 record of an event whose required attestation is absent.
- *
- * The CORRECT half (also asserted here so a later fix cannot regress it)
- * ---------------------------------------------------------------------
- * The cycle does NOT falsely complete. advance.ts:376-395 computes
- * `hasPendingChecklistAfterTarget` — an ACTIVE ChecklistProfile between the
- * target stage and END defers completion (`willComplete === false` at :395), so
- * the completion block at :492-528 is skipped and the cycle stays IN_PROGRESS
- * with completed_at NULL. `submitChecklist()` performs the completion instead.
- *
- * WHEN THE FIX LANDS — update this header and flip these assertions
- * ----------------------------------------------------------------
- * When the atomic advance+checklist fix lands (see
- * `tasks/ATOMIC-ADVANCE-CHECKLIST-PLAN.md`), assertions (a), (b) and (d) below
- * MUST be flipped to expect ZERO persisted rows before checklist submission:
- *
- *   (a) no STATE_TRANSITION FilterEvent for the terminal stage
- *   (b) FilterDetails.currentLifecycleState still at the PREVIOUS stage (S1)
- *   (d) no STATE_TRANSITION audit_trail row for the terminal transition
- *
- * Assertions (c) and (e) and the final completion test document CORRECT
- * behaviour and must keep passing unchanged. This header must be updated at the
- * same time.
+ * This file used to pass by asserting the bug. Its (a), (b), (d) are now flipped
+ * exactly as the old header prescribed (nothing persisted); (c) and (e) are
+ * unchanged; the completion test now goes through the atomic route. Not covered
+ * here (separate tests): the QA-interlock final stage, where the bare advance is
+ * still the correct first step (ahu/advance-with-checklist suites), and offline
+ * replay, which is let through with `replayExemptGates: TERMINAL_CHECKLIST`.
  *
  * Test-infra notes
  * ----------------
@@ -75,7 +48,7 @@ import filterOperationsRoutes from '../routes.js';
 import { prisma } from '../../../lib/prisma.js';
 import { hashPassword } from '../../../lib/password.js';
 import { AppError } from '../../../lib/errors.js';
-import { loginAs } from '../../../e2e/test-helper.js';
+import { loginAs, obtainOfflineGrant } from '../../../e2e/test-helper.js';
 import { randomUUID } from 'node:crypto';
 
 // ── Unique test user (file name + timestamp) ─────────────────────────────────
@@ -121,7 +94,7 @@ async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
-describe('advance() persists a terminal stage transition BEFORE its mandatory checklist (DEFECT, 2026-07-15)', () => {
+describe('a bare advance into the final stage is refused until its checklist is answered (A-01)', () => {
   let app: FastifyInstance;
   let authHeaders: Record<string, string>;
 
@@ -132,6 +105,7 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
   let filterProfileId = '';
   let filterId = '';
   let cycleId = '';
+  let sessionToken = '';
 
   /** GET the live tape version — every write must carry a fresh one (409 STALE_TAPE otherwise). */
   async function freshTape(): Promise<number> {
@@ -273,6 +247,7 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
     app = await buildApp();
     const token = await loginAs(app, TCA_USERNAME, TCA_PASSWORD);
     authHeaders = { authorization: `Bearer ${token}` };
+    sessionToken = token;
   }, 60_000);
 
   afterAll(async () => {
@@ -299,7 +274,7 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
   // The operator sees the checklist dialog only after this advance committed,
   // and presses Close — which makes NO API call. So the test makes none either.
   // ───────────────────────────────────────────────────────────────────────────
-  it('advances START → S1 → S2 without submitting the terminal checklist', async () => {
+  it('advances START → S1; the bare terminal advance to S2 is refused with 409 CHECKLIST_REQUIRED', async () => {
     const startRes = await app.inject({
       method: 'POST',
       url: `/api/filters/${filterId}/start-cycle`,
@@ -319,26 +294,23 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
     expect(toS1.statusCode).toBe(200);
     expect(toS1.json().currentState).toBe('S1');
 
-    // The terminal advance. advance.ts sees S2 → CHECKLIST(active) → END, so
-    // hasPendingChecklistAfterTarget = true and completion is deferred — but the
-    // transition itself is committed right here, before any checklist exists.
+    // The bare terminal advance. advance.ts sees S2 → CHECKLIST(active) → END
+    // (hasPendingChecklistAfterTarget) and, not composed, refuses it.
     const toS2 = await app.inject({
       method: 'POST',
       url: `/api/filters/${filterId}/advance`,
       headers: authHeaders,
       payload: { targetState: 'S2', tapeVersion: await freshTape(), _currentPassword: TCA_PASSWORD },
     });
-    expect(toS2.statusCode).toBe(200);
-    expect(toS2.json().currentState).toBe('S2');
-
-    // ── Operator presses Close. No further request is made. ──
+    expect(toS2.statusCode).toBe(409);
+    expect(toS2.json().error).toBe('CHECKLIST_REQUIRED');
   });
 
   // ───────────────────────────────────────────────────────────────────────────
   // Step 2 — what is now permanently on record.
   // ───────────────────────────────────────────────────────────────────────────
 
-  it('(a) BUGGY: a checksummed STATE_TRANSITION FilterEvent to S2 is already persisted', async () => {
+  it('(a) FIXED: no STATE_TRANSITION FilterEvent to S2 was persisted', async () => {
     // DOCUMENTS BUGGY BEHAVIOUR.
     // advance.ts:455 wrote this row inside the tx, before the operator had any
     // opportunity to answer the mandatory terminal checklist. filter_events is
@@ -349,13 +321,10 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
     const evt = await prisma.filterEvent.findFirst({
       where: { filterId, cycleId, eventType: 'STATE_TRANSITION', toState: 'S2' },
     });
-    expect(evt).not.toBeNull();
-    expect(evt!.fromState).toBe('S1');
-    expect(typeof evt!.checksum).toBe('string');
-    expect(evt!.checksum.length).toBeGreaterThan(0);
+    expect(evt).toBeNull();
   });
 
-  it('(b) BUGGY: FilterDetails.currentLifecycleState already moved to S2', async () => {
+  it('(b) FIXED: FilterDetails.currentLifecycleState is still S1', async () => {
     // DOCUMENTS BUGGY BEHAVIOUR.
     // advance.ts:474. The live filter state says "at the final stage" while the
     // attestation that gates that stage has never been given.
@@ -364,7 +333,7 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
     const details = await prisma.filterDetails.findUnique({
       where: { assetInstanceId: filterId },
     });
-    expect(details!.currentLifecycleState).toBe('S2');
+    expect(details!.currentLifecycleState).toBe('S1');
   });
 
   it('(c) CORRECT: no CHECKLIST_COMPLETED event exists for this cycle', async () => {
@@ -378,7 +347,7 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
     expect(completed).toBe(0);
   });
 
-  it('(d) BUGGY: a hash-chained audit_trail STATE_TRANSITION row is already written', async () => {
+  it('(d) FIXED: no audit_trail STATE_TRANSITION row to S2 was written', async () => {
     // DOCUMENTS BUGGY BEHAVIOUR.
     // advance.ts:531 wrote this inside the same tx. audit_trail is hash-chained
     // and delete-protected: this §11 record cannot be withdrawn if the operator
@@ -393,8 +362,7 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
         afterValue: { path: ['state'], equals: 'S2' },
       },
     });
-    expect(row).not.toBeNull();
-    expect(row!.checksum).toBeTruthy();
+    expect(row).toBeNull();
   });
 
   it('(e) CORRECT: the cycle stays IN_PROGRESS with completed_at NULL — completion is deferred', async () => {
@@ -418,15 +386,16 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
   // Step 3 — the re-scan path: the operator comes back, scans the tag again,
   // and answers the checklist. Only NOW does the cycle complete.
   // ───────────────────────────────────────────────────────────────────────────
-  it('CORRECT: submitting the terminal checklist completes the cycle', async () => {
+  it('CORRECT: the atomic advance-with-checklist enters S2 AND completes the cycle in one step', async () => {
     // DOCUMENTS CORRECT BEHAVIOUR — submitChecklist owns the deferred completion.
     // Must keep passing after the fix (though under an atomic advance+checklist
     // design the transition and this submission would land in ONE transaction).
     const res = await app.inject({
       method: 'POST',
-      url: `/api/filters/${filterId}/submit-checklist`,
+      url: `/api/filters/${filterId}/advance-with-checklist`,
       headers: authHeaders,
       payload: {
+        targetState: 'S2',
         answers: { [checklistQuestionId]: 'YES' },
         tapeVersion: await freshTape(),
         _currentPassword: TCA_PASSWORD,
@@ -448,5 +417,44 @@ describe('advance() persists a terminal stage transition BEFORE its mandatory ch
     });
     expect(checklistEvt).not.toBeNull();
     expect((checklistEvt!.attributes as any).afterStage).toBe('S2');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Offline replay: a queue written by an older client may still carry a bare
+  // terminal advance. It is let through (losing queued operator work would be
+  // worse) but the skipped rule is RECORDED on the event, like every other
+  // replay exemption (CLAUDE.md 2026-09-25).
+  // ───────────────────────────────────────────────────────────────────────────
+  it('offline replay of a bare terminal advance is applied but records replayExemptGates TERMINAL_CHECKLIST', async () => {
+    const grant = await obtainOfflineGrant(app, sessionToken, TCA_PASSWORD);
+    const restart = await app.inject({
+      method: 'POST', url: `/api/filters/${filterId}/start-cycle`, headers: authHeaders,
+      payload: { cleaningReasonKey: REASON_KEY, _currentPassword: TCA_PASSWORD },
+    });
+    expect(restart.statusCode).toBe(201);
+    const secondCycle = restart.json().id as string;
+    const toS1 = await app.inject({
+      method: 'POST', url: `/api/filters/${filterId}/advance`, headers: authHeaders,
+      payload: { targetState: 'S1', tapeVersion: await freshTape(), _currentPassword: TCA_PASSWORD },
+    });
+    expect(toS1.statusCode).toBe(200);
+
+    const replay = await app.inject({
+      method: 'POST', url: `/api/filters/${filterId}/advance`,
+      headers: { ...authHeaders, 'x-offline-replay-token': grant },
+      payload: {
+        targetState: 'S2', tapeVersion: await freshTape(),
+        offlinePerformedAt: new Date().toISOString(), clientOpId: `tca-replay-${SUFFIX}`,
+      },
+    });
+    expect(replay.statusCode).toBe(200);
+    const evt = await prisma.filterEvent.findFirst({
+      where: { filterId, cycleId: secondCycle, eventType: 'STATE_TRANSITION', toState: 'S2' },
+    });
+    expect(evt).not.toBeNull();
+    expect((evt!.attributes as any).replayExemptGates).toContain('TERMINAL_CHECKLIST');
+    // Completion is still deferred to the checklist - replay does not complete the cycle.
+    const cycle = await prisma.cleaningCycle.findUnique({ where: { id: secondCycle } });
+    expect(cycle!.status).toBe('IN_PROGRESS');
   });
 });

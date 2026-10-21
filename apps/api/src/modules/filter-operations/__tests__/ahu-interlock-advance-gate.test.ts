@@ -432,17 +432,21 @@ describe('AHU INTERLOCK is enforced on the advance path (checklist-less pipeline
       cycleId = startRes.json().id as string;
 
       expect((await advance('T1')).statusCode).toBe(200);
-      // The terminal advance. Sibling is still pending, yet this must pass —
-      // the checklist defers completion, so this advance completes nothing.
+      // The terminal BARE advance. Since 2026-10-21 (A-01) it is refused - the
+      // final stage's checklist must be answered in the same step
+      // (advance-with-checklist). What this test still locks is the mutual
+      // exclusivity: the refusal is the checklist rule, NOT the advance path's
+      // AHU gate (AHU_INTERLOCK_PENDING belongs to the checklist half).
       const toT2 = await advance('T2');
-      expect(toT2.statusCode).toBe(200);
-      expect(toT2.json().currentState).toBe('T2');
+      expect(toT2.statusCode).toBe(409);
+      expect(toT2.json().error).toBe('CHECKLIST_REQUIRED');
 
-      // ...and it genuinely did not complete: submit-checklist still owns that,
-      // and its own gate will reject while the sibling is pending.
+      // ...and nothing moved: the filter is still at T1, the cycle open.
       const cycle = await prisma.cleaningCycle.findUnique({ where: { id: cycleId } });
       expect(cycle!.status).toBe('IN_PROGRESS');
       expect(cycle!.completedAt).toBeNull();
+      const details = await prisma.filterDetails.findUnique({ where: { assetInstanceId: filterId } });
+      expect(details!.currentLifecycleState).toBe('T1');
     } finally {
       await prisma.filterProfile.update({
         where: { id: filterProfileId },

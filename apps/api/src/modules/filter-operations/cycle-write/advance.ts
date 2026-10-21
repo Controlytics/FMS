@@ -462,6 +462,33 @@ export async function prepareAdvance(
     }
   }
 
+  // A-01 (operator decision 2026-10-21; Phase 2 of ATOMIC-ADVANCE-CHECKLIST-PLAN).
+  // A BARE advance into the final stage whose mandatory checklist follows it used
+  // to commit the checksummed STATE_TRANSITION event + hash-chained audit row
+  // before the checklist was answered - a §11 record of an attestation that may
+  // never come (Close on the dialog sends nothing). Every client has entered
+  // stages dialog-first through advance-with-checklist since 2026-07-16, so the
+  // bare route is refused online. Offline replay is let through so a queue
+  // written by an older client is not lost, and the skip is RECORDED on the
+  // event and audit row like every other replay exemption.
+  //
+  // NOT refused when the final stage is a QA-interlock stage (WASH_OUT / DRY_OUT
+  // with the interlock on): there the design is two-step - the bare advance
+  // ENTERS the stage and raises the PENDING approval, the checklist is refused
+  // until QA approves, and the approved checklist completes the cycle. The bare
+  // advance is the only correct call in that flow (session 2026-10-08).
+  const finalStageAwaitsQa = interlockConfig.enabled && isInterlockStage(targetState);
+  if (hasPendingChecklistAfterTarget && opts.composedWithChecklist !== true && !finalStageAwaitsQa) {
+    if (!ctx.isOfflineReplay) {
+      throw new AppError(
+        409,
+        'CHECKLIST_REQUIRED',
+        `${prettyStageLabel(targetState)} is the last stage and its checklist must be answered in the same step. Open the checklist and submit it to complete this stage.`,
+      );
+    }
+    replayExemptGates.push('TERMINAL_CHECKLIST');
+  }
+
   // advance's OWN completion — unchanged. When a checklist follows the target
   // stage the checklist half completes the cycle, composed or not.
   const completesCycle = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget;
