@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased] - Web coverage wave: config and filter-page fixes (2026-10-21)
+
+Found by the web coverage tests; each fixed failing-first.
+
+- **Re-auth policy wipe (§11, `bbc09ce`).** When the stored re-auth policy failed to load, Config →
+  Action Re-auth and the Roles re-auth tab fell back to an empty policy and stayed editable. One tick +
+  Save replaced the WHOLE policy, switching off every other password requirement. Now an alert + Retry,
+  with no matrix and no Save until the real policy loads.
+- **Permissions tab could save one role's permissions onto another.** The form was seeded from SWR
+  `onSuccess`, which does not run for a recently fetched key. So switching roles A → B → A within 5 s
+  showed B's boxes under A's name, and Save wrote them to A. The form is now derived on each render.
+- **Other config pages:**
+  - Dynamic config pages: after a failed load, Save was enabled with defaults (that would have
+    overwritten the stored settings).
+  - Notification-rule saves hung forever when signed.
+  - Audit-template previews showed raw placeholders.
+  - A cancelled password prompt was reported as a failure on 24 pages; a guard test now locks this.
+  - Assorted error states and accessible names.
+- **Filter / cleaning pages (`8a2014b`):**
+  - The Cleaning Record date range never reached the server.
+  - Bulk status update disabled every stage for profile-less filters.
+  - A queued Dry In reading could be reported as failed and then submitted twice.
+  - The scan screen could queue the same tag twice.
+  - The configured page size was ignored on a cold load.
+- **Test harness:** options for production SWR deduping, the global SWR cache, multipart bodies, and a
+  literal JSON `null` answer (`7b5bb7b`, `b442d2e`).
+
 ## [Unreleased] - API coverage wave 1: super-admin, backup, notifications fixes (2026-10-21)
 
 Found by the API coverage tests; each fixed failing-first. Full API suite after: 223 files, 2,415
