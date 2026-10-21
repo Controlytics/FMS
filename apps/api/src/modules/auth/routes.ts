@@ -241,7 +241,13 @@ export default async function authRoutes(app: FastifyInstance) {
       },
     },
   }, async (req) => {
-    return authService.getProfile(req.user.sub);
+    const profile = await authService.getProfile(req.user.sub);
+    // The token is valid but its user row is gone (removed by a restore or a
+    // direct delete inside the auth plugin's 30 s user cache). Answer as the
+    // plugin does for a missing user. Returned as null, the 200 schema
+    // serialised it as `{}`, which the web cached as the signed-in user.
+    if (!profile) throw new AppError(401, 'ACCOUNT_INACTIVE', 'Account is not active');
+    return profile;
   });
 
   // PUT /api/auth/profile - Update own profile
