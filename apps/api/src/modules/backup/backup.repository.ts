@@ -284,12 +284,22 @@ export async function getSelfReferencingColumns(): Promise<Record<string, string
   return getSelfRefColumns(await getAllTables());
 }
 
-/** Server major version (e.g. 18) — pg_dump must be at least this new. */
+/**
+ * Server major version (e.g. 18) — pg_dump must be at least this new.
+ *
+ * `SHOW server_version` answers in a column NAMED `server_version`. This read
+ * `rows[0].v` until 2026-10-21 (D5): always undefined, so '' → 0, which disarmed
+ * assertPgDumpVersion (no pg_dump is older than 0) and wrote `serverMajor: 0`
+ * into every dump BACKUP_CREATED audit row. An unreadable answer now throws
+ * rather than guessing.
+ */
 export async function getServerMajorVersion(): Promise<number> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ v: string }>>(`SHOW server_version`);
-  const raw = rows[0]?.v ?? '';
-  const major = Number(raw.split('.')[0]);
-  if (!Number.isFinite(major)) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ server_version?: string }>>(`SHOW server_version`);
+  const raw = String(rows[0]?.server_version ?? '');
+  // "18.3", "17.6 (Ubuntu 17.6-1.pgdg24.04+1)", "18beta1" → the leading digits
+  const match = /^\s*(\d+)/.exec(raw);
+  const major = match ? Number(match[1]) : NaN;
+  if (!Number.isFinite(major) || major <= 0) {
     throw new Error(`Could not parse PostgreSQL server_version from "${raw}".`);
   }
   return major;

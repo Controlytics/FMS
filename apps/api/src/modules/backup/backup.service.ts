@@ -3,7 +3,7 @@ import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import AdmZip from 'adm-zip';
-import { runPgDump, runPgRestore } from './pg-tools.js';
+import { runPgDump, runPgRestore, PgToolError } from './pg-tools.js';
 
 /**
  * Decompression ceiling for uploaded backups (2 GB).
@@ -33,6 +33,7 @@ import {
   getServerMajorVersion,
   resetPublicSchema,
   preserveUnbackedAuditRows,
+  resyncSequencesAfterRestore,
   type BackupChainReport,
 } from './backup.repository.js';
 import {
@@ -71,15 +72,15 @@ function dateStamp(): string {
  * Parse a CSV string into an array of objects using the header row as keys.
  */
 function parseCsvContent(csvString: string): Record<string, any>[] {
-  const lines = csvString.split('\n').filter(l => l.trim());
-  if (lines.length < 2) return [];
+  const records = parseCsvRecords(csvString);
+  if (records.length < 2) return [];
 
   // Parse header
-  const headers = parseCsvLine(lines[0]);
+  const headers = records[0];
   const rows: Record<string, any>[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCsvLine(lines[i]);
+  for (let i = 1; i < records.length; i++) {
+    const values = records[i];
     const row: Record<string, any> = {};
     for (let j = 0; j < headers.length; j++) {
       let val: any = values[j] ?? '';
@@ -113,25 +114,48 @@ function parseCsvContent(csvString: string): Record<string, any>[] {
   return rows;
 }
 
-/** Parse a single CSV line respecting quoted fields */
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
+/**
+ * Split CSV text into records of fields, honouring quotes ACROSS line breaks.
+ *
+ * D4 (2026-10-21): this used to split the whole file on '\n' first and only then
+ * parse quotes line by line. escapeCsvValue quotes any value containing a line
+ * break, so a multi-line cell (the seeded help_articles.content, a multi-line
+ * remark) was cut into fragments that shifted every later column — restoring
+ * the app's own CSV export failed with 22P02 on a uuid column. A record now ends
+ * only at a line break OUTSIDE quotes; CRLF and a bare CR end a record too. A
+ * line break inside quotes is kept verbatim. Blank lines are skipped, as before.
+ */
+function parseCsvRecords(csv: string): string[][] {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  const endRecord = () => {
+    record.push(field);
+    field = '';
+    if (!(record.length === 1 && record[0].trim() === '')) records.push(record);
+    record = [];
+  };
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
     if (inQuotes) {
-      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+      if (ch === '"' && csv[i + 1] === '"') { field += '"'; i++; }
       else if (ch === '"') { inQuotes = false; }
-      else { current += ch; }
+      else { field += ch; }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      record.push(field);
+      field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && csv[i + 1] === '\n') i++;
+      endRecord();
     } else {
-      if (ch === '"') { inQuotes = true; }
-      else if (ch === ',') { result.push(current); current = ''; }
-      else { current += ch; }
+      field += ch;
     }
   }
-  result.push(current);
-  return result;
+  if (field !== '' || record.length > 0) endRecord();
+  return records;
 }
 
 /**
@@ -189,6 +213,8 @@ function parseSqlBackup(sqlContent: string): BackupData {
 
     cursor = valuesEnd + 1; // past this statement's close paren
   }
+
+  applySelfReferenceUpdates(sqlContent.slice(cursor), data);
 
   // Extract metadata from SQL comments
   let generatedBy = 'unknown';
@@ -309,6 +335,37 @@ function parseSqlValues(valuesStr: string): any[] {
 }
 
 /**
+ * D2 (2026-10-21): apply the exporter's second pass for self-referencing FKs.
+ *
+ * buildSqlScript writes every self-referencing column (asset_instances.parent_id)
+ * as NULL in its INSERT and restores it afterwards with
+ *   UPDATE "<table>" SET "<col>" = <value> WHERE "id" = <value>;
+ * so that psql never meets a child before its parent. The in-app importer read
+ * only the INSERTs, so restoring a .sql backup silently unparented every
+ * asset_instance — the whole Block → Area → AHU → Filter tree — and answered 200.
+ *
+ * `tail` is the script AFTER the last INSERT the scanner consumed, which is where
+ * the exporter writes this pass; text inside an INSERT value can therefore never
+ * be applied. Values use the same literal syntax as the INSERTs (escapeSqlValue),
+ * so they go through the same parser. An UPDATE for a table or id the file does
+ * not contain is ignored: there is no row in this backup for it to change.
+ */
+function applySelfReferenceUpdates(tail: string, data: Record<string, any[]>): void {
+  const literal = `('(?:[^']|'')*'|[^\\s;]+)`;
+  const updateRegex = new RegExp(`UPDATE "([^"]+)" SET "([^"]+)" = ${literal} WHERE "id" = ${literal};`, 'g');
+  for (const m of tail.matchAll(updateRegex)) {
+    const [, table, column, valueSql, idSql] = m;
+    const rows = data[table];
+    if (!rows) continue;
+    const [id] = parseSqlValues(idSql);
+    const row = rows.find(r => r.id != null && String(r.id) === String(id));
+    if (!row) continue;
+    const [value] = parseSqlValues(valueSql);
+    row[column] = value ?? null;
+  }
+}
+
+/**
  * Given a serialized SQL VALUES list, scan from `start` (the first char AFTER
  * the opening `(`) and return the index of the matching TOP-LEVEL `)` — the one
  * that is NOT inside a quoted string. Single quotes escape as `''` (SQL
@@ -341,8 +398,26 @@ function findValuesClose(sql: string, start: number): number {
  * Parse a CSV ZIP backup into BackupData.
  */
 function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
-  const zip = new AdmZip(rawBuffer);
-  const entries = zip.getEntries();
+  // D9 (2026-10-21): a file with the ZIP signature but no readable archive made
+  // AdmZip throw an UNCODED error, which both routes reported as a 500 (and
+  // /restore echoed AdmZip's text). It is a bad upload: a coded INVALID_ZIP.
+  const invalidZip = (err: unknown) => Object.assign(
+    new Error('Backup file is not a valid ZIP archive. Upload the .zip produced by the CSV export, unmodified.'),
+    { code: 'INVALID_ZIP', cause: err },
+  );
+  let entries: AdmZip.IZipEntry[];
+  try {
+    entries = new AdmZip(rawBuffer).getEntries();
+  } catch (err) {
+    throw invalidZip(err);
+  }
+  const readEntry = (entry: AdmZip.IZipEntry): string => {
+    try {
+      return entry.getData().toString('utf-8');
+    } catch (err) {
+      throw invalidZip(err);
+    }
+  };
 
   // AdmZip decompresses entries fully into memory, so a zip bomb inside the
   // 100 MB upload cap can exhaust the heap before any of our parsing runs. The
@@ -361,8 +436,9 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
   let generatedBy = 'unknown';
   let timestamp = new Date().toISOString();
   if (metaEntry) {
+    const metaText = readEntry(metaEntry);
     try {
-      const meta = JSON.parse(metaEntry.getData().toString('utf-8'));
+      const meta = JSON.parse(metaText);
       generatedBy = meta.generatedBy ?? 'unknown';
       timestamp = meta.timestamp ?? timestamp;
     } catch (err) {
@@ -379,8 +455,7 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
     if (!entry.entryName.endsWith('.csv')) continue;
 
     const tableName = entry.entryName.replace('.csv', '');
-    const csvContent = entry.getData().toString('utf-8');
-    data[tableName] = parseCsvContent(csvContent);
+    data[tableName] = parseCsvContent(readEntry(entry));
   }
 
   return {
@@ -577,23 +652,49 @@ export async function exportDump(
   const dir = await mkdtemp(join(tmpdir(), 'digilog-backup-'));
   const filePath = join(dir, filename);
 
-  await runPgDump(filePath, { serverMajor });
-  const { size } = await stat(filePath);
+  // D10 (2026-10-21): on any failure below the directory used to be left in
+  // %TEMP% — with whatever partial archive pg_dump had written, which carries
+  // live password hashes. Only a successful export hands the directory to the
+  // caller (the route removes it once the download has been streamed).
+  let handedOff = false;
+  try {
+    await runPgDump(filePath, { serverMajor });
+    const { size } = await stat(filePath);
 
-  await auditLog({
-    userId: ctx.userId,
-    userRole: ctx.userRole,
-    action: 'BACKUP_CREATED',
-    targetType: 'system',
-    targetId: 'database_backup',
-    afterValue: { format: 'dump', timestamp: new Date().toISOString(), bytes: size, serverMajor },
-    signatureMeaning: 'Full pg_dump database backup created by administrator',
-    ipAddress: ctx.ipAddress,
-    userAgent: ctx.userAgent,
-    sessionId: ctx.sessionId,
-  });
+    await auditLog({
+      userId: ctx.userId,
+      userRole: ctx.userRole,
+      action: 'BACKUP_CREATED',
+      targetType: 'system',
+      targetId: 'database_backup',
+      afterValue: { format: 'dump', timestamp: new Date().toISOString(), bytes: size, serverMajor },
+      signatureMeaning: 'Full pg_dump database backup created by administrator',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      sessionId: ctx.sessionId,
+    });
 
-  return { filePath, filename, cleanup: () => rm(dir, { recursive: true, force: true }) };
+    handedOff = true;
+    return { filePath, filename, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  } finally {
+    if (!handedOff) {
+      // The export's own error is what the caller must see; a failed cleanup is logged, not thrown.
+      await rm(dir, { recursive: true, force: true })
+        .catch((err) => backupLog.warn({ err, dir }, 'Could not remove the temp directory of a failed dump export'));
+    }
+  }
+}
+
+/**
+ * What a failed pg_dump restore may tell the CLIENT about its cause. A PgToolError
+ * carries pg_dump / pg_restore's own output, which the operator needs to act on.
+ * Anything else (a Prisma error from the audit-row carry-over, for one) embeds
+ * source paths and SQL, so it stays in the server log only (CLAUDE.md strict audit).
+ */
+function restoreFailureReason(err: unknown): string {
+  return err instanceof PgToolError
+    ? err.message
+    : 'An internal error stopped the restore (details are in the server log).';
 }
 
 /**
@@ -650,29 +751,42 @@ export async function restoreDump(
       await resetPublicSchema();
       await runPgRestore(archivePath);
       auditRowsPreserved = await prisma.$transaction(
-        async (tx: unknown) => preserveUnbackedAuditRows(tx, 'digilog_keep.audit_trail'),
+        async (tx: unknown) => {
+          const kept = await preserveUnbackedAuditRows(tx, 'digilog_keep.audit_trail');
+          // D1 (2026-10-21): pg_restore set audit_trail_chain_position_seq back
+          // to its value at dump time, but the rows just carried over sit ABOVE
+          // it (BACKUP_CREATED, written after every dump, is always one of them).
+          // Without this the next audit row reused a taken chain_position and
+          // verify-chain reported the chain broken. Same realignment as the
+          // JSON/BAK path; only audit_trail gained rows the archive lacks — the
+          // archive's other sequences arrive consistent with its own data.
+          await resyncSequencesAfterRestore(tx, ['audit_trail']);
+          return kept;
+        },
         { timeout: 300_000, maxWait: 30_000 },
       );
       await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`);
-    } catch (restoreErr: any) {
+    } catch (restoreErr: unknown) {
+      backupLog.error({ err: restoreErr }, 'pg_dump restore failed — rolling back from the safety dump');
       // 4. Put the database back the way we found it.
       let rollbackNote = '';
       try {
         await resetPublicSchema();
         await runPgRestore(safetyPath);
         rollbackNote = ' The database was rolled back to its pre-restore state.';
-      } catch (rollbackErr: any) {
+      } catch (rollbackErr: unknown) {
+        backupLog.error({ err: rollbackErr, safetyPath }, 'Rollback from the safety dump ALSO failed');
         rollbackNote =
-          ` CRITICAL: the rollback ALSO failed (${rollbackErr.message}). The database may be empty.`
+          ` CRITICAL: the rollback ALSO failed (${restoreFailureReason(rollbackErr)}). The database may be empty.`
           + ` A safety copy was written to ${safetyPath} — do not delete it.`;
         // Keep the safety dump on disk for manual recovery.
         preserveDir = true;
-        throw Object.assign(new Error(`${restoreErr.message}${rollbackNote}`), {
+        throw Object.assign(new Error(`${restoreFailureReason(restoreErr)}${rollbackNote}`), {
           code: 'RESTORE_FAILED_NO_ROLLBACK',
           keepDir: dir,
         });
       }
-      throw Object.assign(new Error(`${restoreErr.message}${rollbackNote}`), { code: 'RESTORE_FAILED' });
+      throw Object.assign(new Error(`${restoreFailureReason(restoreErr)}${rollbackNote}`), { code: 'RESTORE_FAILED' });
     }
 
     const timestamp = new Date().toISOString();

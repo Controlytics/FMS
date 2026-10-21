@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestContext } from '../../types/context.js';
 import { z } from 'zod';
+import type { NotificationType } from '@prisma/client';
 import { parseRangeEnd } from '../../lib/date-range-guard.js';
 
 // The visibility rule lives ONCE in ./visibility.ts (M30, 2026-10-19).
@@ -261,8 +262,14 @@ function assertNotificationVisible(notif: any, userRole: string, username: strin
 }
 
 // Exported for use by other modules (auth.service.ts, user.service.ts)
+//
+// A-15 (2026-10-21): `type` is Prisma's generated NotificationType, so a value
+// missing from `enum NotificationType` fails tsc at the call site. It used to be
+// a hand-written union that could drift from the schema — QA-D005: three
+// BLOCK_CHANGE_* types were not in the enum for five months, and every one of
+// those inserts failed Postgres's enum check and was lost.
 export async function createNotification(data: {
-  type: 'ACCOUNT_LOCKED' | 'ACCOUNT_DISABLED' | 'ACCOUNT_ENABLED' | 'PASSWORD_RESET_REQUEST' | 'PASSWORD_RESET_APPROVED' | 'PASSWORD_RESET_REJECTED' | 'USER_CREATED' | 'USER_UPDATED' | 'ROLE_CHANGED' | 'BLOCK_CHANGE_REQUESTED' | 'BLOCK_CHANGE_APPROVED' | 'BLOCK_CHANGE_REJECTED' | 'PM_OVERDUE' | 'PM_OVERDUE_COMPLETED' | 'PM_SCHEDULE_QNN' | 'GUEST_CLEANING_REQUEST' | 'REPORT_REVIEW_REQUESTED' | 'REPORT_REVIEW_APPROVED' | 'REPORT_REVIEW_REJECTED' | 'STAGE_APPROVAL_REQUESTED' | 'STAGE_APPROVAL_APPROVED' | 'STAGE_APPROVAL_REJECTED' | 'PASSWORD_EXPIRY_WARNING' | 'PASSWORD_EXPIRED_NOTICE';
+  type: NotificationType;
   title: string;
   message: string;
   targetUserId?: string;

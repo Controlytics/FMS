@@ -23,6 +23,29 @@ const channels: Record<string, NotificationChannel> = {
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [5000, 15000, 45000]; // exponential-ish backoff
 
+/** What the caller (and the log row) is told when a channel throws instead of answering. */
+const INTERNAL_DELIVERY_ERROR = 'Delivery failed because of an internal error. The details are in the server log.';
+
+/**
+ * Run one delivery attempt. A channel's contract is to ANSWER — success or a
+ * failed DeliveryResult — but if one throws (its configuration could not even be
+ * loaded, or a future channel forgets a catch) the attempt is a failure like any
+ * other: it is retried and the log row moves on to RETRYING / FAILED.
+ *
+ * D3 (2026-10-21): a throw used to escape sendNotification, so the caller got an
+ * exception (POST /sms/test answered 500), the row it had just written stayed
+ * PENDING forever (failStrandedRetries only closes RETRYING rows), and no retry
+ * was scheduled. The thrown text is logged, not returned: it can be Prisma's.
+ */
+async function attemptSend(channel: NotificationChannel, payload: NotificationPayload): Promise<DeliveryResult> {
+  try {
+    return await channel.send(payload);
+  } catch (err) {
+    deliveryLog.error({ err, notificationChannel: payload.channel }, 'Notification channel threw; recorded as a failed attempt');
+    return { success: false, error: INTERNAL_DELIVERY_ERROR };
+  }
+}
+
 /**
  * Send a notification through the specified channel with logging and retry.
  */
@@ -32,12 +55,14 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
     return { success: false, error: `Unknown channel: ${payload.channel}` };
   }
 
-  // Resolve template variables if provided
+  // Resolve template variables if provided. D7 (2026-10-21): only an e-mail BODY
+  // is HTML, so only it gets escaped values; an SMS and every Subject line are
+  // plain text (the e-mail channel escapes the subject where it embeds it).
   let message = payload.message;
   let subject = payload.subject;
   if (payload.variables && Object.keys(payload.variables).length > 0) {
-    message = resolveTemplate(message, payload.variables);
-    if (subject) subject = resolveTemplate(subject, payload.variables);
+    message = resolveTemplate(message, payload.variables, payload.channel === 'EMAIL' ? 'html' : 'text');
+    if (subject) subject = resolveTemplate(subject, payload.variables, 'text');
   }
 
   // Create log entry
@@ -57,7 +82,7 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
 
   // Attempt delivery
   const resolvedPayload = { ...payload, message, subject };
-  const result = await channel.send(resolvedPayload);
+  const result = await attemptSend(channel, resolvedPayload);
 
   if (result.success) {
     await prisma.notificationLog.update({
@@ -115,7 +140,8 @@ async function scheduleRetry(logId: string, payload: NotificationPayload, attemp
   const channel = channels[payload.channel];
   if (!channel) return;
 
-  const result = await channel.send(payload);
+  // A throw here used to reject scheduleRetry, leaving the row RETRYING until the next restart (D3).
+  const result = await attemptSend(channel, payload);
 
   if (result.success) {
     await prisma.notificationLog.update({
@@ -181,7 +207,14 @@ export async function failStrandedRetries(): Promise<{ failed: number }> {
 export async function testChannel(channelName: 'EMAIL' | 'SMS'): Promise<DeliveryResult> {
   const channel = channels[channelName];
   if (!channel) return { success: false, error: `Unknown channel: ${channelName}` };
-  return channel.testConnection();
+  // Same contract as a send: a test answers, it does not throw (a 500 on the
+  // "Test connection" button tells the admin nothing).
+  try {
+    return await channel.testConnection();
+  } catch (err) {
+    deliveryLog.error({ err, notificationChannel: channelName }, 'Notification channel test threw');
+    return { success: false, error: INTERNAL_DELIVERY_ERROR };
+  }
 }
 
 /**

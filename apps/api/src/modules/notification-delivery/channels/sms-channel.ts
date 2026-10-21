@@ -208,15 +208,16 @@ export const smsChannel: IChannel = {
 
     const message = payload.message.replace(/<[^>]*>/g, '').substring(0, 1600);
 
-    switch (config.provider) {
-      case 'twilio':
-        return sendViaTwilio(config, phone, message);
-      case 'vonage':
-        return sendViaVonage(config, phone, message);
-      case 'http-gateway':
-        return sendViaHttpGateway(config, phone, message);
-      default:
-        return { success: false, error: `Unknown SMS provider: ${config.provider}` };
+    // D3 (2026-10-21): the provider calls throw on a transport error (fetch
+    // failed, timeout), on an SSRF-blocked gateway URL (hardenedFetch) and on a
+    // reply that is not JSON (Twilio / Vonage behind a proxy's HTML error page).
+    // Those used to escape send(): the caller got an exception and the log row
+    // stayed PENDING. They are failed sends like any other: the reason goes back
+    // in the DeliveryResult, so the attempt is logged and retried.
+    try {
+      return await sendViaProvider(config, phone, message);
+    } catch (err) {
+      return { success: false, error: `SMS request failed (${config.provider}): ${err instanceof Error ? err.message : String(err)}` };
     }
   },
 
@@ -243,3 +244,17 @@ export const smsChannel: IChannel = {
     return { success: true, messageId: 'config-validated' };
   },
 };
+
+/** One call to the configured provider. May throw — smsChannel.send turns that into a failed result. */
+async function sendViaProvider(config: SmsConfig, phone: string, message: string): Promise<DeliveryResult> {
+  switch (config.provider) {
+    case 'twilio':
+      return sendViaTwilio(config, phone, message);
+    case 'vonage':
+      return sendViaVonage(config, phone, message);
+    case 'http-gateway':
+      return sendViaHttpGateway(config, phone, message);
+    default:
+      return { success: false, error: `Unknown SMS provider: ${config.provider}` };
+  }
+}

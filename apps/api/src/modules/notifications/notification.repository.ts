@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { visibilityWhere } from './visibility.js';
+import type { NotificationType } from '@prisma/client';
 
 export const notificationRepository = {
   async findMany(where: Record<string, unknown>, skip: number, take?: number) {
@@ -18,8 +19,10 @@ export const notificationRepository = {
     return prisma.notification.findUnique({ where: { id } });
   },
 
+  // A-15 (2026-10-21): typed with Prisma's NotificationType and written without a
+  // cast — `type: string` + `as any` let an out-of-enum value reach Postgres.
   async create(data: {
-    type: string;
+    type: NotificationType;
     title: string;
     message: string;
     targetUserId?: string;
@@ -30,7 +33,7 @@ export const notificationRepository = {
   }) {
     return prisma.notification.create({
       data: {
-        type: data.type as any,
+        type: data.type,
         title: data.title,
         message: data.message,
         targetUserId: data.targetUserId,

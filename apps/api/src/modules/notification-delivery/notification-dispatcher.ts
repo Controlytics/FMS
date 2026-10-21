@@ -2,6 +2,7 @@
  * Notification Dispatcher — Central service that matches events to notification rules,
  * resolves recipients, and dispatches via the delivery service.
  */
+import { NotificationType, type NotificationEventType, type Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { sendNotification } from './delivery.service.js';
 import { resolveTemplate } from './template-engine.js';
@@ -11,8 +12,18 @@ import { getLogger } from '../../lib/logger.js';
 /** Log type 6 — notification delivery is background work with external deps. */
 const notifyLog = getLogger('notifications', 'services');
 
+const NOTIFICATION_TYPES = new Set<string>(Object.values(NotificationType));
+
+/** True when `value` is a member of the database's `enum NotificationType`. */
+function isNotificationType(value: string): value is NotificationType {
+  return NOTIFICATION_TYPES.has(value);
+}
+
 interface DispatchEvent {
-  eventType: string;
+  // A-15 (2026-10-21): typed with the rule enum (every value of which is also a
+  // NotificationType), so the in-app insert needs no `as any`. A value outside
+  // it can only arrive through an untyped caller and is refused at the insert.
+  eventType: NotificationEventType;
   context: Record<string, unknown>;
   variables: Record<string, string>;
   forceRuleId?: string; // For testing a specific rule
@@ -75,13 +86,11 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
   }).filter(line => !line.endsWith(': ')).join('\n');
   variables.smsDetails = smsLines;
 
-  // Find matching active rules (match against eventTypes array)
-  const where: any = { isActive: true, eventTypes: { has: eventType as any } };
-  if (forceRuleId) {
-    where.id = forceRuleId;
-    delete where.isActive; // Allow testing inactive rules
-    delete where.eventTypes; // Allow testing regardless of event type
-  }
+  // Find matching active rules (match against eventTypes array). A test fire
+  // (forceRuleId) reaches its rule whether or not it is active, for any event type.
+  const where: Prisma.NotificationRuleWhereInput = forceRuleId
+    ? { id: forceRuleId }
+    : { isActive: true, eventTypes: { has: eventType } };
 
   // [Dispatcher] querying rules
   const rules = await prisma.notificationRule.findMany({
@@ -147,8 +156,9 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
 
       // Email
       if (rule.emailEnabled && emailTemplate && user.email) {
-        const subject = resolveTemplate(emailTemplate.subject, userVars);
-        const body = resolveTemplate(emailTemplate.bodyTemplate, userVars);
+        // D7: the body is HTML (values escaped); the subject is a plain-text header.
+        const subject = resolveTemplate(emailTemplate.subject, userVars, 'text');
+        const body = resolveTemplate(emailTemplate.bodyTemplate, userVars, 'html');
         // [Dispatcher] sending email
         sendNotification({
           channel: 'EMAIL',
@@ -165,7 +175,7 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
         const phone = (configMap.get(`user-phone-${user.id}`) as any)?.phone;
         // [Dispatcher] checking SMS for user
         if (phone) {
-          const body = resolveTemplate(smsTemplate.bodyTemplate, userVars);
+          const body = resolveTemplate(smsTemplate.bodyTemplate, userVars, 'text');
           // [Dispatcher] sending SMS
           sendNotification({
             channel: 'SMS',
@@ -177,16 +187,23 @@ export async function dispatchNotification(event: DispatchEvent): Promise<void> 
         }
       }
 
-      // In-App
-      if (rule.inAppEnabled) {
+      // In-App. A-15 (2026-10-21): only a NotificationType enum value is ever
+      // inserted. An event outside the enum (possible only through an untyped
+      // caller) used to be written `as any`, fail Postgres's enum check and be
+      // lost; it is now refused here, before the insert, and logged.
+      if (rule.inAppEnabled && !isNotificationType(eventType)) {
+        notifyLog.warn({ eventType, rule: rule.name, user: user.username }, 'In-app notification skipped: event type is not a NotificationType');
+      } else if (rule.inAppEnabled) {
+        // Plain text: the web renders in-app messages as text, never as HTML (D7).
         const message = resolveTemplate(
           getDefaultInAppMessage(eventType),
           userVars,
+          'text',
         );
         try {
           await prisma.notification.create({
             data: {
-              type: eventType as any,
+              type: eventType,
               title: rule.name,
               message,
               // forUserId is VarChar(50) and the visibility filter compares it

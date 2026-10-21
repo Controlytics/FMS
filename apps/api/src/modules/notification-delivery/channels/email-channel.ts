@@ -9,6 +9,7 @@ import dns from "dns";
 import type { EmailConfig, NotificationPayload, DeliveryResult, NotificationChannel as IChannel } from '../types.js';
 import { getEmailConfig } from '../config-loader.js';
 import { hardenedFetch } from '../../../lib/ssrf.js';  // SAST-01: admin-typed tokenUrl
+import { escapeHtml, unescapeHtml } from '../template-engine.js';
 
 let transporter: nodemailer.Transporter | null = null;
 let currentConfigHash = "";
@@ -244,12 +245,16 @@ async function getTransporter(config: EmailConfig): Promise<nodemailer.Transport
  */
 function wrapInHtmlTemplate(subject: string, body: string, isHtml: boolean): string {
   const content = isHtml ? body : body.replace(/\n/g, '<br>');
+  // D7 (2026-10-21): the subject is plain text (it is also the Subject header),
+  // so it is escaped where it is embedded in HTML. It used to arrive pre-escaped
+  // from the template engine, which put `&amp;` / `&lt;` in the Subject header.
+  const safeSubject = escapeHtml(subject);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${subject}</title>
+  <title>${safeSubject}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f6f8;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;">
   <div style="max-width:600px;margin:20px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
@@ -257,7 +262,7 @@ function wrapInHtmlTemplate(subject: string, body: string, isHtml: boolean): str
       <h1 style="color:#ffffff;margin:0;font-size:20px;font-weight:600;">DigiLog Notification</h1>
     </div>
     <div style="padding:32px;">
-      <h2 style="color:#1e293b;margin:0 0 16px 0;font-size:18px;">${subject}</h2>
+      <h2 style="color:#1e293b;margin:0 0 16px 0;font-size:18px;">${safeSubject}</h2>
       <div style="color:#475569;font-size:14px;line-height:1.7;">
         ${content}
       </div>
@@ -294,7 +299,8 @@ export const emailChannel: IChannel = {
         from: `"${config.fromName}" <${config.fromEmail}>`,
         to: payload.recipient,
         subject: payload.subject ?? 'DigiLog Notification',
-        text: payload.message.replace(/<[^>]*>/g, ''),
+        // D7: the text alternative is plain text — no tags, and no entities either.
+        text: unescapeHtml(payload.message.replace(/<[^>]*>/g, '')),
         html: htmlBody,
       });
 

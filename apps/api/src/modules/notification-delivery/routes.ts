@@ -384,7 +384,16 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
         </script>
       </body></html>`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      // This endpoint is PUBLIC (no JWT). A token-endpoint or network failure
+      // keeps its reason — the admin needs it to fix the app registration — but a
+      // database error is Prisma text (source path + SQL) and stays in the server
+      // log (2026-10-21; CLAUDE.md strict audit).
+      const name = (err as { name?: unknown })?.name;
+      const isDatabaseError = typeof name === 'string' && name.startsWith('PrismaClient');
+      if (isDatabaseError) req.log.error({ err }, 'OAuth2 callback failed on a database error');
+      const msg = isDatabaseError
+        ? 'The authorization could not be completed because of an internal error. The details are in the server log.'
+        : err instanceof Error ? err.message : String(err);
       return reply.type('text/html').send(`<html><body><h2>Error</h2><p>${escapeHtml(msg)}</p><script>window.close();</script></body></html>`);
     }
   });

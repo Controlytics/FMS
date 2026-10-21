@@ -141,10 +141,13 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     const body = req.body as any;
     const ctx = buildContext(req);
     // Audit 2026-09-24 (B-F11): whitelist — an unknown key used to reach Prisma
-    // and 500, and id/createdAt were client-settable.
+    // and 500, and id/createdAt were client-settable. D6 (2026-10-21): `priority`
+    // was missing from it, so a rule created from the page (which sends it) was
+    // stored at 0; the schema accepts it, PUT keeps it, and the dispatcher orders
+    // rules by it.
     const { recipients } = body;
     const ruleData: any = {};
-    for (const k of ['name', 'description', 'eventType', 'eventTypes', 'conditions', 'emailEnabled', 'smsEnabled', 'inAppEnabled', 'emailTemplateId', 'smsTemplateId', 'cooldownMinutes', 'isActive'] as const) {
+    for (const k of ['name', 'description', 'eventType', 'eventTypes', 'conditions', 'emailEnabled', 'smsEnabled', 'inAppEnabled', 'emailTemplateId', 'smsTemplateId', 'cooldownMinutes', 'priority', 'isActive'] as const) {
       if (body[k] !== undefined) ruleData[k] = body[k];
     }
 
@@ -369,14 +372,18 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
 
     try {
       await dispatchNotification({
-        eventType: rule.eventType as any,
+        eventType: rule.eventType, // NotificationEventType — no cast (A-15)
         context: {},
         variables: testVars,
         forceRuleId: id,
       });
       return { success: true, message: `Test notification dispatched for rule "${rule.name}"` };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (err) {
+      // 2026-10-21: this returned err.message — a Prisma message (source path +
+      // SQL) when the database fails mid-dispatch. Only AppError text may reach a
+      // client (CLAUDE.md strict audit); the detail goes to the server log.
+      req.log.error({ err, ruleId: id }, 'Notification rule test dispatch failed');
+      return { success: false, error: 'The test dispatch failed because of an internal error. The details are in the server log.' };
     }
   });
 }

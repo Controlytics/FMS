@@ -216,10 +216,14 @@ export default async function backupRoutes(app: FastifyInstance) {
           message: err.message || 'Invalid restore request.',
         });
       }
-      app.log.error(err);
+      // 2026-10-21: the body used to carry err.message — for a failed restore
+      // that is Prisma's text, with source paths and the failing SQL (CLAUDE.md
+      // strict audit: only AppError messages may reach a client). The detail is
+      // in the server log.
+      app.log.error({ err, url: req.url, user: req.user?.username }, 'Database restore failed');
       return reply.code(500).send({
         error: 'RESTORE_FAILED',
-        message: err.message || 'Database restore failed.',
+        message: 'Database restore failed. The details are in the server log.',
       });
     }
   });
@@ -294,7 +298,9 @@ export default async function backupRoutes(app: FastifyInstance) {
       const result = await backupService.validate(rawBuffer);
       return result;
     } catch (err: any) {
-      if (err.code && ['INVALID_BAK', 'INVALID_JSON', 'INVALID_BACKUP'].includes(err.code)) {
+      // D8 (2026-10-21): INVALID_ZIP (zip-bomb guard, unreadable archive) is a bad
+      // upload here exactly as on /restore; it used to fall through to a 500.
+      if (err.code && ['INVALID_ZIP', 'INVALID_BAK', 'INVALID_JSON', 'INVALID_BACKUP'].includes(err.code)) {
         return reply.code(400).send({ valid: false, error: err.code, message: err.message });
       }
       throw err;
