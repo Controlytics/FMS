@@ -17,21 +17,13 @@
  * asserted by each page's "(item 9)" cancel tests.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
+import { listFiles, readSource } from '@/__tests__/support/source-files';
 
 const ROOT = resolve(__dirname, '..');
 
 /** Every non-test .tsx under routes/config. */
-function configFiles(dir = ROOT): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const p = resolve(dir, name);
-    if (statSync(p).isDirectory()) { if (name !== '__tests__') out.push(...configFiles(p)); }
-    else if (p.endsWith('.tsx') && !p.endsWith('.test.tsx')) out.push(p);
-  }
-  return out;
-}
+const configFiles = () => listFiles(ROOT, (name) => name.endsWith('.tsx') && !name.endsWith('.test.tsx'));
 
 /**
  * Replace comments with spaces (newlines kept, so offsets and line numbers
@@ -104,7 +96,10 @@ function callArgs(src: string, open: number): string {
 
 /** Every reauth `.execute(` call in a file, as `file:line`, and whether it passes onCancel. */
 function executeCalls(file: string): { site: string; hasOnCancel: boolean }[] {
-  const src = stripComments(readFileSync(file, 'utf8'));
+  const raw = readSource(file);
+  // a `useReauth()` hook below needs the name in the file; without it there is no call to check
+  if (!raw.includes('useReauth')) return [];
+  const src = stripComments(raw);
   // A file may hold several components, each with its own `const reauth = useReauth()`.
   const hooks = new Set([...src.matchAll(/\bconst\s+(\w+)\s*=\s*useReauth\(\)/g)].map((m) => m[1]));
   const found: { site: string; hasOnCancel: boolean }[] = [];

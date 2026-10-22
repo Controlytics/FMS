@@ -22,11 +22,11 @@
  *     FORWARDERS, and an unlisted forwarder fails the guard by itself.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { relative } from 'node:path';
 import ts from 'typescript';
+import { listFiles, readSource, WEB_SRC } from './support/source-files';
 
-const SRC = join(__dirname, '..');
+const SRC = WEB_SRC;
 const CANCEL_CHECK = /\bisReauthCancelled\b|\bisReauthAbort\b|\bsignOnce\b|['"]REAUTH_CANCELLED['"]/;
 
 interface Forwarder {
@@ -43,14 +43,9 @@ const FORWARDERS: Forwarder[] = [
   { file: 'hooks/use-block-change-approval.ts', name: 'processBlockChange', optsIndex: 3 },
 ];
 
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    if (name === '__tests__' || name === 'node_modules') return [];
-    if (statSync(p).isDirectory()) return walk(p);
-    return /\.tsx?$/.test(name) && !/\.(test|spec)\.tsx?$/.test(name) && !name.endsWith('.d.ts') ? [p] : [];
-  });
-}
+const walk = (dir: string) => listFiles(dir,
+  (name) => /\.tsx?$/.test(name) && !/\.(test|spec)\.tsx?$/.test(name) && !name.endsWith('.d.ts'),
+  ['__tests__', 'node_modules']);
 
 /**
  * Offending re-auth calls in one source file, as "line: what is wrong".
@@ -196,7 +191,7 @@ describe('re-auth cancel handling — every call site in apps/web/src', () => {
       const rel = relative(SRC, f).split('\\').join('/');
       if (rel === 'hooks/use-reauth.ts') continue; // the hook itself
       const forwarding: number[] = [];
-      offenders.push(...findUnhandledCancels(rel, readFileSync(f, 'utf-8'), FORWARDERS, forwarding, forwarderCalls).map((o) => `${rel}:${o}`));
+      offenders.push(...findUnhandledCancels(rel, readSource(f), FORWARDERS, forwarding, forwarderCalls).map((o) => `${rel}:${o}`));
       if (forwarding.length > 0) forwardingFiles.push(rel);
     }
     forwardingFiles.sort();

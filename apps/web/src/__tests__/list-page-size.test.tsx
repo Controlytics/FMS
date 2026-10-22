@@ -10,21 +10,13 @@
  *   - one rendered page, end to end on a cold load.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { screen, waitFor, cleanup } from '@testing-library/react';
 import { mockApi, renderPage } from '@/test-utils/page-harness';
 import { ApprovalsPage } from '@/routes/approvals';
+import { listFiles, readSource, WEB_SRC } from './support/source-files';
 
-const SRC = join(__dirname, '..');
-
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    if (name === '__tests__' || name === 'node_modules') return [];
-    return statSync(p).isDirectory() ? walk(p) : p.endsWith('.tsx') ? [p] : [];
-  });
-}
+const SRC = WEB_SRC;
 
 describe('list page size', () => {
   afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); });
@@ -32,8 +24,8 @@ describe('list page size', () => {
   it('no route seeds its page size from useState (a constant or the pre-load default) or fixes it in a constant', () => {
     const SEEDED = /const\s*\[\s*(pageSize|perPage|rowsPerPage)\s*,\s*\w+\s*\]\s*=\s*useState\b/;
     const FIXED = /const\s+(PER_PAGE|PAGE_SIZE|ROWS_PER_PAGE)\s*=\s*\d+/; // RFID Track Record had PER_PAGE = 50
-    const offenders = walk(join(SRC, 'routes'))
-      .filter((f) => { const s = readFileSync(f, 'utf-8'); return SEEDED.test(s) || FIXED.test(s); })
+    const offenders = listFiles(join(SRC, 'routes'), (name) => name.endsWith('.tsx'), ['__tests__', 'node_modules'])
+      .filter((f) => { const s = readSource(f); return SEEDED.test(s) || FIXED.test(s); })
       .map((f) => relative(SRC, f).replace(/\\/g, '/'));
     expect(offenders).toEqual([]);
   });

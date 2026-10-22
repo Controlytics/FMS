@@ -6,24 +6,19 @@
  * keeps it that way. `window.confirm` (a yes/no question) is not covered here.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { relative } from 'node:path';
+import { listFiles, readSource, WEB_SRC } from './support/source-files';
 
-const SRC = join(__dirname, '..');
-
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) return name === '__tests__' || name === 'node_modules' ? [] : sourceFiles(p);
-    return /\.(ts|tsx)$/.test(p) && !/\.test\.tsx?$/.test(p) ? [p] : [];
-  });
-}
+const SRC = WEB_SRC;
 
 describe('no native alert()', () => {
   it('no source file calls alert() / window.alert()', () => {
     const offenders: string[] = [];
-    for (const file of sourceFiles(SRC)) {
-      readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, i) => {
+    const files = listFiles(SRC, (name) => /\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name), ['__tests__', 'node_modules']);
+    for (const file of files) {
+      const text = readSource(file);
+      if (!text.includes('alert(')) continue; // both patterns below contain it
+      text.split(/\r?\n/).forEach((line, i) => {
         const code = line.replace(/\/\/.*$/, ''); // ignore line comments
         if (/(^|[^.\w])alert\(|window\.alert\(/.test(code)) {
           offenders.push(`${relative(SRC, file).replace(/\\/g, '/')}:${i + 1}`);

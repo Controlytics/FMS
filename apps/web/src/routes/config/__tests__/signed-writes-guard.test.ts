@@ -15,30 +15,22 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { listFiles, readSource } from '@/__tests__/support/source-files';
 
-const read = (p: string) => readFileSync(resolve(__dirname, p), 'utf8');
+const read = (p: string) => readSource(resolve(__dirname, p));
 const fdm = read('../filter-data-management.tsx');
 const pagination = read('../pagination.tsx');
 const replacement = read('../../filter-management/replacement-schedule.tsx');
 
-import { readdirSync, statSync } from 'node:fs';
-
-/** Every .tsx under routes/ (tests excluded). */
-function routeFiles(dir = resolve(__dirname, '../..')): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const p = resolve(dir, name);
-    if (statSync(p).isDirectory()) { if (name !== '__tests__') out.push(...routeFiles(p)); }
-    else if (p.endsWith('.tsx')) out.push(p);
-  }
-  return out;
-}
+/** Every .tsx under routes/ (tests excluded): listed and read once for both checks below. */
+let routeFileList: string[] | undefined;
+const routeFiles = () => (routeFileList ??= listFiles(resolve(__dirname, '../..'), (name) => name.endsWith('.tsx')));
 
 describe('the signature prompt names the action being signed (F-14)', () => {
   it('no <ReauthDialog> wired to the reauth hook passes a fixed actionLabel', () => {
     const offenders: string[] = [];
     for (const f of routeFiles()) {
-      const src = readFileSync(f, 'utf8');
+      const src = readSource(f);
       for (const block of src.match(/<ReauthDialog\b[\s\S]*?\/>/g) ?? []) {
         if (/open=\{reauth\.isOpen\}/.test(block) && /actionLabel="/.test(block)) offenders.push(f);
       }
@@ -50,7 +42,7 @@ describe('the signature prompt names the action being signed (F-14)', () => {
 describe('a cancelled export password prompt is handled (C-05)', () => {
   it('every route page that calls requireExportReauth also checks isReauthCancelled', () => {
     const missing = routeFiles().filter((f) => {
-      const src = readFileSync(f, 'utf8');
+      const src = readSource(f);
       return /requireExportReauth\(/.test(src) && !/isReauthCancelled\(/.test(src);
     });
     expect(missing).toEqual([]);
@@ -59,7 +51,7 @@ describe('a cancelled export password prompt is handled (C-05)', () => {
 
 describe('FDM admin-request types match the server (OQ-19 follow-up)', () => {
   it('offers exactly the request types the API accepts', () => {
-    const fdmSrc = readFileSync(resolve(__dirname, '../filter-data-management.tsx'), 'utf8');
+    const fdmSrc = read('../filter-data-management.tsx');
     const api = readFileSync(resolve(__dirname, '../../../../../api/src/modules/admin-requests/routes.ts'), 'utf8');
     const server = JSON.parse((api.match(/requestType: \{ type: 'string', enum: (\[[^\]]+\])/)![1]).replace(/'/g, '"'));
     const consoleList = JSON.parse((fdmSrc.match(/const ADMIN_REQ_TYPES = (\[[^\]]+\])/)![1]).replace(/'/g, '"'));

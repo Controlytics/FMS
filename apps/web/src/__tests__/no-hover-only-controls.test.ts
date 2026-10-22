@@ -9,24 +9,19 @@
  * not matched.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { relative } from 'node:path';
+import { listFiles, readSource, WEB_SRC } from './support/source-files';
 
-const SRC = join(__dirname, '..');
-
-function tsxFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) return name === '__tests__' || name === 'node_modules' ? [] : tsxFiles(p);
-    return p.endsWith('.tsx') ? [p] : [];
-  });
-}
+const SRC = WEB_SRC;
 
 describe('no hover-only controls', () => {
   it('every opacity-0 + group-hover:opacity-100 element is also visible on touch screens', () => {
     const offenders: string[] = [];
-    for (const file of tsxFiles(SRC)) {
-      const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+    for (const file of listFiles(SRC, (name) => name.endsWith('.tsx'), ['__tests__', 'node_modules'])) {
+      const text = readSource(file);
+      // a matching line holds both of these, so a file without either has none
+      if (!text.includes('opacity-0') || !text.includes('group-hover')) continue;
+      const lines = text.split(/\r?\n/);
       lines.forEach((line, i) => {
         if (/\bopacity-0\b/.test(line) && /group-hover(?:\/[\w-]+)?:opacity-100/.test(line)
           && !/\[@media\(pointer:coarse\)\]:opacity-100/.test(line)) {

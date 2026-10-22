@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve, join } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { listFiles, readSource } from '@/__tests__/support/source-files';
 import { EXPORT_SURFACES, formatToFlags } from '../export-surfaces';
 import { REPORT_TYPES } from '../report-types';
 import { REPORT_DEFS, resolveReportLabels } from '../report-labels';
@@ -19,20 +19,8 @@ import { ALL_ROWS } from '../page-size';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(__dirname, '../..');
 
-function sourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) {
-      if (name === '__tests__' || name === 'test-utils') continue;
-      out.push(...sourceFiles(p));
-    } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) {
-      out.push(p);
-    }
-  }
-  return out;
-}
-const allSource = sourceFiles(SRC).map((f) => readFileSync(f, 'utf8')).join('\n');
+const sourceFiles = (dir: string) => listFiles(dir, (name) => /\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name), ['__tests__', 'test-utils']);
+const allSource = sourceFiles(SRC).map(readSource).join('\n');
 const used = (re: RegExp) => [...new Set([...allSource.matchAll(re)].map((m) => m[1]))].sort();
 
 describe('formatToFlags (fail-open)', () => {
