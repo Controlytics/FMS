@@ -164,6 +164,9 @@ describe('GET /template.xlsx', () => {
     const ws = wb.getWorksheet('Replacements')!;
     expect((ws.getRow(1).values as unknown[]).slice(1)).toEqual(HEADERS);
     expect(ws.getCell('B1').note).toBeTruthy();
+    // D-OPS-9 (operator decision 2026-10-22): no setting supplies a default; a
+    // blank tolerance is 0 days, and the template says so.
+    expect(ws.getCell('G1').note).toBe('Optional. +/- days window. Blank = 0 days.');
     const lists = wb.getWorksheet('_lists')!;
     expect(lists.state).toBe('veryHidden');
     const names: string[] = [];
@@ -368,8 +371,11 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
     expect(qnn[0].message).toBe('Uploaded replacement schedule (2 entries) — pending review');
   });
 
-  it('workflow OFF: entries are APPROVED at once; a single entry reads "1 entry"; the configured default tolerance applies', async () => {
+  it('workflow OFF: entries are APPROVED at once; a single entry reads "1 entry"; a blank tolerance is 0 days', async () => {
     await setApproval({ workflowEnabled: false, uploadRole: [], reviewRole: '', approvalRole: '' });
+    // A `replacement-schedule` row is planted on purpose: no config def writes
+    // that key, and a blank tolerance must be 0 days whatever such a row holds
+    // (D-OPS-9, operator decision 2026-10-22).
     await prisma.systemConfig.upsert({
       where: { configKey: 'replacement-schedule' },
       update: { configValue: { value: { defaultToleranceDays: 3.7 } } as any },
@@ -379,8 +385,9 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
       const res = await send('', tok.sa, await xlsx([[1, AHU, '5', '300x300x50', 1, FUTURE]]), { fileName: `cvo-${S}-off.xlsx`, pw: PW });
       expect(res.json()).toMatchObject({ success: true, created: 1 });
       const e = await prisma.replacementScheduleEntry.findFirst({ where: { scheduleId: res.json().scheduleId } });
-      expect(e).toMatchObject({ approvalStatus: 'APPROVED', toleranceDays: 3 });
-      expect(e!.windowStart.toISOString().slice(0, 10)).toBe(addDays(FUTURE, -3));
+      expect(e).toMatchObject({ approvalStatus: 'APPROVED', toleranceDays: 0 });
+      expect(e!.windowStart.toISOString().slice(0, 10)).toBe(FUTURE);
+      expect(e!.windowEnd.toISOString().slice(0, 10)).toBe(FUTURE);
       const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_UPLOADED', targetId: res.json().scheduleId } });
       expect(audit!.reason).toBe('Uploaded replacement schedule with 1 entry');
       const qnn = await prisma.qualityNotification.findFirst({ where: { scheduleId: res.json().scheduleId } });
@@ -390,12 +397,6 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
     }
   });
 
-  it('an invalid stored default tolerance falls back to 0', async () => {
-    await prisma.systemConfig.update({ where: { configKey: 'replacement-schedule' }, data: { configValue: { value: { defaultToleranceDays: -2 } } as any } });
-    const res = await send('', tok.sa, await xlsx([[1, AHU, '5', '300x300x50', 1, FUTURE]]), { fileName: `cvo-${S}-neg.xlsx`, pw: PW });
-    const e = await prisma.replacementScheduleEntry.findFirst({ where: { scheduleId: res.json().scheduleId } });
-    expect(e!.toleranceDays).toBe(0);
-  });
 });
 
 describe('GET / and GET /export.xlsx', () => {

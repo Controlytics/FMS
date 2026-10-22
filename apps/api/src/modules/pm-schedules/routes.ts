@@ -13,6 +13,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { prisma } from '../../lib/prisma.js';
+import { MAX_UPLOAD_FILE_SIZE } from '../../lib/upload-limits.js';
 
 // Normalise one exceljs cell value to the shapes importSchedules() handles
 // (Date | number | string). Rich-text / hyperlink / formula cells collapse to
@@ -250,11 +251,11 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
 
       // Check truncation flag — @fastify/multipart silently TRUNCATES the stream
       // at the configured fileSize limit instead of throwing. The post-buffer
-      // length check (buffer.length > 5 MB) is therefore always false because
+      // length check (buffer.length > the limit) is therefore always false because
       // the buffer is capped at exactly the limit. Checking data.file.truncated
       // is the only reliable way to detect oversized uploads.
       if ((data.file as any).truncated) {
-        return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'File exceeds 5 MB limit' });
+        return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: `File exceeds ${MAX_UPLOAD_FILE_SIZE / 1024 / 1024} MB limit` });
       }
 
       // Parse CSV / XLSX into header-keyed rows. CSV cells stay strings so a

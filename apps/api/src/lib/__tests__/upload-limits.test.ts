@@ -6,7 +6,7 @@
  * parser and guards the two registrations against a literal creeping back.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseMaxFileSize, DEFAULT_MAX_UPLOAD_FILE_SIZE } from '../upload-limits.js';
@@ -58,6 +58,37 @@ describe('MAX_UPLOAD_FILE_SIZE (read at import)', () => {
     expect(value).toBe(DEFAULT_MAX_UPLOAD_FILE_SIZE);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toEqual({ MAX_FILE_SIZE: '5MB', appliedBytes: DEFAULT_MAX_UPLOAD_FILE_SIZE });
+  });
+});
+
+/** Every non-test .ts file under src/modules. */
+function moduleSources(dir = path.join(SRC, 'modules')): string[] {
+  const out: string[] = [];
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, ent.name);
+    if (ent.isDirectory()) { if (ent.name !== '__tests__') out.push(...moduleSources(p)); }
+    else if (ent.name.endsWith('.ts') && !ent.name.endsWith('.test.ts')) out.push(p);
+  }
+  return out;
+}
+
+describe('no FILE_TOO_LARGE message states a size of its own (2026-10-22)', () => {
+  // A message that hard-codes "5 MB" drifts the moment MAX_FILE_SIZE (or a
+  // route's own per-request limit) changes: pm-schedules said "5 MB" after the
+  // limit became MAX_FILE_SIZE. The size in a message must come from the same
+  // constant the limit does.
+  it('each FILE_TOO_LARGE response derives its size from a constant', () => {
+    const offenders: string[] = [];
+    for (const file of moduleSources()) {
+      const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+      lines.forEach((line, i) => {
+        if (!line.includes("'FILE_TOO_LARGE'")) return;
+        // The message is on the same line or within the next two.
+        const window = lines.slice(i, i + 3).join('\n');
+        if (/\d+(\.\d+)?\s?MB\b/.test(window.replace(/\$\{[^}]*\}/g, ''))) offenders.push(`${path.relative(SRC, file)}:${i + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });
 

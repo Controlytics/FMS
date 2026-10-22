@@ -1,7 +1,7 @@
 import { prisma } from '../../../lib/prisma.js';
 import { flattenFilterFields, flattenFilterFieldsAll } from '../../../lib/filter-details.js';
 // A-01 Phase 2 Tier 1 ACTIVATED (Tier 1.5 follow-up, 2026-05-29).
-// update/softDeleteMany dual-write to the typed hierarchy table
+// update dual-writes to the typed hierarchy table
 // (blocks/areas/ahus/filters) AND the legacy asset_instances table inside a
 // single transaction. OTHER-kind asset_instances stay on the legacy table only
 // (per D-decision D1=C). Reads still hit asset_instances directly — that's
@@ -9,10 +9,9 @@ import { flattenFilterFields, flattenFilterFieldsAll } from '../../../lib/filter
 // 2026-10-22, D-LIB-1): it had no caller — instance.service.ts creates with
 // tx.assetInstance.create and the forward mirror writes the typed row — and its
 // typed-first dual write collided with the FILTER reverse mirror (P2002).
-import {
-  dispatchUpdate,
-  dispatchSoftDeleteMany,
-} from '../../../lib/typed-asset-dispatch.js';
+// No softDeleteMany either (removed 2026-10-22, no caller): soft-deletes run
+// in instance.service.ts and filter.service.ts, each through a mirror.
+import { dispatchUpdate } from '../../../lib/typed-asset-dispatch.js';
 
 // Filter-specific fields live on `FilterDetails` (1:1 sidecar) since Step 6.
 // Repositories ALWAYS include filterDetails and flatten before returning so
@@ -102,10 +101,6 @@ export const instanceRepository = {
 
   async update(id: string, data: Record<string, unknown>) {
     return dispatchUpdate(id, data);
-  },
-
-  async softDeleteMany(ids: string[], username: string) {
-    return dispatchSoftDeleteMany(ids, username);
   },
 
   async findChildren(parentId: string) {

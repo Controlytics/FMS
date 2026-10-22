@@ -920,6 +920,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
   // the delete. The audit write shares the delete's transaction: if one fails
   // neither happens, so there can be no unaudited deletion and no audit row
   // for a deletion that did not occur.
+  const REQUEST_MODELS_WITH_NOTIFICATIONS = new Set(['adminRequest', 'blockChangeRequest']);
   const deleteRecord = async (
     modelName: 'notification' | 'adminRequest' | 'blockChangeRequest' | 'pmScheduleEntry' | 'filterEvent',
     id: string,
@@ -933,10 +934,30 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: `${label} not found.` });
     try {
       await prisma.$transaction(async (tx) => {
+        // A request's notifications point at it through metadata.requestId (an
+        // admin request's "submitted" notice; a block change's REQUESTED /
+        // APPROVED / REJECTED). Deleting the request alone left them asking an
+        // admin to act on a request that no longer exists (2026-10-22). They go
+        // in this transaction, and the audit row names them, like the
+        // cleaning-cycle delete's cascade.
+        const linkedNotifications = REQUEST_MODELS_WITH_NOTIFICATIONS.has(modelName)
+          ? await tx.notification.findMany({
+              where: { metadata: { path: ['requestId'], equals: id } },
+              select: { id: true, type: true, title: true, forRole: true, forUserId: true, createdAt: true },
+            })
+          : null;
         // Audit FIRST, inside the same tx: `beforeValue` needs the row while it
         // still exists, and if the delete then fails the audit row rolls back
         // with it — no record of a deletion that never happened.
-        await auditManualChange(req, { verb: 'DELETED', targetType, targetId: id, label, reason, before: existing }, tx);
+        await auditManualChange(req, {
+          verb: 'DELETED', targetType, targetId: id, label, reason, before: existing,
+          ...(linkedNotifications
+            ? { sideEffects: { deletedNotifications: linkedNotifications, deletedNotificationCount: linkedNotifications.length } }
+            : {}),
+        }, tx);
+        if (linkedNotifications?.length) {
+          await tx.notification.deleteMany({ where: { id: { in: linkedNotifications.map((n) => n.id) } } });
+        }
         await (tx as any)[modelName].delete({ where: { id } });
       });
       return { success: true };

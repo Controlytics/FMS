@@ -5,6 +5,12 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import * as backupService from './backup.service.js';
 
+// The backup upload limit (restore + validate), larger than MAX_FILE_SIZE on
+// purpose: a whole-database backup is not a photo. One constant for the limit
+// and its message, so the two cannot drift apart.
+const BACKUP_MAX_FILE_SIZE = 100 * 1024 * 1024;
+const BACKUP_MAX_MB = BACKUP_MAX_FILE_SIZE / 1024 / 1024;
+
 export default async function backupRoutes(app: FastifyInstance) {
 
   // GET /api/backup/export — Generate and download backup.
@@ -124,7 +130,7 @@ export default async function backupRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     try {
-      const file = await req.file({ limits: { fileSize: 100 * 1024 * 1024 } });
+      const file = await req.file({ limits: { fileSize: BACKUP_MAX_FILE_SIZE } });
       if (!file) {
         return reply.code(400).send({ error: 'NO_FILE', message: 'No backup file uploaded' });
       }
@@ -146,7 +152,7 @@ export default async function backupRoutes(app: FastifyInstance) {
       if ((file.file as any).truncated) {
         return reply.code(413).send({
           error: 'FILE_TOO_LARGE',
-          message: 'Backup file exceeds the 100 MB upload limit and was truncated. Restoring it would silently discard every row past the cut.',
+          message: `Backup file exceeds the ${BACKUP_MAX_MB} MB upload limit and was truncated. Restoring it would silently discard every row past the cut.`,
         });
       }
 
@@ -273,7 +279,7 @@ export default async function backupRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const file = await req.file({ limits: { fileSize: 100 * 1024 * 1024 } });
+    const file = await req.file({ limits: { fileSize: BACKUP_MAX_FILE_SIZE } });
     if (!file) {
       return reply.code(400).send({ error: 'NO_FILE', message: 'No backup file uploaded' });
     }
@@ -290,7 +296,7 @@ export default async function backupRoutes(app: FastifyInstance) {
     if ((file.file as any).truncated) {
       return reply.code(413).send({
         error: 'FILE_TOO_LARGE',
-        message: 'Backup file exceeds the 100 MB upload limit and was truncated; it cannot be validated.',
+        message: `Backup file exceeds the ${BACKUP_MAX_MB} MB upload limit and was truncated; it cannot be validated.`,
       });
     }
 

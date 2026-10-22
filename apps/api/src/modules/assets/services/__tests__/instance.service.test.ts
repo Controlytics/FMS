@@ -8,7 +8,7 @@ const {
   mockInstanceRepo: {
     findMany: vi.fn(), findTree: vi.fn(), findById: vi.fn(), findByIdSimple: vi.fn(),
     findByIdWithName: vi.fn(), create: vi.fn(), update: vi.fn(),
-    softDeleteMany: vi.fn(), findChildren: vi.fn(),
+    findChildren: vi.fn(),
   },
   mockRelRepo: {
     createPairWithParent: vi.fn(), deleteOldContains: vi.fn(), deleteByAssetIds: vi.fn(),

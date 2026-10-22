@@ -111,7 +111,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['ids'],
         properties: {
-          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
         },
       },
       response: {
@@ -139,7 +139,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['ids'],
         properties: {
-          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
         },
       },
       response: {
@@ -168,7 +168,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['ids'],
         properties: {
-          ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          ids: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
         },
       },
       response: {

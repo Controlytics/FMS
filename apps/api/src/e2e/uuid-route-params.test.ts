@@ -22,6 +22,7 @@ import helpRoutes from '../modules/help/routes.js';
 import debugTraceRoutes from '../modules/debug-traces/routes.js';
 import notificationRulesRoutes from '../modules/notification-rules/routes.js';
 import reportReviewRoutes from '../modules/report-reviews/routes.js';
+import checklistProfileRoutes from '../modules/checklist-profiles/routes.js';
 import { cleanupAll, createUser, deleteUsers, login, runSuffix } from './support/owned-fixtures.js';
 
 const S = runSuffix();
@@ -95,6 +96,7 @@ beforeAll(async () => {
     { plugin: debugTraceRoutes, prefix: '/api/debug/traces' },
     { plugin: notificationRulesRoutes, prefix: '/api/notification-rules' },
     { plugin: reportReviewRoutes, prefix: '/api/report-reviews' },
+    { plugin: checklistProfileRoutes, prefix: '/api/checklist-profiles' },
   ]);
   userIds.push(await createUser(USERNAME, 'SUPER_ADMIN', PW));
   token = await login(app, USERNAME, PW);
@@ -125,6 +127,42 @@ describe('uuid route params are validated by the route schema', () => {
   it.each(PROBES)('%s still lets a well-formed unknown uuid through to the handler', async (_label, probe) => {
     const res = await send(probe, randomUUID());
     expect(isIdParamRefusal(res.json())).toBe(false);
+    expect(res.statusCode).not.toBe(500);
+    expect(internalErrors).toEqual([]);
+  });
+});
+
+// Same class in request BODIES (2026-10-22): an id list declared as bare strings
+// reached `id: { in: ids }` and came back as 400 DATA_CONSTRAINT + an ERROR line.
+// [route label, method, url, body key, path of the first item].
+type BodyProbe = [string, 'PUT' | 'POST', string, string];
+const BODY_PROBES: BodyProbe[] = [
+  ['PUT /api/notifications/bulk-read', 'PUT', '/api/notifications/bulk-read', 'ids'],
+  ['PUT /api/notifications/bulk-unread', 'PUT', '/api/notifications/bulk-unread', 'ids'],
+  ['POST /api/notifications/bulk-delete', 'POST', '/api/notifications/bulk-delete', 'ids'],
+  ['PUT /api/checklist-profiles/:id/reorder', 'PUT', `/api/checklist-profiles/${randomUUID()}/reorder`, 'questionIds'],
+];
+
+function sendBody(method: 'PUT' | 'POST', url: string, key: string, ids: string[]) {
+  return app.inject({ method, url, headers: { authorization: `Bearer ${token}` }, payload: { [key]: ids } });
+}
+
+describe('uuid id lists in request bodies are validated by the route schema', () => {
+  it.each(BODY_PROBES)('%s refuses a malformed id in the list with 400 VALIDATION_ERROR (format: uuid), and logs no ERROR', async (_label, method, url, key) => {
+    const { result: res, text } = await captureStdout(() => sendBody(method, url, key, [randomUUID(), 'not-a-uuid']));
+    expect(text).not.toMatch(/\bERROR\b/);
+    expect(res.statusCode).toBe(400);
+    const body = res.json();
+    expect(body.error).toBe('VALIDATION_ERROR');
+    expect(body.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ keyword: 'format', instancePath: `/${key}/1`, params: { format: 'uuid' } }),
+    ]));
+    expect(internalErrors).toEqual([]);
+  });
+
+  it.each(BODY_PROBES)('%s still lets well-formed unknown uuids through to the handler', async (_label, method, url, key) => {
+    const res = await sendBody(method, url, key, [randomUUID()]);
+    expect(res.json()?.error).not.toBe('VALIDATION_ERROR');
     expect(res.statusCode).not.toBe(500);
     expect(internalErrors).toEqual([]);
   });

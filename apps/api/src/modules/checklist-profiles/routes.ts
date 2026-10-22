@@ -94,7 +94,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
 
   app.put('/:id/reorder', {
     preHandler: [app.requirePermission('CHECKLIST_EDIT')],
-    schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['questionIds'], properties: { questionIds: { type: 'array', items: { type: 'string' } } } }, response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses } },
+    schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['questionIds'], properties: { questionIds: { type: 'array', items: { type: 'string', format: 'uuid' } } } }, response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;

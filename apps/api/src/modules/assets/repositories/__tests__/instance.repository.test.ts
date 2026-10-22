@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // Tier 1.5 (2026-05-29): mocks widened to cover the typed-asset-dispatch
 // helper. Helper internally:
 //   - calls prisma.assetInstance.findUnique with { include: { template } } (kindFromInstanceId)
-//   - calls prisma.assetInstance.findMany with template-include (bulk kind resolve in softDeleteMany)
 //   - wraps writes in prisma.$transaction(cb) — cb receives a tx with block/area/ahu/filter + assetInstance delegates
 const { mockPrisma } = vi.hoisted(() => {
   const writeDelegate = () => ({ create: vi.fn(), update: vi.fn(), updateMany: vi.fn() });
@@ -66,6 +65,13 @@ describe('instance.repository', () => {
     expect((instanceRepository as Record<string, unknown>).create).toBeUndefined();
   });
 
+  // No softDeleteMany either (removed 2026-10-22): no caller. Soft-deletes run in
+  // instance.service.ts (tx.assetInstance.updateMany + the forward mirror) and
+  // filter.service.ts softDelete (typed filters + the reverse mirror).
+  it('has no softDeleteMany', () => {
+    expect((instanceRepository as Record<string, unknown>).softDeleteMany).toBeUndefined();
+  });
+
   describe('update', () => {
     it('updates instance data (dual-writes typed + asset_instances)', async () => {
       mockPrisma.assetInstance.findUnique.mockResolvedValue({ template: { templateKind: 'BLOCK' } });
@@ -75,24 +81,6 @@ describe('instance.repository', () => {
       expect(result.status).toBe('MAINTENANCE');
       expect(mockPrisma.block.update).toHaveBeenCalled();
       expect(mockPrisma.assetInstance.update).toHaveBeenCalled();
-    });
-  });
-
-  describe('softDeleteMany', () => {
-    it('soft-deletes multiple instances grouped by kind', async () => {
-      mockPrisma.assetInstance.findMany.mockResolvedValue([
-        { id: 'i1', template: { templateKind: 'BLOCK' } },
-        { id: 'i2', template: { templateKind: 'BLOCK' } },
-        { id: 'i3', template: { templateKind: 'OTHER' } },
-      ]);
-      mockPrisma.block.updateMany.mockResolvedValue({ count: 2 });
-      mockPrisma.assetInstance.updateMany.mockResolvedValue({ count: 3 });
-      const result = await instanceRepository.softDeleteMany(['i1', 'i2', 'i3'], 'admin');
-      expect(result.count).toBe(3);
-      // Two BLOCK ids → block.updateMany called once with both; OTHER stays
-      // on asset_instances; final asset_instances.updateMany covers all 3.
-      expect(mockPrisma.block.updateMany).toHaveBeenCalledTimes(1);
-      expect(mockPrisma.assetInstance.updateMany).toHaveBeenCalledTimes(1);
     });
   });
 

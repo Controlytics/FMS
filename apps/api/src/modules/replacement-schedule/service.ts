@@ -90,14 +90,6 @@ async function parseWorkbook(buffer: Buffer): Promise<{ rows: ParsedRow[]; error
   }).catch(() => ({ rows: [] as ParsedRow[], error: 'Invalid .xlsx file' }));
 }
 
-async function loadDefaultToleranceDays(): Promise<number> {
-  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'replacement-schedule' } });
-  const stored = row?.configValue as { value?: { defaultToleranceDays?: number } } | undefined;
-  const v = stored && typeof stored === 'object' && 'value' in stored ? stored.value : undefined;
-  const d = Number(v?.defaultToleranceDays);
-  return Number.isFinite(d) && d >= 0 ? Math.floor(d) : 0;
-}
-
 function todayUtcDateOnly(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -181,7 +173,6 @@ export async function processUpload(
   if (rows.length === 0) return { results: [{ row: 1, status: 'error', error: 'No data rows found' }], created: 0, failed: 1 };
   if (rows.length > 500) return { results: [{ row: 1, status: 'error', error: 'Maximum 500 rows per upload' }], created: 0, failed: 1 };
 
-  const defaultTolerance = await loadDefaultToleranceDays();
   const ahuMap = await buildAhuNameMap();
   const ahuFilterIdx = await buildAhuFilterIndex();
   const today = todayUtcDateOnly();
@@ -224,8 +215,10 @@ export async function processUpload(
       rowErrs.push({ row: r.rowNumber, column: 'Schedule Date', value: dateRaw, error: 'Schedule Date cannot be in the past' });
     } else scheduleDate = dateRaw;
 
-    // Tolerance — optional; column wins, else configured default
-    let tolerance = defaultTolerance;
+    // Tolerance — optional; blank = 0 days (operator decision 2026-10-22,
+    // D-OPS-9). There is no configurable default: the `replacement-schedule`
+    // key this used to read was written by no config def, route or page.
+    let tolerance = 0;
     const tolRaw = r.toleranceDays.trim();
     if (tolRaw) {
       const t = Number(tolRaw);

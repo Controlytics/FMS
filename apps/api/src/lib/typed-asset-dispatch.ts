@@ -2,10 +2,10 @@
  * A-01 Phase 2 Tier 1 — Typed-asset dispatch helper.
  *
  * Foundation for the asset_instances → typed-tables write-cutover. Used by
- * the canonical instance.repository.ts to dual-write asset UPDATES and
- * soft-deletes to both the typed-hierarchy table (blocks / areas / ahus /
- * filters) AND the legacy `asset_instances` table. Creates are not here — see
- * the note above dispatchUpdate.
+ * the canonical instance.repository.ts to dual-write asset UPDATES to both the
+ * typed-hierarchy table (blocks / areas / ahus / filters) AND the legacy
+ * `asset_instances` table. Creates and soft-deletes are not here — see the
+ * notes above and below dispatchUpdate.
  *
  * Why dual-write rather than typed-only:
  *   - The legacy `asset_instances` table is still read by ~60% of the
@@ -175,45 +175,10 @@ export async function dispatchUpdate(
   });
 }
 
-/**
- * Dual-write soft-delete (isActive=false) by ids. Resolves kinds in bulk via
- * one join query, groups by kind, then issues one updateMany per kind on the
- * typed tables + one updateMany on asset_instances inside a transaction.
- *
- * Returns the asset_instances updateMany result (count of rows affected).
- */
-export async function dispatchSoftDeleteMany(
-  ids: string[],
-  username: string,
-): Promise<{ count: number }> {
-  if (ids.length === 0) return { count: 0 };
-
-  // Group ids by kind in one round-trip
-  const insts = await prisma.assetInstance.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, template: { select: { templateKind: true } } },
-  });
-  const byKind = new Map<AssetKind, string[]>();
-  for (const i of insts) {
-    const k = normalizeKind(i.template?.templateKind ?? 'OTHER');
-    const arr = byKind.get(k) ?? [];
-    arr.push(i.id);
-    byKind.set(k, arr);
-  }
-
-  return prisma.$transaction(async (tx) => {
-    // Update typed tables for hierarchy kinds.
-    for (const [kind, kindIds] of byKind.entries()) {
-      if (!isHierarchyKind(kind)) continue;
-      await (typedDelegate(tx, kind) as any).updateMany({
-        where: { id: { in: kindIds } },
-        data: { isActive: false, updatedBy: username },
-      });
-    }
-    // Update asset_instances for ALL kinds (typed + OTHER).
-    return tx.assetInstance.updateMany({
-      where: { id: { in: ids } },
-      data: { isActive: false, updatedBy: username },
-    });
-  });
-}
+// No dispatchSoftDeleteMany (removed 2026-10-22). Its only caller was
+// instance.repository.ts softDeleteMany, which nothing called. Live soft-deletes
+// write ONE side and let a mirror write the other: instance.service.ts
+// (tx.assetInstance.updateMany -> forward mirror) and filter.service.ts
+// softDelete (typed filters -> reverse mirror). It dual-wrote isActive=false +
+// updatedBy to the typed table per kind and to asset_instances for every kind
+// (OTHER / EQUIPMENT on asset_instances only, D1=C).

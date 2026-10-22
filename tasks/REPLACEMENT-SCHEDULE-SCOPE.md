@@ -23,7 +23,7 @@ CSV / .xlsx with columns (server-generated template, like the filter bulk-upload
 | `Filter Size` | Size spec | free text |
 | `Qty` | How many filters to replace in that AHU | integer ≥ 1 |
 | `Schedule Date` | Planned replacement date | YYYY-MM-DD; not in the past (mirror PM past-date rule) |
-| `Tolerance Days` | ± window around the date | integer ≥ 0 (config default if blank) |
+| `Tolerance Days` | ± window around the date | integer ≥ 0; **blank = 0 days** (2026-10-22, operator decision D-OPS-9 — the planned config default below was never built) |
 
 Each row = "replace **Qty** filters of **Micron/Size** in **AHU** around **Schedule Date** (± **Tolerance Days**)." (Rows target an AHU + spec + quantity — **not** specific filter IDs; the operator picks/scans the actual filters at execution time.)
 
@@ -57,6 +57,7 @@ Each row = "replace **Qty** filters of **Micron/Size** in **AHU** around **Sched
 - New permission **`REPLACEMENT_SCHEDULE_UPLOAD`** (upload/create), plus **`REPLACEMENT_SCHEDULE_VIEW`** (see schedules/tasks) and **`REPLACEMENT_SCHEDULE_EXECUTE`** (replace from task).
 - **SUPER_ADMIN grants `…_UPLOAD` to whichever role(s) they choose via the existing Role Privileges screen** — i.e. upload-ability is configurable per role, controlled by SUPER_ADMIN, using the app's standard RBAC. (Alternative if you prefer an explicit single setting: a config dropdown "Allowed upload role" — but the permission approach is the app's convention.)
 - Tolerance-days **default** + window mode live in a small `replacement-schedule` config (SUPER_ADMIN-gated config page).
+  - **Superseded 2026-10-22 (D-OPS-9):** this config was never built — no def, route or page wrote the `replacement-schedule` key, so the service's read of it always fell back to 0. The operator chose "blank = 0 days"; the dead read was removed and the template note now says so.
 
 ## 7. Touchpoints (12-touchpoint + config rules)
 - Prisma: 3 new models (+ enum for entry status) → migration.

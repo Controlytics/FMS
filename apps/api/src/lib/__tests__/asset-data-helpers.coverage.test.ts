@@ -22,7 +22,7 @@ import {
 import * as typedAssetDispatch from '../typed-asset-dispatch.js';
 import {
   kindFromInstanceId, isHierarchyKind, translateToTypedShape,
-  dispatchUpdate, dispatchSoftDeleteMany,
+  dispatchUpdate,
 } from '../typed-asset-dispatch.js';
 import {
   cleanupAll, runSuffix, createRole, createUser, deleteUsers, deleteRoles,
@@ -254,6 +254,10 @@ describe('typed-asset-dispatch', () => {
     expect(mod._clearKindCache).toBeUndefined();
   });
 
+  it('no longer exports dispatchSoftDeleteMany (no caller; soft-deletes go through instance.service / filter.service)', () => {
+    expect((typedAssetDispatch as Record<string, unknown>).dispatchSoftDeleteMany).toBeUndefined();
+  });
+
   it('resolves an instance kind through its template (unknown codes -> OTHER), null when absent', async () => {
     expect(await kindFromInstanceId(hier!.blockId)).toBe('BLOCK');
     expect(await kindFromInstanceId(hier!.ahuId)).toBe('AHU');
@@ -313,16 +317,5 @@ describe('typed-asset-dispatch', () => {
     expect(typed).toEqual([null, null, null, null]);
     const missing = randomUUID();
     await expect(dispatchUpdate(missing, { name: 'x' })).rejects.toThrow(`Asset instance not found: ${missing}`);
-  });
-
-  it('dispatchSoftDeleteMany deactivates typed and OTHER rows together', async () => {
-    expect(await dispatchSoftDeleteMany([], 'cvl')).toEqual({ count: 0 });
-    const block = await makeInstance(hier!.blockTemplateId, `${P}-DB3`);
-    const other = await makeInstance(otherTpl, `${P}-DO3`);
-    const res = await dispatchSoftDeleteMany([block.id, other.id], 'cvl-remover');
-    expect(res).toEqual({ count: 2 });
-    const rows = await prisma.assetInstance.findMany({ where: { id: { in: [block.id, other.id] } } });
-    expect(rows.map((r) => [r.isActive, r.updatedBy])).toEqual([[false, 'cvl-remover'], [false, 'cvl-remover']]);
-    expect(await prisma.block.findUnique({ where: { id: block.id } })).toMatchObject({ isActive: false, updatedBy: 'cvl-remover' });
   });
 });

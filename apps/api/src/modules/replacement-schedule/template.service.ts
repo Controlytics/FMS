@@ -30,7 +30,7 @@ export async function buildReplacementScheduleTemplate(): Promise<Buffer> {
     { key: 'filterSize', header: 'Filter Dimensions', note: 'Physical size, e.g. 610x610x292mm' },
     { key: 'qty', header: 'Qty', note: 'Number of filters to replace (integer >= 1).' },
     { key: 'scheduleDate', header: 'Schedule Date', note: 'YYYY-MM-DD. Must not be in the past.' },
-    { key: 'toleranceDays', header: 'Tolerance Days', note: 'Optional. +/- days window. Blank = configured default.' },
+    { key: 'toleranceDays', header: 'Tolerance Days', note: 'Optional. +/- days window. Blank = 0 days.' },
   ];
 
   const wb = new ExcelJS.Workbook();
