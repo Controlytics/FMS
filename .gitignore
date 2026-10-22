@@ -119,3 +119,6 @@ tests/performance/results/
 
 # QA campaign output (2026-10-19) — probe results, sweep results, suite logs, cached tokens
 QA/results/
+
+# Runtime uploads (profile photos written by the API and its tests) - never committed
+apps/api/uploads/
