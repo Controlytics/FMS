@@ -22,7 +22,7 @@ import { buildApp } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import pmScheduleRoutes from '../modules/pm-schedules/routes.js';
 import {
-  PmFixture, installConfigOverrides, defaultPmConfig, iso, type ConfigOverrides,
+  PmFixture, installConfigOverrides, defaultPmConfig, iso, multipartBody, type ConfigOverrides,
 } from '../modules/pm-schedules/__tests__/pm-fixtures.js';
 
 const fx = new PmFixture('PMV');
@@ -35,6 +35,7 @@ const u: Record<string, { id: string; username: string }> = {};
 const tok: Record<string, string> = {};
 let ahuTwoVisits: string, ahuEmpty: string, ahuWf: string, ahuCreate: string, ahuCreateSa: string, ahuRole: string;
 let blockId: string, ahuGone: string, ahuArchived: string;
+let ahuCreateRole: string, ahuCreateArch: string, ahuUploadArch: string;
 let firstVisitIds: string[] = [];
 
 const post = (url: string, k: string, payload: unknown, pw?: string) =>
@@ -72,6 +73,12 @@ beforeAll(async () => {
   // An AHU-year holding only an ARCHIVED version (no ACTIVE one).
   ahuArchived = await fx.instance('AHU', 'ARCH', { parentId: block });
   await fx.schedule(ahuArchived, YEAR, u.sa.id, [{ plannedDate: new Date(Date.UTC(YEAR, 0, 20)), toleranceDays: 2 }], 'ARCHIVED');
+  ahuCreateRole = await fx.instance('AHU', 'CREATE-ROLE', { parentId: block });
+  // Two more AHU-years holding only an ARCHIVED version, for create() and the upload.
+  ahuCreateArch = await fx.instance('AHU', 'CREATE-ARCH', { parentId: block });
+  await fx.schedule(ahuCreateArch, YEAR, u.sa.id, [{ plannedDate: new Date(Date.UTC(YEAR, 0, 20)), toleranceDays: 2 }], 'ARCHIVED');
+  ahuUploadArch = await fx.instance('AHU', 'UPLOAD-ARCH', { parentId: block });
+  await fx.schedule(ahuUploadArch, YEAR, u.sa.id, [{ plannedDate: new Date(Date.UTC(YEAR, 0, 20)), toleranceDays: 2 }], 'ARCHIVED');
   ahuTwoVisits = await fx.instance('AHU', 'TWO', { parentId: block });
   ahuEmpty = await fx.instance('AHU', 'EMPTY', { parentId: block });
   ahuWf = await fx.instance('AHU', 'WF', { parentId: block });
@@ -237,5 +244,43 @@ describe('POST / (create) — the same approval fields as an upload (root cause 
     expect(res.statusCode).toBe(201);
     const { entries } = await entriesOf(ahuCreateSa);
     expect(entries[0]).toMatchObject({ approvalStatus: 'APPROVED', submittedBy: u.sa.id, approvedBy: u.sa.id, approvedByName: u.sa.username });
+  });
+});
+
+describe('follow-ups: create() checks the upload role; a new schedule takes the next version everywhere', () => {
+  const versions = async (entityId: string) =>
+    (await prisma.pmSchedule.findMany({ where: { entityId, year: YEAR }, orderBy: { version: 'asc' }, include: { entries: true } }))
+      .map((x) => [x.version, x.status, x.entries.length]);
+
+  it('POST / refuses a PM_CREATE holder who is not the configured upload role (step 1 of the SoD chain), before any write', async () => {
+    cfg.set('pm-schedule-approval', { workflowEnabled: true, uploadRole: [UPL], reviewRole: 'R', approvalRole: 'A' });
+    const res = await post('', 'oth', { entityId: ahuCreateRole, year: YEAR, entries: [{ month: 5, plannedDate: `${YEAR}-05-05` }] });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe('FORBIDDEN_ROLE');
+    expect(await prisma.pmSchedule.count({ where: { entityId: ahuCreateRole } })).toBe(0);
+    // The configured uploader may.
+    const ok = await post('', 'upl', { entityId: ahuCreateRole, year: YEAR, entries: [{ month: 5, plannedDate: `${YEAR}-05-05` }] });
+    expect(ok.statusCode).toBe(201);
+  });
+
+  it('POST / on an AHU-year that holds only an ARCHIVED version creates the next version (it used to collide on v1)', async () => {
+    const res = await post('', 'sa', { entityId: ahuCreateArch, year: YEAR, entries: [{ month: 8, plannedDate: `${YEAR}-08-08` }] });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ version: 2, status: 'ACTIVE' });
+    expect(await versions(ahuCreateArch)).toEqual([[1, 'ARCHIVED', 1], [2, 'ACTIVE', 1]]);
+  });
+
+  it('the upload into an AHU-year that holds only an ARCHIVED version creates the next version (it used to fail the row)', async () => {
+    const { payload, contentType } = multipartBody({ name: 'pm.csv', content: Buffer.from(`ahu_name,scheduled_date,tolerance_days
+${fx.tag}-UPLOAD-ARCH,${YEAR}-08-08,2
+`, 'utf8') });
+    const res = await app.inject({
+      method: 'POST', url: '/api/pm-schedules/upload',
+      headers: { authorization: `Bearer ${tok.sa}`, 'content-type': contentType },
+      payload,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ imported: 1, skipped: 0 });
+    expect(await versions(ahuUploadArch)).toEqual([[1, 'ARCHIVED', 1], [2, 'ACTIVE', 1]]);
   });
 });

@@ -13,15 +13,19 @@ import { checkSeparation, type SeparationInput } from './pm-separation.js';
  *
  * ## Why every write path needs it
  *
- * A schedule can become invalid through five different doors, and a check on
- * only the obvious one leaves the others open:
+ * A schedule can become invalid through six different doors in this module,
+ * and a check on only the obvious one leaves the others open:
  *
- *   1. create a schedule with entries          (pm-schedule-crud)
- *   2. replace a schedule's entries            (pm-schedule-crud)
- *   3. re-submit a rejected entry on a new date(pm-approval.resubmitRejectedEntry)
+ *   1. create a schedule with entries          (pm-schedule-crud.create)
+ *   2. replace a schedule's entries            (pm-schedule-crud.update)
+ *   3. re-submit a rejected entry on a new date(pm-approval.resubmitEntry)
  *   4. edit an APPROVED entry                  (pm-approval.editApprovedEntry)
- *   5. add one visit on a date                 (pm-visits.addVisit, 2026-10-22 —
+ *   5. the reviewer's Modify                   (pm-approval.modifyReviewEntry)
+ *   6. add one visit on a date                 (pm-visits.addVisit, 2026-10-22 —
  *      reads through its transaction via the optional `db` argument)
+ *
+ * (The upload validates its whole file itself; the Super Admin console's entry
+ * create/edit in super-admin/routes.ts call assertSeparation as well.)
  *
  * Door 4 is the subtle one. The edit only STAGES `pendingPlannedDate`; the value
  * goes live later, when QA approves. Validating at request time is necessary but

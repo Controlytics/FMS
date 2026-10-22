@@ -32,6 +32,7 @@ import { checkPmEnabled, readPmSettings } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn } from './pm-workflow.js';
 import { assertSeparation } from './pm-separation-guard.js';
 import { submissionApprovalFields } from './pm-submission.js';
+import { nextScheduleVersion } from './pm-schedule-version.js';
 
 const DAY_MS = 86_400_000;
 
@@ -89,15 +90,11 @@ export async function addVisit(ctx: RequestContext, data: AddVisitInput) {
 
     let sid = existing?.id;
     if (!sid) {
-      // Next version, not the column default 1: an AHU-year can hold ARCHIVED
-      // versions with no ACTIVE one (e.g. a Super Admin status edit), and v1
-      // would then collide with @@unique([entityId, year, version]) forever.
-      const latest = await tx.pmSchedule.findFirst({
-        where: { entityId: ahu.id, year }, orderBy: { version: 'desc' }, select: { version: true },
-      });
+      // Next version, not the column default 1 (pm-schedule-version.ts).
+      const version = await nextScheduleVersion(tx, ahu.id, year);
       try {
         sid = (await tx.pmSchedule.create({
-          data: { entityId: ahu.id, year, version: (latest?.version ?? 0) + 1, status: 'ACTIVE', createdBy: ctx.userSub },
+          data: { entityId: ahu.id, year, version, status: 'ACTIVE', createdBy: ctx.userSub },
           select: { id: true },
         })).id;
       } catch (e: any) {

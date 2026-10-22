@@ -329,17 +329,93 @@ DELETE /api/equipment-groups/:id                        Permission: ASSET_DELETE
 
 ## PM Schedules
 
-```
-GET    /api/pm-schedules                       Permission: PM_READ
-GET    /api/pm-schedules/:id                   Permission: PM_READ
-POST   /api/pm-schedules                       Permission: PM_CREATE, Reauth
-PUT    /api/pm-schedules/:id                   Permission: PM_UPDATE, Reauth
-DELETE /api/pm-schedules/:id                   Permission: PM_DELETE, Reauth
+Routes as registered in `apps/api/src/modules/pm-schedules/routes.ts` and
+`execution-routes.ts` (verified 2026-10-22). "Reauth" = `enforceReauth(<action>)`
+(asks for the password only when the row is on for the role on Config → Action
+Re-auth); "Reauth always" = `enforceReauthAlways`. Schedule and entry routes call
+`checkPmEnabled()` and answer 404 `PM_DISABLED` while the PM module is off;
+`/settings` reports the flag.
 
-GET    /api/pm-schedules/:id/entries           Permission: PM_READ
-POST   /api/pm-schedules/:id/entries           Permission: PM_CREATE
-PUT    /api/pm-schedules/:id/entries/:entryId  Permission: PM_UPDATE
 ```
+GET    /api/pm-schedules/settings                       PM_READ
+GET    /api/pm-schedules/workflow-config                PM_READ
+GET    /api/pm-schedules/template.csv                   PM_READ or PM_DOWNLOAD_TEMPLATE
+POST   /api/pm-schedules/upload                         PM_UPLOAD, Reauth UPLOAD_PM_SCHEDULES
+GET    /api/pm-schedules/ahu-configs                    PM_READ
+PUT    /api/pm-schedules/ahu-configs/:ahuId             PM_UPDATE, Reauth UPDATE_CONFIG_PAGE
+
+GET    /api/pm-schedules/entries                        PM_READ
+GET    /api/pm-schedules/entries/pending-counts         PM_READ
+GET    /api/pm-schedules/entries/export.xlsx            PM_READ, Reauth EXPORT_PM_SCHEDULE
+POST   /api/pm-schedules/entries/review                 PM_REVIEW, Reauth REVIEW_PM_SCHEDULE
+POST   /api/pm-schedules/entries/approve                PM_APPROVE, Reauth APPROVE_PM_SCHEDULE
+POST   /api/pm-schedules/entries/reject                 PM_APPROVE, Reauth REJECT_PM_SCHEDULE
+POST   /api/pm-schedules/entries/:id/resubmit           PM_RESUBMIT, Reauth RESUBMIT_PM_ENTRY
+PUT    /api/pm-schedules/entries/:id/edit               PM_EDIT_ENTRY, Reauth EDIT_PM_SCHEDULE
+PUT    /api/pm-schedules/entries/:id/review-edit        PM_REVIEW, Reauth REVIEW_PM_SCHEDULE
+
+POST   /api/pm-schedules/deviations/sweep               PM_UPDATE
+GET    /api/pm-schedules/deviations                     PM_READ
+POST   /api/pm-schedules/deviations/:id/acknowledge     PM_EXECUTE, Reauth always ACKNOWLEDGE_PM_OVERDUE
+GET    /api/pm-schedules/pending-tasks-map              PM_READ
+GET    /api/pm-schedules/due                            PM_READ
+
+GET    /api/pm-schedules/qnn/visible                    signed in
+GET    /api/pm-schedules/qnn                            role in qnn-notifications.visibleRoles (+ SUPER_ADMIN), else 403
+
+GET    /api/pm-schedules/:entityId?year=YYYY            PM_READ  — the ACTIVE schedule, or null when there is none
+GET    /api/pm-schedules/:entityId/history              PM_READ
+POST   /api/pm-schedules                                PM_CREATE, Reauth CREATE_PM_SCHEDULE
+POST   /api/pm-schedules/visits                         PM_CREATE, Reauth CREATE_PM_SCHEDULE
+PUT    /api/pm-schedules/:id                            PM_UPDATE, Reauth UPDATE_PM_SCHEDULE
+DELETE /api/pm-schedules/:id                            SUPER_ADMIN only, Reauth DELETE_PM_SCHEDULE
+
+POST   /api/pm-executions                               PM_EXECUTE, Reauth START_PM_TASK
+```
+
+**Creating visits — the same rules on every door** (upload, `POST /visits`, `POST /`):
+- **Upload role.** Each runs `assertPmRole(role, uploadRole, 'upload')` — step 1
+  of the segregation-of-duties chain (403 `FORBIDDEN_ROLE`; a no-op when no
+  upload role is configured; SUPER_ADMIN exempt). `POST /` gained this on
+  2026-10-22.
+- **Approval fields** (`pm-submission.ts`, `submissionApprovalFields`). Workflow
+  ON: every new visit is `PENDING_REVIEW` with `submittedBy`/`submittedByName`
+  (no bypass, not even for SUPER_ADMIN). Workflow OFF: SUPER_ADMIN's visit is
+  `APPROVED` with `approvedBy`/`approvedByName`/`approvedAt`; anyone else's is
+  `PENDING` with its submitter. Until 2026-10-22 `POST /` wrote the column
+  default (`PENDING`, no submitter) whatever the workflow said, so with the
+  workflow ON its entries skipped Review.
+- **Next version** (`pm-schedule-version.ts`). A new schedule for an (AHU, year)
+  takes the latest version + 1, never the default 1 — an AHU-year can hold
+  ARCHIVED versions with no ACTIVE one, and v1 collided with
+  `@@unique([entityId, year, version])`.
+- **UTC dates.** A visit's year and month are read in UTC (planned dates are
+  stored at UTC midnight).
+
+**`POST /api/pm-schedules/visits`** — add ONE visit (the web New Schedule
+dialog; operator decision 2026-10-22, D-OPS-10):
+```
+Body: { entityId: uuid (an active AHU), plannedDate: "YYYY-MM-DD", toleranceDays?: 0..365 }
+      toleranceDays defaults to pm-schedule-settings.defaultToleranceDays.
+201:  { scheduleId, scheduleCreated: boolean, entry: PmScheduleEntry, qnn }
+404 NOT_FOUND         entityId is not an active AHU
+409 PM_VISIT_EXISTS   that date is already on the AHU's schedule for the year
+409 PM_VISIT_OVERLAP  the visit's window (plannedDate ± toleranceDays) overlaps
+                      another visit's (pre-existing overlaps between OTHER visits
+                      stay grandfathered)
+409 CONFLICT          the year's schedule was created concurrently — retry
+```
+Adds the visit to the AHU's ACTIVE schedule for the year of `plannedDate`,
+creating the schedule (next version) in the same transaction when there is none.
+Existing visits are never changed — to move one, use
+`PUT /entries/:id/edit` (approved) or `/resubmit` (rejected). Writes one
+`CREATED` audit row (`targetType: pm_schedule_entry`) in the transaction and mints
+one QNN (`UPLOAD`) for the entry, as the upload does per row.
+
+**`POST /api/pm-schedules`** — create the year's schedule with its entries.
+409 `CONFLICT` when the AHU already has an ACTIVE schedule for the year (use
+`POST /visits` to add to it); 409 `PM_VISIT_OVERLAP` when two of the given
+entries overlap.
 
 ---
 
@@ -430,7 +506,7 @@ Common error codes:
 `CHECKLIST_SUBMIT`, `CHECKLIST_CREATE`, `CHECKLIST_EDIT`, `CHECKLIST_DELETE`, `CHECKLIST_TOGGLE`
 
 ### PM Schedules
-`PM_READ`, `PM_CREATE`, `PM_UPDATE`, `PM_DELETE`, `PM_EXECUTE`, `PM_APPROVE`, `PM_DOWNLOAD_TEMPLATE`, `PM_UPLOAD`, `PM_EDIT_ENTRY`, `PM_RESUBMIT`
+`PM_READ`, `PM_CREATE`, `PM_UPDATE`, `PM_DELETE`, `PM_EXECUTE`, `PM_APPROVE`, `PM_REVIEW`, `PM_DOWNLOAD_TEMPLATE`, `PM_UPLOAD`, `PM_EDIT_ENTRY`, `PM_RESUBMIT`
 
 ### Reports
 `REPORT_GENERATE`, `REPORT_EXPORT`, `REPORT_REVIEW_SUBMIT`, `REPORT_REVIEW`, `REPORT_APPROVE` (report generate/sign template perms `REPORT_TEMPLATE_*` / `REPORT_VIEW` / `REPORT_SIGN` / `REPORT_DELETE` removed 2026-07-04; `REPORT_GENERATE`/`REPORT_EXPORT` now gate the cleaning-record + lifecycle PDF export)

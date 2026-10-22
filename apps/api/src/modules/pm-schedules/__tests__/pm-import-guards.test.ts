@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Mocks ───────────────────────────────────────────────────────────────────
 vi.mock('../../../lib/prisma.js', () => ({
@@ -212,5 +212,36 @@ describe('importSchedules — per-schedule atomicity', () => {
     // Both AHUs already hold the date — each is reported independently.
     expect(r.skipped).toBe(2);
     expect(r.details.skipped.map((s: any) => s.row).sort()).toEqual([2, 3]);
+  });
+});
+
+/**
+ * The (AHU, year) bucket and the month label are derived in UTC (2026-10-22).
+ *
+ * Every planned date is stored at UTC midnight. The importer used getFullYear()
+ * / getMonth(), i.e. the SERVER's zone: in any zone west of UTC, 1 January UTC
+ * midnight is still 31 December locally, so a 1 Jan visit was filed in the
+ * PREVIOUS year's schedule with month 12. addVisit derives both in UTC; the
+ * importer now does too. The server runs in IST today, where the two agree —
+ * this pins the zone so the divergence is visible.
+ */
+describe('importSchedules — year and month come from the UTC date, whatever the server zone', () => {
+  const savedTz = process.env.TZ;
+  beforeEach(() => { process.env.TZ = 'America/New_York'; });
+  afterEach(() => { if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz; });
+
+  it('a 1 January visit goes to the schedule of that year with month 1 (not 31 Dec of the year before)', async () => {
+    expect(new Date('2027-01-01T00:00:00.000Z').getFullYear()).toBe(2026); // the zone really is west of UTC here
+    P.pmSchedule.findFirst.mockResolvedValue(null);
+    P.pmSchedule.create.mockResolvedValue({ id: 'sched-new' });
+    P.pmScheduleEntry.findMany.mockResolvedValue([]);
+
+    const r = await importSchedules(ctx, [{ ...ROW, scheduled_date: '2027-01-01' }]);
+
+    expect(r.imported).toBe(1);
+    const yearsLookedUp = P.pmSchedule.findFirst.mock.calls.map((c: any[]) => c[0].where.year);
+    expect(yearsLookedUp.every((y: number) => y === 2027)).toBe(true);
+    expect(P.pmSchedule.create.mock.calls[0][0].data).toMatchObject({ entityId: 'ahu-1', year: 2027 });
+    expect(P.pmScheduleEntry.createMany.mock.calls[0][0].data[0]).toMatchObject({ month: 1 });
   });
 });

@@ -21,6 +21,7 @@ import { checkPmEnabled, readPmSettings } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag } from './pm-workflow.js';
 import { checkSeparation } from './pm-separation.js';
 import { submissionApprovalFields } from './pm-submission.js';
+import { nextScheduleVersion } from './pm-schedule-version.js';
 import { getDatetimeConfig, formatDateWith } from '../../lib/format-datetime.js';
 
 interface ParsedRow {
@@ -190,8 +191,12 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
       }
     }
 
-    const year = plannedDate.getFullYear();
-    const month = plannedDate.getMonth() + 1;
+    // UTC, like the stored date (UTC midnight) and like addVisit (2026-10-22).
+    // getFullYear()/getMonth() read the SERVER's zone: west of UTC, 1 January
+    // is still 31 December locally and the visit landed in last year's
+    // schedule with month 12.
+    const year = plannedDate.getUTCFullYear();
+    const month = plannedDate.getUTCMonth() + 1;
     const windowStart = new Date(plannedDate.getTime() - toleranceDays * 86400000);
     const windowEnd = new Date(plannedDate.getTime() + toleranceDays * 86400000);
 
@@ -315,10 +320,13 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
       // given. Removing a visit is a deliberate act done per entry, not a
       // side effect of uploading a file.
       const scheduleId = await prisma.$transaction(async (tx) => {
+        // A new schedule takes the next version (pm-schedule-version.ts): an
+        // AHU-year holding only ARCHIVED versions collided with v1 and the
+        // whole bucket was reported as a database error.
         const sid = schedule
           ? schedule.id
           : (await tx.pmSchedule.create({
-              data: { entityId: ahu.id, year, status: 'ACTIVE', createdBy: ctx.userSub },
+              data: { entityId: ahu.id, year, version: await nextScheduleVersion(tx, ahu.id, year), status: 'ACTIVE', createdBy: ctx.userSub },
             })).id;
 
         await tx.pmScheduleEntry.createMany({

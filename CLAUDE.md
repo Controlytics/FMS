@@ -487,12 +487,34 @@ looked fine, the TOLERANCES overlapped. A gap-only check passes all three.
 
 - Rule lives once, pure, in `pm-schedules/pm-separation.ts`; `pm-separation-guard.ts`
   is the thin DB layer that throws **409 `PM_VISIT_OVERLAP`**.
-- **Four write paths, all guarded** — create, replace (`pm-schedule-crud.ts`),
-  re-submit a rejected entry, and edit an approved entry (`pm-approval.ts`).
-  The fourth needs the check **twice**: `editApprovedEntry` only STAGES
+- **Six write paths in the PM module, all guarded** (grep `assertSeparation` /
+  `assertSetSeparation` / `assertBatchSeparation`, 2026-10-22) — create and replace
+  (`pm-schedule-crud.ts`), re-submit a rejected entry, edit an approved entry, the
+  reviewer's Modify (`pm-approval.ts`), and **add a visit** (`pm-visits.ts`,
+  `POST /visits`, 2026-10-22). The upload checks its whole file against the
+  existing visits itself (`checkSeparation`), and the Super Admin console's entry
+  create/edit (`super-admin/routes.ts`) call `assertSeparation` too.
+  Edit-approved needs the check **twice**: `editApprovedEntry` only STAGES
   `pendingPlannedDate`, and it goes live later at QA approval, by which time
   another entry may have moved. Validating only at request time lets two
   individually-fine approvals combine into an overlap.
+- **New Schedule ADDS one visit (D-OPS-10, operator decision 2026-10-22).**
+  `POST /api/pm-schedules/visits` puts ONE visit on the AHU's ACTIVE schedule for
+  the year (creating the schedule when there is none) and never changes an
+  existing visit: a date already scheduled is 409 `PM_VISIT_EXISTS`, an overlap
+  409 `PM_VISIT_OVERLAP`. The dialog used to "overwrite" `entries[0]`, i.e.
+  whichever visit came first. To move a visit use the row's Edit (approved) or
+  Resubmit (rejected).
+- **Every door that creates visits applies the same rules** — the upload,
+  `POST /visits` and `POST /`: the configured upload role (`assertPmRole`, step 1
+  of the SoD chain), ONE approval rule (`pm-submission.ts`
+  `submissionApprovalFields`: workflow ON → `PENDING_REVIEW` with the submitter,
+  for everyone; OFF → SUPER_ADMIN `APPROVED`, others `PENDING`), a new schedule
+  takes the NEXT version (`pm-schedule-version.ts`; an AHU-year can hold only
+  ARCHIVED versions, and v1 collided with `@@unique([entityId, year, version])`),
+  and year/month are read in UTC (dates are stored at UTC midnight; the upload
+  used the server zone). Until 2026-10-22 `POST /` wrote the column default
+  (`PENDING`, no submitter), so with the workflow ON its entries skipped Review.
 - **The upload APPENDS; it never replaces (2026-08-27).** It used to hard-delete
   every entry for the (AHU, year) and recreate them, with two guards refusing the
   wipe when it would destroy execution evidence or APPROVED entries. Those guards

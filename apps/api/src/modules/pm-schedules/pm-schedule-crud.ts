@@ -8,7 +8,8 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled, isPmEntryInForce } from './pm-shared.js';
 import { assertSetSeparation } from './pm-separation-guard.js';
-import { getPmWorkflowConfig } from './pm-workflow.js';
+import { getPmWorkflowConfig, assertPmRole } from './pm-workflow.js';
+import { nextScheduleVersion } from './pm-schedule-version.js';
 import { submissionApprovalFields } from './pm-submission.js';
 
 export async function getByEntity(_ctx: RequestContext, entityId: string, year?: number) {
@@ -41,6 +42,13 @@ export async function create(ctx: RequestContext, data: any) {
   await checkPmEnabled();
   const { entityId, year, entries } = data;
 
+  // Step 1 of the SoD chain, as on the upload and Add a visit (2026-10-22):
+  // creating visits is "upload". Without it any PM_CREATE holder could submit
+  // visits the configured upload role is meant to own. A no-op when no upload
+  // role is configured.
+  const wf = await getPmWorkflowConfig();
+  assertPmRole(ctx.userRole, wf.uploadRole, 'upload');
+
   // Check for existing active schedule
   const existing = await prisma.pmSchedule.findFirst({
     where: { entityId, year, status: 'ACTIVE' },
@@ -63,28 +71,39 @@ export async function create(ctx: RequestContext, data: any) {
   // (D-OPS-10, 2026-10-22). They used to take the column default — PENDING with
   // no submitter — so with the 3-step workflow ON they skipped Review, and the
   // submitter needed for segregation of duties was never recorded.
-  const approvalFields = submissionApprovalFields(ctx, await getPmWorkflowConfig());
+  const approvalFields = submissionApprovalFields(ctx, wf);
 
-  const schedule = await prisma.pmSchedule.create({
-    data: {
-      entityId,
-      year,
-      status: 'ACTIVE',
-      createdBy: ctx.userSub,
-      entries: {
-        create: entries.map((e: any) => ({
-          month: e.month,
-          plannedDate: new Date(e.plannedDate),
-          toleranceDays: e.toleranceDays ?? 0,
-          windowStart: new Date(new Date(e.plannedDate).getTime() - (e.toleranceDays ?? 0) * 86400000),
-          windowEnd: new Date(new Date(e.plannedDate).getTime() + (e.toleranceDays ?? 0) * 86400000),
-          notes: e.notes ?? null,
-          ...approvalFields,
-        })),
+  // Next version, not the column default 1 (pm-schedule-version.ts): an AHU-year
+  // holding only ARCHIVED versions collided with v1. A concurrent create still
+  // loses on the unique index — reported as the same 409 as an ACTIVE duplicate.
+  const version = await nextScheduleVersion(prisma, entityId, year);
+  let schedule;
+  try {
+    schedule = await prisma.pmSchedule.create({
+      data: {
+        entityId,
+        year,
+        version,
+        status: 'ACTIVE',
+        createdBy: ctx.userSub,
+        entries: {
+          create: entries.map((e: any) => ({
+            month: e.month,
+            plannedDate: new Date(e.plannedDate),
+            toleranceDays: e.toleranceDays ?? 0,
+            windowStart: new Date(new Date(e.plannedDate).getTime() - (e.toleranceDays ?? 0) * 86400000),
+            windowEnd: new Date(new Date(e.plannedDate).getTime() + (e.toleranceDays ?? 0) * 86400000),
+            notes: e.notes ?? null,
+            ...approvalFields,
+          })),
+        },
       },
-    },
-    include: { entries: { orderBy: { month: 'asc' } } },
-  });
+      include: { entries: { orderBy: { month: 'asc' } } },
+    });
+  } catch (e: any) {
+    if (e?.code === 'P2002') throw new AppError(409, 'CONFLICT', `Active PM schedule already exists for year ${year}`);
+    throw e;
+  }
 
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole, action: 'CREATED',
