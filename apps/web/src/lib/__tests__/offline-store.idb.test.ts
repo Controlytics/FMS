@@ -125,13 +125,13 @@ describe('openDB — schema bootstrap and upgrades', () => {
     });
     await getAllOperations();
     const rows = Object.fromEntries(idb.rows('operations').map((r) => [r.id, r]));
-    expect(rows.old).toMatchObject({ userId: null, userName: null });
+    // WSH-IDB-1 (2026-10-22): both migrations must land on the same row. Two cursors
+    // each wrote back the row they had read, so the owner backfill overwrote the
+    // tapeVersion normalisation and `old.tapeVersion` stayed undefined.
+    expect(rows.old).toMatchObject({ tapeVersion: null, userId: null, userName: null });
+    expect(rows.old).toHaveProperty('tapeVersion', null);
     expect(rows.new).toMatchObject({ tapeVersion: 9, userId: null, userName: null });
     expect(idb.rows('syncVersionState')).toEqual([{ key: 'current', profileVersion: 5 }]);
-    // NOTE (defect WSH-IDB-1, see report): `rows.old.tapeVersion` should be null here and is
-    // undefined — the v6->v7 cursor writes back the row it read BEFORE the v3->v4 cursor's
-    // update landed. The assertion was removed after confirming; sync-engine treats undefined
-    // like null, so the replay is unaffected.
   });
 
   it('an open failure rejects the caller with the browser error', async () => {
@@ -612,9 +612,64 @@ describe('IndexedDB failures reach the caller', () => {
     idb.failRequests({ store: 'tombstones', op: 'index:status.getAll', times: 1, error: err });
     await expect(requeueStuckSyncing()).rejects.toBe(err);
   });
-  // A WRITE failing after the read (evictLruCache / compactSyncedOperations delete,
-  // updateOperationStatus / updateOperationTapeVersion put, clearSynced* delete) does NOT
-  // reach the caller: those functions resolve inside the read callback, before the
-  // transaction commits, and set no tx.onerror. Defect WSH-IDB-2 in the coverage report;
-  // the confirming assertions were removed so the tree stays green.
+  // WSH-IDB-2 (2026-10-22): a WRITE failing after its read succeeded. These functions
+  // used to resolve inside the read callback, before the transaction committed, so the
+  // failure never reached the caller and the sync engine went on as if it had stuck.
+  const writeAfterRead: Array<[string, string, string, () => Promise<unknown>]> = [
+    ['evictLruCache', 'cache', 'delete', () => evictLruCache()],
+    ['compactSyncedOperations', 'operations', 'delete', () => compactSyncedOperations()],
+    ['updateOperationStatus', 'operations', 'put', () => updateOperationStatus('a', 'failed')],
+    ['updateOperationTapeVersion', 'operations', 'put', () => updateOperationTapeVersion('a', 9)],
+    ['updateTombstoneStatus', 'tombstones', 'put', () => updateTombstoneStatus('t', 'failed')],
+    ['clearSyncedTombstones', 'tombstones', 'delete', () => clearSyncedTombstones()],
+    ['clearSyncedOperations', 'operations', 'delete', () => clearSyncedOperations()],
+  ];
+
+  it.each(writeAfterRead)('%s rejects when its %s.%s write fails, and nothing is written', async (_name, storeName, opName, call) => {
+    await ready();
+    idb.seed('cache', Array.from({ length: CACHE_LRU_CAP + 1 }, (_, i) => ({ key: `k${i}`, cachedAt: new Date(i).toISOString() })));
+    idb.seed('operations', [op('old', { status: 'synced', syncedAt: new Date(Date.now() - SYNCED_OP_RETENTION_MS - DAY).toISOString() })]);
+    const before = idb.rows(storeName);
+    const err = new Error(`boom ${storeName}.${opName}`);
+    idb.failRequests({ store: storeName, op: opName, times: 1, error: err });
+    await expect(call()).rejects.toBe(err);
+    expect(idb.rows(storeName)).toEqual(before);
+  });
+
+  // A commit can also be refused with NO error event — the browser aborts it (quota
+  // exhausted). Without tx.onabort the caller's promise never settled at all.
+  const writes: Array<[string, () => Promise<unknown>]> = [
+    ['clearFilterStateCaches', () => clearFilterStateCaches()],
+    ['deleteFilterStatesExcept', () => deleteFilterStatesExcept(new Set())],
+    ['cacheData', () => cacheData('k', 1)],
+    ['evictLruCache', () => evictLruCache()],
+    ['compactSyncedOperations', () => compactSyncedOperations()],
+    ['cacheBlocks', () => cacheBlocks([])],
+    ['cacheFilters', () => cacheFilters([])],
+    ['updateFilterStateLocally', () => updateFilterStateLocally('a', 'X')],
+    ['clearOfflineCycleId', () => clearOfflineCycleId('a')],
+    ['queueOperation', () => queueOperation({ type: 'advance', filterId: 'f', filterName: 'F', payload: {}, userId: null, userName: null })],
+    ['updateOperationStatus', () => updateOperationStatus('a', 'failed')],
+    ['requeueStuckSyncing', () => requeueStuckSyncing()],
+    ['deleteOperation', () => deleteOperation('a')],
+    ['updateOperationTapeVersion', () => updateOperationTapeVersion('a', 1)],
+    ['queueTombstone', () => queueTombstone({ entityType: 'cycle', entityId: 'c' })],
+    ['updateTombstoneStatus', () => updateTombstoneStatus('t', 'failed')],
+    ['clearSyncedTombstones', () => clearSyncedTombstones()],
+    ['clearSyncedOperations', () => clearSyncedOperations()],
+    ['clearAllOperations', () => clearAllOperations()],
+    ['cacheEntities', () => cacheEntities('syncFilters', [{ id: 'x' }])],
+    ['setVersionState', () => setVersionState({ ...DEFAULT_VERSION_STATE })],
+  ];
+
+  it.each(writes)('%s rejects when the commit is aborted', async (_name, call) => {
+    await ready();
+    const quota = Object.assign(new Error('quota exceeded'), { name: 'QuotaExceededError' });
+    idb.abortNextCommit(quota);
+    const outcome = await Promise.race([
+      call().then(() => 'resolved', (e) => e),
+      new Promise((r) => { setTimeout(() => r('never settled'), 200); }),
+    ]);
+    expect(outcome).toBe(quota);
+  });
 });

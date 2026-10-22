@@ -426,8 +426,23 @@ async function refreshTokenBeforeSync(): Promise<{ ok: boolean; error?: string }
 }
 
 export async function syncPendingOperations(): Promise<{ synced: number; failed: number }> {
+  // The guard is taken BEFORE the first await and released in `finally`
+  // (2026-10-22). Taken after the pre-flight (OFF-2), two drains started
+  // together both passed it and replayed the same ops; released only on the
+  // normal path (OFF-3), one exception left sync off until the app restarted.
   if (syncing) return { synced: 0, failed: 0 };
+  syncing = true;
+  try {
+    return await drainQueue();
+  } catch (e) {
+    notifyStage('idle');
+    throw e;
+  } finally {
+    syncing = false;
+  }
+}
 
+async function drainQueue(): Promise<{ synced: number; failed: number }> {
   // 2026-09-02 (21 CFR Part 11 attribution): drain ONLY operations this user
   // queued. The server stamps performedBy from the JWT at REPLAY time, and
   // this queue survives logout and an app kill -- so an unscoped drain writes
@@ -511,7 +526,6 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   notifyStage('tombstone-drain');
   await syncTombstones();
 
-  syncing = true;
   notifyStage('sending-ops', { current: 0, total: pending.length });
   notify({ type: 'start', total: pending.length });
 
@@ -637,8 +651,8 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       // transport with no request timeout), and it's ambiguous whether the
       // request actually reached the server — so keep the op 'pending' WITHOUT
       // burning retry budget (mirrors the interrupted-replay rule) and STOP the
-      // drain. Breaking lets the loop finish so the module `syncing` flag resets
-      // below — the whole point, since otherwise a hung request freezes all sync
+      // drain. Breaking lets the drain finish so the module `syncing` flag resets
+      // (syncPendingOperations' finally) — the whole point, since otherwise a hung request freezes all sync
       // until app restart. A late-completing request dedups on clientOpId, and
       // the whole batch (incl. any dependents) simply retries on the next tick.
       // MUST precede the start-cycle-failure / network / generic branches: a
@@ -680,10 +694,15 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
       // server, not this operation, is the problem — so it must keep the op
       // pending with its retry budget intact instead of burning one of the five
       // retries and eventually dropping the operator's work.
-      const isNetErr = msg.includes('fetch') || msg.includes('network')
+      // 2026-10-22 (same class as use-offline OFF-5): the transport words are
+      // matched only when the server never answered. A 4xx that merely
+      // mentioned one (a filter named NETWORK-F1) stopped every drain at that
+      // op, and nothing queued behind it was ever sent.
+      const serverAnswered = typeof e?.status === 'number';
+      const isNetErr = (!serverAnswered && (msg.includes('fetch') || msg.includes('network')
         || msg.includes('econnrefused') || msg.includes('load failed')
-        || msg.includes('abort')
-        || (typeof e?.status === 'number' && (e.status >= 500 || e.status === 429));
+        || msg.includes('abort')))
+        || (serverAnswered && (e.status >= 500 || e.status === 429));
       if (isNetErr) {
         await updateOperationStatus(op.id, 'pending', errMsg);
         failed++;
@@ -791,7 +810,6 @@ export async function syncPendingOperations(): Promise<{ synced: number; failed:
   // UI will overwrite the cache with fresh server data; blanket clearing breaks
   // users who go offline again before that fetch happens.
 
-  syncing = false;
   notifyStage('idle');
   notify({ type: 'complete', synced, total: pending.length });
 
@@ -803,16 +821,29 @@ let cleanup: (() => void) | null = null;
 let retryInterval: ReturnType<typeof setInterval> | null = null;
 const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
 
+// A drain no caller awaits: a throw is logged here instead of becoming an
+// unhandled rejection with nothing in the console to say sync failed.
+const drainInBackground = () => {
+  syncPendingOperations().catch((err) => {
+    // eslint-disable-next-line no-console -- intentional structured log
+    console.warn('[sync-engine] drain failed —', err instanceof Error ? err.message : String(err));
+  });
+};
+
 const scheduleSync = (delayMs: number) => {
   const t = setTimeout(() => {
     pendingTimers.delete(t);
-    syncPendingOperations();
+    drainInBackground();
   }, delayMs);
   pendingTimers.add(t);
 };
 
 export function startAutoSync(): void {
   if (cleanup) return;
+  // OFF-1 (2026-10-22): work that resolves after stopAutoSync — the orphan
+  // requeue below, a retry tick mid-read — must not start a drain. Clearing
+  // the timers is not enough: those callbacks arm or run one AFTER the clear.
+  let stopped = false;
 
   const onlineCleanup = onConnectivityChange((online) => {
     if (online) scheduleSync(SYNC_AFTER_ONLINE_DELAY_MS);
@@ -823,7 +854,7 @@ export function startAutoSync(): void {
       // Same owner partition as the drain -- otherwise this tick would spin
       // syncPendingOperations() every 30s over ops it will always skip.
       const { syncable } = await getPendingOperationsForUser(readCachedUserIdentity().userId);
-      if (syncable.length > 0) syncPendingOperations();
+      if (syncable.length > 0 && !stopped) drainInBackground();
     } catch (err) {
       // The 30-second retry tick polls IndexedDB for queued ops. Silent
       // catch here hid stuck offline-mode failures (the queue stops
@@ -844,6 +875,7 @@ export function startAutoSync(): void {
   document.addEventListener('visibilitychange', handleVisibility);
 
   cleanup = () => {
+    stopped = true;
     onlineCleanup();
     if (retryInterval) { clearInterval(retryInterval); retryInterval = null; }
     document.removeEventListener('visibilitychange', handleVisibility);
@@ -867,7 +899,7 @@ export function startAutoSync(): void {
       // eslint-disable-next-line no-console -- surface IDB failure; drain still scheduled
       console.warn('[sync-engine] requeueStuckSyncing failed —', err instanceof Error ? err.message : String(err));
     })
-    .finally(() => scheduleSync(SYNC_INITIAL_DELAY_MS));
+    .finally(() => { if (!stopped) scheduleSync(SYNC_INITIAL_DELAY_MS); });
 }
 
 export function stopAutoSync(): void {

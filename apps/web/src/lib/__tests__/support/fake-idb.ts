@@ -49,6 +49,8 @@ export interface FakeIdb {
   failNextOpen(error?: Error): void;
   /** Requests matching store/op fail (all of them, or the first `times`). */
   failRequests(match: RequestFailure): void;
+  /** The next readwrite transaction to commit aborts with `error` and no error event, as on quota exhaustion. */
+  abortNextCommit(error?: Error): void;
 }
 
 const APP_DB = 'digilog-offline';
@@ -94,6 +96,9 @@ class FakeTx {
   private settle() {
     later(() => later(() => {
       if (this.pending !== 0 || this.finished) return;
+      // A commit the browser refuses (quota exhausted) aborts with NO error event.
+      const refused = this.mode === 'readwrite' ? this.ctl.takeCommitFailure() : null;
+      if (refused) { this.abort(refused); return; }
       this.finished = true;
       this.oncomplete?.({ target: this });
       for (const h of this.doneHooks) h(true);
@@ -238,6 +243,12 @@ class FakeStore {
 class Control {
   failures: RequestFailure[] = [];
   openFailure: Error | null = null;
+  commitFailure: Error | null = null;
+  takeCommitFailure(): Error | null {
+    const e = this.commitFailure;
+    this.commitFailure = null;
+    return e;
+  }
   match(store: string, op: string): Error | null {
     for (const f of this.failures) {
       if (f.store && f.store !== store) continue;
@@ -354,5 +365,6 @@ export function installFakeIdb(): FakeIdb {
     },
     failNextOpen: (error = domError('UnknownError', 'injected open failure')) => { ctl.openFailure = error; },
     failRequests: (match) => { ctl.failures.push({ ...match }); },
+    abortNextCommit: (error = domError('QuotaExceededError', 'injected commit abort')) => { ctl.commitFailure = error; },
   };
 }

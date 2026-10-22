@@ -152,7 +152,10 @@ initApiBaseFromStorage();
 if ('serviceWorker' in navigator && !(window as any).Capacitor?.isNativePlatform?.()) {
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (e.data?.type === 'sync-queue') {
-      import('./lib/sync-engine').then(m => m.syncPendingOperations()).catch(() => {});
+      import('./lib/sync-engine').then(m => m.syncPendingOperations()).catch((err) => {
+        // eslint-disable-next-line no-console -- intentional structured log
+        console.warn('[sync-engine] drain failed —', err instanceof Error ? err.message : String(err));
+      });
     }
   });
 }

@@ -269,6 +269,22 @@ describe('executeOrQueue — online', () => {
     });
     expect(await getAllOperations()).toEqual([]);
   });
+
+  // OFF-5 (2026-10-22): "tls" / "ssl" in a message is a transport signal only when
+  // the server never answered. A refusal that merely MENTIONS it (a filter named
+  // BTLS-01) was queued as if the tablet were offline: the operator never saw the
+  // refusal, and the op replayed later under the offline grant.
+  it.each([
+    [409, 'CYCLE_ACTIVE', 'Filter BTLS-01 already has an active cleaning cycle'],
+    [400, 'VALIDATION_ERROR', 'Reason must not reference the SSL gateway'],
+  ])('a %s refusal whose message mentions TLS / SSL is thrown, not queued', async (status, code, message) => {
+    api.add({ method: 'POST', path: '/api/filters/f-1/bypass', ...apiErr(status, code, message) });
+    const { result } = await mountHook();
+    await act(async () => {
+      await expect(result.current.executeOrQueue('bypass', FID, 'F-1', {})).rejects.toMatchObject({ status, code });
+    });
+    expect(await getAllOperations()).toEqual([]);
+  });
 });
 
 describe('executeOrQueue — cache read failure', () => {

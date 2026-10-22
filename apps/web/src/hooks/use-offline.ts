@@ -338,11 +338,16 @@ export function useOffline() {
     } catch (e: any) {
       // Determine if this is a network error (should queue) or API error (should throw)
       const msg = String(e?.message || '').toLowerCase();
-      const isNetErr = (e instanceof TypeError && msg.includes('fetch'))
+      // OFF-5 (2026-10-22): an error with an HTTP status is the SERVER answering,
+      // never a lost connection, whatever its message says. Matched on any error,
+      // 'tls' / 'ssl' queued a refusal that merely mentioned them (a filter named
+      // BTLS-01), so the operator never saw it and it replayed later.
+      const serverAnswered = typeof e?.status === 'number';
+      const isNetErr = !serverAnswered && ((e instanceof TypeError && msg.includes('fetch'))
         || msg.includes('failed to connect') || msg.includes('failed to fetch')
         || msg.includes('networkerror') || msg.includes('network request failed')
         || msg.includes('unable to resolve host') || msg.includes('econnrefused')
-        || msg.includes('load failed') || msg.includes('tls') || msg.includes('ssl');
+        || msg.includes('load failed') || msg.includes('tls') || msg.includes('ssl'));
       // Audit 2026-05-05 fix #2: REAUTH errors must NOT silently queue.
       // The pre-fix logic queued REAUTH_REQUIRED / REAUTH_FAILED responses
       // because the legacy `x-offline-replay: true` header bypass would

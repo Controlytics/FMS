@@ -43,6 +43,19 @@ describe('dialogChecklistsFromActions', () => {
     });
   });
 
+  // OFF-4 (2026-10-22): the tablet's numeric input reads min / max / leastCount /
+  // unit from `validation`; a checklist built from the tape had lost it, so
+  // offline the range hint and the input limits disappeared.
+  it('carries each question\'s validation rules (range, least count, unit)', () => {
+    const rows = dialogChecklistsFromActions([submit()]);
+    expect(rows[0].questions[0].validation).toEqual({ min: 1, max: 4, leastCount: 0.1, unit: 'bar' });
+  });
+
+  it('a question with no validation gets an empty rule set, never undefined', () => {
+    const rows = dialogChecklistsFromActions([submit({ questions: [q({ validation: undefined })] })]);
+    expect(rows[0].questions[0].validation).toEqual({});
+  });
+
   it('a label without the "Submit Checklist: " prefix is used as-is', () => {
     expect(dialogChecklistsFromActions([submit({ label: 'Dry checklist' })])[0].checklistProfileName).toBe('Dry checklist');
   });

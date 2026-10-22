@@ -428,6 +428,20 @@ describe('terminal and pausing error classes', () => {
     },
   );
 
+  // Same defect class as OFF-5 (2026-10-22): the transport words are matched only
+  // when the server never answered. A 4xx that merely mentions one (a filter
+  // named NETWORK-F1) used to stop the drain with the op still pending, so every
+  // drain stopped at the same op and nothing queued behind it ever went out.
+  it('a 4xx whose message mentions "network" is an API refusal: retry counted, the drain goes on', async () => {
+    op({ filterId: 'f-net', filterName: 'NETWORK-F1' });
+    op({ filterId: 'f-2', filterName: 'F-002' });
+    h.api.post.mockRejectedValueOnce(Object.assign(new Error('Filter NETWORK-F1 is retired'), { status: 409, code: 'FILTER_RETIRED' }));
+    expect(await engine.syncPendingOperations()).toEqual({ synced: 1, failed: 1 });
+    expect(h.ops[0]).toMatchObject({ status: 'pending', retryCount: 1, error: 'Filter NETWORK-F1 is retired' });
+    expect(h.ops[1].status).toBe('synced');
+    expect(events.some((e) => e.type === 'interrupted')).toBe(false);
+  });
+
   it('a 429 is a server-side condition: op stays pending and the drain pauses', async () => {
     op();
     h.api.post.mockRejectedValueOnce(Object.assign(new Error('Too many requests'), { status: 429 }));
@@ -448,6 +462,31 @@ describe('in-flight guard', () => {
     release();
     expect(await first).toEqual({ synced: 1, failed: 0 });
     expect(h.api.post).toHaveBeenCalledTimes(1);
+  });
+
+  // OFF-2 (2026-10-22): the guard used to be taken only after the health
+  // check, the token refresh and the tombstone phase, so two drains started
+  // together (the online event + the retry tick) both passed it and both
+  // replayed the same queued ops.
+  it('two drains started together replay each op once', async () => {
+    op();
+    const results = await Promise.all([engine.syncPendingOperations(), engine.syncPendingOperations()]);
+    expect(h.api.post).toHaveBeenCalledTimes(1);
+    expect(results).toContainEqual({ synced: 1, failed: 0 });
+    expect(results).toContainEqual({ synced: 0, failed: 0 });
+  });
+
+  // OFF-3 (2026-10-22): an exception escaping the drain left `syncing` true
+  // for the life of the app, so no queued op was ever sent again.
+  it('a drain that throws releases the guard; the next drain replays the op', async () => {
+    op();
+    st.updateOperationStatus
+      .mockRejectedValueOnce(new Error('IDB write failed'))   // marking the op 'syncing'
+      .mockRejectedValueOnce(new Error('IDB write failed'));  // recording the failure
+    await expect(engine.syncPendingOperations()).rejects.toThrow('IDB write failed');
+    expect(events.filter((e) => e.type === 'stage').at(-1)).toEqual({ type: 'stage', stage: 'idle' });
+    expect(await engine.syncPendingOperations()).toEqual({ synced: 1, failed: 0 });
+    expect(h.ops[0].status).toBe('synced');
   });
 
   it('start-and-advance: a failing current-state lookup after the start still sends the advance (without a tape)', async () => {
@@ -709,6 +748,45 @@ describe('startAutoSync / stopAutoSync', () => {
     expect(h.ops[0].status).toBe('pending');
     expect(h.api.post).not.toHaveBeenCalled();
     engine.stopAutoSync(); // second stop is a no-op
+  });
+
+  // OFF-1 (2026-10-22): the initial drain is armed only once the orphan
+  // requeue settles, which could be AFTER stopAutoSync had cleared the timers.
+  it('stopAutoSync before the orphan requeue settles cancels the initial drain', async () => {
+    let settle!: (n: number) => void;
+    st.requeueStuckSyncing.mockImplementationOnce(() => new Promise<number>((r) => { settle = r; }));
+    op();
+    engine.startAutoSync();
+    engine.stopAutoSync();
+    settle(0);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(h.api.post).not.toHaveBeenCalled();
+    expect(h.ops[0].status).toBe('pending');
+  });
+
+  it('a retry tick still reading the queue when stopAutoSync runs does not drain', async () => {
+    engine.startAutoSync();
+    await vi.advanceTimersByTimeAsync(3_000); // initial drain (empty queue)
+    const queued = op();
+    let release!: () => void;
+    st.getPendingOperationsForUser.mockImplementationOnce(() =>
+      new Promise((r) => { release = () => r({ syncable: [queued], held: [] }); }));
+    await vi.advanceTimersByTimeAsync(30_000); // the tick is now awaiting the queue read
+    engine.stopAutoSync();
+    release();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(h.api.post).not.toHaveBeenCalled();
+    expect(queued.status).toBe('pending');
+  });
+
+  it('a drain started by a timer that throws is logged, not left as an unhandled rejection', async () => {
+    op();
+    st.updateOperationStatus
+      .mockRejectedValueOnce(new Error('IDB write failed'))
+      .mockRejectedValueOnce(new Error('IDB write failed'));
+    engine.startAutoSync();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(warn).toHaveBeenCalledWith('[sync-engine] drain failed —', 'IDB write failed');
   });
 });
 

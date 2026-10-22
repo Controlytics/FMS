@@ -625,7 +625,7 @@ export async function getCachedPendingChecklists(filterId: string): Promise<any[
  *     SCHEMA_DRIFT detection — `expectedProfileVersions` payload field)
  *   - `questions`: from `params.questions` (TapeQuestion shape mirrors
  *     ChecklistQuestion exactly — same id/question/questionType/required/
- *     section/description/options/sortOrder fields)
+ *     section/description/options/validation/sortOrder fields)
  *
  * The legacy server `pendingChecklist[]` and this derived array are
  * structurally compatible — the ChecklistDialog reads the same fields from
@@ -658,6 +658,8 @@ export function dialogChecklistsFromActions(actions: Action[]): Array<{
           section: q.section,
           description: q.description,
           options: q.options,
+          // OFF-4 (2026-10-22): the numeric input's min / max / leastCount / unit.
+          validation: q.validation ?? {},
           sortOrder: q.sortOrder ?? i,
         })),
       };

@@ -234,23 +234,6 @@ function openDB(): Promise<IDBDatabase> {
         tsStore.createIndex('createdAt', 'createdAt', { unique: false });
       }
 
-      // Phase 8.4 M-3 (2026-05-02): v3 -> v4 normalizes any pre-8.3
-      // OfflineOperation row with undefined tapeVersion to explicit null.
-      // The TypeScript type was tightened from `?: number | null` to
-      // `: number | null`, so the on-disk shape must match. Cursor-iterate
-      // the operations store inside the versionchange transaction.
-      if (oldVersion < 4 && upgradeTx) {
-        const opStore = upgradeTx.objectStore('operations');
-        const cursorReq = opStore.openCursor();
-        cursorReq.onsuccess = () => {
-          const cursor = cursorReq.result;
-          if (!cursor) return;
-          const row = cursor.value as OfflineOperation;
-          if (normalizeOpForV4(row)) cursor.update(row);
-          cursor.continue();
-        };
-      }
-
       // Phase 8.4b (Option D, 2026-05-02): v4 -> v5 adds the 7 versioned-
       // local-cache stores. Idempotent — only creates stores that don't yet
       // exist. Each store is keyPath: 'id' except syncVersionState which is
@@ -281,29 +264,59 @@ function openDB(): Promise<IDBDatabase> {
         }
       }
 
+      // Row migrations of the operations store, applied in ONE cursor pass
+      // (WSH-IDB-1, 2026-10-22). One cursor per migration each wrote back the
+      // row it had read, so on a v3 -> v7 upgrade the owner backfill overwrote
+      // the tapeVersion fix the other cursor had just made.
+      //
+      // Phase 8.4 M-3 (2026-05-02): v3 -> v4 normalizes any pre-8.3
+      // OfflineOperation row with undefined tapeVersion to explicit null.
+      // The TypeScript type was tightened from `?: number | null` to
+      // `: number | null`, so the on-disk shape must match.
+      //
       // 2026-09-02: v6 -> v7 gives every OfflineOperation an explicit owner.
       // Pre-v7 rows are backfilled to null rather than guessed — the owner was
       // never recorded, and the user upgrading the app is NOT necessarily the
       // one who queued the work (that is the whole bug). Null rows still
       // replay; see partitionOpsByOwner for why.
-      if (oldVersion < 7 && oldVersion > 0 && upgradeTx) {
+      const toV4 = oldVersion < 4;
+      const toV7 = oldVersion < 7 && oldVersion > 0;
+      if ((toV4 || toV7) && upgradeTx) {
         const opStore = upgradeTx.objectStore('operations');
         const cursorReq = opStore.openCursor();
         cursorReq.onsuccess = () => {
           const cursor = cursorReq.result;
           if (!cursor) return;
           const row = cursor.value as OfflineOperation;
-          if (row.userId === undefined || row.userName === undefined) {
+          let changed = toV4 && normalizeOpForV4(row);
+          if (toV7 && (row.userId === undefined || row.userName === undefined)) {
             row.userId = row.userId ?? null;
             row.userName = row.userName ?? null;
-            cursor.update(row);
+            changed = true;
           }
+          if (changed) cursor.update(row);
           cursor.continue();
         };
       }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Settles when `tx` COMMITS (WSH-IDB-2, 2026-10-22). Every write resolves here
+ * and nowhere else. Resolved from a read callback, a put/delete that then
+ * failed never reached the caller. And a commit the browser refuses (quota
+ * exhausted) fires only `abort`, never `error`, so without `onabort` the
+ * caller waited forever. The rejection carries the failing request's error:
+ * `tx.error` is still null while the error event is being dispatched.
+ */
+function txCommitted(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject((e?.target as IDBRequest | null)?.error ?? tx.error);
+    tx.onabort = () => reject(tx.error ?? new DOMException('IndexedDB transaction aborted', 'AbortError'));
   });
 }
 
@@ -328,18 +341,15 @@ export async function clearFilterStateCaches(): Promise<void> {
   const tx = db.transaction('cache', 'readwrite');
   const store = tx.objectStore('cache');
   const req = store.getAll();
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const items = req.result ?? [];
-      for (const item of items) {
-        if (item.key?.startsWith('filter-state-') || item.key?.startsWith('dryer-temp-')) {
-          store.delete(item.key);
-        }
+  req.onsuccess = () => {
+    const items = req.result ?? [];
+    for (const item of items) {
+      if (item.key?.startsWith('filter-state-') || item.key?.startsWith('dryer-temp-')) {
+        store.delete(item.key);
       }
-    };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+    }
+  };
+  return txCommitted(tx);
 }
 
 /**
@@ -354,18 +364,16 @@ export async function deleteFilterStatesExcept(keepIds: ReadonlySet<string>): Pr
   const store = tx.objectStore('cache');
   const req = store.getAllKeys();
   let removed = 0;
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      for (const key of (req.result ?? []) as IDBValidKey[]) {
-        if (typeof key !== 'string' || !key.startsWith('filter-state-')) continue;
-        if (keepIds.has(key.slice('filter-state-'.length))) continue;
-        store.delete(key);
-        removed++;
-      }
-    };
-    tx.oncomplete = () => resolve(removed);
-    tx.onerror = () => reject(tx.error);
-  });
+  req.onsuccess = () => {
+    for (const key of (req.result ?? []) as IDBValidKey[]) {
+      if (typeof key !== 'string' || !key.startsWith('filter-state-')) continue;
+      if (keepIds.has(key.slice('filter-state-'.length))) continue;
+      store.delete(key);
+      removed++;
+    }
+  };
+  await txCommitted(tx);
+  return removed;
 }
 
 export async function cacheData(key: string, data: any, ttlMs?: number): Promise<void> {
@@ -384,7 +392,7 @@ export async function cacheData(key: string, data: any, ttlMs?: number): Promise
     lastAccessedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + effectiveTtl).toISOString(),
   });
-  return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+  return txCommitted(tx);
 }
 
 export async function getCachedData<T>(key: string): Promise<T | null> {
@@ -433,24 +441,23 @@ export async function evictLruCache(): Promise<{ evicted: number; total: number 
   const tx = db.transaction('cache', 'readwrite');
   const store = tx.objectStore('cache');
   const req = store.getAll();
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const items = (req.result ?? []) as CachedData[];
-      if (items.length <= CACHE_LRU_CAP) { resolve({ evicted: 0, total: items.length }); return; }
-      // `tablet-access-<userId>` (OQ-04, 2026-10-19): the offline allowlist —
-      // losing it makes the tablet fall back to "no config = everything allowed".
-      const exempt = (key: string) => key.startsWith('filter-state-') || key === 'identifier-map' || key === 'cleaning-profile-assignment' || key.startsWith('active-profile-') || key.startsWith('tablet-access-');
-      const evictable = items
-        .filter(i => !exempt(i.key))
-        .sort((a, b) => new Date(a.lastAccessedAt ?? a.cachedAt).getTime() - new Date(b.lastAccessedAt ?? b.cachedAt).getTime());
-      const target = items.length - CACHE_LRU_CAP;
-      const toEvict = evictable.slice(0, target);
-      for (const item of toEvict) store.delete(item.key);
-      resolve({ evicted: toEvict.length, total: items.length });
-    };
-    req.onerror = () => reject(req.error);
-    tx.onerror = () => reject(tx.error);
-  });
+  let outcome = { evicted: 0, total: 0 };
+  req.onsuccess = () => {
+    const items = (req.result ?? []) as CachedData[];
+    if (items.length <= CACHE_LRU_CAP) { outcome = { evicted: 0, total: items.length }; return; }
+    // `tablet-access-<userId>` (OQ-04, 2026-10-19): the offline allowlist —
+    // losing it makes the tablet fall back to "no config = everything allowed".
+    const exempt = (key: string) => key.startsWith('filter-state-') || key === 'identifier-map' || key === 'cleaning-profile-assignment' || key.startsWith('active-profile-') || key.startsWith('tablet-access-');
+    const evictable = items
+      .filter(i => !exempt(i.key))
+      .sort((a, b) => new Date(a.lastAccessedAt ?? a.cachedAt).getTime() - new Date(b.lastAccessedAt ?? b.cachedAt).getTime());
+    const target = items.length - CACHE_LRU_CAP;
+    const toEvict = evictable.slice(0, target);
+    for (const item of toEvict) store.delete(item.key);
+    outcome = { evicted: toEvict.length, total: items.length };
+  };
+  await txCommitted(tx);
+  return outcome;
 }
 
 /**
@@ -462,22 +469,19 @@ export async function compactSyncedOperations(): Promise<{ removed: number }> {
   const tx = db.transaction('operations', 'readwrite');
   const store = tx.objectStore('operations');
   const req = store.getAll();
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const ops = (req.result ?? []) as OfflineOperation[];
-      const cutoff = Date.now() - SYNCED_OP_RETENTION_MS;
-      let removed = 0;
-      for (const op of ops) {
-        if (op.status === 'synced') {
-          const ts = op.syncedAt ? new Date(op.syncedAt).getTime() : new Date(op.createdAt).getTime();
-          if (ts < cutoff) { store.delete(op.id); removed++; }
-        }
+  let removed = 0;
+  req.onsuccess = () => {
+    const ops = (req.result ?? []) as OfflineOperation[];
+    const cutoff = Date.now() - SYNCED_OP_RETENTION_MS;
+    for (const op of ops) {
+      if (op.status === 'synced') {
+        const ts = op.syncedAt ? new Date(op.syncedAt).getTime() : new Date(op.createdAt).getTime();
+        if (ts < cutoff) { store.delete(op.id); removed++; }
       }
-      resolve({ removed });
-    };
-    req.onerror = () => reject(req.error);
-    tx.onerror = () => reject(tx.error);
-  });
+    }
+  };
+  await txCommitted(tx);
+  return { removed };
 }
 
 // === A-01 Wave 5 — Typed-Kind Caches (Step 1, 2026-05-29) ============================
@@ -526,7 +530,7 @@ async function cacheTypedRows<T extends { id: string }>(storeName: string, rows:
   const store = tx.objectStore(storeName);
   store.clear();
   for (const r of rows) store.put(r);
-  return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+  return txCommitted(tx);
 }
 
 async function getCachedTypedRows<T>(storeName: string): Promise<T[]> {
@@ -557,7 +561,7 @@ export async function cacheFilters(filters: CachedFilter[]): Promise<void> {
   const store = tx.objectStore('filters');
   store.clear();
   for (const f of filters) store.put(f);
-  return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+  return txCommitted(tx);
 }
 
 export async function getCachedFilters(): Promise<CachedFilter[]> {
@@ -576,22 +580,18 @@ export async function updateFilterStateLocally(filterId: string, newState: strin
   const tx = db.transaction('filters', 'readwrite');
   const store = tx.objectStore('filters');
   const req = store.get(filterId);
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const filter = req.result;
-      if (filter) {
-        filter.currentLifecycleState = newState;
-        // When a cycle is started offline, mark it so subsequent stages don't re-ask for reason
-        if (markCycleActive && !filter.currentCycleId) {
-          filter.currentCycleId = `offline-cycle-${Date.now()}`;
-        }
-        store.put(filter);
+  req.onsuccess = () => {
+    const filter = req.result;
+    if (filter) {
+      filter.currentLifecycleState = newState;
+      // When a cycle is started offline, mark it so subsequent stages don't re-ask for reason
+      if (markCycleActive && !filter.currentCycleId) {
+        filter.currentCycleId = `offline-cycle-${Date.now()}`;
       }
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+      store.put(filter);
+    }
+  };
+  return txCommitted(tx);
 }
 
 // Clear the currentCycleId and currentLifecycleState for a filter (when cycle completes offline)
@@ -600,19 +600,15 @@ export async function clearOfflineCycleId(filterId: string): Promise<void> {
   const tx = db.transaction('filters', 'readwrite');
   const store = tx.objectStore('filters');
   const req = store.get(filterId);
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const filter = req.result;
-      if (filter) {
-        filter.currentCycleId = null;
-        filter.currentLifecycleState = null;
-        store.put(filter);
-      }
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  req.onsuccess = () => {
+    const filter = req.result;
+    if (filter) {
+      filter.currentCycleId = null;
+      filter.currentLifecycleState = null;
+      store.put(filter);
+    }
+  };
+  return txCommitted(tx);
 }
 
 // === Operation Queue ===
@@ -651,10 +647,8 @@ export async function queueOperation(op: QueueInput): Promise<string> {
     retryCount: 0,
     tapeVersion: op.tapeVersion ?? null,
   });
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve(id);
-    tx.onerror = () => reject(tx.error);
-  });
+  await txCommitted(tx);
+  return id;
 }
 
 export async function getPendingOperations(): Promise<OfflineOperation[]> {
@@ -728,24 +722,20 @@ export async function updateOperationStatus(id: string, status: OfflineOperation
   const tx = db.transaction('operations', 'readwrite');
   const store = tx.objectStore('operations');
   const req = store.get(id);
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const op = req.result;
-      if (op) {
-        op.status = status;
-        if (status === 'synced') op.syncedAt = new Date().toISOString();
-        if (error) op.error = error;
-        // Increment retry count on every failure (pending retry or final failure)
-        if (status === 'failed' || (status === 'pending' && error)) {
-          op.retryCount = (op.retryCount ?? 0) + 1;
-        }
-        store.put(op);
+  req.onsuccess = () => {
+    const op = req.result;
+    if (op) {
+      op.status = status;
+      if (status === 'synced') op.syncedAt = new Date().toISOString();
+      if (error) op.error = error;
+      // Increment retry count on every failure (pending retry or final failure)
+      if (status === 'failed' || (status === 'pending' && error)) {
+        op.retryCount = (op.retryCount ?? 0) + 1;
       }
-      resolve();
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-  });
+      store.put(op);
+    }
+  };
+  return txCommitted(tx);
 }
 
 /**
@@ -759,23 +749,19 @@ export function markSyncingRowPending<T extends { status: string }>(row: T): T {
   return row;
 }
 
-function requeueSyncingInStore(db: IDBDatabase, storeName: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
-    const store = tx.objectStore(storeName);
-    const req = store.index('status').getAll('syncing');
-    let count = 0;
-    req.onsuccess = () => {
-      for (const row of (req.result ?? [])) {
-        store.put(markSyncingRowPending(row));
-        count++;
-      }
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve(count);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
+async function requeueSyncingInStore(db: IDBDatabase, storeName: string): Promise<number> {
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+  const req = store.index('status').getAll('syncing');
+  let count = 0;
+  req.onsuccess = () => {
+    for (const row of (req.result ?? [])) {
+      store.put(markSyncingRowPending(row));
+      count++;
+    }
+  };
+  await txCommitted(tx);
+  return count;
 }
 
 /**
@@ -811,10 +797,7 @@ export async function deleteOperation(id: string): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('operations', 'readwrite');
   tx.objectStore('operations').delete(id);
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  return txCommitted(tx);
 }
 
 /**
@@ -831,18 +814,14 @@ export async function updateOperationTapeVersion(id: string, tapeVersion: number
   const tx = db.transaction('operations', 'readwrite');
   const store = tx.objectStore('operations');
   const req = store.get(id);
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const op = req.result;
-      if (op) {
-        op.tapeVersion = tapeVersion;
-        store.put(op);
-      }
-      resolve();
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-  });
+  req.onsuccess = () => {
+    const op = req.result;
+    if (op) {
+      op.tapeVersion = tapeVersion;
+      store.put(op);
+    }
+  };
+  return txCommitted(tx);
 }
 
 // === Tombstones (for offline deletes/terminations — sync engine processes these first) ===
@@ -860,10 +839,8 @@ export async function queueTombstone(t: Omit<Tombstone, 'id' | 'clientOpId' | 'c
     status: 'pending',
     retryCount: 0,
   });
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve(id);
-    tx.onerror = () => reject(tx.error);
-  });
+  await txCommitted(tx);
+  return id;
 }
 
 export async function getPendingTombstones(): Promise<Tombstone[]> {
@@ -883,22 +860,18 @@ export async function updateTombstoneStatus(id: string, status: Tombstone['statu
   const tx = db.transaction('tombstones', 'readwrite');
   const store = tx.objectStore('tombstones');
   const req = store.get(id);
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const t = req.result;
-      if (t) {
-        t.status = status;
-        if (error) t.error = error;
-        if (status === 'failed' || (status === 'pending' && error)) {
-          t.retryCount = (t.retryCount ?? 0) + 1;
-        }
-        store.put(t);
+  req.onsuccess = () => {
+    const t = req.result;
+    if (t) {
+      t.status = status;
+      if (error) t.error = error;
+      if (status === 'failed' || (status === 'pending' && error)) {
+        t.retryCount = (t.retryCount ?? 0) + 1;
       }
-      resolve();
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-  });
+      store.put(t);
+    }
+  };
+  return txCommitted(tx);
 }
 
 export async function clearSyncedTombstones(): Promise<void> {
@@ -906,15 +879,11 @@ export async function clearSyncedTombstones(): Promise<void> {
   const tx = db.transaction('tombstones', 'readwrite');
   const store = tx.objectStore('tombstones');
   const req = store.getAll();
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const ts = req.result ?? [];
-      for (const t of ts) if (t.status === 'synced') store.delete(t.id);
-      resolve();
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-  });
+  req.onsuccess = () => {
+    const ts = req.result ?? [];
+    for (const t of ts) if (t.status === 'synced') store.delete(t.id);
+  };
+  return txCommitted(tx);
 }
 
 export async function clearSyncedOperations(): Promise<void> {
@@ -922,27 +891,20 @@ export async function clearSyncedOperations(): Promise<void> {
   const tx = db.transaction('operations', 'readwrite');
   const store = tx.objectStore('operations');
   const req = store.getAll();
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => {
-      const ops = req.result ?? [];
-      for (const op of ops) {
-        if (op.status === 'synced') store.delete(op.id);
-      }
-      resolve();
-    };
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => resolve();
-  });
+  req.onsuccess = () => {
+    const ops = req.result ?? [];
+    for (const op of ops) {
+      if (op.status === 'synced') store.delete(op.id);
+    }
+  };
+  return txCommitted(tx);
 }
 
 export async function clearAllOperations(): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('operations', 'readwrite');
   tx.objectStore('operations').clear();
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  return txCommitted(tx);
 }
 
 // === Phase 8.4b — Versioned local-cache stores (Option D) ===
@@ -1004,10 +966,7 @@ export async function cacheEntities<T extends { id: string }>(
   const tx = db.transaction(storeName, 'readwrite');
   const store = tx.objectStore(storeName);
   for (const row of rows) store.put(row);
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  return txCommitted(tx);
 }
 
 export async function getCachedEntity<T = any>(
@@ -1054,10 +1013,7 @@ export async function setVersionState(state: VersionState): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('syncVersionState', 'readwrite');
   tx.objectStore('syncVersionState').put({ ...state, key: 'current' });
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  return txCommitted(tx);
 }
 
 // === Online/Offline Detection ===
