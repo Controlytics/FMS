@@ -15,6 +15,7 @@ import { prisma } from '../../../lib/prisma.js';
 import {
   listPendingFilters, reviewFilters, approveFilters, rejectFilters, resubmitFilter, pendingFilterCounts,
   hasDecisionRemarks, DECISION_REMARKS_MESSAGE,
+  assertCanReview, assertCanApprove, assertCanReject, assertCanResubmit,
 } from '../filter-approval.service.js';
 
 // Opt-in visibility scoping (EntityAssignment / TemplateAssignment) is unused
@@ -459,21 +460,23 @@ export default async function instanceRoutes(app: FastifyInstance) {
       response: { 200: bulkResultsSchema, ...errorResponses },
     },
   }, async (req, reply) => {
-    // Reauth must run BEFORE multipart consumption — req.body is undefined for
-    // multipart routes. The FE sends the password via the x-reauth-password
-    // header. CREATE_ASSET rides along (2026-10-08): the upload may create
-    // AHUs / Areas, which on the Structure view sign CREATE_ASSET — an
-    // enabled CREATE_ASSET row must not be bypassable through the upload.
-    const { ok } = await enforceReauth(['BULK_UPLOAD_FILTERS', 'CREATE_ASSET'], req, reply);
-    if (!ok) return;
-
     try {
+      // D03-09 / F-42 (2026-10-22): read the multipart ONCE and refuse a missing
+      // file, a bad scope, a non-multipart body or an oversized file BEFORE the
+      // signature. The password rides in the x-reauth-password header (req.body
+      // is undefined for a multipart route), so the gate needs no body.
       const { fileBuffer, scope, defaultFilterSet } = await readBulkUploadParts(req);
       if (!fileBuffer || fileBuffer.length === 0) {
         return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
       }
       const scopeErr = badScope(scope);
       if (scopeErr) return reply.code(400).send({ error: 'VALIDATION', message: scopeErr });
+
+      // CREATE_ASSET rides along (2026-10-08): the upload may create AHUs /
+      // Areas, which on the Structure view sign CREATE_ASSET — an enabled
+      // CREATE_ASSET row must not be bypassable through the upload.
+      const { ok } = await enforceReauth(['BULK_UPLOAD_FILTERS', 'CREATE_ASSET'], req, reply);
+      if (!ok) return;
 
       const result = await bulkUploadFilters(fileBuffer, scope, defaultFilterSet, buildContext(req), { canCreateHierarchy: await canCreateHierarchy(req) });
       return { success: true, ...result };
@@ -586,9 +589,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     if (refuseWithoutRemarks(req, reply)) return;
+    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks?: string };
+    // D03-09 / F-42: state, role and separation-of-duties refusals before the signature.
+    await assertCanReview(buildContext(req), filterIds, remarks);
     const { ok } = await enforceReauth('REVIEW_FILTER', req, reply);
     if (!ok) return;
-    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks?: string };
     return reviewFilters(buildContext(req), filterIds, remarks);
   });
 
@@ -602,9 +607,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     if (refuseWithoutRemarks(req, reply)) return;
+    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks?: string };
+    // D03-09 / F-42: state, role and separation-of-duties refusals before the signature.
+    await assertCanApprove(buildContext(req), filterIds, remarks);
     const { ok } = await enforceReauth('APPROVE_FILTER', req, reply);
     if (!ok) return;
-    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks?: string };
     return approveFilters(buildContext(req), filterIds, remarks);
   });
 
@@ -629,9 +636,11 @@ export default async function instanceRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     if (refuseWithoutRemarks(req, reply)) return;
+    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks: string };
+    // D03-09 / F-42: state, role and separation-of-duties refusals before the signature.
+    await assertCanReject(buildContext(req), filterIds, remarks);
     const { ok } = await enforceReauth('REJECT_FILTER', req, reply);
     if (!ok) return;
-    const { filterIds, remarks } = req.body as { filterIds: string[]; remarks: string };
     return rejectFilters(buildContext(req), filterIds, remarks);
   });
 
@@ -644,9 +653,10 @@ export default async function instanceRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    await assertCanResubmit(buildContext(req), id); // D03-09 / F-42: before the signature
     const { ok: reauthOk } = await enforceReauth('RESUBMIT_FILTER', req, reply);
     if (!reauthOk) return;
-    const { id } = req.params as { id: string };
     return resubmitFilter(buildContext(req), id);
   });
 
@@ -731,11 +741,12 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as { status: string; remarks?: string };
+    await instanceService.assertCanChangeStatus(id, body.status); // D03-09 / F-42: before the signature
     const { ok } = await enforceReauth('UPDATE_ASSET', req, reply);
     if (!ok) return;
 
-    const { id } = req.params as { id: string };
-    const body = req.body as { status: string; remarks?: string };
     const instance = await instanceService.changeStatus(id, body.status, buildContext(req), body.remarks);
     return { success: true, data: instance };
   });
@@ -790,12 +801,18 @@ export default async function instanceRoutes(app: FastifyInstance) {
     // UPDATE_ASSET. Manual lifecycle moves (INSTALLED / WASH_IN / DRY_OUT / etc.)
     // belong to the cleanroom filter workflow, not generic asset edits, and the
     // audit key should reflect that for inspector traceability.
+    const { id } = req.params as { id: string };
+    const body = req.body as { lifecycleState: string; remarks: string; cleaningReasonKey?: string; cleaningJustification?: string };
+    // D03-09 / F-42 (2026-10-22): unknown / non-filter, not approved, a forward
+    // skip, a missing or invalid cleaning reason — all refused BEFORE the signature.
+    await instanceService.assertCanChangeLifecycleState(id, body.lifecycleState, {
+      cleaningReasonKey: body.cleaningReasonKey ?? null,
+      cleaningJustification: body.cleaningJustification ?? null,
+    });
     // OD-01 (2026-10-22): a manual lifecycle move rewrites the filter's record — always signed.
     const { ok } = await enforceReauthAlways('UPDATE_FILTER_LIFECYCLE', req, reply);
     if (!ok) return;
 
-    const { id } = req.params as { id: string };
-    const body = req.body as { lifecycleState: string; remarks: string; cleaningReasonKey?: string; cleaningJustification?: string };
     const instance = await instanceService.changeLifecycleState(id, body.lifecycleState, buildContext(req), body.remarks, {
       cleaningReasonKey: body.cleaningReasonKey ?? null,
       cleaningJustification: body.cleaningJustification ?? null,

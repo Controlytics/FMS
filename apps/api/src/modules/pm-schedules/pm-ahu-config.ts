@@ -82,11 +82,10 @@ export async function listAhuFilterSetConfigs(_ctx: RequestContext) {
  * Update the pmFilterSetMode on an AHU's customAttributes. Uses a read +
  * merge + write to preserve other keys inside customAttributes.
  */
-export async function updateAhuFilterSetMode(
-  ctx: RequestContext,
-  ahuId: string,
-  mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED',
-) {
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanUpdateAhuFilterSetMode(ahuId: string) {
   await checkPmEnabled();
 
   const ahu = await prisma.assetInstance.findFirst({
@@ -94,6 +93,15 @@ export async function updateAhuFilterSetMode(
     select: { id: true, name: true, customAttributes: true },
   });
   if (!ahu) throw new AppError(404, 'NOT_FOUND', 'AHU not found');
+  return ahu;
+}
+
+export async function updateAhuFilterSetMode(
+  ctx: RequestContext,
+  ahuId: string,
+  mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED',
+) {
+  const ahu = await assertCanUpdateAhuFilterSetMode(ahuId);
 
   const currentAttrs = (ahu.customAttributes as any) ?? {};
   const newAttrs = { ...currentAttrs, pmFilterSetMode: mode };

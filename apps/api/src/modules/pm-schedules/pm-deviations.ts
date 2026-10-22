@@ -327,10 +327,18 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
 }
 
 /** Operator confirms (with password, enforced at the route) an overdue task before cleaning. */
-export async function acknowledgeDeviation(ctx: RequestContext, id: string) {
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanAcknowledgeDeviation(id: string) {
   const dev = await prisma.deviation.findUnique({ where: { id } });
   if (!dev) throw new AppError(404, 'NOT_FOUND', 'Deviation not found');
   if (dev.status === 'CLOSED') throw new AppError(409, 'CONFLICT', 'Deviation is already closed');
+  return dev;
+}
+
+export async function acknowledgeDeviation(ctx: RequestContext, id: string) {
+  const dev = await assertCanAcknowledgeDeviation(id);
   const updated = await prisma.deviation.update({
     where: { id },
     data: {

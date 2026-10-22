@@ -126,12 +126,22 @@ function requireDecisionRemarks(remarks: unknown): string {
   return remarks.trim();
 }
 
-export async function reviewFilters(ctx: RequestContext, filterIds: string[], remarks?: string) {
+/**
+ * D03-09 / F-42 (2026-10-22): every refusal a decision can give, with no write.
+ * The routes run these BEFORE the re-auth gate (a refused decision costs no
+ * password and leaves no REAUTH_* row); each decision runs its own again.
+ */
+export async function assertCanReview(ctx: RequestContext, filterIds: string[], remarks?: string) {
   const why = requireDecisionRemarks(remarks);
   const cfg = await getFilterWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.reviewRole, 'review', 'filters');
   const rows = await loadInState(filterIds, ['PENDING_REVIEW'], 'review');
   assertNotOwnFilter(ctx, rows, 'review');
+  return { why, rows };
+}
+
+export async function reviewFilters(ctx: RequestContext, filterIds: string[], remarks?: string) {
+  const { why, rows } = await assertCanReview(ctx, filterIds, remarks);
 
   await prisma.assetInstance.updateMany({
     where: { id: { in: filterIds } },
@@ -145,7 +155,7 @@ export async function reviewFilters(ctx: RequestContext, filterIds: string[], re
   return { reviewed: rows.length, filters: rows.map(r => r.name) };
 }
 
-export async function approveFilters(ctx: RequestContext, filterIds: string[], remarks?: string) {
+export async function assertCanApprove(ctx: RequestContext, filterIds: string[], remarks?: string) {
   const why = requireDecisionRemarks(remarks);
   const cfg = await getFilterWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.approvalRole, 'approve', 'filters');
@@ -158,6 +168,11 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
   const approvable = cfg.reviewRole ? ['PENDING_APPROVAL'] : ['PENDING_APPROVAL', 'PENDING_REVIEW'];
   const rows = await loadInState(filterIds, approvable, 'approve');
   assertNotOwnFilter(ctx, rows, 'approve');
+  return { why, rows };
+}
+
+export async function approveFilters(ctx: RequestContext, filterIds: string[], remarks?: string) {
+  const { why, rows } = await assertCanApprove(ctx, filterIds, remarks);
 
   await prisma.assetInstance.updateMany({
     where: { id: { in: filterIds } },
@@ -182,7 +197,7 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
  * and attribution are the record of why it was refused, and the uploader
  * corrects that same row (see resubmitFilter). Its name therefore stays taken.
  */
-export async function rejectFilters(ctx: RequestContext, filterIds: string[], remarks: string) {
+export async function assertCanReject(ctx: RequestContext, filterIds: string[], remarks: string) {
   if (!remarks?.trim()) throw new AppError(400, 'REASON_REQUIRED', 'A rejection reason is required');
   const cfg = await getFilterWorkflowConfig();
   const rows = await loadInState(filterIds, ['PENDING_REVIEW', 'PENDING_APPROVAL'], 'reject');
@@ -195,6 +210,11 @@ export async function rejectFilters(ctx: RequestContext, filterIds: string[], re
     }
   }
   assertNotOwnFilter(ctx, rows, 'reject');
+  return rows;
+}
+
+export async function rejectFilters(ctx: RequestContext, filterIds: string[], remarks: string) {
+  const rows = await assertCanReject(ctx, filterIds, remarks);
 
   await prisma.assetInstance.updateMany({
     where: { id: { in: filterIds } },
@@ -217,10 +237,15 @@ export async function rejectFilters(ctx: RequestContext, filterIds: string[], re
  * is called; this moves the state. Keeping the two apart means resubmit cannot
  * become a second, unvalidated write path into the filter's fields.
  */
-export async function resubmitFilter(ctx: RequestContext, filterId: string) {
+export async function assertCanResubmit(ctx: RequestContext, filterId: string) {
   const rows = await loadInState([filterId], ['REJECTED'], 're-submit');
   const cfg = await getFilterWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.uploadRole, 're-submit', 'filters');
+  return rows;
+}
+
+export async function resubmitFilter(ctx: RequestContext, filterId: string) {
+  const rows = await assertCanResubmit(ctx, filterId);
 
   await prisma.assetInstance.update({
     where: { id: filterId },

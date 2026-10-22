@@ -110,12 +110,18 @@ describe('re-auth gates on every workflow write', () => {
     ['POST', '/entries/review', { entryIds: ['00000000-0000-4000-8000-000000000001'], action: 'approve', remarks: 'dates checked' }, 'REVIEW_PM_SCHEDULE'],
     ['POST', '/entries/approve', { entryIds: ['00000000-0000-4000-8000-000000000001'], comment: 'approved' }, 'APPROVE_PM_SCHEDULE'],
     ['POST', '/entries/reject', { entryIds: ['00000000-0000-4000-8000-000000000001'], remarks: 'no good' }, 'REJECT_PM_SCHEDULE'],
-    ['POST', '/entries/00000000-0000-4000-8000-000000000001/resubmit', { plannedDate: `${YEAR}-01-01` }, 'RESUBMIT_PM_ENTRY'],
-    ['PUT', '/entries/00000000-0000-4000-8000-000000000001/edit', { plannedDate: `${YEAR}-01-01` }, 'EDIT_PM_SCHEDULE'],
+    // D03-09 / F-42: resubmit / edit refuse an unknown or ineligible entry BEFORE
+    // the gate, so these probes use a REAL entry in the right state.
+    ['POST', '/entries/:REJECTED/resubmit', { plannedDate: `${YEAR}-01-01` }, 'RESUBMIT_PM_ENTRY'],
+    ['PUT', '/entries/:APPROVED/edit', { plannedDate: `${YEAR}-01-01` }, 'EDIT_PM_SCHEDULE'],
     ['PUT', '/entries/00000000-0000-4000-8000-000000000001/review-edit', { plannedDate: `${YEAR}-01-01` }, 'REVIEW_PM_SCHEDULE'],
   ])('%s %s asks for the password (%s)', async (method, url, body, action) => {
     cfg.set('action-reauth', { [action]: ['SUPER_ADMIN'] });
-    const res = await call(method, url, 'sa', body);
+    let path = url;
+    for (const status of ['REJECTED', 'APPROVED']) {
+      if (path.includes(`:${status}`)) path = path.replace(`:${status}`, (await entry(s1, status)).id);
+    }
+    const res = await call(method, path, 'sa', body);
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action });
   });

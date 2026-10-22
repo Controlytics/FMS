@@ -104,6 +104,8 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
       response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanCreate(req.body);
     const { ok } = await enforceReauth('CREATE_FILTER_PROFILE', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
@@ -136,10 +138,12 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_FILTER_PROFILE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanUpdate(ctx, id, req.body);
+    const { ok } = await enforceReauth('UPDATE_FILTER_PROFILE', req, reply);
+    if (!ok) return;
     return service.update(ctx, id, req.body);
   });
 
@@ -156,10 +160,12 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_FILTER_PROFILE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanDelete(ctx, id);
+    const { ok } = await enforceReauth('DELETE_FILTER_PROFILE', req, reply);
+    if (!ok) return;
     return service.delete(ctx, id);
   });
 
@@ -182,11 +188,13 @@ export default async function filterProfileRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('ASSIGN_FILTER_PROFILE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     const { filterInstanceIds } = req.body as { filterInstanceIds: string[] };
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanAssign(ctx, id, filterInstanceIds);
+    const { ok } = await enforceReauth('ASSIGN_FILTER_PROFILE', req, reply);
+    if (!ok) return;
     return service.assign(ctx, id, filterInstanceIds);
   });
 }

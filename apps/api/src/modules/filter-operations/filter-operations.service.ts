@@ -838,7 +838,12 @@ export class FilterOperationsService {
   /**
    * Retire a filter — sets status to Retired, terminates active cycle, creates audit log.
    */
-  async retire(ctx: RequestContext, filterId: string, remarks: string, terminationReason: string = 'RETIRED') {
+  /**
+   * retire()'s refusals (unknown, not through the creation workflow, already
+   * retired), no write. D03-09 / F-42 (2026-10-22): POST /:id/retire runs it
+   * BEFORE the re-auth gate; retire() runs it again.
+   */
+  async assertCanRetire(ctx: RequestContext, filterId: string) {
     const filter = await getFilter(filterId, ctx);
 
     // 2026-10-08 (operator): a filter still in the creation workflow cannot be
@@ -851,6 +856,11 @@ export class FilterOperationsService {
     if (filter.currentLifecycleState === 'RETIRED') {
       throw new AppError(400, 'ALREADY_RETIRED', 'Filter is already retired');
     }
+    return filter;
+  }
+
+  async retire(ctx: RequestContext, filterId: string, remarks: string, terminationReason: string = 'RETIRED') {
+    const filter = await this.assertCanRetire(ctx, filterId);
 
     // Retire the filter, terminate cycle, remove from tree AND write the audit
     // row — all in one transaction (audit 2026-09-24 F8: the FILTER_RETIRED row
@@ -951,7 +961,13 @@ export class FilterOperationsService {
   /**
    * Replace a filter — retires old filter, creates new one with incremented suffix.
    */
-  async replace(ctx: RequestContext, filterId: string, remarks: string) {
+  /**
+   * replace()'s refusals (unknown / non-filter, not approved, the next name taken,
+   * already retired), no write. D03-09 / F-42 (2026-10-22): POST /:id/replace runs
+   * it BEFORE the re-auth gate; replace() runs it again. Returns what replace()
+   * builds on.
+   */
+  async assertCanReplace(ctx: RequestContext, filterId: string) {
     // filterInstanceWhere: a non-filter id is 'Filter not found' here too, before
     // the name-clash check and well before anything is written.
     const instance = await prisma.assetInstance.findFirst({
@@ -991,19 +1007,24 @@ export class FilterOperationsService {
       );
     }
 
-    // Snapshot the old filter's FilterDetails BEFORE retire() clears them.
-    // We need filterSet + filterProfileId to copy onto the replacement.
-    const oldDetails = await prisma.filterDetails.findUnique({
-      where: { assetInstanceId: filterId },
-      select: { filterSet: true, filterProfileId: true },
-    });
-
     // Resolve the live filter (cycle pointer, lifecycle state) for the retire
     // half; mirrors retire()'s own guard.
     const resolved = await getFilter(filterId, ctx);
     if (resolved.currentLifecycleState === 'RETIRED') {
       throw new AppError(400, 'ALREADY_RETIRED', 'Filter is already retired');
     }
+    return { instance, oldName, newName, resolved };
+  }
+
+  async replace(ctx: RequestContext, filterId: string, remarks: string) {
+    const { instance, oldName, newName, resolved } = await this.assertCanReplace(ctx, filterId);
+
+    // Snapshot the old filter's FilterDetails BEFORE retire() clears them.
+    // We need filterSet + filterProfileId to copy onto the replacement.
+    const oldDetails = await prisma.filterDetails.findUnique({
+      where: { assetInstanceId: filterId },
+      select: { filterSet: true, filterProfileId: true },
+    });
 
     // Audit 2026-09-24 (F8/F9): retire the old filter, create the replacement,
     // move the tags AND write both audit rows in ONE transaction. It used to be

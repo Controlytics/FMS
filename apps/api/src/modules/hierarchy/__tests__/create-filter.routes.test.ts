@@ -6,12 +6,20 @@ import Fastify, { type FastifyInstance } from 'fastify';
 // formatting a thrown ValidationError as 400. Field-option validation itself is
 // unit-tested in filter.service.test.ts / filter-fields.service.test.ts.
 const createMock = vi.fn();
+// D03-09 / F-42 (2026-10-22): the route runs filterService.assertCanCreate BEFORE
+// the re-auth gate (a refused create costs no password); create() runs it again.
+const assertCreateMock = vi.fn(async () => ({}));
 vi.mock('../../assets/services/filter.service.js', () => ({
-  filterService: { create: (...args: any[]) => createMock(...args) },
+  filterService: {
+    create: (...args: any[]) => createMock(...args),
+    assertCanCreate: (...args: any[]) => assertCreateMock(...(args as [])),
+  },
 }));
 
+const reauthMock = vi.fn(async () => ({ ok: true }));
 vi.mock('../../../lib/reauth-check.js', () => ({
-  enforceReauth: vi.fn(async () => ({ ok: true })),
+  enforceReauth: (...args: any[]) => reauthMock(...(args as [])),
+  enforceReauthAlways: (...args: any[]) => reauthMock(...(args as [])),
 }));
 
 vi.mock('../../../lib/build-context.js', () => ({
@@ -72,6 +80,22 @@ describe('POST /api/hierarchy/filters', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.json())).toContain('must be one of');
+    await app.close();
+  });
+
+  it('D03-09: a ValidationError from the pre-gate check is 400 and the re-auth gate never runs', async () => {
+    const { ValidationError } = await import('../../../lib/errors.js');
+    reauthMock.mockClear();
+    createMock.mockClear();
+    assertCreateMock.mockRejectedValueOnce(new ValidationError('AHU not found'));
+    const app = await buildApp();
+    const res = await app.inject({
+      method: 'POST', url: '/api/hierarchy/filters', headers: AUTH,
+      payload: { name: 'NoAhu', ahuId: AHU },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(reauthMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
     await app.close();
   });
 

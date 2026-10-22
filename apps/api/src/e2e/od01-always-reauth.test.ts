@@ -54,14 +54,39 @@ const adminRequestIds: string[] = [];
 const filterIds: string[] = [];
 let h: Awaited<ReturnType<typeof createHierarchy>> | undefined;
 
-type Call = { method: 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string; payload?: Record<string, unknown> };
+type Call = {
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string; payload?: Record<string, unknown>;
+  /** A raw (multipart) body, for an upload route. */
+  raw?: { body: Buffer; contentType: string };
+};
 
 const send = (token: string, c: Call, password?: string) => app.inject({
   method: c.method,
   url: c.url,
-  headers: { authorization: `Bearer ${token}`, ...(password ? { 'x-reauth-password': password } : {}) },
-  ...(c.payload ? { payload: c.payload } : {}),
+  headers: {
+    authorization: `Bearer ${token}`, ...(password ? { 'x-reauth-password': password } : {}),
+    ...(c.raw ? { 'content-type': c.raw.contentType } : {}),
+  },
+  ...(c.payload ? { payload: c.payload } : c.raw ? { payload: c.raw.body } : {}),
 });
+
+/** A multipart body carrying one small file — passes the restore route's
+ * pre-gate checks (D03-09: body present, file present, not truncated). */
+function oneFileUpload(): { body: Buffer; contentType: string } {
+  const b = `----od01${SUF}`;
+  return {
+    contentType: `multipart/form-data; boundary=${b}`,
+    body: Buffer.from([
+      `--${b}`,
+      'Content-Disposition: form-data; name="file"; filename="b.json"',
+      'Content-Type: application/json',
+      '',
+      '{}',
+      `--${b}--`,
+      '',
+    ].join('\r\n')),
+  };
+}
 
 /** Audit rows my user wrote after `since`, other than signature attempts. */
 const myWrites = (username: string, since: Date) => prisma.auditTrail.findMany({
@@ -274,16 +299,24 @@ const CASES: Case[] = [
   },
   {
     action: 'UPDATE_FILTER_LIFECYCLE',
-    refusalOnly: 'a signed manual lifecycle move needs a filter mid-pipeline; the gate runs before the instance is read, which is what this file proves',
-    setup: async () => ({
-      call: { method: 'PATCH', url: `/api/assets/instances/${randomUUID()}/lifecycle-state`, payload: { lifecycleState: 'INSTALLED', remarks: REASON } },
-      untouched: async () => true,
-    }),
+    refusalOnly: 'a signed manual lifecycle move rewrites a filter mid-pipeline; the refusal cases prove the gate',
+    // A real, approved filter and an operational target: since D03-09 an unknown
+    // filter or a refused move is answered BEFORE the gate, so the probe must pass
+    // every pre-gate check to reach it.
+    setup: async () => {
+      const id = await createFilter(h!.ahuId, `OD01-LC-${runSuffix()}`);
+      filterIds.push(id);
+      return {
+        call: { method: 'PATCH', url: `/api/assets/instances/${id}/lifecycle-state`, payload: { lifecycleState: 'INSTALLED', remarks: REASON } },
+        untouched: async () => (await prisma.filterEvent.count({ where: { filterId: id } })) === 0,
+      };
+    },
   },
   {
     action: 'RESTORE_BACKUP',
-    refusalOnly: 'a signed restore would overwrite the shared test DB; the gate runs before the upload is read',
-    setup: async () => ({ call: { method: 'POST', url: '/api/backup/restore' }, untouched: async () => true }),
+    refusalOnly: 'a signed restore would overwrite the shared test DB; the gate runs before the file is parsed',
+    // A real file: since D03-09 an upload with no file is refused BEFORE the gate.
+    setup: async () => ({ call: { method: 'POST', url: '/api/backup/restore', raw: oneFileUpload() }, untouched: async () => true }),
   },
   {
     action: 'UPDATE_LDAP_CONFIG',

@@ -739,11 +739,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('RETIRE_FILTER', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     const { remarks } = req.body as { remarks: string };
+    await service.assertCanRetire(ctx, id); // D03-09 / F-42: before the signature
+    const { ok } = await enforceReauth('RETIRE_FILTER', req, reply);
+    if (!ok) return;
     return service.retire(ctx, id, remarks);
   });
 
@@ -775,11 +776,12 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('REPLACE_FILTER', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     const { remarks } = req.body as { remarks: string };
+    await service.assertCanReplace(ctx, id); // D03-09 / F-42: before the signature
+    const { ok } = await enforceReauth('REPLACE_FILTER', req, reply);
+    if (!ok) return;
     return service.replace(ctx, id, remarks);
   });
 

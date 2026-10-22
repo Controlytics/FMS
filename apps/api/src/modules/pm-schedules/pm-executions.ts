@@ -20,10 +20,12 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled } from './pm-shared.js';
 
-export async function createExecution(ctx: RequestContext, data: any) {
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanStartExecution(data: any) {
   await checkPmEnabled();
-  const { scheduleEntryId, filterSet } = data;
-
+  const { scheduleEntryId } = data ?? {};
   const entry = await prisma.pmScheduleEntry.findUnique({ where: { id: scheduleEntryId }, include: { schedule: { select: { entityId: true } } } });
   if (!entry) throw new AppError(404, 'NOT_FOUND', 'Schedule entry not found');
   // Audit 2026-09-24 (C-F12): the AHU comes from the entry's schedule, never from
@@ -32,6 +34,15 @@ export async function createExecution(ctx: RequestContext, data: any) {
   if (entry.approvalStatus !== 'APPROVED') {
     throw new AppError(409, 'ENTRY_NOT_APPROVED', 'Only an approved PM schedule entry can be executed.');
   }
+  // Re-checked under the row lock inside createExecution's transaction.
+  const running = await prisma.pmExecution.findFirst({ where: { scheduleEntryId, status: 'IN_PROGRESS' }, select: { id: true } });
+  if (running) throw new AppError(409, 'CONFLICT', 'An execution is already in progress for this entry');
+  return entry;
+}
+
+export async function createExecution(ctx: RequestContext, data: any) {
+  const { scheduleEntryId, filterSet } = data;
+  const entry = await assertCanStartExecution(data);
   const entityId = entry.schedule.entityId;
 
   // QA-D001 (2026-10-19): the duplicate check and the insert used to be two

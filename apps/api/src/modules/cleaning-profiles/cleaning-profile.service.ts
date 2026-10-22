@@ -83,11 +83,72 @@ export class CleaningProfileService {
     return profile;
   }
 
+  // ── D03-09 / F-42 (2026-10-22): every refusal a write can give BEFORE it writes.
+  // The routes run these before the re-auth gate, so a refused body costs no
+  // password and leaves no REAUTH_* row; each write runs them again (the
+  // checklist check is repeated inside its transaction for races).
+
+  /** create()'s refusals: the pipeline graph and every CHECKLIST node enabled. */
+  async assertCanCreate(data: any) {
+    this.validatePipeline(data?.stages, data?.connections);
+    await this.assertChecklistsEnabled(prisma, data?.stages);
+  }
+
+  /** update()'s refusals: exists, latest version, the graph that will be persisted, checklists enabled. */
+  async assertCanUpdate(ctx: RequestContext, id: string, data: any) {
+    const existing = await this.getById(ctx, id);
+    await this.assertLatestVersion(existing);
+    // Validate what will actually be PERSISTED, not just what was sent. The
+    // writes fall back to the existing stages/connections, so validating
+    // only `data.*` let a body of `{connections: []}` skip validation entirely
+    // (no `data.stages` → no call) and publish a new ACTIVE version carrying the
+    // old stages and zero edges. Mirrors the `?? existing` fallbacks in update().
+    this.validatePipeline(
+      data.stages ?? existing.stages,
+      data.connections ?? this.toIndexedConnections(existing.connections, existing.stages),
+    );
+    await this.assertChecklistsEnabled(prisma, data.stages ?? existing.stages);
+    return existing;
+  }
+
+  /** toggleStatus()'s refusals: exists, latest version, no active filter profile on deactivate, checklists on activate. */
+  async assertCanToggle(ctx: RequestContext, id: string) {
+    const existing = await this.getById(ctx, id);
+    await this.assertLatestVersion(existing);
+    const newStatus = existing.status === 'ACTIVE' ? 'ARCHIVED' as const : 'ACTIVE' as const;
+
+    // If deactivating, check references
+    if (newStatus === 'ARCHIVED') {
+      const activeProfiles = await prisma.filterProfile.count({
+        where: { cleaningProfileId: id, isActive: true },
+      });
+      if (activeProfiles > 0) {
+        throw new AppError(409, 'CONFLICT', `Cannot deactivate: ${activeProfiles} active filter profile(s) reference this cleaning profile`);
+      }
+    }
+
+    if (newStatus === 'ACTIVE') await this.assertChecklistsEnabled(prisma, existing.stages);
+    return { existing, newStatus };
+  }
+
+  /** archive()'s refusals: exists, no active filter profile references it. */
+  async assertCanArchive(ctx: RequestContext, id: string) {
+    const existing = await this.getById(ctx, id);
+
+    const activeProfiles = await prisma.filterProfile.count({
+      where: { cleaningProfileId: id, isActive: true },
+    });
+    if (activeProfiles > 0) {
+      throw new AppError(409, 'CONFLICT', `Cannot archive: ${activeProfiles} active filter profile(s) reference this cleaning profile`);
+    }
+    return existing;
+  }
+
   async create(ctx: RequestContext, data: any) {
     const { name, description, flowMode, alarmOnForwardSkip, alarmOnBackwardJump, alarmOnOutOfSequence, cleaningReasons, stages, connections } = data;
 
-    // Validate pipeline graph
-    this.validatePipeline(stages, connections);
+    // Validate pipeline graph (+ checklists enabled; re-checked in the transaction)
+    await this.assertCanCreate(data);
 
     // Audit 2026-09-24 (A-F5): profile + stages + connections in ONE transaction.
     // A connection insert that failed (unknown toStageId → FK) used to leave an
@@ -154,18 +215,7 @@ export class CleaningProfileService {
   }
 
   async update(ctx: RequestContext, id: string, data: any) {
-    const existing = await this.getById(ctx, id);
-    await this.assertLatestVersion(existing);
-
-    // Validate what will actually be PERSISTED, not just what was sent. The
-    // writes below fall back to the existing stages/connections, so validating
-    // only `data.*` let a body of `{connections: []}` skip validation entirely
-    // (no `data.stages` → no call) and publish a new ACTIVE version carrying the
-    // old stages and zero edges. Mirrors the `?? existing` fallbacks used below.
-    this.validatePipeline(
-      data.stages ?? existing.stages,
-      data.connections ?? this.toIndexedConnections(existing.connections, existing.stages),
-    );
+    const existing = await this.assertCanUpdate(ctx, id, data);
 
     // Wrap entire versioning in a transaction for consistency
     const result = await prisma.$transaction(async (tx) => {
@@ -281,21 +331,7 @@ export class CleaningProfileService {
   }
 
   async toggleStatus(ctx: RequestContext, id: string) {
-    const existing = await this.getById(ctx, id);
-    await this.assertLatestVersion(existing);
-    const newStatus = existing.status === 'ACTIVE' ? 'ARCHIVED' : 'ACTIVE';
-
-    // If deactivating, check references
-    if (newStatus === 'ARCHIVED') {
-      const activeProfiles = await prisma.filterProfile.count({
-        where: { cleaningProfileId: id, isActive: true },
-      });
-      if (activeProfiles > 0) {
-        throw new AppError(409, 'CONFLICT', `Cannot deactivate: ${activeProfiles} active filter profile(s) reference this cleaning profile`);
-      }
-    }
-
-    if (newStatus === 'ACTIVE') await this.assertChecklistsEnabled(prisma, existing.stages);
+    const { existing, newStatus } = await this.assertCanToggle(ctx, id);
 
     await prisma.filterCleaningProfile.update({
       where: { id },
@@ -314,14 +350,7 @@ export class CleaningProfileService {
   }
 
   async archive(ctx: RequestContext, id: string) {
-    const existing = await this.getById(ctx, id);
-
-    const activeProfiles = await prisma.filterProfile.count({
-      where: { cleaningProfileId: id, isActive: true },
-    });
-    if (activeProfiles > 0) {
-      throw new AppError(409, 'CONFLICT', `Cannot archive: ${activeProfiles} active filter profile(s) reference this cleaning profile`);
-    }
+    const existing = await this.assertCanArchive(ctx, id);
 
     await prisma.filterCleaningProfile.update({
       where: { id },

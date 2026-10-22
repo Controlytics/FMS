@@ -44,7 +44,39 @@ export interface AddVisitInput {
   toleranceDays?: number;
 }
 
-export async function addVisit(ctx: RequestContext, data: AddVisitInput) {
+/**
+ * The year's ACTIVE schedule for the AHU, refusing a date already scheduled
+ * (PM_VISIT_EXISTS) or a window overlapping another visit (PM_VISIT_OVERLAP).
+ * Run before the signature with `prisma` and again inside the write's transaction.
+ */
+async function visitSlot(
+  db: Pick<typeof prisma, 'pmSchedule' | 'pmScheduleEntry'>,
+  ahu: { id: string; name: string },
+  v: { year: number; plannedDate: Date; toleranceDays: number; shown: string },
+) {
+  const existing = await db.pmSchedule.findFirst({
+    where: { entityId: ahu.id, year: v.year, status: 'ACTIVE' },
+    orderBy: { version: 'desc' },
+    select: { id: true },
+  });
+  if (existing) {
+    const same = await db.pmScheduleEntry.findFirst({
+      where: { scheduleId: existing.id, plannedDate: v.plannedDate },
+      select: { id: true },
+    });
+    if (same) {
+      throw new AppError(409, 'PM_VISIT_EXISTS',
+        `${ahu.name} already has a visit on ${v.shown} in the ${v.year} schedule. Open that visit to change it instead.`);
+    }
+    await assertSeparation(existing.id, { plannedDate: v.plannedDate, toleranceDays: v.toleranceDays }, 'This visit', db as any);
+  }
+  return existing;
+}
+
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanAddVisit(ctx: RequestContext, data: AddVisitInput) {
   await checkPmEnabled();
   const settings = await readPmSettings();
   const toleranceDays = data.toleranceDays ?? Number(settings.defaultToleranceDays ?? 3);
@@ -59,31 +91,20 @@ export async function addVisit(ctx: RequestContext, data: AddVisitInput) {
   const plannedDate = new Date(Date.UTC(y, m - 1, d));
   const year = y;
   assertPmYear(year);
-  const month = m;
-  const windowStart = new Date(plannedDate.getTime() - toleranceDays * DAY_MS);
-  const windowEnd = new Date(plannedDate.getTime() + toleranceDays * DAY_MS);
   const dtCfg = await getDatetimeConfig();
   const shown = formatDateWith(dtCfg, plannedDate);
+  await visitSlot(prisma, ahu, { year, plannedDate, toleranceDays, shown });
+  return { wf, ahu, plannedDate, year, month: m, toleranceDays, shown };
+}
+
+export async function addVisit(ctx: RequestContext, data: AddVisitInput) {
+  const { wf, ahu, plannedDate, year, month, toleranceDays, shown } = await assertCanAddVisit(ctx, data);
+  const windowStart = new Date(plannedDate.getTime() - toleranceDays * DAY_MS);
+  const windowEnd = new Date(plannedDate.getTime() + toleranceDays * DAY_MS);
   const approvalFields = submissionApprovalFields(ctx, wf);
 
   const { scheduleId, scheduleCreated, entry } = await prisma.$transaction(async (tx) => {
-    const existing = await tx.pmSchedule.findFirst({
-      where: { entityId: ahu.id, year, status: 'ACTIVE' },
-      orderBy: { version: 'desc' },
-      select: { id: true },
-    });
-
-    if (existing) {
-      const same = await tx.pmScheduleEntry.findFirst({
-        where: { scheduleId: existing.id, plannedDate },
-        select: { id: true },
-      });
-      if (same) {
-        throw new AppError(409, 'PM_VISIT_EXISTS',
-          `${ahu.name} already has a visit on ${shown} in the ${year} schedule. Open that visit to change it instead.`);
-      }
-      await assertSeparation(existing.id, { plannedDate, toleranceDays }, 'This visit', tx);
-    }
+    const existing = await visitSlot(tx, ahu, { year, plannedDate, toleranceDays, shown });
 
     let sid = existing?.id;
     if (!sid) {

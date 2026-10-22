@@ -87,10 +87,20 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_UPLOAD')],
     schema: { tags: ['Replacement Schedule'], summary: 'Upload a replacement schedule', consumes: ['multipart/form-data'], response: { 200: uploadResultSchema, ...errorResponses } },
   }, async (req, reply) => {
-    const { ok: reauthOk } = await enforceReauth('UPLOAD_REPLACEMENT_SCHEDULE', req, reply);
-    if (!reauthOk) return;
+    // D03-09 / F-42: read the upload ONCE and run every check before the
+    // signature — a missing file, the upload role, an unparseable sheet or a bad
+    // row cost no password and write no REAUTH_* row. The checks are the dry-run
+    // (validateOnly) pass of the same processUpload the write uses.
     const { buffer, fileName } = await readUpload(req);
     if (!buffer || buffer.length === 0) return reply.code(400).send({ error: 'VALIDATION', message: 'A file is required' });
+    const check = await processUpload(buffer, fileName, buildContext(req), { validateOnly: true });
+    if (check.failed > 0) {
+      // Same answer the write path gives for a refused file (all-or-nothing):
+      // only the rows in error (the dry run also lists the good ones).
+      return { success: false, results: check.results.filter((r: { status: string }) => r.status === 'error'), created: 0, failed: check.failed };
+    }
+    const { ok: reauthOk } = await enforceReauth('UPLOAD_REPLACEMENT_SCHEDULE', req, reply);
+    if (!reauthOk) return;
     const result = await processUpload(buffer, fileName, buildContext(req), { validateOnly: false });
     return { success: result.failed === 0, ...result };
   });

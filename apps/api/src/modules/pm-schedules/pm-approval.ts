@@ -363,11 +363,10 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
 }
 
 /** Re-submit a rejected entry with corrected data. Goes back to the start of the flow. */
-export async function resubmitEntry(
-  ctx: RequestContext,
-  entryId: string,
-  data: { plannedDate: string; toleranceDays?: number },
-) {
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanResubmit(entryId: string, data: { plannedDate: string; toleranceDays?: number }) {
   await checkPmEnabled();
   const cfg = await getPmWorkflowConfig();
   const entry = await prisma.pmScheduleEntry.findUnique({ where: { id: entryId }, include: { schedule: true } });
@@ -380,6 +379,15 @@ export async function resubmitEntry(
   if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
   const tol = data.toleranceDays ?? entry.toleranceDays;
   await assertSeparation(entry.scheduleId, { plannedDate: planned, toleranceDays: tol, entryId: entryId }, 'This visit');
+  return { cfg, entry, planned, tol };
+}
+
+export async function resubmitEntry(
+  ctx: RequestContext,
+  entryId: string,
+  data: { plannedDate: string; toleranceDays?: number },
+) {
+  const { cfg, entry, planned, tol } = await assertCanResubmit(entryId, data);
   const { windowStart, windowEnd } = windowsFor(planned, tol);
   const nextStatus = cfg.workflowEnabled ? 'PENDING_REVIEW' : 'PENDING';
 
@@ -406,11 +414,10 @@ export async function resubmitEntry(
 }
 
 /** Edit an approved entry — stages proposed values and sends it back through the flow. */
-export async function editApprovedEntry(
-  ctx: RequestContext,
-  entryId: string,
-  data: { plannedDate: string; toleranceDays?: number },
-) {
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanEditApproved(entryId: string, data: { plannedDate: string; toleranceDays?: number }) {
   await checkPmEnabled();
   const cfg = await getPmWorkflowConfig();
   const entry = await prisma.pmScheduleEntry.findUnique({ where: { id: entryId }, include: { schedule: true } });
@@ -429,6 +436,15 @@ export async function editApprovedEntry(
     { plannedDate: planned, toleranceDays: data.toleranceDays ?? entry.toleranceDays, entryId },
     'This visit',
   );
+  return { cfg, entry, planned };
+}
+
+export async function editApprovedEntry(
+  ctx: RequestContext,
+  entryId: string,
+  data: { plannedDate: string; toleranceDays?: number },
+) {
+  const { cfg, entry, planned } = await assertCanEditApproved(entryId, data);
   const nextStatus = cfg.workflowEnabled ? 'PENDING_REVIEW' : 'PENDING';
 
   const updated = await prisma.pmScheduleEntry.update({

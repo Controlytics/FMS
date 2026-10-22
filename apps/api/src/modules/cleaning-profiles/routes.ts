@@ -148,6 +148,8 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // D03-09 / F-42: every refusal BEFORE the signature (no password spent).
+    await service.assertCanCreate(req.body);
     const { ok } = await enforceReauth('CREATE_CLEANING_PROFILE', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
@@ -215,10 +217,12 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_CLEANING_PROFILE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: every refusal BEFORE the signature (no password spent).
+    await service.assertCanUpdate(ctx, id, req.body as any);
+    const { ok } = await enforceReauth('UPDATE_CLEANING_PROFILE', req, reply);
+    if (!ok) return;
     return service.update(ctx, id, req.body);
   });
 
@@ -240,10 +244,12 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok: reauthOk } = await enforceReauth('UPDATE_CLEANING_PROFILE', req, reply);
-    if (!reauthOk) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: every refusal BEFORE the signature (no password spent).
+    await service.assertCanToggle(ctx, id);
+    const { ok: reauthOk } = await enforceReauth('UPDATE_CLEANING_PROFILE', req, reply);
+    if (!reauthOk) return;
     return service.toggleStatus(ctx, id);
   });
 
@@ -264,10 +270,12 @@ export default async function cleaningProfileRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_CLEANING_PROFILE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: every refusal BEFORE the signature (no password spent).
+    await service.assertCanArchive(ctx, id);
+    const { ok } = await enforceReauth('DELETE_CLEANING_PROFILE', req, reply);
+    if (!ok) return;
     return service.archive(ctx, id);
   });
 

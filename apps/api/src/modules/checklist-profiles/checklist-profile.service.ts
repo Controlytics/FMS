@@ -76,7 +76,105 @@ async function snapshotAndBump(
   });
 }
 
+type Db = Pick<typeof prisma, 'filterPipelineStage' | '$queryRaw'>;
+
+/**
+ * 2026-10-12 (operator decision): a checklist a cleaning profile still uses
+ * cannot be switched off. Same "in use" rule as delete() — any non-archived
+ * profile, ACTIVE or disabled. Enabling is always allowed.
+ */
+async function assertMayDisable(db: Db, existing: { id: string; name: string; isActive: boolean }, data: any) {
+  if (!(existing.isActive && data?.isActive === false)) return;
+  const users = await db.filterPipelineStage.findMany({
+    where: {
+      nodeType: 'CHECKLIST',
+      configuration: { path: ['checklistProfileId'], equals: existing.id },
+      profile: { status: { not: 'ARCHIVED' } },
+    },
+    select: { profile: { select: { name: true } } },
+  });
+  if (users.length > 0) {
+    const names = [...new Set(users.map(u => u.profile.name))];
+    throw new AppError(
+      409,
+      'CHECKLIST_IN_USE',
+      `Cannot disable "${existing.name}": it is used by cleaning profile${names.length === 1 ? '' : 's'} ${names.map(n => `"${n}"`).join(', ')}. Remove it from ${names.length === 1 ? 'that profile' : 'those profiles'} first.`,
+      { cleaningProfiles: names },
+    );
+  }
+}
+
+/** delete()'s in-use refusals: a non-archived pipeline node, or a cycle pinned to its versions. */
+async function assertNotInUse(db: Db, id: string) {
+  // Check if referenced by any pipeline CHECKLIST nodes in non-archived cleaning profiles
+  const usedInPipelines = await db.filterPipelineStage.count({
+    where: {
+      nodeType: 'CHECKLIST',
+      configuration: { path: ['checklistProfileId'], equals: id },
+      profile: { status: { not: 'ARCHIVED' } },
+    },
+  });
+  if (usedInPipelines > 0) {
+    throw new AppError(409, 'IN_USE', 'Cannot delete: checklist is referenced by ' + usedInPipelines + ' pipeline node(s)');
+  }
+  // Phase A.1: also block delete if any cycle (active or historical) has this
+  // profile in its checklistVersionPins. Removing version history would break
+  // audit reproducibility for those cycles.
+  const usedInCycles = await db.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*)::bigint AS count FROM cleaning_cycles WHERE checklist_version_pins ? ${id}
+  `;
+  const cycleCount = Number(usedInCycles[0]?.count ?? 0);
+  if (cycleCount > 0) {
+    throw new AppError(409, 'IN_USE', `Cannot delete: ${cycleCount} cleaning cycle(s) have audit history pinned to this checklist's versions`);
+  }
+}
+
+/**
+ * Audit 2026-09-24 (A-F8): the ids must be exactly this profile's questions —
+ * otherwise a question of ANOTHER profile is re-sorted and the audit row
+ * attributes the change to the wrong profile.
+ */
+function assertQuestionOrder(previousOrder: string[], questionIds: string[]) {
+  const own = new Set(previousOrder);
+  const foreign = questionIds.filter((q) => !own.has(q));
+  if (foreign.length > 0 || new Set(questionIds).size !== questionIds.length || questionIds.length !== previousOrder.length) {
+    throw new AppError(400, 'INVALID_QUESTION_ORDER', 'questionIds must list every question of this profile exactly once.');
+  }
+}
+
 export class ChecklistProfileService {
+  // ── D03-09 / F-42 (2026-10-22): each write's refusals, run by the route BEFORE
+  // the re-auth gate (a refused request costs no password and leaves no REAUTH_*
+  // row). The writes re-run the same helpers inside their transactions.
+
+  async assertCanUpdate(id: string, data: any) {
+    const existing = await prisma.checklistProfile.findUnique({ where: { id } });
+    if (!existing) throw new AppError(404, 'NOT_FOUND', 'Checklist profile not found');
+    await assertMayDisable(prisma, existing, data);
+  }
+
+  async assertCanDelete(ctx: RequestContext, id: string) {
+    await this.getById(ctx, id);
+    await assertNotInUse(prisma, id);
+  }
+
+  async assertProfileExists(profileId: string) {
+    const profile = await prisma.checklistProfile.findUnique({ where: { id: profileId }, select: { id: true } });
+    if (!profile) throw new AppError(404, 'NOT_FOUND', 'Checklist profile not found');
+  }
+
+  async assertQuestionExists(profileId: string, questionId: string) {
+    const q = await prisma.checklistQuestion.findFirst({ where: { id: questionId, profileId }, select: { id: true } });
+    if (!q) throw new AppError(404, 'NOT_FOUND', 'Question not found');
+    await this.assertProfileExists(profileId);
+  }
+
+  async assertCanReorder(profileId: string, questionIds: string[]) {
+    await this.assertProfileExists(profileId);
+    const current = await prisma.checklistQuestion.findMany({ where: { profileId }, select: { id: true } });
+    assertQuestionOrder(current.map((q) => q.id), questionIds);
+  }
+
   async list(
     _ctx: RequestContext,
     query: { page?: number; limit?: number; isActive?: string; expand?: string },
@@ -188,28 +286,7 @@ export class ChecklistProfileService {
         isActive: existing.isActive,
         version: existing.version,
       };
-      // 2026-10-12 (operator decision): a checklist a cleaning profile still
-      // uses cannot be switched off. Same "in use" rule as delete() — any
-      // non-archived profile, ACTIVE or disabled. Enabling is always allowed.
-      if (existing.isActive && data.isActive === false) {
-        const users = await tx.filterPipelineStage.findMany({
-          where: {
-            nodeType: 'CHECKLIST',
-            configuration: { path: ['checklistProfileId'], equals: id },
-            profile: { status: { not: 'ARCHIVED' } },
-          },
-          select: { profile: { select: { name: true } } },
-        });
-        if (users.length > 0) {
-          const names = [...new Set(users.map(u => u.profile.name))];
-          throw new AppError(
-            409,
-            'CHECKLIST_IN_USE',
-            `Cannot disable "${existing.name}": it is used by cleaning profile${names.length === 1 ? '' : 's'} ${names.map(n => `"${n}"`).join(', ')}. Remove it from ${names.length === 1 ? 'that profile' : 'those profiles'} first.`,
-            { cleaningProfiles: names },
-          );
-        }
-      }
+      await assertMayDisable(tx, existing, data);
       await snapshotAndBump(tx, id, 'profile metadata updated', ctx);
       return tx.checklistProfile.update({
         where: { id },
@@ -245,27 +322,7 @@ export class ChecklistProfileService {
     // window in which it is useless. Every other mutation in this service is
     // already transactional; this was the outlier.
     const versionCount = await prisma.$transaction(async (tx) => {
-      // Check if referenced by any pipeline CHECKLIST nodes in non-archived cleaning profiles
-      const usedInPipelines = await tx.filterPipelineStage.count({
-        where: {
-          nodeType: 'CHECKLIST',
-          configuration: { path: ['checklistProfileId'], equals: id },
-          profile: { status: { not: 'ARCHIVED' } },
-        },
-      });
-      if (usedInPipelines > 0) {
-        throw new AppError(409, 'IN_USE', 'Cannot delete: checklist is referenced by ' + usedInPipelines + ' pipeline node(s)');
-      }
-      // Phase A.1: also block delete if any cycle (active or historical) has this
-      // profile in its checklistVersionPins. Removing version history would break
-      // audit reproducibility for those cycles.
-      const usedInCycles = await tx.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(*)::bigint AS count FROM cleaning_cycles WHERE checklist_version_pins ? ${id}
-      `;
-      const cycleCount = Number(usedInCycles[0]?.count ?? 0);
-      if (cycleCount > 0) {
-        throw new AppError(409, 'IN_USE', `Cannot delete: ${cycleCount} cleaning cycle(s) have audit history pinned to this checklist's versions`);
-      }
+      await assertNotInUse(tx, id);
       // The cascade below destroys every ChecklistProfileVersion row, so the audit
       // entry is the ONLY surviving trace of this profile — capture the identifying
       // state (and how much version history went with it) before the delete.
@@ -429,14 +486,7 @@ export class ChecklistProfileService {
         where: { profileId }, orderBy: { sortOrder: 'asc' }, select: { id: true },
       });
       previousOrder = current.map((q) => q.id);
-      // Audit 2026-09-24 (A-F8): the ids must be exactly this profile's questions —
-      // otherwise a question of ANOTHER profile is re-sorted and the audit row
-      // attributes the change to the wrong profile.
-      const own = new Set(previousOrder);
-      const foreign = questionIds.filter((q) => !own.has(q));
-      if (foreign.length > 0 || new Set(questionIds).size !== questionIds.length || questionIds.length !== previousOrder.length) {
-        throw new AppError(400, 'INVALID_QUESTION_ORDER', 'questionIds must list every question of this profile exactly once.');
-      }
+      assertQuestionOrder(previousOrder, questionIds);
       await snapshotAndBump(tx, profileId, 'questions reordered', ctx);
       await Promise.all(questionIds.map((qId, i) =>
         tx.checklistQuestion.update({ where: { id: qId }, data: { sortOrder: i } })

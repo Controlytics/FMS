@@ -175,6 +175,8 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
       response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanCreate(req.body);
     const { ok } = await enforceReauth('CREATE_EQUIPMENT_GROUP', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
@@ -200,10 +202,12 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_EQUIPMENT_GROUP', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanUpdate(id, req.body);
+    const { ok } = await enforceReauth('UPDATE_EQUIPMENT_GROUP', req, reply);
+    if (!ok) return;
     return service.update(ctx, id, req.body);
   });
 
@@ -220,10 +224,12 @@ export default async function equipmentGroupRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_EQUIPMENT_GROUP', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanDelete(id);
+    const { ok } = await enforceReauth('DELETE_EQUIPMENT_GROUP', req, reply);
+    if (!ok) return;
     return service.delete(ctx, id);
   });
 }

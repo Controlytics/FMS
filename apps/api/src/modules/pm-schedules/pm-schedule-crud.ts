@@ -38,7 +38,13 @@ export async function getByEntity(_ctx: RequestContext, entityId: string, year?:
   };
 }
 
-export async function create(ctx: RequestContext, data: any) {
+/** A visit's calendar day (plannedDate is stored at UTC midnight). */
+const dayKey = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
+
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanCreate(ctx: RequestContext, data: any) {
   await checkPmEnabled();
   const { entityId, year, entries } = data;
 
@@ -70,6 +76,12 @@ export async function create(ctx: RequestContext, data: any) {
     })),
     `The ${year} schedule`,
   );
+  return wf;
+}
+
+export async function create(ctx: RequestContext, data: any) {
+  const wf = await assertCanCreate(ctx, data);
+  const { entityId, year, entries } = data;
 
   // The entries enter the approval workflow exactly as uploaded rows do
   // (D-OPS-10, 2026-10-22). They used to take the column default — PENDING with
@@ -119,7 +131,10 @@ export async function create(ctx: RequestContext, data: any) {
   return schedule;
 }
 
-export async function update(ctx: RequestContext, id: string, data: any) {
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanUpdate(ctx: RequestContext, id: string, data: any) {
   await checkPmEnabled();
 
   // Validate BEFORE any write: this is archive-then-recreate, so a late throw
@@ -143,7 +158,6 @@ export async function update(ctx: RequestContext, id: string, data: any) {
   // the same planned date as an existing visit now CARRIES that visit's record
   // forward, and a visit with evidence (approval, write-off or an execution)
   // cannot be silently dropped by leaving it out of the body.
-  const dayKey = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
   const incomingDays = new Set(entries.map((e: any) => dayKey(e.plannedDate)));
   const dropped = existing.entries.filter((e) =>
     !incomingDays.has(dayKey(e.plannedDate))
@@ -152,6 +166,25 @@ export async function update(ctx: RequestContext, id: string, data: any) {
     throw new AppError(409, 'PM_ENTRY_HAS_EVIDENCE',
       `${dropped.length} visit(s) with an approval, write-off or execution would be removed (${dropped.map((e) => dayKey(e.plannedDate)).join(', ')}). Remove them individually instead.`);
   }
+
+  // Same separation check as create, and for the same reason the entry-count
+  // check above runs here: this is archive-then-recreate, so throwing after the
+  // archive would leave the AHU with no ACTIVE schedule and silently stop task
+  // generation. Validate the whole proposed set first.
+  assertSetSeparation(
+    entries.map((e: any) => ({
+      ref: e.plannedDate,
+      plannedDate: new Date(e.plannedDate),
+      toleranceDays: e.toleranceDays ?? 0,
+    })),
+    `The ${existing.year} schedule`,
+  );
+  return existing;
+}
+
+export async function update(ctx: RequestContext, id: string, data: any) {
+  const existing = await assertCanUpdate(ctx, id, data);
+  const entries = data.entries;
   const existingByDay = new Map(existing.entries.map((e) => [dayKey(e.plannedDate), e]));
   const carry = (e: (typeof existing.entries)[number] | undefined) => e ? {
     approvalStatus: e.approvalStatus, approvalRemarks: e.approvalRemarks,
@@ -168,19 +201,6 @@ export async function update(ctx: RequestContext, id: string, data: any) {
     lateReason: e.lateReason, lateReasonBy: e.lateReasonBy, lateReasonAt: e.lateReasonAt,
     manualEntry: e.manualEntry,
   } : {};
-
-  // Same separation check as create, and for the same reason the entry-count
-  // check above runs here: this is archive-then-recreate, so throwing after the
-  // archive would leave the AHU with no ACTIVE schedule and silently stop task
-  // generation. Validate the whole proposed set first.
-  assertSetSeparation(
-    entries.map((e: any) => ({
-      ref: e.plannedDate,
-      plannedDate: new Date(e.plannedDate),
-      toleranceDays: e.toleranceDays ?? 0,
-    })),
-    `The ${existing.year} schedule`,
-  );
 
   // Archive + recreate atomically — a failure must not strand the schedule
   // with no ACTIVE version.
@@ -228,7 +248,10 @@ export async function update(ctx: RequestContext, id: string, data: any) {
   return newSchedule;
 }
 
-export async function remove(ctx: RequestContext, id: string) {
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanRemove(id: string) {
   await checkPmEnabled();
   const existing = await prisma.pmSchedule.findUnique({
     where: { id },
@@ -241,6 +264,11 @@ export async function remove(ctx: RequestContext, id: string) {
   if (inProgress) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Cannot delete: schedule has executions in progress');
   }
+  return existing;
+}
+
+export async function remove(ctx: RequestContext, id: string) {
+  const existing = await assertCanRemove(id);
 
   // Delete executions, entries, then schedule
   await prisma.$transaction([

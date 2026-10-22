@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import ExcelJS from 'exceljs';
 import { PmScheduleService } from './pm-schedule.service.js';
-import { sweepOverdueDeviations, listDeviations, acknowledgeDeviation } from './pm-deviations.js';
+import { sweepOverdueDeviations, listDeviations, acknowledgeDeviation, assertCanAcknowledgeDeviation } from './pm-deviations.js';
 import { canSeeQnn, listQnn } from './qnn.js';
 import { getPmWorkflowConfig } from './pm-workflow.js';
 import { readPmSettings, isPmEnabled, PM_YEAR_MIN, PM_YEAR_MAX } from './pm-shared.js';
@@ -218,10 +218,12 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     // Audit 2026-05-09 fix: bulk PM upload was a high-trust mutation with
     // no password challenge. SUPER_ADMIN uploads auto-approve every row
     // (pm-import.ts:133), so a left-unlocked tablet could blast hundreds
-    // of approved entries. Reauth gate runs BEFORE multipart consumption
-    // for the same reason as the C2 audit fix on bulk-upload-filters.
-    const { ok } = await enforceReauth('UPLOAD_PM_SCHEDULES', req, reply);
-    if (!ok) return;
+    // of approved entries.
+    // D03-09 / F-42 (2026-10-22): the file is read and checked (type, size,
+    // parse, rows) and the upload rights confirmed BEFORE the signature, so a
+    // refused upload costs no password and leaves no REAUTH_* row. Nothing is
+    // written before the gate; the multipart stream is read once. The password
+    // travels in the x-reauth-password header (a multipart body has no JSON).
     try {
       const data = await req.file();
       if (!data) {
@@ -284,6 +286,9 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       }
 
       const ctx = buildContext(req);
+      await service.assertCanImport(ctx);
+      const { ok } = await enforceReauth('UPLOAD_PM_SCHEDULES', req, reply);
+      if (!ok) return;
       const result = await service.importSchedules(ctx, rows.map(r => r.data), rows.map(r => r.line));
       return result;
     } catch (err: any) {
@@ -331,11 +336,13 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
     // surfaces). Routed through the umbrella UPDATE_CONFIG_PAGE action.
-    const { ok } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { ahuId } = req.params as { ahuId: string };
     const { mode } = req.body as { mode: 'BOTH' | 'SET_A' | 'SET_B' | 'DISABLED' };
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await service.assertCanUpdateAhuFilterSetMode(ahuId);
+    const { ok } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!ok) return;
     return service.updateAhuFilterSetMode(ctx, ahuId, mode);
   });
 
@@ -500,11 +507,13 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     // Audit 2026-05-09 fix: resubmit flips REJECTED → PENDING. Approve and
     // reject already reauth — gate this for parity so all three lifecycle
     // transitions on a PM entry are challengeable.
-    const { ok } = await enforceReauth('RESUBMIT_PM_ENTRY', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     const body = req.body as { plannedDate: string; toleranceDays?: number };
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await service.assertCanResubmit(id, body);
+    const { ok } = await enforceReauth('RESUBMIT_PM_ENTRY', req, reply);
+    if (!ok) return;
     return service.resubmitEntry(ctx, id, body);
   });
 
@@ -525,11 +534,13 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('EDIT_PM_SCHEDULE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
     const body = req.body as { plannedDate: string; toleranceDays?: number };
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await service.assertCanEditApproved(id, body);
+    const { ok } = await enforceReauth('EDIT_PM_SCHEDULE', req, reply);
+    if (!ok) return;
     return service.editApprovedEntry(ctx, id, body);
   });
 
@@ -609,9 +620,11 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     // ALWAYS require the password — confirming an overdue task before completion
     // is a compliance gate, not an admin-toggleable reauth policy.
+    const { id } = req.params as { id: string };
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await assertCanAcknowledgeDeviation(id);
     const { ok } = await enforceReauthAlways('ACKNOWLEDGE_PM_OVERDUE', req, reply);
     if (!ok) return;
-    const { id } = req.params as { id: string };
     return acknowledgeDeviation(buildContext(req), id);
   });
 
@@ -708,9 +721,11 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    const ctx = buildContext(req);
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await service.assertCanCreate(ctx, req.body);
     const { ok } = await enforceReauth('CREATE_PM_SCHEDULE', req, reply);
     if (!ok) return;
-    const ctx = buildContext(req);
     const result = await service.create(ctx, req.body);
     return reply.code(201).send(result);
   });
@@ -738,9 +753,11 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    const ctx = buildContext(req);
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await service.assertCanAddVisit(ctx, req.body as { entityId: string; plannedDate: string; toleranceDays?: number });
     const { ok } = await enforceReauth('CREATE_PM_SCHEDULE', req, reply);
     if (!ok) return;
-    const ctx = buildContext(req);
     const result = await service.addVisit(ctx, req.body as { entityId: string; plannedDate: string; toleranceDays?: number });
     return reply.code(201).send(result);
   });
@@ -774,10 +791,12 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_PM_SCHEDULE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await service.assertCanUpdate(ctx, id, req.body);
+    const { ok } = await enforceReauth('UPDATE_PM_SCHEDULE', req, reply);
+    if (!ok) return;
     return service.update(ctx, id, req.body);
   });
 
@@ -794,10 +813,12 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_PM_SCHEDULE', req, reply);
-    if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await service.assertCanDelete(id);
+    const { ok } = await enforceReauth('DELETE_PM_SCHEDULE', req, reply);
+    if (!ok) return;
     return service.delete(ctx, id);
   });
 

@@ -40,6 +40,8 @@ export default async function pmExecutionRoutes(app: FastifyInstance) {
     // PmExecution row — comparable to start-cycle (which IS reauth-gated).
     // Tablet-left-unlocked attack surface: anyone walking by could stamp
     // PM-task starts.
+    // D03-09 / F-42: refusals BEFORE the signature (no password spent).
+    await service.assertCanStartExecution(req.body);
     const { ok } = await enforceReauth('START_PM_TASK', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);

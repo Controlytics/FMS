@@ -128,6 +128,15 @@ function normalizeReadingUrl(raw: unknown): string | null {
   return url;
 }
 
+/** Exactly three instruments, each valid (validateInstrument). */
+function assertThreeValidInstruments(instruments: unknown) {
+  if (!instruments || !Array.isArray(instruments) || instruments.length !== 3) {
+    throw new AppError(400, 'VALIDATION', 'Exactly 3 instruments are required');
+  }
+  // Validate each instrument
+  instruments.forEach((inst: any, idx: number) => validateInstrument(inst, idx));
+}
+
 export class EquipmentGroupsService {
   async list(_ctx: RequestContext, blockId?: string, includeInactive = false) {
     // Config UI passes includeInactive=true so admins can see + re-enable
@@ -159,10 +168,14 @@ export class EquipmentGroupsService {
     });
   }
 
-  async create(ctx: RequestContext, data: any) {
-    const sanitized = sanitizeStrings(data);
+  // ── D03-09 / F-42 (2026-10-22): each write's refusals, run by the route BEFORE
+  // the re-auth gate (a refused request costs no password and leaves no REAUTH_*
+  // row) and again by the write itself.
+
+  async assertCanCreate(data: any) {
+    const sanitized = sanitizeStrings(data ?? {});
     const { name, blockId, instruments } = sanitized;
-    const readingUrl = normalizeReadingUrl(sanitized.readingUrl);
+    normalizeReadingUrl(sanitized.readingUrl);
 
     if (!name?.trim()) throw new AppError(400, 'VALIDATION', 'Group name is required');
     if (!blockId) throw new AppError(400, 'VALIDATION', 'Block ID is required');
@@ -173,12 +186,39 @@ export class EquipmentGroupsService {
     const block = await prisma.assetInstance.findFirst({ where: { id: blockId, isActive: true, template: { templateKind: 'BLOCK' } } });
     if (!block) throw new AppError(404, 'NOT_FOUND', 'Block not found');
 
-    if (!instruments || !Array.isArray(instruments) || instruments.length !== 3) {
-      throw new AppError(400, 'VALIDATION', 'Exactly 3 instruments are required');
-    }
+    assertThreeValidInstruments(instruments);
+  }
 
-    // Validate each instrument
-    instruments.forEach((inst: any, idx: number) => validateInstrument(inst, idx));
+  async assertCanUpdate(id: string, data: any) {
+    const sanitized = sanitizeStrings(data ?? {});
+    normalizeReadingUrl(sanitized.readingUrl);
+    const existing = await prisma.equipmentGroup.findFirst({
+      where: { id },
+      include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
+    assertThreeValidInstruments(sanitized.instruments);
+    return existing;
+  }
+
+  /**
+   * delete()'s refusals, for the route to run before the signature. delete()
+   * itself runs the same assertSafeToDeactivate inside its transaction, AFTER
+   * the block lock (the authoritative check); this one only spares the operator
+   * a password on a delete that would be refused anyway.
+   */
+  async assertCanDelete(id: string) {
+    const existing = await prisma.equipmentGroup.findFirst({ where: { id } });
+    if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
+    await this.assertSafeToDeactivate(prisma, existing, 'delete');
+    return existing;
+  }
+
+  async create(ctx: RequestContext, data: any) {
+    const sanitized = sanitizeStrings(data);
+    const { name, blockId, instruments } = sanitized;
+    const readingUrl = normalizeReadingUrl(sanitized.readingUrl);
+    await this.assertCanCreate(data);
 
     // 2026-07-16: a block may now have MULTIPLE active equipment groups. The old
     // single-active-group invariant (create INACTIVE when the block already had
@@ -245,17 +285,7 @@ export class EquipmentGroupsService {
     const { name, instruments } = sanitized;
     const readingUrl = normalizeReadingUrl(sanitized.readingUrl);
 
-    const existing = await prisma.equipmentGroup.findFirst({
-      where: { id },
-      include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-    });
-    if (!existing) throw new AppError(404, 'NOT_FOUND', 'Equipment group not found');
-
-    if (!instruments || !Array.isArray(instruments) || instruments.length !== 3) {
-      throw new AppError(400, 'VALIDATION', 'Exactly 3 instruments are required');
-    }
-
-    instruments.forEach((inst: any, idx: number) => validateInstrument(inst, idx));
+    const existing = await this.assertCanUpdate(id, data);
 
     const group = await prisma.$transaction(async (tx) => {
       // Phase A.4: snapshot-then-bump. Freeze the OUTGOING composite (group +

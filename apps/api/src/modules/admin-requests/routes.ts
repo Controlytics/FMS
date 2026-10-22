@@ -268,17 +268,16 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     // (UPDATE_USER), for every caller. Decided from the STORED request, never
     // from the body. Every other decision stays policy-driven.
     const { id } = req.params as { id: string };
-    const stored = action === 'approve'
-      ? await prisma.adminRequest.findUnique({ where: { id }, select: { requestType: true, requestData: true } })
-      : null;
-    const changesRole = stored?.requestType === 'MODIFY_USER'
+    const ctx = buildContext(req);
+    // D03-09 / F-42: every refusal (unknown, already processed, a MODIFY_USER
+    // change that is invalid or not allowed) BEFORE the signature.
+    const stored = await adminRequestService.assertCanProcess(id, action, ctx);
+    const changesRole = action === 'approve' && stored.requestType === 'MODIFY_USER'
       && String((stored.requestData as Record<string, unknown> | null)?.modifyField ?? '').trim() === 'role';
     const { ok } = changesRole
       ? await enforceReauthAlways(['APPROVE_ADMIN_REQUEST', 'UPDATE_USER'], req, reply)
       : await enforceReauth('APPROVE_ADMIN_REQUEST', req, reply);
     if (!ok) return;
-
-    const ctx = buildContext(req);
 
     const result = await adminRequestService.process(id, action, remarks, ctx);
     const { username, temporaryPassword, message, ...rest } = result as any;

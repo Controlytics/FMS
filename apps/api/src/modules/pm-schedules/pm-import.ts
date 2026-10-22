@@ -78,11 +78,20 @@ export async function evaluateGuards(
  * `lineNumbers[i]` is the file line of `rows[i]` (the upload route passes it).
  * Without it a row is numbered as if the file had no blank or comment lines.
  */
+// D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
+// refused request costs no password and leaves no REAUTH_* row); the write
+// runs it again.
+export async function assertCanImport(ctx: RequestContext) {
+  await checkPmEnabled();
+  const wf = await getPmWorkflowConfig();
+  assertPmRole(ctx.userRole, wf.uploadRole, 'upload');
+  return wf;
+}
+
 export async function importSchedules(ctx: RequestContext, rows: Array<Record<string, any>>, lineNumbers?: number[]) {
   // Dates quoted back to the operator (skipped-row reasons) follow Config →
   // Date & Time, like the page they read them on. Read once, format per row.
   const dtCfg = await getDatetimeConfig();
-  await checkPmEnabled();
 
   // Load default tolerance from config
   const settings = await readPmSettings();
@@ -90,7 +99,9 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
 
   // 3-step workflow: when enabled, uploads land in PENDING_REVIEW (no auto-approve,
   // even for SUPER_ADMIN) and must be reviewed + approved before generating tasks.
-  const wf = await getPmWorkflowConfig();
+  // PM enabled + the configured upload role: assertCanImport (also run by the
+  // route BEFORE the signature, D03-09).
+  const wf = await assertCanImport(ctx);
 
   // Enforce the configured uploadRole — step 1 of the SoD chain. Steps 2 and 3
   // assert their roles (pm-approval.ts: reviewRole, approvalRole), but
@@ -100,7 +111,6 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   // and SUPER_ADMIN hold PM_UPLOAD/PM_CREATE, which happens to match the configured
   // role) — unlike the replacement path, where it WAS live. assertPmRole no-ops when
   // uploadRole is unset, so an unconfigured workflow stays permissive.
-  assertPmRole(ctx.userRole, wf.uploadRole, 'upload');
 
   const imported: Array<{ row: number; ahuName: string; plannedDate: string; scheduleId: string; entryId: string }> = [];
   const skipped: Array<{ row: number; reason: string; data?: any }> = [];

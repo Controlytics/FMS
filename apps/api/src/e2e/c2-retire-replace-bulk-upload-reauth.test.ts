@@ -48,14 +48,17 @@ import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { AppError } from '../lib/errors.js';
+import { createHierarchy, createFilter, deleteFilters, deleteHierarchy } from './support/owned-fixtures.js';
 
 const TEST_USERNAME = 'c2_filter_admin';
 const TEST_PASSWORD = 'C2Filter@Test1';
-// A syntactically valid UUID for routes that take :id. The reauth gate runs
-// before the service touches the DB, so the filter-not-found case is never
-// reached on the without-password branch and is a 4xx (not 401) on the
-// with-password branch.
+// A syntactically valid UUID for routes that take :id. Since D03-09 (2026-10-22)
+// an unknown filter is refused (4xx) BEFORE the reauth gate, so the
+// with-password branch still lands on a 4xx; the without-password branch uses a
+// REAL, operable filter (realFilterId) so the request reaches the gate.
 const DUMMY_FILTER_ID = '00000000-0000-4000-8000-000000c2f001';
+let realFilterId = '';
+let hier: Awaited<ReturnType<typeof createHierarchy>> | undefined;
 const DUMMY_AHU_ID = '00000000-0000-4000-8000-000000c2a001';
 
 async function buildC2App(): Promise<FastifyInstance> {
@@ -97,6 +100,8 @@ describe('C2 — Retire / Replace / Bulk-Upload reauth gates', () => {
 
   beforeAll(async () => {
     app = await buildC2App();
+    hier = await createHierarchy(`C2-${Date.now().toString(36)}`);
+    realFilterId = await createFilter(hier.ahuId, `C2-REAL-${Date.now().toString(36)}`);
 
     const passwordHash = await hashPassword(TEST_PASSWORD);
     const upserted = await prisma.user.upsert({
@@ -202,6 +207,8 @@ describe('C2 — Retire / Replace / Bulk-Upload reauth gates', () => {
       });
     }
 
+    await deleteFilters([realFilterId]);
+    await deleteHierarchy(hier);
     await app.close();
   });
 
@@ -216,7 +223,7 @@ describe('C2 — Retire / Replace / Bulk-Upload reauth gates', () => {
     it('returns 401 REAUTH_REQUIRED when no password is supplied', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: `/api/filters/${DUMMY_FILTER_ID}/retire`,
+        url: `/api/filters/${realFilterId}/retire`,
         headers: { authorization: `Bearer ${token}` },
         payload: { remarks: 'c2 retire without password' },
       });
@@ -253,7 +260,7 @@ describe('C2 — Retire / Replace / Bulk-Upload reauth gates', () => {
     it('returns 401 REAUTH_REQUIRED when no password is supplied', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: `/api/filters/${DUMMY_FILTER_ID}/replace`,
+        url: `/api/filters/${realFilterId}/replace`,
         headers: { authorization: `Bearer ${token}` },
         payload: { remarks: 'c2 replace without password' },
       });

@@ -22,6 +22,7 @@ import { hashPassword } from '../lib/password.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { isOfflineReplayRoute, OFFLINE_REPLAY_ROUTES } from '../plugins/auth.js';
 import filterOperationsRoutes from '../modules/filter-operations/routes.js';
+import { createHierarchy, createFilter, deleteFilters, deleteHierarchy } from './support/owned-fixtures.js';
 
 const USERNAME = `qa_p502_${Date.now()}`;
 const PASSWORD = 'QaP502@Test2026';
@@ -30,10 +31,17 @@ let token: string;
 let grant: string;
 let reauthRowExisted = false;
 let originalReauth: unknown;
+// D03-09 / F-42 (2026-10-22): the route refuses an unknown / ineligible filter
+// BEFORE the re-auth gate, so the no-password probe needs a REAL, operable
+// filter to reach the gate.
+let realFilterId = '';
+let hier: Awaited<ReturnType<typeof createHierarchy>> | undefined;
 
 describe('offline-replay grant is scoped to the replayed routes (P5-02)', () => {
   beforeAll(async () => {
     app = await buildApp([{ prefix: '/api/filters', plugin: filterOperationsRoutes }]);
+    hier = await createHierarchy(`P502-${Date.now().toString(36)}`);
+    realFilterId = await createFilter(hier.ahuId, `P502-REAL-${Date.now().toString(36)}`);
     await prisma.user.create({
       data: {
         username: USERNAME, fullName: 'QA P5-02', passwordHash: await hashPassword(PASSWORD),
@@ -65,6 +73,8 @@ describe('offline-replay grant is scoped to the replayed routes (P5-02)', () => 
     await prisma.session.deleteMany({ where: { user: { username: USERNAME } } });
     await prisma.passwordHistory.deleteMany({ where: { user: { username: USERNAME } } });
     await prisma.user.deleteMany({ where: { username: USERNAME } });
+    await deleteFilters([realFilterId]);
+    await deleteHierarchy(hier);
     await app?.close();
   });
 
@@ -74,13 +84,13 @@ describe('offline-replay grant is scoped to the replayed routes (P5-02)', () => 
   });
 
   it('retire with a grant and no password is refused (was: grant replaced the password)', async () => {
-    const res = await post(`/api/filters/${randomUUID()}/retire`, { remarks: 'qa p5-02 probe' });
+    const res = await post(`/api/filters/${realFilterId}/retire`, { remarks: 'qa p5-02 probe' });
     expect(res.statusCode).toBe(401);
     expect(res.json().error).toBe('REAUTH_REQUIRED');
   });
 
   it('replace with a grant and no password is refused', async () => {
-    const res = await post(`/api/filters/${randomUUID()}/replace`, { remarks: 'qa p5-02 probe', newFilterName: 'QA-P502-NEW' });
+    const res = await post(`/api/filters/${realFilterId}/replace`, { remarks: 'qa p5-02 probe', newFilterName: 'QA-P502-NEW' });
     expect(res.statusCode).not.toBe(404);
     expect([400, 401]).toContain(res.statusCode);
     if (res.statusCode === 401) expect(res.json().error).toBe('REAUTH_REQUIRED');

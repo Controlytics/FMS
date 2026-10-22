@@ -43,6 +43,7 @@ import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
 import { invalidateReauthCache } from '../lib/reauth-check.js';
 import { AppError } from '../lib/errors.js';
+import { createHierarchy, createFilter, deleteFilters, deleteHierarchy } from './support/owned-fixtures.js';
 
 const TEST_USERNAME = 'm1m2_audit_admin';
 const TEST_PASSWORD = 'M1M2Audit@Test1';
@@ -50,6 +51,11 @@ const TEST_PASSWORD = 'M1M2Audit@Test1';
 // "not found" case is never reached on the without-password branch.
 const DUMMY_REQUEST_ID = '00000000-0000-4000-8000-0000000a1101';
 const DUMMY_FILTER_ID = '00000000-0000-4000-8000-0000000a2201';
+// D03-09 / F-42 (2026-10-22): the route refuses an unknown / ineligible filter
+// BEFORE the re-auth gate, so the no-password probe needs a REAL, operable
+// filter to reach the gate.
+let realFilterId = '';
+let hier: Awaited<ReturnType<typeof createHierarchy>> | undefined;
 
 async function buildM1M2App(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -89,6 +95,8 @@ describe('M1 + M2 — Audit-correct reauth action keys', () => {
 
   beforeAll(async () => {
     app = await buildM1M2App();
+    hier = await createHierarchy(`M1M2-${Date.now().toString(36)}`);
+    realFilterId = await createFilter(hier.ahuId, `M1M2-REAL-${Date.now().toString(36)}`);
 
     const passwordHash = await hashPassword(TEST_PASSWORD);
     const upserted = await prisma.user.upsert({
@@ -191,6 +199,8 @@ describe('M1 + M2 — Audit-correct reauth action keys', () => {
       });
     }
 
+    await deleteFilters([realFilterId]);
+    await deleteHierarchy(hier);
     await app.close();
   });
 
@@ -203,12 +213,23 @@ describe('M1 + M2 — Audit-correct reauth action keys', () => {
   // =========================================================================
   describe('M1: POST /api/admin-requests/:id/process uses APPROVE_ADMIN_REQUEST', () => {
     it('returns 401 REAUTH_REQUIRED with action=APPROVE_ADMIN_REQUEST when no password is supplied', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: `/api/admin-requests/${DUMMY_REQUEST_ID}/process`,
-        headers: { authorization: `Bearer ${token}` },
-        payload: { action: 'approve', adminRemarks: 'm1 approve without password' },
+      // D03-09 / F-42 (2026-10-22): an unknown or already-processed request is
+      // refused BEFORE the re-auth gate, so the no-password probe needs a REAL
+      // pending request to reach the gate.
+      const pending = await prisma.adminRequest.create({
+        data: { requestType: 'UNLOCK', requesterName: 'M1 probe', requestData: { username: TEST_USERNAME } },
       });
+      let res;
+      try {
+        res = await app.inject({
+          method: 'POST',
+          url: `/api/admin-requests/${pending.id}/process`,
+          headers: { authorization: `Bearer ${token}` },
+          payload: { action: 'approve', adminRemarks: 'm1 approve without password' },
+        });
+      } finally {
+        await prisma.adminRequest.delete({ where: { id: pending.id } });
+      }
 
       expect(res.statusCode).toBe(401);
       const body = JSON.parse(res.body);
@@ -243,9 +264,10 @@ describe('M1 + M2 — Audit-correct reauth action keys', () => {
     it('returns 401 REAUTH_REQUIRED with action=UPDATE_FILTER_LIFECYCLE when no password is supplied', async () => {
       const res = await app.inject({
         method: 'PATCH',
-        url: `/api/assets/instances/${DUMMY_FILTER_ID}/lifecycle-state`,
+        url: `/api/assets/instances/${realFilterId}/lifecycle-state`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { lifecycleState: 'WASH_IN', remarks: 'm2 lifecycle change without password' },
+        // INSTALLED: an operational state, so the move passes every pre-gate check.
+        payload: { lifecycleState: 'INSTALLED', remarks: 'm2 lifecycle change without password' },
       });
 
       expect(res.statusCode).toBe(401);

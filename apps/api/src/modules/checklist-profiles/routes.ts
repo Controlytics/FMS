@@ -49,6 +49,8 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CHECKLIST_EDIT')],
     schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', properties: { name: { type: 'string' }, description: { type: 'string' }, isActive: { type: 'boolean' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanUpdate((req.params as any).id, req.body);
     const { ok } = await enforceReauth('UPDATE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;
     return service.update(buildContext(req), (req.params as any).id, req.body);
@@ -58,6 +60,8 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CHECKLIST_DELETE')],
     schema: { tags: ['Checklist Profiles'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses } },
   }, async (req, reply) => {
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanDelete(buildContext(req), (req.params as any).id);
     const { ok } = await enforceReauth('DELETE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;
     return service.delete(buildContext(req), (req.params as any).id);
@@ -68,6 +72,8 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CHECKLIST_CREATE')],
     schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['question'], properties: { question: { type: 'string' }, questionType: { type: 'string', enum: QUESTION_TYPES }, required: { type: 'boolean' }, section: { type: 'string' }, description: { type: 'string' }, options: { type: 'array' }, validation: { type: 'object' }, sortOrder: { type: 'integer' } } }, response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertProfileExists((req.params as any).id);
     const { ok } = await enforceReauth('CREATE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;
     const r = await service.addQuestion(buildContext(req), (req.params as any).id, req.body);
@@ -78,6 +84,8 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CHECKLIST_EDIT')],
     schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id', 'questionId'], properties: { id: { type: 'string', format: 'uuid' }, questionId: { type: 'string', format: 'uuid' } } }, body: { type: 'object', properties: { question: { type: 'string' }, questionType: { type: 'string', enum: QUESTION_TYPES }, required: { type: 'boolean' }, section: { type: 'string' }, description: { type: 'string' }, options: { type: 'array' }, validation: { type: 'object' }, sortOrder: { type: 'integer' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertQuestionExists((req.params as any).id, (req.params as any).questionId);
     const { ok } = await enforceReauth('UPDATE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;
     return service.updateQuestion(buildContext(req), (req.params as any).id, (req.params as any).questionId, req.body);
@@ -87,6 +95,8 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CHECKLIST_DELETE')],
     schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id', 'questionId'], properties: { id: { type: 'string', format: 'uuid' }, questionId: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses } },
   }, async (req, reply) => {
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertQuestionExists((req.params as any).id, (req.params as any).questionId);
     const { ok } = await enforceReauth('DELETE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;
     return service.deleteQuestion(buildContext(req), (req.params as any).id, (req.params as any).questionId);
@@ -96,6 +106,8 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('CHECKLIST_EDIT')],
     schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['questionIds'], properties: { questionIds: { type: 'array', items: { type: 'string', format: 'uuid' } } } }, response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses } },
   }, async (req, reply) => {
+    // D03-09 / F-42: refusals BEFORE the signature.
+    await service.assertCanReorder((req.params as any).id, (req.body as any).questionIds);
     const { ok } = await enforceReauth('UPDATE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;
     return service.reorderQuestions(buildContext(req), (req.params as any).id, (req.body as any).questionIds);

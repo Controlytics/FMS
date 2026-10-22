@@ -18,6 +18,7 @@
 import type { FastifyInstance } from 'fastify';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { hierarchyService, type CreateFilterInput } from './hierarchy.service.js';
+import { filterService } from '../assets/services/filter.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 
@@ -352,6 +353,8 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // D03-09 / F-42: name, AHU, duplicate, field values, workflow role — before the signature.
+    await filterService.assertCanCreate(req.body as CreateFilterInput, buildContext(req));
     const { ok } = await enforceReauth(['CREATE_ASSET', 'CREATE_FILTER'], req, reply);
     if (!ok) return;
     const data = await hierarchyService.createFilter(req.body as CreateFilterInput, buildContext(req));
@@ -385,9 +388,11 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    // D03-09 / F-42: missing, retired, bad name / field values — before the signature.
+    await filterService.assertCanUpdate(id, req.body as any);
     const { ok } = await enforceReauth(['UPDATE_ASSET', 'EDIT_FILTER'], req, reply);
     if (!ok) return;
-    const { id } = req.params as { id: string };
     const data = await hierarchyService.updateFilter(id, req.body as any, buildContext(req));
     return reply.send({ success: true, data });
   });
@@ -406,9 +411,10 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     // OD-01 (2026-10-22): deleting a filter — always signed.
+    const { id } = req.params as { id: string };
+    await filterService.assertCanSoftDelete(id); // D03-09 / F-42: missing / mid-cycle before the signature
     const { ok } = await enforceReauthAlways(['DELETE_ASSET', 'DELETE_FILTER'], req, reply);
     if (!ok) return;
-    const { id } = req.params as { id: string };
     await hierarchyService.deleteFilter(id, buildContext(req));
     return reply.send({ success: true });
   });

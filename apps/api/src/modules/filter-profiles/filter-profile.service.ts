@@ -78,6 +78,20 @@ function flattenApplicableTemplates<T extends { applicableTemplates?: { template
   return { ...row, applicableTemplates: ids };
 }
 
+/** Every template id must exist (the join table's FK would refuse it less legibly). */
+async function assertTemplatesExist(templateIds: string[]) {
+  if (templateIds.length === 0) return;
+  const found = await prisma.assetTemplate.findMany({
+    where: { id: { in: templateIds } },
+    select: { id: true },
+  });
+  if (found.length !== templateIds.length) {
+    const foundSet = new Set(found.map(t => t.id));
+    const missing = templateIds.filter(id => !foundSet.has(id));
+    throw new AppError(400, 'VALIDATION_ERROR', `Unknown asset template id(s): ${missing.join(', ')}`);
+  }
+}
+
 export class FilterProfileService {
   async list(_ctx: RequestContext, query: { page?: number; limit?: number }) {
     const page = query.page ?? 1;
@@ -158,31 +172,74 @@ export class FilterProfileService {
     };
   }
 
-  async create(ctx: RequestContext, data: any) {
-    const { name, description, cleaningProfileId, applicableTemplates, blockRestriction, allowedBlocks, maxCleaningCycles } = data;
+  // ── D03-09 / F-42 (2026-10-22): each write's refusals, run by the route BEFORE
+  // the re-auth gate (a refused request costs no password and leaves no REAUTH_*
+  // row) and again by the write itself.
 
+  async assertCanCreate(data: any) {
     // Verify cleaning profile exists
     const cp = await prisma.filterCleaningProfile.findFirst({
-      where: { id: cleaningProfileId, status: 'ACTIVE' },
+      where: { id: data?.cleaningProfileId, status: 'ACTIVE' },
     });
     if (!cp) throw new AppError(400, 'VALIDATION_ERROR', 'Referenced cleaning profile not found or not active');
-
-    const incomingTemplateIds: string[] = Array.isArray(applicableTemplates) ? applicableTemplates : [];
-
     // Verify referenced templates actually exist before we try to bind them.
     // The DB FK on the join table would reject this anyway, but doing it here
     // returns a useful error instead of a Prisma constraint exception.
-    if (incomingTemplateIds.length > 0) {
-      const found = await prisma.assetTemplate.findMany({
-        where: { id: { in: incomingTemplateIds } },
-        select: { id: true },
-      });
-      if (found.length !== incomingTemplateIds.length) {
-        const foundSet = new Set(found.map(t => t.id));
-        const missing = incomingTemplateIds.filter(id => !foundSet.has(id));
-        throw new AppError(400, 'VALIDATION_ERROR', `Unknown asset template id(s): ${missing.join(', ')}`);
-      }
+    await assertTemplatesExist(Array.isArray(data?.applicableTemplates) ? data.applicableTemplates : []);
+  }
+
+  async assertCanUpdate(ctx: RequestContext, id: string, data: any) {
+    const existing = await this.getById(ctx, id);
+    // Validate cleaning profile is active if being changed (read-only check, do
+    // outside transaction so we don't hold a row lock for an HTTP round-trip).
+    if (data?.cleaningProfileId) {
+      const cp = await prisma.filterCleaningProfile.findUnique({ where: { id: data.cleaningProfileId } });
+      if (!cp) throw new AppError(404, 'NOT_FOUND', 'Cleaning profile not found');
+      if (cp.status !== 'ACTIVE') throw new AppError(400, 'VALIDATION_ERROR', 'Cleaning profile must be active');
     }
+    // Step 4: when the caller is replacing the applicable-templates set, verify
+    // the new IDs exist before we open the transaction (same UX as create()).
+    if (Array.isArray(data?.applicableTemplates)) await assertTemplatesExist(data.applicableTemplates);
+    return existing;
+  }
+
+  async assertCanDelete(ctx: RequestContext, id: string) {
+    const existing = await this.getById(ctx, id);
+    // Check if any filters are currently assigned to this profile (FilterDetails — Step 6).
+    const assignedCount = await prisma.filterDetails.count({
+      where: { filterProfileId: id },
+    });
+    if (assignedCount > 0) {
+      throw new AppError(400, 'VALIDATION_ERROR', `Cannot delete: ${assignedCount} filter(s) are still assigned to this profile`);
+    }
+    return existing;
+  }
+
+  async assertCanAssign(ctx: RequestContext, id: string, filterInstanceIds: string[]) {
+    const fp = await this.getById(ctx, id);
+    // Audit 2026-09-24 (A-F6): the ids were upserted blind (any asset_instances
+    // row — a Block or AHU got a FilterDetails sidecar) with no transaction, so a
+    // bad id half-applied the batch and skipped the audit row. Validate first;
+    // then write + audit atomically.
+    const ids = Array.from(new Set(filterInstanceIds));
+    const [typed, live] = await Promise.all([
+      prisma.filter.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+      prisma.assetInstance.findMany({ where: { id: { in: ids }, isActive: true }, select: { id: true } }),
+    ]);
+    const liveIds = new Set(live.map((l) => l.id));
+    const filters = typed.filter((f) => liveIds.has(f.id));
+    const found = new Set(filters.map((f) => f.id));
+    const missing = ids.filter((i) => !found.has(i));
+    if (missing.length > 0) {
+      throw new AppError(400, 'INVALID_FILTER_IDS', `${missing.length} id(s) are not active filters: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}`);
+    }
+    return { fp, ids, filters };
+  }
+
+  async create(ctx: RequestContext, data: any) {
+    const { name, description, cleaningProfileId, applicableTemplates, blockRestriction, allowedBlocks, maxCleaningCycles } = data;
+    await this.assertCanCreate(data);
+    const incomingTemplateIds: string[] = Array.isArray(applicableTemplates) ? applicableTemplates : [];
 
     // First version is created lazily on first edit. Profile starts at version=1;
     // no version row needed yet (live row IS v1). Mirrors A.1 ChecklistProfile.
@@ -219,31 +276,9 @@ export class FilterProfileService {
   }
 
   async update(ctx: RequestContext, id: string, data: any) {
-    const existing = await this.getById(ctx, id);
-
-    // Validate cleaning profile is active if being changed (read-only check, do
-    // outside transaction so we don't hold a row lock for an HTTP round-trip).
-    if (data.cleaningProfileId) {
-      const cp = await prisma.filterCleaningProfile.findUnique({ where: { id: data.cleaningProfileId } });
-      if (!cp) throw new AppError(404, 'NOT_FOUND', 'Cleaning profile not found');
-      if (cp.status !== 'ACTIVE') throw new AppError(400, 'VALIDATION_ERROR', 'Cleaning profile must be active');
-    }
-
-    // Step 4: when the caller is replacing the applicable-templates set, verify
-    // the new IDs exist before we open the transaction (same UX as create()).
+    const existing = await this.assertCanUpdate(ctx, id, data);
     const replacingApplicable = Array.isArray(data.applicableTemplates);
     const incomingTemplateIds: string[] = replacingApplicable ? data.applicableTemplates : [];
-    if (replacingApplicable && incomingTemplateIds.length > 0) {
-      const found = await prisma.assetTemplate.findMany({
-        where: { id: { in: incomingTemplateIds } },
-        select: { id: true },
-      });
-      if (found.length !== incomingTemplateIds.length) {
-        const foundSet = new Set(found.map(t => t.id));
-        const missing = incomingTemplateIds.filter(id => !foundSet.has(id));
-        throw new AppError(400, 'VALIDATION_ERROR', `Unknown asset template id(s): ${missing.join(', ')}`);
-      }
-    }
 
     const updated = await prisma.$transaction(async (tx) => {
       // Phase A.3: snapshot-then-bump. Freeze the OUTGOING state into the
@@ -291,15 +326,7 @@ export class FilterProfileService {
   }
 
   async delete(ctx: RequestContext, id: string) {
-    const existing = await this.getById(ctx, id);
-
-    // Check if any filters are currently assigned to this profile (FilterDetails — Step 6).
-    const assignedCount = await prisma.filterDetails.count({
-      where: { filterProfileId: id },
-    });
-    if (assignedCount > 0) {
-      throw new AppError(400, 'VALIDATION_ERROR', `Cannot delete: ${assignedCount} filter(s) are still assigned to this profile`);
-    }
+    const existing = await this.assertCanDelete(ctx, id);
 
     // Hard delete. The version sidecar rows cascade via @relation onDelete:Cascade.
     // Step 4: applicable-template join rows also cascade. Profile lifecycle
@@ -319,26 +346,9 @@ export class FilterProfileService {
   }
 
   async assign(ctx: RequestContext, id: string, filterInstanceIds: string[]) {
-    const fp = await this.getById(ctx, id);
-
     // filterProfileId now lives on FilterDetails (Step 6) — upsert per-instance
     // so legacy non-eager rows still get a sidecar row.
-    // Audit 2026-09-24 (A-F6): the ids were upserted blind (any asset_instances
-    // row — a Block or AHU got a FilterDetails sidecar) with no transaction, so a
-    // bad id half-applied the batch and skipped the audit row. Validate first;
-    // then write + audit atomically.
-    const ids = Array.from(new Set(filterInstanceIds));
-    const [typed, live] = await Promise.all([
-      prisma.filter.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
-      prisma.assetInstance.findMany({ where: { id: { in: ids }, isActive: true }, select: { id: true } }),
-    ]);
-    const liveIds = new Set(live.map((l) => l.id));
-    const filters = typed.filter((f) => liveIds.has(f.id));
-    const found = new Set(filters.map((f) => f.id));
-    const missing = ids.filter((i) => !found.has(i));
-    if (missing.length > 0) {
-      throw new AppError(400, 'INVALID_FILTER_IDS', `${missing.length} id(s) are not active filters: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}`);
-    }
+    const { fp, ids, filters } = await this.assertCanAssign(ctx, id, filterInstanceIds);
 
     await prisma.$transaction(async (tx) => {
       for (const assetId of ids) {

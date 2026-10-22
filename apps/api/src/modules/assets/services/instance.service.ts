@@ -481,15 +481,23 @@ export const instanceService = {
     return instance;
   },
 
-  async changeStatus(id: string, status: string, ctx: RequestContext, remarks?: string) {
+  /**
+   * changeStatus()'s refusals, no write. D03-09 / F-42 (2026-10-22): the route
+   * runs it BEFORE the re-auth gate; changeStatus() runs it again.
+   */
+  async assertCanChangeStatus(id: string, status: string) {
     status = normalizeStatus(status);
-
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
     const existingKind = existing.templateId
       ? ((await templateRepository.findById(existing.templateId)) as any)?.templateKind
       : undefined;
     assertFilterStatusNotEdited(existing, existingKind === 'FILTER', status);
+    return { status, existing, existingKind };
+  },
+
+  async changeStatus(id: string, rawStatus: string, ctx: RequestContext, remarks?: string) {
+    const { status, existing, existingKind } = await instanceService.assertCanChangeStatus(id, rawStatus);
 
     const instance = await instanceRepository.update(id, {
       status,
@@ -512,11 +520,16 @@ export const instanceService = {
     return instance;
   },
 
-  async changeLifecycleState(
+  /**
+   * Every refusal a manual lifecycle move can give, with no write: unknown /
+   * non-filter id, a filter not through the creation workflow, a forward skip,
+   * a missing or invalid cleaning reason. D03-09 / F-42 (2026-10-22): the route
+   * runs it BEFORE the always-on UPDATE_FILTER_LIFECYCLE signature;
+   * changeLifecycleState() runs it again.
+   */
+  async assertCanChangeLifecycleState(
     id: string,
     lifecycleState: string,
-    ctx: RequestContext,
-    remarks: string,
     cycleOpts: { cleaningReasonKey?: string | null; cleaningJustification?: string | null } = {},
   ) {
     const existing = await instanceRepository.findByIdSimple(id);
@@ -559,6 +572,18 @@ export const instanceService = {
     const resolvedReason = willStartCycle
       ? await resolveManualCycleReason(stageRules.profileId as string, cycleOpts)
       : null;
+    return { existing, beforeState, newState, stageRules, willStartCycle, resolvedReason };
+  },
+
+  async changeLifecycleState(
+    id: string,
+    lifecycleState: string,
+    ctx: RequestContext,
+    remarks: string,
+    cycleOpts: { cleaningReasonKey?: string | null; cleaningJustification?: string | null } = {},
+  ) {
+    const { existing, beforeState, newState, stageRules, willStartCycle, resolvedReason } =
+      await instanceService.assertCanChangeLifecycleState(id, lifecycleState, cycleOpts);
 
     let forceCompletedCycle = false;
     let restartedCycle = false;

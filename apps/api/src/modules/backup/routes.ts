@@ -126,12 +126,12 @@ export default async function backupRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    // OD-01 (2026-10-22): a restore rewrites every record — always signed, for
-    // every caller incl. SUPER_ADMIN, before any of the upload is read.
-    const { ok } = await enforceReauthAlways('RESTORE_BACKUP', req, reply);
-    if (!ok) return;
-
     try {
+      // D03-09 / F-42: the cheap upload checks (a multipart body, a file in it,
+      // not truncated at the size limit) run BEFORE the signature, on the one
+      // read of the stream. Parsing and the checksum / audit-chain checks happen
+      // inside backupService.restore, interleaved with the write, so they still
+      // run after the gate (moving them would mean parsing the file twice).
       const file = await req.file({ limits: { fileSize: BACKUP_MAX_FILE_SIZE } });
       if (!file) {
         return reply.code(400).send({ error: 'NO_FILE', message: 'No backup file uploaded' });
@@ -157,6 +157,12 @@ export default async function backupRoutes(app: FastifyInstance) {
           message: `Backup file exceeds the ${BACKUP_MAX_MB} MB upload limit and was truncated. Restoring it would silently discard every row past the cut.`,
         });
       }
+
+      // OD-01 (2026-10-22): a restore rewrites every record — always signed, for
+      // every caller incl. SUPER_ADMIN. The password rides in x-reauth-password
+      // (a multipart body has no `_currentPassword`).
+      const { ok } = await enforceReauthAlways('RESTORE_BACKUP', req, reply);
+      if (!ok) return;
 
       const ctx = buildContext(req);
       // Audit 2026-05-04 fix #7: optional `force` field on the multipart

@@ -40,6 +40,18 @@ export class PmScheduleService {
     return crud.getByEntity(ctx, entityId, year);
   }
 
+  // D03-09 / F-42 (2026-10-22): each write's refusals, run by the routes BEFORE
+  // the re-auth gate (the write re-runs them).
+  assertCanCreate(ctx: RequestContext, data: any) { return crud.assertCanCreate(ctx, data); }
+  assertCanUpdate(ctx: RequestContext, id: string, data: any) { return crud.assertCanUpdate(ctx, id, data); }
+  assertCanDelete(id: string) { return crud.assertCanRemove(id); }
+  assertCanAddVisit(ctx: RequestContext, data: visits.AddVisitInput) { return visits.assertCanAddVisit(ctx, data); }
+  assertCanImport(ctx: RequestContext) { return importer.assertCanImport(ctx); }
+  assertCanResubmit(entryId: string, data: { plannedDate: string; toleranceDays?: number }) { return approval.assertCanResubmit(entryId, data); }
+  assertCanEditApproved(entryId: string, data: { plannedDate: string; toleranceDays?: number }) { return approval.assertCanEditApproved(entryId, data); }
+  assertCanUpdateAhuFilterSetMode(ahuId: string) { return ahuConfig.assertCanUpdateAhuFilterSetMode(ahuId); }
+  assertCanStartExecution(data: any) { return executions.assertCanStartExecution(data); }
+
   create(ctx: RequestContext, data: any) {
     return crud.create(ctx, data);
   }

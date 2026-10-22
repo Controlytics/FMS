@@ -220,15 +220,32 @@ export const adminRequestService = {
     return prisma.adminRequest.findUnique({ where: { id } });
   },
 
+  /**
+   * Every refusal process() can give before it claims the request. D03-09 / F-42
+   * (2026-10-22): the route runs this BEFORE the re-auth gate, from the STORED
+   * request, so a request that will be refused costs no password and leaves no
+   * REAUTH_* row; process() runs it again (the claim below still settles races).
+   * Approving a MODIFY_USER request runs that change's own checks (field, user,
+   * value, and what PUT /api/users/:id would refuse).
+   */
+  async assertCanProcess(id: string, action: 'approve' | 'reject', ctx: RequestContext) {
+    const request = await prisma.adminRequest.findUnique({ where: { id } });
+    if (!request) throw new NotFoundError('Request not found');
+    if (request.status !== 'PENDING') throw new ValidationError('Request has already been processed');
+    if (action === 'approve' && request.requestType === 'MODIFY_USER') {
+      const { user, parsed } = await checkModifyUser((request.requestData ?? {}) as Record<string, any>);
+      await userService.assertCanUpdate(user.id, { ...parsed }, ctx);
+    }
+    return request;
+  },
+
   async process(
     id: string,
     action: 'approve' | 'reject',
     adminRemarks: string,
     ctx: RequestContext,
   ) {
-    const request = await prisma.adminRequest.findUnique({ where: { id } });
-    if (!request) throw new NotFoundError('Request not found');
-    if (request.status !== 'PENDING') throw new ValidationError('Request has already been processed');
+    const request = await adminRequestService.assertCanProcess(id, action, ctx);
 
     const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
 
@@ -323,6 +340,33 @@ export const adminRequestService = {
     return { ...updated, ...actionOutcome };
   },
 };
+
+/**
+ * The MODIFY_USER request's own checks, shared by assertCanProcess (before the
+ * signature) and executeApproval (the write) — one rule, two callers.
+ */
+async function checkModifyUser(data: Record<string, any>) {
+  const targetUsername = String(data.username ?? '').trim();
+  const field = String(data.modifyField ?? '').trim();
+  const newValue = data.newValue;
+  if (!targetUsername) throw new ValidationError('Request is missing User ID');
+  if (!field) throw new ValidationError('Request is missing modifyField');
+  const allowed = new Set(['fullName', 'email', 'department', 'role', 'status']);
+  if (!allowed.has(field)) throw new ValidationError(`Field "${field}" cannot be modified via admin request`);
+  const user = await userRepository.findByUsername(targetUsername);
+  if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
+  // Audit 2026-09-24 (F6): `requestData` comes from the PUBLIC, unauthenticated
+  // submit endpoint (`additionalProperties: true`) and was passed straight to
+  // userService.update — bypassing updateUserSchema. A non-string email blew
+  // up with a 500 for the approver; `status: 'EXPIRED'` / `'LOCKED'` (valid
+  // Prisma enum values the schema forbids) went through. Validate exactly as
+  // PUT /api/users/:id does.
+  const parsed = updateUserSchema.safeParse({ [field]: newValue });
+  if (!parsed.success) {
+    throw new ValidationError(`Requested value for "${field}" is not valid: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+  }
+  return { user, parsed: parsed.data, targetUsername, field };
+}
 
 async function executeApproval(
   request: { id: string; requestType: string; requestData: unknown; requesterName: string; requesterEmail: string | null },
@@ -439,26 +483,8 @@ async function executeApproval(
     }
 
     case 'MODIFY_USER': {
-      const targetUsername = String(data.username ?? '').trim();
-      const field = String(data.modifyField ?? '').trim();
-      const newValue = data.newValue;
-      if (!targetUsername) throw new ValidationError('Request is missing User ID');
-      if (!field) throw new ValidationError('Request is missing modifyField');
-      const allowed = new Set(['fullName', 'email', 'department', 'role', 'status']);
-      if (!allowed.has(field)) throw new ValidationError(`Field "${field}" cannot be modified via admin request`);
-      const user = await userRepository.findByUsername(targetUsername);
-      if (!user) throw new NotFoundError(`User "${targetUsername}" not found`);
-      // Audit 2026-09-24 (F6): `requestData` comes from the PUBLIC, unauthenticated
-      // submit endpoint (`additionalProperties: true`) and was passed straight to
-      // userService.update — bypassing updateUserSchema. A non-string email blew
-      // up with a 500 for the approver; `status: 'EXPIRED'` / `'LOCKED'` (valid
-      // Prisma enum values the schema forbids) went through. Validate exactly as
-      // PUT /api/users/:id does.
-      const parsed = updateUserSchema.safeParse({ [field]: newValue });
-      if (!parsed.success) {
-        throw new ValidationError(`Requested value for "${field}" is not valid: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
-      }
-      await userService.update(user.id, parsed.data, ctx);
+      const { user, parsed, targetUsername, field } = await checkModifyUser(data);
+      await userService.update(user.id, parsed, ctx);
       return { username: targetUsername, message: `User "${targetUsername}" updated (${field}).` };
     }
 

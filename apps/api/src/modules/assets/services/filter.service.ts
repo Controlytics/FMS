@@ -21,7 +21,11 @@ export interface CreateFilterTypedInput extends FilterFieldInput {
 }
 
 export const filterService = {
-  async create(input: CreateFilterTypedInput, ctx: RequestContext) {
+  /**
+   * create()'s refusals, no write. D03-09 / F-42 (2026-10-22): POST
+   * /api/hierarchy/filters runs it BEFORE the re-auth gate; create() runs it again.
+   */
+  async assertCanCreate(input: CreateFilterTypedInput, ctx: RequestContext) {
     const name = input.name?.trim();
     if (!name) throw new ValidationError('Filter Name is required');
 
@@ -39,15 +43,20 @@ export const filterService = {
     const { attributes, errors } = await validateAndBuildFilterAttributes(input);
     if (errors.length > 0) throw new ValidationError('One or more filter fields are invalid', errors as any);
 
-    const filterSetEnum: 'SET_A' | 'SET_B' | undefined =
-      input.filterSet === 'A' ? 'SET_A' : input.filterSet === 'B' ? 'SET_B' : undefined;
-
     // Filter creation workflow (2026-09-04). BOTH filter-creation paths land
     // here — the Filters page dialog via POST /api/hierarchy/filters, and every
     // row of the bulk upload via bulk-upload-filter.service — so this is the one
     // place the status has to be stamped.
     const wf = await getFilterWorkflowConfig();
     if (wf.workflowEnabled) assertPmRole(ctx.userRole, wf.uploadRole, 'create', 'filters');
+    return { name, attributes, wf };
+  },
+
+  async create(input: CreateFilterTypedInput, ctx: RequestContext) {
+    const { name, attributes, wf } = await filterService.assertCanCreate(input, ctx);
+
+    const filterSetEnum: 'SET_A' | 'SET_B' | undefined =
+      input.filterSet === 'A' ? 'SET_A' : input.filterSet === 'B' ? 'SET_B' : undefined;
     const approvalStatus = initialApprovalStatus(wf);
 
     const filter = await prisma.$transaction(async (tx) => {
@@ -133,7 +142,12 @@ export const filterService = {
   // FilterDetails sidecar; the reverse-mirror trigger keeps asset_instances in
   // sync. No asset-template / attributeSchema. Field-option values are
   // re-validated against the live config and replace the attributes JSON.
-  async update(id: string, input: FilterFieldInput & { name?: string; filterSet?: 'A' | 'B' }, ctx: RequestContext, opts: { allowInactive?: boolean } = {}) {
+  /**
+   * update()'s refusals (missing, retired / deactivated, then validateUpdate),
+   * no write. D03-09 / F-42 (2026-10-22): PUT /api/hierarchy/filters/:id runs it
+   * BEFORE the re-auth gate; update() runs it again.
+   */
+  async assertCanUpdate(id: string, input: FilterFieldInput & { name?: string }, opts: { allowInactive?: boolean } = {}) {
     const existing = await prisma.filter.findUnique({ where: { id }, select: { name: true, attributes: true, isActive: true } });
     // P4-09 (2026-10-21): a missing filter is 404, not 400.
     if (!existing) throw new NotFoundError('Filter not found');
@@ -144,10 +158,15 @@ export const filterService = {
     if (!existing.isActive && !opts.allowInactive) {
       throw new ConflictError('This filter is retired or deactivated. Restore it before editing.', 'FILTER_INACTIVE');
     }
+    const { name, attributes } = await filterService.validateUpdate(id, input);
+    return { existing, name, attributes };
+  },
+
+  async update(id: string, input: FilterFieldInput & { name?: string; filterSet?: 'A' | 'B' }, ctx: RequestContext, opts: { allowInactive?: boolean } = {}) {
+    const { existing, name, attributes } = await filterService.assertCanUpdate(id, input, opts);
     const existingDetails = await prisma.filterDetails.findUnique({ where: { assetInstanceId: id }, select: { filterSet: true } });
 
     const data: Record<string, unknown> = { updatedBy: ctx.userId };
-    const { name, attributes } = await filterService.validateUpdate(id, input);
     if (name !== undefined) data.name = name;
 
     // PARTIAL-UPDATE CONTRACT: an ABSENT field means "don't touch"; a field sent
@@ -198,7 +217,12 @@ export const filterService = {
   // Typed-direct soft delete (A-01 T2.3). Sets filters.isActive=false; the
   // reverse-mirror trigger flips asset_instances.isActive=false too. Cascades
   // the RFID identifiers like the legacy instance.service.softDelete does.
-  async softDelete(id: string, ctx: RequestContext) {
+  /**
+   * softDelete()'s refusals (missing, cycle in progress), no write. D03-09 /
+   * F-42 (2026-10-22): DELETE /api/hierarchy/filters/:id runs it BEFORE the
+   * always-on delete signature; softDelete() runs it again.
+   */
+  async assertCanSoftDelete(id: string) {
     const existing = await prisma.filter.findUnique({ where: { id }, select: { id: true, name: true } });
     // D2 (2026-10-21): a missing filter is 404, as in update() since P4-09.
     if (!existing) throw new NotFoundError('Filter not found');
@@ -224,6 +248,11 @@ export const filterService = {
         );
       }
     }
+    return existing;
+  },
+
+  async softDelete(id: string, ctx: RequestContext) {
+    const existing = await filterService.assertCanSoftDelete(id);
 
     const updated = await prisma.$transaction(async (tx) => {
       const f = await tx.filter.update({ where: { id }, data: { isActive: false, updatedBy: ctx.userId } as any });
