@@ -11,11 +11,14 @@
  *           other raw fetch (apiUrl).
  *  D6       the configured page size was ignored on a cold load.
  *  3d       controls with no accessible name.
+ *  Upload   the drop zone was a clickable div: no keyboard path to the file
+ *           chooser; and a second file dropped mid-upload started a second
+ *           upload (2026-10-22).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor, within, configure } from '@testing-library/react';
 import { mockApi, renderPage } from '@/test-utils/page-harness';
-import { baseRoutes, usePageTestLifecycle, role } from '../../filter-management/__tests__/fm-test-kit';
+import { baseRoutes, usePageTestLifecycle, role, passReauth } from '../../filter-management/__tests__/fm-test-kit';
 import { DT_UTC } from '../../cleaning-cycles/__tests__/cycles-fixtures';
 import { PmScheduleListPage } from '../index';
 import { PmScheduleDetailPage } from '../detail';
@@ -325,5 +328,54 @@ describe('3d — every control on the PM pages has an accessible name', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Start PM' }));
     await screen.findByText('busy');
     expect(unnamedControls()).toEqual([]);
+  });
+});
+
+// ─── Upload drop zone ───────────────────────────────────────────────────────
+describe('Upload drop zone — reachable from the keyboard; one upload at a time', () => {
+  const OK_UPLOAD = {
+    method: 'POST', path: '/api/pm-schedules/upload',
+    body: { imported: 1, skipped: 0, details: { imported: [{ row: 2, ahuName: 'AHU-01', plannedDate: `${Y}-${MM}-12`, scheduleId: 's1', entryId: 'n1' }], skipped: [] } },
+  };
+  const openUpload = async (o: PmRouteOpts = {}) => {
+    const api = openList(EDITOR, { entries: [entry('e1')], extra: [OK_UPLOAD], ...o });
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload Schedule' }));
+    return api;
+  };
+  const uploads = (api: ReturnType<typeof mockApi>) => api.calls('POST', '/api/pm-schedules/upload');
+
+  it('the zone is a real, focusable button, so Enter and Space open the file chooser', async () => {
+    await openUpload();
+    // The file input itself is display:none, so this button is the ONLY keyboard
+    // path to the chooser. A native <button> gets Enter / Space activation and
+    // the global :focus-visible ring from the platform (jsdom has no key
+    // activation to simulate, so the element is the contract).
+    const zone = screen.getByRole('button', { name: /Drag and drop or click to choose/ });
+    expect(zone.tagName).toBe('BUTTON');
+    expect(zone).toHaveAttribute('type', 'button');
+    expect(zone.className).not.toMatch(/outline-none/);
+    zone.focus();
+    expect(zone).toHaveFocus();
+    const pick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(zone);
+    expect(pick).toHaveBeenCalledTimes(1);
+    expect(pick.mock.contexts[0]).toBe(document.querySelector('input[type="file"]'));
+  });
+
+  it('while a file is uploading, the zone opens no chooser and a second drop sends nothing', async () => {
+    const api = await openUpload({ reauthActions: ['UPLOAD_PM_SCHEDULES'] });
+    await reauthReady(api);
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['x'], 'first.xlsx')] } });
+    await screen.findByPlaceholderText('Enter your password');
+    const zone = screen.getByRole('button', { name: /Uploading/ });
+    expect(zone).toHaveAttribute('aria-disabled', 'true');
+    const pick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(zone);
+    expect(pick).not.toHaveBeenCalled();
+    fireEvent.drop(zone, { dataTransfer: { files: [new File(['y'], 'second.xlsx')] } });
+    await passReauth();
+    await screen.findByText('Imported (Pending QA)');
+    expect(uploads(api)).toHaveLength(1);
+    expect((uploads(api)[0].form!.get('file') as File).name).toBe('first.xlsx');
   });
 });

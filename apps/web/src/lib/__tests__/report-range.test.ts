@@ -1,54 +1,65 @@
 import { describe, it, expect } from 'vitest';
 import { isoToDateInput, startOfDayIso, endOfDayIso } from '../datetime-input';
+import { yearSpan, MAX_YEAR_SPAN } from '../report-range';
 
 const IST = 'Asia/Kolkata';
 
 /**
- * The per-page range logic these guard is inlined in the route components
- * (pm-schedules/index.tsx, cleaning-cycles/history.tsx), so these tests
- * reproduce that logic against the shared helper rather than importing a page.
- * They lock the two behaviours the fixes turn on: a year SPAN is fetched whole
- * (M77), and an export reports the count it actually contains (M61).
+ * Report date-range rules. The PM Schedules year span is the real `yearSpan`
+ * the page calls (lib/report-range.ts). The cleaning-record checks below still
+ * reproduce logic that is inlined in cleaning-cycles/history.tsx.
+ * They lock the behaviours the fixes turn on: a year SPAN is fetched whole
+ * (M77), an emptied end stays bounded (D-OPS-4), and an export reports the
+ * count it actually contains (M61).
  */
-
-/** Mirrors the `years` memo in pm-schedules/index.tsx. */
-function yearsInRange(dateFrom: string, dateTo: string): number[] {
-  const fromYear = Number(dateFrom.slice(0, 4));
-  const toYear = Number(dateTo.slice(0, 4));
-  if (!Number.isFinite(fromYear) || !Number.isFinite(toYear) || toYear < fromYear) {
-    return [fromYear].filter(Number.isFinite);
-  }
-  const span = Math.min(toYear - fromYear, 10);
-  return Array.from({ length: span + 1 }, (_, i) => fromYear + i);
-}
 
 describe('PM schedule year span (M77)', () => {
   it('fetches every year a cross-year range touches', () => {
     // The old `new Date(dateFrom).getFullYear()` yielded [2026] and silently
     // dropped every Jan/Feb 2027 entry.
-    expect(yearsInRange('2026-12-01', '2027-02-28')).toEqual([2026, 2027]);
+    expect(yearSpan('2026-12-01', '2027-02-28', 2000)).toEqual({ years: [2026, 2027], from: '2026-12-01', to: '2027-02-28' });
   });
 
   it('stays single-year for a within-year range', () => {
-    expect(yearsInRange('2026-07-01', '2026-07-31')).toEqual([2026]);
+    expect(yearSpan('2026-07-01', '2026-07-31', 2000).years).toEqual([2026]);
   });
 
   it('spans more than two years', () => {
-    expect(yearsInRange('2025-11-01', '2027-03-01')).toEqual([2025, 2026, 2027]);
+    expect(yearSpan('2025-11-01', '2027-03-01', 2000).years).toEqual([2025, 2026, 2027]);
   });
 
   it('does not fan out on an absurd range', () => {
-    expect(yearsInRange('2026-01-01', '9999-01-01')).toHaveLength(11);
+    const { years } = yearSpan('2026-01-01', '9999-01-01', 2000);
+    expect(years).toHaveLength(MAX_YEAR_SPAN + 1);
+    expect(years.at(-1)).toBe(2026 + MAX_YEAR_SPAN);
   });
 
   it('tolerates an inverted range without producing a negative span', () => {
-    expect(yearsInRange('2027-01-01', '2026-01-01')).toEqual([2027]);
+    expect(yearSpan('2027-01-01', '2026-01-01', 2000).years).toEqual([2027]);
   });
 
   it('does not shift the year for a January 1st start (the UTC-parse hazard)', () => {
     // `new Date('2026-01-01').getFullYear()` returns 2025 in any zone west of
     // UTC. The string slice cannot.
-    expect(yearsInRange('2026-01-01', '2026-12-31')).toEqual([2026]);
+    expect(yearSpan('2026-01-01', '2026-12-31', 2000).years).toEqual([2026]);
+  });
+});
+
+describe('PM schedule year span — an emptied end (D-OPS-4)', () => {
+  it('an empty To is open to the end of the From year, never year 0', () => {
+    expect(yearSpan('2026-03-05', '', 2000)).toEqual({ years: [2026], from: '2026-03-05', to: '2026-12-31' });
+  });
+
+  it('an empty From is open to the start of the To year', () => {
+    expect(yearSpan('', '2027-08-20', 2000)).toEqual({ years: [2027], from: '2027-01-01', to: '2027-08-20' });
+  });
+
+  it('both ends empty: the whole fallback year', () => {
+    expect(yearSpan('', '', 2031)).toEqual({ years: [2031], from: '2031-01-01', to: '2031-12-31' });
+  });
+
+  it('the fallback year is used only when both ends are empty', () => {
+    expect(yearSpan('2026-01-01', '2026-06-30', 2031).years).toEqual([2026]);
   });
 });
 

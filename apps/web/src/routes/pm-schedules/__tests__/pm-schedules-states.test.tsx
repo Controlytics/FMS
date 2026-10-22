@@ -56,7 +56,7 @@ vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 vi.mock('../../../hooks/use-datetime-format', () => ({
   useDatetimeFormat: () => ({ formatDate: () => '19 Oct 2026', formatDateTime: () => '18 Oct 2026 14:05', config: { timezone: 'UTC' } }),
 }));
-vi.mock('@/hooks/use-pagination-config', () => ({ usePaginationConfig: () => [25] }));
+vi.mock('@/hooks/use-pagination-config', () => ({ usePaginationConfig: () => [25], usePageSize: () => [25, vi.fn()] }));
 vi.mock('../../../hooks/use-pm-filters-enabled', () => ({ usePmFiltersEnabled: () => false }));
 vi.mock('@/hooks/use-export-limit', () => ({ useExportLimit: () => ({ maxRecords: 100000, tooLargeMessage: () => '' }) }));
 vi.mock('@/components/ExportMenu', () => ({ ExportMenu: () => null }));

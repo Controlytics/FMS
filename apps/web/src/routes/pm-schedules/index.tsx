@@ -9,7 +9,7 @@ import { useReauth } from '../../hooks/use-reauth';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
-import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { usePaginationConfig, usePageSize } from '@/hooks/use-pagination-config';
 import { usePmFiltersEnabled } from '../../hooks/use-pm-filters-enabled';
 import { Pagination } from '@/components/ui/pagination';
 import { createReport } from '../../lib/pdf-report';
@@ -22,6 +22,7 @@ import { isoToDateInput, startOfDayIso } from '@/lib/datetime-input';
 import { apiUrl } from '@/lib/url-utils';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { downloadName } from '@/lib/download-name';
+import { yearSpan } from '@/lib/report-range';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -248,13 +249,8 @@ export function PmScheduleListPage() {
   // Pagination
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
-  // The page size FOLLOWS the configured first option until the operator picks
-  // one. Seeding state from it captured the hook's pre-load fallback (10) on a
-  // cold load, so the configured size never applied (2026-10-21, D6). Same rule
-  // as usePageSize; kept inline because pm-schedules-states.test.tsx mocks this
-  // hooks module with usePaginationConfig only.
-  const [perPageChoice, setPerPageChoice] = useState<number | null>(null);
-  const perPage = perPageChoice ?? paginationOptions[0] ?? 10;
+  // The configured first option until the operator picks one (D6, 2026-10-21).
+  const [perPage, setPerPage] = usePageSize();
 
   // Expandable AHU rows — show/hide filters. Gated per-role by the dedicated
   // "PM Schedule — AHU Filters" matrix (separate from the Replacement Schedule
@@ -270,31 +266,17 @@ export function PmScheduleListPage() {
   const [editDate, setEditDate] = useState('');
   const [editTolerance, setEditTolerance] = useState('');
 
-  // Data fetching — filter by date range.
-  // The endpoint is per-year, so a range that SPANS years must fetch each one:
-  // deriving a single `year` from dateFrom silently dropped every entry in the
-  // later year(s) of a Dec→Feb range. Years come from a string slice, not
-  // `new Date(dateFrom).getFullYear()` — that parses as UTC midnight and would
-  // report the previous year for any zone west of UTC.
-  //
-  // An EMPTIED end is open to the edge of the other end's year (2026-10-21,
-  // D-OPS-4): `Number('')` is 0, so an empty end used to request year=0 (or
-  // years 0..10) and the `d <= ''` comparison then hid every entry. The whole
-  // range cannot be cleared (clearable={false} below): the endpoint is per year,
-  // so "no date filter" has no bounded meaning; with both ends emptied by hand
-  // the page shows the current year.
-  const fromYear = dateFrom ? Number(dateFrom.slice(0, 4)) : NaN;
-  const toYear = dateTo ? Number(dateTo.slice(0, 4)) : NaN;
-  const firstYear = Number.isFinite(fromYear) ? fromYear : Number.isFinite(toYear) ? toYear : now.getFullYear();
-  const lastYear = Number.isFinite(toYear) ? toYear : firstYear;
-  const effectiveFrom = dateFrom || `${firstYear}-01-01`;
-  const effectiveTo = dateTo || `${lastYear}-12-31`;
-  const years = useMemo(() => {
-    if (lastYear < firstYear) return [firstYear];
-    // Guard a typo'd year (e.g. '20226') from fanning out into thousands of requests.
-    const span = Math.min(lastYear - firstYear, 10);
-    return Array.from({ length: span + 1 }, (_, i) => firstYear + i);
-  }, [firstYear, lastYear]);
+  // Data fetching — filter by date range. The endpoint is per year; which years
+  // to fetch and the bounds to filter to are one rule in lib/report-range.ts
+  // (cross-year ranges, the UTC-parse hazard, an emptied end — D-OPS-4). The
+  // whole range cannot be cleared (clearable={false} below): "no date filter"
+  // has no bounded meaning for a per-year endpoint; with both ends emptied by
+  // hand the page shows the current year.
+  const nowYear = now.getFullYear();
+  const { years, from: effectiveFrom, to: effectiveTo } = useMemo(
+    () => yearSpan(dateFrom, dateTo, nowYear),
+    [dateFrom, dateTo, nowYear],
+  );
 
   // ALL_ROWS so the whole year's entries load (the page has no pagination UI).
   const statusQs = statusFilter !== 'ALL' ? `&approvalStatus=${statusFilter}` : '';
@@ -509,7 +491,11 @@ export function PmScheduleListPage() {
     uploadFile(file);
   };
 
-  const onDrop = (e: React.DragEvent) => { e.preventDefault(); setDragActive(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); };
+  // One upload at a time (2026-10-22): a file dropped while the first one's
+  // password prompt was open replaced it, so the operator signed for one file
+  // and another was uploaded. preventDefault still runs, or the browser would
+  // open the dropped file in place of the app.
+  const onDrop = (e: React.DragEvent) => { e.preventDefault(); setDragActive(false); if (uploading) return; const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); };
 
   // ─── Approval actions ───
 
@@ -1188,7 +1174,7 @@ export function PmScheduleListPage() {
             pageSize={perPage}
             totalItems={totalEntries}
             onPageChange={setPage}
-            onPageSizeChange={setPerPageChoice}
+            onPageSizeChange={setPerPage}
             pageSizeOptions={paginationOptions}
             className="border-t border-slate-100"
           />
@@ -1236,17 +1222,27 @@ export function PmScheduleListPage() {
                 </button>
               </div>
               {!result && (
-                <div onDragOver={e => { e.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={onDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${dragActive ? 'border-slate-300 bg-slate-50' : 'border-slate-300 bg-slate-50'}`}
-                  style={dragActive ? { borderColor: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)' } : undefined}>
-                  {uploading ? (
-                    <><div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-2" style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }} /><p className="text-sm font-semibold text-slate-700">Uploading...</p></>
-                  ) : (
-                    <><p className="text-sm font-semibold text-slate-700">{dragActive ? 'Drop the file here' : 'Drag and drop or click to choose'}</p><p className="text-xs text-slate-400 mt-1">Accepts .csv, .xlsx</p></>
-                  )}
+                <>
+                  {/* A real button (2026-10-22): the zone was a clickable div and the
+                      input is display:none, so the keyboard had no way to the file
+                      chooser. Enter / Space and the global :focus-visible ring come
+                      with the element. Not `disabled` while uploading: a disabled
+                      control would stop the drop handlers too, and the browser would
+                      then open a dropped file in place of the app. */}
+                  <button type="button"
+                    onDragOver={e => { e.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={onDrop}
+                    onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
+                    aria-disabled={uploading || undefined}
+                    className={`block w-full border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${dragActive ? 'border-slate-300 bg-slate-50' : 'border-slate-300 bg-slate-50'}`}
+                    style={dragActive ? { borderColor: 'var(--theme-primary)', backgroundColor: 'var(--theme-primary-light)' } : undefined}>
+                    {uploading ? (
+                      <><span className="block w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-2" style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }} /><span className="block text-sm font-semibold text-slate-700">Uploading...</span></>
+                    ) : (
+                      <><span className="block text-sm font-semibold text-slate-700">{dragActive ? 'Drop the file here' : 'Drag and drop or click to choose'}</span><span className="block text-xs text-slate-400 mt-1">Accepts .csv, .xlsx</span></>
+                    )}
+                  </button>
                   <input ref={fileInputRef} type="file" accept=".csv,.xlsx" aria-label="Schedule file (.csv or .xlsx)" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-                </div>
+                </>
               )}
               {uploadError && <div className="mt-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm">{uploadError}</div>}
               {result && (
