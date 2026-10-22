@@ -50,6 +50,20 @@ describe('the three pages are guarded on the role, not CONFIG_READ', () => {
   });
 });
 
+describe('Filter Setup and Role Assignments stay SUPER_ADMIN-only routes (their API writes now match)', () => {
+  // func-03 (2026-10-22): both pages were already SUPER_ADMIN-only here, but
+  // PUT /api/config/cleaning-profile-assignment took CONFIG_UPDATE. The API side
+  // is locked in apps/api/src/e2e/config-sa-only-pages.test.ts.
+  for (const path of ['/config/filter-setup', '/config/role-assignments']) {
+    it(path, () => {
+      const line = routeLine(path);
+      expect(line, `${path} route not found in main.tsx`).toBeTruthy();
+      expect(line).toMatch(/roles=\{\[(?:'SUPER_ADMIN')?\]\}/);
+      expect(line).not.toContain('permissions=');
+    });
+  }
+});
+
 describe('every page behind /config/dynamic/:moduleKey is SUPER_ADMIN-only on the API', () => {
   // The route guard above is generic. It is right only while every def that
   // renders on the dynamic page (hasCustomPage: false) is requiredRole

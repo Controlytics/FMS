@@ -22,12 +22,12 @@ export async function cleaningProfileAssignmentRoutes(app: FastifyInstance) {
   // operator role holds — every tablet session logged a 403 on it and the
   // offline cache went unfilled. Same shape as /field-ids/current: any
   // signed-in user may read the map (block → profile ids, nothing sensitive);
-  // editing stays behind CONFIG_UPDATE + re-auth.
+  // editing is SUPER_ADMIN-only + re-auth (D03-15, below).
   app.get('/cleaning-profile-assignment/current', {
     schema: {
       tags: ['Config'],
       summary: 'Cleaning profile assignment for the signed-in user',
-      description: 'The block/AHU/filter → cleaning-profile assignment rules. Authenticated; no permission required. Editing needs CONFIG_UPDATE (PUT /cleaning-profile-assignment).',
+      description: 'The block/AHU/filter → cleaning-profile assignment rules. Authenticated; no permission required. Editing is SUPER_ADMIN-only (PUT /cleaning-profile-assignment).',
       response: { 200: { type: 'object', additionalProperties: true } },
     },
   }, async () => {
@@ -36,7 +36,10 @@ export async function cleaningProfileAssignmentRoutes(app: FastifyInstance) {
   });
 
   app.put('/cleaning-profile-assignment', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    // SUPER_ADMIN only (D03-15, 2026-10-22): edited on /config/filter-setup, a
+    // SUPER_ADMIN-only page. CONFIG_UPDATE let ADMIN change which cleaning
+    // profile every block's filters run by sending the PUT directly.
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Config'],
       summary: 'Update cleaning profile assignment configuration',

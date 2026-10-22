@@ -158,7 +158,10 @@ SUPER_ADMIN only (GET and PUT), whatever CONFIG_* a role holds:
   datetime        (2026-09-03)
   tablet-access   (2026-10-22, D03-15: which roles may sign in on a tablet;
                    GET /api/config/tablet-access/my-features stays open to every user)
-GET/PUT /api/config/dynamic/<key>   — every key is requiredRole SUPER_ADMIN
+PUT /api/config/cleaning-profile-assignment   SUPER_ADMIN only (2026-10-22, Filter Setup);
+                   GET /api/config/cleaning-profile-assignment/current stays open to every user
+GET/PUT /api/config/dynamic/<key>   — every key is requiredRole SUPER_ADMIN (incl. the
+                   Role Assignments workflow keys and the block-change approval mode)
 ```
 
 ### Public Config (no auth)

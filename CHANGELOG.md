@@ -15,6 +15,11 @@
     `backup-format`, `export-limit`) was already `requiredRole: 'SUPER_ADMIN'` on the API. The access matrix no
     longer offers grants for them. A web test fails if a delegable dynamic def is added without revisiting the guard.
   - `/config/roles` is unchanged: ROLE_MANAGE is its intended grant.
+  - **Filter Setup / Role Assignments (func-03):** both pages were already SA-only in the UI.
+    `PUT /api/config/cleaning-profile-assignment` still took CONFIG_UPDATE; it is now `requireSuperAdmin()`.
+    `GET …/cleaning-profile-assignment/current` stays open, because the tablet caches it for offline scans. The Role
+    Assignments keys, including block-change approval, and the two other Filter Setup tabs were already refused by
+    their defs' `requiredRole`. The tests now lock all of them.
 - **What ADMIN loses:** editing tablet login access and LDAP through a typed URL. Neither was offered in ADMIN's UI.
 - **Tests:**
   - `apps/api/src/e2e/config-sa-only-pages.test.ts`: a CONFIG_* holder gets 403 and nothing is written;

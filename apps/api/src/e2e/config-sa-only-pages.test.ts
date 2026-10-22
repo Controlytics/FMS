@@ -112,3 +112,47 @@ describe('AHU completion process is SUPER_ADMIN-only', () => {
     expect((await authGet(app, '/api/config/dynamic/ahu-completion-process', saToken)).statusCode).toBe(200);
   });
 });
+
+// Follow-up (func-03, 2026-10-22): two more pages that are SUPER_ADMIN-only in
+// the UI (/config/filter-setup, /config/role-assignments) must refuse ADMIN on
+// the API too. Their writes:
+//  - Filter Setup: PUT /api/config/cleaning-profile-assignment (static route,
+//    was CONFIG_UPDATE) + the dynamic filter-cleaning-reasons /
+//    filter-field-options defs.
+//  - Role Assignments: the eight dynamic workflow defs, block-change approval
+//    mode included.
+describe('Filter Setup writes are SUPER_ADMIN-only', () => {
+  it('PUT /cleaning-profile-assignment refuses a CONFIG_UPDATE holder — even with a valid password — and writes nothing', async () => {
+    const before = await stored('cleaning-profile-assignment');
+    const res = await authPut(app, '/api/config/cleaning-profile-assignment', admToken, { mode: 'BY_BLOCK', rules: [] }, PW);
+    expect(res.statusCode).toBe(403);
+    expect(await stored('cleaning-profile-assignment')).toEqual(before);
+  });
+
+  it('the assignment map stays readable by every signed-in user (the tablet caches it for offline scans)', async () => {
+    expect((await authGet(app, '/api/config/cleaning-profile-assignment/current', admToken)).statusCode).toBe(200);
+  });
+
+  for (const key of ['filter-cleaning-reasons', 'filter-field-options']) {
+    it(`PUT /dynamic/${key} refuses a CONFIG_UPDATE holder and writes nothing`, async () => {
+      const before = await stored(key);
+      const res = await authPut(app, `/api/config/dynamic/${key}`, admToken, {}, PW);
+      expect(res.statusCode).toBe(403);
+      expect(await stored(key)).toEqual(before);
+    });
+  }
+});
+
+describe('Role Assignments writes are SUPER_ADMIN-only', () => {
+  const KEYS = ['pm-schedule-approval', 'replacement-schedule-approval', 'filter-approval', 'qnn-notifications',
+    'guest-cleaning-requests', 'block-change-approval', 'stage-interlock', 'pm-schedule-settings'];
+  for (const key of KEYS) {
+    it(`PUT /dynamic/${key} refuses a CONFIG_UPDATE holder and writes nothing`, async () => {
+      const before = await stored(key);
+      const body = key === 'block-change-approval' ? { mode: 'SELF_CONFIRM' } : { enabled: false };
+      const res = await authPut(app, `/api/config/dynamic/${key}`, admToken, body, PW);
+      expect(res.statusCode).toBe(403);
+      expect(await stored(key)).toEqual(before);
+    });
+  }
+});

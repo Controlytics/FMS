@@ -679,7 +679,9 @@ describe('policy-driven re-auth (UPDATE_CONFIG_PAGE and friends) for a role the 
     ['replacement-schedule-filters', '/api/config/replacement-schedule-filters', {}, 'UPDATE_CONFIG_PAGE'],
     ['report-labels', '/api/config/report-labels', {}, 'UPDATE_CONFIG_PAGE'],
     ['report-page-titles', '/api/config/report-page-titles', {}, 'UPDATE_CONFIG_PAGE'],
-    ['cleaning-profile-assignment', '/api/config/cleaning-profile-assignment', { mode: 'BY_ENTITY', rules: [] }, 'UPDATE_CONFIG_PAGE'],
+    // cleaning-profile-assignment left this list on 2026-10-22 (D03-15): its PUT is
+    // SUPER_ADMIN-only, so this CONFIG_UPDATE role is refused before any re-auth
+    // (e2e/config-sa-only-pages.test.ts).
     ['branding', '/api/config/branding', {}, 'UPDATE_BRANDING'],
     ['user-id', '/api/config/user-id', {}, 'UPDATE_USERID_CONFIG'],
     ['action-reauth', '/api/config/action-reauth', {}, 'UPDATE_REAUTH_CONFIG'],
