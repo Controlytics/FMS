@@ -218,6 +218,11 @@ export async function startCycleImpl(
   if (reason.requiresJustification && (!cleaningJustification || cleaningJustification.length < 10)) {
     throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Justification required (min 10 characters) for this cleaning reason');
   }
+  // Only a reason that requires a justification records one (D03-07, 2026-10-22).
+  // A text typed for such a reason and then sent with another one was stored on
+  // the cycle and its CYCLE_STARTED event — a justification nobody gave for
+  // this start, and possibly below the 10-character minimum.
+  const storedJustification = reason.requiresJustification ? cleaningJustification : null;
 
   const prevCycleCount = await prisma.cleaningCycle.count({ where: { filterId } });
   const seq = prevCycleCount + 1;
@@ -368,7 +373,7 @@ export async function startCycleImpl(
         checklistVersionPins: checklistVersionPins as any,
         sequenceNumber: seq, cleaningReasonKey,
         cleaningReasonLabel: reason.name,
-        cleaningJustification: cleaningJustification ?? null,
+        cleaningJustification: storedJustification ?? null,
         cleaningAreaId: cleaningAreaId ?? null,
         equipmentGroupId: boundEquipmentGroupId, // #eqpin: block's sole group auto-bound at start
         equipmentGroupVersionPin, // P1: version frozen at start (null only when no group resolvable)
@@ -387,7 +392,7 @@ export async function startCycleImpl(
           // AHU_REPLACEMENT_OVERDUE, MISSED_PM) — visible, not silent.
           ...(replayExemptGates.length ? { replayExemptGates } : {}),
         },
-        remarks: cleaningJustification ?? null,
+        remarks: storedJustification ?? null,
         checksum: computeChecksum({ filterId, cycleId: newCycle.id, eventType: 'CYCLE_STARTED', performedBy: ctx.userSub }),
         ipAddress: ctx.ipAddress, telemetrySnapshot: {},
         ...(offlineTime && { performedAt: offlineTime }),

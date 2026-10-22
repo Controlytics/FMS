@@ -43,7 +43,22 @@ describe('CleaningReasonDialog', () => {
     expect(onClearError).toHaveBeenCalled();
     expect(submit).toBeEnabled();
     fireEvent.click(submit);
-    expect(onSubmit).toHaveBeenCalledWith('PM', '');
+    expect(onSubmit).toHaveBeenCalledWith('PM', undefined); // no justification for a reason that needs none
+  });
+
+  // D03-07 (2026-10-22): a justification typed for a "Requires justification"
+  // reason was kept when the operator picked another reason, and sent — so it
+  // was saved on a start whose reason needs none, even below the minimum.
+  it('changing the reason clears the justification; a reason that needs none sends none', async () => {
+    const { onSubmit } = setup();
+    fireEvent.click(await screen.findByRole('button', { name: /Breakdown/ }));
+    fireEvent.change(screen.getByPlaceholderText('Justification (min 10 characters)'), { target: { value: 'typed for Breakdown' } });
+    fireEvent.click(screen.getByRole('button', { name: /Preventive Maintenance/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start & Submit' }));
+    expect(onSubmit).toHaveBeenCalledWith('PM', undefined);
+    fireEvent.click(screen.getByRole('button', { name: /Breakdown/ }));
+    expect(screen.getByPlaceholderText('Justification (min 10 characters)')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Start & Submit' })).toBeDisabled();
   });
 
   it('a reason that requires justification blocks Submit until 10+ characters are typed', async () => {
@@ -65,7 +80,7 @@ describe('CleaningReasonDialog', () => {
     await screen.findByText('Preventive Maintenance');
     expect(screen.getByText(/A non-PM reason will leave this task pending/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Start & Submit' }));
-    expect(onSubmit).toHaveBeenCalledWith('PM', '');
+    expect(onSubmit).toHaveBeenCalledWith('PM', undefined);
   });
 
   it('shows the parent error; loading disables Submit and replaces its label with a spinner', async () => {
@@ -94,6 +109,6 @@ describe('CleaningReasonDialog', () => {
     const { onSubmit } = setup([]);
     fireEvent.click(await screen.findByRole('button', { name: /Cached reason/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Start & Submit' }));
-    expect(onSubmit).toHaveBeenCalledWith('CACHED', '');
+    expect(onSubmit).toHaveBeenCalledWith('CACHED', undefined);
   });
 });

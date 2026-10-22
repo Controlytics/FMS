@@ -306,7 +306,8 @@ describe('PATCH /api/assets/instances/:id/lifecycle-state — manual moves obey 
 
   it('BACKWARD with an active cycle breaks it (TERMINATED, broken) and starts cycle 2', async () => {
     const first = (await prisma.filterDetails.findUnique({ where: { assetInstanceId: FM } }))!.currentCycleId!;
-    const res = await patch(FM, { lifecycleState: 'WASH_IN', cleaningReasonKey: 'ROUTINE' });
+    // A justification left over from a reason that needed one is not stored with ROUTINE (D03-07).
+    const res = await patch(FM, { lifecycleState: 'WASH_IN', cleaningReasonKey: 'ROUTINE', cleaningJustification: 'leftover from Breakdown' });
     expect(res.statusCode).toBe(200);
     const old = await prisma.cleaningCycle.findUnique({ where: { id: first } });
     expect(old!.status).toBe('TERMINATED');

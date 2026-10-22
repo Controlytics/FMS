@@ -1183,7 +1183,14 @@ export function FilterOperationsPage() {
     // The remark typed for this submit: the scan screen's field was cleared when
     // the reason dialog opened.
     const typedRemarks = batchRemarksRef.current;
-    const startBody = { cleaningReasonKey: reasonKey, cleaningJustification: justification || undefined, cleaningAreaId: blockId };
+    // A justification only with a reason that requires one (D03-07): the dialog
+    // already sends none otherwise; the reason's own config decides here too
+    // (when the list could not be read, the dialog's choice stands).
+    const startBody = {
+      cleaningReasonKey: reasonKey,
+      cleaningJustification: reason && !reason.requiresJustification ? undefined : justification || undefined,
+      cleaningAreaId: blockId,
+    };
     setLoading(true); setReasonError(''); setSubmitting(true);
 
     // Wash In on a block with equipment groups: the readings dialog takes over

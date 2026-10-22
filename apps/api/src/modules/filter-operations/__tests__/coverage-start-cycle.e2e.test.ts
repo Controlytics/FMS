@@ -109,6 +109,29 @@ describe('start-cycle refusals', () => {
     expect(await cycles(f)).toHaveLength(0);
   });
 
+  // D03-07 (2026-10-22): a justification typed for a reason that requires one,
+  // then sent with a reason that does not, was stored on the cycle and its
+  // CYCLE_STARTED event — even below the 10-character minimum.
+  it('a justification sent with a reason that does not require one is not stored (cycle or event)', async () => {
+    const f = await fx.filter('RSNJ', AHU1, FP);
+    const res = await start(f, { cleaningReasonKey: 'ROUTINE', cleaningJustification: 'leftover' });
+    expect(res.statusCode).toBe(201);
+    const [cycle] = await cycles(f);
+    expect(cycle.cleaningJustification).toBeNull();
+    const started = await prisma.filterEvent.findFirst({ where: { cycleId: cycle.id, eventType: 'CYCLE_STARTED' } });
+    expect(started?.remarks).toBeNull();
+    await terminate(f);
+  });
+
+  it('a reason that requires one stores it', async () => {
+    const f = await fx.filter('RSNK', AHU1, FP);
+    const res = await start(f, { cleaningReasonKey: 'BREAKDOWN', cleaningJustification: 'Fan bearing seized on night shift' });
+    expect(res.statusCode).toBe(201);
+    const [cycle] = await cycles(f);
+    expect(cycle.cleaningJustification).toBe('Fan bearing seized on night shift');
+    await terminate(f);
+  });
+
   it('a filter whose cleaning profile is not ACTIVE cannot start (PROFILE_DISABLED)', async () => {
     const f = await fx.filter('DRF', AHU1, FP_DRAFT);
     const res = await start(f);
@@ -128,7 +151,8 @@ describe('start-cycle refusals', () => {
   it('a repeated clientOpId answers the running cycle instead of opening a second', async () => {
     const f = await fx.filter('IDEM', AHU1, FP);
     const op = randomUUID();
-    const first = await start(f, { clientOpId: op, cleaningJustification: '<b>bold</b> note' });
+    // BREAKDOWN requires a justification, so it is stored (D03-07: only then).
+    const first = await start(f, { clientOpId: op, cleaningReasonKey: 'BREAKDOWN', cleaningJustification: '<b>bold</b> note' });
     expect(first.statusCode).toBe(201);
     const again = await start(f, { clientOpId: op });
     expect(again.statusCode).toBe(201);

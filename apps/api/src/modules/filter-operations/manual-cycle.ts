@@ -48,7 +48,9 @@ export async function resolveManualCycleReason(
   if (reason.requiresJustification && justification.length < 10) {
     throw new AppError(400, 'JUSTIFICATION_REQUIRED', 'Justification required (min 10 characters) for this cleaning reason.');
   }
-  return { key: reason.key, name: reason.name, justification: justification || null };
+  // Only a reason that requires a justification records one (D03-07, 2026-10-22):
+  // a text typed for such a reason and sent with another was stored on the cycle.
+  return { key: reason.key, name: reason.name, justification: reason.requiresJustification ? justification || null : null };
 }
 
 /** Close an in-progress cycle as TERMINATED ("broken") with a reason marker. */
