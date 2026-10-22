@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { useMemo, useState } from 'react';
 import { StatCard } from '@/components/ui/stat-card';
+import { formatListTotal } from '@/components/ui/pagination';
 
 // <path> content for the Quick Overview tiles (drawn by the shared StatCard).
 const statCardIcons = {
@@ -117,7 +118,8 @@ export function DashboardPage() {
             <StatCard
               size="lg"
               label="Audit Trail"
-              value={auditStats?.total ?? '-'}
+              // "10,000+": the audit list stops counting at 10,000 (2026-10-22).
+              value={auditStats?.totalCapped ? formatListTotal(auditStats.total, true) : (auditStats?.total ?? '-')}
               icon={statCardIcons.audit}
               href="/audit"
             />

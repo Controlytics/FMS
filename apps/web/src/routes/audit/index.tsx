@@ -18,7 +18,7 @@ import { ACTION_COLORS, getAuditStatus, getAuditSummary, friendlyTargetType, isR
 import { AuditFilters } from './components/audit-filters';
 import { AuditTable } from './components/audit-table';
 import { AuditDetailModal } from './components/audit-detail-modal';
-import { Pagination } from '@/components/ui/pagination';
+import { Pagination, formatListTotal } from '@/components/ui/pagination';
 import { AuditDeleteDialog } from './components/audit-delete-dialog';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
@@ -328,12 +328,16 @@ export function AuditTrailPage() {
 
   // Fetch ALL records matching the active filters (not just the visible page).
   // The list API caps each request at 200, so page through until exhausted.
-  const fetchAllFilteredRecords = async (): Promise<any[]> => {
+  // `exactTotal`: the list's own total stops at 10,000 ("10,000+", 2026-10-22);
+  // an export needs the real size. With `maxRecords` it stops on the first
+  // page's exact total when that is over the limit (the caller refuses), rather
+  // than fetching every page first.
+  const fetchAllFilteredRecords = async (maxRecords?: number): Promise<{ records: any[]; total: number }> => {
     const all: any[] = [];
     const LIMIT = 200;
     let pageN = 1;
     for (;;) {
-      const qs = new URLSearchParams({ page: String(pageN), limit: String(LIMIT), sortBy, sortOrder });
+      const qs = new URLSearchParams({ page: String(pageN), limit: String(LIMIT), sortBy, sortOrder, exactTotal: 'true' });
       if (debouncedSearch) qs.set('search', debouncedSearch);
       if (fromDateTime) qs.set('startDate', new Date(fromDateTime).toISOString());
       if (toDateTime) qs.set('endDate', new Date(toDateTime).toISOString());
@@ -341,10 +345,11 @@ export function AuditTrailPage() {
       const rows = res?.data ?? [];
       all.push(...rows);
       const total = res?.total ?? all.length;
+      if (maxRecords !== undefined && total > maxRecords) return { records: [], total };
       if (rows.length === 0 || all.length >= total || pageN > 500) break;
       pageN++;
     }
-    return all;
+    return { records: all, total: all.length };
   };
 
   // Record the export as an auditable event BEFORE the file is saved. Throws on
@@ -364,12 +369,12 @@ export function AuditTrailPage() {
   const exportPdf = async () => {
     setDownloading(true);
     try {
-      const records = await fetchAllFilteredRecords();
-      if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
-      if (records.length > exportLimit.maxRecords) {
-        toast.error('Export too large', exportLimit.tooLargeMessage(records.length));
+      const { records, total } = await fetchAllFilteredRecords(exportLimit.maxRecords);
+      if (total > exportLimit.maxRecords) {
+        toast.error('Export too large', exportLimit.tooLargeMessage(total));
         return;
       }
+      if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
       const report = await createReport({ reportKey: 'audit-trail',
         title: auditL.title,
         subtitle: auditL.subtitle || `Period: ${currentPeriod()}${search ? `  |  Search: "${search}"` : ''}  |  Total: ${records.length} record(s)  |  21 CFR Part 11 Compliant`,
@@ -394,7 +399,7 @@ export function AuditTrailPage() {
   // Snapshot for the review workflow — same build over all filtered records,
   // captured instead of saved (no export-log; nothing is downloaded here).
   const buildAuditSnapshot = async () => {
-    const records = await fetchAllFilteredRecords();
+    const { records } = await fetchAllFilteredRecords();
     if (records.length === 0) return null;
     const report = await createReport({ reportKey: 'audit-trail',
       title: auditL.title,
@@ -409,12 +414,12 @@ export function AuditTrailPage() {
   const exportExcel = async () => {
     setDownloading(true);
     try {
-      const records = await fetchAllFilteredRecords();
-      if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
-      if (records.length > exportLimit.maxRecords) {
-        toast.error('Export too large', exportLimit.tooLargeMessage(records.length));
+      const { records, total } = await fetchAllFilteredRecords(exportLimit.maxRecords);
+      if (total > exportLimit.maxRecords) {
+        toast.error('Export too large', exportLimit.tooLargeMessage(total));
         return;
       }
+      if (records.length === 0) { toast.error('Nothing to export', 'No audit records match the current filters.'); return; }
       // Fail-closed: if the export can't be recorded, cancel the download.
       try {
         await logExport('Excel', records.length);
@@ -440,7 +445,7 @@ export function AuditTrailPage() {
           <>
             {data && (
               <div className="mr-2 text-right">
-                <p className="text-2xl font-semibold leading-tight text-slate-900 tabular-nums">{data.total.toLocaleString()}</p>
+                <p className="text-2xl font-semibold leading-tight text-slate-900 tabular-nums">{formatListTotal(data.total, data.totalCapped)}</p>
                 <p className="text-xs text-slate-500">Total Records</p>
               </div>
             )}
@@ -596,6 +601,8 @@ export function AuditTrailPage() {
             page={page}
             pageSize={perPage}
             totalItems={data.total}
+            totalCapped={data.totalCapped}
+            pageRows={data.data?.length ?? 0}
             onPageChange={setPage}
             onPageSizeChange={setPerPage}
             pageSizeOptions={paginationOptions}

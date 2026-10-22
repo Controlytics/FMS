@@ -9,6 +9,7 @@ import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { loadRedactionIndex, evidenceFor, redactionSnapshot, isRedactionMetaAction, type RawAuditRow } from '../../lib/audit-redaction.js';
 import { AppError } from '../../lib/errors.js';
+import { cappedCount, cappedTotalPages, type CappedTotal } from '../../lib/capped-count.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
 import { canSeeQnn } from '../pm-schedules/qnn.js';
@@ -17,13 +18,19 @@ import { canSeeQnn } from '../pm-schedules/qnn.js';
 // audit total every 30 s per user, and COUNT(*) over 7.4 M rows took 1.8–2.0 s
 // every time. Identical filters reuse the count for 60 s. The total may lag by up
 // to a minute; the rows returned never do (only the count is cached).
+//
+// 2026-10-22 (operator decision, "10,000+"): even the cached exact count cost
+// 68–73 s cold on the first request of each new filter. The list now counts up to
+// LIST_TOTAL_CAP (lib/capped-count.ts); `exactTotal=true` (exports) counts exactly.
 const AUDIT_COUNT_TTL_MS = 60_000;
-const auditCountCache = new Map<string, { total: number; at: number }>();
-async function cachedAuditCount(where: unknown): Promise<number> {
-  const key = JSON.stringify(where);
+const auditCountCache = new Map<string, { total: CappedTotal; at: number }>();
+async function cachedAuditCount(where: unknown, exact: boolean): Promise<CappedTotal> {
+  const key = `${exact ? 'exact' : 'capped'}:${JSON.stringify(where)}`;
   const hit = auditCountCache.get(key);
   if (hit && Date.now() - hit.at < AUDIT_COUNT_TTL_MS) return hit.total;
-  const total = await prisma.auditTrail.count({ where: where as any });
+  const total = exact
+    ? { total: await prisma.auditTrail.count({ where: where as any }), totalCapped: false }
+    : await cappedCount((take) => prisma.auditTrail.count({ where: where as any, take }));
   if (auditCountCache.size >= 200) auditCountCache.clear();
   auditCountCache.set(key, { total, at: Date.now() });
   return total;
@@ -98,6 +105,7 @@ export default async function auditRoutes(app: FastifyInstance) {
           action: { type: 'string', description: 'Filter by audit action type' },
           targetType: { type: 'string', description: 'Filter by target entity type' },
           targetId: { type: 'string', description: 'Filter by target entity ID' },
+          exactTotal: { type: 'boolean', description: 'Count the total exactly instead of stopping at 10,000 (exports). Slow on a large trail.' },
           sortBy: { type: 'string', enum: ['timestamp', 'action', 'userId', 'userRole'], default: 'timestamp', description: 'Field to sort by' },
           sortOrder: { type: 'string', enum: ['asc', 'desc'], default: 'desc', description: 'Sort direction' },
         },
@@ -144,6 +152,7 @@ export default async function auditRoutes(app: FastifyInstance) {
               },
             },
             total: { type: 'integer' },
+            totalCapped: { type: 'boolean', description: 'true = more than `total` records match ("10,000+"); page on until a short page' },
             page: { type: 'integer' },
             limit: { type: 'integer' },
             totalPages: { type: 'integer' },
@@ -222,14 +231,14 @@ export default async function auditRoutes(app: FastifyInstance) {
     // can pull the entire table in one response (DoS surface).
     const effectiveLimit = Math.max(query.limit ?? 20, 1); // no page-size cap (operator decision 2026-09-04)
 
-    const [records, total] = await Promise.all([
+    const [records, counted] = await Promise.all([
       prisma.auditTrail.findMany({
         where: where as any,
         orderBy: { [orderByField]: orderByDir },
         skip: (query.page - 1) * effectiveLimit,
         take: effectiveLimit,
       }),
-      cachedAuditCount(where),
+      cachedAuditCount(where, (req.query as { exactTotal?: boolean }).exactTotal === true),
     ]);
 
     // 2026-05-20 enrichment fix: many older audit rows stored only IDs in
@@ -420,10 +429,11 @@ export default async function auditRoutes(app: FastifyInstance) {
 
     return {
       data,
-      total,
+      total: counted.total,
+      totalCapped: counted.totalCapped,
       page: query.page,
       limit: effectiveLimit,
-      totalPages: Math.ceil(total / effectiveLimit),
+      totalPages: cappedTotalPages(counted, query.page, effectiveLimit, records.length),
     };
   });
 

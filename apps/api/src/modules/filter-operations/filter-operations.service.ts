@@ -6,6 +6,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { findInChunks } from '../../lib/in-chunks.js';
 import { createCountCache } from '../../lib/count-cache.js';
+import { cappedCount, cappedTotalPages } from '../../lib/capped-count.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { assertFilterOperable } from '../assets/filter-workflow.js';
@@ -155,17 +156,18 @@ export class FilterOperationsService {
       if (query.to) where.performedAt.lte = new Date(query.to);
     }
 
-    const [data, total] = await Promise.all([
+    // "10,000+" (operator decision 2026-10-22): the total stops at LIST_TOTAL_CAP.
+    const [data, counted] = await Promise.all([
       prisma.filterEvent.findMany({
         where, skip: (page - 1) * limit, take: limit,
         orderBy: { performedAt: 'desc' },
       }),
-      isUnscoped(where)
-        ? listCount(['events', where], () => prisma.filterEvent.count({ where }))
-        : prisma.filterEvent.count({ where }),
+      cappedCount((take) => isUnscoped(where)
+        ? listCount(['events', take, where], () => prisma.filterEvent.count({ where, take }))
+        : prisma.filterEvent.count({ where, take })),
     ]);
 
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+    return { data, ...counted, page, limit, totalPages: cappedTotalPages(counted, page, limit, data.length) };
   }
 
   /**

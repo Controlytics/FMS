@@ -75,6 +75,8 @@ export interface FilterEvent {
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
+  /** The server stopped counting at `total` ("10,000+", 2026-10-22): more rows match. */
+  totalCapped?: boolean;
   page: number;
   limit: number;
   totalPages: number;

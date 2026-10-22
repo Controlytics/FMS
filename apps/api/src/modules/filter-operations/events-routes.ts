@@ -36,7 +36,8 @@ export default async function filterEventsRoutes(app: FastifyInstance) {
           limit: { type: 'integer', minimum: 1, default: 20 },
         },
       },
-      response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' } } }, ...errorResponses },
+      // totalCapped: more than `total` (10,000) events match — the page shows "10,000+" (2026-10-22).
+      response: { 200: { type: 'object', properties: { data: { type: 'array' }, total: { type: 'integer' }, totalCapped: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req) => {
     const ctx = buildContext(req);

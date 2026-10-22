@@ -87,6 +87,12 @@ describe('Dashboard — welcome, overview and quick actions', () => {
     expect(api.unmatched).toEqual([]);
   });
 
+  it('a capped audit total ("10,000+", 2026-10-22) reads as such on the tile', async () => {
+    const api = mockApi(routes({ extra: [{ path: '/api/audit', body: { total: 10000, totalCapped: true, data: [] } }] }));
+    renderPage(<DashboardPage />, { user: SA, api });
+    await waitFor(() => expect(tile('Audit Trail')).toHaveTextContent('10,000+'));
+  });
+
   it('a role with none of USER_READ / AUDIT_READ / CYCLE_READ never asks for those stats and gets only the notifications tile', async () => {
     const api = mockApi(routes());
     renderPage(<DashboardPage />, { user: { id: 'u-op', fullName: 'Op One', role: 'OPERATOR', permissions: ['ASSET_READ', 'NOTIFICATION_VIEW'] }, api });

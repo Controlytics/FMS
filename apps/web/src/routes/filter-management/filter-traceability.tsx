@@ -4,7 +4,7 @@ import useSWR from 'swr';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
-import { Pagination } from '@/components/ui/pagination';
+import { Pagination, formatListTotal } from '@/components/ui/pagination';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import type { CleaningCycle, FilterEvent, PaginatedResponse } from '../../types/filter';
 import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
@@ -59,7 +59,7 @@ export function FilterTraceabilityPage() {
       {/* Content */}
       <ReportPageWrapper
         title={L.title}
-        totalRecords={currentData?.total ?? 0}
+        totalRecords={formatListTotal(currentData?.total ?? 0, currentData?.totalCapped)}
         page={page}
         totalPages={currentData?.totalPages ?? 1}
       >
@@ -146,6 +146,8 @@ export function FilterTraceabilityPage() {
             page={page}
             pageSize={perPage}
             totalItems={currentData?.total ?? 0}
+            totalCapped={currentData?.totalCapped}
+            pageRows={currentData?.data?.length ?? 0}
             onPageChange={setPage}
             onPageSizeChange={setPerPageChoice}
             pageSizeOptions={paginationOptions}

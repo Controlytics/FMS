@@ -3,7 +3,8 @@ import { useAuth } from '@/hooks/use-auth';
 
 interface ReportPageWrapperProps {
   title: string;
-  totalRecords: number;
+  /** A number, or a formatted total such as "10,000+" (capped lists, 2026-10-22). */
+  totalRecords: number | string;
   page: number;
   totalPages: number;
   children: React.ReactNode;

@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] - "10,000+" list totals: audit trail and filter events (P-2 / P-3, 2026-10-22)
+
+- **Operator decision:** a big list counts up to 10,000 and then says **"10,000+"**. An exact
+  COUNT on the one-year copy took 68–73 s cold (7.4 M audit rows, visibility filter matches
+  all of them, so no index helps) and 17 s (6.2 M `filter_events`). A capped count
+  (`COUNT(*) FROM (… LIMIT 10001)`) took 171 ms / 80 ms on the same tables.
+- `GET /api/audit` and `GET /api/filters/events` return `total: 10000, totalCapped: true` past
+  the cap (`lib/capped-count.ts`); exact below it. `totalPages` offers one more page while the
+  current one is full, so paging goes on until a short page.
+- **Exports count exactly:** the Audit Trail export sends `exactTotal=true` and refuses an
+  over-limit export on the first page's exact total, before fetching every page.
+- Web: the shared `Pagination` takes `totalCapped` + `pageRows` ("Showing 26–50 of 10,000+",
+  Next on while the page is full). Audit Trail header, dashboard Audit Trail tile, Filter Data
+  Management (Audit Trail, Filter Events) and Filter Traceability show "10,000+".
+- Tests: `apps/api/src/e2e/list-capped-totals.test.ts` (cap 3), plus Pagination, Audit Trail
+  page, dashboard and `filter-data-management-capped-total` web tests.
+
 ## [Unreleased] - Security + database rounds, pipeline client half, restore at any size (2026-10-22, evening)
 
 Operator decisions of 2026-10-22: always-on password for destructive / rule-changing actions (OD-01),

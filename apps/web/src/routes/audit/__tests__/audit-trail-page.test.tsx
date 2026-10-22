@@ -184,6 +184,15 @@ describe('Audit Trail — sorting, search, date range, paging', () => {
     await waitFor(() => expect(lastList(api).query.get('limit')).toBe('50'));
   });
 
+  it('a capped total ("10,000+", 2026-10-22) reads as such in the header and the pager', async () => {
+    const api = mockApi(routes({ list: page(ROWS, { total: 10000, totalCapped: true, totalPages: 500 }) }));
+    const { container } = renderPage(<AuditTrailPage />, { user: VIEWER, api });
+    await screen.findByText('User "101020" updated by 101010');
+    expect(screen.getByText('Total Records').previousElementSibling).toHaveTextContent('10,000+');
+    expect(container.textContent).toMatch(/Showing 1–5 of 10,000\+/);
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
+  });
+
   it('pages through the trail and changes the page size', async () => {
     const api = mockApi(routes({ list: page(ROWS, { total: 45, totalPages: 3 }) }));
     renderPage(<AuditTrailPage />, { user: VIEWER, api });
@@ -327,6 +336,19 @@ describe('Audit Trail — export (AUDIT_EXPORT)', () => {
     await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
     expect(pdf.reports[0].save).not.toHaveBeenCalled();
     expect(screen.queryByText(/Export (blocked|failed)/)).toBeNull();
+  });
+
+  it('the export counts exactly (exactTotal) — the page list never does — and refuses before fetching every page', async () => {
+    const api = mockApi(exportRoutes({ exportMax: 3 }));
+    renderPage(<AuditTrailPage />, { user: EXPORTER, api });
+    await myActionsLoaded(api);
+    await openExport('PDF');
+    expect(await screen.findByText('Export too large')).toBeInTheDocument();
+    expect(screen.getByText(/match 5 records/)).toBeInTheDocument();
+    const exportCalls = api.calls('GET', '/api/audit').filter((r) => r.query.get('limit') === '200');
+    expect(exportCalls).toHaveLength(1);                                   // refused on page 1's exact total
+    expect(exportCalls[0].query.get('exactTotal')).toBe('true');
+    expect(listCalls(api).every((r) => r.query.get('exactTotal') === null)).toBe(true);
   });
 
   it('refuses an export larger than the configured limit, and says when nothing matches', async () => {

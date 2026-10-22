@@ -163,3 +163,41 @@ describe('Pagination', () => {
     expectAllControlsNamed(container);
   });
 });
+
+/**
+ * "10,000+" totals (operator decision 2026-10-22): a big list counts only up to
+ * 10,000. Past the cap the pager says "10,000+" and keeps offering the next page
+ * while the current one is full; a short page is the end.
+ */
+describe('Pagination — capped total', () => {
+  it('says "10,000+" and counts the slice from the rows actually on the page', async () => {
+    const { container } = await show({ page: 2, totalItems: 10_000, totalCapped: true, pageRows: 25 });
+    expect(summary(container)).toBe('Showing 26–50 of 10,000+');
+  });
+
+  it('past the cap, Next stays on while the page is full', async () => {
+    const { onPageChange } = await show({ page: 400, totalItems: 10_000, totalCapped: true, pageRows: 25 });
+    const next = screen.getByRole('button', { name: 'Next page' });
+    expect(next).toBeEnabled();
+    fireEvent.click(next);
+    expect(onPageChange).toHaveBeenCalledWith(401);
+  });
+
+  it('a page beyond the cap is served, not clamped back to the cap', async () => {
+    const { container, onPageChange } = await show({ page: 405, totalItems: 10_000, totalCapped: true, pageRows: 25 });
+    expect(summary(container)).toBe('Showing 10101–10125 of 10,000+');
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(onPageChange).toHaveBeenCalledWith(406);
+  });
+
+  it('a short page is the end: Next is off', async () => {
+    const { container } = await show({ page: 406, totalItems: 10_000, totalCapped: true, pageRows: 7 });
+    expect(summary(container)).toBe('Showing 10126–10132 of 10,000+');
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  });
+
+  it('an exact total is unchanged by the new props', async () => {
+    const { container } = await show({ page: 3, totalCapped: false, pageRows: 10 });
+    expect(summary(container)).toBe('Showing 51–60 of 60');
+  });
+});

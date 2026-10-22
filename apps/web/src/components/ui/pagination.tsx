@@ -23,6 +23,18 @@ export interface PaginationProps {
   onPageSizeChange?: (size: number) => void;
   pageSizeOptions?: number[];
   className?: string;
+  /**
+   * The server stopped counting at `totalItems` ("10,000+", 2026-10-22): more rows
+   * match. The pager then offers the next page while the current one is full.
+   */
+  totalCapped?: boolean;
+  /** Rows on the current page — needed with `totalCapped` (a short page is the end). */
+  pageRows?: number;
+}
+
+/** "10,000+" when the server stopped counting at `total`, else the exact total. */
+export function formatListTotal(total: number, totalCapped?: boolean): string {
+  return totalCapped ? `${total.toLocaleString()}+` : total.toLocaleString();
 }
 
 function pageList(page: number, totalPages: number): (number | 'gap')[] {
@@ -37,7 +49,7 @@ function pageList(page: number, totalPages: number): (number | 'gap')[] {
   return out;
 }
 
-export function Pagination({ page, pageSize, totalItems, onPageChange, onPageSizeChange, pageSizeOptions, className }: PaginationProps) {
+export function Pagination({ page, pageSize, totalItems, onPageChange, onPageSizeChange, pageSizeOptions, className, totalCapped, pageRows }: PaginationProps) {
   const { options } = usePaginationDefaults();
   const baseOptions = pageSizeOptions ?? options;
   // Always include the current page size so the selector never renders blank
@@ -45,17 +57,21 @@ export function Pagination({ page, pageSize, totalItems, onPageChange, onPageSiz
   const sizeOptions = baseOptions.includes(pageSize)
     ? baseOptions
     : [...baseOptions, pageSize].sort((a, b) => a - b);
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const capped = !!totalCapped && pageRows !== undefined;
+  // Capped: the end is unknown — one page past the current one while it is full.
+  const totalPages = capped
+    ? Math.max(1, Math.ceil(totalItems / pageSize), page + (pageRows >= pageSize ? 1 : 0))
+    : Math.max(1, Math.ceil(totalItems / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const from = totalItems === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const to = Math.min(safePage * pageSize, totalItems);
+  const to = capped ? from + pageRows - 1 : Math.min(safePage * pageSize, totalItems);
 
   return (
     <div className={`flex items-center justify-between gap-3 flex-wrap px-4 py-3 ${className ?? ''}`}>
       <p className="text-xs text-slate-500">
         Showing <span className="font-semibold text-slate-700">{from}</span>–
         <span className="font-semibold text-slate-700">{to}</span> of{' '}
-        <span className="font-semibold text-slate-700">{totalItems}</span>
+        <span className="font-semibold text-slate-700">{capped ? formatListTotal(totalItems, true) : totalItems}</span>
       </p>
 
       <div className="flex items-center gap-3">
