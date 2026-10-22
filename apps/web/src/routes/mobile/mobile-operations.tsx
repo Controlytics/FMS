@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo, type MutableRefObject } from 'react';
-import { ALL_ROWS } from '@/lib/page-size';
 import { Navigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
@@ -582,14 +581,11 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
   const { data: datetimeData } = useSWR(online ? '/api/config/datetime/current' : null);
   // B.14 — Cache approved block-change requests so an APPROVED status from a
   // recent server-side approval is visible offline before the cycle starts.
-  // 2026-10-06: the list is gated on BLOCK_CHANGE_REQUEST / BLOCK_CHANGE_APPROVE.
-  // A role without either (OPERATOR) cannot request a block change, so an
-  // approval can never apply to it — polling only produced a 403 every few
-  // seconds. Fetch it only for roles that can act on it.
-  const canReadBlockChanges =
-    user?.role === 'SUPER_ADMIN'
-    || (user?.permissions ?? []).some((p: string) => p === 'BLOCK_CHANGE_REQUEST' || p === 'BLOCK_CHANGE_APPROVE');
-  const { data: approvedBlockChangesData } = useSWR(online && canReadBlockChanges ? `/api/block-change-requests?status=APPROVED&limit=${ALL_ROWS}` : null);
+  // (2026-10-22) The tablet no longer reads the APPROVED block-change requests:
+  // the list (every one ever, limit 1,000,000 — a table that grows with use) was
+  // cached as 'approved-block-changes' and read by nothing once offline
+  // cross-block stopped blocking (2026-06-09). Online the cross-block decision
+  // comes from each filter's current-state (blockChangeStatus).
   // B.11 — Cache reauth scope for current user so offline ops know which actions
   // need a queued password vs. immediate dialog.
   const { data: myReauthActionsData } = useSWR(online && user ? '/api/config/action-reauth/my-actions' : null);
@@ -681,10 +677,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
   useEffect(() => { if (brandingData) cache('branding-config', brandingData, 24 * 60 * 60 * 1000); }, [brandingData, cache]);
   useEffect(() => { if (fieldIdsData) cache('field-ids-config', fieldIdsData, 24 * 60 * 60 * 1000); }, [fieldIdsData, cache]);
   useEffect(() => { if (datetimeData) cache('datetime-config', datetimeData, 24 * 60 * 60 * 1000); }, [datetimeData, cache]);
-  useEffect(() => {
-    const list = (approvedBlockChangesData as any)?.data ?? approvedBlockChangesData;
-    if (Array.isArray(list)) cache('approved-block-changes', list, 24 * 60 * 60 * 1000);
-  }, [approvedBlockChangesData, cache]);
   useEffect(() => {
     const actions = (myReauthActionsData as any)?.actions ?? myReauthActionsData;
     if (actions) cache('my-reauth-actions', actions, 24 * 60 * 60 * 1000);

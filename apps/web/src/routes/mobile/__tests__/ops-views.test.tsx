@@ -40,7 +40,7 @@ describe('redirects', () => {
 describe('offline caches filled while online', () => {
   it('each master-data read is cached for an offline shift', async () => {
     const reauthUser = { ...OPERATOR, permissions: [...OPERATOR.permissions!, 'BLOCK_CHANGE_REQUEST'] };
-    await renderOps({
+    const { api } = await renderOps({
       user: reauthUser,
       reauthActions: ['STAGE_WASH_IN'],
       routes: [
@@ -58,7 +58,11 @@ describe('offline caches filled while online', () => {
     expect(cachedValue('checklist-profiles')).toHaveLength(1);
     expect(cachedValue('blocked-filter-ids')).toEqual(['f9']);
     expect(cachedValue('cleaning-profile-assignment')).toEqual({ mode: 'BY_AHU', rules: [] });
-    expect(cachedValue('approved-block-changes')).toEqual([{ id: 'bcr1', status: 'APPROVED' }]);
+    // 2026-10-22: every APPROVED block-change request ever (limit 1,000,000) was
+    // read and cached for nothing — no offline path reads it since offline
+    // cross-block stopped blocking (2026-06-09). A table that grows with use.
+    expect(api.calls('GET', '/api/block-change-requests')).toEqual([]);
+    expect(cachedValue('approved-block-changes')).toBeUndefined();
     expect(cachedValue('my-reauth-actions')).toEqual(['STAGE_WASH_IN']);
     expect(cachedValue('branding-config')).toMatchObject({ appName: 'FMS Tablet' });
     expect(cachedValue('datetime-config')).toMatchObject({ dateFormat: 'DD/MM/YYYY' });
