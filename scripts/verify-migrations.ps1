@@ -20,6 +20,23 @@
   changed schema.prisma and the dev DB without writing a migration — that delta
   is printed and the script exits 1.
 
+  `prisma migrate diff` cannot see what schema.prisma cannot express (D-DB-1,
+  2026-10-22): it printed PASS for a fresh DB with asset_instances_active_name_key
+  dropped, recreated without its WHERE, or with the audit_trail_no_delete
+  trigger dropped. So two catalog checks run as well, and either one FAILs the
+  guard:
+
+    3. verify-migrations.catalog.sql fingerprints every index (full definition,
+       so partial-index predicates count), every user trigger (definition AND
+       enabled state), every non-extension function body, CHECK/EXCLUDE
+       constraints, sequences and extensions — on BOTH DBs. Any line not in both
+       is drift.
+    4. verify-migrations.required.sql asserts on the SCRATCH DB alone that the
+       migration-only objects the app relies on come out of the migrations with
+       the expected definition. Step 3 only catches divergence: a migration that
+       drops the audit trigger, deployed to the dev DB too, leaves both sides
+       equal.
+
 .PARAMETER ReferenceUrl
   The "known-good" DB to compare against. Defaults to DATABASE_URL from
   apps/api/.env (your dev DB).
@@ -71,6 +88,15 @@ function Invoke-Psql([string]$db, [string]$sql) {
   if ($LASTEXITCODE -ne 0) { throw "psql failed (db=$db): $sql" }
 }
 
+# Runs a read-only .sql file and returns its non-empty output lines.
+function Get-PsqlLines([string]$db, [string]$file) {
+  $out = & $PsqlPath -h $pgHost -p $pgPort -U $pgUser -d $db -v ON_ERROR_STOP=1 -qtA -f $file
+  if ($LASTEXITCODE -ne 0) { throw "psql failed (db=$db, file=$file)" }
+  return @($out | Where-Object { $_ -ne '' })
+}
+$catalogSql  = Join-Path $PSScriptRoot 'verify-migrations.catalog.sql'
+$requiredSql = Join-Path $PSScriptRoot 'verify-migrations.required.sql'
+
 Write-Host "==> Migration drift guard" -ForegroundColor Cyan
 Write-Host "    reference DB : $refDb"
 Write-Host "    scratch DB   : $scratchDb"
@@ -103,19 +129,45 @@ try {
   }
   finally { Pop-Location }
 
+  # 5. Catalog checks for what the Prisma diff cannot see (D-DB-1).
+  Write-Host "==> Comparing indexes, triggers, functions, constraints, sequences (catalog)..." -ForegroundColor Cyan
+  $scratchFp = @(Get-PsqlLines $scratchDb $catalogSql)
+  $refFp     = @(Get-PsqlLines $refDb $catalogSql)
+  # Two empty lists compare equal: an empty fingerprint is a broken query, never a match.
+  if ($scratchFp.Count -eq 0 -or $refFp.Count -eq 0) {
+    throw "Catalog fingerprint came back empty (scratch: $($scratchFp.Count) lines, reference: $($refFp.Count) lines)."
+  }
+  $catalogDiff = @(Compare-Object -ReferenceObject $scratchFp -DifferenceObject $refFp -CaseSensitive)
+  Write-Host "==> Checking the migration-only objects the app relies on (scratch)..." -ForegroundColor Cyan
+  $missing = @(Get-PsqlLines $scratchDb $requiredSql)
+
   $diffText = ($diff -join "`n")
-  if ($diffText -match 'This is an empty migration') {
-    Write-Host "`nPASS: migrations reproduce the reference schema exactly." -ForegroundColor Green
+  $prismaClean = $diffText -match 'This is an empty migration'
+  if ($prismaClean -and $catalogDiff.Count -eq 0 -and $missing.Count -eq 0) {
+    Write-Host "`nPASS: migrations reproduce the reference schema exactly ($($refFp.Count) catalog objects compared; required objects present)." -ForegroundColor Green
     $exit = 0
   } else {
-    Write-Host "`nFAIL: schema drift detected. The reference DB has changes with no migration behind them:" -ForegroundColor Red
-    Write-Host $diffText
-    Write-Host "`nFix: hand-author a migration for this delta (see EXE-PACKAGING-PLAN.md §2.1b), or revert the un-migrated schema.prisma change." -ForegroundColor Yellow
+    if (-not $prismaClean) {
+      Write-Host "`nFAIL: schema drift detected. The reference DB has changes with no migration behind them:" -ForegroundColor Red
+      Write-Host $diffText
+    }
+    if ($catalogDiff.Count -gt 0) {
+      Write-Host "`nFAIL: catalog drift - these objects differ between the migrated scratch DB and the reference DB:" -ForegroundColor Red
+      foreach ($d in $catalogDiff) {
+        $side = if ($d.SideIndicator -eq '<=') { 'migrations only' } else { 'reference only ' }
+        Write-Host "  [$side] $($d.InputObject)"
+      }
+    }
+    if ($missing.Count -gt 0) {
+      Write-Host "`nFAIL: the migrations do not produce objects the application relies on:" -ForegroundColor Red
+      foreach ($m in $missing) { Write-Host "  $m" }
+    }
+    Write-Host "`nFix: hand-author a migration for this delta (see EXE-PACKAGING-PLAN.md section 2.1b), or revert the un-migrated change. A deliberate change to a required object also updates scripts/verify-migrations.required.sql." -ForegroundColor Yellow
     $exit = 1
   }
 }
 finally {
-  # 5. Always clean up the scratch DB
+  # 6. Always clean up the scratch DB
   Write-Host "==> Dropping scratch DB..." -ForegroundColor Cyan
   & $PsqlPath -h $pgHost -p $pgPort -U $pgUser -d 'postgres' -qtAc "DROP DATABASE IF EXISTS $scratchDb;" | Out-Null
 }

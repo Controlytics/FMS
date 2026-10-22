@@ -53,7 +53,7 @@ admin-requests, assets, audit, auth, backup, block-change-requests, checklist-pr
   1. Edit `schema.prisma`.
   2. `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --script` → review, strip the out-of-band noise (triggers/functions/sequences managed in `prisma/sql/*`).
   3. Hand-author the reviewed SQL into `prisma/migrations/<UTC-timestamp>_<name>/migration.sql` (pattern: see archived `20260530_filter_reverse_mirror`). Keep `prisma/sql/*` in sync for any new raw objects.
-  4. `npm run db:verify-migrations` — the drift guard: builds a scratch DB from migrations and asserts it diffs empty against your dev DB. **Must PASS before commit.**
+  4. `npm run db:verify-migrations` — the drift guard: builds a scratch DB from migrations and asserts it diffs empty against your dev DB (`prisma migrate diff`), that a catalog fingerprint of indexes (with predicates), triggers (with enabled state), function bodies, CHECK constraints and sequences matches (`scripts/verify-migrations.catalog.sql`), and that the migration-only objects the app relies on come out of the migrations exactly (`scripts/verify-migrations.required.sql`) — D-DB-1, 2026-10-22. **Must PASS before commit.**
   5. `npx prisma migrate resolve --applied <name>` on existing populated DBs (dev/test) so they don't re-run it.
 
 ## Key Libs (`apps/api/src/lib/`)
@@ -299,7 +299,7 @@ Stage types: WASH_IN, WASH_OUT, DRY_IN, DRY_OUT, STORAGE_IN, STORAGE_OUT
 - Offline cleaning operations via IndexedDB queue + sync engine
 - Cached identifier→filter map for offline RFID lookup
 - "Data Synced" indicator in mobile header
-- One identifier per entity (backend-enforced)
+- One identifier per entity (backend-enforced). Since 2026-10-22 (D-DB-2) the checks run INSIDE the assign transaction behind two advisory locks (filter, then tag value lower-cased; `identifier.service.ts`, also taken by `delete()`) — before that, two concurrent assigns both passed and left a filter with two tags. The schema still has no per-asset unique index. Guard: `e2e/identifier-assign-race.test.ts`.
 - Responsive layout with collapsible sidebar
 - Error popups replace inline banners
 - User creation auto-assigns org for admins
