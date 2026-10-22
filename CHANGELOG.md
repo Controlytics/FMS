@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased] - Offline sync fixes, exact values, coverage wave 2 (2026-10-22)
+
+Operator decisions of 2026-10-22: fix the offline defects carefully; show a recorded reading exactly;
+restore a CSV backup exactly; send an SMS exactly as written; leave A-13 (dead ingestion code,
+unbuilt notification channels, the disabled "Swap Sets") as it is. Every fix has a test that failed
+first.
+
+- **Offline sync (`037520a`, protected surface, reviewed line by line):**
+  - Two drains started together (the online event and the retry tick) both replayed the same ops: the
+    in-flight guard was taken only after three awaits.
+  - One exception left sync off until the app restarted: the guard was released only on the normal
+    path. It is now released in `finally`.
+  - A drain could start after `stopAutoSync`.
+  - A 4xx whose text merely contained "network" / "fetch" / "abort" (a filter named NETWORK-F1) was
+    treated as a dropped connection, so every drain stopped at that op and nothing queued behind it was
+    ever sent.
+  - On the tablet, a server refusal mentioning "tls" / "ssl" (filter BTLS-01) was queued as offline
+    instead of shown (OFF-5).
+  - IndexedDB: seven write functions resolved before their transaction committed, so a failed write
+    never reached the caller. No transaction handled `abort`, so a commit the browser refuses (quota)
+    hung the caller forever. Every write now settles in `txCommitted`.
+  - The v3→v7 upgrade's two cursors overwrote each other's row updates (WSH-IDB-1).
+  - A checklist built from the tape lost its questions' `validation`, so offline the numeric input lost
+    min / max / unit (OFF-4).
+- **A recorded reading is shown exactly as recorded (`5cb0f9c`).** Seven screens rounded recorded
+  instrument readings to the least count, so the dryer panel showed "60 °C" while 60.47 went into the
+  record. They now show the stored number: padded to the least count, never rounded. The seven are the
+  dryer panel, the equipment dialog warning, the tablet recap, the cycle detail view, the
+  cleaning-record report, stage-approval details and Filter Data Management. Limits and dropdown options
+  are unchanged.
+- **CSV backup restores formula-like text exactly (`08c2706`).** The export's spreadsheet-safety `'`
+  was never removed on restore. `=SUM(A1)` came back as `'=SUM(A1)`, and a numeric column read as text
+  (`-1.50`) came back as `'-1.50`, which Postgres cannot cast. The escape is now a reversible pair.
+- **SMS is sent exactly as written (`3c94263`).** The channel deleted anything shaped like `<…>`, so
+  "pressure < 2 bar (limit > 4)" lost text, and the notification log recorded text that was never sent.
+- **Assets / profiles (`98a9abc`, `ac0498a`):**
+  - An impossible `lastCleaningDate` answered 500; it is now 400.
+  - An oversized upload answered 500 (bulk filters) or 413 INVALID_REQUEST (replacement schedule); both
+    now answer 413 FILE_TOO_LARGE.
+  - Status and name are stored trimmed.
+  - Toggling a superseded cleaning-profile version made two versions ACTIVE.
+  - An equipment group could be hung on a non-Block.
+  - Deleting an unknown filter answered 400; it is now 404.
+  - A body-less identifier DELETE was refused.
+  - An instrument redirect read "Request failed".
+  - An unknown checklist question type reached Prisma.
+- **Tests:**
+  - Wave-2 suites for assets, hierarchy and the profile modules (99.3% lines on the slice).
+  - Four suites no longer borrow another suite's AHU or template, and their cleanup cannot fail on an FK.
+  - The shared re-auth fixture locks its config row.
+
 ## [Unreleased] - Web coverage wave: config and filter-page fixes (2026-10-21)
 
 Found by the web coverage tests; each fixed failing-first.
