@@ -24,8 +24,8 @@ import { canSeeQnn } from '../pm-schedules/qnn.js';
 // LIST_TOTAL_CAP (lib/capped-count.ts); `exactTotal=true` (exports) counts exactly.
 const AUDIT_COUNT_TTL_MS = 60_000;
 const auditCountCache = new Map<string, { total: CappedTotal; at: number }>();
-async function cachedAuditCount(where: unknown, exact: boolean): Promise<CappedTotal> {
-  const key = `${exact ? 'exact' : 'capped'}:${JSON.stringify(where)}`;
+async function cachedAuditCount(where: unknown, exact: boolean, cacheKey: unknown = where): Promise<CappedTotal> {
+  const key = `${exact ? 'exact' : 'capped'}:${JSON.stringify(cacheKey)}`;
   const hit = auditCountCache.get(key);
   if (hit && Date.now() - hit.at < AUDIT_COUNT_TTL_MS) return hit.total;
   const total = exact
@@ -34,6 +34,47 @@ async function cachedAuditCount(where: unknown, exact: boolean): Promise<CappedT
   if (auditCountCache.size >= 200) auditCountCache.clear();
   auditCountCache.set(key, { total, at: Date.now() });
   return total;
+}
+
+/**
+ * Audit Trail search over what a row SAYS, not only its key columns (functional
+ * test, 2026-10-22). A filter / AHU / person name lives in the stored payload
+ * (afterValue / beforeValue: name, filterName, ahuName, username, ... about 30
+ * keys) or in user_name, so searching "QA03-F1" found nothing although the row's
+ * description names it.
+ *
+ * One scan, bounded: every STRING VALUE of after_value / before_value (never a
+ * key - "name" must not match every row), case-insensitive and literal (jsonpath
+ * like_regex flag "q": no pattern semantics), inside the requested date range,
+ * newest first, at most PAYLOAD_SEARCH_CAP row ids, cached briefly so an export
+ * paging through the same search does not rescan per page. The ids join the
+ * column matches as one more OR branch, so the visibility scope and every other
+ * filter still apply. A redacted row has no payload, so search cannot expose
+ * what a redaction masked. Names that exist only through read-time enrichment
+ * (rows that stored just an id) are not in the row and are not searched.
+ */
+const PAYLOAD_SEARCH_CAP = 10_000;
+const PAYLOAD_SEARCH_TTL_MS = 30_000;
+const payloadSearchCache = new Map<string, { ids: string[]; at: number }>();
+
+async function payloadSearchIds(term: string, from?: Date, to?: Date): Promise<string[]> {
+  const key = `${term}|${from?.toISOString() ?? ''}|${to?.toISOString() ?? ''}`;
+  const hit = payloadSearchCache.get(key);
+  if (hit && Date.now() - hit.at < PAYLOAD_SEARCH_TTL_MS) return hit.ids;
+  // JSON string escaping is valid jsonpath string-literal escaping; the whole
+  // path is a bound parameter, never spliced into the SQL.
+  const path = `$.** ? (@.type() == "string" && @ like_regex ${JSON.stringify(term)} flag "iq")`;
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM audit_trail
+    WHERE (jsonb_path_exists(after_value, ${path}::jsonpath) OR jsonb_path_exists(before_value, ${path}::jsonpath))
+      AND timestamp >= ${from ?? new Date(0)} AND timestamp <= ${to ?? new Date('9999-12-31T23:59:59.999Z')}
+    ORDER BY chain_position DESC NULLS LAST
+    LIMIT ${PAYLOAD_SEARCH_CAP}
+  `;
+  const ids = rows.map((r) => r.id);
+  if (payloadSearchCache.size >= 50) payloadSearchCache.clear();
+  payloadSearchCache.set(key, { ids, at: Date.now() });
+  return ids;
 }
 
 /** Report names the web app records on export - the only values report-export-log accepts. */
@@ -207,12 +248,17 @@ export default async function auditRoutes(app: FastifyInstance) {
     }
     if (query.search) {
       const term = query.search;
+      const range = where.timestamp as { gte?: Date; lte?: Date } | undefined;
+      const payloadIds = await payloadSearchIds(term, range?.gte, range?.lte);
       where.OR = [
         { userId: { contains: term, mode: 'insensitive' } },
+        { userName: { contains: term, mode: 'insensitive' } },
         { action: { contains: term, mode: 'insensitive' } },
         { targetType: { contains: term, mode: 'insensitive' } },
         { targetId: { contains: term, mode: 'insensitive' } },
         { userRole: { contains: term, mode: 'insensitive' } },
+        // Names in the stored payload (see payloadSearchIds).
+        ...(payloadIds.length > 0 ? [{ id: { in: payloadIds } }] : []),
       ];
     }
     if (query.userId) where.userId = query.userId;
@@ -238,7 +284,8 @@ export default async function auditRoutes(app: FastifyInstance) {
         skip: (query.page - 1) * effectiveLimit,
         take: effectiveLimit,
       }),
-      cachedAuditCount(where, (req.query as { exactTotal?: boolean }).exactTotal === true),
+      cachedAuditCount(where, (req.query as { exactTotal?: boolean }).exactTotal === true,
+        query.search ? { ...where, OR: undefined, search: query.search } : where),
     ]);
 
     // 2026-05-20 enrichment fix: many older audit rows stored only IDs in
