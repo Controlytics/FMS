@@ -370,6 +370,40 @@ describe('useAuth background effects', () => {
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 
+  // Every component that calls useAuth() (useCan does; 46 source files) used to start
+  // its own 5 s + 30 min refresh timers, so one page load sent one refresh per
+  // consumer that mounted at a different moment (2026-10-22).
+  it('ONE refresh schedule per app, however many components use useAuth; it stops when the last one unmounts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'], shouldAdvanceTime: true });
+    const refresh = vi.spyOn(apiClient, 'refreshToken').mockResolvedValue(true);
+    function Consumer() { useAuth(); return null; }
+    let setExtra: (n: number) => void = () => {};
+    function Page() {
+      const [extra, set] = React.useState(2);
+      setExtra = set;
+      return <><Probe />{Array.from({ length: extra }, (_, i) => <Consumer key={i} />)}</>;
+    }
+    const api = mockApi();
+    const { unmount } = renderPage(<Page />, { user: meUser, api });
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('alice'));
+    refresh.mockClear();
+    await act(async () => { vi.advanceTimersByTime(5_000); });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    // a consumer mounting later (a dialog, the next page) does not start another schedule
+    act(() => setExtra(4));
+    await act(async () => { vi.advanceTimersByTime(5_000); });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(30 * 60 * 1000); });
+    expect(refresh).toHaveBeenCalledTimes(2);
+    // consumers leaving keep the schedule while one remains; the last one leaving stops it
+    act(() => setExtra(0));
+    await act(async () => { vi.advanceTimersByTime(30 * 60 * 1000); });
+    expect(refresh).toHaveBeenCalledTimes(3);
+    unmount();
+    await act(async () => { vi.advanceTimersByTime(60 * 60 * 1000); });
+    expect(refresh).toHaveBeenCalledTimes(3);
+  });
+
   it('does not refresh the JWT while a password change is forced', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'], shouldAdvanceTime: true });
     const refresh = vi.spyOn(apiClient, 'refreshToken').mockResolvedValue(true);

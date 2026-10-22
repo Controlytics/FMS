@@ -45,6 +45,34 @@ function isNetworkError(err: any): boolean {
   return (err instanceof TypeError && msg.toLowerCase().includes('fetch')) || isNetworkFailure(err);
 }
 
+/**
+ * The background JWT refresh: once ~5 s after the first consumer mounts (extends
+ * the token on page load), then every 30 minutes. ONE schedule for the whole app
+ * (2026-10-22): every component that calls useAuth() (useCan does, 46 source
+ * files) used to start its own pair of timers, so each mount wave - a page, a
+ * dialog - sent its own refresh. Consumers retain the schedule; the last one to
+ * unmount stops it.
+ */
+const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+const INITIAL_REFRESH_MS = 5000;
+let refreshConsumers = 0;
+let refreshInterval: ReturnType<typeof setInterval> | undefined;
+let initialRefresh: ReturnType<typeof setTimeout> | undefined;
+
+function retainRefreshSchedule(): () => void {
+  if (refreshConsumers++ === 0) {
+    refreshInterval = setInterval(() => { void apiClient.refreshToken(); }, REFRESH_INTERVAL_MS);
+    initialRefresh = setTimeout(() => { void apiClient.refreshToken(); }, INITIAL_REFRESH_MS);
+  }
+  return () => {
+    if (--refreshConsumers > 0) return;
+    clearInterval(refreshInterval);
+    clearTimeout(initialRefresh);
+    refreshInterval = undefined;
+    initialRefresh = undefined;
+  };
+}
+
 export function useAuth() {
   const navigate = useNavigate();
   const getToken = () => sessionStorage.getItem('access_token');
@@ -235,11 +263,7 @@ export function useAuth() {
     // is about to change their password anyway; extending the JWT here is
     // pointless.
     if (user?.forcePasswordChange) return;
-    const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
-    const interval = setInterval(() => { void apiClient.refreshToken(); }, REFRESH_INTERVAL);
-    // Also refresh once shortly after mount to extend token on page load.
-    const initialRefresh = setTimeout(() => { void apiClient.refreshToken(); }, 5000);
-    return () => { clearInterval(interval); clearTimeout(initialRefresh); };
+    return retainRefreshSchedule();
   }, [user]);
 
   return {
