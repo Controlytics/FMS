@@ -124,7 +124,11 @@ describe('Equipment Groups page - list', () => {
     const many = Array.from({ length: 27 }, (_, i) => ({ ...G2, id: `x${i}`, name: `Group ${String(i + 1).padStart(2, '0')}` }));
     // The page reads Config -> Pagination (2026-10-22: usePageSize); it used a fixed 25.
     setup({ groups: many, extra: [{ path: '/api/config/pagination/current', body: { limit: 100, count: 3, options: [25, 50, 100] } }] });
-    await screen.findByRole('heading', { name: 'Group 01' });
+    // Ready state before acting: page 1 holds exactly the configured 25. Until the
+    // config is read the hook's fallback is 10 per page, and a Next clicked then
+    // lands on cards 11-20 (2026-10-22, the fallback-10 rule of 9f47353).
+    await screen.findByRole('heading', { name: 'Group 25' });
+    expect(screen.getByRole('heading', { name: 'Group 01' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Group 26' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(await screen.findByRole('heading', { name: 'Group 26' })).toBeInTheDocument();

@@ -239,7 +239,10 @@ describe('Admin Requests — details panel', () => {
     expect(within(result).getByText('Password reset')).toBeInTheDocument();
     expect(within(result).getByText(/Share these credentials/)).toBeInTheDocument();
     expect(within(result).getByText('Tmp@4821')).toBeInTheDocument();
-    expect(result).toHaveFocus();
+    // Focus moves in the dialog's passive effect. The dialog opens from the server's
+    // answer (outside act), so findByRole can resolve on the commit before that effect
+    // runs; on a busy CPU React yields first and a bare toHaveFocus() lost the race.
+    await waitFor(() => expect(result).toHaveFocus());
     // the panel closed. (The page then calls swr's GLOBAL mutate('/api/admin-requests'),
     // which reaches the app's default cache but not the harness's per-test cache
     // provider, so the re-read itself is not observable here.)

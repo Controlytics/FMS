@@ -141,6 +141,11 @@ describe('Replacement Schedule page — table', () => {
     renderPage(<ReplacementSchedulePage />, { user: SA, api });
     await screen.findByText('S0');
     expect(screen.getByText(/last upload by —/)).toBeInTheDocument();
+    // Ready state before acting: page 1 holds exactly the configured 25 (S0-S24).
+    // Until the config is read the hook's fallback is 10 per page, and a Next
+    // clicked then lands on S10-S19 (2026-10-22, the fallback-10 rule of 9f47353).
+    await screen.findByText('S24');
+    expect(screen.queryByText('S25')).toBeNull();
     expect(screen.queryByText('S29')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(await screen.findByText('S29')).toBeInTheDocument();
@@ -234,23 +239,44 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     expect(within(rowOf('305x610')).getByRole('checkbox')).not.toBeChecked();
   });
 
-  it('bulk as SUPER_ADMIN: review + approve stages side by side; bulk reject at each stage', async () => {
-    const api = setup([
-      { method: 'POST', path: '/api/replacement-schedules/entries/review', body: { processed: 3 } },
-      { method: 'POST', path: '/api/replacement-schedules/entries/reject', body: { processed: 2 } },
-    ]);
+  // The SUPER_ADMIN bulk flow was ONE test of three server round trips plus a
+  // fourth click left in flight at its end: 1.5-3.1 s in loaded runs, 5.15 s in
+  // one (2026-10-22), past the 5 s default. One bulk action per test; every
+  // assertion of the original is kept, and the trailing Approve click (which had
+  // no route and nothing asserted on it) is now a test of its own.
+  const renderBulkSa = async (routes: MockRoute[]) => {
+    const api = setup(routes);
     renderPage(<ReplacementSchedulePage />, { user: { ...SA, username: 'sa' }, api });
     await screen.findByText('610x610');
-    const [all] = screen.getAllByRole('checkbox');
-    fireEvent.click(all);
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
     // e1 + e6 at review, e2 + e5 at approval
     expect(screen.getByText('4 entries selected')).toBeInTheDocument();
+    return api;
+  };
+
+  it('bulk as SUPER_ADMIN: select-all takes both stages side by side and toggles off again', async () => {
+    await renderBulkSa([]);
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    expect(screen.queryByText('4 entries selected')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Review selected/ })).toBeNull();
+  });
+
+  it('bulk as SUPER_ADMIN: Review selected sends only the review-stage rows', async () => {
+    const api = await renderBulkSa([{ method: 'POST', path: '/api/replacement-schedules/entries/review', body: { processed: 3 } }]);
     fireEvent.click(screen.getByRole('button', { name: 'Review selected (2)' }));
     expect(await screen.findByText('3 entries sent for approval')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(api.calls('POST', '/api/replacement-schedules/entries/review')[0].json.entryIds.sort()).toEqual(['e1', 'e6']);
-    // toggling select-all twice: on then off
+    expect(screen.queryByText('4 entries selected')).toBeNull();
+    // a finished action re-enables the bulk bar: the next selection can act again
     fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    expect(screen.getByText('4 entries selected')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Reject (2)' }));
+    expect(screen.getByRole('heading', { name: 'Reject 2 Entries' })).toBeInTheDocument();
+  });
+
+  it('bulk as SUPER_ADMIN: Reject (n) rejects the approval-stage rows with the remarks', async () => {
+    const api = await renderBulkSa([{ method: 'POST', path: '/api/replacement-schedules/entries/reject', body: { processed: 2 } }]);
     fireEvent.click(screen.getByRole('button', { name: 'Reject (2)' }));
     expect(screen.getByRole('heading', { name: 'Reject 2 Entries' })).toBeInTheDocument();
     const dlg = screen.getByRole('heading', { name: 'Reject 2 Entries' }).parentElement!;
@@ -259,10 +285,24 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     expect(await screen.findByText('2 entries rejected')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(api.calls('POST', '/api/replacement-schedules/entries/reject')[0].json).toEqual({ entryIds: expect.arrayContaining(['e2', 'e5']), remarks: 'Duplicate rows' });
-    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+  });
+
+  it('bulk as SUPER_ADMIN: Reject at review (n) rejects the review-stage rows through /entries/review', async () => {
+    const api = await renderBulkSa([{ method: 'POST', path: '/api/replacement-schedules/entries/review', body: { processed: 2 } }]);
     fireEvent.click(screen.getByRole('button', { name: 'Reject at review (2)' }));
     expect(screen.getByRole('heading', { name: 'Reject 2 Entries' })).toBeInTheDocument();
+    const dlg = screen.getByRole('heading', { name: 'Reject 2 Entries' }).parentElement!;
+    fireEvent.change(within(dlg).getByPlaceholderText('Reason for rejection…'), { target: { value: 'Duplicate rows' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Reject' }));
+    expect(await screen.findByText('2 entries rejected')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/replacement-schedules/entries/review')[0].json).toEqual({ entryIds: expect.arrayContaining(['e1', 'e6']), action: 'reject', remarks: 'Duplicate rows' });
+  });
+
+  it('bulk as SUPER_ADMIN: Approve selected (n) approves the approval-stage rows', async () => {
+    const api = await renderBulkSa([{ method: 'POST', path: '/api/replacement-schedules/entries/approve', body: { processed: 2 } }]);
     fireEvent.click(screen.getByRole('button', { name: 'Approve selected (2)' }));
+    expect(await screen.findByText('2 entries approved')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/replacement-schedules/entries/approve')[0].json.entryIds.sort()).toEqual(['e2', 'e5']);
   });
 
   it('a gated approval prompts for the password and signs; cancelling silently re-enables the buttons', async () => {
