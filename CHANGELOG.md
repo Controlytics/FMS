@@ -11,7 +11,9 @@
   - `batch-preload.ts` now also loads, for the whole batch, each in-cycle filter's cycle row,
     its events (count + checklist/entry rows, from ONE `unnest … CROSS JOIN LATERAL` probe), the
     latest stage approval at a QA-gated stage, and every idle filter's AHU PM-due entry.
-    An empty answer is seeded too, so it never falls back to the per-filter read.
+    An empty answer is seeded too, so it never falls back to the per-filter read. The one
+    exception is a gated stage with NO approval: current-state writes the missing PENDING
+    approval on that answer (self-heal), so it keeps its own fresh read.
   - Not `cycle_id IN (…)`: with 2,928 ids the planner seq-scans all 6.2 M `filter_events`
     (41–92 s measured); the LATERAL probe is index scans, 1.2 s cold / 50 ms warm.
   - `current-state.ts` memoises the shared rows per batch: equipment group (live, pinned

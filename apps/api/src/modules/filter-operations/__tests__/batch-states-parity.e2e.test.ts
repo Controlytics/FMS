@@ -12,7 +12,7 @@
  *     (JSON) to the un-cached single-filter getCurrentState. The fixtures reach
  *     every branch the batch path memoises or preloads: idle (home block, PM due
  *     and not due), START position, a checklist pending / answered / answered
- *     before a re-entry (superseded), QA interlock PENDING and APPROVED, Dry In
+ *     before a re-entry (superseded), QA interlock PENDING / APPROVED / none, Dry In
  *     before and after half-time, and the equipment-group branches (pinned with a
  *     snapshot row, pinned lazy-first-version, pinned with neither =
  *     snapshotMissing, legacy null pin, no group bound → every block group, live
@@ -200,6 +200,12 @@ beforeAll(async () => {
       stage: 'WASH_OUT', events: [started(4 * HOUR), enter('WASH_IN', 3 * HOUR), answered('WASH_IN', 2 * HOUR), enter('WASH_OUT', HOUR)],
       group: groups.missing, pin: 2,
     }),
+    // Parked at a gated stage with NO approval: the batch must read this one fresh
+    // (current-state self-heals on null), never answer it from the preload.
+    washOutNoApproval: await inCycle('washout-none', {
+      stage: 'WASH_OUT', events: [started(4 * HOUR), enter('WASH_IN', 3 * HOUR), answered('WASH_IN', 2 * HOUR), enter('WASH_OUT', HOUR)],
+      group: groups.lazy, pin: 1,
+    }),
     dryOutApproved: await inCycle('dryout-approved', {
       stage: 'DRY_OUT', events: [started(6 * HOUR), enter('WASH_IN', 5 * HOUR), answered('WASH_IN', 4 * HOUR), enter('WASH_OUT', 3 * HOUR), enter('DRY_IN', 2 * HOUR), enter('DRY_OUT', HOUR)],
       group: groups.lazy, pin: null,
@@ -256,6 +262,7 @@ describe('P-1 — batch-states parity with current-state', () => {
 
     expect(s('washOutPending').interlock).toMatchObject({ status: 'PENDING', blocksLeaving: true });
     expect(s('dryOutApproved').interlock).toMatchObject({ status: 'APPROVED', blocksLeaving: false });
+    expect(s('washOutNoApproval').interlock).toMatchObject({ status: null, approvalId: null, blocksLeaving: true });
 
     expect(types('dryHalfDone')).toContain('SUBMIT_DRYER_READINGS');
     expect(types('dryJustStarted')).not.toContain('SUBMIT_DRYER_READINGS');

@@ -156,9 +156,12 @@ async function preloadCycleReads(filterRows: FilterRow[], cache: BatchReadCache)
       const k = latestApprovalKey(a.cycleId, a.stageKey);
       if (!latestByStage.has(k)) latestByStage.set(k, a); // rows arrive newest first
     }
+    // "No approval" is NOT seeded: on null current-state self-heals (writes a
+    // PENDING approval), so that decision keeps its own fresh read, as before.
     for (const p of gated) {
       const k = latestApprovalKey(p.cycleId, p.position as string);
-      seed(cache, k, latestByStage.get(k) ?? null);
+      const latest = latestByStage.get(k);
+      if (latest) seed(cache, k, latest);
     }
   }
 }
