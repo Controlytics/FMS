@@ -490,11 +490,13 @@ export function DryingFiltersPanel({
                 value={sharedTemp}
                 onChange={(e) => { const v = e.target.value === '' ? '' : Number(e.target.value); setSharedTemp(v); applyToSelected(v); }}
                 disabled={selected.size === 0 || submitting}
+                aria-label={`Temperature for selected filters (${uom})`}
                 placeholder={`Temperature for selected (${uom})`}
                 className={`flex-1 rounded${isMobile ? '-xl' : ''} border border-slate-300 px-3 py-2 text-sm disabled:opacity-40`}
               />
             ) : (
               <select
+                aria-label={`Temperature for selected filters (${uom})`}
                 value={sharedTemp}
                 onChange={(e) => { const v = e.target.value ? Number(e.target.value) : ''; setSharedTemp(v); applyToSelected(v); }}
                 disabled={selected.size === 0 || submitting}
@@ -641,13 +643,13 @@ function DryingRow({
 
   const valueBox = editing || !autoFetch.isAuto || autoFetch.timedOut ? (
     options.length > 0 && !(autoFetch.isAuto && !autoFetch.timedOut) ? (
-      <select value={temp} onChange={(e) => onChangeValue(e.target.value ? Number(e.target.value) : '')} disabled={submitting}
+      <select aria-label={`Dryer temperature for ${filterName}`} value={temp} onChange={(e) => onChangeValue(e.target.value ? Number(e.target.value) : '')} disabled={submitting}
         className={`rounded${isMobile ? '-xl' : ''} border border-slate-300 px-2 py-1 text-sm bg-white`}>
         <option value="">{uom}</option>
         {options.map((v) => <option key={v} value={v}>{formatByLeastCount(v, instrument?.leastCount)} {uom}</option>)}
       </select>
     ) : (
-      <input type="number" step="any" inputMode="decimal" value={temp} disabled={submitting}
+      <input type="number" step="any" inputMode="decimal" aria-label={`Dryer temperature for ${filterName}`} value={temp} disabled={submitting}
         onChange={(e) => onChangeValue(e.target.value === '' ? '' : Number(e.target.value))}
         placeholder={uom}
         className={`w-24 rounded${isMobile ? '-xl' : ''} border border-slate-300 px-2 py-1 text-sm`} />
@@ -659,7 +661,7 @@ function DryingRow({
   return (
     <div className={rowCls}>
       <div className="flex items-center gap-3">
-        <input type="checkbox" checked={selected} onChange={onToggle} disabled={!ready || submitting}
+        <input type="checkbox" aria-label={`Select ${filterName}`} checked={selected} onChange={onToggle} disabled={!ready || submitting}
           className="w-4 h-4 accent-cyan-600 disabled:opacity-40" title={ready ? 'Select for submission' : 'Available once the dryer reaches half time'} />
         <div className="flex-1 min-w-0">
           <div className={`font-medium text-slate-800 truncate ${isMobile ? 'text-sm' : ''}`}>{filterName}</div>

@@ -192,6 +192,25 @@ describe('DryingFiltersPanel — manual temperature + submit', () => {
   });
 });
 
+// D03-12 (2026-10-22): the per-row temperature, the per-row tick and the shared
+// "Temperature for selected" control had no accessible name — a screen reader
+// read "combo box" / "check box" with no filter to tell the rows apart.
+describe('DryingFiltersPanel — every control is named after its row', () => {
+  it('per-row temperature and tick carry the filter name; the shared box says what it is for', async () => {
+    setup({ filters: [{ id: 'f1', name: 'FLT-1' }, { id: 'f2', name: 'FLT-2' }], states: { f1: state(), f2: state() } });
+    expect(await screen.findByRole('combobox', { name: 'Dryer temperature for FLT-1' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Dryer temperature for FLT-2' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select FLT-1' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select FLT-2' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Temperature for selected filters (°C)' })).toBeInTheDocument();
+  });
+
+  it('the typed variants (instrument auto-fetch) are named the same way', async () => {
+    setup({ states: { f1: state({}, GA) }, routes: [{ method: 'POST', path: '/api/equipment-groups/fetch-readings', body: { results: [] } }] });
+    expect(await screen.findByRole('spinbutton', { name: 'Temperature for selected filters (°C)' })).toBeInTheDocument();
+  });
+});
+
 describe('DryingFiltersPanel — offline', () => {
   it('reads the cycle + the block\'s equipment group from the cache, and a queued submit rewrites the cached tape', async () => {
     const idb = installFakeIndexedDB();
