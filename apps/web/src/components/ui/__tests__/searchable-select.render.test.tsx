@@ -165,4 +165,27 @@ describe('SearchableSelect', () => {
     expect(screen.getByPlaceholderText(/search/i)).toHaveValue('');
     expect(screen.getAllByRole('option')).toHaveLength(MAX_VISIBLE_OPTIONS);
   });
+
+  // 2026-10-22: the trigger was named only by its value ("All"), so a screen
+  // reader never heard which field it was. With `labelId` it is named by the
+  // visible label AND the value; the open list is named by the label; the
+  // search box always has a name.
+  test('labelId names the trigger "<label> <value>", and the open list by the label', () => {
+    render(
+      <>
+        <label id="ahu-label">AHU</label>
+        <SearchableSelect value="f7" onChange={vi.fn()} options={manyFilters.slice(0, 10)} labelId="ahu-label" />
+      </>,
+    );
+    expect(screen.getByRole('button', { name: 'AHU HF-0007' })).toBeInTheDocument();
+    openPanel();
+    expect(screen.getByRole('listbox', { name: 'AHU' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Type to search…' })).toBeInTheDocument();
+  });
+
+  test('without labelId the trigger is still named by its value (unchanged)', () => {
+    render(<SearchableSelect value="" onChange={vi.fn()} options={manyFilters.slice(0, 3)} placeholder="All" />);
+    expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
+    expect(screen.getByRole('button')).not.toHaveAttribute('aria-labelledby');
+  });
 });

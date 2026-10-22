@@ -40,6 +40,12 @@ describe('every control on the tablet shell is named', () => {
     await screen.findByRole('heading', { name: 'Filter Status' });
     await waitFor(() => expect(screen.getAllByText(/^F-\d{3}$/).length).toBeGreaterThan(0));
     expectAllControlsNamed();
+    // the searchable pickers carry their field name as well as their value
+    expect(screen.getByRole('button', { name: 'AHU All' })).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(screen.getByRole('button', { name: 'Filter All' })).toHaveAttribute('aria-haspopup', 'listbox');
+    fireEvent.click(screen.getByRole('button', { name: 'AHU All' }));
+    expectAllControlsNamed(); // the open list and its search box too
+    fireEvent.click(screen.getByRole('button', { name: 'AHU All' }));
     fireEvent.click(screen.getByRole('button', { name: /Scan RFID/ }));
     await screen.findByText('Look up filter by tag');
     expectAllControlsNamed();

@@ -31,6 +31,9 @@ import {
 // in lib/filter-ops so the two pages cannot drift again.
 import {
   validateOfflineGate,
+  checklistMayBeAnsweredAt,
+  pendingChecklistStage,
+  stageLabel,
   resolvePendingChecklistDialog,
   resolveChecklistForTargetStage,
   findNextPendingChecklist,
@@ -251,7 +254,20 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
   const reasonDialog = core.dialogState.kind === 'awaiting_reason' ? core.dialogState : null;
   const equipDialog = core.dialogState.kind === 'awaiting_equipment' ? core.dialogState : null;
   const checklistDialog = core.dialogState.kind === 'awaiting_checklist' ? core.dialogState : null;
+  // The stage an open checklist belongs to, when it is NOT this station's stage:
+  // a checklist pending at the previous stage, answered at the next station
+  // (2026-10-22). Every other checklist on this page belongs to the station's
+  // own stage (the one being entered or just entered). Cleared on close.
+  const [checklistStage, setChecklistStage] = useState<string | null>(null);
+  // Cycles already told that their profile / equipment group changed since they
+  // started — told once per cycle while this station is open (2026-10-22).
+  const cycleNoticeShownRef = useRef<Set<string>>(new Set());
+  useEffect(() => { if (!checklistDialog) setChecklistStage(null); }, [checklistDialog]);
   const [selectedReason, setSelectedReason] = useState('');
+  // The filter opening the reason dialog is due for PM (2026-10-22, as the
+  // desktop page): the PM reason is preselected and a banner explains that any
+  // other reason leaves the My Tasks visit pending.
+  const [pmReasonDue, setPmReasonDue] = useState(false);
   const [justification, setJustification] = useState('');
   const [selectedEquipGroup, setSelectedEquipGroup] = useState<any>(null);
   const [readings, setReadings] = useState<Record<string, number>>({});
@@ -1061,6 +1077,15 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     // open_checklist from awaiting_checklist and the state-machine guard
     // throws (caught offline DRY_IN SET_DURATION repro on 2026-05-26).
     const dialogDispatchedInLoop = new Set<string>();
+    // Filters whose pending checklist this station may not answer — the
+    // post-loop resolver below must not open it for them either.
+    const stationRefused = new Set<string>();
+    // Non-blocking notices (2026-10-22, CLAUDE.md "cycle profile_id is locked at
+    // start"): a running cycle whose cleaning profile was reassigned, or whose
+    // equipment group was edited, since it started still finishes as it
+    // started. The operator is told, never stopped. Shown when the submit ends.
+    const profileNotes: string[] = [];
+    const groupNotes: string[] = [];
     // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
     // always clears even when REAUTH or OFFLINE_CACHE_RECOMPUTE_FAILED bubble
     // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
@@ -1143,6 +1168,19 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
         }
         const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
         const cycleInProgress = !!(cachedState.currentCycle?.id || cached?.currentCycleId);
+        if (cycleInProgress) {
+          const cycleKey = cachedState.currentCycle?.id ?? cached?.currentCycleId ?? item.filterId;
+          const ps = cachedState.profileSyncWarning;
+          if (ps && !cycleNoticeShownRef.current.has(`profile:${cycleKey}`)) {
+            cycleNoticeShownRef.current.add(`profile:${cycleKey}`);
+            profileNotes.push(`${item.filterName}: running on "${ps.cycleProfileName ?? ps.cycleProfileId}"; this block now uses "${ps.expectedProfileName ?? ps.expectedProfileId}"`);
+          }
+          const eg = cachedState.equipmentGroupSyncWarning;
+          if (eg && !cycleNoticeShownRef.current.has(`group:${cycleKey}`)) {
+            cycleNoticeShownRef.current.add(`group:${cycleKey}`);
+            groupNotes.push(`${item.filterName}: group updated v${eg.pinnedVersion} → v${eg.liveVersion}`);
+          }
+        }
 
         // Phase 8.6 part 2: resolve the action tape — server actions[] when
         // TAPE_PARALLEL=true (currently absent in dev), else local compute via
@@ -1286,7 +1324,11 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
             stage: activeStage.key,
             remainingBatch: rest.length > 0 ? rest : undefined,
           });
-          setSelectedReason('');
+          // PM-due (server's isPmDue + pmReasonKey, kept in the cached state):
+          // the first filter decides for the batch, as on the desktop page.
+          const pmDue = !!(cachedState.isPmDue && cachedState.pmReasonKey);
+          setSelectedReason(pmDue ? cachedState.pmReasonKey : '');
+          setPmReasonDue(pmDue);
           setJustification('');
           // Drop the queue — the reason dialog (carrying remainingBatch)
           // drives the rest of the flow. Equipment-submit will iterate.
@@ -1312,6 +1354,19 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
         // queue as remainingBatch — same continuation flow checklist dialog
         // already supports.
         if (hasActionKind(itemActions, 'SUBMIT_CHECKLIST')) {
+          // 2026-10-22: a checklist pending at the cycle's CURRENT stage is
+          // answered only at that stage's station or the next one — never at
+          // any station (lib/filter-ops/checklist-station.ts). A cycle parked
+          // at Storage Out, scanned at Wash In, used to get its final checklist
+          // here, and submitting it completed the old cycle. Online and offline
+          // alike: nothing is opened or queued.
+          const checklistAt = pendingChecklistStage(itemActions) ?? currentLifecycle;
+          const where = checklistMayBeAnsweredAt(activeStage.key, checklistAt, cachedState.stageLookup, item.filterName, cachedState.pipelineGraph);
+          if (!where.ok) {
+            stationRefused.add(item.filterId);
+            failed.push(where.reason);
+            continue;
+          }
           const dialogChecklists = await resolvePendingChecklistDialog(item.filterId, itemActions);
           if (dialogChecklists && dialogChecklists.length > 0) {
             // 2026-05-26: unified-batch — collect EVERY queued filter that is
@@ -1337,6 +1392,9 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
                 const qGated = !online && !!cs.stageLookup?.[cs.currentState ?? '']?.interlockGated;
                 const qActions = await getCurrentActions(q.filterId, qGated ? null : cs.actions);
                 if (!hasActionKind(qActions, 'SUBMIT_CHECKLIST')) continue;
+                // Same station rule for every member: one refused here is
+                // refused on its own turn of the loop, with the reason.
+                if (!checklistMayBeAnsweredAt(activeStage.key, pendingChecklistStage(qActions) ?? cs.currentState ?? null, cs.stageLookup, q.filterName, cs.pipelineGraph).ok) continue;
                 const qChecklists = await resolvePendingChecklistDialog(q.filterId, qActions);
                 if (!qChecklists || qChecklists.length === 0) continue;
                 if (sigOf(qChecklists) === primarySig) {
@@ -1350,6 +1408,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
               return;
             }
             setPendingBatch(batchMembers);
+            setChecklistStage(checklistAt);
             core.dispatch({
               type: 'open_checklist',
               filterId: item.filterId,
@@ -1725,6 +1784,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
           // SET_DURATION path). A second open_checklist from awaiting_
           // checklist trips assertOpenable.
           if (dialogDispatchedInLoop.has(q.filterId)) continue;
+          if (stationRefused.has(q.filterId)) continue;
           try {
             // 2026-05-26: prefer server tape captured during the inner-loop
             // advance over a cache-driven local recompute. The local path
@@ -1733,6 +1793,13 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
             // response (which has no pendingChecklist field). Server tape
             // is authoritative.
             const serverActions = serverActionsByFilter.get(q.filterId);
+            // A filter that did not advance here still sits at its own stage:
+            // its pending checklist follows the same station rule.
+            if (!serverActions) {
+              const qs = await getCache<any>(`filter-state-${q.filterId}`) ?? {};
+              const qAt = pendingChecklistStage(await getCurrentActions(q.filterId, qs.actions)) ?? qs.currentState ?? null;
+              if (!checklistMayBeAnsweredAt(activeStage.key, qAt, qs.stageLookup, q.filterName, qs.pipelineGraph).ok) continue;
+            }
             const checklists = await resolvePendingChecklistDialog(q.filterId, serverActions ?? undefined);
             if (checklists && checklists.length > 0) {
               pending.push({
@@ -1815,6 +1882,12 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
       setLoading(false);
       // Readings apply to ONE submit of the queue; the next submit asks again.
       if (!queueReadingsModeRef.current) queueReadingsRef.current = null;
+      if (profileNotes.length > 0) {
+        toast.warning('Cleaning profile changed', `${profileNotes.join('\n')}\nEach cycle finishes on the profile it started with — terminate and restart only to switch.`);
+      }
+      if (groupNotes.length > 0) {
+        toast.warning('Equipment group changed', `${groupNotes.join('\n')}\nReadings still validate against the version each cycle started with.`);
+      }
     }
   };
 
@@ -3375,6 +3448,12 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
           <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl animate-slide-up">
             <div className="bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-4 rounded-t-3xl"><h2 className="text-lg font-bold text-white">Cleaning Reason</h2><p className="text-cyan-100 text-sm">{reasonDialog.filterName}</p></div>
             <div className="p-5 space-y-3 overflow-y-auto flex-1">
+              {pmReasonDue && (
+                <div className="px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
+                  This filter is in the <span className="font-semibold">PM schedule</span>. Reason defaults to <span className="font-semibold">PM</span> — confirm to continue, or pick another reason.
+                  <span className="block text-xs text-emerald-600 mt-0.5">A non-PM reason will leave this task pending in My Tasks.</span>
+                </div>
+              )}
               {cleaningReasons.filter((r: any) => r.isActive !== false).map((r: any) => (
                 <button key={r.key} onClick={() => setSelectedReason(r.key)} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedReason === r.key ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
                   <div className="text-sm font-medium text-slate-800">{r.name}</div>
@@ -3488,7 +3567,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
           <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-slide-up">
             <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-5 py-4 rounded-t-3xl flex items-center gap-3 shrink-0">
               <svg className="w-6 h-6 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
-              <div><h2 className="text-lg font-bold text-white">Checklist Required</h2><p className="text-purple-100 text-sm">{checklistDialog.filterName}</p></div>
+              <div><h2 className="text-lg font-bold text-white">Checklist Required</h2><p className="text-purple-100 text-sm">{checklistDialog.filterName}</p>{(checklistStage ?? activeStage?.key) && <p className="text-purple-100 text-xs">{stageLabel((checklistStage ?? activeStage?.key)!)} stage checklist</p>}</div>
             </div>
             <div className="p-5 space-y-5 overflow-y-auto flex-1">
               {/* Stage-submitted recap (2026-05-25 combined-screen UX).

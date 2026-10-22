@@ -67,6 +67,27 @@ describe('Cleaning Reason dialog', () => {
     expect(screen.queryByText('Cleaning Reason')).toBeNull();
   });
 
+  it('a filter due for PM opens the dialog on the PM reason, with the PM banner (as the desktop page does)', async () => {
+    const { api } = await renderOps({ stage: 'WASH_OUT', states: { f3: NO_CYCLE(['WASH_OUT', 'STORAGE_IN'], { isPmDue: true, pmReasonKey: 'PM' }) }, routes: startRoutes('f3') });
+    await scanTag('E3'); await inQueue('F-003');
+    await toReasonDialog('WASH_OUT');
+    expect(screen.getByText(/This filter is in the/)).toHaveTextContent('This filter is in the PM schedule. Reason defaults to PM — confirm to continue, or pick another reason.');
+    expect(screen.getByText('A non-PM reason will leave this task pending in My Tasks.')).toBeInTheDocument();
+    expect(reasonBtn(/Preventive Maintenance/).className).toContain('border-cyan-500'); // preselected
+    fireEvent.click(startBtn()); // confirm as-is
+    expect(await message('F-003 → WASH OUT')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/filters/f3/start-cycle')[0].json.cleaningReasonKey).toBe('PM');
+  });
+
+  it('a filter not due for PM: no banner, nothing preselected', async () => {
+    await renderOps({ stage: 'WASH_OUT', states: { f3: NO_CYCLE(['WASH_OUT', 'STORAGE_IN']) } });
+    await scanTag('E3'); await inQueue('F-003');
+    await toReasonDialog('WASH_OUT');
+    expect(screen.queryByText(/This filter is in the/)).toBeNull();
+    expect(reasonBtn(/Preventive Maintenance/).className).not.toContain('border-cyan-500');
+    await flush();
+  });
+
   it('a single start (no equipment) posts start-cycle then advance with the fresh tape, and reports it', async () => {
     const { api } = await renderOps({ stage: 'WASH_OUT', states: { f3: NO_CYCLE(['WASH_OUT', 'STORAGE_IN']) }, routes: startRoutes('f3') });
     await scanTag('E3'); await inQueue('F-003');

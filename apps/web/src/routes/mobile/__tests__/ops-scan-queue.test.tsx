@@ -13,7 +13,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import type { MockRequest } from '@/test-utils/page-harness';
-import { useMobileLifecycle, flush, cachedValue, queuedOps, passReauth, cancelReauth, OPERATOR } from './support/mobile-kit';
+import { useMobileLifecycle, flush, cachedValue, queuedOps, passReauth, cancelReauth, seedCache, OPERATOR } from './support/mobile-kit';
 import {
   renderOps, scanTag, inQueue, state, adv, setDryer, terminate, graph, bulkOk, bulkItems, submitButton, message, dismissAll,
   F1, OPS_INSTANCES,
@@ -219,6 +219,42 @@ describe('submitting the queue — online (one /bulk-operate)', () => {
     expect(screen.getByPlaceholderText('Remarks (optional)')).toHaveValue('');
     expect(screen.getByText('Submitted · 2')).toBeInTheDocument();
     expect(cachedValue('filter-state-f1')?.tapeVersion).toBe(8); // primed from the bulk snapshot
+  });
+
+  // 2026-10-22, CLAUDE.md: a cycle's profile is locked at its start, and its
+  // readings validate against the equipment-group version it started with.
+  // When the admin has since changed either, the cycle still finishes as it
+  // started — the operator is TOLD, never stopped. Once per cycle.
+  it('a cycle whose profile or equipment group changed since its start goes through, with a notice (once)', async () => {
+    const warned = {
+      profileSyncWarning: { cycleProfileId: 'p-old', cycleProfileName: 'Standard v1', expectedProfileId: 'p-new', expectedProfileName: 'Standard v2', recommendation: 'TERMINATE_AND_RESTART' },
+      equipmentGroupSyncWarning: { groupId: 'g1', pinnedVersion: 2, liveVersion: 3, recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART' },
+    };
+    const { api } = await renderOps({
+      stage: 'WASH_OUT',
+      states: { f1: state('WASH_IN', [adv('WASH_OUT')], warned), f2: state('WASH_IN', [adv('WASH_OUT')]) },
+      routes: [{ method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk() }],
+    });
+    await scanTag('E1'); await inQueue('F-001');
+    await scanTag('E2'); await inQueue('F-002');
+    fireEvent.click(submitButton());
+    expect(await message('2 filter(s) → Wash Out')).toBeInTheDocument(); // not blocked
+    expect(bulkItems(api).map((i: any) => i.filterId)).toEqual(['f1', 'f2']);
+    expect(screen.getByText('Cleaning profile changed')).toBeInTheDocument();
+    expect(screen.getByText(/F-001: running on "Standard v1"; this block now uses "Standard v2"/)).toBeInTheDocument();
+    expect(screen.getByText(/finishes on the profile it started with/)).toBeInTheDocument();
+    expect(screen.getByText('Equipment group changed')).toBeInTheDocument();
+    expect(screen.getByText(/F-001: group updated v2 → v3/)).toBeInTheDocument();
+    expect(screen.queryByText(/F-002:/)).toBeNull();
+    await dismissAll();
+    // the same cycle again (its cached state still carries the warnings): not told twice
+    await seedCache({ 'filter-state-f1': state('WASH_IN', [adv('WASH_OUT')], warned) });
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    expect(await message('1 filter(s) → Wash Out')).toBeInTheDocument();
+    expect(screen.getAllByText('Cleaning profile changed')).toHaveLength(1);
+    expect(screen.getAllByText('Equipment group changed')).toHaveLength(1);
+    await dismissAll();
   });
 
   it('per-filter refusals are listed by NAME and shown under "Failed"; the successful ones still count', async () => {

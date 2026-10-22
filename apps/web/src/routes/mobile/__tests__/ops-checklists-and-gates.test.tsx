@@ -10,7 +10,7 @@ import type { MockRequest, MockRoute } from '@/test-utils/page-harness';
 import { useMobileLifecycle, flush, queuedOps, passReauth, cancelReauth, allowConsoleError, cachedValue } from './support/mobile-kit';
 import {
   renderOps, scanTag, inQueue, state, adv, graph, bulkOk, bulkItems, submitButton, message, dismissAll, submitChecklist,
-  OPS_INSTANCES, F1, F2, CHECKLIST_PROFILE,
+  OPS_INSTANCES, F1, F2, CHECKLIST_PROFILE, Q_YES,
 } from './support/ops-harness';
 import { setOnline } from './support/fakes';
 
@@ -34,11 +34,68 @@ const offlineCache = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+/** What the server sends for a Wash In → Wash Out pipeline: Wash Out is the stage after Wash In. */
+const WASH_IN_THEN_OUT = { stageLookup: { WASH_IN: { nextStages: ['WASH_OUT'] } } };
+
+describe('a pending checklist is answered only at its own station or the next one (2026-10-22)', () => {
+  // A cycle parked at Storage Out with its final checklist pending, scanned at
+  // the Wash In station, used to get that checklist — and submitting it completed
+  // the old cycle. The rule: lib/filter-ops/checklist-station.ts.
+  // As the cache holds it after a server read (cacheServerStateResponse also
+  // derives `pendingChecklist` from the tape — the page's post-submit resolver
+  // reads that, so the rule is checked there too).
+  const AT_STORAGE_OUT = () => state('STORAGE_OUT', [submitChecklist('STORAGE_OUT')], {
+    stageLookup: { STORAGE_OUT: { nextStages: [], pendingChecklistProfileIds: ['cl1'], leadsToEnd: true } },
+    pipelineGraph: graph(['WASH_IN', 'WASH_OUT', 'STORAGE_OUT'], { stage: 'STORAGE_OUT', profileId: 'cl1' }),
+    pendingChecklist: [{ pipelineNodeId: 'STORAGE_OUT-cl1', checklistProfileId: 'cl1', checklistProfileName: 'Post-stage check', profileVersion: 3, questions: [Q_YES] }],
+  });
+  // the filter list agrees with the cached state (the page reads the stage from both)
+  const F1_AT = (stage: string) => ({ ...F1, currentLifecycleState: stage });
+  const instancesAt = (stage: string): MockRoute => ({ path: '/api/assets/instances', body: { data: OPS_INSTANCES.map((i: any) => (i.id === 'f1' ? F1_AT(stage) : i)) } });
+
+  it('another station is refused before anything opens or is sent, naming where to go', async () => {
+    const { api } = await renderOps({ stage: 'WASH_IN', states: { f1: AT_STORAGE_OUT() }, routes: [instancesAt('STORAGE_OUT')] });
+    fireEvent.click(await screen.findByRole('button', { name: 'North' }));
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    expect(await message('F-001 has a pending Storage Out checklist — scan it at Storage Out')).toBeInTheDocument();
+    expect(screen.queryByText('Checklist Required')).toBeNull();
+    expect(api.calls('POST', '/api/filters/bulk-operate')).toHaveLength(0);
+  });
+
+  it('offline too: refused, and nothing is queued', async () => {
+    await renderOps({ stage: 'WASH_IN', online: false, cachedFilters: [{ id: 'b1', name: 'North', templateId: 'tpl-block' }, F1_AT('STORAGE_OUT')], cache: offlineCache({ templates: [{ id: 'tpl-filter', templateKind: 'FILTER' }, { id: 'tpl-block', templateKind: 'BLOCK' }] }), states: { f1: AT_STORAGE_OUT() } });
+    offlineFetch();
+    fireEvent.click(await screen.findByRole('button', { name: 'North' }));
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    expect(await message('F-001 has a pending Storage Out checklist — scan it at Storage Out')).toBeInTheDocument();
+    expect(screen.queryByText('Checklist Required')).toBeNull();
+    expect(queuedOps()).toHaveLength(0);
+  });
+
+  it('its own station opens it, and the dialog says which stage it belongs to', async () => {
+    await renderOps({ stage: 'STORAGE_OUT', states: { f1: AT_STORAGE_OUT() }, routes: [instancesAt('STORAGE_OUT')] });
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    expect(await screen.findByText('Checklist Required')).toBeInTheDocument();
+    expect(screen.getByText('Storage Out stage checklist')).toBeInTheDocument();
+  });
+
+  it('the next station opens it too (answer, then advance there); the dialog names the earlier stage', async () => {
+    await renderOps({ stage: 'WASH_OUT', states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')], { stageLookup: { WASH_IN: { nextStages: ['WASH_OUT'], pendingChecklistProfileIds: ['cl1'], leadsToEnd: false } } }) } });
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    expect(await screen.findByText('Checklist Required')).toBeInTheDocument();
+    expect(screen.getByText('Wash In stage checklist')).toBeInTheDocument();
+  });
+});
+
 describe('a checklist pending at the CURRENT stage (answered before the advance)', () => {
   it('opens ONE dialog for every same-checklist filter; after it, the queue is replayed and advanced', async () => {
     const { api } = await renderOps({
       stage: 'WASH_OUT',
-      states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')]), f2: state('WASH_IN', [submitChecklist('WASH_IN')]) },
+      states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')], WASH_IN_THEN_OUT), f2: state('WASH_IN', [submitChecklist('WASH_IN')], WASH_IN_THEN_OUT) },
       routes: [{ method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk({}, () => state('WASH_IN', [adv('WASH_OUT')])) }],
     });
     await scanTag('E1'); await inQueue('F-001');
@@ -64,7 +121,7 @@ describe('a checklist pending at the CURRENT stage (answered before the advance)
     const other = submitChecklist('WASH_IN', [{ id: 'q9', question: 'Other?', questionType: 'YES_NO', required: true }], 'cl2', 1);
     await renderOps({
       stage: 'WASH_OUT',
-      states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')]), f2: state('WASH_IN', [other]), f4: state('WASH_IN', [adv('WASH_OUT')]) },
+      states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')], WASH_IN_THEN_OUT), f2: state('WASH_IN', [other], WASH_IN_THEN_OUT), f4: state('WASH_IN', [adv('WASH_OUT')]) },
     });
     await scanTag('E1'); await inQueue('F-001');
     await scanTag('E2'); await inQueue('F-002');
@@ -75,7 +132,7 @@ describe('a checklist pending at the CURRENT stage (answered before the advance)
   });
 
   it('Close keeps the cycle paused and sends nothing', async () => {
-    const { api } = await renderOps({ stage: 'WASH_OUT', states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')]) } });
+    const { api } = await renderOps({ stage: 'WASH_OUT', states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')], WASH_IN_THEN_OUT) } });
     await scanTag('E1'); await inQueue('F-001');
     fireEvent.click(submitButton());
     await screen.findByText('Checklist Required');
@@ -247,7 +304,7 @@ describe('a checklist that opens AFTER the advance (server tape)', () => {
   it('every member refused, a transport failure, and a cancelled password', async () => {
     const { api } = await renderOps({
       stage: 'WASH_OUT', reauthActions: ['SUBMIT_CHECKLIST_WITH_SIGNATURE'],
-      states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')]) },
+      states: { f1: state('WASH_IN', [submitChecklist('WASH_IN')], WASH_IN_THEN_OUT) },
       routes: [
         { method: 'POST', path: '/api/filters/bulk-operate', status: 502, times: 1, body: { error: 'X', message: 'x' } },
         { method: 'POST', path: '/api/filters/bulk-operate', body: (r: MockRequest) => ({ results: [{ clientOpId: r.json.items[0].clientOpId, filterId: 'f1', status: 'failed', error: { code: 'X' } }] }) },
@@ -273,6 +330,20 @@ describe('a checklist that opens AFTER the advance (server tape)', () => {
 });
 
 describe('the checklist dialog itself', () => {
+  it('a NUMERIC question opened from the server tape keeps its range, unit and step', async () => {
+    const numeric = [{ id: 'n1', question: 'Pressure drop', questionType: 'NUMERIC', required: true, validation: { min: 0, max: 250, unit: 'Pa', leastCount: 0.5 } }];
+    await renderOps({ stage: 'WASH_OUT', states: { f1: state('WASH_IN', [submitChecklist('WASH_IN', numeric)], WASH_IN_THEN_OUT) } });
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    await screen.findByText('Checklist Required');
+    expect(screen.getByText('Range: 0 – 250 Pa')).toBeInTheDocument();
+    const input = screen.getByRole('spinbutton', { name: 'Pressure drop' });
+    expect(input).toHaveAttribute('min', '0');
+    expect(input).toHaveAttribute('max', '250');
+    expect(input).toHaveAttribute('step', '0.5');
+    await flush();
+  });
+
   const ALL_TYPES = [
     { id: 'a', question: 'Gasket ok?', questionType: 'YES_NO', required: true, section: 'Visual', description: 'Look at all four sides' },
     { id: 'b', question: 'Pleats ok?', questionType: 'YES_NO_NA', section: 'Visual' },
@@ -288,9 +359,9 @@ describe('the checklist dialog itself', () => {
   ];
 
   it('renders every question type and sends what was entered', async () => {
-    // Opened dialog-first from the cached checklist profile. (From the server
-    // TAPE, NUMERIC questions arrive without `validation` — recorded as a defect
-    // in lib/offline-cache.ts dialogChecklistsFromActions.)
+    // Opened dialog-first from the cached checklist profile. (A checklist opened
+    // from the server TAPE carries the same NUMERIC `validation` since 037520a:
+    // lib/offline-cache.ts dialogChecklistsFromActions.)
     const profile = { ...CHECKLIST_PROFILE, questions: ALL_TYPES };
     const { api } = await renderOps({
       stage: 'WASH_OUT', cache: { 'checklist-profiles': [profile] }, checklistProfiles: [profile],
@@ -342,7 +413,7 @@ describe('the checklist dialog itself', () => {
     const stale = { pipelineNodeId: 'x', checklistProfileId: 'cl1', checklistProfileName: 'Post-stage check', profileVersion: 3 };
     await renderOps({
       stage: 'WASH_OUT',
-      states: { f1: state('WASH_IN', [submitChecklist('WASH_IN', [])], { pendingChecklist: [stale] }) },
+      states: { f1: state('WASH_IN', [submitChecklist('WASH_IN', [])], { pendingChecklist: [stale], ...WASH_IN_THEN_OUT }) },
     });
     await scanTag('E1'); await inQueue('F-001');
     fireEvent.click(submitButton());

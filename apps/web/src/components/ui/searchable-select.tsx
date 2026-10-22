@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
@@ -77,6 +77,14 @@ interface SearchableSelectProps {
    * native <select> popup does.
    */
   align?: 'left' | 'right';
+  /**
+   * id of the field's visible label (2026-10-22). The trigger is then named
+   * "<label> <current value>" (aria-labelledby) and the open list by the label.
+   * Without it the trigger is named only by its value — "All" — and a screen
+   * reader never hears which field it is. A plain <label htmlFor> would not
+   * do: it would REPLACE the value in the button's name.
+   */
+  labelId?: string;
 }
 
 export function SearchableSelect({
@@ -89,7 +97,9 @@ export function SearchableSelect({
   className,
   triggerClassName,
   align = 'left',
+  labelId,
 }: SearchableSelectProps) {
+  const valueId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -140,6 +150,7 @@ export function SearchableSelect({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-labelledby={labelId ? `${labelId} ${valueId}` : undefined}
         className={cn(
           'flex h-11 w-full items-center justify-between rounded-xl px-4',
           'border-2 border-slate-200 bg-white text-sm font-medium text-slate-700',
@@ -150,7 +161,7 @@ export function SearchableSelect({
           triggerClassName,
         )}
       >
-        <span className={cn('truncate', !selected && 'text-slate-400')}>
+        <span id={valueId} className={cn('truncate', !selected && 'text-slate-400')}>
           {selected?.label ?? placeholder}
         </span>
         <ChevronDown
@@ -181,6 +192,7 @@ export function SearchableSelect({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
               className={cn(
                 'h-10 w-full rounded-lg bg-slate-50 pl-9 pr-9 text-sm text-slate-700',
                 'placeholder:text-slate-400',
@@ -204,7 +216,7 @@ export function SearchableSelect({
 
           {/* max-h keeps the list reachable when the tablet's on-screen
               keyboard claims the lower half of the viewport. */}
-          <ul role="listbox" className="max-h-64 overflow-y-auto overscroll-contain">
+          <ul role="listbox" aria-labelledby={labelId} className="max-h-64 overflow-y-auto overscroll-contain">
             {visible.length === 0 && (
               <li className="px-4 py-6 text-center text-sm text-slate-400">No matches</li>
             )}

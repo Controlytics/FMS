@@ -1672,8 +1672,9 @@ export function MobileWrapperPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
+                  <label id="m-status-ahu" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
                   <SearchableSelect
+                    labelId="m-status-ahu"
                     value={statusAhuId}
                     onChange={(v) => {
                       setStatusAhuId(v);
@@ -1689,8 +1690,9 @@ export function MobileWrapperPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
+                  <label id="m-status-filter" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
                   <SearchableSelect
+                    labelId="m-status-filter"
                     value={statusFilterId}
                     onChange={setStatusFilterId}
                     options={statusFilterSelectOptions}
