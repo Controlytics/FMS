@@ -274,6 +274,16 @@ These files are **not** the 21 CFR Part 11 record. That is the *BACKUP_RESTORED*
     - The sources are carried over in one transaction with the same dedupe, in this order:
       first the live `public.audit_trail` (moved aside), then each live park. The live parks
       are dropped only in step 9, after the carry-over and every check.
+    - **A restore never undoes a recorded deletion** (`16223ce`). Before a live park is
+      carried, the app's `dropRecordedDeletions` removes from its copy every row that a hard
+      delete names:
+      - `AUDIT_RECORD_DELETED`, through `target_id`;
+      - `AUDIT_RECORDS_BULK_DELETED`, through `before_value.records[*].id`.
+
+      These records are looked up in the restored trail and in every live park. The count
+      skipped is logged. This run's own copy of the live trail is not filtered. As with the
+      hard delete itself, the skipped rows leave a gap in the chain, which shows as a new
+      anomaly to accept.
     - If the restore fails, the live parks get their names back, and the message names them:
       "still in schema ... they were not carried over".
     - A park that comes **with the backup** is **not trusted**. Its rows are never carried, and

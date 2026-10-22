@@ -125,6 +125,9 @@ soak plan kept. Every fix started from a failing test. Nothing here is in an ins
       load, carried over after the live trail with the same dedupe, and dropped only after
       every check passes. On failure they are kept and named in the message.
     - Parks that came **with the backup** are untrusted: dropped, logged, never copied.
+    - Before a live park is carried, rows that a recorded hard delete names are removed from
+      it with the app's `dropRecordedDeletions` (`16223ce`), and the count is logged. A restore
+      never undoes a recorded deletion.
   - Shipped with the next installer build: the three files are on `build-installer.ps1`'s
     named list, and there is a Start-menu entry, FMS → "Restore database from backup".
     No installer has been built with them yet.

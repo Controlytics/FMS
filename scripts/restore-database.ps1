@@ -971,14 +971,23 @@ $check$;
   $copyFile = Join-Path $workDir 'keep.sql'
   [System.IO.File]::WriteAllText($copyFile, $copy.ToString(), $utf8)
   if ((Invoke-SqlFile $copyFile -SingleTransaction) -ne 0) { Fail 'Could not copy the current audit trail aside.' }
+  # Copies of earlier (live) parks lose every row a recorded hard delete names
+  # before they are carried (app's dropRecordedDeletions, 16223ce): a restore must
+  # not undo a recorded deletion. This run's own copy of the live trail is not filtered.
   $carryArgs = @('carry-over')
-  foreach ($k in $keepTables) { $carryArgs += @('--keep-table', $k) }
+  for ($j = 0; $j -lt $keepTables.Count; $j++) {
+    if ($sources[$j] -eq "$asidePublic.audit_trail") { $carryArgs += @('--keep-table', $keepTables[$j]) }
+    else { $carryArgs += @('--park-keep-table', $keepTables[$j]) }
+  }
+  foreach ($s in ($sources | Where-Object { $_ -ne "$asidePublic.audit_trail" })) { $carryArgs += @('--park-source', $s) }
   Log "  Carrying over audit rows the backup does not have (from $(@($sources | ForEach-Object { $sourceLabel[$_] }) -join ', '))"
   $carry = Invoke-Helper $carryArgs -AppCode
   if (-not $carry.ok) { Fail "Carrying over the audit rows failed: $($carry.error)" }
   for ($j = 0; $j -lt $keepTables.Count; $j++) {
     $n = $carry.perTable.($keepTables[$j])
-    Log "    $n row(s) from $($sourceLabel[$sources[$j]])"
+    $skipped = $carry.skippedDeleted.($keepTables[$j])
+    $note = ''; if ($null -ne $skipped) { $note = "; $skipped row(s) skipped because a recorded hard delete names them" }
+    Log "    $n row(s) from $($sourceLabel[$sources[$j]])$note"
   }
   Log "  $($carry.total) audit row(s) carried over; chain-position sequence realigned." Green
   if ($TestFailAfter -eq 'carry-over') { Fail 'TEST: injected failure after the carry-over.' }

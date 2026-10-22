@@ -294,18 +294,40 @@ async function loadApp() {
   return { prisma, mod };
 }
 
+/**
+ * In the order given: `--keep-table T` (this run's own copy of the live trail) and
+ * `--park-keep-table T` (copies of the live database's earlier parks). A park copy
+ * first loses every row a recorded hard delete names - looked up in the restored
+ * trail and in every earlier park (`--park-source S`) - with the app's own
+ * dropRecordedDeletions (16223ce): a restore must not undo a recorded deletion.
+ * This run's own copy is not filtered, as in the in-app restore.
+ */
 async function carryOver() {
-  const keepTables = args('--keep-table');
+  const entries = [];
+  for (let i = 0; i < rest.length - 1; i++) {
+    if (rest[i] === '--keep-table') entries.push({ table: rest[i + 1], park: false });
+    if (rest[i] === '--park-keep-table') entries.push({ table: rest[i + 1], park: true });
+  }
+  const parkSources = args('--park-source');
   const { prisma, mod } = await loadApp();
   try {
     const repo = await mod('modules/backup/backup.repository');
     if (typeof repo.preserveUnbackedAuditRows !== 'function' || typeof repo.resyncSequencesAfterRestore !== 'function') {
       throw new Error('backup.repository no longer exports preserveUnbackedAuditRows / resyncSequencesAfterRestore');
     }
+    if (entries.some((e) => e.park) && typeof repo.dropRecordedDeletions !== 'function') {
+      throw new Error('backup.repository does not export dropRecordedDeletions; an earlier park cannot be carried over safely');
+    }
     const perTable = {};
+    const skippedDeleted = {};
     let total = 0;
     await prisma.$transaction(async (tx) => {
-      for (const t of keepTables) {
+      for (const { table: t, park } of entries) {
+        if (park) {
+          const skipped = await repo.dropRecordedDeletions(tx, t, ['public.audit_trail', ...parkSources]);
+          skippedDeleted[t] = skipped;
+          progress(`${t}: ${skipped} row(s) skipped - a recorded hard delete names them`);
+        }
         progress(`carrying over audit rows from ${t}`);
         const n = await repo.preserveUnbackedAuditRows(tx, t);
         perTable[t] = n;
@@ -315,7 +337,7 @@ async function carryOver() {
       // sequence back to its value at dump time; the carried rows sit above it.
       await repo.resyncSequencesAfterRestore(tx, ['audit_trail']);
     }, { timeout: 60 * 60_000, maxWait: 60_000 });
-    done({ ok: true, total, perTable });
+    done({ ok: true, total, perTable, skippedDeleted });
   } finally {
     await prisma.$disconnect();
   }
