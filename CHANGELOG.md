@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - Large-database restore script + operator guide (D-DB-6, 2026-10-22)
+
+- **`scripts/restore-database.ps1`** (+ `restore-database-helper.mjs`, `restore-database.cmd`)
+  restores a nightly `.sql`, a pre-upgrade `.sql` or an in-app `.dump` of any size into the
+  installed database. The in-app restore stops at 100 MB, about 3–4 weeks after go-live.
+  Operator guide: `docs/RESTORE-LARGE-DATABASE.md`.
+  - The whole file is read before anything changes. `pg_restore --list` passes a 50 %-truncated
+    archive, so it is not used as the check.
+  - It runs as the app's own role and swaps in ONE transaction: `public` is moved aside and the
+    backup is streamed in. The installed role cannot create or rename databases, and the
+    superuser password is not kept, so a scratch-database + rename design was impossible.
+  - It checks the row counts per table against the backup stream and the program version. Audit
+    rows the backup lacks are carried over and the chain-position sequence is realigned, with the
+    app's own `preserveUnbackedAuditRows` / `resyncSequencesAfterRestore` (BR-100).
+  - It verifies the chain with the app's own verifier and compares the result with the
+    pre-restore chain. A `BACKUP_RESTORED` row is written through `auditLog`.
+  - Any failed check moves the old data back, and a fingerprint proves it is unchanged.
+    `-RollBackInterrupted` recovers from a crash.
+  - Shipped with the next installer build: the three files are on `build-installer.ps1`'s
+    named list, and there is a Start-menu entry, FMS → "Restore database from backup".
+    No installer has been built with them yet.
+- Tested in disposable `*_perf` databases only. A throwaway cluster reproduced the installed
+  privileges: an app role without CREATEDB, and extensions owned by `postgres`.
+
 ## [Unreleased] - Every pipeline shape completes; desktop + tablet operations fixes (2026-10-22, later)
 
 Operator decisions of 2026-10-22: every pipeline shape must work ("stage should be there, checklist

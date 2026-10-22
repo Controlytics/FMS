@@ -17,6 +17,7 @@
 | **Build the installer** | `scripts/build-installer.ps1` (→ `build-bundle.ps1` → stage runtime + portable Postgres + WinSW → Inno `ISCC` → `Setup.exe`) |
 | **Provision / register / upgrade at install time** (run by the installer) | `scripts/install.ps1` → `provision-db.ps1` + `register-services.ps1`; upgrades via `scripts/upgrade.ps1` |
 | **Smoke-check a running deployment** | `scripts/verify-windows-deployment.ps1` (API `/api/health`) |
+| **Restore the database from a nightly / pre-upgrade / downloaded backup of any size** (the in-app restore stops at 100 MB) | **`docs/RESTORE-LARGE-DATABASE.md`**: operator guide for `scripts/restore-database.ps1` (D-DB-6, 2026-10-22) |
 
 ## What the current stack is (and isn't)
 
