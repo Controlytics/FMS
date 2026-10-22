@@ -61,6 +61,8 @@ export function mobileRoutes(o: MobileRouteOpts = {}): MockRoute[] {
     { path: '/api/config/ahu-completion-process/current', body: { mode: o.ahuMode ?? 'NONE' } },
     { path: '/api/config/block-change-approval/current', body: { mode: o.blockChangeMode ?? 'CONFIRM' } },
     { path: '/api/config/field-ids/current', body: [] },
+    // Any signed-in user reads it (config/routes.ts); the tablet's paged lists use it.
+    { path: '/api/config/pagination/current', body: { limit: 50, count: 3, options: [10, 25, 50] } },
     { path: '/api/hierarchy/ahus', body: { data: [] } },
     { path: '/api/hierarchy/areas', body: { data: [] } },
     { path: '/api/filters/reasons', body: { reasons: [] } },

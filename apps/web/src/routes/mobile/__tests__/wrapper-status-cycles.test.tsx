@@ -261,8 +261,24 @@ const CYCLES = [
   { id: 'c6', filterId: 'f102', cycleCode: 'CC-0006', status: 'WEIRD', startedAt: iso(6000) },
 ];
 
+/** GET /api/filters/cycles as the server answers it: filterId / from / to applied, one page, the total. */
+const AHU_OF: Record<string, string> = { f101: 'h1', f102: 'h1', f201: 'h2', f301: 'h3', f302: 'h3' };
+function cyclesServer(all: any[]) {
+  return (r: any) => {
+    const q: URLSearchParams = r.query;
+    let rows = all.slice();
+    if (q.get('filterId')) rows = rows.filter((c) => c.filterId === q.get('filterId'));
+    if (q.get('ahuId')) rows = rows.filter((c) => AHU_OF[c.filterId] === q.get('ahuId'));
+    if (q.get('from')) rows = rows.filter((c) => c.startedAt >= q.get('from')!);
+    if (q.get('to')) rows = rows.filter((c) => c.startedAt <= q.get('to')!);
+    const page = Number(q.get('page') ?? 1);
+    const limit = Number(q.get('limit') ?? 20);
+    return { data: rows.slice((page - 1) * limit, page * limit), total: rows.length, page, limit };
+  };
+}
+
 async function openCycles({ cycles, routes, ...o }: Parameters<typeof renderWrapper>[0] & { cycles?: any[] } = {}) {
-  const view = renderWrapper({ ...o, routes: [...(routes ?? []), { path: '/api/filters/cycles', body: { data: cycles ?? CYCLES } }] });
+  const view = renderWrapper({ ...o, routes: [...(routes ?? []), { path: '/api/filters/cycles', body: cyclesServer(cycles ?? CYCLES) }] });
   fireEvent.click(await screen.findByRole('button', { name: /Filter Cleaning Record/ }));
   await screen.findByRole('heading', { name: 'Filter Cleaning Record' });
   return view;
@@ -270,13 +286,16 @@ async function openCycles({ cycles, routes, ...o }: Parameters<typeof renderWrap
 const cards = () => screen.queryAllByText(/^CC-\d{4}$/, { selector: 'div.font-mono-tab' }).map((e) => e.textContent);
 
 describe('Filter Cleaning Record — list', () => {
-  it('asks for the last 30 days only and shows every cycle with status, duration and reason', async () => {
+  it('asks for ONE page of the last 30 days (the configured page size, never every cycle) and shows each cycle with status, duration and reason', async () => {
     const { api } = await openCycles();
     await waitFor(() => expect(cards()).toHaveLength(6));
     const req = api.calls('GET', '/api/filters/cycles').find((r) => r.query.get('from'))!;
     const from = new Date(req.query.get('from')!).getTime();
     expect(Math.round((NOW - from) / 86_400_000)).toBe(30);
     expect(req.query.get('includeEvents')).toBe('true');
+    // D-DB-9 (2026-10-22): ~1,500 cycles a day overflowed the server within weeks.
+    expect(req.query.get('page')).toBe('1');
+    expect(req.query.get('limit')).toBe('10');
     expect(screen.getByText(/showing/)).toHaveTextContent('showing 6 of 6');
     const card = (code: string) => screen.getByText(code, { selector: 'div.font-mono-tab' }).closest('button')! as HTMLElement;
     expect(card('CC-0001')).toHaveTextContent('F-101');
@@ -293,36 +312,60 @@ describe('Filter Cleaning Record — list', () => {
     expect(card('CC-0006')).toHaveTextContent('In Progress'); // unknown status → In Progress chip
   });
 
-  it('AHU + Filter + From/To narrow the list; switching AHU drops a filter that is not under it; clear resets', async () => {
+  it('pages on the server: the page size and the next page are fetched, with the total', async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ id: `m${i}`, filterId: 'f101', filter: { name: 'F-101' }, cycleCode: `CC-${String(i + 100).padStart(4, '0')}`, status: 'COMPLETED', startedAt: iso(10 + i), completedAt: iso(5 + i) }));
+    const { api } = await openCycles({ cycles: many });
+    await waitFor(() => expect(cards()).toHaveLength(10));
+    expect(screen.getByText(/showing/)).toHaveTextContent('showing 10 of 25');
+    fireEvent.click(screen.getByRole('button', { name: /next page/i }));
+    await waitFor(() => expect(cards()[0]).toBe('CC-0110'));
+    expect(api.calls('GET', '/api/filters/cycles').some((r) => r.query.get('page') === '2' && r.query.get('limit') === '10')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /next page/i }));
+    await waitFor(() => expect(cards()).toHaveLength(5));
+  });
+
+  it('the Filter and From / To pickers are sent to the server (a paged list cannot be narrowed in the browser)', async () => {
+    const { api } = await openCycles();
+    await waitFor(() => expect(cards()).toHaveLength(6));
+    pick('Filter', 'f301');
+    await waitFor(() => expect(cards()).toEqual(['CC-0003', 'CC-0004']));
+    expect(api.calls('GET', '/api/filters/cycles').some((r) => r.query.get('filterId') === 'f301' && r.query.get('page') === '1')).toBe(true);
+    const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    fireEvent.click(screen.getByRole('button', { name: 'clear filters' }));
+    fireEvent.change(screen.getByLabelText('Cycles to date and time'), { target: { value: local(new Date(NOW - 100 * 60_000)) } });
+    await waitFor(() => expect(api.calls('GET', '/api/filters/cycles').some((r) => !!r.query.get('to'))).toBe(true));
+  });
+
+  it('AHU + Filter + From/To narrow the list (Filter and From/To on the server); switching AHU drops a filter that is not under it; clear resets', async () => {
     await openCycles();
     await waitFor(() => expect(cards()).toHaveLength(6));
     expect([...selectUnder('AHU').options].map((o) => o.textContent)).toEqual(['All AHUs', 'AHU-01', 'AHU-02', 'AHU-03']);
     pick('AHU', 'h3');
-    expect(cards()).toEqual(['CC-0003', 'CC-0004']);
+    await waitFor(() => expect(cards()).toEqual(['CC-0003', 'CC-0004']));
     expect([...selectUnder('Filter').options].map((o) => o.textContent)).toEqual(['All filters', 'F-301', 'F-302']);
     pick('Filter', 'f301');
-    expect(cards()).toEqual(['CC-0003', 'CC-0004']);
+    await waitFor(() => expect(cards()).toEqual(['CC-0003', 'CC-0004']));
     pick('AHU', 'h3'); // same AHU keeps the filter
     expect(selectUnder('Filter').value).toBe('f301');
     pick('AHU', 'h1'); // F-301 is not under AHU-01 → filter resets
     expect(selectUnder('Filter').value).toBe('all');
-    expect(cards()).toEqual(['CC-0001', 'CC-0005', 'CC-0006']);
+    await waitFor(() => expect(cards()).toEqual(['CC-0001', 'CC-0005', 'CC-0006']));
     pick('AHU', 'all');
     pick('Filter', 'f102');
     pick('AHU', 'h1'); // F-102 IS under AHU-01 → kept
     expect(selectUnder('Filter').value).toBe('f102');
     fireEvent.click(screen.getByRole('button', { name: 'clear filters' }));
-    expect(cards()).toHaveLength(6);
+    await waitFor(() => expect(cards()).toHaveLength(6));
 
     const local = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     fireEvent.change(screen.getByLabelText('Cycles from date and time'), { target: { value: local(new Date(NOW - 300 * 60_000)) } });
-    expect(cards()).toEqual(['CC-0001', 'CC-0002']);
+    await waitFor(() => expect(cards()).toEqual(['CC-0001', 'CC-0002']));
     fireEvent.change(screen.getByLabelText('Cycles to date and time'), { target: { value: local(new Date(NOW - 100 * 60_000)) } });
-    expect(cards()).toEqual(['CC-0001']);
-    expect(screen.getByText(/showing/)).toHaveTextContent('showing 1 of 6');
+    await waitFor(() => expect(cards()).toEqual(['CC-0001']));
+    expect(screen.getByText(/showing/)).toHaveTextContent('showing 1 of 1'); // the server's count of the narrowed list
     fireEvent.change(screen.getByLabelText('Cycles from date and time'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Cycles to date and time'), { target: { value: local(new Date(NOW - 7000 * 60_000)) } });
-    expect(screen.getByText('No cycles match these filters.')).toBeInTheDocument();
+    expect(await screen.findByText('No cycles match these filters.')).toBeInTheDocument();
   });
 
   it('no cycles at all says so; while loading there is no empty message', async () => {

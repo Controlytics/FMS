@@ -26,6 +26,8 @@ import { triggerSync, startSyncPolling } from '../../lib/sync-since';
 import { MobileOperationsPage } from './mobile-operations';
 import { CLEANING_STAGES_MOBILE as STAGES, STATUS_STAGE_OPTIONS } from '../../lib/filter-constants';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
+import { Pagination } from '@/components/ui/pagination';
+import { usePageSize } from '@/hooks/use-pagination-config';
 import { StageApprovalsPage } from '../stage-approvals';
 import { normalizeRfidScan, rfidValuesMatch } from '@/lib/rfid-scan';
 import { onServerMoved } from '@/lib/server-discovery';
@@ -359,35 +361,54 @@ export function MobileWrapperPage() {
   // Issue #7 fix (2026-05-18): cleaning-cycles list for mobile.
   // 2026-05-20: also load when view==='status' so the new stage-detail drill-down
   // can derive "Last cleaned" per filter from the most-recent COMPLETED cycle.
-  // 2026-10-17 load test (operator decision): the Cycles view polled EVERY cycle
-  // ever recorded, with events, every 30 s — it never completed at one year of
-  // data. The Cycles view now asks for the last 30 days (key fixed per mount).
   // The status / rfid-assign / replace views keep the full list: they load it
   // once, and only as a fallback for "last cleaned" when the server's
   // `lastCleanedAt` is absent.
-  const cyclesSince = useMemo(() => new Date(Date.now() - 30 * 86_400_000).toISOString(), []);
-  const { data: cyclesData, isLoading: cyclesLoading } =
-    useSWR<any>(online && (view === 'cycles' || view === 'status' || view === 'rfid-assign' || view === 'replace')
-      ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true${view === 'cycles' ? `&from=${encodeURIComponent(cyclesSince)}` : ''}`
-      : null,
-      { refreshInterval: view === 'cycles' ? 30000 : 0 });
+  const { data: cyclesData } =
+    useSWR<any>(online && (view === 'status' || view === 'rfid-assign' || view === 'replace')
+      ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true`
+      : null);
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
   // 2026-05-21: cycle list filters + selected-cycle for detail view.
   // cycleAhuId='all' shows every AHU's cycles, otherwise scoped to one AHU.
   // cycleFilterId='all' shows every filter's cycles, otherwise scoped to one
-  // filter. cycleFrom/cycleTo are local `datetime-local` ISO strings (no TZ);
-  // we parse to Date for comparison. selectedCycleId drives view='cycle-detail'.
+  // filter. cycleFrom/cycleTo are local `datetime-local` ISO strings (no TZ).
+  // selectedCycleId drives view='cycle-detail'.
   const [cycleAhuId, setCycleAhuId] = useState<string>('all');
   const [cycleFilterId, setCycleFilterId] = useState<string>('all');
   const [cycleFrom, setCycleFrom] = useState<string>('');
   const [cycleTo, setCycleTo] = useState<string>('');
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null);
-  useEffect(() => { if (cyclesData?.data) cache('cleaning-cycles-recent', cyclesData.data); }, [cyclesData, cache]);
+  // The Cycles view pages on the SERVER (D-DB-9, 2026-10-22). It asked for every
+  // cycle of the last 30 days with events (limit 1,000,000) every 30 s: at
+  // ~1,500 cycles a day that overflowed the server within weeks. (The 2026-10-17
+  // load test had already cut it from "every cycle ever" to 30 days.) One page
+  // of the operator's page size; the Filter and From / To pickers go to the
+  // server — narrowing a paged list in the browser would filter only the rows
+  // that came back. With no From, the last 30 days.
+  const cyclesSince = useMemo(() => new Date(Date.now() - 30 * 86_400_000).toISOString(), []);
+  const [cyclePage, setCyclePage] = useState(1);
+  const [cyclePageSize, setCyclePageSize] = usePageSize();
+  useEffect(() => { setCyclePage(1); }, [cycleAhuId, cycleFilterId, cycleFrom, cycleTo, cyclePageSize]);
+  const cycleQuery = useMemo(() => {
+    const q = new URLSearchParams({ page: String(cyclePage), limit: String(cyclePageSize), includeEvents: 'true' });
+    const fromMs = cycleFrom ? new Date(cycleFrom).getTime() : NaN;
+    q.set('from', Number.isFinite(fromMs) ? new Date(fromMs).toISOString() : cyclesSince);
+    const toMs = cycleTo ? new Date(cycleTo).getTime() : NaN;
+    if (Number.isFinite(toMs)) q.set('to', new Date(toMs).toISOString());
+    if (cycleFilterId !== 'all') q.set('filterId', cycleFilterId);
+    return q.toString();
+  }, [cyclePage, cyclePageSize, cycleFrom, cycleTo, cycleFilterId, cyclesSince]);
+  const { data: cyclePageData, isLoading: cyclesLoading } =
+    useSWR<any>(online && view === 'cycles' ? `/api/filters/cycles?${cycleQuery}` : null, { refreshInterval: 30000 });
+  // What the Cycles view showed last is what it shows offline.
+  useEffect(() => { if (cyclePageData?.data) cache('cleaning-cycles-recent', cyclePageData.data); }, [cyclePageData, cache]);
   useEffect(() => {
     if (!online && view === 'cycles') getCache<any[]>('cleaning-cycles-recent').then(c => setOfflineCycles(c ?? []));
   }, [online, view, getCache]);
-  const cyclesList: any[] = (online ? (cyclesData?.data ?? []) : offlineCycles) as any[];
+  const cyclesList: any[] = (online ? (cyclePageData?.data ?? []) : offlineCycles) as any[];
+  const cyclesTotal: number = online ? (typeof cyclePageData?.total === 'number' ? cyclePageData.total : cyclesList.length) : offlineCycles.length;
 
   // Cycle detail fetch — fires only when view='cycle-detail' AND we have an id.
   // Returns the full cycle row including events[] with enrichedAnswers (checklist
@@ -648,7 +669,9 @@ export function MobileWrapperPage() {
     ? (allFilters as any[])
     : (allFilters as any[]).filter((f: any) => f.parentId === cycleAhuId);
 
-  // Filtered cycles list — combines AHU, single-filter, and date-range filters.
+  // Filtered cycles list. Online the server already applied the Filter and From /
+  // To pickers to its page (re-applying them here is a no-op); the AHU picker
+  // narrows the Filter picker. Offline everything narrows the cached snapshot.
   const filteredCyclesList: any[] = cyclesList.filter((c: any) => {
     if (cycleAhuId !== 'all') {
       const parent = filterParentByFilterId.get(c.filterId);
@@ -2111,7 +2134,7 @@ export function MobileWrapperPage() {
               <div>
                 <h2 className="font-display text-[22px] font-semibold text-slate-900 leading-tight">Filter Cleaning Record</h2>
                 <p className="text-[11px] text-slate-500 mt-0.5 font-mono-tab">
-                  showing <span className="text-slate-700 font-semibold">{filteredCyclesList.length}</span> of {cyclesList.length}
+                  showing <span className="text-slate-700 font-semibold">{filteredCyclesList.length}</span> of {cyclesTotal}
                 </p>
               </div>
               {(cycleAhuId !== 'all' || cycleFilterId !== 'all' || cycleFrom || cycleTo) && (
@@ -2188,7 +2211,9 @@ export function MobileWrapperPage() {
             )}
             {filteredCyclesList.length === 0 && !cyclesLoading && (
               <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
-                {cyclesList.length === 0 ? 'No cleaning cycles yet.' : 'No cycles match these filters.'}
+                {cyclesList.length === 0 && !(cycleAhuId !== 'all' || cycleFilterId !== 'all' || cycleFrom || cycleTo)
+                  ? 'No cleaning cycles yet.'
+                  : 'No cycles match these filters.'}
               </div>
             )}
             {filteredCyclesList.map((cyc: any) => {
@@ -2230,6 +2255,16 @@ export function MobileWrapperPage() {
                 </button>
               );
             })}
+            {online && cyclesTotal > 0 && (
+              <Pagination
+                className="bg-white rounded-2xl border border-slate-200"
+                page={cyclePage}
+                pageSize={cyclePageSize}
+                totalItems={cyclesTotal}
+                onPageChange={setCyclePage}
+                onPageSizeChange={setCyclePageSize}
+              />
+            )}
           </div>
         )}
 
