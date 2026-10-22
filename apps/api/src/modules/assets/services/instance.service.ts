@@ -90,6 +90,20 @@ function assertFilterStatusNotEdited(
   }
 }
 
+/** A status as it is stored and compared: trimmed, never blank (the PATCH /status rule). */
+function normalizeStatus(status: unknown): string {
+  const s = typeof status === 'string' ? status.trim() : '';
+  if (!s) throw new ValidationError('Status is required and must be a non-empty string');
+  return s;
+}
+
+/** A name as it is stored and checked for duplicates: trimmed, never blank. */
+function normalizeName(name: unknown): string {
+  const n = typeof name === 'string' ? name.trim() : '';
+  if (!n) throw new ValidationError('Name is required');
+  return n;
+}
+
 export const instanceService = {
   async list(query: { search?: string; templateId?: string; status?: string; parentId?: string | null; isActive?: string; page: number; limit?: number }, visibilityFilter?: Record<string, unknown>) {
     const where: Record<string, unknown> = { ...visibilityFilter };
@@ -132,14 +146,18 @@ export const instanceService = {
   },
 
   async create(data: Record<string, any>, ctx: RequestContext) {
+    // D9 (2026-10-21): store the name exactly as the duplicate check compares
+    // it. The check trimmed, the insert did not, so "  X  " was stored beside
+    // an existing "X" and a later "X" no longer matched it.
+    data = { ...data, name: normalizeName(data.name) };
     const template = await templateRepository.findById(data.templateId);
     if (!template) throw new ValidationError('Template not found');
 
     // Check for duplicate entity name (case-insensitive)
     const existingByName = await prisma.assetInstance.findFirst({
-      where: { name: { equals: data.name.trim(), mode: 'insensitive' }, isActive: true },
+      where: { name: { equals: data.name, mode: 'insensitive' }, isActive: true },
     });
-    if (existingByName) throw new ValidationError(`An entity with the name "${data.name.trim()}" already exists`);
+    if (existingByName) throw new ValidationError(`An entity with the name "${data.name}" already exists`);
 
     const attrSchema = (template as any).attributeSchema as any[] | undefined;
     if (attrSchema && attrSchema.length > 0 && data.attributes) {
@@ -269,6 +287,15 @@ export const instanceService = {
   },
 
   async update(id: string, data: Record<string, any>, ctx: RequestContext) {
+    // D4 / D9 (2026-10-21): the lifecycle guard and the duplicate-name check
+    // compare TRIMMED values, so the row must store trimmed values too —
+    // `{status: " Active "}` on a filter passed the guard, stored " Active ",
+    // and from then on the correct "Active" was refused as a status edit.
+    // Same rule as PATCH /status (changeStatus): trimmed, never blank.
+    data = { ...data };
+    if (data.status !== undefined) data.status = normalizeStatus(data.status);
+    if (data.name !== undefined) data.name = normalizeName(data.name);
+
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
 
@@ -339,11 +366,11 @@ export const instanceService = {
     }
 
     // Check for duplicate entity name on rename (case-insensitive)
-    if (data.name !== undefined && data.name.trim().toLowerCase() !== existing.name.toLowerCase()) {
+    if (data.name !== undefined && data.name.toLowerCase() !== existing.name.toLowerCase()) {
       const existingByName = await prisma.assetInstance.findFirst({
-        where: { name: { equals: data.name.trim(), mode: 'insensitive' }, isActive: true, id: { not: id } },
+        where: { name: { equals: data.name, mode: 'insensitive' }, isActive: true, id: { not: id } },
       });
-      if (existingByName) throw new ValidationError(`An entity with the name "${data.name.trim()}" already exists`);
+      if (existingByName) throw new ValidationError(`An entity with the name "${data.name}" already exists`);
     }
 
     const updateData: Record<string, unknown> = { updatedBy: ctx.userId };
@@ -454,9 +481,7 @@ export const instanceService = {
   },
 
   async changeStatus(id: string, status: string, ctx: RequestContext, remarks?: string) {
-    if (!status || typeof status !== 'string' || status.trim() === '') {
-      throw new ValidationError('Status is required and must be a non-empty string');
-    }
+    status = normalizeStatus(status);
 
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
@@ -466,7 +491,7 @@ export const instanceService = {
     assertFilterStatusNotEdited(existing, existingKind === 'FILTER', status);
 
     const instance = await instanceRepository.update(id, {
-      status: status.trim(),
+      status,
       updatedBy: ctx.userId,
     });
 

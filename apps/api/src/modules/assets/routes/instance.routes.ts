@@ -392,9 +392,15 @@ export default async function instanceRoutes(app: FastifyInstance) {
 
   // Reads the multipart body shared by upload + validate. `scope` is the level
   // the dialog was opened from (blockId / areaId / ahuId).
+  //
+  // A file over the 5 MB limit is not returned truncated: @fastify/multipart 9
+  // (throwFileSizeLimit defaults to true) makes the NEXT read of req.parts()
+  // reject with FST_REQ_FILE_TOO_LARGE, so it surfaces as a throw — answered
+  // 413 by fileTooLarge() below. (A `part.file.truncated` check used to sit
+  // here; the throw always came first, so it never ran and both routes
+  // answered 500 — 2026-10-21, D7.)
   async function readBulkUploadParts(req: any) {
     let fileBuffer: Buffer | null = null;
-    let fileTruncated = false;
     const scope: UploadScope = {};
     // 2026-05-22: dialog-level fallback when a row has no `filterSet`.
     let defaultFilterSet: 'SET_A' | 'SET_B' | undefined;
@@ -403,7 +409,6 @@ export default async function instanceRoutes(app: FastifyInstance) {
         const chunks: Buffer[] = [];
         for await (const chunk of part.file) chunks.push(chunk);
         fileBuffer = Buffer.concat(chunks);
-        if ((part.file as any).truncated) fileTruncated = true;
       } else if (part.type === 'field' && (part.fieldname === 'ahuId' || part.fieldname === 'areaId' || part.fieldname === 'blockId')) {
         const v = String(part.value ?? '').trim();
         if (v) scope[part.fieldname as keyof UploadScope] = v;
@@ -413,7 +418,13 @@ export default async function instanceRoutes(app: FastifyInstance) {
         else if (raw === 'B' || raw === 'SET_B') defaultFilterSet = 'SET_B';
       }
     }
-    return { fileBuffer, fileTruncated, scope, defaultFilterSet };
+    return { fileBuffer, scope, defaultFilterSet };
+  }
+
+  /** 413 for the multipart size-limit throw (see readBulkUploadParts); null for anything else. */
+  function fileTooLarge(err: any, reply: any) {
+    if (err?.code !== 'FST_REQ_FILE_TOO_LARGE') return null;
+    return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' });
   }
 
   // Creating an AHU / Area from the sheet needs what the Structure-view create
@@ -454,12 +465,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     try {
-      const { fileBuffer, fileTruncated, scope, defaultFilterSet } = await readBulkUploadParts(req);
-      // #low-batch: @fastify/multipart silently TRUNCATES at the 5 MB limit —
-      // detect it loudly instead of failing deep in the xlsx parser.
-      if (fileTruncated) {
-        return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' });
-      }
+      const { fileBuffer, scope, defaultFilterSet } = await readBulkUploadParts(req);
       if (!fileBuffer || fileBuffer.length === 0) {
         return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
       }
@@ -469,6 +475,8 @@ export default async function instanceRoutes(app: FastifyInstance) {
       const result = await bulkUploadFilters(fileBuffer, scope, defaultFilterSet, buildContext(req), { canCreateHierarchy: await canCreateHierarchy(req) });
       return { success: true, ...result };
     } catch (err: any) {
+      const tooLarge = fileTooLarge(err, reply);
+      if (tooLarge) return tooLarge;
       if (err.statusCode === 415 || err.message?.includes('multipart')) {
         return reply.code(400).send({ error: 'INVALID_REQUEST', message: 'Request must be multipart/form-data' });
       }
@@ -492,10 +500,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     try {
-      const { fileBuffer, fileTruncated, scope, defaultFilterSet } = await readBulkUploadParts(req);
-      if (fileTruncated) {
-        return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' });
-      }
+      const { fileBuffer, scope, defaultFilterSet } = await readBulkUploadParts(req);
       if (!fileBuffer || fileBuffer.length === 0) {
         return reply.code(400).send({ error: 'VALIDATION', message: 'An .xlsx file is required' });
       }
@@ -505,6 +510,8 @@ export default async function instanceRoutes(app: FastifyInstance) {
       const result = await bulkUploadFilters(fileBuffer, scope, defaultFilterSet, buildContext(req), { validateOnly: true, canCreateHierarchy: await canCreateHierarchy(req) });
       return { success: true, ...result };
     } catch (err: any) {
+      const tooLarge = fileTooLarge(err, reply);
+      if (tooLarge) return tooLarge;
       if (err.statusCode === 415 || err.message?.includes('multipart')) {
         return reply.code(400).send({ error: 'INVALID_REQUEST', message: 'Request must be multipart/form-data' });
       }

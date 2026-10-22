@@ -54,6 +54,18 @@ export async function loadFilterFieldOptions(): Promise<FilterFieldOptions> {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * Is `s` (already shaped YYYY-MM-DD) a real calendar day? Date ROLLS an
+ * impossible day of a real month over (2026-02-30 → 03-02), which the
+ * round-trip catches; but it answers an impossible month or day-32 with an
+ * Invalid Date, whose toISOString() THROWS — that reached the client as a 500
+ * on every filter create / edit / bulk path (2026-10-21, D8). Check first.
+ */
+function isCalendarDate(s: string): boolean {
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 // Optional-but-validated, mirroring single-create (no asterisk there): a blank
 // field is omitted; a present field must be in the live master-data list.
 export async function validateAndBuildFilterAttributes(input: FilterFieldInput): Promise<FilterFieldResult> {
@@ -81,9 +93,8 @@ export async function validateAndBuildFilterAttributes(input: FilterFieldInput):
   if (lcd) {
     if (lcd.toUpperCase() === 'NA') {
       attributes.lastCleaningDate = 'NA';
-    } else if (ISO_DATE.test(lcd) && new Date(`${lcd}T00:00:00Z`).toISOString().slice(0, 10) === lcd) {
-      // Round-trip guards against calendar-invalid dates (e.g. 2026-02-30,
-      // which Date.parse silently rolls over) — must reject for 21 CFR records.
+    } else if (ISO_DATE.test(lcd) && isCalendarDate(lcd)) {
+      // Calendar-invalid dates must be rejected for 21 CFR records.
       attributes.lastCleaningDate = lcd;
     } else {
       errors.push({ field: 'lastCleaningDate', value: lcd, message: 'must be a date (YYYY-MM-DD) or NA' });

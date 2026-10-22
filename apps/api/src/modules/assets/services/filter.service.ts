@@ -200,7 +200,8 @@ export const filterService = {
   // the RFID identifiers like the legacy instance.service.softDelete does.
   async softDelete(id: string, ctx: RequestContext) {
     const existing = await prisma.filter.findUnique({ where: { id }, select: { id: true, name: true } });
-    if (!existing) throw new ValidationError('Filter not found');
+    // D2 (2026-10-21): a missing filter is 404, as in update() since P4-09.
+    if (!existing) throw new NotFoundError('Filter not found');
 
     // A soft-deleted filter is hidden from every operating surface, so nothing
     // can advance or terminate its cycle — deleting mid-cycle stranded the

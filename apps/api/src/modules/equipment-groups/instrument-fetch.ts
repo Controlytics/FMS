@@ -22,6 +22,8 @@ export { isBlockedAddress };
 
 const TIMEOUT_MS = 5000;
 const MAX_BYTES = 64 * 1024; // 64 KiB — a reading payload is tiny; anything bigger is suspect.
+// The statuses fetch treats as redirects (WHATWG Fetch "redirect status").
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 export type ReadingObjectResult =
   /** The flat reading object, e.g. { air_pressure: 6.2, ro_water_pressure: 4.1 }. */
@@ -65,10 +67,18 @@ async function fetchJsonHardened(rawUrl: string | null | undefined): Promise<{ o
   try {
     const res = await fetch(url.toString(), {
       method: 'GET',
-      redirect: 'error', // a redirect aborts the call (SSRF defense)
+      // A redirect is never followed (SSRF defense). 'manual' hands the 3xx
+      // back so it is refused on its STATUS. With 'error', Node's fetch threw a
+      // generic `TypeError('fetch failed')` (no code; 'unexpected redirect' only
+      // in cause.message), so the refusal surfaced as "Request failed" (D1).
+      redirect: 'manual',
       signal: controller.signal,
       headers: { accept: 'application/json' },
     });
+    if (REDIRECT_STATUSES.has(res.status)) {
+      try { await res.body?.cancel(); } catch { /* ignore */ }
+      return { ok: false, error: 'Redirects are not allowed' };
+    }
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
 
     const lenHeader = res.headers.get('content-length');
@@ -84,9 +94,6 @@ async function fetchJsonHardened(rawUrl: string | null | undefined): Promise<{ o
     }
   } catch (e: any) {
     if (e?.name === 'AbortError') return { ok: false, error: 'Timed out' };
-    if (e?.cause?.code === 'UND_ERR_REDIRECT' || e?.message?.toLowerCase().includes('redirect')) {
-      return { ok: false, error: 'Redirects are not allowed' };
-    }
     return { ok: false, error: 'Request failed' };
   } finally {
     clearTimeout(timer);

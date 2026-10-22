@@ -155,6 +155,7 @@ export class CleaningProfileService {
 
   async update(ctx: RequestContext, id: string, data: any) {
     const existing = await this.getById(ctx, id);
+    await this.assertLatestVersion(existing);
 
     // Validate what will actually be PERSISTED, not just what was sent. The
     // writes below fall back to the existing stages/connections, so validating
@@ -281,6 +282,7 @@ export class CleaningProfileService {
 
   async toggleStatus(ctx: RequestContext, id: string) {
     const existing = await this.getById(ctx, id);
+    await this.assertLatestVersion(existing);
     const newStatus = existing.status === 'ACTIVE' ? 'ARCHIVED' : 'ACTIVE';
 
     // If deactivating, check references
@@ -457,6 +459,29 @@ export class CleaningProfileService {
       toIndex: idToIndex.get(c.toStageId) ?? -1,
       label: c.label,
     }));
+  }
+
+  /**
+   * A lineage has ONE live version: the latest. update() archives the version
+   * it edits and creates the next one, so only the latest may be edited or
+   * toggled (D6, 2026-10-21). Toggling a superseded version used to re-activate
+   * it beside the current one — two ACTIVE versions in one lineage — and
+   * editing one only failed by colliding on (lineage, version) with a generic
+   * "modified concurrently" 409.
+   */
+  private async assertLatestVersion(profile: { id: string; lineageId: string; version: number; name: string }) {
+    const latest = await prisma.filterCleaningProfile.findFirst({
+      where: { lineageId: profile.lineageId },
+      orderBy: { version: 'desc' },
+      select: { id: true, version: true },
+    });
+    if (latest && latest.id !== profile.id) {
+      throw new AppError(
+        409,
+        'CONFLICT',
+        `Version ${profile.version} of "${profile.name}" has been superseded by version ${latest.version}. Open the latest version to change it.`,
+      );
+    }
   }
 
   /**

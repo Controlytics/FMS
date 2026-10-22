@@ -168,8 +168,12 @@ export default async function identifierRoutes(app: FastifyInstance) {
         type: 'object',
         properties: { reason: { type: 'string' } },
       },
+      // nullable (D3, 2026-10-21): Fastify validates an ABSENT body as null, so
+      // a plain DELETE with only `?reason=` was refused "body must be object".
+      // The web client's `{}` / `{ reason }` bodies validate exactly as before.
       body: {
         type: 'object',
+        nullable: true,
         properties: { reason: { type: 'string' } },
         additionalProperties: true,
       },

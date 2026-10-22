@@ -167,8 +167,10 @@ export class EquipmentGroupsService {
     if (!name?.trim()) throw new AppError(400, 'VALIDATION', 'Group name is required');
     if (!blockId) throw new AppError(400, 'VALIDATION', 'Block ID is required');
 
-    // Verify block exists
-    const block = await prisma.assetInstance.findFirst({ where: { id: blockId } });
+    // Verify the block exists AND is a live Block (D5, 2026-10-21): any asset id
+    // used to pass — an AHU, a filter, or a deleted block — and a group hung
+    // there is never resolved for a cycle, whose cleaningAreaId is a block.
+    const block = await prisma.assetInstance.findFirst({ where: { id: blockId, isActive: true, template: { templateKind: 'BLOCK' } } });
     if (!block) throw new AppError(404, 'NOT_FOUND', 'Block not found');
 
     if (!instruments || !Array.isArray(instruments) || instruments.length !== 3) {

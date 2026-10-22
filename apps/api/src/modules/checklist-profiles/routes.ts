@@ -3,6 +3,13 @@ import { ChecklistProfileService } from './checklist-profile.service.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { ChecklistQuestionType } from '@prisma/client';
+
+// An unknown question type reached Prisma unvalidated (generic 400 + an
+// error-level "input reached the database unvalidated" log line). The allowed
+// list IS the database enum, so the two cannot disagree (same as the
+// cleaning-profile nodeType fix, M15).
+const QUESTION_TYPES = Object.values(ChecklistQuestionType);
 
 export default async function checklistProfileRoutes(app: FastifyInstance) {
   const service = new ChecklistProfileService();
@@ -59,7 +66,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
   // Questions
   app.post('/:id/questions', {
     preHandler: [app.requirePermission('CHECKLIST_CREATE')],
-    schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['question'], properties: { question: { type: 'string' }, questionType: { type: 'string' }, required: { type: 'boolean' }, section: { type: 'string' }, description: { type: 'string' }, options: { type: 'array' }, validation: { type: 'object' }, sortOrder: { type: 'integer' } } }, response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses } },
+    schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } }, body: { type: 'object', required: ['question'], properties: { question: { type: 'string' }, questionType: { type: 'string', enum: QUESTION_TYPES }, required: { type: 'boolean' }, section: { type: 'string' }, description: { type: 'string' }, options: { type: 'array' }, validation: { type: 'object' }, sortOrder: { type: 'integer' } } }, response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('CREATE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;
@@ -69,7 +76,7 @@ export default async function checklistProfileRoutes(app: FastifyInstance) {
 
   app.put('/:id/questions/:questionId', {
     preHandler: [app.requirePermission('CHECKLIST_EDIT')],
-    schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id', 'questionId'], properties: { id: { type: 'string', format: 'uuid' }, questionId: { type: 'string', format: 'uuid' } } }, body: { type: 'object', properties: { question: { type: 'string' }, questionType: { type: 'string' }, required: { type: 'boolean' }, section: { type: 'string' }, description: { type: 'string' }, options: { type: 'array' }, validation: { type: 'object' }, sortOrder: { type: 'integer' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
+    schema: { tags: ['Checklist Questions'], params: { type: 'object', required: ['id', 'questionId'], properties: { id: { type: 'string', format: 'uuid' }, questionId: { type: 'string', format: 'uuid' } } }, body: { type: 'object', properties: { question: { type: 'string' }, questionType: { type: 'string', enum: QUESTION_TYPES }, required: { type: 'boolean' }, section: { type: 'string' }, description: { type: 'string' }, options: { type: 'array' }, validation: { type: 'object' }, sortOrder: { type: 'integer' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
     const { ok } = await enforceReauth('UPDATE_CHECKLIST_PROFILE', req, reply);
     if (!ok) return;
