@@ -15,7 +15,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { usePaginationConfig, usePageSize } from '@/hooks/use-pagination-config';
 import type { PasswordPolicyConfig } from '@digilog/shared';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
-import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { useCopiedFlag } from '@/hooks/use-copied-flag';
 
 import { UserStatsBar } from './components/user-stats-bar';
 import { UserFilters } from './components/user-filters';
@@ -47,7 +47,7 @@ export function UserListPage() {
   const [unlockDialog, setUnlockDialog] = useState<{ userId: string; username: string } | null>(null);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [showUnlockPassword, setShowUnlockPassword] = useState(false);
-  const [unlockCopied, setUnlockCopied] = useState(false);
+  const [unlockCopied, showUnlockCopied, resetUnlockCopied] = useCopiedFlag(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Debounce search input (300ms)
@@ -201,9 +201,9 @@ export function UserListPage() {
     const pwd = generatePassword(policy);
     setUnlockPassword(pwd);
     setShowUnlockPassword(false);
-    setUnlockCopied(false);
+    resetUnlockCopied();
     setUnlockDialog({ userId, username });
-  }, [policy]);
+  }, [policy, resetUnlockCopied]);
 
   const handleUnlockConfirm = useCallback(async () => {
     if (!unlockDialog) return;
@@ -234,8 +234,7 @@ export function UserListPage() {
   const handleUnlockCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(unlockPassword);
-      setUnlockCopied(true);
-      setTimeout(() => setUnlockCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showUnlockCopied(true);
     } catch {
       const textArea = document.createElement('textarea');
       textArea.value = unlockPassword;
@@ -243,15 +242,14 @@ export function UserListPage() {
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      setUnlockCopied(true);
-      setTimeout(() => setUnlockCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showUnlockCopied(true);
     }
-  }, [unlockPassword]);
+  }, [unlockPassword, showUnlockCopied]);
 
   const handleUnlockRegenerate = useCallback(() => {
     setUnlockPassword(generatePassword(policy));
-    setUnlockCopied(false);
-  }, [policy]);
+    resetUnlockCopied();
+  }, [policy, resetUnlockCopied]);
 
   return (
     <div className="space-y-6 animate-fade-in">

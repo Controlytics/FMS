@@ -15,7 +15,7 @@ import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/ui/page-header';
 import useSWR from 'swr';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from "../../lib/password-utils";
-import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { useCopiedFlag } from '@/hooks/use-copied-flag';
 
 export function CreateUserPage() {
   const { user } = useAuth();
@@ -26,7 +26,7 @@ export function CreateUserPage() {
   const [error, setError] = useState('');
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, showCopied, resetCopied] = useCopiedFlag(false);
 
   // Fetch password policy
   const { data: policyData } = useSWR<PasswordPolicyConfig>('/api/config/password-policy/current', { revalidateOnMount: true, dedupingInterval: 5000 });
@@ -57,14 +57,13 @@ export function CreateUserPage() {
     setGeneratedPassword(newPassword);
     setValue('password', newPassword);
     setValue('confirmPassword', newPassword);
-    setCopied(false);
+    resetCopied();
   };
 
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(generatedPassword);
-      setCopied(true);
-      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showCopied(true);
     } catch {
       // Fallback for older browsers
       const textArea = document.createElement('textarea');
@@ -73,8 +72,7 @@ export function CreateUserPage() {
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showCopied(true);
     }
   };
 

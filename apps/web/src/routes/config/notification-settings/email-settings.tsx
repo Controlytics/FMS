@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/ui/page-header';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
-import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { useCopiedFlag } from '@/hooks/use-copied-flag';
 
 // ─── Email Types & Constants ──────────────────────────────────────────
 interface EmailConfig {
@@ -144,7 +144,7 @@ function EmailTab() {
   const [testing, setTesting] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [testResult, setTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, showCopied] = useCopiedFlag(false);
 
   const { data, mutate } = useSWR('/api/notification-settings/email', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: redirectData } = useSWR('/api/notification-settings/email/oauth2/redirect-uri', { revalidateOnMount: true, dedupingInterval: 0 });
@@ -248,8 +248,7 @@ function EmailTab() {
         document.execCommand('copy');
         document.body.removeChild(textArea);
       }
-      setCopied(true);
-      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showCopied(true);
     }
   };
 

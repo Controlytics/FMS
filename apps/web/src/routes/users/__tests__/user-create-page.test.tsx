@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from './support/page-findings';
 import { holdRequests, LocationProbe } from '@/routes/auth/__tests__/support';
@@ -209,6 +209,34 @@ describe('Create User — temporary password', () => {
     expect(await screen.findByText('Copied!')).toBeInTheDocument();
     expect(exec).toHaveBeenCalledWith('copy');
     await waitFor(() => expect(screen.queryByText('Copied!')).toBeNull(), { timeout: 3000 });
+  });
+
+  // Each copy used to start its own 2 s reset timer and none was cleared, so a
+  // second copy inside the window lost its "Copied!" when the FIRST timer fired.
+  // Fake timers go on only after the page has loaded: RTL's async utils wait on
+  // a real setTimeout, so nothing below awaits one while the clock is faked.
+  it('copying again restarts the "Copied!" delay; the earlier copy\'s timer does not clear it', async () => {
+    const api = mockApi(routes());
+    renderPage(<Page />, { route: '/users/create', user: SA, api });
+    await screen.findByRole('option', { name: 'Operator' });
+    await waitFor(() => expect(tempPassword().length).toBe(14));
+    // the same button reads "Copy" or "Copied!", so hold the element itself
+    const button = screen.getByRole('button', { name: /^Copy$/ });
+    const copy = async () => { fireEvent.click(button); await act(async () => {}); };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await copy();
+      expect(screen.getByText('Copied!')).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1_500); });
+      await copy();
+      // 2.1 s after the first copy, 0.6 s after the second: still confirmed
+      act(() => { vi.advanceTimersByTime(600); });
+      expect(screen.getByText('Copied!')).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1_400); });
+      expect(screen.queryByText('Copied!')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

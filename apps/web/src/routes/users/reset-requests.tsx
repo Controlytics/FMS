@@ -12,7 +12,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui
 import { type PasswordPolicyConfig } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
-import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { useCopiedFlag } from '@/hooks/use-copied-flag';
 
 interface ResetRequest {
   id: string;
@@ -39,7 +39,7 @@ export function ResetRequestsPage() {
   const [newPassword, setNewPassword] = useState('');
   const [notes, setNotes] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, showCopied, resetCopied] = useCopiedFlag(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -54,7 +54,7 @@ export function ResetRequestsPage() {
     setNewPassword(pwd);
     setNotes('');
     setShowPassword(false);
-    setCopied(false);
+    resetCopied();
     setError('');
   };
 
@@ -76,14 +76,13 @@ export function ResetRequestsPage() {
   const regeneratePassword = () => {
     const pwd = generatePassword(policy);
     setNewPassword(pwd);
-    setCopied(false);
+    resetCopied();
   };
 
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(newPassword);
-      setCopied(true);
-      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showCopied(true);
     } catch {
       const textArea = document.createElement('textarea');
       textArea.value = newPassword;
@@ -91,8 +90,7 @@ export function ResetRequestsPage() {
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showCopied(true);
     }
   };
 

@@ -14,7 +14,7 @@ import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { useCopiedFlag } from '@/hooks/use-copied-flag';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
@@ -49,7 +49,7 @@ export function EditUserPage() {
   const [tempPasswordDialog, setTempPasswordDialog] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, showCopied, resetCopied] = useCopiedFlag(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const reauth = useReauth();
 
@@ -106,21 +106,20 @@ export function EditUserPage() {
     const newPassword = generatePassword(policy);
     setGeneratedPassword(newPassword);
     setShowPassword(false);
-    setCopied(false);
+    resetCopied();
     setTempPasswordDialog(true);
   };
 
   const regeneratePassword = () => {
     const newPassword = generatePassword(policy);
     setGeneratedPassword(newPassword);
-    setCopied(false);
+    resetCopied();
   };
 
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(generatedPassword);
-      setCopied(true);
-      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showCopied(true);
     } catch {
       // Fallback for older browsers
       const textArea = document.createElement('textarea');
@@ -129,8 +128,7 @@ export function EditUserPage() {
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), CLIPBOARD_COPY_RESET_MS);
+      showCopied(true);
     }
   };
 
