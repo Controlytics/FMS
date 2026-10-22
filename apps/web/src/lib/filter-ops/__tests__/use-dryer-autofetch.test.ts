@@ -195,6 +195,24 @@ describe('useDryerAutoFetch — retry loop (coverage campaign 2026-10-21)', () =
     expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
 
+  it('reset() while a fetch is in flight: the late answer is dropped, and a new fetch can start at once (2026-10-22)', async () => {
+    // The Dry In row resets when the operator picks a DIFFERENT equipment group:
+    // the first group's reading must never land on the second group.
+    let answer!: (v: unknown) => void;
+    (apiClient.post as any).mockImplementationOnce(() => new Promise((r) => { answer = r; }));
+    const { hook, onValue } = setup();
+    let first: Promise<void> | undefined;
+    act(() => { first = hook.result.current.getValues(); });
+    act(() => { hook.result.current.reset(); });
+    (apiClient.post as any).mockResolvedValueOnce({ results: [{ instrumentId: 'i-temp', ok: true, value: 61 }] });
+    await act(async () => { await hook.result.current.getValues(); });
+    expect(onValue).toHaveBeenCalledTimes(1);
+    expect(onValue).toHaveBeenLastCalledWith(61);
+    await act(async () => { answer({ results: [{ instrumentId: 'i-temp', ok: true, value: 99 }] }); await first; });
+    expect(onValue).toHaveBeenCalledTimes(1); // the stale 99 never applied
+    expect(hook.result.current).toMatchObject({ source: 'AUTO', fetching: false, status: 'Temperature fetched from the instrument.' });
+  });
+
   it('reset() clears a fetched value back to a manual, empty state', async () => {
     (apiClient.post as any).mockResolvedValue({ results: [{ instrumentId: 'i-temp', ok: true, value: 70 }, { instrumentId: 'i-hum', ok: true, value: 40 }] });
     const { hook } = setup();

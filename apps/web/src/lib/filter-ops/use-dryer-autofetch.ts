@@ -102,6 +102,9 @@ export function useDryerAutoFetch(params: {
   // Fired automatically for this half-time crossing already? Reset when the
   // countdown goes back below half (a re-set duration / a new cycle).
   const autoFiredRef = useRef(false);
+  // Bumped by reset(): a poll loop started before it (e.g. for the group the
+  // operator picked first, 2026-10-22) stops and never writes its value.
+  const genRef = useRef(0);
   const onValueRef = useRef(onValue);
   onValueRef.current = onValue;
 
@@ -120,6 +123,9 @@ export function useDryerAutoFetch(params: {
   const isAuto = dryerInstrument?.autoFetchEnabled === true && online;
 
   const reset = useCallback(() => {
+    genRef.current += 1;
+    fetchingRef.current = false;
+    setFetching(false);
     setSource('MANUAL');
     setFetched({});
     setStatus('');
@@ -135,6 +141,8 @@ export function useDryerAutoFetch(params: {
     if (!isAuto || !group || !dryerInstrument || fetchingRef.current) return;
     cancelRef.current = false;
     fetchingRef.current = true;
+    const gen = genRef.current;
+    const stale = () => cancelRef.current || gen !== genRef.current;
     setTimedOut(false);
     setFetching(true);
     setStatus('Fetching dryer temperature…');
@@ -142,14 +150,14 @@ export function useDryerAutoFetch(params: {
     let got = false;
     try {
       while (!got && (Date.now() - start) < 60_000) {
-        if (cancelRef.current) return;
+        if (stale()) return;
         let res: any = null;
         try {
           res = await apiClient.post<any>('/api/equipment-groups/fetch-readings', {
             filterId, groupId: group.id, stageKey: 'DRY_IN',
           });
         } catch { res = null; }
-        if (cancelRef.current) return;
+        if (stale()) return;
         // Keep EVERY auto instrument's value, not just the temperature one:
         // submit writes a reading for each DRY_IN instrument, and without this
         // the siblings fall back to `operatingMin` — a fabricated number
@@ -170,8 +178,8 @@ export function useDryerAutoFetch(params: {
         await new Promise((r) => setTimeout(r, 5_000));
       }
     } finally {
-      fetchingRef.current = false;
-      if (!cancelRef.current) {
+      if (gen === genRef.current) fetchingRef.current = false;
+      if (!stale()) {
         setFetching(false);
         if (!got) setTimedOut(true);
         setStatus(got ? 'Temperature fetched from the instrument.' : "Couldn't fetch in 1 minute — enter the value manually.");

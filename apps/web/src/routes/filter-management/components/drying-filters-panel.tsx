@@ -7,6 +7,7 @@ import {
   useNowTick,
   findDryerTempInstrument,
   projectDryerCountdown,
+  equipmentGroupChoice,
 } from '@/lib/filter-ops';
 import { recomputeAndCacheFilterState } from '@/lib/offline-cache';
 import { useReauth } from '@/hooks/use-reauth';
@@ -66,6 +67,8 @@ interface RowState {
   source: ReadingSource;
   fetched: Record<string, number>;
   group: any | null;
+  /** The block has several groups and this unbound cycle's group is not picked yet. */
+  needsGroup: boolean;
   instrument: any | null;
   uom: string;
   options: number[];
@@ -93,7 +96,7 @@ export function DryingFiltersPanel({
   const reportRow = useCallback((s: RowState) => {
     setRows(prev => {
       const p = prev[s.filterId];
-      if (p && p.ready === s.ready && p.submitted === s.submitted && p.temp === s.temp && p.source === s.source && p.isAuto === s.isAuto && p.fetching === s.fetching && p.timedOut === s.timedOut && p.instrument === s.instrument && p.group === s.group && p.fetched === s.fetched) return prev;
+      if (p && p.ready === s.ready && p.submitted === s.submitted && p.temp === s.temp && p.source === s.source && p.isAuto === s.isAuto && p.fetching === s.fetching && p.timedOut === s.timedOut && p.instrument === s.instrument && p.group === s.group && p.needsGroup === s.needsGroup && p.fetched === s.fetched) return prev;
       return { ...prev, [s.filterId]: s };
     });
   }, []);
@@ -138,6 +141,10 @@ export function DryingFiltersPanel({
   const handleSubmit = async () => {
     if (submitting || selected.size === 0) return;
     const targets = readyRows.filter(r => selected.has(r.filterId));
+    // A missing GROUP is its own message: "Enter a temperature" is wrong when the
+    // operator has not chosen which equipment group the reading belongs to.
+    const noGroup = targets.filter(r => r.needsGroup);
+    if (noGroup.length > 0) { onError(`Choose the equipment group for: ${noGroup.map(m => m.filterName).join(', ')}`); return; }
     const missing = targets.filter(r => r.temp === '' || !r.group || !r.instrument);
     if (missing.length > 0) { onError(`Enter a temperature for: ${missing.map(m => m.filterName).join(', ')}`); return; }
     setSubmitting(true);
@@ -350,15 +357,22 @@ function DryingRow({
   const projection = projectDryerCountdown(cyc, now);
   const { startedAt, durationMin, halfReached } = projection;
 
-  const stateGroup = effectiveState?.equipmentGroup;
-  const blockGroups: any[] = effectiveState?.blockEquipmentGroups ?? [];
+  // Which group the reading belongs to (operator decision 2026-10-22): ONE rule,
+  // lib/filter-ops equipmentGroupChoice. An unbound cycle on a block with several
+  // groups makes the operator pick on this row — the state's `equipmentGroup` is
+  // then only the block's oldest group, which used to be sent without asking.
+  // The cached `equipment-groups` of the block stand in when the state lists none.
   const offlineBlockGroups = (() => {
-    if (stateGroup || blockGroups.length > 0) return [];
     const areaId = cyc?.cleaningAreaId;
     if (areaId) return offlineEquipGroups.filter((g: any) => g.blockId === areaId);
     return offlineEquipGroups.length === 1 ? offlineEquipGroups : [];
   })();
-  const group = stateGroup ?? (blockGroups.length === 1 ? blockGroups[0] : null) ?? (offlineBlockGroups.length >= 1 ? offlineBlockGroups[0] : null);
+  const groupChoice = equipmentGroupChoice(effectiveState, offlineBlockGroups);
+  const [pickedGroupId, setPickedGroupId] = useState('');
+  const group = groupChoice.needsChoice
+    ? (groupChoice.groups.find((g: any) => g.id === pickedGroupId) ?? null)
+    : groupChoice.group;
+  const needsGroup = groupChoice.needsChoice && !group;
   const instrument = findDryerTempInstrument(group);
   const options = instrument ? buildTempOptionsSnapped(instrument.operatingMin, instrument.operatingMax, instrument.leastCount) : [];
   const uom = instrument?.uom ?? '°C';
@@ -384,8 +398,17 @@ function DryingRow({
   const submitted = !!cyc?.dryerReadingsSubmitted;
   const ready = !!startedAt && !!durationMin && halfReached && !submitted;
   useEffect(() => {
-    report({ filterId, filterName, ready, submitted, temp, source: autoFetch.source, fetched: autoFetch.fetched, group, instrument, uom, options, isAuto: autoFetch.isAuto, fetching: autoFetch.fetching, timedOut: autoFetch.timedOut });
-  }, [report, filterId, filterName, ready, submitted, temp, autoFetch.source, autoFetch.fetched, group, instrument, uom, autoFetch.isAuto, autoFetch.fetching, autoFetch.timedOut]); // eslint-disable-line react-hooks/exhaustive-deps
+    report({ filterId, filterName, ready, submitted, temp, source: autoFetch.source, fetched: autoFetch.fetched, group, needsGroup, instrument, uom, options, isAuto: autoFetch.isAuto, fetching: autoFetch.fetching, timedOut: autoFetch.timedOut });
+  }, [report, filterId, filterName, ready, submitted, temp, autoFetch.source, autoFetch.fetched, group, needsGroup, instrument, uom, autoFetch.isAuto, autoFetch.fetching, autoFetch.timedOut]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A different pick: the value and any fetch belong to the previous group's
+  // instrument, so they go; the new group's instrument is read afresh.
+  const pickGroup = (id: string) => {
+    setPickedGroupId(id);
+    setTemp('');
+    try { cacheData(`dryer-temp-${filterId}`, null, 0); } catch { /* cache is a convenience */ }
+    autoFetch.reset();
+  };
 
   if (submitted) return null;
 
@@ -440,7 +463,20 @@ function DryingRow({
             </div>
           )}
         </div>
-        {ready && !instrument && <span className="text-xs text-red-600">No dryer temperature instrument configured</span>}
+        {ready && needsGroup && (
+          <select aria-label={`Equipment group for ${filterName}`} value={pickedGroupId} onChange={(e) => pickGroup(e.target.value)} disabled={submitting}
+            className={`rounded${isMobile ? '-xl' : ''} border border-amber-400 px-2 py-1 text-sm bg-white`}>
+            <option value="">Choose equipment group…</option>
+            {groupChoice.groups.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        )}
+        {ready && groupChoice.needsChoice && group && (
+          <select aria-label={`Equipment group for ${filterName}`} value={pickedGroupId} onChange={(e) => pickGroup(e.target.value)} disabled={submitting}
+            className={`rounded${isMobile ? '-xl' : ''} border border-slate-300 px-2 py-1 text-sm bg-white`}>
+            {groupChoice.groups.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        )}
+        {ready && !needsGroup && !instrument && <span className="text-xs text-red-600">No dryer temperature instrument configured</span>}
         {ready && instrument && (
           <div className="flex items-center gap-2">
             {valueBox}
