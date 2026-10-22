@@ -1,16 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { isoToDateInput, startOfDayIso, endOfDayIso } from '../datetime-input';
 import { yearSpan, MAX_YEAR_SPAN } from '../report-range';
+import { readCleaningRecordExport, EXPORT_PAGE_SIZE } from '../cleaning-record-export';
 
 const IST = 'Asia/Kolkata';
 
 /**
- * Report date-range rules. The PM Schedules year span is the real `yearSpan`
- * the page calls (lib/report-range.ts). The cleaning-record checks below still
- * reproduce logic that is inlined in cleaning-cycles/history.tsx.
- * They lock the behaviours the fixes turn on: a year SPAN is fetched whole
- * (M77), an emptied end stays bounded (D-OPS-4), and an export reports the
- * count it actually contains (M61).
+ * Report range and export rules, each tested as the code the page runs: the
+ * PM Schedules year span (lib/report-range.ts `yearSpan`) and the Filter
+ * Cleaning Record export read (lib/cleaning-record-export.ts). They lock the
+ * behaviours the fixes turn on: a year SPAN is fetched whole (M77), an emptied
+ * end stays bounded (D-OPS-4), an export reports the count it actually contains
+ * (M61), the export limit sees the whole set (M60), and truncation is claimed
+ * only on evidence (2026-10-22).
  */
 
 describe('PM schedule year span (M77)', () => {
@@ -75,44 +77,72 @@ describe('PM entry day-key filtering (M77)', () => {
   });
 });
 
-describe('Cleaning record export bounds + header (M60, M61)', () => {
+/** A server answering `rows` page by page with its total, as /api/filters/cleaning-record does. */
+const pages = (rows: any[]) => async (page: number, size: number) => ({ data: rows.slice((page - 1) * size, page * size), total: rows.length });
+const cycles = (n: number) => Array.from({ length: n }, (_, i) => ({ _kind: 'cycle', id: `c${i}` }));
+
+describe('Cleaning record export: bounds, count, limit, truncation (M60, M61)', () => {
   it('sends bounds that cover the operator local day', () => {
     expect(startOfDayIso('2026-07-15', IST)).toBe('2026-07-14T18:30:00.000Z');
     expect(endOfDayIso('2026-07-15', IST)).toBe('2026-07-15T18:29:59.999Z');
   });
 
-  it('header count equals the exported cycle count, excluding manual rows', () => {
+  it('header count equals the exported cycle count, excluding manual rows', async () => {
     // `total` from the server counts cycles AND manual updates; the export only
     // ships cycles. Quoting `total` in the header overstated the document.
-    const fetched = [
-      { _kind: 'cycle' }, { _kind: 'manual' }, { _kind: 'cycle' }, { _kind: 'manual' }, { _kind: 'cycle' },
-    ];
-    const serverTotal = fetched.length; // 5
-    const exported = fetched.filter((r) => r._kind !== 'manual');
-    expect(exported).toHaveLength(3);
-    expect(exported.length).not.toBe(serverTotal);
-    // The header/audit count must follow the export, not the server total.
-    expect(exported.length).toBe(3);
+    const rows = [{ _kind: 'cycle' }, { _kind: 'manual' }, { _kind: 'cycle' }, { _kind: 'manual' }, { _kind: 'cycle' }];
+    const r = await readCleaningRecordExport(pages(rows), 10_000);
+    expect(r).toMatchObject({ tooLarge: false, read: 5, total: 5, truncated: false });
+    expect(r.tooLarge === false && r.cycles).toEqual([{ _kind: 'cycle' }, { _kind: 'cycle' }, { _kind: 'cycle' }]);
   });
 
-  it('discloses truncation at the server cap, which the export limit cannot catch', () => {
-    // The server caps its merge index at 5000 cycles while the DEFAULT export
-    // limit is 10000 — so the limit guard never fires and the set arrives short
-    // in silence. Truncation must be announced independently of that guard.
-    const SERVER_CYCLE_CAP = 5000;
-    const configuredMax = 10000; // EXPORT_LIMIT_DEFAULT_MAX
-    const exported = SERVER_CYCLE_CAP; // operator asked for 6000
-    expect(exported > configuredMax).toBe(false); // limit guard stays silent
-    expect(exported >= SERVER_CYCLE_CAP).toBe(true); // truncation notice fires
+  it('truncation comes from evidence, never from a size: a complete 5,000-cycle record is not truncated', async () => {
+    // The page compared the export with a mirrored 5,000-cycle server cap that
+    // the server dropped on 2026-09-04, so every complete export that size was
+    // labelled truncated.
+    const r = await readCleaningRecordExport(pages(cycles(5000)), 10_000);
+    expect(r).toMatchObject({ tooLarge: false, read: 5000, total: 5000, truncated: false });
   });
 
-  it('the export limit is compared against the whole set, not one page', () => {
-    const maxRecords = 20;
-    const perPage = 10;
-    const trueCycleCount = 57;
-    // The old guard compared a page's length — never more than perPage, so it
-    // could never trip.
-    expect(perPage > maxRecords).toBe(false);
-    expect(trueCycleCount > maxRecords).toBe(true);
+  it('a server that stops sending rows before its own total is reported truncated, with both counts', async () => {
+    const sent = cycles(150);
+    const fetchPage = vi.fn(async (page: number, size: number) => ({ data: sent.slice((page - 1) * size, page * size), total: 400 }));
+    const r = await readCleaningRecordExport(fetchPage, 10_000);
+    expect(r).toMatchObject({ tooLarge: false, read: 150, total: 400, truncated: true });
+    expect(fetchPage).toHaveBeenCalledTimes(3); // the empty third page ends the read
+  });
+
+  it('reads past 100 pages: there is no page cap (operator decision 2026-09-04)', async () => {
+    // 9,990 manual updates ahead of 60 cycles. The old read stopped at 100 pages
+    // of 100 and kept 10 of the 60 cycles.
+    const rows = [...Array.from({ length: 9990 }, () => ({ _kind: 'manual' })), ...cycles(60)];
+    const fetchPage = vi.fn(pages(rows));
+    const r = await readCleaningRecordExport(fetchPage, 10_000);
+    expect(fetchPage).toHaveBeenCalledTimes(101);
+    expect(r).toMatchObject({ tooLarge: false, read: 10_050, total: 10_050, truncated: false });
+    expect(r.tooLarge === false && r.cycles).toHaveLength(60);
+    expect(fetchPage.mock.calls.map(([, size]) => size)).toEqual(Array(101).fill(EXPORT_PAGE_SIZE));
+  });
+
+  it('the export limit is compared against the whole set, not one page, and stops the read', async () => {
+    // A page holds at most EXPORT_PAGE_SIZE rows, so a per-page check could never
+    // trip a limit above that.
+    const fetchPage = vi.fn(pages(cycles(250)));
+    expect(await readCleaningRecordExport(fetchPage, 150)).toEqual({ tooLarge: true, cycleCount: 200 });
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('manual updates do not count toward the export limit; exactly at the limit is allowed', async () => {
+    const rows = [...cycles(3), { _kind: 'manual' }, { _kind: 'manual' }];
+    expect(await readCleaningRecordExport(pages(rows), 3)).toMatchObject({ tooLarge: false, read: 5, truncated: false });
+    expect(await readCleaningRecordExport(pages(cycles(4)), 3)).toEqual({ tooLarge: true, cycleCount: 4 });
+  });
+
+  it('a server that omits data / total ends the read with what it sent', async () => {
+    expect(await readCleaningRecordExport(async () => ({}), 10)).toEqual({ tooLarge: false, cycles: [], read: 0, total: 0, truncated: false });
+    expect(await readCleaningRecordExport(async () => null, 10)).toEqual({ tooLarge: false, cycles: [], read: 0, total: 0, truncated: false });
+    const once = vi.fn(async () => ({ data: cycles(2) }));
+    expect(await readCleaningRecordExport(once, 10)).toMatchObject({ tooLarge: false, read: 2, total: 2, truncated: false });
+    expect(once).toHaveBeenCalledTimes(1);
   });
 });

@@ -335,14 +335,51 @@ describe('Filter Cleaning Record — export', () => {
     expect(api.calls('POST', '/api/audit/report-export-log')).toHaveLength(0);
   });
 
-  it('at the 5000-cycle server cap the export warns it is truncated and the PDF says so', async () => {
+  // The server's 5,000-cycle merge cap was removed on 2026-09-04 (6c5749d, "no
+  // record caps"); a mirror of it here labelled every complete export of 5,000+
+  // cycles as truncated, on the document itself.
+  it('a complete export of 5,000 cycles is not called truncated', async () => {
     const many = Array.from({ length: 5000 }, (_, i) => ({ id: `t${i}`, filterName: `T${i}`, status: 'COMPLETED', startedAt: ISO(1), events: [] }));
-    open(SA, [], {}, recordRoute(ROWS, many));
+    const api = open(SA, [], {}, recordRoute(ROWS, many));
     await screen.findByText('FLT-001', { selector: 'td div' });
     await exportVia('PDF');
     await waitFor(() => expect(report.save).toHaveBeenCalled(), { timeout: 5000 });
-    expect(screen.getByText('Export truncated')).toBeInTheDocument();
-    expect(vi.mocked(createReport).mock.calls[0][0].subtitle).toContain('truncated at the 5,000-record server limit');
+    expect(screen.queryByText('Export truncated')).toBeNull();
+    expect(screen.queryByText('Export incomplete')).toBeNull();
+    expect(vi.mocked(createReport).mock.calls[0][0].subtitle).toBe('Filter: All Filters  |  Status: All  |  Period: All Time  |  Total: 5000 cycle(s)');
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toMatchObject({ recordCount: 5000 });
+  });
+
+  it('a record longer than 100 pages is read to the end: no cycle is dropped behind manual updates', async () => {
+    // 9,990 manual updates (newest) ahead of 60 cycles: 10,050 rows. The read
+    // used to stop after 100 pages of 100, exporting 10 of the 60 cycles with no
+    // word, because the cycle count never reached the old 5,000 mark.
+    const manual = Array.from({ length: 9990 }, (_, i) => ({ ...M1, id: `mm${i}` }));
+    const cycles = Array.from({ length: 60 }, (_, i) => ({ ...C_TERM, id: `t${i}`, filterName: `T-${i}` }));
+    const api = open(SA, [], {}, recordRoute(ROWS, [...manual, ...cycles]));
+    await screen.findByText('FLT-001', { selector: 'td div' });
+    await exportVia('Excel');
+    await waitFor(() => expect(exportToExcel).toHaveBeenCalledTimes(1), { timeout: 10000 });
+    expect(api.calls('GET', '/api/filters/cleaning-record').filter((r) => r.query.get('limit') === '100')).toHaveLength(101);
+    expect(vi.mocked(exportToExcel).mock.calls[0][0].rows).toHaveLength(60);
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toMatchObject({ recordCount: 60 });
+    expect(screen.queryByText('Export incomplete')).toBeNull();
+  });
+
+  it('a server that stops answering rows before its own total gets an honest incomplete notice, on screen and on the PDF', async () => {
+    // Evidence, not a size: 150 rows arrive although the server reports 400.
+    const short = Array.from({ length: 150 }, (_, i) => ({ ...C_TERM, id: `t${i}`, filterName: `T-${i}` }));
+    const api = open(SA, [{ path: /\/api\/filters\/cleaning-record\?.*limit=100/, body: (req: MockRequest) => {
+      const p = Number(req.query.get('page'));
+      return { data: short.slice((p - 1) * 100, p * 100), total: 400 };
+    } }]);
+    await screen.findByText('FLT-001', { selector: 'td div' });
+    await exportVia('PDF');
+    await waitFor(() => expect(report.save).toHaveBeenCalled());
+    expect(screen.getByText('Export incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/The server returned 150 of 400 records/)).toBeInTheDocument();
+    expect(vi.mocked(createReport).mock.calls[0][0].subtitle).toContain('Total: 150 cycle(s) (incomplete: the server returned 150 of 400 records');
+    expect(api.calls('GET', '/api/filters/cleaning-record').filter((r) => r.query.get('limit') === '100')).toHaveLength(3);
   });
 
   it('a gated export prompts for the password and signs the log write', async () => {
