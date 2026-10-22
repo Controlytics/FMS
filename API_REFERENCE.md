@@ -36,7 +36,19 @@ Auth: Bearer token
 Body: { password }
 Response: { verified: true, verificationToken }
 ```
-Verification token valid for 5 minutes, used in `x-reauth-password` header.
+Verification token valid for 5 minutes. A gated write does NOT take this token: it takes the
+PASSWORD itself, in the `x-reauth-password` header or the body field `_currentPassword`
+(`lib/reauth-check.ts`; the gate strips `_currentPassword` before the handler runs).
+
+In this file, `Reauth: X` = `enforceReauth(X)`: asked only of the roles the stored policy
+(Config → Action Re-auth) lists for X. `Reauth always: X` = `enforceReauthAlways(X)`: asked of
+EVERY caller, SUPER_ADMIN included, whatever the policy says. Since OD-01 (2026-10-22) every
+action that destroys or rewrites a §11 record or changes the rules is `Reauth always`: audit
+edit / redact / delete, every Filter Data Management write (`SUPER_ADMIN_DATA_EDIT`), user
+delete and edit, per-user overrides, role create / edit / delete, role permission + sidebar saves,
+the LDAP config, backup restore, Block/Area/AHU/filter delete, manual lifecycle moves, and the
+re-auth policy save. The web client sends them, takes the 401 REAUTH_REQUIRED and retries signed;
+only a file upload (backup restore) is asked up front.
 
 ### Get Current User
 ```
@@ -83,15 +95,20 @@ Body: { username, fullName, email, password, role, department? }
 ```
 PUT /api/users/:id
 Permission: USER_UPDATE
-Reauth: UPDATE_USER
+Reauth always: UPDATE_USER (an edit can change the user's role)
 Body: { fullName?, email?, role?, department?, status? }
 ```
 
 ### Delete User
 ```
 DELETE /api/users/:id
-Permission: USER_DELETE
-Reauth: DELETE_USER
+Permission: SUPER_ADMIN only
+Reauth always: DELETE_USER
+
+POST /api/users/bulk-delete
+Permission: SUPER_ADMIN only
+Reauth always: BULK_DELETE_USERS
+Body: { userIds: string[] }
 ```
 
 ### Enable/Disable/Unlock
@@ -117,9 +134,9 @@ Body: { action: "approve"|"reject", remarks? }
 GET    /api/roles                      Permission: ROLE_MANAGE
 GET    /api/roles/active               Public (for dropdowns)
 GET    /api/roles/:name                Permission: ROLE_MANAGE
-POST   /api/roles                      Permission: ROLE_MANAGE, Reauth: CREATE_ROLE
-PUT    /api/roles/:name                Permission: ROLE_MANAGE, Reauth: UPDATE_ROLE
-DELETE /api/roles/:name                Permission: ROLE_MANAGE, Reauth: DELETE_ROLE
+POST   /api/roles                      Permission: ROLE_MANAGE, Reauth always: CREATE_ROLE
+PUT    /api/roles/:name                Permission: ROLE_MANAGE, Reauth always: UPDATE_ROLE
+DELETE /api/roles/:name                Permission: ROLE_MANAGE, Reauth always: DELETE_ROLE
 GET    /api/roles/permissions/all      Permission: ROLE_MANAGE
 ```
 
@@ -147,7 +164,8 @@ GET /api/config/branding
 GET /api/config/report-config/current
 GET /api/config/audit-templates/current
 GET /api/config/action-reauth/check?action=CREATE_USER
-GET /api/config/action-reauth/my-actions
+GET /api/config/action-reauth/my-actions   — policy-listed actions only; `Reauth always` actions are not in it
+                                             (the client prompts on the server's 401 REAUTH_REQUIRED)
 GET /api/config/tablet-access/my-features
 GET /api/config/registry/manifest
 GET /api/config/field-ids           — full records; requires CONFIG_READ
@@ -157,9 +175,13 @@ GET /api/config/field-ids/current   — {fieldId, displayName}[] for any signed-
 ### Role & User Config
 ```
 GET /api/config/roles/:role            Permission: CONFIG_READ
-PUT /api/config/roles/:role            Permission: CONFIG_UPDATE, Reauth
+PUT /api/config/roles/:role            Permission: ROLE_MANAGE, Reauth always: UPDATE_ROLE_CONFIG
 GET /api/config/users/:userId          Permission: CONFIG_READ
-PUT /api/config/users/:userId          Permission: CONFIG_UPDATE
+PUT /api/config/users/:userId          Permission: ROLE_MANAGE, Reauth always: UPDATE_USER_CONFIG
+PUT /api/config/action-reauth          Permission: ROLE_MANAGE, Reauth always: UPDATE_REAUTH_CONFIG
+PUT /api/ldap/config                   Permission: CONFIG_UPDATE, Reauth always: UPDATE_LDAP_CONFIG (the group -> role mapping)
+POST /api/admin-requests/:id/process   Permission: ADMIN_REQUEST_APPROVE / ADMIN_REQUEST_REJECT (by action), Reauth: APPROVE_ADMIN_REQUEST;
+                                       Reauth always [APPROVE_ADMIN_REQUEST, UPDATE_USER] when APPROVING a stored MODIFY_USER request whose modifyField is role
 GET /api/config/my-config              Public
 ```
 
@@ -190,7 +212,9 @@ GET    /api/assets/instances           Permission: ASSET_VIEW
 GET    /api/assets/instances/:id       Permission: ASSET_VIEW
 POST   /api/assets/instances           Permission: ASSET_CREATE, Reauth
 PUT    /api/assets/instances/:id       Permission: ASSET_UPDATE, Reauth
-DELETE /api/assets/instances/:id       Permission: ASSET_DELETE, Reauth
+DELETE /api/assets/instances/:id       Permission: ASSET_DELETE | FILTER_DELETE | FILTER_HIERARCHY_DELETE, Reauth always: DELETE_ASSET / DELETE_FILTER / DELETE_HIERARCHY_NODE
+PATCH  /api/assets/instances/:id/lifecycle-state  Permission: FILTER_STATUS_UPDATE, Reauth always: UPDATE_FILTER_LIFECYCLE
+DELETE /api/hierarchy/filters/:id      Permission: ASSET_DELETE | FILTER_DELETE, Reauth always: DELETE_ASSET / DELETE_FILTER
 ```
 
 ### Relationships
@@ -444,7 +468,17 @@ Response: { data: AuditEntry[], total, page, limit }
 Filters: period (1d,7d,30d,90d), startDate, endDate, search, userId,
          action, targetType, targetId
 Sort: timestamp, action, userId, userRole
+
+POST   /api/audit/:id/redact      SUPER_ADMIN only, Reauth always: REDACT_AUDIT_RECORD        Body: { reason }
+POST   /api/audit/bulk-redact     SUPER_ADMIN only, Reauth always: BULK_REDACT_AUDIT_RECORDS  Body: { ids, reason }
+PUT    /api/audit/:id             SUPER_ADMIN only, Reauth always: UPDATE_AUDIT_RECORD        Body: { reason, ...fields }  (breaks the hash chain)
+DELETE /api/audit/:id             AUDIT_DELETE,     Reauth always: DELETE_AUDIT_RECORD        Body: { reason }             (breaks the hash chain)
+POST   /api/audit/bulk-delete     AUDIT_DELETE,     Reauth always: BULK_DELETE_AUDIT_RECORDS  Body: { ids, reason }        (breaks the hash chain)
 ```
+
+Filter Data Management (`/api/super-admin/filter-data/*`, `/api/super-admin/data/*`) and the
+Super Admin record edits on the user-facing pages: every POST / PUT / DELETE is SUPER_ADMIN only,
+`Reauth always: SUPER_ADMIN_DATA_EDIT`, and needs `_changeReason` (min 5 chars).
 
 ---
 
@@ -456,7 +490,7 @@ Permission: CONFIG_UPDATE, Reauth: EXPORT_BACKUP
 Response: File download
 
 POST /api/backup/restore
-Permission: CONFIG_UPDATE, Reauth: RESTORE_BACKUP
+Permission: BACKUP_RESTORE, Reauth always: RESTORE_BACKUP (checked before the upload is read)
 Body: multipart/form-data (backup file)
 
 POST /api/backup/validate
@@ -476,6 +510,37 @@ PUT    /api/notifications/:id/read
 PUT    /api/notifications/:id/unread
 DELETE /api/notifications/:id
 ```
+
+## Notification Settings
+
+```
+GET    /api/notification-settings/email                     CONFIG_READ (secrets masked)
+PUT    /api/notification-settings/email                     CONFIG_UPDATE · Reauth: UPDATE_EMAIL_CONFIG
+POST   /api/notification-settings/email/test                CONFIG_UPDATE · Body: { recipient? }
+GET    /api/notification-settings/email/oauth2/redirect-uri CONFIG_READ
+GET    /api/notification-settings/email/oauth2/authorize    CONFIG_UPDATE
+GET    /api/notification-settings/email/oauth2/code         no JWT (OAuth2 provider redirect; checks the stored state)
+GET    /api/notification-settings/email/oauth2/status       CONFIG_READ
+GET    /api/notification-settings/sms                       CONFIG_READ (secrets masked)
+PUT    /api/notification-settings/sms                       CONFIG_UPDATE · Reauth: UPDATE_SMS_CONFIG
+POST   /api/notification-settings/sms/test                  CONFIG_UPDATE · Body: { recipient }
+GET    /api/notification-settings/logs                      CONFIG_READ
+GET    /api/notification-settings/logs/stats                CONFIG_READ
+DELETE /api/notification-settings/logs/:id                  CONFIG_UPDATE · Reauth: DELETE_NOTIFICATION_LOG
+GET    /api/notification-settings/templates                 CONFIG_READ
+POST   /api/notification-settings/templates                 CONFIG_UPDATE
+PUT    /api/notification-settings/templates/:id             CONFIG_UPDATE
+DELETE /api/notification-settings/templates/:id             CONFIG_UPDATE
+```
+- **Test-sends are audited (SEC-03, 2026-10-22).** Every `/email/test` and `/sms/test` call writes one
+  `NOTIFICATION_TEST_SENT` row: who, `targetId` `notification-email` / `notification-sms`, and
+  `afterValue { channel, recipient, mode: SEND | CONNECTION_CHECK, success }`. `/email/test` without a
+  recipient is the SMTP connection check (`recipient: null`). The row never holds the error text or any
+  config value, because a delivery error can echo an http-gateway URL that carries an API key. The error
+  is in the response and in the delivery log. A refused request (400 / 403) writes no row.
+- **`POST /api/notification-settings/send` was removed 2026-10-22 (SEC-03).** It sent any e-mail or SMS
+  to any recipient with no signature, no audit row and no sender recorded, and nothing called it. It now
+  answers like any unknown path (404).
 
 ---
 

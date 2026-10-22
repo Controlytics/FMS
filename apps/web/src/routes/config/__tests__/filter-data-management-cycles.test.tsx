@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { resetEnv, signReauth, cancelReauth, ackMessage, reauthRequired } from './config-test-helpers';
 import { renderFdm, modal, field, setField, typeReason, click, row, waitForCalls, openTab } from './fdm-helpers';
 
@@ -355,12 +355,45 @@ describe('Cleaning Cycles tab — edit a cycle', () => {
     await ackMessage('Updated');
   });
 
-  it('signature required up front: both the cycle and its reading write are signed', async () => {
+  it('signature required up front: ONE password signs both the cycle and its reading write', async () => {
+    // The up-front prompt comes from /my-actions. Save must not be clicked before
+    // that answer has been SERVED, or the page cannot know a signature is needed
+    // (a race seen under load). The flag is set when the mock answers it.
+    let myActionsServed = false;
     const api = renderFdm([
+      { path: '/api/config/action-reauth/my-actions', body: () => { myActionsServed = true; return { actions: ['SUPER_ADMIN_DATA_EDIT'] }; } },
       ...cycleRoutes(),
       { method: 'PUT', path: `${SA_CYCLES}/c1`, body: {} },
       { method: 'PUT', path: `${SA_EVENTS}/e4`, body: {} },
     ], { reauth: ['SUPER_ADMIN_DATA_EDIT'] });
+    await openTab('Cleaning Cycles');
+    await screen.findByText('FLT-100');
+    await waitFor(() => expect(myActionsServed).toBe(true));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    await click(within(row('FLT-100')).getByRole('button', { name: /Edit/ }));
+    const dlg = modal('Edit Cleaning Cycle');
+    setField(dlg, 'Dryer Temperature (°C)', '82');
+    typeReason(dlg, 'Dryer probe recalibrated');
+    await click(within(dlg).getByRole('button', { name: 'Save Changes' }));
+    await signReauth('pw-1');
+    // OD-01 (2026-10-22): SUPER_ADMIN_DATA_EDIT is always required, so the save is
+    // signed once — the reading write reuses the password instead of asking again.
+    const [cyc] = await waitForCalls(api, 'PUT', `${SA_CYCLES}/c1`, 1);
+    expect(cyc.headers['x-reauth-password']).toBe('pw-1');
+    const [ev] = await waitForCalls(api, 'PUT', `${SA_EVENTS}/e4`, 1);
+    expect(ev.headers['x-reauth-password']).toBe('pw-1');
+    expect(ev.json).toMatchObject({ _changeReason: 'Dryer probe recalibrated', _currentPassword: 'pw-1' });
+    expect(screen.queryByText('Confirm Your Identity')).toBeNull();
+    await ackMessage('Updated');
+  });
+
+  it('OD-01: the server demands the signature (not in /my-actions) — one prompt, the refused PUT wrote nothing, both writes signed', async () => {
+    const api = renderFdm([
+      ...cycleRoutes(),
+      reauthRequired('PUT', `${SA_CYCLES}/c1`),
+      { method: 'PUT', path: `${SA_CYCLES}/c1`, body: {} },
+      { method: 'PUT', path: `${SA_EVENTS}/e4`, body: {} },
+    ]);
     await openTab('Cleaning Cycles');
     await screen.findByText('FLT-100');
     await click(within(row('FLT-100')).getByRole('button', { name: /Edit/ }));
@@ -368,13 +401,15 @@ describe('Cleaning Cycles tab — edit a cycle', () => {
     setField(dlg, 'Dryer Temperature (°C)', '82');
     typeReason(dlg, 'Dryer probe recalibrated');
     await click(within(dlg).getByRole('button', { name: 'Save Changes' }));
-    await signReauth('pw-1');
-    await waitForCalls(api, 'PUT', `${SA_CYCLES}/c1`, 1);
-    // The reading write asks again (each gated() call is its own signature).
-    await signReauth('pw-2');
+    // The password-less first pass stopped at the refused cycle PUT: the reading
+    // write was never sent unsigned.
+    expect(api.calls('PUT', `${SA_EVENTS}/e4`)).toHaveLength(0);
+    await signReauth('pw-od01');
+    const cycles = await waitForCalls(api, 'PUT', `${SA_CYCLES}/c1`, 2);
+    expect(cycles[0].headers['x-reauth-password']).toBeUndefined();
+    expect(cycles[1].headers['x-reauth-password']).toBe('pw-od01');
     const [ev] = await waitForCalls(api, 'PUT', `${SA_EVENTS}/e4`, 1);
-    expect(ev.headers['x-reauth-password']).toBe('pw-2');
-    expect(ev.json).toMatchObject({ _changeReason: 'Dryer probe recalibrated', _currentPassword: 'pw-2' });
+    expect(ev.headers['x-reauth-password']).toBe('pw-od01');
     await ackMessage('Updated');
   });
 
@@ -566,5 +601,30 @@ describe('Cleaning Cycles tab — create a cycle', () => {
     const [post] = await waitForCalls(api, 'POST', SA_CYCLES, 1);
     expect(post.headers['x-reauth-password']).toBe('pw-new');
     await ackMessage('Created');
+  });
+});
+
+// D03-08 (2026-10-22): the console's Cleaning Cycles columns mirror the Cleaning
+// Record, so a rejected-and-redone stage shows the attempt that counts there too.
+describe('Cleaning Cycles tab — a stage rejected at approval and redone (D03-08)', () => {
+  it('Wash Out shows the redo, and the rejection rewind never stands in for the wash', async () => {
+    const REJ = {
+      id: 'c9', cycleCode: 'CYC-009', filterId: 'f1', filterName: 'FLT-900', status: 'COMPLETED',
+      startedAt: '2026-07-05T08:00:00.000Z', completedAt: '2026-07-05T09:00:00.000Z',
+      events: [
+        { id: 'r1', eventType: 'STATE_TRANSITION', fromState: null, toState: 'WASH_IN', performedAt: '2026-07-05T08:00:00.000Z', performedByName: 'Op A', attributes: { instrumentReadings: [RO, AIR] } },
+        { id: 'r2', eventType: 'STATE_TRANSITION', fromState: 'WASH_IN', toState: 'WASH_OUT', performedAt: '2026-07-05T08:20:00.000Z', performedByName: 'Op A', attributes: {} },
+        { id: 'r3', eventType: 'STATE_TRANSITION', fromState: 'WASH_OUT', toState: 'WASH_IN', performedAt: '2026-07-05T08:25:00.000Z', performedByName: 'QA One', attributes: { kind: 'STAGE_INTERLOCK_REJECTED', stageKey: 'WASH_OUT' } },
+        { id: 'r4', eventType: 'STATE_TRANSITION', fromState: 'WASH_IN', toState: 'WASH_OUT', performedAt: '2026-07-05T08:40:00.000Z', performedByName: 'Op B', attributes: {} },
+      ],
+    };
+    renderFdm(cycleRoutes({ cycles: [REJ] }));
+    await openTab('Cleaning Cycles');
+    const r = await waitFor(() => row('FLT-900'));
+    const text = r.textContent ?? '';
+    expect(text).toContain('08:40');
+    expect(text).not.toContain('08:20');
+    expect(text).not.toContain('QA One');
+    expect(text).toContain('Op A');
   });
 });

@@ -263,6 +263,73 @@ export const REAUTH_ACTIONS = {
 export type ReauthAction = keyof typeof REAUTH_ACTIONS;
 
 /**
+ * Actions the API signs with `enforceReauthAlways`: the password is asked of
+ * EVERY caller, SUPER_ADMIN included, whatever the stored policy
+ * (system_config['action-reauth']) says. On the two policy screens (Config →
+ * Action Re-auth, Roles & Access → Re-auth) these rows are informational —
+ * "Always required" — never a checkbox, because ticking or clearing one would
+ * change nothing the server does.
+ *
+ * OD-01 (operator decision 2026-10-22) added the record-destroying,
+ * record-rewriting and rule-changing actions.
+ *
+ * Kept equal to the API's enforceReauthAlways call sites (literal, array,
+ * ternary and the config/routes.ts variable form) by
+ * apps/web/src/__tests__/always-reauth-actions.test.ts, which reads apps/api/src.
+ * The API itself does not read this set — each route names its gate.
+ */
+export const ALWAYS_REAUTH_ACTIONS: ReadonlySet<ReauthAction> = new Set<ReauthAction>([
+  // Configuration — the four security configs (config/routes.ts, hard-coded),
+  // and the config writes that took no signature before 2026-09-03.
+  'UPDATE_PASSWORD_POLICY',
+  'UPDATE_LOGIN_SECURITY',
+  'UPDATE_SESSION_CONFIG',
+  'UPDATE_DATETIME_CONFIG',
+  'UPDATE_TABLET_ACCESS',
+  'UPDATE_AUDIT_TEMPLATES',
+  'UPDATE_REPORT_SIGNATORIES',
+  'UPDATE_FIELD_ID',
+  // Approvals that ARE the signature.
+  'APPROVE_CLEANING_STAGE',
+  'REJECT_CLEANING_STAGE',
+  'ACKNOWLEDGE_PM_OVERDUE',
+  'REVIEW_REPORT',
+  'APPROVE_REPORT',
+  'TOGGLE_SUPER_ADMIN_API_ACCESS',
+  // OD-01 — destroys or rewrites a §11 record.
+  'REDACT_AUDIT_RECORD',
+  'BULK_REDACT_AUDIT_RECORDS',
+  'UPDATE_AUDIT_RECORD',
+  'DELETE_AUDIT_RECORD',
+  'BULK_DELETE_AUDIT_RECORDS',
+  'SUPER_ADMIN_DATA_EDIT',
+  'DELETE_USER',
+  'BULK_DELETE_USERS',
+  'RESTORE_BACKUP',
+  'DELETE_ASSET',
+  'DELETE_FILTER',
+  'DELETE_HIERARCHY_NODE',
+  'UPDATE_FILTER_LIFECYCLE',
+  // OD-01 — changes the rules (who may do what).
+  'CREATE_ROLE',
+  'UPDATE_ROLE',
+  'DELETE_ROLE',
+  'UPDATE_ROLE_CONFIG',
+  'UPDATE_USER_CONFIG',
+  'UPDATE_USER', // an edit can change the user's role
+  'UPDATE_LDAP_CONFIG', // the LDAP group -> role mapping
+  'UPDATE_REAUTH_CONFIG',
+  // NOT here: APPROVE_ADMIN_REQUEST. Only an approval that changes a ROLE is
+  // signed always (gated on [APPROVE_ADMIN_REQUEST, UPDATE_USER]); every other
+  // admin-request decision follows the policy, so its row stays switchable.
+]);
+
+/** True when the API signs `action` for every caller (see ALWAYS_REAUTH_ACTIONS). */
+export function isAlwaysReauth(action: string): boolean {
+  return (ALWAYS_REAUTH_ACTIONS as ReadonlySet<string>).has(action);
+}
+
+/**
  * Report name (as sent to POST /api/audit/report-export-log and rendered in
  * the REPORT_GENERATED audit row) → the re-auth row that gates its download.
  * Shared by the API gate and the web export helper so they cannot drift.

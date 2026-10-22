@@ -7,7 +7,8 @@ import { StatCard } from '@/components/ui/stat-card';
 import { api } from '@/lib/api-client';
 import { useReauth, isReauthCancelled } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
-import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
+import { AlwaysRequiredBadge } from '@/components/always-required-badge';
+import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES, isAlwaysReauth } from '@digilog/shared';
 import type { RoleData, ReauthAction, ReauthActionCategory } from '@digilog/shared';
 
 // ── Re-auth tab constants ──
@@ -112,8 +113,14 @@ const reauthActionsByCategory = REAUTH_ACTION_CATEGORIES.map((category) => ({
   category,
   actions: (Object.entries(REAUTH_ACTIONS) as [ReauthAction, { label: string; category: string }][])
     .filter(([, v]) => v.category === category)
-    .map(([key, v]) => ({ key, label: v.label })),
+    .map(([key, v]) => ({ key, label: v.label, always: isAlwaysReauth(key) })),
 })).filter(g => g.actions.length > 0);
+
+// The rows this policy actually controls. "Always required" rows (OD-01,
+// 2026-10-22 — the server signs them with enforceReauthAlways) are shown, but
+// never counted, selected or cleared: the server asks every role for the
+// password on those, Super Admin included, whatever is stored here.
+const SWITCHABLE_ACTIONS = Object.keys(REAUTH_ACTIONS).filter((a) => !isAlwaysReauth(a));
 
 export interface ReauthTabHandle {
   save: () => Promise<void>;
@@ -161,13 +168,16 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
 
     const reauthStats = useMemo(() => {
       const totalActions = Object.keys(REAUTH_ACTIONS).length;
-      const configuredActions = Object.keys(reauthCurrentConfig).filter(k => (reauthCurrentConfig[k]?.length ?? 0) > 0).length;
-      const totalChecks = Object.values(reauthCurrentConfig).reduce((sum, arr) => sum + (arr?.length ?? 0), 0);
+      const switchableActions = SWITCHABLE_ACTIONS.length;
+      const alwaysActions = totalActions - switchableActions;
+      const configuredActions = SWITCHABLE_ACTIONS.filter(k => (reauthCurrentConfig[k]?.length ?? 0) > 0).length;
+      const totalChecks = SWITCHABLE_ACTIONS.reduce((sum, k) => sum + (reauthCurrentConfig[k]?.length ?? 0), 0);
       const categoryStats = reauthActionsByCategory.map(g => {
-        const configured = g.actions.filter(a => (reauthCurrentConfig[a.key]?.length ?? 0) > 0).length;
-        return { category: g.category, total: g.actions.length, configured };
+        const switchable = g.actions.filter(a => !a.always);
+        const configured = switchable.filter(a => (reauthCurrentConfig[a.key]?.length ?? 0) > 0).length;
+        return { category: g.category, total: switchable.length, configured };
       });
-      return { totalActions, configuredActions, totalChecks, categoryStats };
+      return { totalActions, switchableActions, alwaysActions, configuredActions, totalChecks, categoryStats };
     }, [reauthCurrentConfig]);
 
     const reauthIsChecked = useCallback((action: string, role: string): boolean => {
@@ -191,7 +201,8 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
       const updated = { ...reauthCurrentConfig };
       const categoryActions = reauthActionsByCategory.find(c => c.category === category)?.actions ?? [];
       const targetRoles = reauthVisibleRoles.map(r => r.name);
-      for (const { key } of categoryActions) {
+      for (const { key, always } of categoryActions) {
+        if (always) continue;
         const existing = new Set(updated[key] ?? []);
         targetRoles.forEach(r => existing.add(r));
         updated[key] = Array.from(existing);
@@ -204,7 +215,8 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
       const updated = { ...reauthCurrentConfig };
       const categoryActions = reauthActionsByCategory.find(c => c.category === category)?.actions ?? [];
       const targetRoles = new Set(reauthVisibleRoles.map(r => r.name));
-      for (const { key } of categoryActions) {
+      for (const { key, always } of categoryActions) {
+        if (always) continue;
         if (updated[key]) {
           updated[key] = updated[key].filter(r => !targetRoles.has(r));
           if (updated[key].length === 0) delete updated[key];
@@ -216,7 +228,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
 
     const reauthSelectAllRole = useCallback((roleName: string) => {
       const updated = { ...reauthCurrentConfig };
-      for (const action of Object.keys(REAUTH_ACTIONS)) {
+      for (const action of SWITCHABLE_ACTIONS) {
         const existing = new Set(updated[action] ?? []);
         existing.add(roleName);
         updated[action] = Array.from(existing);
@@ -228,6 +240,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
     const reauthClearRole = useCallback((roleName: string) => {
       const updated = { ...reauthCurrentConfig };
       for (const action of Object.keys(updated)) {
+        if (isAlwaysReauth(action)) continue;
         updated[action] = (updated[action] ?? []).filter(r => r !== roleName);
         if (updated[action].length === 0) delete updated[action];
       }
@@ -272,7 +285,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
     }, []);
 
     const reauthGetRoleConfiguredCount = (roleName: string) => {
-      return Object.values(reauthCurrentConfig).filter(arr => arr?.includes(roleName)).length;
+      return SWITCHABLE_ACTIONS.filter(a => reauthCurrentConfig[a]?.includes(roleName)).length;
     };
 
     useEffect(() => {
@@ -353,6 +366,11 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
                     When a checked action is performed by a user with the corresponding role, they will be prompted to
                     re-enter their password before the action executes. This adds an extra layer of security for sensitive operations.
                   </p>
+                  <p className="mt-1 text-blue-600">
+                    Rows marked <span className="font-semibold">Always required</span> ({reauthStats.alwaysActions}) ask every role for the
+                    password, Super Admin included, whatever is ticked here: deleting, editing or redacting records, role and
+                    re-authentication policy changes, approvals and the security settings. They cannot be switched off.
+                  </p>
                 </div>
               </div>
             </div>
@@ -432,7 +450,7 @@ export const ReauthTab = forwardRef<ReauthTabHandle, ReauthTabProps>(
                               {role.displayName}
                             </div>
                             <span className="text-[11px] text-slate-400 font-medium tabular-nums whitespace-nowrap">
-                              {reauthGetRoleConfiguredCount(role.name)} / {reauthStats.totalActions}
+                              {reauthGetRoleConfiguredCount(role.name)} / {reauthStats.switchableActions}
                             </span>
                             <div className="flex gap-1">
                               <button
@@ -515,7 +533,7 @@ function ReauthCategorySection({
   totalCount,
 }: {
   category: ReauthActionCategory;
-  actions: { key: string; label: string }[];
+  actions: { key: string; label: string; always: boolean }[];
   roles: RoleData[];
   meta: { gradient: string; bgLight: string; icon: string; description: string };
   isCollapsed: boolean;
@@ -546,7 +564,7 @@ function ReauthCategorySection({
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-slate-700">{category}</span>
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] leading-4 font-medium border ${meta.bgLight}`}>
-                    {configuredCount}/{totalCount}
+                    {totalCount > 0 ? `${configuredCount}/${totalCount}` : 'Always required'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">{meta.description}</p>
@@ -558,7 +576,7 @@ function ReauthCategorySection({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-            <div className="flex gap-1">
+            {totalCount > 0 && <div className="flex gap-1">
               <button
                 onClick={onSelectAll}
                 className="text-[11px] px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors border border-blue-100"
@@ -571,13 +589,13 @@ function ReauthCategorySection({
               >
                 Clear
               </button>
-            </div>
+            </div>}
           </div>
         </td>
         <td colSpan={roles.length} />
       </tr>
       {/* Action Rows (collapsible) */}
-      {!isCollapsed && actions.map(({ key, label }, idx) => (
+      {!isCollapsed && actions.map(({ key, label, always }, idx) => (
         <tr
           key={key}
           className={`hover:bg-slate-50 transition-colors ${
@@ -590,7 +608,11 @@ function ReauthCategorySection({
               <span className="text-sm text-slate-700 font-medium">{label}</span>
             </div>
           </td>
-          {roles.map(role => {
+          {always ? (
+            <td colSpan={Math.max(roles.length, 1)} className="px-2 py-2.5">
+              <AlwaysRequiredBadge />
+            </td>
+          ) : roles.map(role => {
             const checked = isChecked(key, role.name);
             return (
               <td key={role.name} className="px-2 py-2.5 text-center">

@@ -18,22 +18,6 @@ const CYCLE_STATUS_CONFIG: Record<string, { label: string; bg: string; text: str
   COMPLETED: { label: 'Completed', bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
   TERMINATED: { label: 'Terminated', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
 };
-function getStageInfoFromEvents(events: any[], stage: string) {
-  const stageEvents = (events ?? []).filter((e: any) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
-  // DRY_IN — require the SUBMIT_READINGS event; the SET_DURATION event
-  // (which entered DRY_IN with no readings) should not back-fill the time
-  // column. Same rule as cleaning-cycles/history.tsx — operator request
-  // 2026-05-25: DRY_IN time = temperature submission time only.
-  const requireReadings = stage === 'DRY_IN';
-  const evWithReadings = stageEvents.find((e: any) => (e.attributes as any)?.instrumentReadings?.length > 0);
-  const ev = evWithReadings ?? (requireReadings ? null : stageEvents[0]);
-  if (!ev) return null;
-  return {
-    time: ev.performedAt,
-    performedBy: ev.performedByName ?? ev.performedBy?.substring(0, 8) ?? '-',
-    readings: (ev.attributes as any)?.instrumentReadings ?? [],
-  };
-}
 function getReadingValue(readings: any[], desc: string) {
   const r = readings.find((x: any) => x.description?.toLowerCase().includes(desc.toLowerCase()));
   if (!r) return '-';
@@ -56,13 +40,17 @@ function getCycleDuration(cycle: any) {
 
 import { getAuditStatus } from '../audit/audit-helpers';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
-import { Pagination } from '@/components/ui/pagination';
+import { Pagination, formatListTotal } from '@/components/ui/pagination';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { usePaginationDefaults } from '@/hooks/use-pagination-config';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
-import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
+// The stage columns use the Cleaning Record's own rule (getStageInfo): the
+// attempt that counts, i.e. the latest entry into the stage (D03-08). This page
+// carried a copy that read the FIRST transition, so a stage rejected at approval
+// and redone showed the rejected attempt here as well.
+import { transitionEndpoints, phaseSuffix, getStageInfo } from '@/lib/cleaning-cycle-report';
 import { ReasonBox, reasonOk } from '@/components/ui/reason-box';
 
 /**
@@ -71,7 +59,7 @@ import { ReasonBox, reasonOk } from '@/components/ui/reason-box';
  * These were free-text inputs, and the live data shows exactly what that costs:
  * WASH_IN, WASHIN, washin and WASH-IN all exist as separate values, as do
  * washout / WASHOUT / WASH_OUT. Every one of those is invisible to the stage
- * lookups (`getStageInfoFromEvents` matches `toState === 'WASH_IN'`), so a typo
+ * lookups (`getStageInfo` matches `toState === 'WASH_IN'`), so a typo
  * silently blanks the Wash In column for that cycle.
  *
  * The six cleaning stages plus the cycle-level markers that legitimately appear
@@ -1064,24 +1052,25 @@ export function FilterDataManagementPage() {
         }
       }
       body._changeReason = changeReason.trim();
-      await gated('SUPER_ADMIN_DATA_EDIT', (pw) => pw
-        ? apiClient.putWithReauth(`${endpoint}/${rowEditDialog.id}`, body, pw)
-        : apiClient.put(`${endpoint}/${rowEditDialog.id}`, body));
+      // ONE password signs the whole save. SUPER_ADMIN_DATA_EDIT is always
+      // required (OD-01, 2026-10-22), so a gated() per request would ask for the
+      // password once for the cycle and again for every reading. The callback may
+      // run twice — first without a password, which the server refuses on the
+      // cycle PUT before anything is written — so the retry cannot double-apply.
+      await gated('SUPER_ADMIN_DATA_EDIT', async (pw) => {
+        const put = (url: string, b: unknown) => (pw ? apiClient.putWithReauth(url, b, pw) : apiClient.put(url, b));
+        await put(`${endpoint}/${rowEditDialog.id}`, body);
+        // Written after the cycle save, each through the same audited endpoint the
+        // Filter Events tab uses — so a reading correction is attributed exactly
+        // like any other event edit, with the same reason.
+        for (const w of readingWrites) {
+          await put(`/api/super-admin/data/filter-events/${w.eventId}`, { attributes: w.attributes, _changeReason: changeReason.trim() });
+        }
+      });
       const labelMap: Record<string, string> = {
         'cycle': 'Cycle', 'event': 'Event', 'pm-entry': 'PM entry',
         'notification': 'Notification', 'admin-request': 'Admin request', 'block-change': 'Block change',
       };
-      // Written after the cycle save, each through the same audited endpoint the
-      // Filter Events tab uses — so a reading correction is attributed exactly
-      // like any other event edit, with the same reason.
-      for (const w of readingWrites) {
-        await gated('SUPER_ADMIN_DATA_EDIT', (pw) => {
-          const evBody = { attributes: w.attributes, _changeReason: changeReason.trim() };
-          return pw
-            ? apiClient.putWithReauth(`/api/super-admin/data/filter-events/${w.eventId}`, evBody, pw)
-            : apiClient.put(`/api/super-admin/data/filter-events/${w.eventId}`, evBody);
-        });
-      }
 
       toast.success('Updated', `${labelMap[rowEditDialog.entity]} updated and audited`);
       setRowEditDialog(null);
@@ -1377,6 +1366,11 @@ export function FilterDataManagementPage() {
     : tab === 'notifications' ? (notificationsEnriched.data?.total ?? filteredEnrichedNotifications.length)
     : tab === 'block-changes' ? (blockChangesEnriched.data?.total ?? filteredEnrichedBlockChanges.length)
     : genericRows.length;
+  // "10,000+" (2026-10-22): the events and audit feeds stop counting at 10,000.
+  // Past it the pager walks on while the server's page is full.
+  const cappedFeed = tab === 'filter-events' ? eventsEnriched.data : tab === 'audit-trail' ? auditEnriched.data : undefined;
+  const totalCapped = !!cappedFeed?.totalCapped;
+  const serverPageRows: number | undefined = totalCapped ? (cappedFeed?.data?.length ?? 0) : undefined;
 
   const isLoading = tab === 'retirements' ? retLoading
     : tab === 'replacements' ? repLoading
@@ -1415,7 +1409,7 @@ export function FilterDataManagementPage() {
           <div className="flex items-center gap-3">
             <div className="text-right">
               <div className="text-2xl font-bold text-slate-800">
-                {totalRecords}
+                {totalCapped ? formatListTotal(totalRecords, true) : totalRecords}
               </div>
               <div className="text-xs text-slate-500 font-medium">Records</div>
             </div>
@@ -1780,10 +1774,10 @@ export function FilterDataManagementPage() {
               <tbody className="divide-y divide-slate-100 bg-white">
                 {filteredEnrichedCycles.map((c: any, idx: number) => {
                   const attrs = cycleFilterAttrMap.get(c.filterId) ?? {};
-                  const washIn = getStageInfoFromEvents(c.events ?? [], 'WASH_IN');
-                  const washOut = getStageInfoFromEvents(c.events ?? [], 'WASH_OUT');
-                  const dryIn = getStageInfoFromEvents(c.events ?? [], 'DRY_IN');
-                  const dryOut = getStageInfoFromEvents(c.events ?? [], 'DRY_OUT');
+                  const washIn = getStageInfo(c.events ?? [], 'WASH_IN');
+                  const washOut = getStageInfo(c.events ?? [], 'WASH_OUT');
+                  const dryIn = getStageInfo(c.events ?? [], 'DRY_IN');
+                  const dryOut = getStageInfo(c.events ?? [], 'DRY_OUT');
                   const washReadings = washIn?.readings ?? [];
                   const dryReadings = (dryIn?.readings?.length ? dryIn.readings : null) ?? (dryOut?.readings?.length ? dryOut.readings : null) ?? [];
                   const dryerTemp = getReadingValue(dryReadings, 'dryer') !== '-' ? getReadingValue(dryReadings, 'dryer') : getReadingValue(dryReadings, 'temperature');
@@ -2297,6 +2291,8 @@ export function FilterDataManagementPage() {
               page={page}
               pageSize={pageSize}
               totalItems={totalRecords}
+              totalCapped={totalCapped}
+              pageRows={serverPageRows}
               onPageChange={setPage}
               onPageSizeChange={size => { setPageSize(size); setPage(1); }}
               pageSizeOptions={pageSizeOptions}

@@ -295,12 +295,16 @@ describe('Backup - restore', () => {
     wrapFetch((_, res) => res, captured);
     await toConfirm(container);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    // RESTORE_BACKUP is always-on since OD-01: asked up front, so the file is uploaded once, signed.
+    expect(api.calls('POST', RESTORE)).toHaveLength(0);
+    await signReauth('rs-ok');
     expect(await screen.findByText('Restore Successful')).toBeInTheDocument();
     expect(screen.getByText('Restored 12345 records')).toBeInTheDocument();
     expect(screen.getByText(/You may need to log in again/)).toBeInTheDocument();
     expect(screen.getByText('Click to select backup file')).toBeInTheDocument();
     expect(screen.queryByText('Backup file is valid')).toBeNull();
     expect(api.calls('POST', RESTORE)).toHaveLength(1);
+    expect(api.calls('POST', RESTORE)[0].headers['x-reauth-password']).toBe('rs-ok');
     // FormData bodies: [validate, restore] - the restore carries the same file.
     const forms = captured.filter((c) => c.body instanceof FormData).map((c) => c.body as FormData);
     expect(forms).toHaveLength(2);
@@ -313,6 +317,7 @@ describe('Backup - restore', () => {
     const { container } = setup({ extra: [{ method: 'POST', path: VALIDATE, body: VALID }, { method: 'POST', path: RESTORE, body: { success: false, message: 'Restore finished with warnings' } }] });
     await toConfirm(container);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    await signReauth();
     expect(await screen.findByText('Restore finished with warnings')).toBeInTheDocument();
     expect(screen.getByText('backup.json')).toBeInTheDocument();
     expect(screen.getByText('Backup file is valid')).toBeInTheDocument();
@@ -323,6 +328,7 @@ describe('Backup - restore', () => {
     wrapFetch((url, res) => (url.includes(RESTORE) ? new Response('Internal error', { status: 500 }) : res));
     await toConfirm(container);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    await signReauth();
     expect(await screen.findByText('Restore Failed')).toBeInTheDocument();
     expect(screen.getByText('Restore failed (HTTP 500)')).toBeInTheDocument();
   });
@@ -345,6 +351,7 @@ describe('Backup - restore', () => {
     expect(override).not.toBeDisabled();
     expect(override).not.toHaveAttribute('title');
     await act(async () => { fireEvent.click(override); });
+    await signReauth();
     expect(await screen.findByText('Restored with override')).toBeInTheDocument();
     const sent = captured.filter((c) => c.body instanceof FormData).pop()!.body as FormData;
     expect(sent.get('force')).toBe('true');
@@ -372,6 +379,7 @@ describe('Backup - restore', () => {
     wrapFetch((_, res) => res, captured);
     await toConfirm(container);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    await signReauth();
     expect(await screen.findByText('Restore Failed')).toBeInTheDocument();
     expect(screen.getByText('Audit chain broken in backup')).toBeInTheDocument();
     // The server's report now drives the integrity panel.
@@ -380,6 +388,7 @@ describe('Backup - restore', () => {
     expect(screen.getByText(/4 of 50 audit/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox'));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Anyway (Override)' })); });
+    await signReauth();
     expect(await screen.findByText('Forced restore done')).toBeInTheDocument();
     expect((captured.filter((c) => c.body instanceof FormData).pop()!.body as FormData).get('force')).toBe('true');
   });
@@ -393,6 +402,7 @@ describe('Backup - restore', () => {
     });
     await toConfirm(container);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    await signReauth();
     expect(await screen.findByText('Chain invalid')).toBeInTheDocument();
     expect(screen.queryByText('ANOMALIES FOUND')).toBeNull();
   });
@@ -407,6 +417,7 @@ describe('Backup - restore', () => {
     });
     await toConfirm(container);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    await signReauth();
     await screen.findByText('ANOMALIES FOUND');
     await pickFile(container, 'other.json');
     await screen.findByText('Backup file is valid');
@@ -414,13 +425,14 @@ describe('Backup - restore', () => {
     expect(screen.queryByText('Restore Failed')).toBeNull();
   });
 
-  it('server demands a signature for restore: retried with the x-reauth-password header', async () => {
-    const { api, container } = setup({ extra: [{ method: 'POST', path: VALIDATE, body: VALID }, reauthRequired('POST', RESTORE), { method: 'POST', path: RESTORE, body: { success: true, message: 'ok' } }] });
+  it('with nothing in /my-actions the always-on restore prompt opens first; ONE upload carries the x-reauth-password header', async () => {
+    const { api, container } = setup({ extra: [{ method: 'POST', path: VALIDATE, body: VALID }, { method: 'POST', path: RESTORE, body: { success: true, message: 'ok' } }] });
     await toConfirm(container);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    expect(api.calls('POST', RESTORE)).toHaveLength(0);
     await signReauth('rs-pw');
-    await waitFor(() => expect(api.calls('POST', RESTORE)).toHaveLength(2));
-    expect(api.calls('POST', RESTORE)[1].headers['x-reauth-password']).toBe('rs-pw');
+    await waitFor(() => expect(api.calls('POST', RESTORE)).toHaveLength(1));
+    expect(api.calls('POST', RESTORE)[0].headers['x-reauth-password']).toBe('rs-pw');
     expect(await screen.findByText('Restore Successful')).toBeInTheDocument();
   });
 
@@ -438,14 +450,16 @@ describe('Backup - restore', () => {
     expect(screen.getByRole('button', { name: /Restore Database from This Backup/ })).not.toBeDisabled();
   });
 
-  it('cancelling a server-demanded restore signature reports nothing (item 9)', async () => {
+  it('cancelling the always-on restore prompt (nothing in /my-actions) uploads nothing and reports nothing (item 9)', async () => {
     const consoleError = spyConsoleError();
-    const { api, container } = setup({ extra: [{ method: 'POST', path: VALIDATE, body: VALID }, reauthRequired('POST', RESTORE)] });
+    const { api, container } = setup({ extra: [{ method: 'POST', path: VALIDATE, body: VALID }] });
     await toConfirm(container);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Restore Database' })); });
+    await screen.findByPlaceholderText('Enter your password');
+    expect(api.calls('POST', RESTORE)).toHaveLength(0);
     await cancelReauth();
     await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
-    expect(api.calls('POST', RESTORE)).toHaveLength(1);
+    expect(api.calls('POST', RESTORE)).toHaveLength(0);
     expect(screen.queryByText('Restore Failed')).toBeNull();
     expect(screen.queryByText('Restore Successful')).toBeNull();
     expectSilentCancel(consoleError);

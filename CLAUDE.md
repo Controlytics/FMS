@@ -113,11 +113,21 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   edits on the user-facing pages (`SUPER_ADMIN_DATA_EDIT`, `requireDataEditReauth`), user delete +
   bulk delete, role create / edit / delete, role permission + sidebar saves
   (`PUT /api/config/roles/:role`, `UPDATE_ROLE_CONFIG`) and the policy save itself
-  (`UPDATE_REAUTH_CONFIG`). They were policy-driven before, and (per security finding OD-01) the live
-  policy named SUPER_ADMIN on 2 of 84 actions. Always-on actions are never in `/my-actions` (the tablet caches it): the page
-  sends the call, the server answers 401 REAUTH_REQUIRED, `useReauth` prompts and re-runs the
-  callback with the password — so a callback runs TWICE and must send its gated request before any
-  other write (FDM's cycle edit now signs cycle + readings with ONE prompt). The policy screens show
+  (`UPDATE_REAUTH_CONFIG`); part 2 (operator-approved extras): backup restore, user edit
+  (`UPDATE_USER` — it can change a role), per-user overrides (`UPDATE_USER_CONFIG`), the LDAP
+  group→role mapping (`UPDATE_LDAP_CONFIG`), Block/Area/AHU/filter delete
+  (`DELETE_ASSET`/`DELETE_FILTER`/`DELETE_HIERARCHY_NODE`) and manual lifecycle moves
+  (`UPDATE_FILTER_LIFECYCLE`). Approving an admin request that changes a ROLE (MODIFY_USER,
+  modifyField `role`, read from the STORED request) is gated always on
+  `[APPROVE_ADMIN_REQUEST, UPDATE_USER]`; every other admin-request decision stays policy-driven, so
+  `APPROVE_ADMIN_REQUEST` is NOT in the always list. Notification deletes stay policy-driven
+  (operator). They were policy-driven before, and (per security finding OD-01) the live
+  policy named SUPER_ADMIN on 2 of 84 actions. Always-on actions are never in `/my-actions` (the
+  tablet caches it): the page sends the call, the server answers 401 REAUTH_REQUIRED, `useReauth`
+  prompts and re-runs the callback with the password — so a callback runs TWICE and must send its
+  gated request before any other write (FDM's cycle edit signs cycle + readings with ONE prompt).
+  Only an always-on action whose request carries a FILE is asked up front (`PROMPT_UP_FRONT` in
+  `hooks/use-reauth.ts`, today `RESTORE_BACKUP`), so a restore uploads its file once. The policy screens show
   every always-on action as an informational "Always required" row, never a checkbox, and leave its
   stored roles alone (`ALWAYS_REAUTH_ACTIONS` / `isAlwaysReauth` in
   `packages/shared/src/types/reauth-actions.ts`; `apps/web/src/__tests__/always-reauth-actions.test.ts`

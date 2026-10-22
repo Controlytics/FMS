@@ -2,6 +2,14 @@ import { useState, useRef, useCallback } from 'react';
 import useSWR from 'swr';
 import { REAUTH_ACTIONS } from '@digilog/shared';
 
+/**
+ * Always-on actions (isAlwaysReauth) whose request carries a file upload: asked
+ * for the password BEFORE the request, so the file is sent once, signed. Every
+ * other always-on action keeps the 401 → prompt → retry path. Every entry must
+ * be always-on (hooks/__tests__/use-reauth.test.tsx checks it).
+ */
+export const PROMPT_UP_FRONT: ReadonlySet<string> = new Set(['RESTORE_BACKUP']);
+
 interface ReauthState {
   isOpen: boolean;
   password: string;
@@ -64,10 +72,16 @@ export function useReauth() {
   // ADVANCE_FILTER_STAGE row AND its station row (STAGE_WASH_IN …), and the
   // server enforces whichever the operator switched on. Prompt if ANY needs it.
   // The first key is the "primary" one shown in the dialog / sent on verify.
+  //
+  // Always-on actions (isAlwaysReauth, OD-01 2026-10-22) are never in
+  // /my-actions: they go out unsigned, the server answers 401 REAUTH_REQUIRED and
+  // the retry below prompts. That costs one refused request — except for an
+  // action whose request carries a FILE: a backup restore uploaded the whole file
+  // twice. Those are asked UP FRONT (PROMPT_UP_FRONT).
   const needsReauth = useCallback(
     (action: string | string[]): boolean => {
       const list = Array.isArray(action) ? action : [action];
-      return list.some((a) => myActions?.actions.includes(a) ?? false);
+      return list.some((a) => PROMPT_UP_FRONT.has(a) || (myActions?.actions.includes(a) ?? false));
     },
     [myActions],
   );

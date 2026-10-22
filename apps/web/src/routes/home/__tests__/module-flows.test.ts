@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MODULE_FLOWS, CATEGORY_ORDER } from '../module-flows';
-import { PERMISSIONS } from '@digilog/shared';
+import { PERMISSIONS, isAlwaysReauth } from '@digilog/shared';
 
 const ALL_PERMS = new Set(Object.values(PERMISSIONS));
 
@@ -25,6 +25,24 @@ describe('MODULE_FLOWS integrity', () => {
 
   it('every module category is one of the known categories', () => {
     for (const m of MODULE_FLOWS) expect(CATEGORY_ORDER).toContain(m.category);
+  });
+
+  // OD-01 (2026-10-22): the guide said "Reauth always enforced" for nine actions
+  // the server gates on the admin-managed policy (enforceReauth), so the claim was
+  // false for every role the policy did not list. "Always" may only name an action
+  // the API signs with enforceReauthAlways.
+  it('says "always enforced" only for actions the server always signs', () => {
+    const wrong: string[] = [];
+    for (const m of MODULE_FLOWS) {
+      for (const s of m.steps) {
+        for (const hit of (s.description ?? '').matchAll(/always enforced[^(]*\(([^)]*)\)/gi)) {
+          for (const a of hit[1].split(/[\s/,]+/).filter((t: string) => /^[A-Z][A-Z_]+$/.test(t))) {
+            if (!isAlwaysReauth(a)) wrong.push(`${m.id} → "${s.label}": ${a}`);
+          }
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 
   // Anti-recurrence guard: gate: [] used to silently render as "any user" in

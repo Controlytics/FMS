@@ -10,7 +10,8 @@ import { StatCard } from '@/components/ui/stat-card';
 import { api } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
-import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES } from '@digilog/shared';
+import { AlwaysRequiredBadge } from '@/components/always-required-badge';
+import { REAUTH_ACTIONS, REAUTH_ACTION_CATEGORIES, isAlwaysReauth } from '@digilog/shared';
 import type { ReauthAction, ReauthActionCategory } from '@digilog/shared';
 import type { RoleData } from '@digilog/shared';
 
@@ -119,8 +120,14 @@ const actionsByCategory = REAUTH_ACTION_CATEGORIES.map((category) => ({
   category,
   actions: (Object.entries(REAUTH_ACTIONS) as [ReauthAction, { label: string; category: string }][])
     .filter(([, v]) => v.category === category)
-    .map(([key, v]) => ({ key, label: v.label })),
+    .map(([key, v]) => ({ key, label: v.label, always: isAlwaysReauth(key) })),
 })).filter(g => g.actions.length > 0);
+
+// The rows this policy actually controls. "Always required" rows (OD-01,
+// 2026-10-22 — the server signs them with enforceReauthAlways) are shown, but
+// never counted, selected or cleared: the server asks every role for the
+// password on those, Super Admin included, whatever is stored here.
+const SWITCHABLE_ACTIONS = Object.keys(REAUTH_ACTIONS).filter((a) => !isAlwaysReauth(a));
 
 export function ActionReauthPage() {
   const { data: config, error: configError, isLoading: configLoading, mutate: reloadConfig } = useSWR<ActionReauthConfig>('/api/config/action-reauth', { revalidateOnMount: true, dedupingInterval: 0 });
@@ -162,13 +169,16 @@ export function ActionReauthPage() {
   // Stats
   const stats = useMemo(() => {
     const totalActions = Object.keys(REAUTH_ACTIONS).length;
-    const configuredActions = Object.keys(currentConfig).filter(k => (currentConfig[k]?.length ?? 0) > 0).length;
-    const totalChecks = Object.values(currentConfig).reduce((sum, arr) => sum + (arr?.length ?? 0), 0);
+    const switchableActions = SWITCHABLE_ACTIONS.length;
+    const alwaysActions = totalActions - switchableActions;
+    const configuredActions = SWITCHABLE_ACTIONS.filter(k => (currentConfig[k]?.length ?? 0) > 0).length;
+    const totalChecks = SWITCHABLE_ACTIONS.reduce((sum, k) => sum + (currentConfig[k]?.length ?? 0), 0);
     const categoryStats = actionsByCategory.map(g => {
-      const configured = g.actions.filter(a => (currentConfig[a.key]?.length ?? 0) > 0).length;
-      return { category: g.category, total: g.actions.length, configured };
+      const switchable = g.actions.filter(a => !a.always);
+      const configured = switchable.filter(a => (currentConfig[a.key]?.length ?? 0) > 0).length;
+      return { category: g.category, total: switchable.length, configured };
     });
-    return { totalActions, configuredActions, totalChecks, categoryStats };
+    return { totalActions, switchableActions, alwaysActions, configuredActions, totalChecks, categoryStats };
   }, [currentConfig]);
 
   const isChecked = useCallback((action: string, role: string): boolean => {
@@ -192,7 +202,8 @@ export function ActionReauthPage() {
     const updated = { ...currentConfig };
     const categoryActions = actionsByCategory.find(c => c.category === category)?.actions ?? [];
     const targetRoles = visibleRoles.map(r => r.name);
-    for (const { key } of categoryActions) {
+    for (const { key, always } of categoryActions) {
+      if (always) continue;
       const existing = new Set(updated[key] ?? []);
       targetRoles.forEach(r => existing.add(r));
       updated[key] = Array.from(existing);
@@ -205,7 +216,8 @@ export function ActionReauthPage() {
     const updated = { ...currentConfig };
     const categoryActions = actionsByCategory.find(c => c.category === category)?.actions ?? [];
     const targetRoles = new Set(visibleRoles.map(r => r.name));
-    for (const { key } of categoryActions) {
+    for (const { key, always } of categoryActions) {
+      if (always) continue;
       if (updated[key]) {
         updated[key] = updated[key].filter(r => !targetRoles.has(r));
         if (updated[key].length === 0) delete updated[key];
@@ -217,7 +229,7 @@ export function ActionReauthPage() {
 
   const selectAllRole = useCallback((roleName: string) => {
     const updated = { ...currentConfig };
-    for (const action of Object.keys(REAUTH_ACTIONS)) {
+    for (const action of SWITCHABLE_ACTIONS) {
       const existing = new Set(updated[action] ?? []);
       existing.add(roleName);
       updated[action] = Array.from(existing);
@@ -229,6 +241,7 @@ export function ActionReauthPage() {
   const clearRole = useCallback((roleName: string) => {
     const updated = { ...currentConfig };
     for (const action of Object.keys(updated)) {
+      if (isAlwaysReauth(action)) continue;
       updated[action] = (updated[action] ?? []).filter(r => r !== roleName);
       if (updated[action].length === 0) delete updated[action];
     }
@@ -303,7 +316,7 @@ export function ActionReauthPage() {
   }
 
   const getRoleConfiguredCount = (roleName: string) => {
-    return Object.values(currentConfig).filter(arr => arr?.includes(roleName)).length;
+    return SWITCHABLE_ACTIONS.filter(a => currentConfig[a]?.includes(roleName)).length;
   };
 
   const pageHeader = (actions?: React.ReactNode) => (
@@ -397,6 +410,11 @@ export function ActionReauthPage() {
               When a checked action is performed by a user with the corresponding role, they will be prompted to
               re-enter their password before the action executes. This adds an extra layer of security for sensitive operations.
             </p>
+            <p className="mt-1 text-blue-600">
+              Rows marked <span className="font-semibold">Always required</span> ({stats.alwaysActions}) ask every role for the
+              password, Super Admin included, whatever is ticked here: deleting, editing or redacting records, role and
+              re-authentication policy changes, approvals and the security settings. They cannot be switched off.
+            </p>
           </div>
         </div>
       </div>
@@ -476,7 +494,7 @@ export function ActionReauthPage() {
                         {role.displayName}
                       </div>
                       <span className="text-[11px] text-slate-400 font-medium tabular-nums whitespace-nowrap">
-                        {getRoleConfiguredCount(role.name)} / {stats.totalActions}
+                        {getRoleConfiguredCount(role.name)} / {stats.switchableActions}
                       </span>
                       <div className="flex gap-1">
                         <button
@@ -615,7 +633,7 @@ function CategorySection({
   totalCount,
 }: {
   category: ReauthActionCategory;
-  actions: { key: string; label: string }[];
+  actions: { key: string; label: string; always: boolean }[];
   roles: RoleData[];
   meta: { gradient: string; bgLight: string; icon: string; description: string };
   isCollapsed: boolean;
@@ -646,7 +664,7 @@ function CategorySection({
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-slate-700">{category}</span>
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] leading-4 font-medium border ${meta.bgLight}`}>
-                    {configuredCount}/{totalCount}
+                    {totalCount > 0 ? `${configuredCount}/${totalCount}` : 'Always required'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">{meta.description}</p>
@@ -658,7 +676,7 @@ function CategorySection({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-            <div className="flex gap-1">
+            {totalCount > 0 && <div className="flex gap-1">
               <button
                 onClick={onSelectAll}
                 className="text-[11px] px-2 py-1 rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 font-medium transition-colors border border-blue-100"
@@ -671,13 +689,13 @@ function CategorySection({
               >
                 Clear
               </button>
-            </div>
+            </div>}
           </div>
         </td>
         <td colSpan={roles.length} />
       </tr>
       {/* Action Rows (collapsible) */}
-      {!isCollapsed && actions.map(({ key, label }, idx) => (
+      {!isCollapsed && actions.map(({ key, label, always }, idx) => (
         <tr
           key={key}
           className={`hover:bg-slate-50 transition-colors ${
@@ -690,7 +708,11 @@ function CategorySection({
               <span className="text-sm text-slate-700 font-medium">{label}</span>
             </div>
           </td>
-          {roles.map(role => {
+          {always ? (
+            <td colSpan={Math.max(roles.length, 1)} className="px-2 py-2.5">
+              <AlwaysRequiredBadge />
+            </td>
+          ) : roles.map(role => {
             const checked = isChecked(key, role.name);
             return (
               <td key={role.name} className="px-2 py-2.5 text-center">

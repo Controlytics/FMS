@@ -5,7 +5,8 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 const h = vi.hoisted(() => ({ actions: [] as string[] }));
 vi.mock('swr', () => ({ default: () => ({ data: { actions: h.actions } }) }));
 
-import { useReauth } from '../use-reauth';
+import { useReauth, PROMPT_UP_FRONT } from '../use-reauth';
+import { isAlwaysReauth } from '@digilog/shared';
 
 describe('useReauth.executeWithResult', () => {
   beforeEach(() => { h.actions = []; });
@@ -173,3 +174,45 @@ describe('useReauth.execute — cancel notifies the caller', () => {
   });
 });
 
+
+// OD-01 (2026-10-22): an always-on action is never in /my-actions. One whose
+// request carries a FILE (PROMPT_UP_FRONT: a backup restore) is asked UP FRONT,
+// so the file is uploaded once; every other always-on action keeps the
+// 401 -> prompt -> retry path (covered above).
+describe('useReauth — always-on upload actions are asked up front', () => {
+  beforeEach(() => { h.actions = []; });
+
+  it('PROMPT_UP_FRONT holds only always-on actions', () => {
+    expect([...PROMPT_UP_FRONT].filter((a) => !isAlwaysReauth(a))).toEqual([]);
+  });
+
+  it('needsReauth is true for an upload action with an empty /my-actions; other always-on actions use the 401 path', () => {
+    const { result } = renderHook(() => useReauth());
+    expect(result.current.needsReauth('RESTORE_BACKUP')).toBe(true);
+    expect(result.current.needsReauth('DELETE_USER')).toBe(false);
+    expect(result.current.needsReauth('APPROVE_ADMIN_REQUEST')).toBe(false);
+  });
+
+  it('execute opens the dialog BEFORE the callback runs; confirm runs it exactly once, signed', async () => {
+    const { result } = renderHook(() => useReauth());
+    const cb = vi.fn(async (_pw?: string) => {});
+    act(() => { void result.current.execute('RESTORE_BACKUP', cb); });
+    await waitFor(() => expect(result.current.isOpen).toBe(true));
+    expect(cb).not.toHaveBeenCalled();
+    act(() => { result.current.setPassword('pw-restore'); });
+    await act(async () => { await result.current.confirm(); });
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith('pw-restore');
+  });
+
+  it('cancel never runs the callback, so nothing is uploaded', async () => {
+    const { result } = renderHook(() => useReauth());
+    const cb = vi.fn(async (_pw?: string) => {});
+    const onCancel = vi.fn();
+    act(() => { void result.current.execute('RESTORE_BACKUP', cb, { onCancel }); });
+    await waitFor(() => expect(result.current.isOpen).toBe(true));
+    act(() => { result.current.cancel(); });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(cb).not.toHaveBeenCalled();
+  });
+});
