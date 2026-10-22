@@ -10,7 +10,10 @@ const liveRoleNames = async () => new Set((await prisma.role.findMany({ select: 
 
 export async function tabletAccessRoutes(app: FastifyInstance) {
   app.get('/tablet-access', {
-    preHandler: [app.requirePermission('CONFIG_READ')],
+    // SUPER_ADMIN only (D03-15, 2026-10-22): this decides which roles may sign in
+    // on a tablet at all. The card has always been a Super Admin Settings card;
+    // the route took CONFIG_READ / CONFIG_UPDATE, so ADMIN could edit it by URL.
+    preHandler: [app.requireSuperAdmin()],
     schema: { tags: ['Config'], summary: 'Get tablet app access configuration' },
   }, async () => {
     const row = await prisma.systemConfig.findUnique({ where: { configKey: 'tablet-access' } });
@@ -22,7 +25,7 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
   });
 
   app.put('/tablet-access', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Config'],
       summary: 'Update tablet app access configuration',

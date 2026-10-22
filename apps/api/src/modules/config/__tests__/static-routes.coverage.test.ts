@@ -469,9 +469,11 @@ describe('offline-cache', () => {
 
 // ─── tablet-access (value never changed) ──────────────────────────
 describe('tablet-access', () => {
-  it('GET needs CONFIG_READ and hides entries for roles that no longer exist', async () => {
+  it('GET is SUPER_ADMIN-only (D03-15) and hides entries for roles that no longer exist', async () => {
     expect((await authGet(app, '/api/config/tablet-access', roToken)).statusCode).toBe(403);
-    const res = await authGet(app, '/api/config/tablet-access', admToken);
+    // A CONFIG_READ / CONFIG_UPDATE holder (the ADMIN shape) is refused too.
+    expect((await authGet(app, '/api/config/tablet-access', admToken)).statusCode).toBe(403);
+    const res = await authGet(app, '/api/config/tablet-access', saToken);
     expect(res.statusCode).toBe(200);
     const raw = ((await stored('tablet-access')) as Record<string, unknown> | null) ?? {};
     const live = new Set((await prisma.role.findMany({ select: { name: true } })).map((r) => r.name));

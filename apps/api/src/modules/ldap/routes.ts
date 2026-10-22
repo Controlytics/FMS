@@ -21,7 +21,9 @@ const LDAP_AUDIT_SAFE_KEYS = [
 export default async function ldapRoutes(app: FastifyInstance) {
   // GET /api/ldap/config
   app.get('/config', {
-    preHandler: [app.requirePermission('CONFIG_READ')],
+    // SUPER_ADMIN only, read and write (D03-15, 2026-10-22): the group -> role
+    // mapping lets whoever edits it map their own directory group into any role.
+    preHandler: [app.requireSuperAdmin()],
     schema: { tags: ['LDAP'], summary: 'Get LDAP configuration' },
   }, async () => {
     const config = await ldapService.getConfig();
@@ -30,7 +32,7 @@ export default async function ldapRoutes(app: FastifyInstance) {
 
   // PUT /api/ldap/config
   app.put('/config', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['LDAP'],
       summary: 'Update LDAP configuration',
@@ -67,7 +69,7 @@ export default async function ldapRoutes(app: FastifyInstance) {
 
   // POST /api/ldap/test-connection
   app.post('/test-connection', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['LDAP'],
       summary: 'Test LDAP connection',
@@ -81,7 +83,7 @@ export default async function ldapRoutes(app: FastifyInstance) {
 
   // GET /api/ldap/status
   app.get('/status', {
-    preHandler: [app.requirePermission('CONFIG_READ')],
+    preHandler: [app.requireSuperAdmin()],
     schema: { tags: ['LDAP'], summary: 'Get LDAP status' },
   }, async () => {
     const config = await ldapService.getConfig();

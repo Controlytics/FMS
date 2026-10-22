@@ -4,7 +4,8 @@
  * No directory server exists, so this file never ENABLES LDAP in the database
  * (an enabled row would send every unknown-username login in the shared test
  * DB to a directory bind). It drives every refusal/validation path, the masked
- * reads, the secret-preserving save, the re-auth gate (on this file's own role)
+ * reads, the secret-preserving save, the always-on re-auth gate, the SUPER_ADMIN
+ * gate (D03-15: read AND write; a CONFIG_UPDATE holder is refused)
  * and a real connection attempt to a closed localhost port.
  *
  * The `ldap` system_config row is snapshotted and restored exactly in afterAll.
@@ -20,9 +21,11 @@ import {
 
 const S = runSuffix();
 const PW = 'CvoLdap@2026!x';
-const ROLE_CFG = `cvoLC${S}`;    // CONFIG_READ + CONFIG_UPDATE, re-auth required for UPDATE_LDAP_CONFIG
+// D03-15 (2026-10-22): LDAP is SUPER_ADMIN-only, read and write. `cfg` is the
+// SUPER_ADMIN that does the work; `upd` holds what ADMIN holds and is refused.
+const ROLE_UPD = `cvoLC${S}`;    // CONFIG_READ + CONFIG_UPDATE (the ADMIN shape)
 const ROLE_READ = `cvoLR${S}`;   // CONFIG_READ only
-const U = { cfg: `cvolcf${S}`.toLowerCase(), read: `cvolrd${S}`.toLowerCase() };
+const U = { cfg: `cvolcf${S}`.toLowerCase(), upd: `cvolup${S}`.toLowerCase(), read: `cvolrd${S}`.toLowerCase() };
 const ids: Record<string, string> = {};
 const tok: Record<string, string> = {};
 let app: FastifyInstance;
@@ -38,11 +41,14 @@ beforeAll(async () => {
   // Must never be enabled here — see the header.
   expect((row?.configValue as any)?.enabled ?? false).toBe(false);
 
-  await createRole(ROLE_CFG, ['CONFIG_READ', 'CONFIG_UPDATE']);
+  await createRole(ROLE_UPD, ['CONFIG_READ', 'CONFIG_UPDATE']);
   await createRole(ROLE_READ, ['CONFIG_READ']);
-  ids.cfg = await createUser(U.cfg, ROLE_CFG, PW);
+  ids.cfg = await createUser(U.cfg, 'SUPER_ADMIN', PW);
+  ids.upd = await createUser(U.upd, ROLE_UPD, PW);
   ids.read = await createUser(U.read, ROLE_READ, PW);
-  added = await addReauth([['UPDATE_LDAP_CONFIG', ROLE_CFG]]);
+  // UPDATE_LDAP_CONFIG is always signed (OD-01); the grant is kept so the policy
+  // row this file used to rely on is still exercised and removed.
+  added = await addReauth([['UPDATE_LDAP_CONFIG', ROLE_UPD]]);
   app = await buildApp([{ plugin: ldapRoutes, prefix: '/api/ldap' }]);
   for (const k of Object.keys(U) as Array<keyof typeof U>) tok[k] = await login(app, U[k], PW);
 }, 60_000);
@@ -58,7 +64,7 @@ afterAll(async () => {
     }],
     ['reauth', () => removeReauth(added)],
     ['users', () => deleteUsers(Object.values(ids))],
-    ['roles', () => deleteRoles([ROLE_CFG, ROLE_READ])],
+    ['roles', () => deleteRoles([ROLE_UPD, ROLE_READ])],
     ['app', () => app?.close()],
   ]);
 }, 60_000);
@@ -120,19 +126,22 @@ describe('PUT /api/ldap/config — re-auth, merge, masking, audit', () => {
     expect(stored!.searchBase).toBe('ou=x,dc=cvo,dc=local');
   });
 
-  it('needs CONFIG_UPDATE', async () => {
-    const res = await authPut(app, '/api/ldap/config', tok.read, { serverUrl: 'ldap://evil' }, PW);
-    expect(res.statusCode).toBe(403);
+  it('a CONFIG_UPDATE holder (ADMIN) is refused even with a valid password: the group→role mapping is SUPER_ADMIN-only', async () => {
+    for (const t of [tok.upd, tok.read]) {
+      const res = await authPut(app, '/api/ldap/config', t, { serverUrl: 'ldap://evil', roleMappings: [{ ldapGroup: 'Everyone', role: 'SUPER_ADMIN' }] }, PW);
+      expect(res.statusCode).toBe(403);
+    }
     expect((await storedLdap())!.serverUrl).toBe(CLOSED);
+    expect((await storedLdap())!.roleMappings).toEqual([{ ldapGroup: 'Cleanroom Admins', role: 'ADMIN' }]);
   });
 });
 
 describe('GET /api/ldap/config + /status', () => {
   it('masks the bind password and reports status', async () => {
-    const cfg = await authGet(app, '/api/ldap/config', tok.read);
+    const cfg = await authGet(app, '/api/ldap/config', tok.cfg);
     expect(cfg.statusCode).toBe(200);
     expect(cfg.json()).toMatchObject({ serverUrl: CLOSED, bindDN: 'cn=svc,dc=cvo,dc=local', bindPassword: '********', enabled: false });
-    const st = await authGet(app, '/api/ldap/status', tok.read);
+    const st = await authGet(app, '/api/ldap/status', tok.cfg);
     expect(st.json()).toEqual({ enabled: false, serverUrl: CLOSED });
   });
 
@@ -140,11 +149,18 @@ describe('GET /api/ldap/config + /status', () => {
     const saved = await prisma.systemConfig.findUnique({ where: { configKey: 'ldap' } });
     await prisma.systemConfig.delete({ where: { configKey: 'ldap' } });
     try {
-      const cfg = await authGet(app, '/api/ldap/config', tok.read);
+      const cfg = await authGet(app, '/api/ldap/config', tok.cfg);
       expect(cfg.json()).toMatchObject({ enabled: false, serverUrl: '', bindPassword: '', tlsRejectUnauthorized: true, connectionTimeout: 5000 });
-      expect((await authGet(app, '/api/ldap/status', tok.read)).json()).toEqual({ enabled: false, serverUrl: null });
+      expect((await authGet(app, '/api/ldap/status', tok.cfg)).json()).toEqual({ enabled: false, serverUrl: null });
     } finally {
       await prisma.systemConfig.create({ data: { configKey: 'ldap', configValue: saved!.configValue as any, configType: saved!.configType, requiresReauth: saved!.requiresReauth, updatedBy: saved!.updatedBy } });
+    }
+  });
+
+  it('reading is SUPER_ADMIN-only too: CONFIG_READ / CONFIG_UPDATE holders are refused', async () => {
+    for (const t of [tok.read, tok.upd]) {
+      expect((await authGet(app, '/api/ldap/config', t)).statusCode).toBe(403);
+      expect((await authGet(app, '/api/ldap/status', t)).statusCode).toBe(403);
     }
   });
 
@@ -203,8 +219,9 @@ describe('POST /api/ldap/test-connection', () => {
     expect(res.json().message).toBe('LDAP connection failed: the server address is not allowed (loopback and link-local addresses are refused).');
   });
 
-  it('needs CONFIG_UPDATE', async () => {
-    const res = await authPost(app, '/api/ldap/test-connection', tok.read, {});
-    expect(res.statusCode).toBe(403);
+  it('is SUPER_ADMIN-only: a CONFIG_UPDATE holder is refused before any connection attempt', async () => {
+    for (const t of [tok.upd, tok.read]) {
+      expect((await authPost(app, '/api/ldap/test-connection', t, {})).statusCode).toBe(403);
+    }
   });
 });

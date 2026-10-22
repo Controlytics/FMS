@@ -153,6 +153,12 @@ Keys: password-policy, login-security, session, datetime, pagination,
       branding, user-id, report-config, tablet-access, cleaning-profile-assignment,
       audit-templates, action-reauth
       (alarm-columns removed 2026-05-17 with the alarm subsystem)
+
+SUPER_ADMIN only (GET and PUT), whatever CONFIG_* a role holds:
+  datetime        (2026-09-03)
+  tablet-access   (2026-10-22, D03-15: which roles may sign in on a tablet;
+                   GET /api/config/tablet-access/my-features stays open to every user)
+GET/PUT /api/config/dynamic/<key>   — every key is requiredRole SUPER_ADMIN
 ```
 
 ### Public Config (no auth)
@@ -179,7 +185,8 @@ PUT /api/config/roles/:role            Permission: ROLE_MANAGE, Reauth always: U
 GET /api/config/users/:userId          Permission: CONFIG_READ
 PUT /api/config/users/:userId          Permission: ROLE_MANAGE, Reauth always: UPDATE_USER_CONFIG
 PUT /api/config/action-reauth          Permission: ROLE_MANAGE, Reauth always: UPDATE_REAUTH_CONFIG
-PUT /api/ldap/config                   Permission: CONFIG_UPDATE, Reauth always: UPDATE_LDAP_CONFIG (the group -> role mapping)
+GET /api/ldap/config, GET /api/ldap/status, POST /api/ldap/test-connection   SUPER_ADMIN only (2026-10-22, D03-15)
+PUT /api/ldap/config                   SUPER_ADMIN only (2026-10-22, D03-15), Reauth always: UPDATE_LDAP_CONFIG (the group -> role mapping)
 POST /api/admin-requests/:id/process   Permission: ADMIN_REQUEST_APPROVE / ADMIN_REQUEST_REJECT (by action), Reauth: APPROVE_ADMIN_REQUEST;
                                        Reauth always [APPROVE_ADMIN_REQUEST, UPDATE_USER] when APPROVING a stored MODIFY_USER request whose modifyField is role
 GET /api/config/my-config              Public

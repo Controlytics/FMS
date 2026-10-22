@@ -201,7 +201,7 @@ createRoot(document.getElementById('root')!).render(
             {/* Audit 2026-09-24: every key this page edits is served by a def with requiredRole SUPER_ADMIN, so a CONFIG_READ role (ADMIN) got a page of 403s. SA-only, like filter-data-management. */}
             <Route path="/config/role-assignments" element={<RequireRole roles={[]}><Suspense fallback={<LazyFallback />}><RoleAssignmentsPage /></Suspense></RequireRole>} />
             <Route path="/config/password-policy" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><PasswordPolicyPage /></RequireRole>} />
-            <Route path="/config/ldap" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
+            <Route path="/config/ldap" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><LdapConfigPage /></Suspense></RequireRole>} />
             {/* SUPER_ADMIN only (2026-09-03). Matches the requireSuperAdmin()
                 gate on GET/PUT /api/config/datetime — a CONFIG_READ holder
                 reaching this page would only meet a 403 on every call. */}
@@ -222,7 +222,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/config/sms-settings" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><SmsSettingsPage /></Suspense></RequireRole>} />
             <Route path="/config/notification-rules" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationRulesPage /></Suspense></RequireRole>} />
                 <Route path="/config/notification-logs" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><NotificationLogsPage /></Suspense></RequireRole>} />
-            <Route path="/config/dynamic/:moduleKey" element={<RequireRole permissions={[PERMISSIONS.CONFIG_READ]}><DynamicConfigPage /></RequireRole>} />
+            <Route path="/config/dynamic/:moduleKey" element={<RequireRole roles={['SUPER_ADMIN']}><DynamicConfigPage /></RequireRole>} />
 
             {/* System Health — Admin only (lazy-loaded) */}
             <Route path="/system-health" element={<RequireRole roles={['SUPER_ADMIN', 'ADMIN']}><Suspense fallback={<LazyFallback />}><SystemHealthPage /></Suspense></RequireRole>} />
@@ -256,7 +256,7 @@ createRoot(document.getElementById('root')!).render(
                 lists 403 on load. RequireRole with an empty `roles` denies
                 everyone except SUPER_ADMIN, which bypasses above. */}
             <Route path="/config/filter-data-management" element={<RequireRole roles={[]}><Suspense fallback={<LazyFallback />}><FilterDataManagementPage /></Suspense></RequireRole>} />
-            <Route path="/config/tablet-access" element={<RequireRole permissions={[PERMISSIONS.CONFIG_UPDATE, PERMISSIONS.CONFIG_READ]}><Suspense fallback={<LazyFallback />}><TabletAccessConfigPage /></Suspense></RequireRole>} />
+            <Route path="/config/tablet-access" element={<RequireRole roles={['SUPER_ADMIN']}><Suspense fallback={<LazyFallback />}><TabletAccessConfigPage /></Suspense></RequireRole>} />
             <Route path="/filters" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
             <Route path="/filters/stage/:stageKey" element={<RequireRole permissions={[PERMISSIONS.FILTER_OPERATE, PERMISSIONS.ASSET_READ]}><FilterOperationsPage /></RequireRole>} />
             <Route path="/checklists" element={<RequireRole permissions={[PERMISSIONS.FCP_READ, PERMISSIONS.CHECKLIST_TOGGLE, PERMISSIONS.CHECKLIST_CREATE, PERMISSIONS.CHECKLIST_EDIT, PERMISSIONS.CHECKLIST_DELETE, PERMISSIONS.VERSION_HISTORY_VIEW]}><Suspense fallback={<LazyFallback />}><ChecklistProfileListPage /></Suspense></RequireRole>} />

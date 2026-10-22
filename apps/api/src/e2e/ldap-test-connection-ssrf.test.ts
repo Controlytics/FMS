@@ -10,7 +10,10 @@
  * for any holder of CONFIG_UPDATE (no password needed). After the fix all three
  * are refused before a socket is opened, with one identical body, at once.
  *
- * Own role + user; the stored `ldap` config row is never written (every probe
+ * Since D03-15 (2026-10-22) the route is SUPER_ADMIN-only, so the probes run as
+ * this file's own SUPER_ADMIN (a CONFIG_UPDATE holder never reaches the socket
+ * code: config-sa-only-pages.test.ts). Own user; the stored `ldap` config row is
+ * never written (every probe
  * carries its own URL and typed bind password).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -18,10 +21,9 @@ import { networkInterfaces } from 'node:os';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, authPost } from './test-helper.js';
 import ldapRoutes from '../modules/ldap/routes.js';
-import { cleanupAll, createRole, createUser, deleteRoles, deleteUsers, login, runSuffix } from './support/owned-fixtures.js';
+import { cleanupAll, createUser, deleteUsers, login, runSuffix } from './support/owned-fixtures.js';
 
 const S = runSuffix();
-const ROLE = `secLd${S}`;
 const USER = `secld${S}`.toLowerCase();
 const PW = 'SecLdap@2026!x';
 let app: FastifyInstance;
@@ -29,8 +31,7 @@ let token = '';
 let userId = '';
 
 beforeAll(async () => {
-  await createRole(ROLE, ['CONFIG_READ', 'CONFIG_UPDATE']);
-  userId = await createUser(USER, ROLE, PW);
+  userId = await createUser(USER, 'SUPER_ADMIN', PW);
   app = await buildApp([{ plugin: ldapRoutes, prefix: '/api/ldap' }]);
   token = await login(app, USER, PW);
 }, 60_000);
@@ -38,7 +39,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await cleanupAll([
     ['users', () => deleteUsers([userId].filter(Boolean))],
-    ['roles', () => deleteRoles([ROLE])],
     ['app', async () => { await app?.close(); }],
   ]);
 }, 60_000);

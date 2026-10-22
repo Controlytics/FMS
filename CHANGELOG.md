@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] - Tablet App Access, LDAP and the dynamic config pages are SUPER_ADMIN-only (D03-15, 2026-10-22)
+
+- **Team decision: align with what the UI showed.** All three pages were Super Admin Settings cards that no role
+  could be granted. Their routes and APIs still took CONFIG_READ / CONFIG_UPDATE, so ADMIN could open
+  `/config/tablet-access` by URL and save which roles may sign in on a tablet. They are now SUPER_ADMIN-only on
+  both sides, as Date/Time (2026-09-03) and Filter Data Management (2026-08-27) are.
+  - **Tablet App Access:** `requireSuperAdmin()` on GET and PUT `/api/config/tablet-access`, with route
+    `roles={['SUPER_ADMIN']}`. `GET /tablet-access/my-features` is unchanged, since the tablet reads its home screen from it.
+  - **LDAP, read and write:** `requireSuperAdmin()` on `/api/ldap/config` (GET and PUT), `/status` and
+    `/test-connection`, with an SA-only route. The group → role mapping lets whoever edits it map their own directory group
+    into any role.
+  - **`/config/dynamic/:moduleKey`:** now an SA-only route. Every def rendered there (`ahu-completion-process`,
+    `backup-format`, `export-limit`) was already `requiredRole: 'SUPER_ADMIN'` on the API. The access matrix no
+    longer offers grants for them. A web test fails if a delegable dynamic def is added without revisiting the guard.
+  - `/config/roles` is unchanged: ROLE_MANAGE is its intended grant.
+- **What ADMIN loses:** editing tablet login access and LDAP through a typed URL. Neither was offered in ADMIN's UI.
+- **Tests:**
+  - `apps/api/src/e2e/config-sa-only-pages.test.ts`: a CONFIG_* holder gets 403 and nothing is written;
+    SUPER_ADMIN gets 200; my-features stays open.
+  - `apps/web/src/routes/config/__tests__/config-sa-only-pages.test.tsx`.
+  - Updated: `ldap-routes.coverage`, `ldap-test-connection-ssrf` (probes now run as SUPER_ADMIN) and
+    `static-routes.coverage` (tablet-access GET).
+
 ## [Unreleased] - dashboard-stats computed at most once per 60 s (P-6, 2026-10-22)
 
 - `GET /api/filters/dashboard-stats` runs 21 whole-table aggregates (4.6–6.0 s at one year,

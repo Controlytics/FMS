@@ -36,6 +36,10 @@ const HIDDEN_MODULE_KEYS = new Set([
   // NOT drop it — `save()` sends the whole `draft`, seeded from `matrixData` — so
   // the record of the old grant survives for anyone reading the config.
   'datetime',
+  // 2026-10-22 (D03-15): every page behind /config/dynamic/:moduleKey is
+  // SUPER_ADMIN-only - the API has always refused these (def requiredRole
+  // SUPER_ADMIN) and now the route does too - so a grant here can do nothing.
+  'ahu-completion-process', 'backup-format', 'export-limit',
 ]);
 
 // Modules that have a hardcoded page (no config def → not in the manifest) but
