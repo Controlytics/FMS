@@ -18,6 +18,13 @@
     pre-restore chain. A `BACKUP_RESTORED` row is written through `auditLog`.
   - Any failed check moves the old data back, and a fingerprint proves it is unchanged.
     `-RollBackInterrupted` recovers from a crash.
+  - **A signed act, as in the app (OD-01).** A Super Admin's username and password are typed at
+    a hidden prompt and checked with the app's `verifyPassword` against the pre-restore DB.
+    The check writes `REAUTH_FAILED` or `REAUTH_SUCCESS`. `BACKUP_RESTORED` is written as that
+    Super Admin and linked to the signature (`signature_audit_id`). The Windows account and the
+    typed reason go in the row.
+  - `-EmergencyUnsigned` is allowed only when no Super Admin can be read. The row is then
+    flagged `signature: UNSIGNED_EMERGENCY`.
   - Shipped with the next installer build: the three files are on `build-installer.ps1`'s
     named list, and there is a Start-menu entry, FMS → "Restore database from backup".
     No installer has been built with them yet.

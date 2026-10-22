@@ -29,6 +29,7 @@ For a small file that the Backup page accepts, you can still use the Backup page
 | | What | Why |
 |---|---|---|
 | ☐ | You can sign in to the server as a **Windows Administrator**. | The tool stops and starts the FMS service. |
+| ☐ | A **Super Admin** of the app is present to type their **username and password**. | A restore is an electronically signed act, as in the app. The password is typed at a hidden prompt, checked by the app's own password check, and never shown, logged or stored. |
 | ☐ | You know **which backup file** to restore (see §3). | |
 | ☐ | Users are told the app is **unavailable** for the time in §8, and they should sign out. | The app is stopped during the restore. Work entered then would be lost. |
 | ☐ | **Tablets:** each tablet shows "Data Synced" (nothing waiting to send). | Work a tablet sends after the restore lands in the restored data. Cleaning steps for cycles that are not in the backup will be refused. |
@@ -79,9 +80,15 @@ checks the current database and the free disk space. Nothing has changed yet, an
 still running. If the file is damaged or incomplete, the tool stops here: **"Nothing was
 changed. Use another backup."**
 
-**Step 4. Type your full name.** It is recorded in the audit trail, together with your Windows account.
+**Step 4. Type the reason for the restore** (at least 5 characters, e.g. "Server disk failed, restoring last night's backup"). It is recorded in the audit trail.
 
 **Step 5. Type `RESTORE`** (capital letters) and press Enter. Anything else cancels. Nothing is changed.
+
+**Step 5a. Sign.** A **Super Admin** types their app **username**, then their **password**.
+Nothing appears while the password is typed. You get three tries. Each wrong password is
+recorded in the audit trail (*Re-authentication failed*), exactly as in the app.
+The `BACKUP_RESTORED` record is written in that Super Admin's name, together with the Windows
+account that ran the tool.
 The tool then checks the current audit trail, so it can compare it with the restored one.
 The app is still running during this check. It takes about 20 minutes per year of data (§8).
 
@@ -116,7 +123,8 @@ shows a problem that the current one did not have. The tool lists the problems f
 **Step 8. "RESTORE COMPLETE".** Then:
 
 1. Open FMS in the browser and sign in. Everyone has to sign in again.
-2. **Audit Trail:** the newest record is *BACKUP_RESTORED*, with your name, the file, and how
+2. **Audit Trail** (as a Super Admin): the newest record is *BACKUP_RESTORED*, in the signing
+   Super Admin's name, with the reason, the file, and how
    many audit records were carried over.
 3. Look at a few recent records (cleaning cycles, PM): the newest ones should be from around
    the time the backup was taken.
@@ -132,7 +140,22 @@ shows a problem that the current one did not have. The tool lists the problems f
 | `FAILED: ...` then `The database is exactly as it was before the restore` | A check failed after loading. The old data was put back and checked. | Read the first message, e.g. "backup comes from an OLDER program version". |
 | `A previous restore did not finish` | The last run was interrupted (window closed, power cut). The app stays stopped and Disabled. | Run the tool once with **`-RollBackInterrupted`** (below). It puts the old data back and starts the app. Then start again. |
 | `Moving the data back FAILED` | Very rare. **No data is lost.** The old data is still in the database, in a schema named `digilog_prerestore_<time>`. | Do not try anything else. Run `-RollBackInterrupted` once. If that also fails, send the logs (§9) to support. |
+| `The Super Admin signature cannot be checked` | The current database is too damaged to read its users (or it is empty). | Only then: run again with `-EmergencyUnsigned -PerformedBy "Your Full Name"` (§5a). |
 | `WARNING: the API did not report healthy` | The restore finished, but the app did not answer within 60 s. | Wait a minute, then open the app. If it still does not open, check `C:\ProgramData\DigiLog\logs\app\error`. |
+
+### 5a. Emergency restore without a signature
+
+When the current database is damaged so badly that its users cannot be read (or it is
+empty), no Super Admin password can be checked. Only then may the restore run unsigned:
+
+```
+powershell -ExecutionPolicy Bypass -File "C:\Program Files\DigiLog\scripts\restore-database.ps1" -DumpFile "<backup>" -EmergencyUnsigned -PerformedBy "Your Full Name"
+```
+
+- The tool first checks that no Super Admin can sign. If one can, it refuses.
+- The `BACKUP_RESTORED` record then carries your Windows account and the name you typed, and is
+  marked **`signature: UNSIGNED_EMERGENCY`**.
+- Tell QA. An unsigned restore is a deviation to be documented.
 
 Rolling back an interrupted restore (Administrator PowerShell):
 
@@ -162,13 +185,15 @@ Add these after the command in §4.
 | Option | Use it when |
 |---|---|
 | `-DumpFile "<path>"` | Always: the backup to restore. |
-| `-PerformedBy "Full Name"` | To give your name on the command line instead of being asked. |
+| `-Reason "..."` | To give the reason on the command line instead of being asked. |
+| `-SignerUsername <name>` | To give the Super Admin's username on the command line. The password is **always** typed. |
+| `-EmergencyUnsigned -PerformedBy "Full Name"` | Only for a database whose users cannot be read (§5a). |
 | `-ApplyMigrations` | The tool said **"backup comes from an OLDER program version"**. The restored data is brought up to this program's version, exactly as an upgrade does, before the app uses it. Recorded in the audit trail. |
 | `-ChainCheck Tail` | To save time on a large database. The audit-trail chain is verified only for the records carried over, and where they join the backup, instead of the whole trail (see §8). Recorded in the audit trail. Run *Audit Trail → Verify chain* in the app afterwards, at a quiet time. |
 | `-AcceptChainAnomalies` | Only when QA has already agreed to accept audit-chain problems (step 7) and you run the tool without being asked. Recorded as `forced: true`. |
 | `-RollBackInterrupted` | After an interrupted run (§5). |
 | `-SkipDiskSpaceCheck` | The tool's free-space estimate is too cautious and you have checked the disk yourself. |
-| `-Force` | Do not ask for the RESTORE confirmation. Needs `-PerformedBy`. It never skips a safety check. |
+| `-Force` | Do not ask for the RESTORE confirmation. Needs `-Reason`. It never skips a safety check or the password. |
 
 ---
 
@@ -245,8 +270,18 @@ These files are **not** the 21 CFR Part 11 record. That is the *BACKUP_RESTORED*
     moved-aside `audit_trail`, and a `digilog_keep.audit_trail` that came inside the backup
     (an interrupted in-app restore leaves one; it is dropped after its rows are carried over);
   - `verifyAuditChain`, in windows of 200,000 records that overlap by one;
-  - `auditLog` for `BACKUP_RESTORED`. The actor is `windows:<DOMAIN\user>` and the name is
-    the one typed. The `afterValue` holds the file, its SHA-256, the safety backup and its
+  - **Signature (OD-01).** A Super Admin's password is checked with `lib/password`
+    `verifyPassword` against the pre-restore database, as the re-auth gate does
+    (`RESTORE_BACKUP` is an always-re-auth action). The check writes `REAUTH_FAILED` or
+    `REAUTH_SUCCESS`. The password reaches the helper only through an environment variable
+    of that one process, which the helper deletes on reading.
+  - `auditLog` writes `BACKUP_RESTORED` as that Super Admin (userId, name, role), with
+    `signature_audit_id` = the `REAUTH_SUCCESS` row. That row was carried into the restored
+    trail. Visibility therefore follows the normal rules, as for an in-app restore.
+  - `-EmergencyUnsigned` is allowed only when `signer-probe` finds no readable, enabled
+    Super Admin. The row then has actor `windows:<DOMAIN\user>`, the typed name, no role, and
+    `signature: UNSIGNED_EMERGENCY`.
+  - The `afterValue` holds: the reason, the file and its SHA-256, the safety backup and its
     SHA-256, the rows carried over per source, migrations applied, and the chain-check result.
 - **Gate before the old data is deleted.** The checks are:
   - program-version match (`_prisma_migrations` against the shipped migrations);

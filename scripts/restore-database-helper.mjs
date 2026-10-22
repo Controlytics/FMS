@@ -46,6 +46,12 @@ function args(name) {
   return out;
 }
 const RESULT_MARK = '@@restore-result@@';
+// One line of an error for the operator (Prisma messages span many lines).
+function firstErrorLine(err) {
+  const lines = String(err?.message ?? err).split('\n').map((s) => s.trim()).filter(Boolean);
+  // A Prisma error opens with 'Invalid `prisma.x()` invocation in <path>'; the cause is the last line.
+  return (lines[0]?.startsWith('Invalid `prisma') ? lines[lines.length - 1] : lines[0]) ?? 'unknown error';
+}
 function progress(msg) {
   process.stderr.write(`[helper] ${msg}\n`);
 }
@@ -404,6 +410,83 @@ async function verifyChain() {
   }
 }
 
+/**
+ * The restore is a signed act, as the in-app restore is (RESTORE_BACKUP is an
+ * always-re-auth action, OD-01): a SUPER_ADMIN's username + password, checked with
+ * the app's own verifyPassword against the PRE-restore database. Same records as
+ * the re-auth gate (lib/reauth-check.ts): REAUTH_FAILED on a wrong password,
+ * REAUTH_SUCCESS on a right one - its id becomes the BACKUP_RESTORED row's
+ * signature_audit_id, and the carry-over brings the row into the restored trail.
+ * The password comes from DIGILOG_RESTORE_SIGNER_PASSWORD (set by the caller for
+ * this process only) and is removed from the environment as soon as it is read.
+ */
+async function verifySigner() {
+  const username = arg('--username');
+  const windowsAccount = arg('--windows-account') ?? '';
+  const password = process.env.DIGILOG_RESTORE_SIGNER_PASSWORD ?? '';
+  delete process.env.DIGILOG_RESTORE_SIGNER_PASSWORD;
+  if (!username || !password) throw new Error('verify-signer needs --username and a password');
+  const { prisma, mod } = await loadApp();
+  try {
+    let user;
+    try {
+      user = await prisma.user.findUnique({ where: { username } });
+    } catch (err) {
+      // The users table cannot be read: the check cannot run at all.
+      done({ ok: false, unavailable: true, error: `users cannot be read: ${firstErrorLine(err)}` });
+      process.exitCode = 1;
+      return;
+    }
+    if (!user) { done({ ok: false, error: `No user "${username}".` }); process.exitCode = 1; return; }
+    if (user.role !== 'SUPER_ADMIN') { done({ ok: false, error: `"${username}" is not a Super Admin.` }); process.exitCode = 1; return; }
+    if (user.status !== 'ENABLED') { done({ ok: false, error: `"${username}" is ${user.status}.` }); process.exitCode = 1; return; }
+    const { verifyPassword } = await mod('lib/password');
+    const { auditLog } = await mod('lib/audit');
+    const base = {
+      userId: user.username, userRole: user.role, targetType: 'user', targetId: user.id,
+      userAgent: 'restore-database.ps1',
+    };
+    if (!(await verifyPassword(password, user.passwordHash))) {
+      // SUPER_ADMIN is exempt from lockout (auth.service applyFailedPasswordAttempt),
+      // so the only consequence is the record, as in the re-auth gate.
+      await auditLog({ ...base, action: 'REAUTH_FAILED',
+        afterValue: { username: user.username, reauthAction: 'RESTORE_BACKUP', accountLocked: false, method: 'restore-database.ps1', windowsAccount },
+        signatureMeaning: 'Electronic signature attempt FAILED for RESTORE_BACKUP' });
+      done({ ok: false, wrongPassword: true, error: 'Incorrect password.' });
+      process.exitCode = 1;
+      return;
+    }
+    if (user.failedLoginAttempts > 0) {
+      await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0 } });
+    }
+    const signatureAuditId = await auditLog({ ...base, action: 'REAUTH_SUCCESS',
+      afterValue: { username: user.username, reauthAction: 'RESTORE_BACKUP', method: 'restore-database.ps1', windowsAccount },
+      signatureMeaning: 'Electronic signature applied for RESTORE_BACKUP' });
+    done({ ok: true, signatureAuditId, userId: user.username, userName: user.fullName, userRole: user.role });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/** Can a Super Admin sign against this database at all? (for -EmergencyUnsigned) */
+async function signerProbe() {
+  let app;
+  try {
+    app = await loadApp();
+  } catch (err) {
+    done({ ok: true, available: false, reason: firstErrorLine(err) });
+    return;
+  }
+  try {
+    const r = await app.prisma.user.count({ where: { role: 'SUPER_ADMIN', status: 'ENABLED' } });
+    done({ ok: true, available: r > 0, reason: r > 0 ? `${r} enabled Super Admin(s)` : 'no enabled Super Admin' });
+  } catch (err) {
+    done({ ok: true, available: false, reason: `users cannot be read: ${firstErrorLine(err)}` });
+  } finally {
+    await app.prisma.$disconnect();
+  }
+}
+
 async function writeRestoredRow() {
   const payload = JSON.parse(readFileSync(arg('--payload'), 'utf8'));
   const { prisma, mod } = await loadApp();
@@ -412,6 +495,9 @@ async function writeRestoredRow() {
     const id = await auditLog({
       userId: payload.userId,
       userName: payload.userName,
+      userRole: payload.userRole ?? undefined,
+      signatureAuditId: payload.signatureAuditId ?? undefined,
+      userAgent: 'restore-database.ps1',
       action: 'BACKUP_RESTORED',
       targetType: 'system',
       targetId: 'database_restore',
@@ -433,6 +519,8 @@ const commands = {
   'chain-tip': chainTip,
   'verify-chain': verifyChain,
   'write-restored-row': writeRestoredRow,
+  'verify-signer': verifySigner,
+  'signer-probe': signerProbe,
 };
 
 const fn = commands[command];
@@ -444,6 +532,6 @@ try {
   await fn();
 } catch (err) {
   progress(`FAILED: ${err?.stack ?? err}`);
-  done({ ok: false, error: String(err?.message ?? err) });
+  done({ ok: false, error: firstErrorLine(err) });
   process.exitCode = 1;
 }

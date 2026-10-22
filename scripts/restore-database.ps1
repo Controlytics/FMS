@@ -15,8 +15,10 @@
        here, while the application is still running).
     2. Checks the current database: ownership, free disk space, leftovers of an
        interrupted restore.
-    3. Asks for confirmation (type RESTORE) and the name of the person restoring,
-       then verifies the audit-trail hash chain of the CURRENT database, so the
+    3. Asks for the reason and a confirmation (type RESTORE), then the electronic
+       signature: a Super Admin's username and password, checked by the app's own
+       code (REAUTH_SUCCESS / REAUTH_FAILED rows, as the app's re-auth gate writes).
+       Then verifies the audit-trail hash chain of the CURRENT database, so the
        result after the restore can be compared with it (-ChainCheck Full). The
        application is still running.
     4. Sets the DigiLogAPI service to Disabled and stops it, so a reboot during the
@@ -49,11 +51,26 @@
 .PARAMETER DumpFile
   The backup to restore: a plain SQL file from pg_dump (nightly-*.sql,
   pre-upgrade-*.sql) or a pg_dump custom archive (.dump from the in-app Backup page).
+.PARAMETER SignerUsername
+  The restore is a SIGNED act, as in the app (RESTORE_BACKUP always takes a Super
+  Admin password, OD-01): the username of an enabled SUPER_ADMIN. The password is
+  ALWAYS typed at a hidden prompt - never a parameter, never logged or stored - and
+  checked with the app's own password check against the current database. The
+  BACKUP_RESTORED row is written as that user and links to the REAUTH_SUCCESS row.
+  Asked for when not given.
+.PARAMETER Reason
+  Why the database is restored (at least 5 characters). Recorded in the audit row.
+  Asked for when not given.
+.PARAMETER EmergencyUnsigned
+  ONLY when no signature can be checked because the current database's users
+  cannot be read (damaged or empty database). Refused while a Super Admin could
+  sign. Records the Windows account and -PerformedBy, and flags the row
+  signature = UNSIGNED_EMERGENCY.
 .PARAMETER PerformedBy
-  Full name of the person doing the restore. Recorded in the BACKUP_RESTORED audit
-  row next to the Windows account. Asked for when not given.
+  With -EmergencyUnsigned only: the full name of the person doing the restore.
 .PARAMETER Force
-  Do not ask for typed confirmations (RESTORE). Never skips a safety check.
+  Do not ask for typed confirmations (RESTORE). Never skips a safety check, and
+  never the Super Admin password.
 .PARAMETER ApplyMigrations
   The backup comes from an OLDER program version: bring its schema up to this
   version (prisma migrate deploy + the create-only seed, exactly as an upgrade does)
@@ -90,6 +107,9 @@
 [CmdletBinding()]
 param(
   [string]$DumpFile,
+  [string]$SignerUsername,
+  [string]$Reason,
+  [switch]$EmergencyUnsigned,
   [string]$PerformedBy,
   [switch]$Force,
   [switch]$ApplyMigrations,
@@ -377,6 +397,15 @@ BEGIN
 END
 $mover$;
 '@
+
+function Read-SignerPassword {
+  # Always typed at a hidden prompt. Test mode alone may take it from an environment
+  # variable so the automated tests can run; it is never a parameter.
+  if ($TestMode -and $env:DIGILOG_RESTORE_TEST_SIGNER_PASSWORD) { return $env:DIGILOG_RESTORE_TEST_SIGNER_PASSWORD }
+  $sec = Read-Host 'Super Admin password' -AsSecureString
+  $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+  try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
+}
 
 function Test-Ident([string]$name) { return ($name -cmatch '^[a-z_][a-z0-9_]{0,62}$') }
 function Quote-Literal([string]$s) { if ($null -eq $s) { return 'NULL' } return "'" + $s.Replace("'", "''") + "'" }
@@ -680,13 +709,14 @@ SELECT x FROM (
   }
 
   # --- 3. Confirmation -------------------------------------------------------
-  Log '[3/9] Confirmation' Cyan
-  if (-not $PerformedBy) {
-    if ($Force) { Fail '-PerformedBy is required with -Force (it is recorded in the audit trail).' }
-    $PerformedBy = (Read-Host 'Your full name (recorded in the audit trail)').Trim()
-    if (-not $PerformedBy) { Fail 'A name is required.' }
-  }
+  Log '[3/9] Confirmation and signature' Cyan
   $winAccount = "$env:USERDOMAIN\$env:USERNAME"
+  if (-not $Reason) {
+    if ($Force) { Fail '-Reason is required with -Force (it is recorded in the audit trail).' }
+    $Reason = Read-Host 'Reason for this restore (recorded in the audit trail)'
+  }
+  $Reason = "$Reason".Trim()
+  if ($Reason.Length -lt 5) { Fail 'The reason must be at least 5 characters.' }
   Write-Host ''
   Write-Host "  The database '$db' will be REPLACED by the backup:" -ForegroundColor Yellow
   Write-Host "    $DumpFile" -ForegroundColor Yellow
@@ -699,7 +729,39 @@ SELECT x FROM (
     $typed = Read-Host 'Type RESTORE to continue'
     if ($typed -cne 'RESTORE') { Log 'Cancelled by the operator. Nothing was changed.' Yellow; Add-RestoreHistory 'CANCELLED' ''; exit 3 }
   }
-  Log "  Confirmed by $PerformedBy ($winAccount)"
+
+  # The electronic signature (OD-01: an in-app restore always takes a Super Admin
+  # password). Checked against the CURRENT database by the app's own code; the
+  # REAUTH_SUCCESS row it writes is carried into the restored trail and the
+  # BACKUP_RESTORED row points at it.
+  $signer = $null
+  if ($EmergencyUnsigned) {
+    $probe = Invoke-Helper @('signer-probe') -AppCode
+    if (-not $probe.ok) { Fail "Could not check whether a Super Admin can sign: $($probe.error)" }
+    if ($probe.available) { Fail "-EmergencyUnsigned is only for a database whose users cannot be read. This one has $($probe.reason): sign with a Super Admin account instead." }
+    if (-not $PerformedBy) {
+      if ($Force) { Fail '-PerformedBy is required with -EmergencyUnsigned -Force.' }
+      $PerformedBy = Read-Host 'Your full name (recorded in the audit trail)'
+    }
+    $PerformedBy = "$PerformedBy".Trim()
+    if (-not $PerformedBy) { Fail 'A name is required.' }
+    Log "  UNSIGNED EMERGENCY restore: no signature can be checked ($($probe.reason)). Recorded as such, by $PerformedBy ($winAccount)." Yellow
+  } else {
+    $tries = 3; if ($Force) { $tries = 1 }
+    for ($i = 1; $i -le $tries; $i++) {
+      if (-not $SignerUsername) { $SignerUsername = Read-Host 'Super Admin username (electronic signature)' }
+      $SignerUsername = "$SignerUsername".Trim()
+      $env:DIGILOG_RESTORE_SIGNER_PASSWORD = Read-SignerPassword
+      try { $v = Invoke-Helper @('verify-signer', '--username', $SignerUsername, '--windows-account', $winAccount) -AppCode }
+      finally { Remove-Item Env:DIGILOG_RESTORE_SIGNER_PASSWORD -ErrorAction SilentlyContinue }
+      if ($v.ok) { $signer = $v; break }
+      if ($v.unavailable) { Fail "The Super Admin signature cannot be checked ($($v.error)). If the database is damaged, run again with -EmergencyUnsigned -PerformedBy ""Your Name"". Nothing was changed." }
+      Log "  Signature refused: $($v.error)" Yellow
+      if (-not $v.wrongPassword) { $SignerUsername = $null }
+    }
+    if (-not $signer) { Fail 'No valid Super Admin signature. Nothing was changed.' }
+    Log "  Signed by $($signer.userId) ($($signer.userName), $($signer.userRole)) from $winAccount" Green
+  }
 
   # The current chain, so the restored one can be compared with it. After the
   # confirmation (it can take a while) but before the application stops.
@@ -722,11 +784,14 @@ SELECT x FROM (
     $apiStopped = $true   # set first: a failed stop must still restore the start type
     Stop-Api
   } else { Save-State $state; Log '  (test mode: no service)' DarkGray }
-  # Nothing else may hold the database: the moves need exclusive locks, and work
-  # done in another session during the restore would be lost.
+  # No other CLIENT may hold the database: the moves need exclusive locks, and work
+  # done in another session during the restore would be lost. Background workers
+  # (autovacuum - always busy right after a big load) have no user and are not
+  # counted: a normal autovacuum cancels itself when a lock request waits on it, and
+  # the prelude's lock_timeout bounds anything else.
   $others = @()
   foreach ($i in 1..30) {
-    $others = Sql "SELECT pid || ' ' || coalesce(usename, '?') || ' ' || coalesce(application_name, '') || ' ' || coalesce(state, '') FROM pg_catalog.pg_stat_activity WHERE datname = current_database() AND pid <> pg_catalog.pg_backend_pid() AND coalesce(application_name, '') <> 'digilog-restore';"
+    $others = Sql "SELECT pid || ' ' || usename || ' ' || coalesce(application_name, '') || ' ' || coalesce(state, '') FROM pg_catalog.pg_stat_activity WHERE datname = current_database() AND usename IS NOT NULL AND pid <> pg_catalog.pg_backend_pid() AND coalesce(application_name, '') <> 'digilog-restore';"
     if ($others.Count -eq 0) { break }
     Start-Sleep -Seconds 1
   }
@@ -940,15 +1005,28 @@ $check$;
   }
   if ($TestFailAfter -eq 'verify') { Fail 'TEST: injected failure after the chain verification.' }
 
+  # Signed: the row belongs to the Super Admin who signed (so it is visible exactly
+  # as an in-app restore's row is) and points at the REAUTH_SUCCESS signature row.
+  # Emergency: the Windows account and the typed name, flagged - never silently.
+  if ($signer) {
+    $who = @{ userId = $signer.userId; userName = $signer.userName; userRole = $signer.userRole; signatureAuditId = $signer.signatureAuditId
+              meaning = 'Database restored from a pg_dump backup on the server (restore-database.ps1), signed by a Super Admin'; signature = 'SIGNED' }
+  } else {
+    $who = @{ userId = "windows:$winAccount"; userName = $PerformedBy; userRole = $null; signatureAuditId = $null
+              meaning = 'UNSIGNED EMERGENCY database restore on the server (restore-database.ps1): no electronic signature could be checked'; signature = 'UNSIGNED_EMERGENCY' }
+  }
   $payload = @{
-    userId = "windows:$winAccount"
-    userName = $PerformedBy
-    reason = "Restored from $($dumpItem.Name) with restore-database.ps1"
-    signatureMeaning = 'Database restored from a pg_dump backup on the server by an administrator (restore-database.ps1)'
+    userId = $who.userId
+    userName = $who.userName
+    userRole = $who.userRole
+    signatureAuditId = $who.signatureAuditId
+    reason = $Reason
+    signatureMeaning = $who.meaning
     afterValue = [ordered]@{
       format = $format; method = 'restore-database.ps1'; timestamp = (Get-Date).ToUniversalTime().ToString('o')
+      signature = $who.signature; reason = $Reason
       dumpFile = $DumpFile; dumpBytes = $dumpItem.Length; dumpSha256 = $dumpSha; dumpedFromVersion = $dumpVersion
-      performedBy = $PerformedBy; windowsAccount = $winAccount; host = $env:COMPUTERNAME
+      performedBy = $who.userName; windowsAccount = $winAccount; host = $env:COMPUTERNAME
       safetyDump = $safety; safetyDumpSha256 = $safetySha
       auditRowsPreserved = $carry.total; preservedBySource = $carry.perTable
       backupChainTip = $(if ($backupTip) { $backupTip.Position } else { $null })
@@ -987,7 +1065,7 @@ $check$;
   if ($apiStopped) { [void](Start-Api $serviceStartType); $apiStopped = $false }
   Log ''
   Log "RESTORE COMPLETE. Safety backup of the previous database: $safety" Green
-  Add-RestoreHistory 'OK' "audit-carried=$($carry.total) chain=$ChainCheck new-anomalies=$newCount forced=$forced safety=$safety"
+  Add-RestoreHistory 'OK' "signature=$($who.signature) by=$($who.userId) audit-carried=$($carry.total) chain=$ChainCheck new-anomalies=$newCount forced=$forced safety=$safety"
   $exitCode = 0
 }
 catch {
