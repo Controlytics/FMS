@@ -106,7 +106,7 @@ function eventMs(e: { performedAt: Date | string }): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-type EntryEvent = { eventType: string; toState: string | null; performedAt: Date | string; attributes?: unknown };
+type EntryEvent = { eventType: string; toState?: string | null; performedAt: Date | string; attributes?: unknown };
 
 /**
  * Is this event an ENTRY into `stage` — the filter moving INTO it? (2026-10-22)
@@ -122,6 +122,19 @@ export function isEntryIntoStage(e: EntryEvent, stage: string): boolean {
   if (e.toState !== stage) return false;
   const a = (e.attributes ?? {}) as { action?: unknown; inPlace?: unknown };
   return a.action !== 'DRYER_READINGS_SUBMITTED' && a.inPlace !== true;
+}
+
+/**
+ * Is this transition a stage-approval DECISION rather than stage work? (D03-08,
+ * 2026-10-22) A rejection records the filter's move back (WASH_OUT -> WASH_IN,
+ * DRY_OUT -> DRY_IN) as a STATE_TRANSITION marked `kind: 'STAGE_INTERLOCK_*'`
+ * (stage-approvals/service.ts). It IS an entry into the stage — the stage's work
+ * and its checklist start again (isEntryIntoStage) — but nobody washed or dried:
+ * a record of who performed a stage, and when, must never show it.
+ */
+export function isInterlockDecision(e: { attributes?: unknown }): boolean {
+  const kind = (e.attributes as { kind?: unknown } | null | undefined)?.kind;
+  return typeof kind === 'string' && kind.startsWith('STAGE_INTERLOCK_');
 }
 
 /**

@@ -6,6 +6,7 @@
 // Filter Lifecycle Report imports only `effectiveCycleStatus` from here and has
 // its own columns. (This header previously claimed both pages shared the
 // columns; corrected 2026-09-03.)
+import { isInterlockDecision, latestEntryIntoStage } from '@digilog/shared';
 import type { FilterEvent } from '../types/filter';
 import { formatRecordedReading } from './format-by-least-count';
 
@@ -30,15 +31,6 @@ export const CC_COL_KEYS = [
 ] as const;
 
 /**
- * Resolve the canonical STATE_TRANSITION event for a stage.
- * DRY_IN is special: two transitions land on DRY_IN (SET_DURATION with no
- * readings, then SUBMIT_READINGS with the temperature). For DRY_IN we want the
- * readings-bearing event (for the temperature); a manual Edit-Filter-Status
- * change carries no readings, so fall back to it; otherwise the column is blank
- * (cycle mid-dryer, no temperature yet). Every other stage emits a single
- * readings-bearing transition, so the fallback to stageEvents[0] is correct.
- */
-/**
  * Who performed a filter event, for display.
  *
  * `performedByName` / `performedByUsername` are resolved server-side from the
@@ -61,12 +53,49 @@ export function performerLabel(row: any, fallback = '-'): string {
     ?? fallback;
 }
 
+const eventMs = (e: FilterEvent) => {
+  const t = new Date(e.performedAt).getTime();
+  return Number.isFinite(t) ? t : 0;
+};
+const hasReadings = (e: FilterEvent) => (e.attributes as any)?.instrumentReadings?.length > 0;
+const isManual = (e: FilterEvent) => !!(e.attributes as any)?.manual;
+
+/**
+ * The STATE_TRANSITION a stage's record columns are read from: time, performer,
+ * readings. The ONE rule for the Filter Cleaning Record's table, PDF and Excel
+ * and for the Filter Data Management console's Cleaning Cycles tab.
+ *
+ * The attempt that COUNTS (D03-08, 2026-10-22): a stage-approval rejection sends
+ * the filter back and the stage is done again, so the record shows the attempt
+ * that began at the LATEST entry into the stage (the shared latestEntryIntoStage
+ * rule, the same one the checklist gate uses). It used to show the FIRST
+ * transition, i.e. the rejected attempt. The rejected attempt stays in the
+ * cycle's lifecycle and the audit trail.
+ *
+ * A rejection's rewind row (WASH_OUT -> WASH_IN) opens the new attempt but is the
+ * approver's decision, not stage work, so it is never the row shown
+ * (isInterlockDecision). When the rewind is all the new attempt holds, the stage
+ * was not entered again (the filter stays in Wash In and is washed again), so the
+ * operator's last transition into it still counts.
+ *
+ * Within the attempt: the readings-bearing row, then a manual Edit-Filter-Status
+ * change (no readings, flagged), then the entry itself. DRY_IN is special: its
+ * record is the in-place readings submission (the temperature), which a re-dry
+ * takes again, so with no readings in the attempt that counts the column is blank
+ * (cycle mid-dryer, or re-drying after a rejection: no temperature yet), never an
+ * earlier drying's temperature.
+ */
 export function getStageInfo(events: FilterEvent[], stage: string) {
-  const stageEvents = (events ?? []).filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
+  const intoStage = (events ?? []).filter((e) => e.eventType === 'STATE_TRANSITION' && e.toState === stage);
   const requireReadings = stage === 'DRY_IN';
-  const evWithReadings = stageEvents.find((e) => (e.attributes as any)?.instrumentReadings?.length > 0);
-  const manualStageEvent = stageEvents.find((e) => (e.attributes as any)?.manual);
-  const ev = evWithReadings ?? manualStageEvent ?? (requireReadings ? null : stageEvents[0]);
+  const work = intoStage.filter((e) => !isInterlockDecision(e)).sort((a, b) => eventMs(a) - eventMs(b));
+  const entryAt = latestEntryIntoStage(intoStage, stage);
+  const pick = (rows: FilterEvent[]) => {
+    const latest = (pred: (e: FilterEvent) => boolean) => [...rows].reverse().find(pred);
+    return latest(hasReadings) ?? latest(isManual) ?? (requireReadings ? undefined : rows[rows.length - 1]);
+  };
+  const ev = pick(entryAt === null ? work : work.filter((e) => eventMs(e) >= entryAt))
+    ?? (requireReadings ? undefined : pick(work));
   if (!ev) return null;
   return {
     time: ev.performedAt,

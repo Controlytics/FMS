@@ -23,6 +23,7 @@ import {
   checklistAnsweredInCurrentEntry,
   computeNextActions,
   isEntryIntoStage,
+  isInterlockDecision,
 } from '../index.js';
 import type { ChecklistProfileSlice, FilterEventSlice, LocalContext, ProfileSlice } from '../index.js';
 import { FIXTURE_NOW, dryInActiveContext } from './fixtures.js';
@@ -190,5 +191,21 @@ describe('assertNotCycleComplete at the last stage', () => {
     expect(r.ok ? '' : r.message).toMatch(/^Dry In is the last stage of this cleaning cycle/);
     expect(r.ok ? '' : r.message).not.toMatch(/is complete/i);
     expect(assertNotCycleComplete(ctx, ['DRY_OUT'], false)).toEqual({ ok: true });
+  });
+});
+
+describe('isInterlockDecision (D03-08)', () => {
+  it('a stage-approval rejection rewind is a decision, not stage work; it is still an ENTRY into the stage', () => {
+    const rewind = ev('r', 'STATE_TRANSITION', 'WASH_IN', '2026-05-02T11:00:00Z', { kind: 'STAGE_INTERLOCK_REJECTED', stageKey: 'WASH_OUT' });
+    expect(isInterlockDecision(rewind)).toBe(true);
+    expect(isEntryIntoStage(rewind, 'WASH_IN')).toBe(true);
+  });
+
+  it('operator transitions, in-place dryer steps and rows without attributes are not decisions', () => {
+    expect(isInterlockDecision(ev('a', 'STATE_TRANSITION', 'WASH_OUT', '2026-05-02T11:00:00Z'))).toBe(false);
+    expect(isInterlockDecision(ev('b', 'STATE_TRANSITION', 'DRY_IN', '2026-05-02T11:00:00Z', { action: 'DRYER_READINGS_SUBMITTED' }))).toBe(false);
+    expect(isInterlockDecision({ attributes: null })).toBe(false);
+    expect(isInterlockDecision({})).toBe(false);
+    expect(isInterlockDecision({ attributes: { kind: 42 } })).toBe(false);
   });
 });

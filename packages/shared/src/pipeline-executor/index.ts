@@ -70,6 +70,7 @@ export {
   enabledChecklistNodes,
   advanceMustCarryChecklist,
   isEntryIntoStage,
+  isInterlockDecision,
   latestEntryIntoStage,
   checklistAnsweredInCurrentEntry,
   callCompletesStageWork,

@@ -53,9 +53,11 @@ describe('getStageInfo', () => {
   it('DRY_IN falls back to a MANUAL stage change (which carries no readings) and flags it', () => {
     const info = getStageInfo([
       ev({ toState: 'DRY_IN', attributes: { action: 'DRYER_STARTED' } }),
-      ev({ toState: 'DRY_IN', performedAt: 'tm', attributes: { manual: true } }),
+      // A real instant after the dryer start: the record reads the latest attempt
+      // (D03-08), so the rows are ordered by time ('tm' would sort first).
+      ev({ toState: 'DRY_IN', performedAt: '2026-10-01T11:00:00Z', attributes: { manual: true } }),
     ], 'DRY_IN');
-    expect(info).toMatchObject({ time: 'tm', manual: true, readings: [] });
+    expect(info).toMatchObject({ time: '2026-10-01T11:00:00Z', manual: true, readings: [] });
   });
 
   it('an empty readings array does not count as a readings event', () => {
@@ -244,5 +246,67 @@ describe('stageProgress — edge inputs', () => {
   it('no current stage once every remaining profile stage is reached', () => {
     const events = ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'DRY_OUT', 'STORAGE_IN', 'STORAGE_OUT'].map((s) => ({ eventType: 'STATE_TRANSITION', toState: s }));
     expect(stageProgress(events, [], 'IN_PROGRESS').current).toBeNull();
+  });
+});
+
+// D03-08 (2026-10-22): a stage-approval REJECTION sends the filter back and the
+// stage is done again. The record shows the attempt that COUNTS: the latest entry
+// into the stage (the shared latestEntryIntoStage rule). The rejected attempt
+// stays in the cycle's lifecycle and the audit trail.
+describe('getStageInfo — the attempt that counts after a rejection (D03-08)', () => {
+  const T = (hhmm: string) => `2026-10-22T${hhmm}:00.000Z`;
+  const R = (description: string, value: number, uom: string) => ({ description, value, uom });
+  const rewind = (from: string, to: string, at: string) =>
+    ev({ id: `rw-${at}`, fromState: from, toState: to, performedAt: T(at), performedByName: 'qa1',
+      attributes: { kind: 'STAGE_INTERLOCK_REJECTED', stageKey: from } });
+
+  // Wash Out by A at 20:59, rejected at 21:00, redone by B at 21:04.
+  const WASH = [
+    ev({ id: 'wi', fromState: null, toState: 'WASH_IN', performedAt: T('20:30'), performedByName: 'opA',
+      attributes: { instrumentReadings: [R('RO water', 2, 'bar'), R('Air pressure', 6, 'bar')] } }),
+    ev({ id: 'wo1', fromState: 'WASH_IN', toState: 'WASH_OUT', performedAt: T('20:59'), performedByName: 'opA' }),
+    rewind('WASH_OUT', 'WASH_IN', '21:00'),
+    ev({ id: 'wo2', fromState: 'WASH_IN', toState: 'WASH_OUT', performedAt: T('21:04'), performedByName: 'opB' }),
+  ];
+
+  it('Wash Out shows the redo, not the rejected attempt', () => {
+    expect(getStageInfo(WASH, 'WASH_OUT')).toMatchObject({ time: T('21:04'), performedBy: 'opB' });
+  });
+
+  it('Wash In keeps the operator\'s entry and readings: the rejection rewind is the approver\'s decision, not a wash', () => {
+    expect(getStageInfo(WASH, 'WASH_IN')).toMatchObject({ time: T('20:30'), performedBy: 'opA', readings: [R('RO water', 2, 'bar'), R('Air pressure', 6, 'bar')] });
+  });
+
+  // Dry Out rejected; the re-dry is done in place by B (SET_DURATION inPlace, then readings).
+  const DRY = [
+    ev({ id: 'd1', fromState: 'WASH_OUT', toState: 'DRY_IN', performedAt: T('10:00'), performedByName: 'opA', attributes: { action: 'DRYER_STARTED', dryerDurationMinutes: 30 } }),
+    ev({ id: 'd2', fromState: 'DRY_IN', toState: 'DRY_IN', performedAt: T('10:30'), performedByName: 'opA', attributes: { action: 'DRYER_READINGS_SUBMITTED', instrumentReadings: [R('Dryer temperature', 55, 'C')] } }),
+    ev({ id: 'o1', fromState: 'DRY_IN', toState: 'DRY_OUT', performedAt: T('11:00'), performedByName: 'opA' }),
+    rewind('DRY_OUT', 'DRY_IN', '11:05'),
+    ev({ id: 'd3', fromState: 'DRY_IN', toState: 'DRY_IN', performedAt: T('11:10'), performedByName: 'opB', attributes: { action: 'DRYER_STARTED', inPlace: true, dryerDurationMinutes: 30 } }),
+    ev({ id: 'd4', fromState: 'DRY_IN', toState: 'DRY_IN', performedAt: T('11:40'), performedByName: 'opB', attributes: { action: 'DRYER_READINGS_SUBMITTED', instrumentReadings: [R('Dryer temperature', 60, 'C')] } }),
+    ev({ id: 'o2', fromState: 'DRY_IN', toState: 'DRY_OUT', performedAt: T('12:00'), performedByName: 'opB' }),
+  ];
+
+  it('Dry In shows the re-dry\'s temperature and Dry Out the redo', () => {
+    expect(getStageInfo(DRY, 'DRY_IN')).toMatchObject({ time: T('11:40'), performedBy: 'opB', readings: [R('Dryer temperature', 60, 'C')] });
+    expect(getStageInfo(DRY, 'DRY_OUT')).toMatchObject({ time: T('12:00'), performedBy: 'opB' });
+  });
+
+  it('while the re-dry has no temperature yet, Dry In is blank: the rejected drying\'s 55 C does not count', () => {
+    expect(getStageInfo(DRY.slice(0, 5), 'DRY_IN')).toBeNull();
+    expect(getStageInfo(DRY.slice(0, 4), 'DRY_IN')).toBeNull();
+  });
+
+  it('a stage entered twice without a rejection shows the latest entry', () => {
+    const twice = [
+      ev({ id: 's1', toState: 'STORAGE_IN', performedAt: T('13:00'), performedByName: 'opA' }),
+      ev({ id: 's2', toState: 'STORAGE_IN', performedAt: T('14:00'), performedByName: 'opB' }),
+    ];
+    expect(getStageInfo(twice, 'STORAGE_IN')).toMatchObject({ time: T('14:00'), performedBy: 'opB' });
+  });
+
+  it('a rewind on its own is never shown as the stage', () => {
+    expect(getStageInfo([rewind('WASH_OUT', 'WASH_IN', '21:00')], 'WASH_IN')).toBeNull();
   });
 });

@@ -23,6 +23,7 @@
  * `collectStageDetails` is the thin DB layer that feeds it for a page of rows.
  */
 import { prisma } from '../../lib/prisma.js';
+import { isInterlockDecision } from '@digilog/shared';
 
 export interface StageReading {
   description: string | null;
@@ -97,11 +98,9 @@ function attrsOf(ev: StageEventLike): Record<string, any> {
   return a && typeof a === 'object' && !Array.isArray(a) ? (a as Record<string, any>) : {};
 }
 
-/** A reject writes `WASH_OUT -> WASH_IN` / `DRY_OUT -> DRY_IN` — that is not a wash or a dry. */
-function isInterlockDecision(ev: StageEventLike): boolean {
-  const kind = attrsOf(ev).kind;
-  return typeof kind === 'string' && kind.startsWith('STAGE_INTERLOCK_');
-}
+// A reject writes `WASH_OUT -> WASH_IN` / `DRY_OUT -> DRY_IN` — that is not a
+// wash or a dry. isInterlockDecision lives in @digilog/shared since 2026-10-22
+// (D03-08): the Filter Cleaning Record applies the same rule to its columns.
 
 function isTransition(ev: StageEventLike): boolean {
   return ev.eventType === 'STATE_TRANSITION' && !isInterlockDecision(ev);
