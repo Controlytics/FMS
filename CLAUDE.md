@@ -90,7 +90,7 @@ use `enforceReauthAlways`, so their row on the Action Re-auth page is
 informational, like the existing always-on actions. **2026-07-13 — Home sidebar item:** `home` (Module Guide) added to `SIDEBAR_ITEMS` (26→27) and its force-show in `sidebar.tsx` removed, so it is now a normal Roles-&-Access-managed sidebar item (toggleable per role/user on Config → Roles & Access → Sidebar; visible-to-all by permission since it has no `PERMISSION_TREE` group; SUPER_ADMIN bypasses). Existing role_configs backfilled with `home`. NOT added to the Permissions/Feature-Privileges tab (grants no capability). **2026-07-04 — reports generate/sign removal:** dropped 7 perms (`REPORT_TEMPLATE_{READ,CREATE,UPDATE,DELETE}`, `REPORT_VIEW`, `REPORT_SIGN`, `REPORT_DELETE`; 109→102), 7 reauth actions (`{CREATE,UPDATE,DELETE}_REPORT_TEMPLATE`, `GENERATE_REPORT`, `SIGN_REPORT`, `REJECT_REPORT`, `DELETE_REPORT`; 99→92), 9 feature-privilege tree nodes (90→83). The ACTIVE cleaning-record + lifecycle PDF export were re-gated by making `cleaning_record.export`/`lifecycle.export` configurable (kept `REPORT_EXPORT` + `REPORT_GENERATE` perms). `REPORT_REVIEW_SUBMIT/REVIEW/APPROVE` perms + `REVIEW_REPORT`/`APPROVE_REPORT` reauth actions SURVIVE (ad-hoc report-review workflow). **2026-07-02 — RFID picker re-added (regression fix):** `filters.rfid_manage` ("Assign / Unassign RFID Tags") made **configurable again** (89→90 FP), reversing the 2026-07-01 enforced-only removal. With the toggle gone, only SUPER_ADMIN (+ OPERATOR via a leftover `ASSET_IDENTIFIER_CREATE` grant) could assign RFID — every other role got a 403 on the tablet RFID-assign page with no UI way to grant it. Enabling the toggle grants `[FILTER_RFID_MANAGE, ASSET_IDENTIFIER_CREATE, ASSET_IDENTIFIER_DELETE, ASSET_READ]` (satisfies the `POST/DELETE /api/assets/identifiers` `requireAnyPermission` gate). Re-added to `CONFIGURABLE_PRIVILEGE_ORDER` + frozen snapshot (both count tests 89→90). **2026-07-01 — Audit hard-delete (compliance-affecting; operator-requested):** re-added the physical audit-record DELETE that was torn out in 2026-05 for 21 CFR §11.10(e). New `AUDIT_DELETE` perm (+1 constant), `audit.delete` picker toggle ("Delete Audit Record (permanent)", gate `['AUDIT_DELETE']`, grant-set `[AUDIT_DELETE, AUDIT_READ]`, FP 88→89), 2 reauth actions `DELETE_AUDIT_RECORD`/`BULK_DELETE_AUDIT_RECORDS` (100→102; **2026-07-04 removed 3 dead `*_TEMPLATE_KIND` reauth actions — theater, never enforced by any endpoint; 102→99**). Backend `DELETE /api/audit/:id` + `POST /api/audit/bulk-delete` (audit/routes.ts) require `AUDIT_DELETE` (SUPER_ADMIN bypasses) + reauth + a `reason`; each disables the `audit_trail_no_delete` immutability trigger for its transaction (query pg_trigger → `ALTER TABLE … DISABLE/ENABLE TRIGGER`, ACCESS-EXCLUSIVE lock closes the window), writes a meta-audit row (`AUDIT_RECORD_DELETED`/`AUDIT_RECORDS_BULK_DELETED`) recording who/what/why BEFORE the row is destroyed. **WARNING: physical deletion BREAKS the tamper-evident hash chain** — `GET /api/audit/verify-chain` reports the downstream chain invalid, permanently; verify-chain/`verifyAuditChecksum` were deliberately NOT taught to tolerate deletions (breakage stays loud). REDACT (`POST /:id/redact`, chain-preserving) remains the recommended path. Frontend audit page adds a distinct "Delete Permanently" affordance (`can('audit.delete')`) alongside the existing amber "Redact" (`can('audit.redact')`, SA-only); the shared confirm dialog is now mode-aware. Off by default (no role granted `AUDIT_DELETE`; grant per role via the picker). **2026-07-01 — Notifications picker:** `notifications.manage` ("Manage Notifications") made enforced-only (removed from picker; `NOTIFICATION_MANAGE` is enforced by no route). `notifications.delete` ("Delete Notifications") made a **real grantable perm** — its gate was `[]` (SUPER_ADMIN-only) so enabling the toggle did nothing; now gate `['NOTIFICATION_DELETE']` and the backend delete routes (`bulk-delete`, `DELETE /:id`) use `requirePermission('NOTIFICATION_DELETE')` instead of `requireSuperAdmin()` (reverses the 2026-06-30 M5 SA-only decision; SUPER_ADMIN still bypasses). FP 89→88. **2026-07-01 — Filters picker RFID→Export swap:** `filters.rfid_manage` ("Assign / Unassign RFID Tags") made enforced-only (removed from picker per user request; RFID still gated on `FILTER_RFID_MANAGE`, held only by SUPER_ADMIN so no practical impact). Added `filters.export` (`FILTER_LIST_EXPORT`, +1 constant, enforce:'c') gating the Filters page Export (PDF/Excel) menu (`can('filters.export')` in filter-list.tsx) — off by default (SUPER_ADMIN bypasses; enable per role to unhide), mirrors `retirement_list.export`. Net feature-privileges unchanged (89). **2026-07-01 — ASSET_* over-grant fix (privilege leak):** removed the broad `ASSET_CREATE/UPDATE/DELETE` from the grant-sets of `filters.status_update` / `filters.bulk_upload` / `filters.hierarchy_create` + `equipment_groups.create/edit/delete`. Those broad perms leaked edit/create/delete across the Filters page via `useCan` (granting "Update Filter Status" handed out `ASSET_UPDATE`, which satisfies the `filters.edit` / `filters.hierarchy_edit` gate → every edit control lit up; a real backend escalation too since the edit endpoints accept `ASSET_UPDATE`). `ASSET_*` now grants via **no** picker toggle → it LEFT `allMappedPerms` and is **manual-managed** (edit/create granted via the `FILTER_*` toggles; this reverses the 2026-06-30 "keep ASSET_* in grant-sets" decision). Perm constants KEPT; existing roles' `ASSET_*` preserved on re-save. **2026-07-01 — picker redundancy audit (92→89):** `checklists.toggle` (identical gate to `checklists.edit`), `cleaning_profiles.toggle` (redundant with `cleaning_profiles.edit`), and `checklists.submit` (same `FILTER_OPERATE` gate as `filters.operate`; `CHECKLIST_SUBMIT` never enforced) made **enforced-only** (dropped from picker; perms/nodes kept). Also re-tagged `notifications.view`/`notifications.manage` `enforce:'a'→'c'` — `NOTIFICATION_VIEW/MANAGE` are enforced by **no route** (notification endpoints are user-scoped/auth-only, delete is SUPER_ADMIN-only), so those toggles are visibility-only. **2026-07-01 — RFID/Relationships toggle de-dup:** `assets.identifiers.create`/`assets.identifiers.delete` (RFID assign/unassign) + `assets.relationships.create`/`assets.relationships.delete` made enforced-only (dropped from the picker; 96→92 FPs). RFID is fully covered by the single `filters.rfid_manage` toggle (both identifier endpoints accept `FILTER_RFID_MANAGE` via `requireAnyPermission`; `ASSET_IDENTIFIER_DELETE` added to its grant so the map stays complete). `ASSET_RELATIONSHIP_CREATE/DELETE` were grant-only perms never used as a route gate (real gate = `ASSET_UPDATE/FILTER_EDIT/FILTER_HIERARCHY_EDIT` on PUT-instance) — so their nodes **AND the perm constants were removed entirely** (constants 109→107; also stripped from default-roles + live DB SUPER_ADMIN; relationship writes go through the edit gate / `assets.edit`). RFID `ASSET_IDENTIFIER_*` constants KEPT (real gates). `assets.view` label renamed "View Assets"→"View Filters". Roles unchanged. **2026-06-30 — Filters/Assets toggle de-dup:** `assets.create`/`assets.edit`/`assets.delete` made enforced-only (dropped from the role-config picker; 99→96 FPs). They duplicated the filter-specific Create/Edit/Delete Filters + Block/Area/AHU toggles — same capability under different names (backend create/edit/delete endpoints accept `ASSET_*` OR `FILTER_*`/`FILTER_HIERARCHY_*` via `requireAnyPermission`). The `ASSET_CREATE`/`UPDATE`/`DELETE` **permission constants are KEPT** (still granted in roles + accepted as backend alternates); only the duplicate picker toggles were hidden, so roles are unchanged. See `tasks/ASSET-FILTER-PERM-CONSOLIDATION-PLAN.md`. The 2026-06-11..2026-06-17 tear-out removed 2 perms (`UNS_VIEW`, `UNS_MANAGE`), 2 privileges (`uns.view`, `uns.manage`), 6 reauth actions (`MANAGE_DEVICE_CREDENTIAL`, `OVERRIDE_UNS_PATH`, `DELETE_UNS_MAPPING`, `UPDATE_UNS_CONFIG`, `UPDATE_RETENTION_POLICY`, `EXECUTE_RETENTION`), and 2 reauth categories (`UNS`, `Retention`). Audit-action and audit-template registry entries for old subsystems (UNS, RETENTION, DEVICE_CREDENTIAL, RULE_CHAIN, ALARM) are **retained** per 21 CFR §11 (no longer emitted; inspector contract preserved).
 - **Config:** **38 definitions** (`apps/api/src/modules/config/defs/*.def.ts`) + auto-discovery, **34** corresponding pages (`filter-approval.def.ts` added 2026-09-04 — the filter create/upload → review → approve workflow's role assignment; edited on the Role Assignments page, so it adds no `routes/config/*.tsx`; `uns.def` + `retention.def` removed 2026-06-17; `ahu-completion-process.def.ts` added 2026-07-01; `export-limit.def.ts` added 2026-07-14 — configurable max export records + message, renders via the dynamic config page so no new `routes/config/*.tsx`; `backup-format.def.ts` added 2026-08-08 — default backup file format, same dynamic-page pattern)
 - **Themes:** 10 preset color themes (Ocean / Sapphire / Emerald / Amethyst / Sunset / Slate / Ruby / Forest / Midnight / Coral)
-- **Frontend:** **77 Routes** in `main.tsx`, **29** custom hooks, **45** lib modules (hook/lib counts re-verified by `ls` 2026-09-24 — the prior 39 was stale)
+- **Frontend:** **77 Routes** in `main.tsx`, **30** custom hooks, **51** lib entries (49 files + the `action-tape/` and `filter-ops/` folders; `ls apps/web/src/{hooks,lib}` minus `__tests__`, re-verified 2026-10-22 — the 2026-09-24 figures 29 / 45 had gone stale)
 - **Scheduler:** **in-process `node-cron`** in `apps/api/src/app.ts` — **5 jobs**: `session_sweep` (5 min; idle time read from the Password Policy since 2026-10-19), `password_expiry_check` (00:00), `log_retention` (00:05, added 2026-08-31 — also runs once at boot), `photo_orphan_sweep` (00:10, added 2026-10-19 — deletes unreferenced generator-named profile photos older than 24 h), `pm_overdue_check` (03:00). Plus one boot-only step, `notification_retry_recovery` (2026-10-19): notification rows a dead process left RETRYING are closed as FAILED, never re-sent automatically. (`pm_series_rollover` at 03:30 went with the 2026-08-27 recurring-PM revert.) **No job queue.** `packages/queue` + the `graphile-worker` dependency were DELETED 2026-08-26: `startJobRunner` had no caller after the 2026-07-25 move to node-cron, and the queue's job types all belonged to the Phase-7 ingestion tear-out. These jobs only run while the API process is up — `/api/health` reports `jobRunner`. The ONLY scheduler outside the app is the Windows Scheduled Task the installer registers for DB backups (daily 01:30).
 - **Tenancy:** **single-tenant, single-site, single-company.** Multi-tenancy was removed 2026-04-30 (`Organization` model + `organizationId` columns + `org-admin`/`tenant-admin` modules dropped). JWT `scope` always stamps `GLOBAL`. The `RoleScope` enum and `AssigneeType` enum are retained but trimmed to one/two values respectively.
 
@@ -106,6 +106,24 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   grant-bearing write must carry `offlinePerformedAt` + `clientOpId` (400
   `OFFLINE_REPLAY_FIELDS_REQUIRED`, `assertOfflineReplayPayload`) and every gate a replay skips is
   recorded on the event + audit row as `replayExemptGates` — the bypass is visible, not silent.
+- 🔴 **Always-on signatures (OD-01, operator decision 2026-10-22).** Record-destroying,
+  record-rewriting and rule-changing actions use `enforceReauthAlways`: the password is asked of
+  EVERY caller, SUPER_ADMIN included, and the Action Re-auth policy cannot switch it off — audit
+  edit / redact / delete (single + bulk), every Filter Data Management write and the SA record
+  edits on the user-facing pages (`SUPER_ADMIN_DATA_EDIT`, `requireDataEditReauth`), user delete +
+  bulk delete, role create / edit / delete, role permission + sidebar saves
+  (`PUT /api/config/roles/:role`, `UPDATE_ROLE_CONFIG`) and the policy save itself
+  (`UPDATE_REAUTH_CONFIG`). They were policy-driven before, and (per security finding OD-01) the live
+  policy named SUPER_ADMIN on 2 of 84 actions. Always-on actions are never in `/my-actions` (the tablet caches it): the page
+  sends the call, the server answers 401 REAUTH_REQUIRED, `useReauth` prompts and re-runs the
+  callback with the password — so a callback runs TWICE and must send its gated request before any
+  other write (FDM's cycle edit now signs cycle + readings with ONE prompt). The policy screens show
+  every always-on action as an informational "Always required" row, never a checkbox, and leave its
+  stored roles alone (`ALWAYS_REAUTH_ACTIONS` / `isAlwaysReauth` in
+  `packages/shared/src/types/reauth-actions.ts`; `apps/web/src/__tests__/always-reauth-actions.test.ts`
+  keeps it equal to the API's `enforceReauthAlways` call sites — literal, array, ternary and the
+  `config/routes.ts` variable form; an unrecognised dynamic call site fails the test). Guard:
+  `apps/api/src/e2e/od01-always-reauth.test.ts`. Never move one of these back to `enforceReauth`.
 - 🔴 **Strict-audit follow-up 2026-09-25** (see CHANGELOG): `audit_trail.signature_audit_id` links a
   signed row to its `REAUTH_SUCCESS` row via `lib/request-store.ts` (AsyncLocalStorage filled by the
   re-auth gate) — it is inside the checksum ONLY when present; never make it an always-present key
@@ -117,7 +135,49 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   parent (409 `PARENT_INACTIVE`). Bulk cycle-bound items
   need `tapeVersion`. Offline replay applies the tablet's missed-PM write-offs (it never did).
   Partial unique index `asset_instances_active_name_key` (`lower(name) WHERE is_active`) is
-  migration-only — `schema.prisma` cannot express it; the drift guard covers it.
+  migration-only — `schema.prisma` cannot express it. **The drift guard covers it only since
+  2026-10-22 (D-DB-1)**: `prisma migrate diff` alone printed PASS with it dropped, recreated
+  without `WHERE`, or with `audit_trail_no_delete` dropped. `scripts/verify-migrations.ps1` now
+  also (a) compares a catalog fingerprint of BOTH DBs (`verify-migrations.catalog.sql`: every
+  index's full definition incl. predicate, every user trigger + its enabled state, every
+  non-extension function body (md5 with `--` comments and whitespace normalised — the seed
+  re-applies part of `prisma/sql/invariants.sql`, whose copies differ from the baseline's only in
+  comments / CRLF), CHECK/EXCLUDE constraints, sequences,
+  extensions) and (b) asserts on the migrated scratch DB alone that the 2 partial unique indexes,
+  the 5 triggers (enabled) and a raising `block_audit_trail_delete()` exist exactly
+  (`verify-migrations.required.sql` — (a) cannot see a migration that drops an object from both
+  sides). A deliberate change to one of those objects updates `required.sql` in the same commit.
+- 🔴 **A redacted audit row is verified against the record of its redaction (security assessment
+  P1, 2026-10-22).** Redaction NULLs the payload but keeps the checksum, and `audit_trail` has no
+  UPDATE trigger, so a DB-level actor could set `redacted_at` on any row, rewrite who / what / when,
+  and verify-chain still passed. The redaction meta row (`AUDIT_RECORD_REDACTED` /
+  `AUDIT_RECORDS_BULK_REDACTED`, itself hash-chained) now holds every non-payload column of the
+  row plus who redacted it, when and why (`redactionSnapshot`, `snapshotVersion: 2`,
+  `lib/audit-redaction.ts`). `verifyRedactedRow` (`hash-chain.ts`) checks the row against it in
+  verify-chain, in the audit list / detail `integrityValid`, and at the backup restore gate (evidence
+  from the backup's own rows). No DDL and no change to any checksum formula.
+  - No record → `REDACTION_UNRECORDED`; a field that differs → `REDACTED_ROW_MISMATCH`. Both count
+    against `intact`. A redacted row is never passed as valid on its null payload alone.
+  - Records written 2026-07-04 → 2026-10-22 hold 5 fields (action, timestamp, userId, targetType,
+    targetId). Those are enforced; the rest is reported as informational
+    `REDACTION_PARTIALLY_VERIFIED`, which does not flip `intact`.
+  - Records older than 2026-07-04 → `REDACTION_RECORD_UNTRUSTED`, which **counts against `intact`**
+    (operator decision 2026-10-22). Their REDUCED checksum does not cover `beforeValue`, so the
+    record itself is forgeable; treating it as informational would reopen P1. No known database holds
+    one: digilog_db had 0 redacted rows on 2026-10-22 (its audit trail was wiped 2026-10-07), and
+    every customer install is 1.2.x from 2026-10-14.
+  - No record of a change to the audit trail can be redacted: the same five actions the edit
+    refusal uses (`AUDIT_META_ACTIONS`, `lib/audit-redaction.ts`: `AUDIT_RECORD_UPDATED/_DELETED`,
+    `AUDIT_RECORDS_BULK_DELETED` and both redaction records; 409 `META_AUDIT_IMMUTABLE`, single and
+    bulk; operator decision 2026-10-22). An `AUDIT_RECORD_DELETED` row's `beforeValue` is the only
+    surviving copy of the deleted row. Only the two REDACTION records are evidence. The Audit Trail
+    page offers neither Edit nor Redact on them, and a bulk redaction sends only rows the API would
+    redact (`canRedactRecord` / `AUDIT_META_ACTIONS`, `routes/audit/audit-helpers.ts`). Tests keep
+    the web list, the API list and the edit refusal's list equal. Redact locks its row(s) (`SELECT … FOR UPDATE`, bulk `ORDER BY id`), so two simultaneous
+    redactions of one row cannot both succeed.
+  - **Limit:** this stops a DB-level forger only on a KEYED chain (`AUDIT_CHAIN_KEY` +
+    `AUDIT_CHAIN_KEYED_FROM`, v3 rows). On an unkeyed (V1/V2) chain, anyone with database access can
+    still recompute every checksum forward, the record included, exactly as before.
 - Only one database now: `digilog_db` (Prisma). TimescaleDB (`digilog_tsdb`) was dropped 2026-06-11 with the data-ingestion tear-out.
 - Input sanitization (`apps/api/src/lib/sanitize.ts`, `stripHtml` / `sanitizeStrings`) is **opt-in per
   service, NOT global** — 11 call-site files (verified by grep 2026-10-19: admin requests, filter fields,
@@ -306,7 +366,10 @@ GET  /api/config/password-policy/current — Password policy (public endpoint)
   - last stage, nothing enabled after it → on the entry (advance or bypass);
   - last stage with an enabled checklist after it → on that checklist, carried on the entry (A-01 below);
   - last **Dry In** → on its readings (`SUBMIT_READINGS`), never at dryer start (shared
-    `callCompletesStageWork`); the checklist after it rides on the readings call;
+    `callCompletesStageWork`); the checklist after it rides on the readings call. Online a checklist
+    sent on its own before the readings is refused (400 `DRYER_READINGS_REQUIRED`); on offline replay
+    (a tablet built before 2026-10-22 asks it as the dryer starts) it is recorded without completing,
+    `replayExemptGates: CHECKLIST_BEFORE_READINGS`, and the readings then complete the cycle;
   - last **QA-gated** stage (interlock on, online) → the entry raises PENDING and the **approval**
     completes the cycle, as the approver, under the approval's signature (`stage-approvals` `approve()`;
     its AHU gate uses the operator's set choice frozen on the approval, `completionFilterSet`). With a
