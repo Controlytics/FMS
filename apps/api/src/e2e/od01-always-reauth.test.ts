@@ -99,9 +99,13 @@ const signatureRows = (username: string, action: 'REAUTH_SUCCESS' | 'REAUTH_FAIL
     select: { id: true },
   });
 
-/** A throwaway audit row, written as my SA, for the audit-record routes to act on. */
+/**
+ * A throwaway audit row for the audit-record routes to act on. Authored by a
+ * non-SUPER_ADMIN marker so the non-SA role below can SEE it: since D03-09 an
+ * invisible row is refused 404 before the gate, which would hide the gate.
+ */
 const newAuditRow = (tag: string) => auditLog({
-  userId: SA, userRole: 'SUPER_ADMIN', action: 'CONFIG_CHANGED',
+  userId: `od01_mark_${SUF}`.toLowerCase(), userRole: 'OPERATOR', action: 'CONFIG_CHANGED',
   targetType: 'od01-test', targetId: `od01-${SUF}-${tag}`,
   afterValue: { tag }, signatureMeaning: `OD-01 fixture ${tag}`,
 });

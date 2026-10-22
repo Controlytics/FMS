@@ -8,6 +8,30 @@ import { getRolePerms } from '../../plugins/rbac.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
 import { loadRedactionIndex, evidenceFor, redactionSnapshot, isRedactionMetaAction, type RawAuditRow } from '../../lib/audit-redaction.js';
+
+/**
+ * Why one row may not be redacted, or null. Applied BEFORE the signature
+ * (D03-09) and again to the row locked inside the transaction (P1).
+ */
+function redactRefusal(action: unknown, redactedAt: unknown): AppError | null {
+  // A record of a change to the audit trail (edit, delete, redact) is not
+  // rewritable - a redaction record is the only evidence for the row it masked,
+  // a deletion record the only copy of the row it deleted.
+  if (isRedactionMetaAction(action as string | null | undefined)) {
+    return new AppError(409, 'META_AUDIT_IMMUTABLE', 'This row records a previous change to the audit trail and cannot itself be redacted.');
+  }
+  if (redactedAt) return new AppError(409, 'ALREADY_REDACTED', 'Record was already redacted');
+  return null;
+}
+
+/** The bulk form of redactRefusal: any meta row refuses the batch; nothing left to redact refuses it too. */
+function bulkRedactRefusal(rows: ReadonlyArray<{ action?: unknown; redacted_at?: unknown }>): AppError | null {
+  if (rows.some((r) => isRedactionMetaAction(r.action as string | null | undefined))) {
+    return new AppError(409, 'META_AUDIT_IMMUTABLE', 'The selection includes a row that records a previous change to the audit trail; such rows cannot themselves be redacted.');
+  }
+  if (!rows.some((r) => r.redacted_at == null)) return new AppError(409, 'ALREADY_REDACTED_OR_MISSING', 'No matching un-redacted records');
+  return null;
+}
 import { AppError } from '../../lib/errors.js';
 import { cappedCount, cappedTotalPages, type CappedTotal } from '../../lib/capped-count.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
@@ -707,13 +731,18 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauthAlways('REDACT_AUDIT_RECORD', req, reply);
-    if (!ok) return;
     const { id } = req.params as { id: string };
     const { reason } = req.body as { reason: string };
 
-    const record = await prisma.auditTrail.findUnique({ where: { id }, select: { id: true } });
+    // D03-09 / F-42 (2026-10-22): every refusal BEFORE the signature — a refused
+    // request costs no password and leaves no REAUTH_* row.
+    // The same rule is applied again to the row LOCKED inside the transaction.
+    const record = await prisma.auditTrail.findUnique({ where: { id }, select: { id: true, action: true, redactedAt: true } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
+    const refusal = redactRefusal(record.action, record.redactedAt);
+    if (refusal) throw refusal;
+    const { ok } = await enforceReauthAlways('REDACT_AUDIT_RECORD', req, reply);
+    if (!ok) return;
 
     const now = new Date();
     await prisma.$transaction(async (tx) => {
@@ -733,10 +762,8 @@ export default async function auditRoutes(app: FastifyInstance) {
       // rewritable - same five actions as the edit refusal: a redaction record is
       // the only evidence for the row it masked, a deletion record the only copy
       // of the row it deleted.
-      if (isRedactionMetaAction(locked.action)) {
-        throw new AppError(409, 'META_AUDIT_IMMUTABLE', 'This row records a previous change to the audit trail and cannot itself be redacted.');
-      }
-      if (locked.redacted_at) throw new AppError(409, 'ALREADY_REDACTED', 'Record was already redacted');
+      const lockedRefusal = redactRefusal(locked.action, locked.redacted_at);
+      if (lockedRefusal) throw lockedRefusal;
       const updated = await tx.$executeRaw`
         UPDATE audit_trail
         SET before_value = NULL,
@@ -785,9 +812,15 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const { ids, reason } = req.body as { ids: string[]; reason: string };
+    // D03-09 / F-42 (2026-10-22): every refusal BEFORE the signature — a refused
+    // request costs no password and leaves no REAUTH_* row.
+    // Same rule as on the LOCKED rows inside the transaction.
+    const current = await prisma.auditTrail.findMany({ where: { id: { in: ids } }, select: { action: true, redactedAt: true } });
+    const bulkRefusal = bulkRedactRefusal(current.map((r) => ({ action: r.action, redacted_at: r.redactedAt })));
+    if (bulkRefusal) throw bulkRefusal;
     const { ok } = await enforceReauthAlways('BULK_REDACT_AUDIT_RECORDS', req, reply);
     if (!ok) return;
-    const { ids, reason } = req.body as { ids: string[]; reason: string };
 
     const now = new Date();
     const result = await prisma.$transaction(async (tx) => {
@@ -802,11 +835,9 @@ export default async function auditRoutes(app: FastifyInstance) {
         ORDER BY id -- one lock order for every caller: two overlapping bulk redactions cannot deadlock
         FOR UPDATE
       `;
-      if (locked.some((r) => isRedactionMetaAction(r.action))) {
-        throw new AppError(409, 'META_AUDIT_IMMUTABLE', 'The selection includes a row that records a previous change to the audit trail; such rows cannot themselves be redacted.');
-      }
+      const lockedRefusal = bulkRedactRefusal(locked);
+      if (lockedRefusal) throw lockedRefusal;
       const unredacted = locked.filter((r) => r.redacted_at == null);
-      if (unredacted.length === 0) throw new AppError(409, 'ALREADY_REDACTED_OR_MISSING', 'No matching un-redacted records');
       const matchedIds = unredacted.map((r) => r.id as string);
       const updated = await tx.$executeRaw`
         UPDATE audit_trail
@@ -906,11 +937,11 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauthAlways('UPDATE_AUDIT_RECORD', req, reply);
-    if (!ok) return;
     const { id } = req.params as { id: string };
     const body = req.body as Record<string, unknown>;
     const reason = String(body.reason);
+    // D03-09 / F-42 (2026-10-22): every refusal BEFORE the signature — a refused
+    // request costs no password and leaves no REAUTH_* row.
 
     const record = await prisma.auditTrail.findFirst({ where: { id } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
@@ -952,6 +983,8 @@ export default async function auditRoutes(app: FastifyInstance) {
     if (Object.keys(data).length === 0) {
       return reply.code(400).send({ error: 'NO_CHANGES', message: 'No editable fields were supplied.' });
     }
+    const { ok } = await enforceReauthAlways('UPDATE_AUDIT_RECORD', req, reply);
+    if (!ok) return;
 
     await prisma.$transaction(async (tx) => {
       // Meta-audit FIRST (same tx) so the ORIGINAL field values survive the
@@ -1004,10 +1037,10 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauthAlways('DELETE_AUDIT_RECORD', req, reply);
-    if (!ok) return;
     const { id } = req.params as { id: string };
     const { reason } = req.body as { reason: string };
+    // D03-09 / F-42 (2026-10-22): every refusal BEFORE the signature — a refused
+    // request costs no password and leaves no REAUTH_* row.
 
     // Scope the lookup exactly like the list/detail reads: a non-SUPER_ADMIN must
     // not be able to destroy accountability records it isn't even allowed to SEE.
@@ -1021,6 +1054,8 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
+    const { ok } = await enforceReauthAlways('DELETE_AUDIT_RECORD', req, reply);
+    if (!ok) return;
 
     await prisma.$transaction(async (tx) => {
       // Meta-audit FIRST (same tx) so the deletion is recorded even though the
@@ -1070,9 +1105,9 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauthAlways('BULK_DELETE_AUDIT_RECORDS', req, reply);
-    if (!ok) return;
     const { ids, reason } = req.body as { ids: string[]; reason: string };
+    // D03-09 / F-42 (2026-10-22): every refusal BEFORE the signature — a refused
+    // request costs no password and leaves no REAUTH_* row.
 
     // Same role scoping as the single delete above — ids the caller may not read
     // simply don't match, so they are neither deleted nor echoed back.
@@ -1083,6 +1118,8 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     });
     if (records.length === 0) return reply.code(404).send({ error: 'NO_MATCHING_RECORDS', message: 'No matching audit records' });
+    const { ok } = await enforceReauthAlways('BULK_DELETE_AUDIT_RECORDS', req, reply);
+    if (!ok) return;
     const matchedIds = records.map((r) => r.id);
 
     const result = await prisma.$transaction(async (tx) => {
