@@ -18,6 +18,10 @@ export { validateOfflineGate, firstStagesFromGraph } from './validate-offline-ga
 export { resolvePendingChecklistDialog, resolveChecklistForTargetStage } from './resolve-pending-checklist';
 
 export { findNextPendingChecklist } from './next-pending-checklist';
+
+// Which station may answer a checklist pending at the cycle's current stage (2026-10-22).
+export { checklistMayBeAnsweredAt, pendingChecklistStage, stageLabel } from './checklist-station';
+export type { ChecklistStationResult } from './checklist-station';
 export type {
   PendingChecklistBatchItem,
 } from './next-pending-checklist';
@@ -36,3 +40,18 @@ export type { PendingChecklist } from './types';
 // pick it (operator decision 2026-10-22). Web dialog, Dry In panel and tablet.
 export { equipmentGroupChoice, groupHasStageInstruments } from './equipment-group-choice';
 export type { EquipmentGroupChoice, EquipmentGroupSource } from './equipment-group-choice';
+
+// A batch decided per filter, not on the first one (2026-10-22): which filters
+// share this submit's call, and why each other one stays queued.
+export {
+  readingsCallKey,
+  splitByReadings,
+  checklistSignature,
+  largestGroup,
+  planFinalStageBatch,
+  planPendingChecklistBatch,
+  splitNewCycleBatch,
+  splitUnread,
+  leftInQueueMessage,
+} from './batch-plan';
+export type { BatchItem, LeftItem, FinalStagePlan } from './batch-plan';

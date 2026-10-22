@@ -57,16 +57,22 @@ export function setup(o: { reauthActions?: string[]; state: unknown; routes?: Mo
  * Open a stage screen, pick the block when the stage needs one, queue F-001 and
  * submit the queue.
  */
-export async function scanAndSubmit(api: ReturnType<typeof setup>, stageKey = 'WASH_OUT', blockName?: string, names: string[] = ['F-001']) {
+export async function scanAndSubmit(
+  api: ReturnType<typeof setup>, stageKey = 'WASH_OUT', blockName?: string, names: string[] = ['F-001'],
+  opts: { remarks?: string } = {},
+) {
   renderPage(<FilterOperationsPage />, { route: `/filters/stage/${stageKey}`, path: '/filters/stage/:stageKey', user: OPERATOR, api });
   await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
   await waitFor(() => expect(api.calls('GET', '/api/hierarchy/filters').length).toBeGreaterThan(0));
+  // The AHU completion mode decides the pre-flight at Submit; a test that sets one must not race it.
+  await waitFor(() => expect(api.calls('GET', '/api/config/ahu-completion-process/current').length).toBeGreaterThan(0));
   if (blockName) fireEvent.click(await screen.findByRole('button', { name: new RegExp(blockName) }));
   for (const name of names) {
     fireEvent.change(await screen.findByPlaceholderText('Scan tag or type filter name'), { target: { value: name } });
     fireEvent.click(screen.getByRole('button', { name: /Add to Queue/ }));
     await screen.findAllByText(name);
   }
+  if (opts.remarks !== undefined) fireEvent.change(screen.getByPlaceholderText('Remarks (optional)'), { target: { value: opts.remarks } });
   const submit = new RegExp(`Submit Selected \\(${names.length}\\)`);
   fireEvent.click(await screen.findByRole('button', { name: submit }));
 }

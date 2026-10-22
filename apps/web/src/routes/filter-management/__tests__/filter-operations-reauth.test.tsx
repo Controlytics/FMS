@@ -209,6 +209,9 @@ describe('Filter Operations — a lockout stops a signed batch', () => {
   const both = (o: Parameters<typeof setup>[0]) => {
     const api = setup(o);
     api.routes.unshift({ path: '/api/hierarchy/filters', body: { data: [F1, F2] } });
+    // F-002 in the same state, so the batch really holds both (a filter whose
+    // state cannot be read stays out of a batch, 2026-10-22).
+    api.routes.unshift({ path: '/api/filters/f2/current-state', body: o.state });
     return api;
   };
 

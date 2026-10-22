@@ -5,7 +5,6 @@ import { apiClient } from '../../lib/api-client';
 import { useReauth } from '../../hooks/use-reauth';
 import { withStageAction, signOnce } from '../../lib/stage-reauth';
 import { isReauthError } from '../../lib/report-export-log';
-import { advanceMustCarryChecklist } from '@digilog/shared';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { StageScanDialog } from './components/stage-scan-dialog';
@@ -43,6 +42,15 @@ import {
   resolveChecklistForTargetStage,
   resolvePendingChecklistDialog,
   findNextPendingChecklist,
+  splitByReadings,
+  splitNewCycleBatch,
+  splitUnread,
+  planFinalStageBatch,
+  planPendingChecklistBatch,
+  leftInQueueMessage,
+  type BatchItem,
+  type FinalStagePlan,
+  type LeftItem,
   type PendingChecklist,
   type PendingChecklistBatchItem,
 } from '@/lib/filter-ops';
@@ -201,6 +209,11 @@ export function FilterOperationsPage() {
   const [addingToQueue, setAddingToQueue] = useState(false);
   // Snapshot of queue while a shared dialog (reason/duration/equipment/checklist) is open
   const [pendingBatch, setPendingBatch] = useState<Array<{ filterId: string; filterName: string }> | null>(null);
+  // The remark typed for the submit a dialog continues (2026-10-22). Opening the
+  // dialog clears the scan screen, remark included, so the reason and readings
+  // handlers read the cleared field and recorded the default remark instead of
+  // the operator's.
+  const batchRemarksRef = useRef('');
 
   // ─── Dialog state — owned by useFilterOperationsCore (D1/D2/D4 Day 4) ───
   // The six imperative useState hooks below are replaced by compat aliases
@@ -401,6 +414,56 @@ export function FilterOperationsPage() {
     setSelectedQueueIds(prev => new Set([...prev].filter(id => !gone.has(id))));
     setScanValue(''); setError('');
   };
+  // Filters left out of this submit (lib/filter-ops/batch-plan) go back in the
+  // queue, ticked, with why — after clearScanState/dropFromQueue, which clear both.
+  const keepQueued = (left: LeftItem[]) => {
+    if (left.length === 0) return;
+    setScanQueue(prev => [
+      ...prev,
+      ...left
+        .filter(l => !prev.some(q => q.filterId === l.item.filterId))
+        .map(l => ({ filterId: l.item.filterId, filterName: l.item.filterName, tagId: (l.item as { tagId?: string }).tagId ?? l.item.filterName })),
+    ]);
+    setSelectedQueueIds(prev => new Set([...prev, ...left.map(l => l.item.filterId)]));
+    setError(leftInQueueMessage(left));
+  };
+
+  /**
+   * Each filter's OWN state for a batch (2026-10-22): the batch is decided per
+   * filter (lib/filter-ops/batch-plan), never on the first one alone. The first
+   * filter's state is already in hand. Online, the others are read live and
+   * cached — the checklist resolvers read the cache. When a read fails, or
+   * offline, the cached row; null when there is none, and the planners then
+   * leave that filter in the queue rather than give it another's call.
+   * Six reads at a time (~6 queries each server-side), not one after another.
+   */
+  const loadBatchStates = async (batch: BatchItem[], firstState: any, csQuery: string): Promise<Map<string, any>> => {
+    const states = new Map<string, any>();
+    if (batch.length === 0) return states;
+    states.set(batch[0].filterId, firstState);
+    const rest = batch.slice(1);
+    let next = 0;
+    const readOne = async (filterId: string): Promise<any> => {
+      if (online) {
+        try {
+          const live = await apiClient.get<any>(`/api/filters/${filterId}/current-state${csQuery}`);
+          await cacheServerStateResponse(filterId, live);
+          return live;
+        } catch {
+          // Not read live (offline, or refused): the cached row below decides.
+        }
+      }
+      return (await getCache<any>(`filter-state-${filterId}`).catch(() => null)) ?? null;
+    };
+    const worker = async () => {
+      while (next < rest.length) {
+        const item = rest[next++];
+        states.set(item.filterId, await readOne(item.filterId));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(6, rest.length) }, worker));
+    return states;
+  };
   // Close stage screen and go back to landing
   const closeDialog = () => {
     setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
@@ -510,28 +573,34 @@ export function FilterOperationsPage() {
     setSelectedQueueIds(prev => { const n = new Set(prev); n.delete(filterId); return n; });
   };
 
-  // Loop the batch advancing each filter with shared params
+  // Loop the batch advancing each filter with shared params.
+  // 'dialog' = it opened a dialog (block change / a checklist), 'stopped' = it
+  // wrote nothing (AHU pre-flight or signature declined).
   const advanceBatch = async (
     batch: Array<{ filterId: string; filterName: string }>,
     extraBody: Record<string, any>,
     overrideTargetState?: string,
-  ) => {
-    if (!activeStage) return;
+    // The caller already ran ONE AHU pre-flight over this batch and more.
+    opts: { ahuGated?: boolean } = {},
+  ): Promise<'done' | 'dialog' | 'stopped'> => {
+    if (!activeStage) return 'stopped';
     const stageLabel = activeStage.label;
     const blockId = selectedBlock?.id;
     const blockName = selectedBlock?.name;
     // AHU pre-flight for the checklist-less completion case (2026-08-10). One
     // call for the WHOLE batch, before the loop — never per filter.
     if (
+      !opts.ahuGated &&
       (await gateAhuBeforeCompletingAdvance(
         batch.map(b => b.filterId),
         overrideTargetState ?? activeStage.key,
       )) === 'blocked'
-    ) return;
+    ) return 'stopped';
     // Sign ONCE for the whole batch (2026-09-24): ADVANCE_FILTER_STAGE and the
     // station row can be switched on; the password is forwarded per filter.
     const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], overrideTargetState ?? activeStage.key));
-    if (!sig.ok) return;
+    if (!sig.ok) return 'stopped';
+    let dialogOpened = false;
     let success = 0;
     const failed: string[] = [];
     const newSubmissions: Array<{stage: string; filter: string; block?: string; time: string}> = [];
@@ -564,6 +633,7 @@ export function FilterOperationsPage() {
             requestedBlockName: e.connectionInfo.requestedBlockName,
           });
           setBlockChangeReason('');
+          dialogOpened = true;
           failed.push(`${item.filterName}: Block change approval required`);
         } else {
           failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
@@ -601,7 +671,9 @@ export function FilterOperationsPage() {
           filterName: b.filterName,
         }));
         const next = await findNextPendingChecklist(cycleBatch, resolvePendingChecklistDialog);
-        if (next) {
+        // Not over a block-change dialog this loop opened: the dialog reducer
+        // refuses to open one dialog over another.
+        if (next && !dialogOpened) {
           // AHU pre-flight BEFORE the (terminal) checklist opens (whole batch).
           if ((await gateAhuBeforeChecklist(cycleBatch.map(b => b.filterId))) === 'proceed') {
             core.dispatch({
@@ -612,6 +684,7 @@ export function FilterOperationsPage() {
               remainingBatch: next.remaining,
             });
             setChecklistError('');
+            dialogOpened = true;
           }
         }
       } catch { /* ignore */ }
@@ -621,6 +694,7 @@ export function FilterOperationsPage() {
     } else if (failed.length === 0) {
       setToast({ type: 'success', message: `${success} filter(s) → ${stageLabel}` });
     }
+    return dialogOpened ? 'dialog' : 'done';
   };
 
 
@@ -629,6 +703,7 @@ export function FilterOperationsPage() {
     const batchQueue = scanQueue.filter(q => selectedQueueIds.has(q.filterId));
     if (batchQueue.length === 0 || !activeStage || submitting) return;
     setLoading(true); setSubmitting(true); setError('');
+    batchRemarksRef.current = remarks;
     try {
       // Try to inspect first filter's state to decide which dialog to show.
       // When offline, skip state inspection and queue the advance directly.
@@ -809,20 +884,31 @@ export function FilterOperationsPage() {
         return;
       }
 
+      // Every filter's OWN state from here on (2026-10-22). The first filter
+      // picks which step this submit is; which filters share that step's call is
+      // decided per filter (lib/filter-ops/batch-plan). The others stay queued.
+      const states = await loadBatchStates(batchQueue, state, csQuery);
+      const stateOf = (filterId: string) => states.get(filterId) ?? null;
+
       // Phase 8.7 Wave-5: shared checklist-dialog resolver. Pass the resolved
       // tape from the offline-gate computation above so we don't recompute it.
       {
         const dialogChecklists = await resolvePendingChecklistDialog(first.filterId, resolvedActions);
         if (dialogChecklists) {
+          // One set of answers is sent to every filter of the dialog, so only the
+          // filters waiting on the SAME checklist share it.
+          const plan = await planPendingChecklistBatch(batchQueue, stateOf, (id) =>
+            id === first.filterId ? Promise.resolve(dialogChecklists) : resolvePendingChecklistDialog(id, stateOf(id)?.actions));
           // AHU pre-flight BEFORE the (terminal) checklist opens (whole batch).
-          if ((await gateAhuBeforeChecklist(batchQueue.map(q => q.filterId))) === 'blocked') {
+          if ((await gateAhuBeforeChecklist(plan.ride.map(q => q.filterId))) === 'blocked') {
             setLoading(false); setSubmitting(false);
             return;
           }
-          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          const batch = plan.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
-          core.dispatch({ type: 'open_checklist', filterId: first.filterId, filterName: `${batch.length} filter(s)`, checklists: dialogChecklists });
+          keepQueued(plan.left);
+          core.dispatch({ type: 'open_checklist', filterId: batch[0].filterId, filterName: `${batch.length} filter(s)`, checklists: plan.checklists });
           setChecklistError('');
           setLoading(false); setSubmitting(false);
           return;
@@ -844,10 +930,13 @@ export function FilterOperationsPage() {
           setLoading(false); setSubmitting(false);
           return;
         }
-        const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+        // Only filters with no cycle whose cleaning starts here get a START.
+        const startable = splitNewCycleBatch(batchQueue, stateOf, activeStage.key, (st) => firstStagesFromGraph(st?.pipelineGraph));
+        const batch = startable.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
         setPendingBatch(batch);
         setPmReasonCtx(state.isPmDue && state.pmReasonKey ? { pmDue: true, defaultReasonKey: state.pmReasonKey } : { pmDue: false });
         clearScanState();
+        keepQueued(startable.left);
         core.dispatch({ type: 'open_reason', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key });
         setReasonError('');
         setLoading(false); setSubmitting(false);
@@ -878,9 +967,11 @@ export function FilterOperationsPage() {
         if (!startedAt || !durationMin) {
           // Step 1 (2026-09-04): the ONE duration chosen in the queue header is
           // applied to every selected filter — no per-batch dialog any more.
-          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          const known = splitUnread(batchQueue, stateOf);
+          const batch = known.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           await startDryerForBatch(batch, dryerBatchDuration);
           dropFromQueue(batch.map(b => b.filterId));
+          keepQueued(known.left);
           setLoading(false); setSubmitting(false);
           return;
         }
@@ -895,10 +986,14 @@ export function FilterOperationsPage() {
         }
 
         if (groupChoice.groups.length > 0) {
-          // Step 2: shared temperature/readings dialog
-          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          // Step 2: shared temperature/readings dialog — for the filters whose
+          // readings go to the SAME group (2026-10-22): a cycle bound to another
+          // group, or one that needs its own choice, is not sent this one.
+          const split = splitByReadings(batchQueue, stateOf, null);
+          const batch = split.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
+          keepQueued(split.left);
           core.dispatch({ type: 'open_equipment', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key, ...readingsDialogGroups });
           setEquipmentError('');
           setLoading(false); setSubmitting(false);
@@ -910,9 +1005,11 @@ export function FilterOperationsPage() {
       // on offer) has instruments for this stage — show readings dialog if so
       if (groupChoice.groups.length > 0 && selectedBlock?.id) {
         if (groupChoice.groups.some((g: any) => groupHasStageInstruments(g, activeStage.key))) {
-          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          const split = splitByReadings(batchQueue, stateOf, activeStage.key);
+          const batch = split.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
+          keepQueued(split.left);
           core.dispatch({ type: 'open_equipment', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key, ...readingsDialogGroups });
           setEquipmentError('');
           setLoading(false); setSubmitting(false);
@@ -932,9 +1029,11 @@ export function FilterOperationsPage() {
           try { groups = ((await getCache<any[]>('equipment-groups')) ?? []).filter((g: any) => g.blockId === selectedBlock.id); } catch { /* none cached */ }
         }
         if (groups.length > 0) {
-          const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+          const split = splitByReadings(batchQueue, stateOf, null, groups);
+          const batch = split.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
+          keepQueued(split.left);
           core.dispatch({ type: 'open_equipment', filterId: first.filterId, filterName: `${batch.length} filter(s)`, stage: activeStage.key, groups });
           setEquipmentError('');
           setLoading(false); setSubmitting(false);
@@ -942,23 +1041,23 @@ export function FilterOperationsPage() {
         }
       }
 
-      // No dialog needed → advance the whole batch. Except into the LAST stage
-      // with a checklist after it (A-01): that checklist is asked first and goes
-      // with the advance in one call (parkFinalStageAdvance).
-      const batch = batchQueue.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
-      const parked = await parkFinalStageAdvance(batch, activeStage.key, {
+      // No dialog needed → advance. A filter that DOES take readings here is not
+      // advanced without them (2026-10-22); the page asks for readings only with
+      // a block selected. Into the LAST stage with a checklist after it (A-01),
+      // each filter's own profile decides (advanceIntoStage).
+      const split = selectedBlock?.id ? splitByReadings(batchQueue, stateOf, activeStage.key) : splitUnread(batchQueue, stateOf);
+      const batch = split.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+      const { outcome, left } = await advanceIntoStage(batch, activeStage.key, {
         targetState: activeStage.key,
         cleaningAreaId: selectedBlock?.id,
         ...(remarks ? { remarks } : {}),
-      }, state);
-      if (parked !== 'none') {
-        if (parked === 'parked') clearScanState();
-        setLoading(false); setSubmitting(false);
-        return;
+      }, stateOf, (plain, opts) => advanceBatch(plain, {}, undefined, opts));
+      // Nothing written (AHU pre-flight or signature declined): the queue stays for a retry.
+      if (outcome !== 'stopped') {
+        // Stay on the stage screen; clear queue so user can scan more
+        clearScanState();
+        keepQueued([...split.left, ...left]);
       }
-      await advanceBatch(batch, {});
-      // Stay on the stage screen; clear queue so user can scan more
-      clearScanState();
     } catch (e: any) {
       setPopupError(e.message ?? 'Failed');
     }
@@ -987,16 +1086,68 @@ export function FilterOperationsPage() {
     // and hand off to the equipment-group / limits dialog (which will run the
     // batch advance). For every other stage, advance immediately.
     if (!pendingBatch || pendingBatch.length === 0 || !reasonDialog.stage) return;
-    const batch = pendingBatch;
     const stage = reasonDialog.stage;
     const blockId = reasonDialog.block?.id;
     const blockName = reasonDialog.block?.name;
     const block = reasonDialog.block;
+    // The remark typed for this submit: the scan screen's field was cleared when
+    // the reason dialog opened.
+    const typedRemarks = batchRemarksRef.current;
+    const startBody = { cleaningReasonKey: reasonKey, cleaningJustification: justification || undefined, cleaningAreaId: blockId };
     setLoading(true); setReasonError(''); setSubmitting(true);
+
+    // Wash In on a block with equipment groups: the readings dialog takes over
+    // after the start (step 2 below). Read before the start now, because it also
+    // decides whether the start can wait on a checklist.
+    const blockEquipmentGroups = async (id: string): Promise<any[]> => {
+      try {
+        return await apiClient.get<any[]>(`/api/equipment-groups/by-block/${id}`) ?? [];
+      } catch {
+        // Offline: use cached equipment groups filtered by block
+        try {
+          return ((await getCache<any[]>('equipment-groups')) ?? []).filter((g: any) => g.blockId === id);
+        } catch { return []; /* no cached groups */ }
+      }
+    };
+    const washInGroups = stage.key === 'WASH_IN' && blockId && block ? await blockEquipmentGroups(blockId) : [];
+
+    // A START whose first stage is ALSO the last, with a checklist after it
+    // (2026-10-22): the start-cycle was written, then the bare advance refused
+    // (A-01, CHECKLIST_REQUIRED) — a cycle started at no stage. Ask the checklist
+    // FIRST and write start + advance + answers as ONE queued op
+    // (start-and-advance-with-checklist), like the tablet. Per filter: a batch may
+    // mix profiles. Not for Dry In (a profile ending at Dry In is with the
+    // operator) nor a Wash In whose readings dialog follows the start.
+    let batch: BatchItem[] = pendingBatch;
+    let parkAfter: { carry: BatchItem[]; checklists: PendingChecklist[] } | null = null;
+    if (stage.key !== 'DRY_IN' && washInGroups.length === 0) {
+      const stateOf = await cachedStatesOf(pendingBatch);
+      const plan = await planFinalStageBatch(pendingBatch, stage.key, stateOf, (id) => resolveChecklistForTargetStage(id, stage.key, online));
+      keepQueued(plan.left);
+      batch = plan.plain;
+      if (plan.carry.length > 0) {
+        if ((await gateAhuForFinalStage(plan, stage.key, stateOf)) === 'blocked') {
+          setLoading(false); setSubmitting(false);
+          return;
+        }
+        parkAfter = { carry: plan.carry, checklists: plan.checklists };
+      }
+    }
+    const parkedAdvance = { targetState: stage.key, cleaningAreaId: blockId, ...(typedRemarks ? { remarks: typedRemarks } : {}) };
+    if (batch.length === 0) {
+      // Nothing starts without its checklist: open it, nothing is written yet.
+      if (parkAfter) openParkedChecklist(parkAfter.carry, parkAfter.checklists, stage.key, parkedAdvance, startBody);
+      else { core.dispatch({ type: 'close' }); setPendingBatch(null); }
+      setLoading(false); setSubmitting(false);
+      return;
+    }
+    // The checklist group waits for the plain starts; if they stop part-way it
+    // stays queued, named, for its own submit.
+    const requeueParked = () => {
+      if (parkAfter) keepQueued(parkAfter.carry.map(item => ({ item, note: 'its checklist was not asked — submit it again' })));
+    };
     // + the station row of the first stage (2026-09-24).
     await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], stage.key), async (password?) => {
-      const startBody = { cleaningReasonKey: reasonKey, cleaningJustification: justification || undefined, cleaningAreaId: blockId };
-
       // 1) Start cycle for every filter in the batch.
       //    `password` is forwarded so executeOrQueue's online path uses
       //    postWithReauth — closes the gap that previously dropped the
@@ -1052,6 +1203,7 @@ export function FilterOperationsPage() {
             setBlockChangeReason('');
             setPendingBatch(null);
             refreshFilters();
+            requeueParked();
             setLoading(false); setSubmitting(false);
             return;
           }
@@ -1063,39 +1215,29 @@ export function FilterOperationsPage() {
         core.dispatch({ type: 'close' }); // close reason dialog
         setPendingBatch(null);
         refreshFilters();
+        requeueParked();
         return;
       }
 
       // 2) WASH_IN + block selected → check for equipment groups; if any,
       //    hand off to equipment/limits dialog (keeps pendingBatch set).
-      if (stage.key === 'WASH_IN' && blockId && block) {
-        let groups: any[] = [];
-        try {
-          groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${blockId}`) ?? [];
-        } catch {
-          // Offline: use cached equipment groups filtered by block
-          try {
-            const cachedGroups = await getCache<any[]>('equipment-groups') ?? [];
-            groups = cachedGroups.filter((g: any) => g.blockId === blockId);
-          } catch { /* no cached groups */ }
-        }
-        if (groups.length > 0) {
-          core.dispatch({ type: 'close' }); // close reason dialog
-          core.dispatch({ type: 'open_equipment', filterId: batch[0].filterId, filterName: `${batch.length} filter(s)`, stage: stage.key, groups });
-          setEquipmentError('');
-          return; // pendingBatch stays set — equipment dialog handles advance
-        }
+      if (washInGroups.length > 0) {
+        core.dispatch({ type: 'close' }); // close reason dialog
+        core.dispatch({ type: 'open_equipment', filterId: batch[0].filterId, filterName: `${batch.length} filter(s)`, stage: stage.key, groups: washInGroups });
+        setEquipmentError('');
+        return; // pendingBatch stays set — equipment dialog handles advance
       }
 
       // 3) No equipment dialog needed → advance the whole batch now.
       // AHU pre-flight for the checklist-less completion case (2026-08-10);
-      // one call for the whole batch, before the loop.
-      if ((await gateAhuBeforeCompletingAdvance(batch.map(b => b.filterId), stage.key)) === 'blocked') {
+      // one call for the whole batch, before the loop. Already run, once, over
+      // these AND the checklist group when one waits (gateAhuForFinalStage).
+      if (!parkAfter && (await gateAhuBeforeCompletingAdvance(batch.map(b => b.filterId), stage.key)) === 'blocked') {
         setLoading(false); setSubmitting(false);
         return;
       }
       const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], stage.key));
-      if (!sig.ok) { setLoading(false); setSubmitting(false); return; }
+      if (!sig.ok) { requeueParked(); setLoading(false); setSubmitting(false); return; }
       let success = 0; const failed: string[] = [];
       const newSubs: typeof recentSubmissions = [];
       for (const item of batch) {
@@ -1103,7 +1245,7 @@ export function FilterOperationsPage() {
           const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, {
             targetState: stage.key,
             cleaningAreaId: blockId,
-            remarks: remarks || `${stage.label} - Batch - ${item.filterName}`,
+            remarks: typedRemarks || `${stage.label} - Batch - ${item.filterName}`,
             // See advanceBatch: scopes the server INTERLOCK gate to the roster
             // the AHU pre-flight showed. Absent when the pre-flight didn't run.
             ...(ahuSetChoiceRef.current ? { filterSet: ahuSetChoiceRef.current } : {}),
@@ -1126,6 +1268,7 @@ export function FilterOperationsPage() {
             });
             setBlockChangeReason('');
             setPendingBatch(null); refreshFilters();
+            requeueParked();
             return;
           }
           failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
@@ -1140,6 +1283,8 @@ export function FilterOperationsPage() {
       setPendingBatch(null);
       if (failed.length > 0) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
       else setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
+      // Then the filters whose START waits on its checklist: nothing written yet.
+      if (parkAfter) openParkedChecklist(parkAfter.carry, parkAfter.checklists, stage.key, parkedAdvance, startBody);
     }, {
       onError: (e: unknown) => { setReasonError((e as any)?.message ?? 'Failed'); setPopupError((e as any)?.message ?? 'Failed'); },
       // A dismissed password prompt is not a failure: the reason dialog stays for a retry, nothing is shown.
@@ -1302,95 +1447,119 @@ export function FilterOperationsPage() {
     const blockId = equipmentDialog.block?.id;
     const blockName = equipmentDialog.block?.name;
     const stage = equipmentDialog.stage;
+    // The remark typed for this submit: the scan screen's field was cleared when
+    // this dialog opened.
+    const typedRemarks = batchRemarksRef.current;
 
     // Same readings applied to every filter in the snapshot. The dialog opens only
     // with the queue snapshot in pendingBatch (one filter is a batch of one); the
     // separate single-filter branch that followed could not be reached and was
-    // removed 2026-10-22.
+    // removed 2026-10-22. The snapshot holds only filters whose readings go to
+    // this dialog's group (handleSubmitBatch splits by it).
     if (!pendingBatch || pendingBatch.length === 0) { setEquipmentLoading(false); return; }
     const batch = pendingBatch;
-    let success = 0; const failed: string[] = [];
-    const newSubs: typeof recentSubmissions = [];
-    // Minor #2: track first 409 BLOCK_CHANGE_REQUIRED hit with a local flag.
-    // The closure-captured `blockChangeDialog` does NOT update mid-loop —
-    // React doesn't flush state between iterations of a sync `for`/await —
-    // so `if (!blockChangeDialog)` would always be whatever it was at
-    // function entry, not "have we set it this run". Local flag = correct.
-    let blockChangePopped = false;
-    // Readings INTO the last stage with a checklist after it (A-01): the readings
-    // ride on the parked advance and go with the checklist in one call. (The
-    // Dry In readings are an in-place dryer step, not an entry into a stage.)
-    if (!isDryerReadings) {
-      const parked = await parkFinalStageAdvance(batch, stage.key, {
+
+    // The readings as bare advances for `items`. 'dialog' = a block-change dialog
+    // replaced this one; 'stopped' = nothing sent (AHU pre-flight or signature).
+    const sendReadings = async (items: BatchItem[], opts: { ahuGated: boolean }): Promise<'done' | 'dialog' | 'stopped'> => {
+      // Readings that COMPLETE the cycle (the last stage, no checklist after it)
+      // had no AHU pre-flight on this path, so POPUP never warned there (2026-10-22).
+      // Dry In readings are an in-place dryer step, never a completion.
+      if (
+        !isDryerReadings && !opts.ahuGated &&
+        (await gateAhuBeforeCompletingAdvance(items.map(b => b.filterId), stage.key)) === 'blocked'
+      ) return 'stopped';
+      let success = 0; const failed: string[] = [];
+      const newSubs: typeof recentSubmissions = [];
+      // Minor #2: track first 409 BLOCK_CHANGE_REQUIRED hit with a local flag.
+      // The closure-captured `blockChangeDialog` does NOT update mid-loop —
+      // React doesn't flush state between iterations of a sync `for`/await —
+      // so `if (!blockChangeDialog)` would always be whatever it was at
+      // function entry, not "have we set it this run". Local flag = correct.
+      let blockChangePopped = false;
+      // One signature for the batch: the stage move, plus the station row of the
+      // target stage (2026-09-24). Cycles are already started by the time this
+      // dialog opens (handleReasonSubmit starts them before handing over).
+      const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], isDryerReadings ? 'DRY_IN' : stage.key));
+      if (!sig.ok) return 'stopped';
+      for (const item of items) {
+        try {
+          const advPayload = {
+            targetState: isDryerReadings ? 'DRY_IN' : stage.key,
+            cleaningAreaId: blockId,
+            equipmentGroupId: groupId,
+            instrumentReadings: readings,
+            ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+            remarks: typedRemarks || `${stage.label} - Batch - ${item.filterName}`,
+          };
+          const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, advPayload, isDryerReadings ? 'DRY_IN' : stage.key, sig.password);
+          success++;
+          // Update cached state after offline operation.
+          // Deep-review fix D3: pass blockId from the equipment dialog scope.
+          if (!executed) await recomputeAndCacheFilterState(item.filterId, isDryerReadings ? 'DRY_IN' : stage.key, false, blockId ?? null);
+          newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
+        } catch (e: any) {
+          // B7.2: a cross-block hit can return 409 BLOCK_CHANGE_REQUIRED. Pop the
+          // structured modal once on first hit (the advanceBatch pattern) and
+          // continue iterating so other items can still succeed.
+          if ((e?.code === 'BLOCK_CHANGE_CONFIRM' || e?.code === 'BLOCK_CHANGE_REQUIRED') && e?.connectionInfo) {
+            if (!blockChangePopped) {
+              core.dispatch({
+                type: 'open_block_change',
+                filterId: e.connectionInfo.filterId ?? item.filterId,
+                filterName: item.filterName,
+                homeBlockId: e.connectionInfo.homeBlockId,
+                homeBlockName: e.connectionInfo.homeBlockName,
+                requestedBlockId: e.connectionInfo.requestedBlockId,
+                requestedBlockName: e.connectionInfo.requestedBlockName,
+              });
+              setBlockChangeReason('');
+              // Pop the structured modal ONCE (first cross-block hit). Without
+              // this assignment the flag stayed false, so the modal re-dispatched
+              // for every failing item (last-wins) and the generic failure toast
+              // below always fired on top of it. (Fixed 2026-08-18; the omission
+              // was surfaced by eslint prefer-const flagging a never-reassigned
+              // `let`.)
+              blockChangePopped = true;
+            }
+            failed.push(`${item.filterName}: Block change approval required`);
+          } else {
+            failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+          }
+        }
+      }
+      recordSubmission(newSubs);
+      refreshFilters();
+      refreshOfflineInstances(); // refresh cached data after queued ops
+      // Close the equipment dialog (batch end) — unless a block-change dialog
+      // REPLACED it in the loop: closing then closed that one, and with the
+      // generic popup suppressed below the refusal was never shown (2026-10-22).
+      if (!blockChangePopped) core.dispatch({ type: 'close' });
+      setPendingBatch(null);
+      // Minor #3: suppress generic toast when block-change modal is up
+      // (mirrors advanceBatch:422 `&& !blockChangeDialog`, but using the
+      // local flag to avoid the same closure-staleness pitfall).
+      if (failed.length > 0 && !blockChangePopped) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
+      else if (failed.length === 0) setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
+      return blockChangePopped ? 'dialog' : 'done';
+    };
+
+    if (isDryerReadings) {
+      await sendReadings(batch, { ahuGated: false });
+    } else {
+      // Readings INTO the last stage with a checklist after it (A-01): the
+      // readings ride on the parked advance and go with the checklist in one call,
+      // per filter (advanceIntoStage). (The Dry In readings are an in-place dryer
+      // step, not an entry into a stage.)
+      const { left } = await advanceIntoStage(batch, stage.key, {
         targetState: stage.key,
         cleaningAreaId: blockId,
         equipmentGroupId: groupId,
         instrumentReadings: readings,
-        ...(remarks ? { remarks } : {}),
-      });
-      if (parked !== 'none') { setEquipmentLoading(false); return; }
+        ...(typedRemarks ? { remarks: typedRemarks } : {}),
+      }, await cachedStatesOf(batch), sendReadings);
+      keepQueued(left);
     }
-    // One signature for the batch: the stage move, plus the station row of the
-    // target stage (2026-09-24). Cycles are already started by the time this
-    // dialog opens (handleReasonSubmit starts them before handing over).
-    const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], isDryerReadings ? 'DRY_IN' : stage.key));
-    if (!sig.ok) { setEquipmentLoading(false); return; }
-    for (const item of batch) {
-      try {
-        const advPayload = {
-          targetState: isDryerReadings ? 'DRY_IN' : stage.key,
-          cleaningAreaId: blockId,
-          equipmentGroupId: groupId,
-          instrumentReadings: readings,
-          ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
-          remarks: remarks || `${stage.label} - Batch - ${item.filterName}`,
-        };
-        const { executed } = await executeOrQueue('advance', item.filterId, item.filterName, advPayload, isDryerReadings ? 'DRY_IN' : stage.key, sig.password);
-        success++;
-        // Update cached state after offline operation.
-        // Deep-review fix D3: pass blockId from the equipment dialog scope.
-        if (!executed) await recomputeAndCacheFilterState(item.filterId, isDryerReadings ? 'DRY_IN' : stage.key, false, blockId ?? null);
-        newSubs.push({ stage: stage.label + (executed ? '' : ' (queued)'), filter: item.filterName, block: blockName, time: formatTime(new Date()) });
-      } catch (e: any) {
-        // B7.2: a cross-block hit can return 409 BLOCK_CHANGE_REQUIRED. Pop the
-        // structured modal once on first hit (the advanceBatch pattern) and
-        // continue iterating so other items can still succeed.
-        if ((e?.code === 'BLOCK_CHANGE_CONFIRM' || e?.code === 'BLOCK_CHANGE_REQUIRED') && e?.connectionInfo) {
-          if (!blockChangePopped) {
-            core.dispatch({
-              type: 'open_block_change',
-              filterId: e.connectionInfo.filterId ?? item.filterId,
-              filterName: item.filterName,
-              homeBlockId: e.connectionInfo.homeBlockId,
-              homeBlockName: e.connectionInfo.homeBlockName,
-              requestedBlockId: e.connectionInfo.requestedBlockId,
-              requestedBlockName: e.connectionInfo.requestedBlockName,
-            });
-            setBlockChangeReason('');
-            // Pop the structured modal ONCE (first cross-block hit). Without
-            // this assignment the flag stayed false, so the modal re-dispatched
-            // for every failing item (last-wins) and the generic failure toast
-            // below always fired on top of it. (Fixed 2026-08-18; the omission
-            // was surfaced by eslint prefer-const flagging a never-reassigned
-            // `let`.)
-            blockChangePopped = true;
-          }
-          failed.push(`${item.filterName}: Block change approval required`);
-        } else {
-          failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
-        }
-      }
-    }
-    recordSubmission(newSubs);
-    refreshFilters();
-    refreshOfflineInstances(); // refresh cached data after queued ops
-    core.dispatch({ type: 'close' }); // close equipment dialog (batch end)
-    setPendingBatch(null);
-    // Minor #3: suppress generic toast when block-change modal is up
-    // (mirrors advanceBatch:422 `&& !blockChangeDialog`, but using the
-    // local flag to avoid the same closure-staleness pitfall).
-    if (failed.length > 0 && !blockChangePopped) setPopupError(`${success} succeeded, ${failed.length} failed:\n${failed.join('\n')}`);
-    else if (failed.length === 0) setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
     setEquipmentLoading(false);
   };
 
@@ -1511,42 +1680,98 @@ export function FilterOperationsPage() {
    * CHECKLIST_REQUIRED). Every advance on this page is a batch loop of bare
    * advances, so from 2026-10-21 desktop could not complete such a cycle.
    *
-   * When the rule applies, the checklist opens FIRST with the batch's advance
-   * parked on the dialog (nothing written; Close discards it) and the batch branch
-   * of handleChecklistSubmit sends one advance-with-checklist per filter. The rule
-   * is the server's own — packages/shared advanceMustCarryChecklist over the
+   * When the rule applies, the checklist opens FIRST with the advance parked on
+   * the dialog (nothing written; Close discards it) and the batch branch of
+   * handleChecklistSubmit sends one advance-with-checklist per filter. The rule is
+   * the server's own — packages/shared advanceMustCarryChecklist over the
    * server-built stageLookup — so a disabled checklist, a QA-interlock final stage
-   * and a mid-pipeline stage keep the bare advance. Decided on the first filter,
-   * as every other step of this page's batch is.
+   * and a mid-pipeline stage keep the bare advance.
    *
-   * 'none' = advance plainly (also when the questions cannot be resolved: the
-   * server then refuses the bare advance and the refusal is shown — never a silent
-   * skip). 'blocked' = the AHU pre-flight stopped it; nothing was written.
+   * Decided PER FILTER (2026-10-22, lib/filter-ops planFinalStageBatch): a batch
+   * can mix profiles. Filters whose profile needs no checklist here get their
+   * bare advance (`sendPlain`); the largest group sharing one checklist gets the
+   * dialog; a filter needing a different checklist stays queued (`left`). A
+   * filter that must carry a checklist whose questions cannot be resolved goes
+   * plain: the server refuses it and the refusal is shown — never a silent skip.
+   *
+   * ONE AHU pre-flight over every filter this submit completes, parked or plain:
+   * gated separately, the last two filters of an AHU split across the two halves
+   * would each wait on the other under INTERLOCK, and POPUP would ask twice.
+   *
+   * outcome: 'parked' = the checklist is open; 'stopped' = nothing written (AHU
+   * pre-flight or a declined signature); 'dialog' = the plain half opened another
+   * dialog (block change), so the checklist group stays queued instead.
    */
-  const parkFinalStageAdvance = async (
-    batch: Array<{ filterId: string; filterName: string }>,
+  const advanceIntoStage = async (
+    batch: BatchItem[],
     targetState: string,
     payload: Record<string, unknown>,
-    firstState?: any,
-  ): Promise<'parked' | 'blocked' | 'none'> => {
-    if (batch.length === 0) return 'none';
-    const row = firstState ?? await getCache<any>(`filter-state-${batch[0].filterId}`).catch(() => null);
-    if (!advanceMustCarryChecklist(row?.stageLookup?.[targetState], row?.disabledChecklistProfileIds)) return 'none';
-    const checklists = await resolveChecklistForTargetStage(batch[0].filterId, targetState, online);
-    if (checklists.length === 0) return 'none';
-    // AHU pre-flight BEFORE the (terminal) checklist opens; nothing is written
-    // yet, so it tests the TARGET stage.
-    if ((await gateAhuBeforeDeferredChecklist(batch.map(b => b.filterId), targetState)) === 'blocked') return 'blocked';
+    stateOf: (filterId: string) => any,
+    sendPlain: (plain: BatchItem[], opts: { ahuGated: boolean }) => Promise<'done' | 'dialog' | 'stopped'>,
+  ): Promise<{ outcome: 'done' | 'parked' | 'dialog' | 'stopped'; left: LeftItem[] }> => {
+    const plan = await planFinalStageBatch(batch, targetState, stateOf, (id) => resolveChecklistForTargetStage(id, targetState, online));
+    if (plan.carry.length === 0) {
+      const sent = plan.plain.length > 0 ? await sendPlain(plan.plain, { ahuGated: false }) : 'done';
+      return { outcome: sent, left: plan.left };
+    }
+    if ((await gateAhuForFinalStage(plan, targetState, stateOf)) === 'blocked') return { outcome: 'stopped', left: [] };
+    if (plan.plain.length > 0) {
+      const sent = await sendPlain(plan.plain, { ahuGated: true });
+      if (sent === 'stopped') return { outcome: 'stopped', left: [] };
+      if (sent === 'dialog') {
+        return { outcome: 'dialog', left: [...plan.left, ...plan.carry.map(item => ({ item, note: 'its checklist was not asked — submit it again' }))] };
+      }
+    }
+    openParkedChecklist(plan.carry, plan.checklists, targetState, payload);
+    return { outcome: 'parked', left: plan.left };
+  };
+
+  /** The single AHU pre-flight of a final-stage submit (see advanceIntoStage). */
+  const gateAhuForFinalStage = async (
+    plan: Pick<FinalStagePlan<BatchItem>, 'plain' | 'carry'>,
+    targetState: string,
+    stateOf: (filterId: string) => any,
+  ): Promise<'proceed' | 'blocked'> => {
+    ahuSetChoiceRef.current = null;
+    if (ahuMode === 'NONE') return 'proceed';
+    const completing = plan.plain.filter(p => isCompletingAdvance(targetState, stateOf(p.filterId)?.stageLookup));
+    const ids = [...plan.carry, ...completing].map(b => b.filterId);
+    return ids.length > 0 ? runAhuGate(ids) : 'proceed';
+  };
+
+  /**
+   * Open the checklist with the batch's advance parked on it — or, with
+   * `cyclePayload`, the whole cycle START (start-and-advance-with-checklist).
+   */
+  const openParkedChecklist = (
+    carry: BatchItem[],
+    checklists: PendingChecklist[],
+    targetState: string,
+    payload: Record<string, unknown>,
+    cyclePayload?: Record<string, unknown>,
+  ) => {
+    const batch = carry.map(c => ({ filterId: c.filterId, filterName: c.filterName }));
     setPendingBatch(batch);
     core.dispatch({
       type: 'open_checklist',
       filterId: batch[0].filterId,
       filterName: `${batch.length} filter(s)`,
       checklists,
-      deferredAdvance: { targetState, payload, cleaningAreaId: (payload.cleaningAreaId as string | undefined) ?? null },
+      deferredAdvance: {
+        targetState,
+        payload,
+        cleaningAreaId: (payload.cleaningAreaId as string | undefined) ?? null,
+        ...(cyclePayload ? { cyclePayload } : {}),
+      },
     });
     setChecklistError('');
-    return 'parked';
+  };
+
+  /** The cached state rows of a dialog's batch (loadBatchStates cached them at submit). */
+  const cachedStatesOf = async (batch: BatchItem[]): Promise<(filterId: string) => any> => {
+    const rows = new Map<string, any>();
+    for (const b of batch) rows.set(b.filterId, await getCache<any>(`filter-state-${b.filterId}`).catch(() => null));
+    return (filterId: string) => rows.get(filterId) ?? null;
   };
 
   const handleChecklistSubmit = async (answers: Record<string, any>) => {
@@ -1581,15 +1806,17 @@ export function FilterOperationsPage() {
     // handleChecklistSubmit. Without the wrap, the backend's enforceReauth
     // would 401 silently when policy demands a password.
     // A batch whose advance into the LAST stage is parked on this dialog
-    // (parkFinalStageAdvance): each filter enters the stage and answers the
+    // (advanceIntoStage): each filter enters the stage and answers the
     // checklist in ONE call — signed once for both writes, as the server
-    // enforces both on advance-with-checklist.
+    // enforces both on advance-with-checklist. With `cyclePayload` the cycle
+    // START is parked too (a first stage that is also the last, 2026-10-22):
+    // start-and-advance-with-checklist, signed once for all three.
     const parked = pendingBatch && pendingBatch.length > 0 && core.dialogState.kind === 'awaiting_checklist'
       ? core.dialogState.deferredAdvance ?? null
       : null;
     const parkedLabel = parked ? (CLEANING_STAGES.find(s => s.key === parked.targetState)?.label ?? parked.targetState) : '';
     const signature = parked
-      ? withStageAction(['ADVANCE_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE'], parked.targetState)
+      ? withStageAction([...(parked.cyclePayload ? ['START_CLEANING_CYCLE'] : []), 'ADVANCE_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE'], parked.targetState)
       : 'SUBMIT_CHECKLIST_WITH_SIGNATURE';
 
     await reauth.execute(signature, async (password?: string) => {
@@ -1598,9 +1825,40 @@ export function FilterOperationsPage() {
         const batch = pendingBatch;
         let success = 0; const failed: string[] = [];
         const newSubs: typeof recentSubmissions = [];
+        // A parked START asks the missed-PM question at most once per batch, as the
+        // reason path does; the answers ride on every later start.
+        if (parked?.cyclePayload) pmSkipsForBatch.current = [];
+        const startAndAdvance = (item: BatchItem, pmSkips: Array<{ entryId: string; reason: string }>) =>
+          executeOrQueue('start-and-advance-with-checklist', item.filterId, item.filterName, {
+            cyclePayload: {
+              ...parked!.cyclePayload,
+              acknowledgeBlockChange: ackedBlockFiltersRef.current.has(item.filterId),
+              ...(pmSkips.length > 0 ? { pmSkips } : {}),
+            },
+            advancePayload: {
+              ...parked!.payload,
+              remarks: (parked!.payload.remarks as string | undefined) || `${parkedLabel} - Batch - ${item.filterName}`,
+              ...submitPayload,
+            },
+          } as any, parked!.targetState, password);
+        const startWithPmGate = async (item: BatchItem) => {
+          try {
+            return await startAndAdvance(item, pmSkipsForBatch.current);
+          } catch (startErr: any) {
+            const code = startErr?.error ?? startErr?.code;
+            const pending = startErr?.connectionInfo?.pendingPmTasks;
+            if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pending) || pending.length === 0) throw startErr;
+            const pmAnswers = await askPmSkipReasons(pending, startErr?.connectionInfo?.minReasonLength ?? 5);
+            if (!pmAnswers) throw startErr; // cancelled — this filter does not start
+            pmSkipsForBatch.current = pmAnswers;
+            return await startAndAdvance(item, pmAnswers);
+          }
+        };
         for (const item of batch) {
           try {
-            const { executed } = parked
+            const { executed } = parked?.cyclePayload
+              ? await startWithPmGate(item)
+              : parked
               ? await executeOrQueue('advance-with-checklist', item.filterId, item.filterName, {
                   ...parked.payload,
                   remarks: (parked.payload.remarks as string | undefined) || `${parkedLabel} - Batch - ${item.filterName}`,

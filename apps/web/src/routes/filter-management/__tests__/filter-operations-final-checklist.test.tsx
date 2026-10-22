@@ -110,8 +110,9 @@ describe('Filter Operations — the last stage with a checklist after it (A-01)'
   });
 
   it('a batch: ONE dialog for every filter, then one advance-with-checklist per filter', async () => {
-    idb.seed('cache', [cacheRow('filter-state-f2', { ...FINAL, tapeVersion: 9 })]);
     const a = api(FINAL, [{ method: 'POST', path: /\/api\/filters\/f\d\/advance-with-checklist/, body: DONE }], { two: true });
+    // Each filter's own state is read at submit (2026-10-22), so each carries its own tapeVersion.
+    a.routes.unshift({ path: '/api/filters/f2/current-state', body: { ...FINAL, tapeVersion: 9 } });
     await scanAndSubmit(a, 'STORAGE_OUT', undefined, ['F-001', 'F-002']);
     expect(await screen.findByText('2 filter(s)', { selector: 'p' })).toBeInTheDocument();
     await answerAndSubmit();
