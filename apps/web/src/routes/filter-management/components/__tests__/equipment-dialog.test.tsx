@@ -77,6 +77,21 @@ describe('EquipmentDialog — manual readings', () => {
     expect(onSubmit).toHaveBeenCalledWith('g1', { i1: 1.5, i2: 6 });
   });
 
+  // D03-12 (2026-10-22): the reading controls had no accessible name (the tablet's
+  // do): a screen reader read "combobox" twice, and a test could not tell them apart.
+  it('each reading control is named by its instrument (dropdown and typed input alike)', () => {
+    renderPage(<Host initial={mkDialog()} onSubmit={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Washer Bay 1/ }));
+    expect(screen.getByRole('combobox', { name: 'RO water pressure PG-01' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Compressed air pressure PG-02' })).toBeInTheDocument();
+  });
+
+  it('an auto-fetch reading input is named by its instrument too', () => {
+    renderPage(<Host initial={mkDialog({ groups: [GA] })} onSubmit={vi.fn()} online />);
+    fireEvent.click(screen.getByRole('button', { name: /Auto Bay/ }));
+    expect(screen.getByRole('spinbutton', { name: 'Compressed air pressure PT-02' })).toBeInTheDocument();
+  });
+
   it('switching group discards the readings entered for the previous one', () => {
     renderPage(<Host initial={mkDialog()} onSubmit={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /Washer Bay 1/ }));

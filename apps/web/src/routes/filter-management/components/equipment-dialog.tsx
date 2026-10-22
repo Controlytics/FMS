@@ -269,12 +269,15 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                 const options = generateReadingOptions(inst.operatingMin, inst.operatingMax, inst.leastCount);
                 const timedOut = manualFallback.has(inst.id) && options.length > 0;
                 const auto = isAutoInstrument(inst) && !timedOut;
+                // The control is named by its instrument (D03-12): description +
+                // instrument id, the two spans of this row's heading.
+                const nameIds = `reading-${inst.id}-desc reading-${inst.id}-code`;
                 return (
                   <div key={inst.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-slate-700">{inst.description}</span>
-                        <span className="text-xs text-slate-400 font-mono">{inst.instrumentId}</span>
+                        <span id={`reading-${inst.id}-desc`} className="text-sm font-medium text-slate-700">{inst.description}</span>
+                        <span id={`reading-${inst.id}-code`} className="text-xs text-slate-400 font-mono">{inst.instrumentId}</span>
                         {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
                       </div>
                       <span className="text-xs text-slate-400">{formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)} {inst.uom}</span>
@@ -287,6 +290,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                       <div className="flex items-center gap-2">
                         <input
                           type="number" step="any" inputMode="decimal"
+                          aria-labelledby={nameIds}
                           value={val ?? ''}
                           onChange={e => setManualReading(inst.id, e.target.value)}
                           readOnly={isLocked(inst.id)}
@@ -299,6 +303,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
                       </div>
                     ) : (
                       <Select
+                        aria-labelledby={nameIds}
                         value={val ?? ''}
                         onChange={e => setManualReading(inst.id, e.target.value)}>
                         <option value="">Select value...</option>
