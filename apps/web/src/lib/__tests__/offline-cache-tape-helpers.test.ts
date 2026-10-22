@@ -72,6 +72,14 @@ describe('dialogChecklistsFromActions', () => {
   it('an empty tape yields no dialogs', () => {
     expect(dialogChecklistsFromActions([])).toEqual([]);
   });
+
+  // 2026-10-22: a START checklist (between START and the first stage) has
+  // afterStage null. It is keyed START-<id>, the key resolveStartChecklists
+  // gives the same checklist before the cycle starts — never "null-<id>".
+  it('a START checklist (afterStage null) is keyed START-<profileId>', () => {
+    const start = { ...submit(), params: { ...(submit() as any).params, afterStage: null } } as Action;
+    expect(dialogChecklistsFromActions([start])[0].pipelineNodeId).toBe('START-cl-1');
+  });
 });
 
 describe('withDerivedPendingChecklist', () => {

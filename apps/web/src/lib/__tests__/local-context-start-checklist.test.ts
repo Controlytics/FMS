@@ -26,7 +26,7 @@ vi.mock('../offline-store', () => ({
   OFFLINE_TTL_MS: 24 * 60 * 60 * 1000,
 }));
 
-import { computeNextActions } from '@digilog/shared';
+import { checklistAnsweredInCurrentEntry, computeNextActions } from '@digilog/shared';
 import { loadLocalContextFromCache } from '../local-context';
 import { getCachedData, getCachedEntity, getCachedFilters } from '../offline-store';
 
@@ -57,7 +57,7 @@ const filterRow = {
 };
 
 /** The pending START checklist as the cache holds it from the server's tape. */
-const START_ROW = { pipelineNodeId: 'null-cl-start', checklistProfileId: 'cl-start', checklistProfileName: 'Before cleaning', profileVersion: 1, questions: startChecklist.questions };
+const START_ROW = { pipelineNodeId: 'START-cl-start', checklistProfileId: 'cl-start', checklistProfileName: 'Before cleaning', profileVersion: 1, questions: startChecklist.questions };
 
 function atStart(over: Record<string, unknown> = {}) {
   const cachedState = {
@@ -118,6 +118,61 @@ describe('a START checklist offline', () => {
     const { ctx, types } = await tapeTypes();
     expect(ctx!.events).toEqual([]);
     expect(types).toContain('SUBMIT_CHECKLIST');
+  });
+
+  // The server's CHECKLIST_COMPLETED for a START checklist
+  // (cycle-write/submit-checklist.ts): `afterStage: stageKey`, and stageKey is
+  // the filter's lifecycle state — null before the first stage. The key is
+  // PRESENT with null, never absent. The synthesized event must be read the same
+  // way by the ONE shared rule both sides use.
+  it('the synthesized START answer has the shape the server writes (afterStage present and null) and the shared rule reads both alike', async () => {
+    atStart({ checklistCompletions: [{ checklistProfileId: 'cl-start', afterStage: null, completedAt: '2026-10-22T08:00:00.000Z', cycleId: 'cycle-2' }] });
+    const ctx = await loadLocalContextFromCache('filter-1');
+    const synthesized = ctx!.events[0];
+    const server = {
+      eventType: 'CHECKLIST_COMPLETED', cycleId: 'cycle-2', fromState: null, toState: null,
+      performedAt: new Date('2026-10-22T08:00:00.000Z'),
+      attributes: { afterStage: null, answers: { q1: 'YES' }, checklists: [{ pipelineNodeId: 'n-cl', checklistProfileId: 'cl-start' }] },
+    };
+    for (const ev of [server, synthesized]) {
+      expect(Object.prototype.hasOwnProperty.call(ev.attributes, 'afterStage')).toBe(true);
+      expect(ev.attributes.afterStage).toBeNull();
+      expect(ev.eventType).toBe('CHECKLIST_COMPLETED');
+      expect(ev.cycleId).toBe('cycle-2');
+    }
+    for (const position of [null, 'WASH_IN']) {
+      expect(checklistAnsweredInCurrentEntry([synthesized] as any, position))
+        .toBe(checklistAnsweredInCurrentEntry([server] as any, position));
+    }
+    expect(checklistAnsweredInCurrentEntry([synthesized] as any, null)).toBe(true);
+  });
+
+  // The loader gap (2026-10-22): the checklist slice came ONLY from the
+  // pendingChecklist mirror, so with that mirror empty (a local submit clears
+  // it; a local recompute rebuilds it for stages only) the executor could not
+  // resolve the START checklist and dropped it — the tape offered the first
+  // stage instead, and the offline replay exempts START_CHECKLIST. Derived from
+  // the pipeline graph (startChecklistProfileIds), as resolveStartChecklists does.
+  it('unanswered, with an EMPTY pendingChecklist mirror: the tape still offers it, never the first stage', async () => {
+    atStart({ pendingChecklist: [] });
+    const { types } = await tapeTypes();
+    expect(types).toContain('SUBMIT_CHECKLIST');
+    expect(types).not.toContain('ADVANCE_TO_STAGE');
+  });
+
+  it('…its questions come from the cached checklist-profiles list when the synced store lacks them', async () => {
+    atStart({ pendingChecklist: [] });
+    mockGetCachedEntity.mockResolvedValue(null as any);
+    const { ctx, types } = await tapeTypes();
+    expect(types).toContain('SUBMIT_CHECKLIST');
+    expect(ctx!.checklistProfile).toMatchObject({ id: 'cl-start', questions: [expect.objectContaining({ id: 'q1' })] });
+  });
+
+  it('a DISABLED START checklist is skipped (the server skips it too): the first stage is offered', async () => {
+    atStart({ pendingChecklist: [], disabledChecklistProfileIds: ['cl-start'] });
+    const { types } = await tapeTypes();
+    expect(types).not.toContain('SUBMIT_CHECKLIST');
+    expect(types).toContain('ADVANCE_TO_STAGE');
   });
 
   it('an empty pendingChecklist mirror never stands in for a START answer (the legacy signal is stage-only)', async () => {

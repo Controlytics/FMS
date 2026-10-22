@@ -603,6 +603,113 @@ describe('readings for a mid-cycle Wash In (2026-10-08)', () => {
     expect(bulkItems(api)[0].payload.instrumentReadings).toEqual({ ro: 2 });
   });
 
+  // Finding 5 (2026-10-22): the readings of ONE dialog went to every filter of
+  // the queue, whatever group its cycle records readings with. The server now
+  // refuses that (409 EQUIPMENT_GROUP_MISMATCH). One readings call per submit —
+  // the first filter's (lib/filter-ops splitByReadings); the rest stay queued.
+  it('filters whose cycles are bound to DIFFERENT groups: the readings go to the first filter\'s group only; the other stays queued with the reason', async () => {
+    const G2 = { ...GROUP, id: 'g2', name: 'Wash Bay 2' };
+    const { api } = await renderOps({
+      stage: 'WASH_IN',
+      states: {
+        f1: state('DRY_OUT', [adv('WASH_IN')], { equipmentGroup: GROUP, cycle: { equipmentGroupId: 'g1' } }),
+        f2: state('DRY_OUT', [adv('WASH_IN')], { equipmentGroup: G2, cycle: { equipmentGroupId: 'g2' } }),
+      },
+      routes: [{ method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk({}, () => state('WASH_IN', [adv('WASH_OUT')], { equipmentGroup: GROUP })) }],
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'North' }));
+    await scanTag('E1'); await inQueue('F-001');
+    await scanTag('E2'); await inQueue('F-002');
+    fireEvent.click(submitButton());
+    expect(await message(/F-002: its cleaning cycle records readings with Wash Bay 2/)).toBeInTheDocument();
+    await dismissAll();
+    expect(await screen.findByText('Equipment Readings')).toBeInTheDocument();
+    fireEvent.change(screen.getByText('RO water pressure (bar)').parentElement!.parentElement!.querySelector('select')!, { target: { value: '1.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    expect(await message('1 filter(s) → Wash In')).toBeInTheDocument();
+    expect(bulkItems(api).map((i: any) => [i.filterId, i.payload.equipmentGroupId])).toEqual([['f1', 'g1']]);
+    await dismissAll();
+    // F-002 waits in the queue for its own readings submit.
+    await inQueue('F-002');
+  });
+
+  it('…and when the first filter\'s entry waits on its checklist (dialog first), the held filter still stays in the queue', async () => {
+    const G2 = { ...GROUP, id: 'g2', name: 'Wash Bay 2' };
+    const lookup = { WASH_IN: { pendingChecklistProfileIds: ['cl1'], nextStages: ['WASH_OUT'] } };
+    const { api } = await renderOps({
+      stage: 'WASH_IN',
+      states: {
+        f1: state('DRY_OUT', [adv('WASH_IN')], { equipmentGroup: GROUP, cycle: { equipmentGroupId: 'g1' }, stageLookup: lookup }),
+        f2: state('DRY_OUT', [adv('WASH_IN')], { equipmentGroup: G2, cycle: { equipmentGroupId: 'g2' }, stageLookup: lookup }),
+      },
+      routes: [{ method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk() }],
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'North' }));
+    await scanTag('E1'); await inQueue('F-001');
+    await scanTag('E2'); await inQueue('F-002');
+    fireEvent.click(submitButton());
+    await message(/F-002: its cleaning cycle records readings with Wash Bay 2/);
+    await dismissAll();
+    await screen.findByText('Equipment Readings');
+    fireEvent.change(screen.getByText('RO water pressure (bar)').parentElement!.parentElement!.querySelector('select')!, { target: { value: '1.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    expect(await screen.findByText('Checklist Required')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/filters/bulk-operate')).toHaveLength(0); // parked: nothing written yet
+    fireEvent.click(screen.getByRole('button', { name: 'Close' })); // the queue shows again
+    await inQueue('F-001'); // parked, kept for a retry
+    await inQueue('F-002'); // held back, kept for its own submit
+    expect(screen.getByRole('checkbox', { name: /F-002/ })).not.toBeChecked();
+  });
+
+  it('the first filter takes NO readings here but another does: no dialog; that one is not advanced without its readings — it stays queued with the reason', async () => {
+    const RINSE = { id: 'g3', name: 'Rinse Bay', blockId: 'b1', instruments: [
+      { id: 'fl', description: 'Flow', stageKey: 'WASH_OUT', uom: 'lpm', operatingMin: 1, operatingMax: 5, leastCount: 1 },
+    ] };
+    const { api } = await renderOps({
+      stage: 'WASH_OUT',
+      states: {
+        f1: state('WASH_IN', [adv('WASH_OUT')], { equipmentGroup: GROUP, cycle: { equipmentGroupId: 'g1' } }),
+        f2: state('WASH_IN', [adv('WASH_OUT')], { equipmentGroup: RINSE, cycle: { equipmentGroupId: 'g3' } }),
+      },
+      routes: [{ method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk() }],
+    });
+    await scanTag('E1'); await inQueue('F-001');
+    await scanTag('E2'); await inQueue('F-002');
+    fireEvent.click(submitButton());
+    expect(await message(/F-002: its cleaning cycle records readings with Rinse Bay/)).toBeInTheDocument();
+    await dismissAll();
+    await waitFor(() => expect(bulkItems(api)).toHaveLength(1));
+    expect(bulkItems(api)[0]).toMatchObject({ filterId: 'f1', kind: 'advance' });
+    expect(bulkItems(api)[0].payload.instrumentReadings).toBeUndefined();
+    expect(screen.queryByText('Equipment Readings')).toBeNull();
+    await inQueue('F-002');
+    expect(screen.queryByRole('checkbox', { name: /F-001/ })).toBeNull(); // advanced, off the queue
+  });
+
+  // A cycle NOT bound to a group, on a block with several: the server fills
+  // `equipmentGroup` with the block's oldest group, which is not a decision. The
+  // operator picks (lib/filter-ops equipmentGroupChoice) — never a silent pick.
+  it('an unbound cycle on a block with several groups: the operator picks the group; nothing is preselected', async () => {
+    const G2 = { ...GROUP, id: 'g2', name: 'Wash Bay 2' };
+    const { api } = await renderOps({
+      stage: 'WASH_IN',
+      states: { f1: state('DRY_OUT', [adv('WASH_IN')], { equipmentGroup: GROUP, blockEquipmentGroups: [GROUP, G2] }) },
+      routes: [{ method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk() }],
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'North' }));
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    expect(await screen.findByText('Equipment Readings')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Wash Bay' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Wash Bay 2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Wash Bay 2' }));
+    fireEvent.change(screen.getByText('RO water pressure (bar)').parentElement!.parentElement!.querySelector('select')!, { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    expect(await message('1 filter(s) → Wash In')).toBeInTheDocument();
+    expect(bulkItems(api)[0].payload).toMatchObject({ equipmentGroupId: 'g2', instrumentReadings: { ro: 2 } });
+  });
+
   it('a group with no instruments for this stage asks nothing', async () => {
     const { api } = await renderOps({
       stage: 'STORAGE_IN',

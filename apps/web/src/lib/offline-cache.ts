@@ -86,7 +86,9 @@ interface CachedFilterState {
 
 export interface ChecklistCompletion {
   checklistProfileId: string;
-  afterStage: string;
+  /** The stage the checklist follows; null = START (before the first stage,
+   *  2026-10-22) — the server's CHECKLIST_COMPLETED `afterStage` exactly. */
+  afterStage: string | null;
   completedAt: string;
   cycleId?: string | null;
 }
@@ -109,7 +111,7 @@ export async function appendChecklistCompletion(
   const alreadyLogged = existingLog.some(
     (c) =>
       c.checklistProfileId === completion.checklistProfileId &&
-      c.afterStage === completion.afterStage &&
+      (c.afterStage ?? null) === (completion.afterStage ?? null) &&
       (c.cycleId ?? null) === (completion.cycleId ?? null),
   );
   if (alreadyLogged) return;
@@ -476,6 +478,10 @@ export interface ServerCurrentStateForCache {
   blockChangeStatus?: string | null;
   actions?: Action[] | null;
   tapeVersion?: number | null;
+  /** A running cycle's pinned cleaning profile / equipment-group version is not
+   *  the live one — the tablet shows each as a non-blocking notice (2ceed59). */
+  profileSyncWarning?: { cycleProfileId: string; cycleProfileName: string | null; expectedProfileId: string; expectedProfileName: string | null; recommendation: string } | null;
+  equipmentGroupSyncWarning?: { groupId: string; pinnedVersion: number; liveVersion: number; recommendation: string } | null;
 }
 
 /**
@@ -496,6 +502,17 @@ export interface ServerCurrentStateForCache {
  * the synthesizeEvents Tier 2 invariant (offline still works via
  * recomputeAndCacheFilterState's graph-walk derivation).
  */
+/**
+ * The client-side key of a checklist row: `<afterStage>-<profileId>`, and
+ * `START-<profileId>` for a START checklist (afterStage null) — the key
+ * resolveStartChecklists gives the same checklist before the cycle starts.
+ * Only a React key / mirror id: the server never reads it (it records the real
+ * pipeline node id itself).
+ */
+function checklistRowKey(afterStage: string | null | undefined, checklistProfileId: string): string {
+  return `${afterStage ?? 'START'}-${checklistProfileId}`;
+}
+
 function pendingChecklistFromActions(actions: Action[] | null | undefined): any[] {
   if (!Array.isArray(actions) || actions.length === 0) return [];
   const LABEL_PREFIX = 'Submit Checklist: ';
@@ -507,7 +524,7 @@ function pendingChecklistFromActions(actions: Action[] | null | undefined): any[
       ? a.label.slice(LABEL_PREFIX.length)
       : a.label;
     rows.push({
-      pipelineNodeId: `${params.afterStage}-${params.checklistProfileId}`,
+      pipelineNodeId: checklistRowKey(params.afterStage, params.checklistProfileId),
       checklistProfileId: params.checklistProfileId,
       checklistProfileName: name,
       profileVersion: params.versionPin,
@@ -562,6 +579,9 @@ export async function cacheServerStateResponse(
       // locally-recomputed tape.
       actions: st.actions ?? null,
       tapeVersion: st.tapeVersion ?? null,
+      // The tablet's "profile / group changed" notices read these from the row.
+      profileSyncWarning: st.profileSyncWarning ?? null,
+      equipmentGroupSyncWarning: st.equipmentGroupSyncWarning ?? null,
     },
     ttlMs,
   );
@@ -628,7 +648,7 @@ export async function getCachedPendingChecklists(filterId: string): Promise<any[
  * `PendingChecklist[]` shape the ChecklistDialog component expects.
  *
  * Mapping:
- *   - `pipelineNodeId`: synthetic `${afterStage}-${profileId}` (matches the
+ *   - `pipelineNodeId`: synthetic `${afterStage ?? 'START'}-${profileId}` (matches the
  *     offline-cache fallback shape; only used as a React key in the dialog)
  *   - `checklistProfileId`: from `params.checklistProfileId`
  *   - `checklistProfileName`: stripped from the action's label
@@ -658,7 +678,7 @@ export function dialogChecklistsFromActions(actions: Action[]): Array<{
         ? a.label.slice(SUBMIT_CHECKLIST_LABEL_PREFIX.length)
         : a.label;
       return {
-        pipelineNodeId: `${a.params.afterStage}-${a.params.checklistProfileId}`,
+        pipelineNodeId: checklistRowKey(a.params.afterStage, a.params.checklistProfileId),
         checklistProfileId: a.params.checklistProfileId,
         checklistProfileName: name,
         profileVersion: a.params.versionPin,

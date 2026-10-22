@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// Loaded at collection, not inside the first test: the @digilog/shared mock
+// factory imports the REAL shared barrel (importOriginal), and its cold
+// transform took ~2.5-4.6 s inside the first test's 5 s timeout.
+import { cacheServerStateResponse, recomputeAndCacheFilterState, withDerivedPendingChecklist } from '../offline-cache';
 
 /**
  * Deep-review fix tests (2026-05-17).
@@ -69,7 +73,6 @@ describe('recomputeAndCacheFilterState — D3 deep-review fix', () => {
   });
 
   it('writes blockId into the offline cycle stub when cycleStarted=true', async () => {
-    const { recomputeAndCacheFilterState } = await import('../offline-cache');
 
     await recomputeAndCacheFilterState('filter-uuid-1', 'WASH_IN', true, 'block-uuid-A');
 
@@ -82,7 +85,6 @@ describe('recomputeAndCacheFilterState — D3 deep-review fix', () => {
   });
 
   it('writes null cleaningAreaId when blockId is null (desktop pre-fix behavior)', async () => {
-    const { recomputeAndCacheFilterState } = await import('../offline-cache');
 
     await recomputeAndCacheFilterState('filter-uuid-2', 'WASH_IN', true, null);
 
@@ -92,7 +94,6 @@ describe('recomputeAndCacheFilterState — D3 deep-review fix', () => {
   });
 
   it('throws OFFLINE_CACHE_RECOMPUTE_FAILED when IDB write fails (D3b — no silent swallow)', async () => {
-    const { recomputeAndCacheFilterState } = await import('../offline-cache');
 
     // Simulate IDB write failure mid-recompute
     mockOfflineStore.updateFilterStateLocally.mockRejectedValueOnce(
@@ -108,7 +109,6 @@ describe('recomputeAndCacheFilterState — D3 deep-review fix', () => {
   });
 
   it('throws OFFLINE_CACHE_RECOMPUTE_FAILED when cacheData fails (the 21 CFR-relevant path)', async () => {
-    const { recomputeAndCacheFilterState } = await import('../offline-cache');
 
     // The first cacheData call writes the mid-write row containing
     // pendingChecklist + nextAllowedStages — if THIS fails the offline gate
@@ -151,7 +151,6 @@ describe('withDerivedPendingChecklist — offline checklist gate derivation', ()
   } as any;
 
   it('derives pendingChecklist (with questions) from the tape when the field is absent', async () => {
-    const { withDerivedPendingChecklist } = await import('../offline-cache');
     const raw = { currentState: 'WASH_OUT', actions: [submitAction] }; // no pendingChecklist (batch-states shape)
 
     const out = withDerivedPendingChecklist(raw as any);
@@ -165,7 +164,6 @@ describe('withDerivedPendingChecklist — offline checklist gate derivation', ()
   });
 
   it('leaves an already-populated pendingChecklist untouched', async () => {
-    const { withDerivedPendingChecklist } = await import('../offline-cache');
     const existing = [{ checklistProfileId: 'x', questions: [] }];
     const raw = { actions: [submitAction], pendingChecklist: existing };
 
@@ -175,7 +173,6 @@ describe('withDerivedPendingChecklist — offline checklist gate derivation', ()
   });
 
   it('does not fabricate a checklist when the tape has no SUBMIT_CHECKLIST', async () => {
-    const { withDerivedPendingChecklist } = await import('../offline-cache');
     const raw = { actions: [{ type: 'ADVANCE_TO_STAGE', label: 'x', params: { targetState: 'DRY_IN' } }] };
 
     const out = withDerivedPendingChecklist(raw as any);
@@ -225,7 +222,6 @@ describe('recomputeAndCacheFilterState — fail-closed on unresolved checklist g
       return null;
     });
 
-    const { recomputeAndCacheFilterState } = await import('../offline-cache');
     await recomputeAndCacheFilterState('filter-uuid-9', 'STORAGE_OUT', false, null);
 
     // Cycle must NOT be completed → the offline cycle id must NOT be cleared,
@@ -252,7 +248,6 @@ describe('recomputeAndCacheFilterState — fail-closed on unresolved checklist g
       return null;
     });
 
-    const { recomputeAndCacheFilterState } = await import('../offline-cache');
     await recomputeAndCacheFilterState('filter-uuid-10', 'STORAGE_OUT', false, null);
 
     // No checklist expected → terminal stage completes normally (no regression).
@@ -294,7 +289,6 @@ describe('recomputeAndCacheFilterState — disabled checklist is skipped', () =>
       return null;
     });
 
-    const { recomputeAndCacheFilterState } = await import('../offline-cache');
     await recomputeAndCacheFilterState('filter-uuid-11', 'STORAGE_OUT', false, null);
 
     expect(mockOfflineStore.clearOfflineCycleId).toHaveBeenCalledWith('filter-uuid-11');
@@ -304,7 +298,6 @@ describe('recomputeAndCacheFilterState — disabled checklist is skipped', () =>
   });
 
   it('cacheServerStateResponse keeps disabledChecklistProfileIds for the offline gate', async () => {
-    const { cacheServerStateResponse } = await import('../offline-cache');
     await cacheServerStateResponse('filter-uuid-12', { currentState: 'S1', disabledChecklistProfileIds: ['cl-off'] } as any);
     const row = mockOfflineStore.cacheData.mock.calls[0][1];
     expect(row.disabledChecklistProfileIds).toEqual(['cl-off']);

@@ -72,6 +72,17 @@ describe('appendChecklistCompletion', () => {
     expect(row.checklistCompletions.map((c: any) => c.completedAt)).toEqual(['t1', 't3', 't4']);
   });
 
+  // START is a position (2026-10-22): a START checklist's completion has
+  // afterStage null, exactly as the server's CHECKLIST_COMPLETED row.
+  it('logs a START completion (afterStage null) once per cycle, apart from a stage completion of the same checklist', async () => {
+    await appendChecklistCompletion(FID, { checklistProfileId: 'cl-1', afterStage: null, completedAt: 't1', cycleId: 'c-1' });
+    await appendChecklistCompletion(FID, { checklistProfileId: 'cl-1', afterStage: null, completedAt: 't2', cycleId: 'c-1' });
+    await appendChecklistCompletion(FID, { checklistProfileId: 'cl-1', afterStage: 'WASH_IN', completedAt: 't3', cycleId: 'c-1' });
+    await appendChecklistCompletion(FID, { checklistProfileId: 'cl-1', afterStage: null, completedAt: 't4', cycleId: 'c-2' });
+    const row = await getCachedData<any>(KEY);
+    expect(row.checklistCompletions.map((c: any) => [c.completedAt, c.afterStage])).toEqual([['t1', null], ['t3', 'WASH_IN'], ['t4', null]]);
+  });
+
   it('preserves the rest of the cached row', async () => {
     await cacheData(KEY, { currentState: 'WASH_IN', tapeVersion: 3 });
     await appendChecklistCompletion(FID, { checklistProfileId: 'cl-1', afterStage: 'WASH_IN', completedAt: 't' });
@@ -274,7 +285,28 @@ describe('cacheServerStateResponse', () => {
       currentState: null, equipmentGroup: null, blockEquipmentGroups: [], pendingChecklist: [], pipelineStages: [],
       pipelineGraph: null, stageLookup: null, disabledChecklistProfileIds: [], nextAllowedStages: [], isPmDue: false,
       pmReasonKey: null, currentCycle: null, homeBlock: null, blockChangeStatus: null, actions: null, tapeVersion: null,
+      profileSyncWarning: null, equipmentGroupSyncWarning: null,
     });
+  });
+
+  // The tablet's non-blocking "profile / equipment group changed" notices read
+  // these off the cached row (2ceed59) — dropped here, they never showed from
+  // a row cached by the page itself.
+  it('keeps the profile and equipment-group sync warnings', async () => {
+    const ps = { cycleProfileId: 'cp-1', cycleProfileName: 'Old', expectedProfileId: 'cp-2', expectedProfileName: 'New', recommendation: 'TERMINATE_AND_RESTART' };
+    const eg = { groupId: 'eg-1', pinnedVersion: 2, liveVersion: 3, recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART' };
+    await cacheServerStateResponse(FID, { currentState: 'WASH_IN', profileSyncWarning: ps, equipmentGroupSyncWarning: eg });
+    expect(await getCachedData(KEY)).toMatchObject({ profileSyncWarning: ps, equipmentGroupSyncWarning: eg });
+  });
+
+  it('derives a START checklist (afterStage null) from the tape with the START-<id> key', async () => {
+    await cacheServerStateResponse(FID, {
+      currentState: null,
+      actions: [{ type: 'SUBMIT_CHECKLIST', label: 'Submit Checklist: Before', blocking: true, params: { checklistProfileId: 'cl-s', versionPin: 1, afterStage: null, questions: [] } }] as any,
+    });
+    expect((await getCachedData<any>(KEY)).pendingChecklist).toEqual([
+      { pipelineNodeId: 'START-cl-s', checklistProfileId: 'cl-s', checklistProfileName: 'Before', profileVersion: 1, questions: [] },
+    ]);
   });
 
   it('keeps a server-sent pendingChecklist; otherwise derives it from the tape (label without the prefix is used as-is)', async () => {

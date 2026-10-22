@@ -738,6 +738,32 @@ describe('useFilterOperationsCore — Day 3 extended handlers', () => {
     expect(mockAppendCompletion).not.toHaveBeenCalled();
   });
 
+  // START is a position (2026-10-22): a cycle that is started but has not
+  // entered its first stage answers the checklist(s) between START and the
+  // first stage. The server records that answer with afterStage null; the
+  // tablet's offline log must too, or the START checklist is offered again
+  // offline forever (local-context synthesizes it from this log only).
+  it('submitChecklist() at START (cycle started, no stage yet) logs the completion with afterStage null', async () => {
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      result.current.dispatch({ type: 'open_checklist', filterId: 'f1', filterName: 'F-1', checklists: [{ checklistProfileId: 'cl-start', questions: [] }] as any });
+    });
+
+    mockExecuteOrQueue.mockResolvedValueOnce({ executed: false });
+    mockGetCachedData.mockResolvedValueOnce({ currentState: null, currentCycle: { id: 'cyc-9' } });
+
+    await act(async () => {
+      await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } });
+    });
+
+    expect(mockAppendCompletion).toHaveBeenCalledTimes(1);
+    expect(mockAppendCompletion).toHaveBeenCalledWith('f1', expect.objectContaining({
+      checklistProfileId: 'cl-start',
+      afterStage: null,
+      cycleId: 'cyc-9',
+    }));
+  });
+
   it('submitChecklist() swallows appendChecklistCompletion failures (best-effort log)', async () => {
     mockResolvePending.mockResolvedValueOnce([{ checklistProfileId: 'p1', questions: [] }]);
 

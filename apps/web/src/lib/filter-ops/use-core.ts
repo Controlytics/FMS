@@ -39,6 +39,7 @@ import { findNextPendingChecklist, type PendingChecklistBatchItem } from './next
 import { getCurrentActions } from '@/lib/action-tape';
 import { recomputeAndCacheFilterState, appendChecklistCompletion, cacheServerStateResponse } from '@/lib/offline-cache';
 import { cacheData, getCachedData, clearOfflineCycleId, OFFLINE_TTL_MS } from '@/lib/offline-store';
+import { startChecklistProfileIds } from './batch-plan';
 
 /**
  * Advance args — accepts the full payload the page constructs.
@@ -140,6 +141,46 @@ export interface StartAndAdvanceArgs {
   allowDefer?: boolean;
 }
 
+/**
+ * A cycle START whose profile asks a checklist BEFORE the first stage (a START
+ * checklist, 2026-10-22). The page asks the checklist first (nothing written),
+ * then this writes, in order: start-cycle → submit-checklist at START. The page
+ * enters the first stage afterwards with `advance` — under the same signature.
+ * Never the compound start-and-advance: an offline replay exempts
+ * START_CHECKLIST, so a compound op would skip the checklist silently.
+ */
+export interface StartWithStartChecklistArgs {
+  filterId: string;
+  filterName: string;
+  /** The start-cycle body (reason, block, block-change acknowledgement, …). */
+  cyclePayload: Record<string, any>;
+  /** The submit-checklist body: answers, expectedProfileVersions, filterSet. */
+  checklistPayload: Record<string, any>;
+  /** The START checklists answered — logged for the offline gate (afterStage null). */
+  checklistProfileIds: string[];
+  cleaningAreaId?: string | null;
+  password?: string;
+  /**
+   * Runs the start through the page (its missed-PM question): call `start` with
+   * any extra start fields, retry it as the question requires, and return null
+   * when the operator dismissed the question — nothing is then written.
+   */
+  runStart?: (
+    start: (extraCycleFields: Record<string, any>) => Promise<{ executed: boolean }>,
+  ) => Promise<{ executed: boolean } | null>;
+}
+
+/**
+ * `cancelled` — nothing written. `checklist_refused` — the cycle STARTED (or its
+ * start was queued) but the server refused the checklist: the cycle waits at
+ * START with the checklist pending, and the next scan asks it again from the
+ * tape — never a second start. A refused start is thrown, not returned.
+ */
+export type StartWithStartChecklistOutcome =
+  | { status: 'cancelled' }
+  | { status: 'answered'; startExecuted: boolean; checklistExecuted: boolean }
+  | { status: 'checklist_refused'; startExecuted: boolean; error: unknown };
+
 export interface SubmitChecklistArgs {
   filterId: string;
   filterName: string;
@@ -222,6 +263,7 @@ export interface UseFilterOperationsCoreResult {
   dispatch: (event: DialogEvent) => void;
   advance: (args: AdvanceArgs) => Promise<AdvanceOutcome>;
   startAndAdvance: (args: StartAndAdvanceArgs) => Promise<AdvanceOutcome>;
+  startWithStartChecklist: (args: StartWithStartChecklistArgs) => Promise<StartWithStartChecklistOutcome>;
   submitChecklist: (args: SubmitChecklistArgs) => Promise<{ executed: boolean }>;
   isLoading: boolean;
   error: string | null;
@@ -319,6 +361,28 @@ async function rememberQueuedDryerStart(
   } catch {
     /* cache mirror only — the queued op itself is already safe in the queue */
   }
+}
+
+/**
+ * A cycle START was QUEUED and its first stage not entered yet (the START
+ * checklist comes first, 2026-10-22): give the cached row the cycle stub the
+ * recompute would make, at the START position (no stage). Without it the
+ * queued answer has no cycle to be logged against, and the next offline scan
+ * sees no cycle and offers to start a second one. A cycle already on the row is
+ * kept.
+ */
+async function rememberQueuedStartAtStart(filterId: string, cleaningAreaId: string | null | undefined): Promise<void> {
+  const cached = (await getCachedData<Record<string, any>>(`filter-state-${filterId}`)) ?? {};
+  if (cached.currentCycle?.id) return;
+  await cacheData(
+    `filter-state-${filterId}`,
+    {
+      ...cached,
+      currentState: null,
+      currentCycle: { id: `offline-${Date.now()}`, status: 'IN_PROGRESS', cleaningAreaId: cleaningAreaId ?? null },
+    },
+    OFFLINE_TTL_MS,
+  );
 }
 
 /**
@@ -580,6 +644,18 @@ export function useFilterOperationsCore(
       setIsLoading(true);
       setError(null);
       try {
+        // Never the compound op for a profile with a checklist before its first
+        // stage (2026-10-22): the offline replay exempts START_CHECKLIST, so the
+        // checklist would be skipped silently. Such a start goes through
+        // startWithStartChecklist; a caller that skipped the planner is refused
+        // here, before anything is sent or queued.
+        const startRow = await getCachedData<Record<string, any>>(`filter-state-${args.filterId}`);
+        if (startChecklistProfileIds(startRow).length > 0) {
+          throw Object.assign(
+            new Error(`${args.filterName}: its cleaning profile asks a checklist before the first stage — answer it first, then the cycle starts.`),
+            { code: 'START_CHECKLIST_REQUIRED' },
+          );
+        }
         // Dialog-first for the cycle-START flow (2026-07-16). Same defect as the
         // mid-cycle advance: start-and-advance committed the cycle AND the entry
         // into the first stage before its mandatory checklist rendered, so Close
@@ -665,6 +741,83 @@ export function useFilterOperationsCore(
         setError(err?.message ?? 'Start-and-advance failed');
         // See `advance` above — re-throw so the caller can surface the real
         // error (was the wash-in JUSTIFICATION_REQUIRED bug reported 5/25).
+        throw e;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [executeOrQueue],
+  );
+
+  /**
+   * startWithStartChecklist — start-cycle, then the START checklist (2026-10-22).
+   *
+   * Two writes in order, each sent or queued on its own (offline they queue in
+   * that order, so their offlinePerformedAt never decreases): the answer must
+   * never stand for a cycle that did not begin, so the checklist is sent only
+   * after the start succeeded or was queued. The cached row is kept truthful for
+   * the offline gate: a queued start gets its cycle stub at START, every answer
+   * is logged with afterStage null against the row's cycle (local-context
+   * synthesizes the START answer from that log only), and a queued answer
+   * clears the mirror and re-derives the tape — the first stage is what it
+   * offers next.
+   */
+  const startWithStartChecklist = useCallback(
+    async (args: StartWithStartChecklistArgs): Promise<StartWithStartChecklistOutcome> => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const start = (extraCycleFields: Record<string, any>) => executeOrQueue(
+          'start-cycle',
+          args.filterId,
+          args.filterName,
+          { ...args.cyclePayload, ...extraCycleFields },
+          undefined,
+          args.password,
+        );
+        const started = args.runStart ? await args.runStart(start) : await start({});
+        if (!started) return { status: 'cancelled' };
+        if (!started.executed) await rememberQueuedStartAtStart(args.filterId, args.cleaningAreaId);
+
+        let checklistExecuted: boolean;
+        try {
+          ({ executed: checklistExecuted } = await executeOrQueue(
+            'submit-checklist',
+            args.filterId,
+            args.filterName,
+            args.checklistPayload,
+            undefined,
+            args.password,
+          ));
+        } catch (e: unknown) {
+          if (isReauthOrRecompute(e)) throw e;
+          return { status: 'checklist_refused', startExecuted: started.executed, error: e };
+        }
+
+        const row = (await getCachedData<Record<string, any>>(`filter-state-${args.filterId}`)) ?? {};
+        const cycleId = row.currentCycle?.id ?? null;
+        const completedAt = new Date().toISOString();
+        for (const checklistProfileId of args.checklistProfileIds) {
+          await appendChecklistCompletion(args.filterId, { checklistProfileId, afterStage: null, completedAt, cycleId });
+        }
+        if (!checklistExecuted) {
+          const logged = (await getCachedData<Record<string, any>>(`filter-state-${args.filterId}`)) ?? {};
+          await cacheData(`filter-state-${args.filterId}`, { ...logged, pendingChecklist: [] }, OFFLINE_TTL_MS);
+          const tape = await getCurrentActions(args.filterId, null);
+          const nextAllowed = tape
+            .filter((a) => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
+            .map((a) => (a as { params: { targetState: string } }).params.targetState);
+          await cacheData(
+            `filter-state-${args.filterId}`,
+            { ...logged, pendingChecklist: [], nextAllowedStages: nextAllowed, actions: tape },
+            OFFLINE_TTL_MS,
+          );
+        }
+        return { status: 'answered', startExecuted: started.executed, checklistExecuted };
+      } catch (e: unknown) {
+        if (isReauthOrRecompute(e)) throw e;
+        const err = e as { message?: string };
+        setError(err?.message ?? 'Cycle start failed');
         throw e;
       } finally {
         setIsLoading(false);
@@ -808,7 +961,10 @@ export function useFilterOperationsCore(
           // the server snapshot lands.
           const afterStage = deferred?.targetState ?? cs?.currentState ?? null;
           const cycleId = cs?.currentCycle?.id ?? null;
-          if (afterStage) {
+          // No stage yet inside a started cycle = START (2026-10-22): the
+          // checklists before the first stage, recorded with afterStage null as
+          // the server records them. With no cycle either, there is no position.
+          if (afterStage !== null || cycleId) {
             const completedAt = new Date().toISOString();
             for (const p of profilesAwaitingLog) {
               if (!p.checklistProfileId) continue;
@@ -929,6 +1085,7 @@ export function useFilterOperationsCore(
     dispatch,
     advance,
     startAndAdvance,
+    startWithStartChecklist,
     submitChecklist,
     isLoading,
     error,

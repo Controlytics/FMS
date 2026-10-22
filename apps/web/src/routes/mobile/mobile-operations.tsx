@@ -37,8 +37,14 @@ import {
   resolvePendingChecklistDialog,
   resolveChecklistForTargetStage,
   findNextPendingChecklist,
+  planStartChecklistBatch,
+  resolveStartChecklists,
+  leftInQueueMessage,
+  splitByReadings,
+  equipmentGroupChoice,
+  groupHasStageInstruments,
 } from '@/lib/filter-ops';
-import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
+import type { PendingChecklistBatchItem, LeftItem, PendingChecklist } from '@/lib/filter-ops';
 // D1/D2/D4 refactor Day 3b (2026-05-18) — useFilterOperationsCore is now
 // authoritative. All dialog state lives in core.dialogState; all writes
 // go through core.dispatch / core.advance / core.startAndAdvance / core.submitChecklist.
@@ -86,6 +92,13 @@ function approvalBlockMessage(filterName: string, approvalStatus: string | null 
   return `Filter "${filterName}" ${why}, so it cannot be cleaned yet.`;
 }
 
+
+/** The dialog's rows are the checklist(s) between START and the first stage
+ *  (keyed START-<profileId>: resolveStartChecklists and the tape's afterStage
+ *  null alike). */
+function isStartChecklist(rows: Array<{ pipelineNodeId?: string }> | null | undefined): boolean {
+  return !!rows && rows.length > 0 && rows.every((r) => String(r?.pipelineNodeId ?? '').startsWith('START-'));
+}
 
 export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
   initialStageKey?: string;
@@ -161,11 +174,22 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     setDryerBatchDuration(minutes);
     setDryerDurations(prev => Object.fromEntries(Object.keys(prev).map(id => [id, minutes])));
   };
-  // After a batch submit: drop the submitted rows, keep the unticked ones queued.
-  const clearSubmittedFromQueue = () => {
-    setScanQueue(prev => prev.filter(q => !selectedQueueIds.has(q.filterId)));
-    setDryerDurations(prev => Object.fromEntries(Object.entries(prev).filter(([id]) => !selectedQueueIds.has(id))));
+  // After a batch submit: drop the submitted rows, keep the unticked ones queued
+  // (and `keep`: rows this submit held back, which stay for their own submit).
+  const clearSubmittedFromQueue = (keep?: ReadonlySet<string>) => {
+    const dropped = (id: string) => selectedQueueIds.has(id) && !keep?.has(id);
+    setScanQueue(prev => prev.filter(q => !dropped(q.filterId)));
+    setDryerDurations(prev => Object.fromEntries(Object.entries(prev).filter(([id]) => !dropped(id))));
     setSelectedQueueIds(new Set());
+  };
+  // Put filters a cycle-start submit left out back in the queue, ticked, for a
+  // separate submit (their reason is shown with leftInQueueMessage).
+  const requeueLeft = (left: Array<LeftItem>) => {
+    if (left.length === 0) return;
+    const ids = new Set(left.map(l => l.item.filterId));
+    const rows = reasonQueueRowsRef.current.filter(r => ids.has(r.filterId));
+    setScanQueue(prev => [...prev, ...rows.filter(r => !prev.some(p => p.filterId === r.filterId))]);
+    setSelectedQueueIds(prev => new Set([...prev, ...rows.map(r => r.filterId)]));
   };
   const [remarks, setRemarks] = useState('');
   // ─── Dialog state — now owned by useFilterOperationsCore (D1/D2/D4 Day 3b) ──
@@ -249,6 +273,19 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
   const queueReadingsModeRef = useRef(false);
   const queueReadingsRef = useRef<{ stage: string; equipmentGroupId: string; instrumentReadings: Record<string, number> } | null>(null);
   const prevDialogKindRef = useRef<string>('none');
+  // A checklist BEFORE the first stage (a START checklist, 2026-10-22): what the
+  // cycle starts with while its dialog is open. Nothing is written until the
+  // dialog is submitted; closing it (any way) discards this.
+  const startChecklistRef = useRef<{
+    stage: string;
+    cyclePayload: Record<string, any>;
+    batch: Array<{ filterId: string; filterName: string }>;
+    checklistProfileIds: string[];
+    remarks: string;
+  } | null>(null);
+  // The queue rows a cycle-start submit took off the queue (the reason dialog
+  // carries them), so a filter left out of the start can go back, ticked.
+  const reasonQueueRowsRef = useRef<Array<{ filterId: string; filterName: string; ahuName?: string; tagId: string }>>([]);
 
   // Dialogs (compat aliases — see blockChangeDialog above)
   const reasonDialog = core.dialogState.kind === 'awaiting_reason' ? core.dialogState : null;
@@ -1012,18 +1049,21 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
   // being queued — the shared strict offline gate (validateOfflineGate).
   /**
    * Does a MID-CYCLE advance into `stageKey` need equipment readings? Mirrors
-   * the server: a cycle with a bound group needs them for any stage that group
-   * has instruments for; with no bound group, Wash In needs them whenever the
-   * block has an active group (advance.ts WASH_IN_READINGS_REQUIRED). Dry In has
-   * its own two-step dryer flow and is excluded. Returns what the equipment
-   * dialog should offer, or null.
+   * the server: the groups the cycle's readings may use (lib/filter-ops
+   * equipmentGroupChoice — a cycle bound to a group uses it; an unbound one on a
+   * block with several asks the operator, never a silent pick of the server's
+   * default) need them for any stage they have instruments for; with no group
+   * known, Wash In needs them whenever the block has an active group (advance.ts
+   * WASH_IN_READINGS_REQUIRED) — `blockFallback`. Dry In has its own two-step
+   * dryer flow and is excluded. Returns what the equipment dialog should offer,
+   * or null.
    */
-  const stageReadingsNeed = async (stageKey: string, st: any): Promise<{ cycleGroup?: any; groups: any[] } | null> => {
+  const stageReadingsNeed = async (stageKey: string, st: any): Promise<{ cycleGroup?: any; groups: any[]; blockFallback?: boolean } | null> => {
     if (stageKey === 'DRY_IN') return null;
-    const bound = st?.equipmentGroup ?? null;
-    if (bound) {
-      const insts = (bound.instruments ?? []).filter((i: any) => i.stageKey === stageKey);
-      return insts.length > 0 ? { cycleGroup: bound, groups: [] } : null;
+    const choice = equipmentGroupChoice(st);
+    if (choice.groups.length > 0) {
+      if (!choice.groups.some((g: any) => groupHasStageInstruments(g, stageKey))) return null;
+      return choice.needsChoice ? { groups: choice.groups } : { cycleGroup: choice.group, groups: [] };
     }
     if (stageKey !== 'WASH_IN' || !selectedBlock?.id) return null;
     let groups: any[] = [];
@@ -1033,7 +1073,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     if (groups.length === 0) {
       try { groups = ((await getCache<any[]>('equipment-groups')) ?? []).filter((g: any) => g.blockId === selectedBlock.id); } catch { /* none cached */ }
     }
-    return groups.length > 0 ? { groups } : null;
+    return groups.length > 0 ? { groups, blockFallback: true } : null;
   };
 
   const handleSubmitQueue = async () => {
@@ -1050,6 +1090,17 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     // current-state prime can target every filter even after setScanQueue([])
     // clears the live state.
     const scanQueueSnapshot = batchQueue.slice();
+    // Rows left unticked are not part of this submit, and survive it.
+    const submittedIds = new Set(batchQueue.map(q => q.filterId));
+    // Rows this submit holds back (another readings call, 2026-10-22): skipped,
+    // unticked, named, and kept in the queue for their own submit.
+    const heldBack = new Set<string>();
+    const holdBack = (left: LeftItem[]) => {
+      if (left.length === 0) return;
+      for (const l of left) { heldBack.add(l.item.filterId); submittedIds.delete(l.item.filterId); }
+      setSelectedQueueIds(prev => new Set([...prev].filter(id => !heldBack.has(id))));
+      toast.error('Error', leftInQueueMessage(left));
+    };
     let successCount = 0;
     const failed: string[] = [];
     // 2026-05-26: capture per-filter server tape so the post-loop checklist
@@ -1127,18 +1178,37 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     // this function; every mid-cycle advance below then carries them. Filters
     // still needing a cycle START keep the reason -> equipment flow.
     if (queueReadingsRef.current?.stage !== activeStage.key) {
-      let probe: any = null;
+      // The mid-cycle filters of this submit, each read on its OWN state (a
+      // filter still to start takes the reason -> readings path instead).
+      const inCycle: Array<{ filterId: string; filterName: string }> = [];
+      const inCycleStates = new Map<string, any>();
       for (const q of batchQueue) {
         const cs = await getCache<any>(`filter-state-${q.filterId}`) ?? {};
-        if (cs.currentCycle?.id || cachedFilterById.get(q.filterId)?.currentCycleId) { probe = cs; break; }
+        if (cs.currentCycle?.id || cachedFilterById.get(q.filterId)?.currentCycleId) {
+          inCycle.push({ filterId: q.filterId, filterName: q.filterName });
+          inCycleStates.set(q.filterId, cs);
+        }
       }
+      const probe = inCycle.length > 0 ? inCycleStates.get(inCycle[0].filterId) : null;
       const need = probe ? await stageReadingsNeed(activeStage.key, probe) : null;
       if (need) {
+        // ONE readings call per submit — the first filter's (finding 5,
+        // 2026-10-22). A filter whose cycle records readings with another group,
+        // needs its own group choice, or takes none here is not given these
+        // readings (the server refuses a mismatched group, 409
+        // EQUIPMENT_GROUP_MISMATCH): it stays in the queue, unticked, named.
+        const split = splitByReadings(
+          inCycle,
+          (id) => inCycleStates.get(id) ?? null,
+          need.blockFallback ? null : activeStage.key,
+          need.blockFallback ? need.groups : [],
+        );
+        holdBack(split.left);
         queueReadingsModeRef.current = true;
         core.dispatch({
           type: 'open_equipment',
-          filterId: batchQueue[0].filterId,
-          filterName: batchQueue.length > 1 ? `${batchQueue.length} filter(s)` : batchQueue[0].filterName,
+          filterId: split.ride[0].filterId,
+          filterName: split.ride.length > 1 ? `${split.ride.length} filter(s)` : split.ride[0].filterName,
           stage: activeStage.key,
           groups: need.groups,
           cycleGroup: need.cycleGroup,
@@ -1146,9 +1216,13 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
         setSelectedEquipGroup(need.cycleGroup ?? null); setReadings({});
         return; // finally clears loading; the queue stays for the re-run
       }
+      // No readings for the first filter: one that DOES take readings here is not
+      // advanced without them — held back, as above.
+      holdBack(splitByReadings(inCycle, (id) => inCycleStates.get(id) ?? null, activeStage.key).left);
     }
     const stageReadings = queueReadingsRef.current?.stage === activeStage.key ? queueReadingsRef.current : null;
     for (const item of batchQueue) {
+      if (heldBack.has(item.filterId)) continue;
       try {
         const cached = cachedFilterById.get(item.filterId);
         let cachedState = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
@@ -1295,7 +1369,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
               requestedBlockName: selectedBlock.name,
             });
             setBlockChangeReason('');
-            clearSubmittedFromQueue();
+            clearSubmittedFromQueue(heldBack);
             setLoading(false);
             return;
           }
@@ -1315,7 +1389,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
           // are all cycle-start candidates.
           const startIdx = batchQueue.findIndex(q => q.filterId === item.filterId);
           const rest = startIdx >= 0
-            ? batchQueue.slice(startIdx + 1).map(q => ({ filterId: q.filterId, filterName: q.filterName }))
+            ? batchQueue.slice(startIdx + 1).filter(q => !heldBack.has(q.filterId)).map(q => ({ filterId: q.filterId, filterName: q.filterName }))
             : [];
           core.dispatch({
             type: 'open_reason',
@@ -1332,7 +1406,8 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
           setJustification('');
           // Drop the queue — the reason dialog (carrying remainingBatch)
           // drives the rest of the flow. Equipment-submit will iterate.
-          clearSubmittedFromQueue();
+          reasonQueueRowsRef.current = batchQueue.slice();
+          clearSubmittedFromQueue(heldBack);
           setLoading(false);
           return;
         }
@@ -1753,7 +1828,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
       //
       // Mixed batch: filters that DID advance (bulkOps above) must be dropped —
       // leaving them in would let a re-submit advance them a second time.
-      setScanQueue(prev => prev.filter(q => deferredAdvances.has(q.filterId)));
+      setScanQueue(prev => prev.filter(q => deferredAdvances.has(q.filterId) || !submittedIds.has(q.filterId)));
       setDryerDurations({});
       setRemarks('');
       if (successCount > 0) setSuccess(`${successCount} filter(s) → ${activeStage.label}${failed.length > 0 ? ` (${failed.length} failed)` : ''}`);
@@ -1840,7 +1915,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
         }
       } catch { /* ignore — user can re-scan to trigger */ }
     }
-    clearSubmittedFromQueue();
+    clearSubmittedFromQueue(heldBack);
     // B1 (2026-07-10): clear the remarks box after a stage submit completes so the
     // note doesn't linger and get silently reused on the operator's next op (which
     // also surfaced as a checklist-gated advance carrying stale remarks).
@@ -1895,6 +1970,12 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
   // next Submit must ask again rather than stash into a stale mode.
   useEffect(() => {
     if (core.dialogState.kind !== 'awaiting_equipment') queueReadingsModeRef.current = false;
+  }, [core.dialogState.kind]);
+
+  // A START checklist's context lives only while its dialog is open: closed any
+  // way (Close, Android back, a refusal), nothing of it is written or kept.
+  useEffect(() => {
+    if (core.dialogState.kind !== 'awaiting_checklist') startChecklistRef.current = null;
   }, [core.dialogState.kind]);
 
   // 2026-05-20: batch-replay effect. When handleSubmitQueue's pre-DRY_IN
@@ -2001,15 +2082,80 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     return { dryerAction: 'SET_DURATION', dryerDurationMinutes: minutes };
   };
 
+  /**
+   * A cycle-start batch split by its checklist BEFORE the first stage (a START
+   * checklist, 2026-10-22), decided per filter on its own state and before
+   * anything is written. Returns the filters that start as before (their
+   * profile has none) in the reason dialog's shape, or null when this submit is
+   * the START checklist's: its dialog is open, nothing written. One dialog per
+   * distinct START checklist (the largest group); a START-checklist group in a
+   * submit that also starts plain filters is asked on its own submit. Every
+   * filter left out goes back in the queue, ticked, with the reason. A START
+   * checklist is never sent as part of a compound start-and-advance: an offline
+   * replay exempts START_CHECKLIST, so it would be skipped silently.
+   */
+  const splitReasonBatchByStartChecklist = async (rdIn: NonNullable<typeof reasonDialog>) => {
+    const all = [{ filterId: rdIn.filterId, filterName: rdIn.filterName }, ...(rdIn.remainingBatch ?? [])];
+    const states = new Map<string, any>();
+    for (const f of all) {
+      let st = await getCache<any>(`filter-state-${f.filterId}`).catch(() => null);
+      // Online, a filter this tablet never opened is read once (as the scan loop
+      // does for the first one) — its profile decides, never another filter's.
+      if (online && !st?.pipelineGraph?.stages) {
+        try {
+          const cs = await apiClient.get<any>(`/api/filters/${f.filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`);
+          if (cs) { await cacheServerStateResponse(f.filterId, cs); st = cs; }
+        } catch { /* transient read failure — decided on what is cached */ }
+      }
+      states.set(f.filterId, st);
+    }
+    const stateOf = (id: string) => states.get(id) ?? null;
+    const plan = await planStartChecklistBatch(all, stateOf, (id) => resolveStartChecklists(stateOf(id), online));
+    const left: LeftItem[] = [...plan.left];
+    if (plan.none.length > 0) {
+      left.push(...plan.ask.map(item => ({ item, note: 'its first checklist is asked on its own — submit it again' })));
+    }
+    requeueLeft(left);
+    // Straight to the message queue: a later message of this submit must not
+    // replace it before it renders.
+    if (left.length > 0) toast.error('Error', leftInQueueMessage(left));
+    if (plan.none.length > 0) {
+      const [first, ...others] = plan.none;
+      return { ...rdIn, filterId: first.filterId, filterName: first.filterName, remainingBatch: others.length > 0 ? others : undefined };
+    }
+    core.dispatch({ type: 'close' }); // the reason dialog
+    if (plan.ask.length > 0) {
+      startChecklistRef.current = {
+        stage: rdIn.stage,
+        cyclePayload: { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id },
+        batch: plan.ask.map(b => ({ filterId: b.filterId, filterName: b.filterName })),
+        checklistProfileIds: [...new Set(plan.checklists.map((c: PendingChecklist) => c.checklistProfileId))],
+        remarks,
+      };
+      setPendingBatch(startChecklistRef.current.batch);
+      setChecklistStage(null);
+      core.dispatch({
+        type: 'open_checklist',
+        filterId: plan.ask[0].filterId,
+        filterName: plan.ask.length > 1 ? `${plan.ask.length} filter(s)` : plan.ask[0].filterName,
+        checklists: plan.checklists,
+      });
+      setChecklistAnswers({});
+    }
+    return null;
+  };
+
   const handleReasonSubmit = async () => {
     if (!reasonDialog || !selectedReason) return;
     setLoading(true); setError('');
-    const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(reasonDialog.filterId) };
-    const advancePayload = { targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${reasonDialog.stage.replace(/_/g, ' ')} - ${reasonDialog.filterName}`, ...dryerFieldsForStart(reasonDialog.stage, reasonDialog.filterId) };
+    const rd = await splitReasonBatchByStartChecklist(reasonDialog);
+    if (!rd) { setLoading(false); return; }
+    const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(rd.filterId) };
+    const advancePayload = { targetState: rd.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${rd.stage.replace(/_/g, ' ')} - ${rd.filterName}`, ...dryerFieldsForStart(rd.stage, rd.filterId) };
 
     // Check for equipment groups BEFORE executing — works for both online and offline.
     // No API mutation yet, no reauth needed here.
-    if (reasonDialog.stage === 'WASH_IN' && selectedBlock?.id) {
+    if (rd.stage === 'WASH_IN' && selectedBlock?.id) {
       let groups: any[] = [];
       if (online) {
         try { groups = await apiClient.get<any[]>(`/api/equipment-groups/by-block/${selectedBlock.id}`) ?? []; } catch { /* fall through with empty groups → no equipment dialog */ }
@@ -2024,13 +2170,13 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
         setPendingCyclePayload(cyclePayload);
         // 2026-05-20: thread the batch list through to equipment dialog so
         // handleEquipSubmit can iterate after the first cycle-start completes.
-        const batchRest = reasonDialog.remainingBatch;
+        const batchRest = rd.remainingBatch;
         core.dispatch({ type: 'close' }); // close reason dialog
         core.dispatch({
           type: 'open_equipment',
-          filterId: reasonDialog.filterId,
-          filterName: reasonDialog.filterName,
-          stage: reasonDialog.stage,
+          filterId: rd.filterId,
+          filterName: rd.filterName,
+          stage: rd.stage,
           groups,
           remainingBatch: batchRest,
         });
@@ -2040,18 +2186,18 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     }
 
     // 2026-07-09 fix: multi-filter no-equipment-group batch cycle-start. The
-    // single-filter path below only ever started `reasonDialog.filterId` and
+    // single-filter path below only ever started `rd.filterId` and
     // DROPPED `remainingBatch` — so a Wash In batch on a block WITHOUT an
     // equipment group started only the first filter. Handle the whole batch here
     // (mirrors handleEquipSubmit's cycle-start split); the single-filter path
     // below is left untouched.
-    const noEqBatch = reasonDialog.remainingBatch ?? [];
+    const noEqBatch = rd.remainingBatch ?? [];
     if (noEqBatch.length > 0) {
-      const allFilters = [{ filterId: reasonDialog.filterId, filterName: reasonDialog.filterName }, ...noEqBatch];
-      const stageLabel = reasonDialog.stage.replace(/_/g, ' ');
+      const allFilters = [{ filterId: rd.filterId, filterName: rd.filterName }, ...noEqBatch];
+      const stageLabel = rd.stage.replace(/_/g, ' ');
       const nameById = new Map(allFilters.map(f => [f.filterId, f.filterName]));
       const cycleStartActions = new Map<string, any[]>();
-      const advanceFor = (fname: string, fid: string) => ({ targetState: reasonDialog.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${stageLabel} - ${fname}`, ...dryerFieldsForStart(reasonDialog.stage, fid) });
+      const advanceFor = (fname: string, fid: string) => ({ targetState: rd.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${stageLabel} - ${fname}`, ...dryerFieldsForStart(rd.stage, fid) });
       try {
         if (online) {
           // ONE /bulk-operate covering every filter (no readings for a
@@ -2070,7 +2216,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
           const out = await retryBulkStartsForMissedPm(ops, firstOut, startAction);
           for (const [fid, actions] of out.actionsByFilter) cycleStartActions.set(fid, actions);
           for (const r of out.results) {
-            if (r.status === 'ok') setRecentOps(prev => [{ stage: reasonDialog.stage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 200));
+            if (r.status === 'ok') setRecentOps(prev => [{ stage: rd.stage, filter: nameById.get(r.filterId) ?? r.filterId, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 200));
           }
           const failMsgs = out.results.flatMap(r => r.status === 'failed' ? [`${nameById.get(r.filterId) ?? r.filterId}: ${r.error?.message ?? 'failed'}`] : []);
           if (failMsgs.length > 0) setError(failMsgs.join('; '));
@@ -2088,13 +2234,13 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
                 filterName: f.filterName,
                 cyclePayload,
                 advancePayload: advanceFor(f.filterName, f.filterId),
-                targetState: reasonDialog.stage,
+                targetState: rd.stage,
                 cleaningAreaId: selectedBlock?.id,
                 skipChecklistDispatch: true,
               });
               if (res.executed && Array.isArray((res.result as any)?.actions)) cycleStartActions.set(f.filterId, (res.result as any).actions);
               queuedCount++;
-              setRecentOps(prev => [{ stage: reasonDialog.stage, filter: f.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 200));
+              setRecentOps(prev => [{ stage: rd.stage, filter: f.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 200));
             } catch (e: any) {
               failures.push(`${f.filterName}: ${e?.message ?? 'cycle-start failed'}`);
             }
@@ -2142,20 +2288,20 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     // No equipment groups, SINGLE filter — fire the compound op. START_CLEANING_CYCLE
     // is reauth-gated for ADMIN role; wrap so the password dialog appears.
     // (+ the station row for the first stage, 2026-09-24.)
-    await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], reasonDialog.stage), async (password?) => {
+    await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], rd.stage), async (password?) => {
       const runStart = (extraCycleFields: Record<string, any> = {}) =>
         core.startAndAdvance({
-          filterId: reasonDialog.filterId,
-          filterName: reasonDialog.filterName,
+          filterId: rd.filterId,
+          filterName: rd.filterName,
           cyclePayload: { ...cyclePayload, ...extraCycleFields },
           advancePayload,
-          targetState: reasonDialog.stage,
+          targetState: rd.stage,
           cleaningAreaId: selectedBlock?.id,
           password,
         });
 
       // Missed-PM question (offline from the cached map, online from the 409).
-      const started = await startWithPmGate(reasonDialog.filterId, runStart);
+      const started = await startWithPmGate(rd.filterId, runStart);
       if (started.cancelled) return; // offline question dismissed — no cycle, nothing queued
       const { executed: cycleExecuted, deferred: cycleDeferred } = started.result;
 
@@ -2169,9 +2315,9 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
         return;
       }
 
-      const stageLabel = reasonDialog.stage.replace(/_/g, ' ');
-      setSuccess(`${reasonDialog.filterName} → ${stageLabel}${cycleExecuted ? '' : ' (queued)'}`);
-      setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: !cycleExecuted }, ...prev].slice(0, 200));
+      const stageLabel = rd.stage.replace(/_/g, ' ');
+      setSuccess(`${rd.filterName} → ${stageLabel}${cycleExecuted ? '' : ' (queued)'}`);
+      setRecentOps(prev => [{ stage: rd.stage, filter: rd.filterName, time: formatTime(new Date()), queued: !cycleExecuted }, ...prev].slice(0, 200));
       setScanValue(''); setRemarks('');
       if (cycleExecuted) mutate('/api/assets/instances');
       // core.startAndAdvance only OPENS a checklist (which replaces this dialog);
@@ -2183,7 +2329,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
       onError: (e: any) => {
         if ((e?.code === 'BLOCK_CHANGE_CONFIRM' || e?.code === 'BLOCK_CHANGE_REQUIRED') && e?.connectionInfo) {
           core.dispatch({ type: 'close' }); // close reason dialog
-          core.dispatch({ type: 'open_block_change', filterId: e.connectionInfo.filterId, filterName: reasonDialog?.filterName ?? '', homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
+          core.dispatch({ type: 'open_block_change', filterId: e.connectionInfo.filterId, filterName: rd.filterName ?? '', homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
           setBlockChangeReason('');
           return;
         }
@@ -2838,6 +2984,126 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     return proceed ? 'proceed' : 'blocked';
   };
 
+  /**
+   * Submit a START checklist (2026-10-22): per filter start-cycle (the missed-PM
+   * question asked as on every start, the answers held through it) → the
+   * answers at START → the first stage, signed ONCE for the three writes
+   * (lib/filter-ops use-core startWithStartChecklist, then advance). A filter
+   * whose start is refused or whose missed-PM question is closed gets nothing
+   * more. One whose checklist is refused waits at START: the next scan asks it
+   * again from the tape, never a second start.
+   *
+   * The first stage: a plain entry is made here under the same signature. An
+   * entry that needs more — readings (Wash In with an equipment group) or a
+   * checklist that rides on the entry — goes back through the scan queue, which
+   * asks it first and enters the stage with it (a cycle at START is in a cycle).
+   */
+  const runStartChecklistSequence = async (
+    ctx: NonNullable<typeof startChecklistRef.current>,
+    checklistPayload: Record<string, any>,
+  ) => {
+    const stageText = stageLabel(ctx.stage);
+    const single = ctx.batch.length === 1;
+    const isReauthErr = (e: any) => ['REAUTH_REQUIRED', 'REAUTH_FAILED'].includes(e?.error ?? e?.code);
+    // Does entering the first stage need more than a plain advance? Decided
+    // before anything is written, from each filter's cached state.
+    let entryNeedsMore = false;
+    for (const item of ctx.batch) {
+      const st = await getCache<any>(`filter-state-${item.filterId}`).catch(() => null);
+      if (await stageReadingsNeed(ctx.stage, st)
+        || (ctx.stage !== 'DRY_IN' && (await resolveChecklistForTargetStage(item.filterId, ctx.stage, online)).length > 0)) {
+        entryNeedsMore = true;
+        break;
+      }
+    }
+    await reauth.execute(withStageAction(['START_CLEANING_CYCLE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE', 'ADVANCE_FILTER_STAGE'], ctx.stage), async (password?: string) => {
+      const failed: string[] = [];
+      const answered: Array<{ filterId: string; filterName: string }> = [];
+      let entered = 0;
+      let queued = false;
+      // Per filter, in order: start → the answers at START → (a plain) entry.
+      for (const item of ctx.batch) {
+        try {
+          const out = await core.startWithStartChecklist({
+            filterId: item.filterId,
+            filterName: item.filterName,
+            cyclePayload: { ...ctx.cyclePayload, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(item.filterId) },
+            checklistPayload,
+            checklistProfileIds: ctx.checklistProfileIds,
+            cleaningAreaId: selectedBlock?.id ?? null,
+            password,
+            runStart: async (start) => {
+              const started = await startWithPmGate(item.filterId, start);
+              return started.cancelled ? null : started.result;
+            },
+          });
+          if (out.status === 'cancelled') {
+            failed.push(`${item.filterName}: not started — the missed-PM question was closed`);
+            continue;
+          }
+          if (out.status === 'checklist_refused') {
+            failed.push(`${item.filterName}: the cycle started, but its first checklist was not recorded (${(out.error as any)?.message ?? 'refused'}). Scan it again to answer it.`);
+            continue;
+          }
+          if (!out.startExecuted || !out.checklistExecuted) queued = true;
+          answered.push(item);
+        } catch (e: any) {
+          if (isReauthErr(e)) throw e;
+          failed.push(single ? (e?.message ?? 'Cycle start failed') : `${item.filterName}: ${e?.message ?? 'cycle start failed'}`);
+          continue;
+        }
+        if (entryNeedsMore) continue;
+        try {
+          // No dialog from here (the START dialog is still open): a plain entry.
+          const res = await core.advance({
+            filterId: item.filterId,
+            filterName: item.filterName,
+            targetState: ctx.stage,
+            cleaningAreaId: selectedBlock?.id,
+            remarks: ctx.remarks || `${stageText} - ${item.filterName}`,
+            ...dryerFieldsForStart(ctx.stage, item.filterId),
+            password,
+            skipChecklistDispatch: true,
+            allowDefer: false,
+          });
+          if (!res.executed) queued = true;
+          entered++;
+          setRecentOps(prev => [{ stage: ctx.stage, filter: item.filterName, time: formatTime(new Date()), queued: !res.executed }, ...prev].slice(0, 200));
+        } catch (e: any) {
+          if (isReauthErr(e)) throw e;
+          failed.push(`${item.filterName}: the cycle started and its first checklist was recorded, but it did not enter ${stageText} (${e?.message ?? 'refused'}). Scan it again at ${stageText}.`);
+        }
+      }
+      startChecklistRef.current = null;
+      setPendingBatch(null);
+      setChecklistAnswers({});
+      setScanValue(''); setRemarks('');
+      if (answered.length > 0) mutate('/api/assets/instances');
+      if (failed.length > 0) setError(failed.join('\n'));
+      if (answered.length > 0 && entryNeedsMore) {
+        // Back in the queue, ticked: the replay (on this dialog closing) asks the
+        // readings / the checklist first and enters the stage with them.
+        const ids = new Set(answered.map(r => r.filterId));
+        const rows = reasonQueueRowsRef.current.filter(r => ids.has(r.filterId));
+        setScanQueue(prev => [...prev, ...rows.filter(r => !prev.some(p => p.filterId === r.filterId))]);
+        setSelectedQueueIds(prev => new Set([...prev, ...rows.map(r => r.filterId)]));
+        setSuccess(`${single ? answered[0].filterName : `${answered.length} filter(s)`}: cycle started, first checklist recorded${queued ? ' (queued)' : ''} — now ${stageText}`);
+        pendingBatchReplayRef.current = true;
+        setLoading(false);
+        core.dispatch({ type: 'close' });
+        return;
+      }
+      core.dispatch({ type: 'close' });
+      if (entered > 0) {
+        setSuccess(`${single ? answered[0].filterName : `${entered} filter(s)`} → ${ctx.stage.replace(/_/g, ' ')}${queued ? ' (queued)' : ''}`);
+      }
+    }, {
+      onError: (e: any) => setError(e?.message ?? 'Failed'),
+      // A dismissed password prompt writes nothing: the dialog stays, answers kept.
+      onCancel: () => setLoading(false),
+    });
+  };
+
   const handleChecklistSubmit = async () => {
     if (!checklistDialog) return;
     const checklists = (checklistDialog.checklists as any[]) ?? [];
@@ -2851,6 +3117,17 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     }
     for (const cl of checklists) { for (const q of (cl.questions ?? [])) { if (q.required && (checklistAnswers[q.id] === undefined || checklistAnswers[q.id] === '')) { setError(`Answer required: "${q.question}"`); return; } } }
     setLoading(true); setError('');
+
+    // A START checklist (2026-10-22): nothing has been written yet — the cycle
+    // starts now, then these answers, then the first stage.
+    const startCl = startChecklistRef.current;
+    if (startCl && pendingBatch && pendingBatch.length > 0) {
+      const versions: Record<string, number> = {};
+      for (const cl of checklists) if (typeof cl.profileVersion === 'number') versions[cl.checklistProfileId] = cl.profileVersion;
+      await runStartChecklistSequence(startCl, { answers: checklistAnswers, expectedProfileVersions: versions });
+      setLoading(false);
+      return;
+    }
 
     // 2026-07-03: a TERMINAL checklist (e.g. Storage Out → cycle completes) has
     // no follow-up step, so the DRY_IN-style batch replay must NOT fire —
@@ -3567,7 +3844,9 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
           <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-slide-up">
             <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-5 py-4 rounded-t-3xl flex items-center gap-3 shrink-0">
               <svg className="w-6 h-6 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
-              <div><h2 className="text-lg font-bold text-white">Checklist Required</h2><p className="text-purple-100 text-sm">{checklistDialog.filterName}</p>{(checklistStage ?? activeStage?.key) && <p className="text-purple-100 text-xs">{stageLabel((checklistStage ?? activeStage?.key)!)} stage checklist</p>}</div>
+              <div><h2 className="text-lg font-bold text-white">Checklist Required</h2><p className="text-purple-100 text-sm">{checklistDialog.filterName}</p>{isStartChecklist(checklistDialog.checklists as any[])
+                ? <p className="text-purple-100 text-xs">Checklist before the first stage</p>
+                : (checklistStage ?? activeStage?.key) && <p className="text-purple-100 text-xs">{stageLabel((checklistStage ?? activeStage?.key)!)} stage checklist</p>}</div>
             </div>
             <div className="p-5 space-y-5 overflow-y-auto flex-1">
               {/* Stage-submitted recap (2026-05-25 combined-screen UX).

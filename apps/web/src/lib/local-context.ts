@@ -81,6 +81,7 @@ import {
   getCachedEntity,
   getCachedFilters,
 } from './offline-store';
+import { startChecklistProfileIds } from './filter-ops/batch-plan';
 
 // ── Cached-state shape (legacy filter-state-{id} cache) ───────────────────
 //
@@ -119,8 +120,9 @@ export interface ChecklistCompletion {
   /** The stage the cycle was on when the operator submitted the checklist.
    *  This matches the `afterStage` attribute the synthesized
    *  CHECKLIST_COMPLETED event carries — the executor's gate checks for any
-   *  CHECKLIST_COMPLETED with `afterStage === currentState`. */
-  afterStage: string;
+   *  CHECKLIST_COMPLETED with `afterStage === currentState`. null = START
+   *  (before the first stage, 2026-10-22), as the server records it. */
+  afterStage: string | null;
   /** ISO timestamp the operator submitted. Surfaces in synthesized events. */
   completedAt: string;
   /** Optional — the cycle the completion was recorded against. Used by the
@@ -414,7 +416,7 @@ async function resolveChecklistProfile(
   cachedState: CachedFilterState | null,
 ): Promise<ChecklistProfileSlice | null> {
   const pending = cachedState?.pendingChecklist;
-  if (!pending || pending.length === 0) return null;
+  if (!pending || pending.length === 0) return resolveStartChecklistProfile(cachedState);
   const first = pending[0];
   const profileId = first?.checklistProfileId;
   if (!profileId) return null;
@@ -444,6 +446,37 @@ async function resolveChecklistProfile(
   // Tier 2: fall through to v5 sync store (added in 8.4a follow-up).
   const row = await getCachedEntity<any>('syncChecklistProfiles', profileId);
   if (!row) return null;
+  return checklistSliceFromProfileRow(row);
+}
+
+/**
+ * The START checklist (between START and the first stage, 2026-10-22) of a
+ * started cycle that has not entered a stage, when the pendingChecklist mirror
+ * is empty — a local submit clears that mirror and a local recompute rebuilds it
+ * for stages only. Without this the executor could not resolve the checklist,
+ * dropped it, and offered the first stage instead: an unanswered START checklist
+ * skipped offline, which the replay exempts. Which checklist: the cached graph
+ * (startChecklistProfileIds — enabled only, the rule resolveStartChecklists
+ * uses). Questions: the synced checklist store, else the cached
+ * checklist-profiles list. Whether it is already answered is not decided here —
+ * synthesizeEvents supplies this cycle's START answers and the executor's gate
+ * reads them.
+ */
+async function resolveStartChecklistProfile(
+  cachedState: CachedFilterState | null,
+): Promise<ChecklistProfileSlice | null> {
+  if (!cachedState || cachedState.currentState || !cachedState.currentCycle?.id) return null;
+  const [profileId] = startChecklistProfileIds(cachedState);
+  if (!profileId) return null;
+  const synced = await getCachedEntity<any>('syncChecklistProfiles', profileId);
+  if (synced) return checklistSliceFromProfileRow(synced);
+  const listed = ((await getCachedData<any[]>('checklist-profiles')) ?? [])
+    .find((p: any) => p?.id === profileId && p.isActive !== false);
+  return listed ? checklistSliceFromProfileRow(listed) : null;
+}
+
+/** A cached checklist-profile row (sync store or list cache) as the executor's slice. */
+function checklistSliceFromProfileRow(row: any): ChecklistProfileSlice {
   return {
     id: row.id,
     name: row.name ?? '',

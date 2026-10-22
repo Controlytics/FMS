@@ -28,7 +28,7 @@ describe('tablet cycle start — refusal handling', () => {
   });
 
   it('the reason-dialog start uses the same helper (one implementation)', () => {
-    expect(src).toMatch(/startWithPmGate\(reasonDialog\.filterId, runStart\)/);
+    expect(src).toMatch(/startWithPmGate\(rd\.filterId, runStart\)/);
     // the question is asked in exactly one place besides the batch retry
     expect(src.match(/PM_PREVIOUS_TASK_PENDING/g)?.length).toBeLessThanOrEqual(6);
   });
