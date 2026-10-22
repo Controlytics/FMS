@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { formatByLeastCount, formatRecordedReading } from '@/lib/format-by-least-count';
 import { apiClient } from '@/lib/api-client';
 import { Select } from '@/components/ui/select';
 
@@ -310,7 +310,7 @@ export function EquipmentDialog({ dialog, onClose, onSubmit, loading, error, onl
 
                     {outOfRange && (
                       <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
-                        {formatByLeastCount(val!, inst.leastCount)} {inst.uom} is out of the operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)}). You can submit after confirming.
+                        {formatRecordedReading(val!, inst.leastCount)} {inst.uom} is out of the operating range ({formatByLeastCount(inst.operatingMin, inst.leastCount)}–{formatByLeastCount(inst.operatingMax, inst.leastCount)}). You can submit after confirming.
                       </div>
                     )}
                   </div>

@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
-import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { formatRecordedReading } from '@/lib/format-by-least-count';
 import { fmtMinutes, cycleEndInfo, effectiveCycleStatus, stageProgress, STAGE_ORDER, performerLabel, transitionEndpoints, phaseSuffix } from '../../lib/cleaning-cycle-report';
 
 // Presentational constants for a single cleaning-cycle's detail view. Shared by
@@ -401,7 +401,7 @@ export function CycleDetailView({ cycle, fallback }: {
                         <div key={ri} className="bg-white border border-slate-200 rounded-lg px-3 py-2.5">
                           <div className="text-[11px] text-slate-400 mb-1">{reading.description || reading.instrumentCode || `Instrument ${ri + 1}`}</div>
                           <div className="flex items-baseline gap-1.5">
-                            <span className="text-lg font-bold text-slate-800 tabular-nums">{reading.leastCount !== undefined && reading.leastCount !== null ? formatByLeastCount(reading.value, reading.leastCount) : reading.value}</span>
+                            <span className="text-lg font-bold text-slate-800 tabular-nums">{reading.leastCount !== undefined && reading.leastCount !== null ? formatRecordedReading(reading.value, reading.leastCount) : reading.value}</span>
                             <span className="text-xs text-slate-500">{reading.uom || reading.unit || ''}</span>
                             {/* Provenance (2026-09-04): AUTO = fetched from the instrument, AUTO_OVERRIDDEN = fetched then changed by the operator. Absent on MANUAL / older rows. */}
                             {reading.source === 'AUTO' && <span className="ml-1 px-1.5 py-0.5 text-[11px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto</span>}

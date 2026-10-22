@@ -1,5 +1,5 @@
 /** Cleaning Stage Interlock — approver-side types + helpers. */
-import { formatByLeastCount } from './format-by-least-count';
+import { formatRecordedReading } from './format-by-least-count';
 import { fmtMinutes } from './cleaning-cycle-report';
 
 export interface StageApprovalDetails {
@@ -118,7 +118,7 @@ export interface StageDetailGroup {
 /** Format a reading with its least count and unit. */
 export function formatReading(r: StageReading): string {
   if (r.value == null) return '—';
-  const num = r.leastCount != null ? formatByLeastCount(r.value, r.leastCount) : String(r.value);
+  const num = r.leastCount != null ? formatRecordedReading(r.value, r.leastCount) : String(r.value);
   return `${num}${r.uom ? ` ${r.uom}` : ''}${r.outOfRange ? ' (out of range)' : ''}`;
 }
 

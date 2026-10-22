@@ -6,7 +6,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { isoToDatetimeInput, toIsoIfNaiveDatetime } from '@/lib/datetime-input';
-import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { formatRecordedReading } from '@/lib/format-by-least-count';
 import { ManualEntryBadge } from '@/components/manual-entry-badge';
 
 // Helpers copied from cleaning-cycles/history.tsx + filter-traceability.tsx so
@@ -38,7 +38,7 @@ function getReadingValue(readings: any[], desc: string) {
   const r = readings.find((x: any) => x.description?.toLowerCase().includes(desc.toLowerCase()));
   if (!r) return '-';
   const formatted = r.leastCount !== undefined && r.leastCount !== null
-    ? formatByLeastCount(r.value, r.leastCount)
+    ? formatRecordedReading(r.value, r.leastCount)
     : String(r.value);
   return `${formatted} ${r.uom ?? ''}`.trim();
 }

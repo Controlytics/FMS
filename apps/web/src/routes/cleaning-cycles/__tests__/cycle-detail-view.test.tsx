@@ -113,16 +113,18 @@ describe('CycleDetailView — info card', () => {
 });
 
 describe('CycleDetailView — event timeline', () => {
-  it('transitions: genesis reads "To Be Cleaned"; the two DRY_IN steps read Started / Ended; readings render by least count', async () => {
+  it('transitions: genesis reads "To Be Cleaned"; the two DRY_IN steps read Started / Ended; readings render exactly as recorded', async () => {
     await show(completedCycle());
     expect(screen.getByText('To Be Cleaned')).toBeInTheDocument();
     expect(screen.getByText('Dry In (Started)')).toBeInTheDocument();
     expect(screen.getByText('Dry In (Ended)')).toBeInTheDocument();
     expect(screen.getByText('Dryer Duration: 1h 30m')).toBeInTheDocument();
     expect(screen.getByText('Started: 2026-10-01 10:00')).toBeInTheDocument();
-    // 6.123 at least count 0.1 prints 6.1; a reading without least count prints raw
+    // 6.123 at least count 0.1 prints 6.123: a recorded reading is never rounded
+    // to its least count (operator decision 2026-10-22); a reading without a
+    // least count prints raw
     const air = screen.getByText('Compressed Air Pressure').parentElement!;
-    expect(air).toHaveTextContent('6.1bar');
+    expect(air).toHaveTextContent('6.123bar');
     expect(screen.getByText('RO Water Pressure').parentElement!).toHaveTextContent('2bar');
     expect(screen.getByText('Dryer Temperature').parentElement!).toHaveTextContent('55°C');
     expect(screen.getAllByText('by opr1')).toHaveLength(2);

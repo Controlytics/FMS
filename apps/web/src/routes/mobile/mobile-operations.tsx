@@ -16,7 +16,7 @@ import { normalizeRfidScan } from '@/lib/rfid-scan';
 import { buildIdentifierMap, filterIdsWithUnsyncedWork, type IdentifierMapEntry } from '../../lib/offline-sync-service';
 // Dry In multi-select (2026-09-04): the Currently Drying panel is SHARED with the desktop page.
 import { DryingFiltersPanel } from '../filter-management/components/drying-filters-panel';
-import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { formatByLeastCount, formatRecordedReading } from '@/lib/format-by-least-count';
 import { buildAhuBlockMap, filtersInBlock } from '@/lib/ahu-block-map';
 import { subscribeRfidTags } from '@/lib/rfid-bridge';
 // Phase 8.6 — shared executor + action-tape resolver + offline-cache helper.
@@ -2977,7 +2977,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
         .filter((i: any) => i.stageKey === equipStage && readings[i.id] !== undefined)
         .map((i: any) => ({
           description: i.description as string,
-          value: formatByLeastCount(readings[i.id], i.leastCount),
+          value: formatRecordedReading(readings[i.id], i.leastCount),
           uom: i.uom as string,
         }));
       // Don't show the readings recap for the first filter if it specifically

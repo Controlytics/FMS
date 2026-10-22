@@ -272,6 +272,20 @@ describe('DryingFiltersPanel — re-auth', () => {
 });
 
 describe('DryingFiltersPanel — instrument auto-fetch', () => {
+  // Operator decision 2026-10-22: the screen shows the number that is recorded.
+  // A fetched 60.47 on a least-count-1 dryer used to read "60 °C" while 60.47
+  // went into the record.
+  it('a fetched reading finer than the least count is shown exactly as it is recorded', async () => {
+    const s = setup({
+      states: { f1: state({}, GA) },
+      routes: [{ method: 'POST', path: '/api/equipment-groups/fetch-readings', body: { results: [{ instrumentId: 't1', ok: true, value: 60.47 }, { instrumentId: 'h1', ok: true, value: 14 }] } }],
+    });
+    expect(await screen.findByText('60.47 °C')).toBeInTheDocument();
+    fireEvent.click(submit());
+    await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalled());
+    expect(s.executeOrQueue.mock.calls[0][3]).toMatchObject({ instrumentReadings: { t1: 60.47, h1: 14 } });
+  });
+
   it('fetches at half time, shows the value as Auto, lets the operator change it (Auto · changed) and sends both provenances', async () => {
     const s = setup({
       states: { f1: state({}, GA) },

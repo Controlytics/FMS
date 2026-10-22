@@ -7,7 +7,7 @@
 // its own columns. (This header previously claimed both pages shared the
 // columns; corrected 2026-09-03.)
 import type { FilterEvent } from '../types/filter';
-import { formatByLeastCount } from './format-by-least-count';
+import { formatRecordedReading } from './format-by-least-count';
 
 /**
  * Column order/keys for the cleaning-cycle record tables (2026-06-08):
@@ -81,7 +81,7 @@ export function getReading(readings: any[], desc: string) {
   const r = (readings ?? []).find((r: any) => r.description?.toLowerCase().includes(desc.toLowerCase()));
   if (!r) return '-';
   const formatted = r.leastCount !== undefined && r.leastCount !== null
-    ? formatByLeastCount(r.value, r.leastCount)
+    ? formatRecordedReading(r.value, r.leastCount)
     : String(r.value);
   return `${formatted} ${r.uom ?? ''}`.trim();
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
-import { formatByLeastCount } from '@/lib/format-by-least-count';
+import { formatByLeastCount, formatRecordedReading } from '@/lib/format-by-least-count';
 import { useDryerAutoFetch, type ReadingSource } from '@/lib/filter-ops/use-dryer-autofetch';
 import {
   buildTempOptionsSnapped,
@@ -418,7 +418,7 @@ function DryingRow({
         className={`w-24 rounded${isMobile ? '-xl' : ''} border border-slate-300 px-2 py-1 text-sm`} />
     )
   ) : (
-    <span className="font-mono text-sm text-slate-800">{temp === '' ? (autoFetch.fetching ? 'fetching…' : '—') : `${formatByLeastCount(Number(temp), instrument?.leastCount)} ${uom}`}</span>
+    <span className="font-mono text-sm text-slate-800">{temp === '' ? (autoFetch.fetching ? 'fetching…' : '—') : `${formatRecordedReading(Number(temp), instrument?.leastCount)} ${uom}`}</span>
   );
 
   return (
