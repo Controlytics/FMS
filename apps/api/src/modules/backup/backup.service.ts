@@ -1,4 +1,5 @@
 import { gzipSync, gunzipSync } from 'node:zlib';
+import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,6 +34,7 @@ import {
   getUserTriggerState,
   getServerMajorVersion,
   resetPublicSchema,
+  dropParkSchemas,
   preserveUnbackedAuditRows,
   resyncSequencesAfterRestore,
   type BackupChainReport,
@@ -804,12 +806,19 @@ export async function restoreDump(
   // Set when a failed rollback leaves the safety dump as the ONLY copy of the
   // operator's data — the cleanup below must not delete it.
   let preserveDir = false;
-  // D-DB-10 (2026-10-22): digilog_keep must not outlive this call. It was dropped
+  // D-DB-10 (2026-10-22): the park must not outlive this call. It was dropped
   // only on success, so a failed restore left a full, mutable, unchained copy of
   // audit_trail in the database, carried by every later backup. Dropped on every
   // exit below — except after a failed rollback, where it may be the only other
   // copy of the trail and is kept next to the safety dump.
   let keepParked = false;
+  // BR-100 (2026-10-22): the park is named per run. It was always `digilog_keep`,
+  // and pg_restore --clean drops every object the archive holds before loading it:
+  // an archive that carried a digilog_keep of its own (a dump taken during an
+  // in-app restore, or after a failed one before D-DB-10) dropped the parked LIVE
+  // trail and loaded its stale copy, so the rows written after the backup were lost
+  // while the restore reported success. No archive can name this schema.
+  const park = `digilog_keep_${randomBytes(8).toString('hex')}`;
 
   let auditRowsPreserved = 0;
   try {
@@ -823,9 +832,11 @@ export async function restoreDump(
     // archive does not carry come back after the load instead of being
     // destroyed (the trail is the one table retained permanently).
     keepParked = true;
+    // A park left by a version before 2026-10-22: an archive that carries the same
+    // schema would refuse to load over it (pg_restore --clean drops it without CASCADE).
     await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`);
-    await prisma.$executeRawUnsafe(`CREATE SCHEMA digilog_keep`);
-    await prisma.$executeRawUnsafe(`CREATE TABLE digilog_keep.audit_trail AS SELECT * FROM public.audit_trail`);
+    await prisma.$executeRawUnsafe(`CREATE SCHEMA ${park}`);
+    await prisma.$executeRawUnsafe(`CREATE TABLE ${park}.audit_trail AS SELECT * FROM public.audit_trail`);
 
     // 2 + 3. Empty, then load.
     try {
@@ -833,7 +844,7 @@ export async function restoreDump(
       await runPgRestore(archivePath);
       auditRowsPreserved = await prisma.$transaction(
         async (tx: unknown) => {
-          const kept = await preserveUnbackedAuditRows(tx, 'digilog_keep.audit_trail');
+          const kept = await preserveUnbackedAuditRows(tx, `${park}.audit_trail`);
           // D1 (2026-10-21): pg_restore set audit_trail_chain_position_seq back
           // to its value at dump time, but the rows just carried over sit ABOVE
           // it (BACKUP_CREATED, written after every dump, is always one of them).
@@ -846,7 +857,8 @@ export async function restoreDump(
         },
         { timeout: 300_000, maxWait: 30_000 },
       );
-      await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`);
+      // This run's park, and any park the archive brought with it.
+      await dropParkSchemas();
       keepParked = false;
     } catch (restoreErr: unknown) {
       backupLog.error({ err: restoreErr }, 'pg_dump restore failed — rolling back from the safety dump');
@@ -861,7 +873,7 @@ export async function restoreDump(
         rollbackNote =
           ` CRITICAL: the rollback ALSO failed (${restoreFailureReason(rollbackErr)}). The database may be empty.`
           + ` A safety copy was written to ${safetyPath} — do not delete it.`
-          + ' The audit trail as it was before the restore is also kept in schema digilog_keep.';
+          + ` The audit trail as it was before the restore is also kept in schema ${park}.`;
         // Keep the safety dump on disk, and the parked trail in the database, for manual recovery.
         preserveDir = true;
         keepParked = false;
@@ -897,9 +909,9 @@ export async function restoreDump(
     if (keepParked) {
       // The restore failed (and the database was rolled back) or stopped while
       // parking. The caller sees that error; a failed drop is logged, not thrown
-      // over it, and the next .dump restore drops the schema first anyway.
-      await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`)
-        .catch((err: unknown) => backupLog.error({ err }, 'Could not drop schema digilog_keep after a failed restore; drop it by hand'));
+      // over it, and the next successful .dump restore drops every park anyway.
+      await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS ${park} CASCADE`)
+        .catch((err: unknown) => backupLog.error({ err, schema: park }, 'Could not drop the parked audit trail after a failed restore; drop the schema by hand'));
     }
     // Leave the directory behind only when a failed rollback needs it.
     if (!preserveDir) await rm(dir, { recursive: true, force: true }).catch(() => {});

@@ -326,6 +326,24 @@ export async function resetPublicSchema(): Promise<void> {
 }
 
 /**
+ * Drop every schema a .dump restore parks the live audit trail in: the run's own
+ * `digilog_keep_<hex>`, the fixed `digilog_keep` versions before 2026-10-22 used,
+ * and any park an older archive carried in with it. Each is a full, mutable,
+ * unchained copy of the trail, so none may outlive a successful restore.
+ */
+export async function dropParkSchemas(): Promise<string[]> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ nspname: string }>>(
+    `SELECT nspname::text AS nspname FROM pg_namespace
+      WHERE nspname = 'digilog_keep' OR nspname ~ '^digilog_keep_[0-9a-f]+$'`,
+  );
+  for (const { nspname } of rows) {
+    assertSafeIdentifier(nspname);
+    await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${nspname}" CASCADE`);
+  }
+  return rows.map((r) => r.nspname);
+}
+
+/**
  * Snapshot of which user triggers are currently enabled, so a restore can put
  * them back EXACTLY as it found them rather than blanket-enabling everything
  * (which would silently arm a trigger an operator had deliberately disabled).

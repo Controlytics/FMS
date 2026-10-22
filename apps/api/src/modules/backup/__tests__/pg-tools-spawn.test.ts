@@ -136,7 +136,7 @@ describe('runPgDump', () => {
     // Prisma-only parameters stripped (schema, connection_limit), libpq ones kept
     expect(args).toEqual([
       '--dbname=postgresql://digi@db.local:5432/dfms?sslmode=prefer',
-      '-Fc', '--no-owner', '--no-privileges', '-f', 'C:\\tmp\\out.dump',
+      '-Fc', '--no-owner', '--no-privileges', '--exclude-schema=digilog_keep*', '-f', 'C:\\tmp\\out.dump',
     ]);
     expect(opts.env.PGPASSWORD).toBe('s3cr@t'); // percent-decoded
     expect(JSON.stringify(args)).not.toContain('s3cr');

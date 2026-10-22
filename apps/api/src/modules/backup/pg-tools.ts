@@ -280,6 +280,11 @@ export async function assertPgDumpVersion(serverMajor: number): Promise<{ toolMa
  * onto an install whose role names differ from this one (the customer installer
  * creates its own `digilog` role, and a restore should not fail because an owner
  * name does not exist on the target).
+ *
+ * The schemas a .dump restore parks the live audit trail in (`digilog_keep`,
+ * `digilog_keep_<hex>`) are left out: each is a mutable, unchained copy of the
+ * trail, and an archive carrying one used to replace the park of the restore that
+ * loaded it (BR-100, 2026-10-22).
  */
 export async function runPgDump(outPath: string, opts: { serverMajor: number }): Promise<void> {
   await assertPgDumpVersion(opts.serverMajor);
@@ -290,6 +295,7 @@ export async function runPgDump(outPath: string, opts: { serverMajor: number }):
     '-Fc',
     '--no-owner',
     '--no-privileges',
+    '--exclude-schema=digilog_keep*',
     '-f', outPath,
   ], conn.password ? { env: { PGPASSWORD: conn.password } } : {});
 }
