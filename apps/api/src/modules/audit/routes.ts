@@ -45,8 +45,8 @@ async function cachedAuditCount(where: unknown, exact: boolean, cacheKey: unknow
  *
  * One scan, bounded: every STRING VALUE of after_value / before_value (never a
  * key - "name" must not match every row), case-insensitive and literal (jsonpath
- * like_regex flag "q": no pattern semantics), inside the requested date range,
- * newest first, at most PAYLOAD_SEARCH_CAP row ids, cached briefly so an export
+ * like_regex flag "q": no pattern semantics), only inside a requested date range
+ * of at most VALUE_SEARCH_MAX_DAYS (below), newest first, at most PAYLOAD_SEARCH_CAP row ids, cached briefly so an export
  * paging through the same search does not rescan per page. The ids join the
  * column matches as one more OR branch, so the visibility scope and every other
  * filter still apply. A redacted row has no payload, so search cannot expose
@@ -54,6 +54,14 @@ async function cachedAuditCount(where: unknown, exact: boolean, cacheKey: unknow
  * (rows that stored just an id) are not in the row and are not searched.
  */
 const PAYLOAD_SEARCH_CAP = 10_000;
+/**
+ * The value match runs only inside a date range of at most this many days
+ * (measured 2026-10-22 on digilog_perf, one year = 7,407,366 rows: no range =
+ * a 37 s whole-table scan; 30 days = 2.6 s through the timestamp index). The
+ * column match (user, user name, action, target, role) still covers all time.
+ * The list response says which applied (`valueSearch`), and the page says so.
+ */
+export const VALUE_SEARCH_MAX_DAYS = 31;
 const PAYLOAD_SEARCH_TTL_MS = 30_000;
 const payloadSearchCache = new Map<string, { ids: string[]; at: number }>();
 
@@ -194,6 +202,8 @@ export default async function auditRoutes(app: FastifyInstance) {
             },
             total: { type: 'integer' },
             totalCapped: { type: 'boolean', description: 'true = more than `total` records match ("10,000+"); page on until a short page' },
+            valueSearch: { type: 'string', enum: ['applied', 'skipped'], description: 'With a search: were names inside the records matched too? Only within a date range of at most valueSearchMaxDays; otherwise user / action / target / role only' },
+            valueSearchMaxDays: { type: 'integer' },
             page: { type: 'integer' },
             limit: { type: 'integer' },
             totalPages: { type: 'integer' },
@@ -246,10 +256,15 @@ export default async function auditRoutes(app: FastifyInstance) {
       if (query.startDate) (where.timestamp as Record<string, unknown>).gte = new Date(query.startDate);
       if (query.endDate) (where.timestamp as Record<string, unknown>).lte = new Date(query.endDate);
     }
+    let valueSearch: 'applied' | 'skipped' | undefined;
     if (query.search) {
       const term = query.search;
       const range = where.timestamp as { gte?: Date; lte?: Date } | undefined;
-      const payloadIds = await payloadSearchIds(term, range?.gte, range?.lte);
+      // Names inside the records are matched only within a bounded range
+      // (VALUE_SEARCH_MAX_DAYS); a period chip sets only its start (to = now).
+      const spanMs = range?.gte ? (range.lte ?? new Date()).getTime() - range.gte.getTime() : Infinity;
+      valueSearch = spanMs <= VALUE_SEARCH_MAX_DAYS * 86_400_000 ? 'applied' : 'skipped';
+      const payloadIds = valueSearch === 'applied' ? await payloadSearchIds(term, range?.gte, range?.lte) : [];
       where.OR = [
         { userId: { contains: term, mode: 'insensitive' } },
         { userName: { contains: term, mode: 'insensitive' } },
@@ -481,6 +496,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       page: query.page,
       limit: effectiveLimit,
       totalPages: cappedTotalPages(counted, query.page, effectiveLimit, records.length),
+      ...(valueSearch ? { valueSearch, valueSearchMaxDays: VALUE_SEARCH_MAX_DAYS } : {}),
     };
   });
 

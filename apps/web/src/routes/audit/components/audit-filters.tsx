@@ -15,6 +15,13 @@ interface AuditFiltersProps {
   formatDateTimeDisplay: (datetime: string) => string;
   hasFilters: string | boolean;
   clearFilters: () => void;
+  /**
+   * From the list response (2026-10-22): names inside the records are searched
+   * only within a date range of at most `valueSearchMaxDays`; 'skipped' = this
+   * search matched user / action / target / role only.
+   */
+  valueSearch?: 'applied' | 'skipped';
+  valueSearchMaxDays?: number;
 }
 
 export function AuditFilters({
@@ -28,6 +35,8 @@ export function AuditFilters({
   formatDateTimeDisplay,
   hasFilters,
   clearFilters,
+  valueSearch,
+  valueSearchMaxDays,
 }: AuditFiltersProps) {
   // This screen keeps its own From/To cards — they are a better design than the
   // generic control — and borrows the ordering rule from it so the two can never
@@ -92,9 +101,17 @@ export function AuditFilters({
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                   className="pl-10 h-11"
+                  aria-describedby={valueSearch === 'skipped' ? 'audit-filter-search-scope' : undefined}
                 />
               </div>
             </div>
+            {/* A name inside a record (a filter, an AHU) is matched only within a
+                short date range; say so, or "0 results" reads as "never happened". */}
+            {search && valueSearch === 'skipped' && (
+              <p id="audit-filter-search-scope" role="note" className="text-xs text-amber-700">
+                Searched user, action, target and role only. To also find names inside the records (a filter or AHU), set a From and To range of up to {valueSearchMaxDays ?? 31} days.
+              </p>
+            )}
           </div>
 
           {/* From Date & Time - Combined */}

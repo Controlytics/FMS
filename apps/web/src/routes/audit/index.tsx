@@ -473,6 +473,8 @@ export function AuditTrailPage() {
         formatDateTimeDisplay={formatDateTimeDisplay}
         hasFilters={hasFilters}
         clearFilters={clearFilters}
+        valueSearch={data?.valueSearch}
+        valueSearchMaxDays={data?.valueSearchMaxDays}
       />
 
       {/* Destructive Selection Toolbar. Redact (audit.redact, SA-only) preserves the

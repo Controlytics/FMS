@@ -6,6 +6,10 @@
  * description names it: the name lives in the stored payload (afterValue /
  * beforeValue: name, filterName, ahuName, username, ...) or in user_name.
  *
+ * Names inside the records are matched only within a date range of at most
+ * VALUE_SEARCH_MAX_DAYS (31): at one-year volume (7.4 M rows) a whole-table
+ * value scan took 37 s. The column match still covers all time.
+ *
  * Real Fastify + Prisma on digilog_test_db. Every row searched for carries a
  * per-run tag, so other agents' rows cannot match.
  */
@@ -35,15 +39,19 @@ let readerToken = '';
 const userIds: string[] = [];
 const ids: Record<string, string> = {};
 
-const search = async (token: string, term: string, extra = '') => {
+const DAY = 86_400_000;
+/** A bounded range around now: the rows below were written during this run. */
+const WEEK = () => `&startDate=${new Date(Date.now() - 7 * DAY).toISOString()}&endDate=${new Date(Date.now() + DAY).toISOString()}`;
+type SearchResponse = { data: Array<{ id: string }>; total: number; valueSearch?: string; valueSearchMaxDays?: number };
+const search = async (token: string, term: string, extra: string = WEEK()) => {
   const res = await app.inject({
     method: 'GET', url: `/api/audit?search=${encodeURIComponent(term)}&limit=100${extra}`,
     headers: { authorization: `Bearer ${token}` },
   });
   expect(res.statusCode, res.body).toBe(200);
-  return res.json() as { data: Array<{ id: string }>; total: number };
+  return res.json() as SearchResponse;
 };
-const foundIds = async (token: string, term: string, extra = '') => (await search(token, term, extra)).data.map((r) => r.id).sort();
+const foundIds = async (token: string, term: string, extra: string = WEEK()) => (await search(token, term, extra)).data.map((r) => r.id).sort();
 
 beforeAll(async () => {
   app = await buildApp();
@@ -106,8 +114,35 @@ describe('GET /api/audit?search= matches the names a row carries', () => {
   });
 
   it('the date range still applies on top of the search', async () => {
-    expect(await foundIds(saToken, FILTER_NAME, '&startDate=2000-01-01T00:00:00.000Z&endDate=2000-12-31T23:59:59.999Z')).toEqual([]);
+    expect(await foundIds(saToken, FILTER_NAME, '&startDate=2000-01-01T00:00:00.000Z&endDate=2000-01-15T23:59:59.999Z')).toEqual([]);
     expect((await search(saToken, FILTER_NAME)).total).toBe(2);
+  });
+
+  it('names inside the records are matched only within a range of at most 31 days, and the response says which', async () => {
+    const inRange = await search(saToken, FILTER_NAME);
+    expect(inRange).toMatchObject({ valueSearch: 'applied', valueSearchMaxDays: 31 });
+    // No range at all (the page's default): column matches only.
+    const noRange = await search(saToken, FILTER_NAME, '');
+    expect(noRange.data).toEqual([]);
+    expect(noRange).toMatchObject({ valueSearch: 'skipped', valueSearchMaxDays: 31 });
+    // A range longer than 31 days: skipped too.
+    const long = `&startDate=${new Date(Date.now() - 40 * DAY).toISOString()}&endDate=${new Date(Date.now() + DAY).toISOString()}`;
+    expect((await search(saToken, FILTER_NAME, long)).valueSearch).toBe('skipped');
+    // A period chip sets only its start (to = now): "week" is within the bound, "year" is not.
+    expect((await search(saToken, FILTER_NAME, '&period=week')).valueSearch).toBe('applied');
+    expect(await foundIds(saToken, FILTER_NAME, '&period=week')).toEqual([ids.filter, ids.saRow].sort());
+    expect((await search(saToken, FILTER_NAME, '&period=all')).valueSearch).toBe('skipped');
+  });
+
+  it('without a range the column match still covers all time (user id, user name, target id)', async () => {
+    expect(await foundIds(saToken, `emp-${SUF}`, '')).toEqual([ids.person]);
+    expect(await foundIds(saToken, PERSON, '')).toEqual([ids.person]);
+    expect(await foundIds(saToken, `k-${SUF}`, '')).toEqual([ids.keyOnly]);
+  });
+
+  it('a list without a search carries no valueSearch field', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/audit?limit=1', headers: { authorization: `Bearer ${saToken}` } });
+    expect(res.json()).not.toHaveProperty('valueSearch');
   });
 
   it('the old column matches keep working (action, target id, user id)', async () => {
