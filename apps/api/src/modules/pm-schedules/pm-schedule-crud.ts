@@ -8,6 +8,8 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled, isPmEntryInForce } from './pm-shared.js';
 import { assertSetSeparation } from './pm-separation-guard.js';
+import { getPmWorkflowConfig } from './pm-workflow.js';
+import { submissionApprovalFields } from './pm-submission.js';
 
 export async function getByEntity(_ctx: RequestContext, entityId: string, year?: number) {
   await checkPmEnabled();
@@ -57,6 +59,12 @@ export async function create(ctx: RequestContext, data: any) {
     `The ${year} schedule`,
   );
 
+  // The entries enter the approval workflow exactly as uploaded rows do
+  // (D-OPS-10, 2026-10-22). They used to take the column default — PENDING with
+  // no submitter — so with the 3-step workflow ON they skipped Review, and the
+  // submitter needed for segregation of duties was never recorded.
+  const approvalFields = submissionApprovalFields(ctx, await getPmWorkflowConfig());
+
   const schedule = await prisma.pmSchedule.create({
     data: {
       entityId,
@@ -71,6 +79,7 @@ export async function create(ctx: RequestContext, data: any) {
           windowStart: new Date(new Date(e.plannedDate).getTime() - (e.toleranceDays ?? 0) * 86400000),
           windowEnd: new Date(new Date(e.plannedDate).getTime() + (e.toleranceDays ?? 0) * 86400000),
           notes: e.notes ?? null,
+          ...approvalFields,
         })),
       },
     },

@@ -709,6 +709,36 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
     return reply.code(201).send(result);
   });
 
+  // D-OPS-10 (operator decision 2026-10-22): the New Schedule dialog ADDS one
+  // visit — it never overwrites an existing one. Same gate and signature as
+  // POST /; the year's schedule is created when the AHU has none.
+  app.post('/visits', {
+    preHandler: [app.requirePermission('PM_CREATE')],
+    schema: {
+      tags: ['PM Schedules'],
+      summary: 'Add one PM visit on a date',
+      description: 'Adds ONE visit to the ACTIVE schedule of the AHU for the year of `plannedDate`, creating the schedule when there is none. '
+        + 'Existing visits are never changed. The visit enters the approval workflow like an uploaded row. '
+        + '409 `PM_VISIT_EXISTS` when the date is already scheduled; 409 `PM_VISIT_OVERLAP` when its tolerance window overlaps that of another visit.',
+      body: {
+        type: 'object',
+        required: ['entityId', 'plannedDate'],
+        properties: {
+          entityId: { type: 'string', format: 'uuid' },
+          plannedDate: { type: 'string', format: 'date' },
+          toleranceDays: { type: 'integer', minimum: 0, maximum: 365 },
+        },
+      },
+      response: { 201: { type: 'object', additionalProperties: true }, ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const { ok } = await enforceReauth('CREATE_PM_SCHEDULE', req, reply);
+    if (!ok) return;
+    const ctx = buildContext(req);
+    const result = await service.addVisit(ctx, req.body as { entityId: string; plannedDate: string; toleranceDays?: number });
+    return reply.code(201).send(result);
+  });
+
   app.put('/:id', {
     preHandler: [app.requirePermission('PM_UPDATE')],
     schema: {

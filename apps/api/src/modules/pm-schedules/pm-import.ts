@@ -20,6 +20,7 @@ import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled, readPmSettings } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag } from './pm-workflow.js';
 import { checkSeparation } from './pm-separation.js';
+import { submissionApprovalFields } from './pm-submission.js';
 import { getDatetimeConfig, formatDateWith } from '../../lib/format-datetime.js';
 
 interface ParsedRow {
@@ -199,19 +200,8 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
 
   // Workflow ON: entries land in PENDING_REVIEW (review + approval required, no bypass).
   // Workflow OFF (legacy): SUPER_ADMIN auto-approves; others go to PENDING.
-  const isSuperAdmin = ctx.userRole === 'SUPER_ADMIN';
-  const approvalFields = wf.workflowEnabled
-    ? {
-        approvalStatus: 'PENDING_REVIEW' as const,
-        submittedBy: ctx.userSub,
-        submittedByName: ctx.userId,
-      }
-    : {
-        approvalStatus: isSuperAdmin ? 'APPROVED' as const : 'PENDING' as const,
-        submittedBy: ctx.userSub,
-        submittedByName: ctx.userId,
-        ...(isSuperAdmin ? { approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date() } : {}),
-      };
+  // One rule shared with "Add a visit" and create() — see pm-submission.ts.
+  const approvalFields = submissionApprovalFields(ctx, wf);
 
   // Bucket by (AHU, year) — one schedule per bucket, one transaction per schedule.
   const buckets = new Map<string, ParsedRow[]>();

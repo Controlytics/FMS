@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { checkSeparation, type SeparationInput } from './pm-separation.js';
@@ -12,13 +13,15 @@ import { checkSeparation, type SeparationInput } from './pm-separation.js';
  *
  * ## Why every write path needs it
  *
- * A schedule can become invalid through four different doors, and a check on
+ * A schedule can become invalid through five different doors, and a check on
  * only the obvious one leaves the others open:
  *
  *   1. create a schedule with entries          (pm-schedule-crud)
  *   2. replace a schedule's entries            (pm-schedule-crud)
  *   3. re-submit a rejected entry on a new date(pm-approval.resubmitRejectedEntry)
  *   4. edit an APPROVED entry                  (pm-approval.editApprovedEntry)
+ *   5. add one visit on a date                 (pm-visits.addVisit, 2026-10-22 —
+ *      reads through its transaction via the optional `db` argument)
  *
  * Door 4 is the subtle one. The edit only STAGES `pendingPlannedDate`; the value
  * goes live later, when QA approves. Validating at request time is necessary but
@@ -27,9 +30,12 @@ import { checkSeparation, type SeparationInput } from './pm-separation.js';
  * call this.
  */
 
+/** Read through the caller's transaction when it has one, so the check sees what it will write next to. */
+type Db = Pick<Prisma.TransactionClient, 'pmScheduleEntry'>;
+
 /** Entries already on the schedule, excluding the one being written. */
-async function siblingsOf(scheduleId: string, excludeEntryId?: string): Promise<SeparationInput[]> {
-  const rows = await prisma.pmScheduleEntry.findMany({
+async function siblingsOf(scheduleId: string, excludeEntryId?: string, db: Db = prisma): Promise<SeparationInput[]> {
+  const rows = await db.pmScheduleEntry.findMany({
     where: { scheduleId, ...(excludeEntryId ? { id: { not: excludeEntryId } } : {}) },
     select: { id: true, plannedDate: true, toleranceDays: true, pendingPlannedDate: true, pendingToleranceDays: true },
   });
@@ -53,8 +59,9 @@ export async function assertSeparation(
   scheduleId: string,
   candidate: { plannedDate: Date; toleranceDays: number; entryId?: string },
   label = 'This visit',
+  db: Db = prisma,
 ): Promise<void> {
-  const siblings = await siblingsOf(scheduleId, candidate.entryId);
+  const siblings = await siblingsOf(scheduleId, candidate.entryId, db);
   if (siblings.length === 0) return;
 
   const violations = checkSeparation([

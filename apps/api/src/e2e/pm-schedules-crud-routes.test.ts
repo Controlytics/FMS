@@ -246,8 +246,11 @@ describe('POST / — create a schedule', () => {
       [`${YEAR}-01-10`, 0, `${YEAR}-01-10`, `${YEAR}-01-10`, null],
       [`${YEAR}-03-10`, 5, `${YEAR}-03-05`, `${YEAR}-03-15`, 'first visit'],
     ]);
-    // Column default — a directly created schedule's entries await approval.
-    expect(rows.every((r) => r.approvalStatus === 'PENDING')).toBe(true);
+    // The entries enter the workflow like uploaded rows (D-OPS-10, pm-submission.ts):
+    // workflow OFF + SUPER_ADMIN → approved directly, submitter and approver recorded.
+    // (They used to take the column default, PENDING with no submitter, whatever the
+    // workflow said — see pm-schedules-visits.test.ts for workflow ON.)
+    expect(rows.every((r) => r.approvalStatus === 'APPROVED' && r.submittedBy === sa.id && r.approvedBy === sa.id)).toBe(true);
 
     const audit = await latestAudit('CREATED', created.id);
     expect(audit).toMatchObject({ userId: sa.username, userRole: 'SUPER_ADMIN', targetType: 'pm_schedule' });

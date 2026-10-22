@@ -12,6 +12,8 @@
  *                             the unused updateExecution helper)
  *   • pm-due-tasks.ts       — getDueTasks (My Tasks page)
  *   • pm-import.ts          — importSchedules + getTemplateCsv (CSV/XLSX upload)
+ *   • pm-visits.ts          — addVisit (one visit on a date; the New Schedule dialog)
+ *   • pm-submission.ts      — submissionApprovalFields (one approval rule for every new visit)
  *   • pm-ahu-config.ts      — listAhuFilterSetConfigs / updateAhuFilterSetMode
  *   • pm-approval.ts        — listEntries / approve / reject / resubmit / editApproved / pendingCounts
  *
@@ -23,6 +25,7 @@
 import type { RequestContext } from '../../types/context.js';
 
 import * as crud from './pm-schedule-crud.js';
+import * as visits from './pm-visits.js';
 import * as executions from './pm-executions.js';
 import * as dueTasks from './pm-due-tasks.js';
 import * as importer from './pm-import.js';
@@ -39,6 +42,11 @@ export class PmScheduleService {
 
   create(ctx: RequestContext, data: any) {
     return crud.create(ctx, data);
+  }
+
+  /** Add ONE visit on a date, creating the year's schedule when missing (D-OPS-10). */
+  addVisit(ctx: RequestContext, data: visits.AddVisitInput) {
+    return visits.addVisit(ctx, data);
   }
 
   update(ctx: RequestContext, id: string, data: any) {
