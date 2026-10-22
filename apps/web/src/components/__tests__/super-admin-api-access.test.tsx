@@ -167,7 +167,10 @@ describe('SuperAdminApiAccessCard', () => {
     fireEvent.change(pw(), { target: { value: 'Admin@123' } });
     fireEvent.keyDown(pw(), { key: 'Enter' });
     await waitFor(() => expect(screen.getByText('DISABLED')).toBeInTheDocument());
-    expect(screen.queryByPlaceholderText('Enter your password')).toBeNull();
+    // The optimistic SWR update renders DISABLED one commit before the dialog's
+    // own close (setConfirming after `await setEnabled`): on a busy CPU React
+    // yields between the two, so wait for the close rather than assert it at once.
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
     expect(api.calls('PUT', LOCK)[0].json).toEqual({ enabled: false, _currentPassword: 'Admin@123' });
     // The optimistic update means no extra GET was needed.
     expect(api.calls('GET', LOCK)).toHaveLength(1);
