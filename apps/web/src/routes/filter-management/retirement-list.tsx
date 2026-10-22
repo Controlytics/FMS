@@ -20,6 +20,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
 import { Input } from '@/components/ui/input';
+import { usePageSize } from '@/hooks/use-pagination-config';
 
 export function RetirementListPage() {
   const { formatDate } = useDatetimeFormat();
@@ -34,7 +35,7 @@ export function RetirementListPage() {
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = usePageSize();
   // Block → AHU cascade. Rows carry server-resolved blockId/ahuId: retire()
   // nulls the filter's parentId, so the browser cannot derive the AHU — see
   // resolveAhuScopes in filter-operations.service.ts.

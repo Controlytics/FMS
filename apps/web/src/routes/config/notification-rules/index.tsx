@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
+import { usePageSize } from '@/hooks/use-pagination-config';
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface EventTypeMeta { value: string; label: string; module: string; variables: string[] }
@@ -899,7 +900,7 @@ function LogsTab() {
   const { toast } = useToast();
   const { formatDateTime } = useDatetimeFormat();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePageSize();
   const [channel, setChannel] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');

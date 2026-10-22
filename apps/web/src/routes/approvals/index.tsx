@@ -10,6 +10,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
 import { Input } from '@/components/ui/input';
+import { usePageSize } from '@/hooks/use-pagination-config';
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; dot: string }> = {
   PENDING: { label: 'Pending', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500' },
@@ -28,7 +29,7 @@ export function ApprovalsPage() {
   const { formatDate, formatTime } = useDatetimeFormat();
   const [filter, setFilter] = useState('PENDING');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = usePageSize();
   const [processComment, setProcessComment] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
 

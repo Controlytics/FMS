@@ -13,7 +13,7 @@ import { useCan } from '@/hooks/use-can';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { usePaginationConfig, usePageSize } from '@/hooks/use-pagination-config';
 import { Pagination } from '@/components/ui/pagination';
 import { PageHeader } from '@/components/ui/page-header';
 import { ALL_ROWS } from '@/lib/page-size';
@@ -123,7 +123,7 @@ export function NotificationsPage() {
   const { formatDate: fmtDate } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(paginationOptions[0]);
+  const [perPage, setPerPage] = usePageSize();
   const [period, setPeriod] = useState('all');
   const [readFilter, setReadFilter] = useState('');
   // 'custom' is a UI-only period. The API's `period` enum does not include it —

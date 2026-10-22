@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
+import { usePageSize } from '@/hooks/use-pagination-config';
 
 interface Instrument {
   id?: string;
@@ -127,7 +128,7 @@ export function EquipmentGroupsConfigPage() {
 
   // Pagination — slice the rendered cards; stat cards keep counting `groups`.
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePageSize();
   useEffect(() => { setPage(1); }, [selectedBlockId]);
   const totalPages = Math.max(1, Math.ceil(groups.length / pageSize));
   const safePage = Math.min(page, totalPages);

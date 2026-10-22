@@ -370,8 +370,9 @@ describe('Notification Rules — Delivery Logs tab', () => {
     expect(within(odd).getByText('FAX')).toBeInTheDocument();
     expect(within(odd).getAllByText('-')).toHaveLength(2);
     expect(within(screen.getByText('qa@acme.test').closest('tr')!).getByText('(retry 1)')).toBeInTheDocument();
-    // first request uses the tab's own default page size of 25
-    expect(api.calls('GET', LOGS)[0].query.get('limit')).toBe('25');
+    // the list settles on the CONFIGURED page size (25 here), not a size of the
+    // tab's own (2026-10-22: usePageSize; a cold load may first send the pre-load default)
+    await waitFor(() => expect(api.calls('GET', LOGS).at(-1)!.query.get('limit')).toBe('25'));
     fireEvent.click(screen.getByText('qa@acme.test'));
     expect(screen.getByText('Filter cleaned')).toBeInTheDocument();
     expect(screen.getByText('first try bounced')).toBeInTheDocument();

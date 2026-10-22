@@ -17,6 +17,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { apiUrl } from '@/lib/url-utils';
 import { downloadName } from '@/lib/download-name';
 import { PageHeader } from '@/components/ui/page-header';
+import { usePageSize } from '@/hooks/use-pagination-config';
 
 // Show "NA" when a value wasn't entered (null/empty/whitespace) or was a stray
 // "[object Object]" from a non-text spreadsheet cell.
@@ -122,7 +123,7 @@ export function ReplacementSchedulePage() {
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePageSize();
 
   const { data, isLoading } = useSWR('/api/replacement-schedules', { refreshInterval: 30000 });
   const schedules = (data?.data ?? []) as any[];

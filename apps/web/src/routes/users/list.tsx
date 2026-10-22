@@ -12,7 +12,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { apiClient } from '@/lib/api-client';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { usePaginationConfig } from '@/hooks/use-pagination-config';
+import { usePaginationConfig, usePageSize } from '@/hooks/use-pagination-config';
 import type { PasswordPolicyConfig } from '@digilog/shared';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
@@ -36,7 +36,7 @@ export function UserListPage() {
   const { formatDate, formatTime } = useDatetimeFormat();
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(paginationOptions[0]);
+  const [perPage, setPerPage] = usePageSize();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
