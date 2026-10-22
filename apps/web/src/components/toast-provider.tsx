@@ -3,6 +3,7 @@ import { ToastContext, useToastState } from '@/hooks/use-toast';
 import { ToastContainer } from '@/components/ui/toast';
 import { MessageDialog } from '@/components/ui/message-dialog';
 import { registerSwrToast, unregisterSwrToast } from '@/lib/swr-config';
+import { onSessionEnded } from '@/lib/session-events';
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const state = useToastState();
@@ -13,6 +14,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     registerSwrToast(state.toast.errorToast);
     return () => unregisterSwrToast();
   }, [state.toast.errorToast]);
+
+  // Nothing from the previous session stays on screen after it ends (D03-14):
+  // the provider sits above the routes, so its dialogs outlive the logout.
+  useEffect(() => onSessionEnded(state.clearAll), [state.clearAll]);
 
   return createElement(
     ToastContext.Provider,

@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { useEffect, useRef } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
 
@@ -24,6 +25,7 @@ vi.mock('@/lib/sync-since', () => ({
 vi.mock('@/components/failed-ops-panel', () => ({ FailedOpsPanel: () => <div data-testid="failed-ops-panel" /> }));
 
 import { AppLayout } from '../app-layout';
+import { useToast } from '@/hooks/use-toast';
 
 const shell = (
   <Routes>
@@ -274,6 +276,49 @@ describe('AppLayout — idle timeout', () => {
     await waitFor(() => expect(api.calls('POST', '/api/auth/logout')).toHaveLength(1), { timeout: 4000 });
     expect(api.calls('POST', '/api/auth/logout')[0].json).toEqual({ reason: 'idle_timeout' });
     expect(await screen.findByText('login page')).toBeInTheDocument();
+  });
+
+  // D03-14 (2026-10-22, shared workstation): a result dialog from the previous
+  // session ("User created ...") survived the idle auto-logout and covered the
+  // login page for the next person. Every open message dialog and toast ends with
+  // the session, whichever way it ends.
+  function ResultPage() {
+    const { toast } = useToast();
+    const shown = useRef(false); // once: `toast` is a new object on every render
+    useEffect(() => {
+      if (shown.current) return;
+      shown.current = true;
+      toast.success('User created', 'User "jdoe" was created successfully.');
+      toast.warning('Background note', 'A toast from the old session');
+    }, [toast]);
+    return <p>result page</p>;
+  }
+  const resultShell = (
+    <Routes>
+      <Route path="/login" element={<p>login page</p>} />
+      <Route element={<AppLayout />}>
+        <Route path="*" element={<ResultPage />} />
+      </Route>
+    </Routes>
+  );
+
+  it.each([
+    ['the idle auto-logout', 'idle_timeout', () => {}],
+    ['"Logout Now"', 'manual', () => fireEvent.click(screen.getByRole('button', { name: 'Logout Now' }))],
+  ])('%s clears every message dialog and toast of the old session', async (_l, reason, act0) => {
+    const api = mockApi(baseRoutes([fastPolicy]));
+    renderPage(resultShell, { route: '/users/create', user: operator, api });
+    expect(await screen.findByRole('dialog', { name: 'User created' })).toBeInTheDocument();
+    expect(screen.getByText('A toast from the old session')).toBeInTheDocument();
+    if (reason === 'manual') {
+      await screen.findByRole('heading', { name: /Session Timeout Warning/ }, { timeout: 3000 });
+      act0();
+    }
+    expect(await screen.findByText('login page', undefined, { timeout: 4000 })).toBeInTheDocument();
+    expect(api.calls('POST', '/api/auth/logout')[0].json).toEqual({ reason });
+    expect(screen.queryByRole('dialog', { name: 'User created' })).toBeNull();
+    expect(screen.queryByText('User "jdoe" was created successfully.')).toBeNull();
+    expect(screen.queryByText('A toast from the old session')).toBeNull();
   });
 
   it('missing policy fields fall back to auto-logout ON, 15 min idle, 2 min warning', async () => {

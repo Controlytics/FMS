@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mockApi, type MockRequest } from '@/test-utils/page-harness';
 import { apiClient, api } from '../api-client';
+import { onSessionEnded } from '../session-events';
 
 const CONTACT_KEY = 'digilog_last_server_contact';
 
@@ -294,6 +295,25 @@ describe('generic 401 = session expired', () => {
     mockApi([{ path: '/api/x', status: 401, body: {} }]);
     await apiClient.get('/api/x').catch(() => undefined);
     expect(loc.href).toBe('unchanged');
+  });
+
+  // D03-14: the session's dialogs and toasts end with it, even when no reload follows.
+  it('announces that the session ended (once per expired request), also on the login page itself', async () => {
+    const ended = vi.fn();
+    const off = onSessionEnded(ended);
+    try {
+      const loc = stubLocation('/login');
+      loc.href = 'unchanged';
+      seedSession();
+      mockApi([{ path: '/api/x', status: 401, body: {} }, { method: 'POST', path: '/api/auth/login', status: 401, body: { error: 'INVALID_CREDENTIALS' } }]);
+      await apiClient.get('/api/x').catch(() => undefined);
+      expect(ended).toHaveBeenCalledTimes(1);
+      // a wrong password at sign-in ends nothing
+      await apiClient.post('/api/auth/login', { username: 'u', password: 'p' }).catch(() => undefined);
+      expect(ended).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
   });
 
   it('a 401 from /api/auth/login itself (wrong password) keeps storage and does not redirect', async () => {

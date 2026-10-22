@@ -23,6 +23,8 @@ interface ToastContextValue {
   toast: ToastAPI;
   dismiss: (id: string) => void;
   dismissDialog: (id: string) => void;
+  /** Drop every toast and message dialog (the session ended, D03-14). */
+  clearAll: () => void;
 }
 
 export const ToastContext = createContext<ToastContextValue | null>(null);
@@ -38,6 +40,8 @@ export function useToastState(): ToastContextValue {
   const dismissDialog = useCallback((id: string) => {
     setDialogs((prev) => prev.filter((d) => d.id !== id));
   }, []);
+
+  const clearAll = useCallback(() => { setToasts([]); setDialogs([]); }, []);
 
   const addToast = useCallback((variant: ToastVariant, title: string, message?: string) => {
     const id = `toast-${++idCounter}`;
@@ -58,7 +62,7 @@ export function useToastState(): ToastContextValue {
     info: useCallback((title: string, message?: string) => addToast('info', title, message), [addToast]),
   };
 
-  return { toasts, dialogs, toast, dismiss, dismissDialog };
+  return { toasts, dialogs, toast, dismiss, dismissDialog, clearAll };
 }
 
 export function useToast() {

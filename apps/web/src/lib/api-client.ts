@@ -3,6 +3,7 @@ import { markServerContactFromResponse } from './server-contact';
 import { isHardCutoffExceeded } from './hard-cutoff';
 import { getApiBase } from './api-base';
 import { isTabletPath } from './tablet-path';
+import { announceSessionEnded } from './session-events';
 
 // W4: methods that are refused before they hit the network when the
 // hard-cutoff lockout has fired. GET stays allowed so SWR polling can keep
@@ -142,6 +143,7 @@ class ApiClient {
           localStorage.removeItem('digilog_active_tab_id');
           localStorage.removeItem('digilog_tab_heartbeat');
           localStorage.removeItem('digilog_active_user_id');
+          announceSessionEnded(); // its dialogs and toasts end with it (D03-14)
           // Redirect to login — use mobile login for /m routes
           const isMobile = isTabletPath(window.location.pathname);
           const loginPath = isMobile ? '/m/login' : '/login';

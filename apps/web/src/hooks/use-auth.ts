@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api-client';
 import { clearServerContact } from '../lib/server-contact';
+import { announceSessionEnded } from '../lib/session-events';
 import { isNetworkFailure } from '../lib/network-error';
 
 interface User {
@@ -189,6 +190,7 @@ export function useAuth() {
     sessionStorage.removeItem('access_token');
     localStorage.removeItem('access_token_backup');
     localStorage.removeItem('digilog_cached_user');
+    announceSessionEnded(); // close the old session's dialogs and toasts (D03-14)
     // Audit 2026-05-04 fix C1: drop the offline-replay grant on logout so a
     // subsequent user (shared workstation) does not inherit the prior user's
     // offline-mode authorization.
