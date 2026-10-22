@@ -50,8 +50,12 @@ beforeAll(async () => {
   scheduleId = (await prisma.replacementSchedule.create({
     data: { fileName: 'bulk-wf.xlsx', status: 'ACTIVE', uploadedBy: UPLOADER, uploadedByName: 'uploader' },
   })).id;
-  templateId = (await prisma.assetTemplate.findFirst({ where: { templateKind: 'FILTER' }, select: { id: true } }))?.id
-    ?? (await prisma.assetTemplate.create({ data: { name: `BWF Filter ${Date.now()}`, templateKind: 'FILTER' } })).id;
+  // Own FILTER template (2026-10-22). It used to borrow `findFirst` of another
+  // suite's (pinning it, so that suite's cleanup could not delete it), or create
+  // one and never delete it. INACTIVE so the typed->asset_instances mirror (which
+  // uses the oldest ACTIVE FILTER template) never attaches anyone else's filters.
+  await prisma.templateKind.upsert({ where: { code: 'FILTER' }, update: {}, create: { code: 'FILTER', label: 'Filter', isSystem: true } });
+  templateId = (await prisma.assetTemplate.create({ data: { name: `BWF Filter ${Date.now()}`, templateKind: 'FILTER', isActive: false } })).id;
 });
 
 afterAll(async () => {
@@ -60,6 +64,7 @@ afterAll(async () => {
   await prisma.replacementScheduleEntry.deleteMany({ where: { scheduleId } }).catch(() => undefined);
   await prisma.replacementSchedule.delete({ where: { id: scheduleId } }).catch(() => undefined);
   for (const id of createdFilterIds) await prisma.assetInstance.delete({ where: { id } }).catch(() => undefined);
+  if (templateId) await prisma.assetTemplate.delete({ where: { id: templateId } });
 });
 
 describe('bulk review / approve', () => {

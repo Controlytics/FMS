@@ -11,10 +11,15 @@
  *   - replacing "<prefix>-00" when "<prefix>-01" already exists → 409
  *     DUPLICATE_FILTER_NAME, the old filter stays active, no new row is created.
  *
- * Isolation: provisions its own SUPER_ADMIN and creates two throwaway FILTER
- * instances (reusing the seeded FILTER template + an AHU parent), all removed in
- * afterAll. The guard runs before retire(), so no cycles / audit rows are
- * written for the collision path.
+ * Isolation: provisions its own SUPER_ADMIN, its own BLOCK -> AHU hierarchy and
+ * its own FILTER template, and creates throwaway FILTER instances under that
+ * AHU; all removed in afterAll. The guard runs before retire(), so no cycles /
+ * audit rows are written for the collision path.
+ *
+ * It used to borrow `findFirst` of ANY AHU and FILTER template on the shared
+ * test DB (2026-10-22: the "ambient hierarchy data" anti-pattern). Run beside
+ * another suite, it hung its filters under that suite's AHU, whose cleanup then
+ * failed on the parent FK.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -33,6 +38,9 @@ import { AppError } from '../lib/errors.js';
 const TEST_USERNAME = 'dupname_filter_admin';
 const TEST_PASSWORD = 'DupName@Test1';
 const PREFIX = `ZZDUP-${Date.now()}`; // unique so parallel/rerun never collides
+// The hierarchy + templates get their own prefix so the by-name sweep of the
+// filters in afterAll never matches the parents (deleted after them, child first).
+const HPREFIX = `ZZDUPHIER-${Date.now()}`;
 
 async function buildTestApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, ajv: { customOptions: { keywords: ['example'] } } });
@@ -65,6 +73,11 @@ describe('Filter replace — duplicate-name guard', () => {
   let filterA: string; // "<PREFIX>-00" — the one we try to replace (collides with B)
   let filterB: string; // "<PREFIX>-01" — the pre-existing collision target
   let filterC: string; // "<PREFIX>-90" — replaced successfully (no "<PREFIX>-91" exists)
+  let blockTemplateId: string;
+  let ahuTemplateId: string;
+  let filterTemplateId: string;
+  let blockId: string;
+  let ahuId: string;
 
   beforeAll(async () => {
     app = await buildTestApp();
@@ -85,15 +98,27 @@ describe('Filter replace — duplicate-name guard', () => {
     });
     testUserId = user.id;
 
-    const tpl = await prisma.assetTemplate.findFirst({ where: { templateKind: 'FILTER' } });
-    if (!tpl) throw new Error('Test DB has no FILTER template to build on');
-    const ahu = await prisma.assetInstance.findFirst({ where: { template: { templateKind: 'AHU' } } });
+    // Own hierarchy + FILTER template. The asset->typed mirror writes the
+    // `blocks` / `ahus` / `filters` rows with the same ids. The FILTER template
+    // is INACTIVE on purpose: the typed->asset_instances mirror attaches every
+    // other suite's typed filters to the oldest ACTIVE one, which would pin
+    // ours and block its deletion. replace() copies the template id and does
+    // not need it active.
+    for (const [code, label] of [['BLOCK', 'Block'], ['AHU', 'AHU'], ['FILTER', 'Filter']] as const) {
+      await prisma.templateKind.upsert({ where: { code }, update: {}, create: { code, label, isSystem: true } });
+    }
+    blockTemplateId = (await prisma.assetTemplate.create({ data: { name: `${HPREFIX} Block Tpl`, templateKind: 'BLOCK' } })).id;
+    ahuTemplateId = (await prisma.assetTemplate.create({ data: { name: `${HPREFIX} AHU Tpl`, templateKind: 'AHU' } })).id;
+    const tpl = await prisma.assetTemplate.create({ data: { name: `${HPREFIX} Filter Tpl`, templateKind: 'FILTER', isActive: false } });
+    filterTemplateId = tpl.id;
+    blockId = (await prisma.assetInstance.create({ data: { name: `${HPREFIX}-BLOCK`, templateId: blockTemplateId } })).id;
+    ahuId = (await prisma.assetInstance.create({ data: { name: `${HPREFIX}-AHU`, templateId: ahuTemplateId, parentId: blockId } })).id;
 
     const mk = async (name: string) => {
       const inst = await prisma.assetInstance.create({
         data: {
-          name, templateId: tpl.id, templateVersion: tpl.version ?? 1,
-          parentId: ahu?.id ?? null, attributes: {}, status: 'Active', isActive: true,
+          name, templateId: tpl.id, templateVersion: tpl.version,
+          parentId: ahuId, attributes: {}, status: 'Active', isActive: true,
         },
       });
       return inst.id;
@@ -129,6 +154,12 @@ describe('Filter replace — duplicate-name guard', () => {
     } catch {
       await prisma.user.update({ where: { id: testUserId }, data: { status: 'DISABLED', email: `disabled-${testUserId}@example.test` } });
     }
+    // Own hierarchy, child first (the mirror drops the typed rows), then templates.
+    const hier = [ahuId, blockId].filter(Boolean);
+    await prisma.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: hier } }, { targetAssetId: { in: hier } }] } });
+    if (ahuId) await prisma.assetInstance.delete({ where: { id: ahuId } });
+    if (blockId) await prisma.assetInstance.delete({ where: { id: blockId } });
+    await prisma.assetTemplate.deleteMany({ where: { id: { in: [filterTemplateId, ahuTemplateId, blockTemplateId].filter(Boolean) } } });
     await app.close();
   });
 

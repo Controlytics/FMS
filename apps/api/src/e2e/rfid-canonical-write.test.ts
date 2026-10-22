@@ -52,6 +52,7 @@ describe('RFID identifier — canonical write + canonical duplicate check', () =
   let filterA: string;
   let filterB: string;
   let filterC: string;
+  let filterTemplateId: string;
 
   const post = (assetId: string, identifierValue: string) => app.inject({
     method: 'POST', url: '/api/assets/identifiers',
@@ -73,10 +74,15 @@ describe('RFID identifier — canonical write + canonical duplicate check', () =
     });
     testUserId = user.id;
 
-    const tpl = await prisma.assetTemplate.findFirst({ where: { templateKind: 'FILTER' } });
-    if (!tpl) throw new Error('Test DB has no FILTER template to build on');
+    // Own FILTER template (2026-10-22) instead of borrowing `findFirst` of
+    // another suite's — rows hung on a borrowed template block its owner's
+    // cleanup. INACTIVE so the typed->asset_instances mirror (which uses the
+    // oldest ACTIVE FILTER template) never attaches anyone else's filters to it.
+    await prisma.templateKind.upsert({ where: { code: 'FILTER' }, update: {}, create: { code: 'FILTER', label: 'Filter', isSystem: true } });
+    const tpl = await prisma.assetTemplate.create({ data: { name: `${PREFIX} Filter Tpl`, templateKind: 'FILTER', isActive: false } });
+    filterTemplateId = tpl.id;
     const mk = async (name: string) => (await prisma.assetInstance.create({
-      data: { name, templateId: tpl.id, templateVersion: tpl.version ?? 1, parentId: null, attributes: {}, status: 'Active', isActive: true },
+      data: { name, templateId: tpl.id, templateVersion: tpl.version, parentId: null, attributes: {}, status: 'Active', isActive: true },
     })).id;
     filterA = await mk(`${PREFIX}-A`);
     filterB = await mk(`${PREFIX}-B`);
@@ -93,6 +99,7 @@ describe('RFID identifier — canonical write + canonical duplicate check', () =
     await prisma.assetIdentifier.deleteMany({ where: { assetId: { in: ids } } });
     await prisma.filterDetails.deleteMany({ where: { assetInstanceId: { in: ids } } });
     await prisma.assetInstance.deleteMany({ where: { id: { in: ids } } });
+    if (filterTemplateId) await prisma.assetTemplate.delete({ where: { id: filterTemplateId } });
     await prisma.session.updateMany({ where: { userId: testUserId }, data: { isActive: false, terminationReason: 'rfid_canon_test_cleanup' } });
     try { await prisma.user.delete({ where: { id: testUserId } }); }
     catch { await prisma.user.update({ where: { id: testUserId }, data: { status: 'DISABLED', email: `disabled-${testUserId}@example.test` } }); }

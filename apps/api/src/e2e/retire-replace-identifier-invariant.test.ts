@@ -28,8 +28,12 @@
  * Free the tag on RE-ASSIGNMENT (the audited DELETE /api/assets/identifiers/:id
  * path), not on retire.
  *
- * Isolation: own SUPER_ADMIN + throwaway FILTER instances on a seeded AHU,
- * removed in afterAll.
+ * Isolation: own SUPER_ADMIN, own BLOCK -> AHU hierarchy and own FILTER
+ * template, with throwaway FILTER instances under that AHU; all removed in
+ * afterAll. (It used to borrow `findFirst` of ANY AHU and FILTER template on the
+ * shared test DB — 2026-10-22, the "ambient hierarchy data" anti-pattern: run
+ * beside another suite it hung its filters under that suite's AHU, whose
+ * cleanup then failed on the parent FK.)
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -47,6 +51,9 @@ import { AppError } from '../lib/errors.js';
 const TEST_USERNAME = 'retire_ident_admin';
 const TEST_PASSWORD = 'RetireIdent@Test1';
 const PREFIX = `ZZRETIDENT-${Date.now()}`;
+// Hierarchy + templates use their own prefix so the by-name sweep of the
+// filters in afterAll never matches the parents (deleted after them, child first).
+const HPREFIX = `ZZRETIDENTHIER-${Date.now()}`;
 
 async function buildTestApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, ajv: { customOptions: { keywords: ['example'] } } });
@@ -72,6 +79,11 @@ describe('retire() / replace() — RFID identifier ownership invariant', () => {
   let testUserId: string;
   let retireFilterId: string;   // retired standalone — tag must STAY
   let replaceFilterId: string;  // replaced — tag must MOVE to the replacement
+  let blockTemplateId: string;
+  let ahuTemplateId: string;
+  let filterTemplateId: string;
+  let blockId: string;
+  let ahuId: string;
 
   const RETIRE_TAG = `${PREFIX}-TAG-RETIRE`;
   const REPLACE_TAG = `${PREFIX}-TAG-REPLACE`;
@@ -95,15 +107,26 @@ describe('retire() / replace() — RFID identifier ownership invariant', () => {
     });
     testUserId = user.id;
 
-    const tpl = await prisma.assetTemplate.findFirst({ where: { templateKind: 'FILTER' } });
-    if (!tpl) throw new Error('Test DB has no FILTER template to build on');
-    const ahu = await prisma.assetInstance.findFirst({ where: { template: { templateKind: 'AHU' } } });
+    // Own hierarchy + FILTER template. The asset->typed mirror writes the
+    // `blocks` / `ahus` / `filters` rows with the same ids. The FILTER template
+    // is INACTIVE on purpose: the typed->asset_instances mirror attaches every
+    // other suite's typed filters to the oldest ACTIVE one, which would pin
+    // ours and block its deletion. retire() / replace() do not need it active.
+    for (const [code, label] of [['BLOCK', 'Block'], ['AHU', 'AHU'], ['FILTER', 'Filter']] as const) {
+      await prisma.templateKind.upsert({ where: { code }, update: {}, create: { code, label, isSystem: true } });
+    }
+    blockTemplateId = (await prisma.assetTemplate.create({ data: { name: `${HPREFIX} Block Tpl`, templateKind: 'BLOCK' } })).id;
+    ahuTemplateId = (await prisma.assetTemplate.create({ data: { name: `${HPREFIX} AHU Tpl`, templateKind: 'AHU' } })).id;
+    const tpl = await prisma.assetTemplate.create({ data: { name: `${HPREFIX} Filter Tpl`, templateKind: 'FILTER', isActive: false } });
+    filterTemplateId = tpl.id;
+    blockId = (await prisma.assetInstance.create({ data: { name: `${HPREFIX}-BLOCK`, templateId: blockTemplateId } })).id;
+    ahuId = (await prisma.assetInstance.create({ data: { name: `${HPREFIX}-AHU`, templateId: ahuTemplateId, parentId: blockId } })).id;
 
     const mk = async (name: string, tag: string) => {
       const inst = await prisma.assetInstance.create({
         data: {
-          name, templateId: tpl.id, templateVersion: tpl.version ?? 1,
-          parentId: ahu?.id ?? null, attributes: {}, status: 'Active', isActive: true,
+          name, templateId: tpl.id, templateVersion: tpl.version,
+          parentId: ahuId, attributes: {}, status: 'Active', isActive: true,
         },
       });
       await prisma.assetIdentifier.create({
@@ -137,6 +160,12 @@ describe('retire() / replace() — RFID identifier ownership invariant', () => {
     } catch {
       await prisma.user.update({ where: { id: testUserId }, data: { status: 'DISABLED', email: `disabled-${testUserId}@example.test` } });
     }
+    // Own hierarchy, child first (the mirror drops the typed rows), then templates.
+    const hier = [ahuId, blockId].filter(Boolean);
+    await prisma.assetRelationship.deleteMany({ where: { OR: [{ sourceAssetId: { in: hier } }, { targetAssetId: { in: hier } }] } });
+    if (ahuId) await prisma.assetInstance.delete({ where: { id: ahuId } });
+    if (blockId) await prisma.assetInstance.delete({ where: { id: blockId } });
+    await prisma.assetTemplate.deleteMany({ where: { id: { in: [filterTemplateId, ahuTemplateId, blockTemplateId].filter(Boolean) } } });
     await app.close();
   });
 
