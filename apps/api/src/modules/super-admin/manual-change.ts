@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { auditLog, type AuditTx } from '../../lib/audit.js';
 
 /**
@@ -10,9 +10,11 @@ import { auditLog, type AuditTx } from '../../lib/audit.js';
  * `_changeReason` of at least MIN_REASON_LEN, and one audit row per change.
  */
 export async function requireDataEditReauth(req: FastifyRequest, reply: FastifyReply) {
-  const { ok } = await enforceReauth('SUPER_ADMIN_DATA_EDIT', req, reply);
+  // OD-01 (2026-10-22): always, for every caller — a manual write rewrites or
+  // destroys a §11 record, so the re-auth policy cannot switch the signature off.
+  const { ok } = await enforceReauthAlways('SUPER_ADMIN_DATA_EDIT', req, reply);
   if (!ok) {
-    // enforceReauth has already sent the 401 response â€” Fastify stops
+    // enforceReauthAlways has already sent the 401 response — Fastify stops
     // the preHandler chain on send. Returning is sufficient.
     return;
   }

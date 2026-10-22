@@ -462,11 +462,11 @@ describe('users routes', () => {
     });
 
     it('refuses self-delete, an unknown id, and a SUPER_ADMIN target', async () => {
-      const self = await authDelete(app, `/api/users/${ids.SA}`, saTok);
+      const self = await authDelete(app, `/api/users/${ids.SA}`, saTok, PW);
       expect(self.statusCode).toBe(400);
       expect(self.json().message).toBe('Cannot delete your own account');
-      expect((await authDelete(app, '/api/users/00000000-0000-4000-8000-0000000000d2', saTok)).statusCode).toBe(404);
-      const sa2 = await authDelete(app, `/api/users/${ids.SA2}`, saTok);
+      expect((await authDelete(app, '/api/users/00000000-0000-4000-8000-0000000000d2', saTok, PW)).statusCode).toBe(404);
+      const sa2 = await authDelete(app, `/api/users/${ids.SA2}`, saTok, PW);
       expect(sa2.statusCode).toBe(403);
       expect(sa2.json().message).toBe('Cannot delete SUPER_ADMIN users');
     });
@@ -476,7 +476,7 @@ describe('users routes', () => {
       createdUsernames.push(username);
       const id = await createUser(username, R_LOW, PW);
       await prisma.userConfig.create({ data: { userId: id, sidebarItems: ['users'] } });
-      const res = await authDelete(app, `/api/users/${id}`, saTok);
+      const res = await authDelete(app, `/api/users/${id}`, saTok, PW);
       expect(res.statusCode).toBe(200);
       expect(await prisma.user.findUnique({ where: { id } })).toBeNull();
       expect(await prisma.userConfig.count({ where: { userId: id } })).toBe(0);
@@ -486,15 +486,15 @@ describe('users routes', () => {
     });
 
     it('bulk delete refuses self, nothing-found and SUPER_ADMIN; 400s more than 50 ids', async () => {
-      const self = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: [ids.SA, ids.LOW3] });
+      const self = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: [ids.SA, ids.LOW3] }, PW);
       expect(self.statusCode).toBe(400);
-      const none = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: ['00000000-0000-4000-8000-0000000000d3'] });
+      const none = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: ['00000000-0000-4000-8000-0000000000d3'] }, PW);
       expect(none.statusCode).toBe(404);
-      const sa = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: [ids.SA2, ids.LOW3] });
+      const sa = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: [ids.SA2, ids.LOW3] }, PW);
       expect(sa.statusCode).toBe(403);
       expect(sa.json().message).toBe(`Cannot delete SUPER_ADMIN users: ${SA2}`);
       const tooMany = Array.from({ length: 51 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
-      const big = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: tooMany });
+      const big = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: tooMany }, PW);
       expect(big.statusCode).toBe(400);
       expect(big.json().error).toBe('VALIDATION_ERROR');
       expect(await prisma.user.findUnique({ where: { id: ids.LOW3 } })).not.toBeNull();
@@ -506,7 +506,7 @@ describe('users routes', () => {
       createdUsernames.push(u1, u2);
       const id1 = await createUser(u1, R_LOW, PW);
       const id2 = await createUser(u2, R_LOW, PW);
-      const res = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: [id1, id2] });
+      const res = await authPost(app, '/api/users/bulk-delete', saTok, { userIds: [id1, id2] }, PW);
       expect(res.statusCode).toBe(200);
       expect(res.json().deletedCount).toBe(2);
       expect(res.json().deletedUsers.map((u: any) => u.username).sort()).toEqual([u1, u2].sort());

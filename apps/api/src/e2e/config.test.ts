@@ -691,14 +691,16 @@ describe('Config endpoints', () => {
         ...original,
         DELETE_USER: ['SUPER_ADMIN', 'ADMIN'],
       };
-      const putRes = await authPut(app, '/api/config/action-reauth', adminToken, updated);
+      // OD-01 (2026-10-22): saving the policy always takes the password, SUPER_ADMIN too.
+      const putRes = await authPut(app, '/api/config/action-reauth', adminToken, updated, ADMIN_PASSWORD);
       expect(putRes.statusCode).toBe(200);
       const putBody = JSON.parse(putRes.body);
       expect(putBody.success).toBe(true);
       expect(putBody.data.DELETE_USER).toBeDefined();
 
       // Restore original
-      await authPut(app, '/api/config/action-reauth', adminToken, original);
+      const restoreRes = await authPut(app, '/api/config/action-reauth', adminToken, original, ADMIN_PASSWORD);
+      expect(restoreRes.statusCode).toBe(200);
     });
   });
 

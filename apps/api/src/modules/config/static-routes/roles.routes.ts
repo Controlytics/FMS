@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { enforceReauth } from '../../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
 import { requireChangeReason, changeReasonSchemaProp } from '../../../lib/change-reason.js';
@@ -95,7 +95,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
     // permission (updateRoleConfig's sidebar <-> permission link).
     const { permissions: permissionsIn, sidebarItems: sidebarIn } = req.body as { permissions?: Record<string, boolean>; sidebarItems?: string[] };
     const reason = permissionsIn !== undefined || sidebarIn !== undefined ? requireChangeReason(req.body) : undefined;
-    const { ok } = await enforceReauth('UPDATE_ROLE_CONFIG', req, reply);
+    const { ok } = await enforceReauthAlways('UPDATE_ROLE_CONFIG', req, reply);
     if (!ok) return;
 
     const { role } = req.params as { role: string };

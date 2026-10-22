@@ -1,6 +1,6 @@
 import { type FastifyInstance } from 'fastify';
 import { createUserSchema, updateUserSchema, resetPasswordSchema, userQuerySchema, bulkDeleteUsersSchema } from '@digilog/shared';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { userService } from './user.service.js';
@@ -103,7 +103,7 @@ export default async function userRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('BULK_DELETE_USERS', req, reply);
+    const { ok } = await enforceReauthAlways('BULK_DELETE_USERS', req, reply);
     if (!ok) return;
 
     const parsed = bulkDeleteUsersSchema.safeParse(req.body);
@@ -325,7 +325,7 @@ export default async function userRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_USER', req, reply);
+    const { ok } = await enforceReauthAlways('DELETE_USER', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

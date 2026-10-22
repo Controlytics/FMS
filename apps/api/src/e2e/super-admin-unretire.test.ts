@@ -265,10 +265,8 @@ describe('POST /api/super-admin/filter-data/retirements/:id/unretire', () => {
     app.inject({
       method: 'POST',
       url: `/api/super-admin/filter-data/retirements/${id}/unretire`,
-      // Always send the correct reauth password: SUPER_ADMIN_DATA_EDIT reauth is
-      // config-driven (off by default), and enforceReauth ignores the header when
-      // the action isn't configured — so this is correct either way. A WRONG
-      // password would trip the login lockout policy and brick the test user.
+      // The correct reauth password is required: SUPER_ADMIN_DATA_EDIT is an
+      // always-on signature (OD-01, 2026-10-22), whatever the re-auth policy says.
       headers: { authorization: `Bearer ${token}`, 'x-reauth-password': SA_PASSWORD },
       // `_changeReason` became mandatory in the 2026-08-27 audit retrofit —
       // unretiring is now recorded as a MANUAL_RECORD_UPDATED row that also
@@ -403,8 +401,8 @@ describe('POST /api/super-admin/filter-data/retirements/:id/unretire', () => {
     // the Prisma FK error carries no statusCode and the error handler defaults it
     // to 500. Pinning the code proves the request actually reached the handler and
     // failed INSIDE the transaction. A looser `>= 400` would let a preHandler
-    // short-circuit (e.g. a 401 if SUPER_ADMIN_DATA_EDIT reauth is ever switched on
-    // in the test seed) satisfy the row-survival assertions below trivially — the
+    // short-circuit (e.g. a 401 from the always-on SUPER_ADMIN_DATA_EDIT signature
+    // if the password were dropped) satisfy the row-survival assertions below trivially — the
     // rows would survive because nothing ran, and this test would pass for the
     // wrong reason.
     expect(res.statusCode).toBe(500);

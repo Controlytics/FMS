@@ -23,7 +23,7 @@ import { auditLog } from '../lib/audit.js';
 import { dateRangeGuard } from '../lib/date-range-guard.js';
 import superAdminRoutes from '../modules/super-admin/routes.js';
 import {
-  runSuffix, createRole, createUser, login, deleteUsers, deleteRoles, addReauth, removeReauth, cleanupAll,
+  runSuffix, createRole, createUser, login, deleteUsers, deleteRoles, cleanupAll,
   createHierarchy, createFilter, deleteFilters, deleteHierarchy, createCleaningProfile,
 } from './support/owned-fixtures.js';
 
@@ -748,30 +748,25 @@ describe('replacement records (audit rows)', () => {
 });
 
 describe('SUPER_ADMIN_DATA_EDIT re-authentication', () => {
-  it('when the policy requires it, a mutation without a password is refused before any write; with one it is signed', async () => {
-    // Keyed on SUPER_ADMIN, the only role this console admits. Kept to this one
-    // test and removed in `finally` so a concurrent suite sees it for seconds.
-    const added = await addReauth([['SUPER_ADMIN_DATA_EDIT', 'SUPER_ADMIN']]);
-    try {
-      const id = await retiredFilter('REAUTH');
-      const refused = await call('PUT', `/api/super-admin/filter-data/retirements/${id}`, { _changeReason: REASON, name: 'should-not-land' }, { reauth: false });
-      expect(refused.statusCode).toBe(401);
-      expect(refused.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'SUPER_ADMIN_DATA_EDIT' });
-      expect((await prisma.assetInstance.findUnique({ where: { id } }))?.name).toBe(`${PREFIX}-REAUTH`);
-      expect(await prisma.auditTrail.count({ where: { targetId: id } })).toBe(0);
+  // OD-01 (2026-10-22): ALWAYS required, whatever the re-auth policy says — so
+  // no policy row is added; SUPER_ADMIN is asked although the policy may not list it.
+  it('a mutation without a password is refused before any write; with one it is signed', async () => {
+    const id = await retiredFilter('REAUTH');
+    const refused = await call('PUT', `/api/super-admin/filter-data/retirements/${id}`, { _changeReason: REASON, name: 'should-not-land' }, { reauth: false });
+    expect(refused.statusCode).toBe(401);
+    expect(refused.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'SUPER_ADMIN_DATA_EDIT' });
+    expect((await prisma.assetInstance.findUnique({ where: { id } }))?.name).toBe(`${PREFIX}-REAUTH`);
+    expect(await prisma.auditTrail.count({ where: { targetId: id } })).toBe(0);
 
-      const signed = await call('PUT', `/api/super-admin/filter-data/retirements/${id}`, { _changeReason: REASON, name: `${PREFIX}-REAUTH-OK` });
-      expect(signed.statusCode).toBe(200);
-      const row = await lastAudit(id, 'MANUAL_RECORD_UPDATED');
-      const sig = await prisma.auditTrail.findFirst({
-        // The signature row carries the username in userId (no userName).
-        where: { action: 'REAUTH_SUCCESS', userId: SA, afterValue: { path: ['reauthAction'], equals: 'SUPER_ADMIN_DATA_EDIT' } },
-        orderBy: { chainPosition: 'desc' },
-      });
-      expect(sig).not.toBeNull();
-      expect(row?.signatureAuditId).toBe(sig!.id);
-    } finally {
-      await removeReauth(added);
-    }
+    const signed = await call('PUT', `/api/super-admin/filter-data/retirements/${id}`, { _changeReason: REASON, name: `${PREFIX}-REAUTH-OK` });
+    expect(signed.statusCode).toBe(200);
+    const row = await lastAudit(id, 'MANUAL_RECORD_UPDATED');
+    const sig = await prisma.auditTrail.findFirst({
+      // The signature row carries the username in userId (no userName).
+      where: { action: 'REAUTH_SUCCESS', userId: SA, afterValue: { path: ['reauthAction'], equals: 'SUPER_ADMIN_DATA_EDIT' } },
+      orderBy: { chainPosition: 'desc' },
+    });
+    expect(sig).not.toBeNull();
+    expect(row?.signatureAuditId).toBe(sig!.id);
   });
 });

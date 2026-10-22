@@ -1,5 +1,5 @@
 import { type FastifyInstance, type FastifyRequest } from 'fastify';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { AppError } from '../../lib/errors.js';
 import { verifyToken } from '../../lib/jwt.js';
@@ -236,7 +236,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('CREATE_ROLE', req, reply);
+    const { ok } = await enforceReauthAlways('CREATE_ROLE', req, reply);
     if (!ok) return;
 
     const ctx = buildContext(req);
@@ -299,7 +299,7 @@ export default async function roleRoutes(app: FastifyInstance) {
     // hierarchy level) needs a reason; checked before the signature.
     const body = req.body as { permissions?: unknown; hierarchyLevel?: unknown };
     const reason = body.permissions !== undefined || body.hierarchyLevel !== undefined ? requireChangeReason(req.body) : undefined;
-    const { ok } = await enforceReauth('UPDATE_ROLE', req, reply);
+    const { ok } = await enforceReauthAlways('UPDATE_ROLE', req, reply);
     if (!ok) return;
 
     const { name } = req.params as { name: string };
@@ -350,7 +350,7 @@ export default async function roleRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_ROLE', req, reply);
+    const { ok } = await enforceReauthAlways('DELETE_ROLE', req, reply);
     if (!ok) return;
 
     const { name } = req.params as { name: string };

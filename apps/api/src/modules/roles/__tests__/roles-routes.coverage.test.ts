@@ -13,7 +13,7 @@ import { buildApp, authGet, authPost, authPut, authDelete, internalErrors } from
 import { prisma } from '../../../lib/prisma.js';
 import { invalidateRolePermsCache } from '../../../plugins/rbac.js';
 import {
-  cleanupAll, runSuffix, createUser, login, deleteUsers, deleteRoles, addReauth, removeReauth, type ReauthGrant,
+  cleanupAll, runSuffix, createUser, login, deleteUsers, deleteRoles,
 } from '../../../e2e/support/owned-fixtures.js';
 import { validUserId } from '../../users/__tests__/support/cva-fixtures.js';
 
@@ -35,7 +35,6 @@ let app: FastifyInstance;
 let saTok = '';
 let mgrTok = '';
 const userIds: string[] = [];
-let reauthAdded: ReauthGrant = [];
 
 async function makeRole(name: string, hierarchyLevel: number, permissions: string[], isSystem = false) {
   await prisma.role.create({ data: { name, displayName: name, hierarchyLevel, permissions, isSystem, isActive: true, createdBy: 'coverage-test' } });
@@ -63,7 +62,6 @@ describe('roles routes', () => {
 
   afterAll(async () => {
     await cleanupAll([
-      ['reauth', () => removeReauth(reauthAdded)],
       ['users', () => deleteUsers(userIds)],
       ['roles', () => deleteRoles(ALL_ROLES)],
       ['app', async () => { await app?.close(); }],
@@ -173,7 +171,7 @@ describe('roles routes', () => {
     it('creates a role as SUPER_ADMIN and audits it', async () => {
       const res = await authPost(app, '/api/roles', saTok, {
         name: R_NEW, displayName: 'Coverage new', hierarchyLevel: 2, permissions: ['USER_READ'], description: 'd',
-      });
+      }, PW);
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ success: true, data: { name: R_NEW, isSystem: false, color: '#6366f1', createdBy: SA } });
       const row = await auditFor('ROLE_CREATED', R_NEW);
@@ -181,14 +179,14 @@ describe('roles routes', () => {
     });
 
     it('409s a duplicate name', async () => {
-      const res = await authPost(app, '/api/roles', saTok, { name: R_NEW, displayName: 'dup', hierarchyLevel: 2 });
+      const res = await authPost(app, '/api/roles', saTok, { name: R_NEW, displayName: 'dup', hierarchyLevel: 2 }, PW);
       expect(res.statusCode).toBe(409);
       expect(res.json().error).toBe('CONFLICT');
     });
 
     it('400s a name that is not UPPER_SNAKE or longer than 20', async () => {
       for (const name of ['lower_case', 'CVA_' + 'X'.repeat(30)]) {
-        const res = await authPost(app, '/api/roles', saTok, { name, displayName: 'bad', hierarchyLevel: 2 });
+        const res = await authPost(app, '/api/roles', saTok, { name, displayName: 'bad', hierarchyLevel: 2 }, PW);
         expect(res.statusCode).toBe(400);
         expect(res.json().error).toBe('VALIDATION_ERROR');
         expect(await prisma.role.findUnique({ where: { name } })).toBeNull();
@@ -197,49 +195,49 @@ describe('roles routes', () => {
     });
 
     it('stops a non-SA manager from creating at/above its own level or with permissions it lacks', async () => {
-      const atLevel = await authPost(app, '/api/roles', mgrTok, { name: R_NEW2, displayName: 'Cov x', hierarchyLevel: 5 });
+      const atLevel = await authPost(app, '/api/roles', mgrTok, { name: R_NEW2, displayName: 'Cov x', hierarchyLevel: 5 }, PW);
       expect(atLevel.statusCode).toBe(403);
       expect(atLevel.json().message).toMatch(/hierarchy level at or above your own/);
 
       const six = ['AUDIT_DELETE', 'BACKUP_RESTORE', 'USER_DELETE', 'USER_UNLOCK', 'USER_RESET_PASSWORD', 'CONFIG_UPDATE'];
-      const escal = await authPost(app, '/api/roles', mgrTok, { name: R_NEW2, displayName: 'Cov x', hierarchyLevel: 2, permissions: six });
+      const escal = await authPost(app, '/api/roles', mgrTok, { name: R_NEW2, displayName: 'Cov x', hierarchyLevel: 2, permissions: six }, PW);
       expect(escal.statusCode).toBe(403);
       expect(escal.json().message).toBe(`You cannot grant permissions your own role does not hold: ${six.slice(0, 5).join(', ')}, …`);
 
-      const one = await authPost(app, '/api/roles', mgrTok, { name: R_NEW2, displayName: 'Cov x', hierarchyLevel: 2, permissions: ['AUDIT_DELETE'] });
+      const one = await authPost(app, '/api/roles', mgrTok, { name: R_NEW2, displayName: 'Cov x', hierarchyLevel: 2, permissions: ['AUDIT_DELETE'] }, PW);
       expect(one.json().message).toBe('You cannot grant permissions your own role does not hold: AUDIT_DELETE');
       expect(await prisma.role.findUnique({ where: { name: R_NEW2 } })).toBeNull();
 
-      const allowed = await authPost(app, '/api/roles', mgrTok, { name: R_NEW2, displayName: 'Cov x', hierarchyLevel: 2, permissions: ['USER_READ'] });
+      const allowed = await authPost(app, '/api/roles', mgrTok, { name: R_NEW2, displayName: 'Cov x', hierarchyLevel: 2, permissions: ['USER_READ'] }, PW);
       expect(allowed.statusCode).toBe(200);
     });
   });
 
   describe('update', () => {
     it('requires a reason when permissions or hierarchy level change', async () => {
-      const res = await authPut(app, `/api/roles/${R_LOW}`, saTok, { permissions: ['USER_READ'] });
+      const res = await authPut(app, `/api/roles/${R_LOW}`, saTok, { permissions: ['USER_READ'] }, PW);
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toBe('REASON_REQUIRED');
-      const lvl = await authPut(app, `/api/roles/${R_LOW}`, saTok, { hierarchyLevel: 2, reason: 'abc' });
+      const lvl = await authPut(app, `/api/roles/${R_LOW}`, saTok, { hierarchyLevel: 2, reason: 'abc' }, PW);
       expect(lvl.json().error).toBe('REASON_REQUIRED');
       expect((await prisma.role.findUnique({ where: { name: R_LOW } }))?.hierarchyLevel).toBe(3);
     });
 
     it('a cosmetic edit needs no reason; schema-invalid values are a 400', async () => {
-      const ok = await authPut(app, `/api/roles/${R_LOW}`, saTok, { color: '#123456', displayName: 'Low role' });
+      const ok = await authPut(app, `/api/roles/${R_LOW}`, saTok, { color: '#123456', displayName: 'Low role' }, PW);
       expect(ok.statusCode).toBe(200);
       expect(ok.json().data).toMatchObject({ color: '#123456', displayName: 'Low role', updatedBy: SA });
       const row = await auditFor('ROLE_UPDATED', R_LOW);
       expect(row?.reason).toBeNull();
       expect(row?.beforeValue).toMatchObject({ displayName: R_LOW });
 
-      const bad = await authPut(app, `/api/roles/${R_LOW}`, saTok, { displayName: 'x' });
+      const bad = await authPut(app, `/api/roles/${R_LOW}`, saTok, { displayName: 'x' }, PW);
       expect(bad.statusCode).toBe(400);
       expect(bad.json().error).toBe('VALIDATION_ERROR');
     });
 
     it('records the reason on the audit row when permissions change', async () => {
-      const res = await authPut(app, `/api/roles/${R_LOW}`, saTok, { permissions: ['USER_READ', 'AUDIT_READ', 'CONFIG_READ'], reason: 'coverage: add config read' });
+      const res = await authPut(app, `/api/roles/${R_LOW}`, saTok, { permissions: ['USER_READ', 'AUDIT_READ', 'CONFIG_READ'], reason: 'coverage: add config read' }, PW);
       expect(res.statusCode).toBe(200);
       const row = await auditFor('ROLE_UPDATED', R_LOW);
       expect(row?.reason).toBe('coverage: add config read');
@@ -247,7 +245,7 @@ describe('roles routes', () => {
     });
 
     it('404s an unknown role', async () => {
-      const res = await authPut(app, `/api/roles/CVA_NONE_${S}`, saTok, { color: '#000' });
+      const res = await authPut(app, `/api/roles/CVA_NONE_${S}`, saTok, { color: '#000' }, PW);
       expect(res.statusCode).toBe(404);
     });
 
@@ -256,34 +254,34 @@ describe('roles routes', () => {
         // 5, not 9: a level above SUPER_ADMIN's own is refused before the
         // system-role rule is reached (D-AUTH-2); this test is about the latter.
         hierarchyLevel: 5, isActive: false, color: '#abcdef', description: 'sys desc', reason: 'coverage: system role edit',
-      });
+      }, PW);
       expect(res.statusCode).toBe(200);
       const row = await prisma.role.findUnique({ where: { name: R_SYS } });
       expect(row).toMatchObject({ hierarchyLevel: 2, isActive: true, color: '#abcdef', description: 'sys desc' });
     });
 
     it('stops a non-SA manager editing its own role, a role above it, or granting what it lacks', async () => {
-      const own = await authPut(app, `/api/roles/${R_MGR}`, mgrTok, { color: '#111111' });
+      const own = await authPut(app, `/api/roles/${R_MGR}`, mgrTok, { color: '#111111' }, PW);
       expect(own.statusCode).toBe(403);
       expect(own.json().message).toBe('You cannot modify your own role');
 
-      const high = await authPut(app, `/api/roles/${R_HIGH}`, mgrTok, { color: '#111111' });
+      const high = await authPut(app, `/api/roles/${R_HIGH}`, mgrTok, { color: '#111111' }, PW);
       expect(high.json().message).toMatch(/at or above your own hierarchy level/);
 
-      const raise = await authPut(app, `/api/roles/${R_LOW}`, mgrTok, { hierarchyLevel: 6, reason: 'coverage raise' });
+      const raise = await authPut(app, `/api/roles/${R_LOW}`, mgrTok, { hierarchyLevel: 6, reason: 'coverage raise' }, PW);
       expect(raise.json().message).toMatch(/hierarchy level at or above your own/);
 
       // AUDIT_READ is already on R_LOW (grandfathered), USER_DELETE is new and not held.
-      const esc = await authPut(app, `/api/roles/${R_LOW}`, mgrTok, { permissions: ['AUDIT_READ', 'USER_DELETE'], reason: 'coverage escalate' });
+      const esc = await authPut(app, `/api/roles/${R_LOW}`, mgrTok, { permissions: ['AUDIT_READ', 'USER_DELETE'], reason: 'coverage escalate' }, PW);
       expect(esc.statusCode).toBe(403);
       expect(esc.json().message).toBe('You cannot grant permissions your own role does not hold: USER_DELETE');
 
-      const keep = await authPut(app, `/api/roles/${R_LOW}`, mgrTok, { permissions: ['AUDIT_READ', 'USER_READ'], reason: 'coverage keep grandfathered' });
+      const keep = await authPut(app, `/api/roles/${R_LOW}`, mgrTok, { permissions: ['AUDIT_READ', 'USER_READ'], reason: 'coverage keep grandfathered' }, PW);
       expect(keep.statusCode).toBe(200);
       expect((await prisma.role.findUnique({ where: { name: R_LOW } }))?.permissions).toEqual(['AUDIT_READ', 'USER_READ']);
 
       // Clearing every permission grants nothing, so it needs no subset check.
-      const clear = await authPut(app, `/api/roles/${R_NEW2}`, mgrTok, { permissions: [], reason: 'coverage clear all' });
+      const clear = await authPut(app, `/api/roles/${R_NEW2}`, mgrTok, { permissions: [], reason: 'coverage clear all' }, PW);
       expect(clear.statusCode).toBe(200);
       expect((await prisma.role.findUnique({ where: { name: R_NEW2 } }))?.permissions).toEqual([]);
     });
@@ -298,30 +296,30 @@ describe('roles routes', () => {
 
   describe('delete', () => {
     it('refuses a system role (409 SYSTEM_ROLE), even with no users', async () => {
-      const res = await authDelete(app, `/api/roles/${R_SYS}`, saTok);
+      const res = await authDelete(app, `/api/roles/${R_SYS}`, saTok, PW);
       expect(res.statusCode).toBe(409);
       expect(await prisma.role.findUnique({ where: { name: R_SYS } })).not.toBeNull();
     });
 
     it('refuses a role with users, reporting the count', async () => {
-      const res = await authDelete(app, `/api/roles/${R_LOW}`, saTok);
+      const res = await authDelete(app, `/api/roles/${R_LOW}`, saTok, PW);
       expect(res.statusCode).toBe(409);
       expect(res.json()).toEqual({ error: 'Cannot delete role with assigned users', usersCount: 1 });
     });
 
     it('404s an unknown role', async () => {
-      expect((await authDelete(app, `/api/roles/CVA_GONE_${S}`, saTok)).statusCode).toBe(404);
+      expect((await authDelete(app, `/api/roles/CVA_GONE_${S}`, saTok, PW)).statusCode).toBe(404);
     });
 
     it('stops a non-SA manager deleting a role above it', async () => {
-      const res = await authDelete(app, `/api/roles/${R_HIGH}`, mgrTok);
+      const res = await authDelete(app, `/api/roles/${R_HIGH}`, mgrTok, PW);
       expect(res.statusCode).toBe(403);
       expect(await prisma.role.findUnique({ where: { name: R_HIGH } })).not.toBeNull();
     });
 
     it('deletes an unused custom role with its role_configs row and audits it', async () => {
       await prisma.roleConfig.create({ data: { role: R_NEW, sidebarItems: ['users'] } });
-      const res = await authDelete(app, `/api/roles/${R_NEW}`, saTok);
+      const res = await authDelete(app, `/api/roles/${R_NEW}`, saTok, PW);
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
       expect(await prisma.role.findUnique({ where: { name: R_NEW } })).toBeNull();
@@ -342,7 +340,7 @@ describe('roles routes', () => {
     // above the caller's own level. SUPER_ADMIN's level is read from its role row.
     it('POST refuses a level above SUPER_ADMIN\'s own (400) and writes nothing', async () => {
       const saLevel = (await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } }))!.hierarchyLevel;
-      const res = await authPost(app, '/api/roles', saTok, { name: R_TOP2, displayName: 'Above SA', hierarchyLevel: saLevel + 2 });
+      const res = await authPost(app, '/api/roles', saTok, { name: R_TOP2, displayName: 'Above SA', hierarchyLevel: saLevel + 2 }, PW);
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toBe('VALIDATION_ERROR');
       expect(res.json().message).toBe(`Hierarchy level ${saLevel + 2} is above your own role's level (${saLevel}); no user could ever be given that role`);
@@ -353,7 +351,7 @@ describe('roles routes', () => {
 
     it('PUT refuses raising a role above SUPER_ADMIN\'s level; the role keeps its level', async () => {
       const saLevel = (await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } }))!.hierarchyLevel;
-      const res = await authPut(app, `/api/roles/${R_LOW}`, saTok, { hierarchyLevel: saLevel + 1, reason: 'raise it above the top level' });
+      const res = await authPut(app, `/api/roles/${R_LOW}`, saTok, { hierarchyLevel: saLevel + 1, reason: 'raise it above the top level' }, PW);
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toBe('VALIDATION_ERROR');
       expect((await prisma.role.findUnique({ where: { name: R_LOW } }))?.hierarchyLevel).toBe(3);
@@ -362,7 +360,7 @@ describe('roles routes', () => {
 
     it('a role AT SUPER_ADMIN\'s level is still allowed (the bound is "not above")', async () => {
       const saLevel = (await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } }))!.hierarchyLevel;
-      const res = await authPost(app, '/api/roles', saTok, { name: R_EQ, displayName: 'At SA level', hierarchyLevel: saLevel });
+      const res = await authPost(app, '/api/roles', saTok, { name: R_EQ, displayName: 'At SA level', hierarchyLevel: saLevel }, PW);
       expect(res.statusCode).toBe(200);
       expect((await prisma.role.findUnique({ where: { name: R_EQ } }))?.hierarchyLevel).toBe(saLevel);
     });
@@ -380,11 +378,10 @@ describe('roles routes', () => {
     });
   });
 
+  // OD-01 (2026-10-22): role create / edit / delete ALWAYS take the password, so
+  // no policy row is added — the manager role is asked although the policy
+  // has never heard of it.
   describe('re-auth gate on the manager role', () => {
-    beforeAll(async () => {
-      reauthAdded = await addReauth([['CREATE_ROLE', R_MGR], ['UPDATE_ROLE', R_MGR], ['DELETE_ROLE', R_MGR]]);
-    });
-
     it('401s create / update / delete without a password and changes nothing', async () => {
       const c = await authPost(app, '/api/roles', mgrTok, { name: `CVA_RZ_${S}`, displayName: 'Cov z', hierarchyLevel: 1 });
       expect(c.statusCode).toBe(401);

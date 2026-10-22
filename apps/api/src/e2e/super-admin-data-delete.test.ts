@@ -87,10 +87,8 @@ describe('DELETE /api/super-admin/data/notifications/:id', () => {
     app.inject({
       method: 'DELETE',
       url: `/api/super-admin/data/notifications/${id}`,
-      // Always send the correct reauth password: SUPER_ADMIN_DATA_EDIT reauth is
-      // config-driven (off by default) and enforceReauth ignores the header when
-      // the action isn't configured, so this is correct either way. A WRONG
-      // password would trip the lockout policy and brick the test user.
+      // The correct reauth password is required: SUPER_ADMIN_DATA_EDIT is an
+      // always-on signature (OD-01, 2026-10-22), whatever the re-auth policy says.
       headers: { authorization: `Bearer ${token}`, 'x-reauth-password': SA_PASSWORD },
       // `_changeReason` became mandatory in the 2026-08-27 audit retrofit: every
       // mutation on this module writes a MANUAL_RECORD_* audit row and the row
