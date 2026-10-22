@@ -50,6 +50,25 @@ describe('page harness', () => {
     renderPage(<Probe />, { user: { role: 'ADMIN' }, api });
     expect(await screen.findByText(/error:/)).toBeInTheDocument();
   });
+
+  // useAuth() refreshes 5 s after mount: a page test that runs past 5 s makes this call.
+  it('an unrouted token refresh answers the caller\'s own token and is not "unmatched"; other calls still are', async () => {
+    const api = mockApi([{ path: '/api/things', body: { items: [] } }]);
+    renderPage(<Probe />, { user: { role: 'ADMIN' }, api });
+    await expect(apiClient.refreshToken()).resolves.toBe(true);
+    expect(sessionStorage.getItem('access_token')).toBe('test-token');
+    expect(api.calls('POST', '/api/auth/refresh')).toHaveLength(1);
+    expect(api.unmatched).toEqual([]);
+    await expect(apiClient.post('/api/elsewhere', {})).rejects.toMatchObject({ error: 'NOT_MOCKED' });
+    expect(api.unmatched.map((r) => r.path)).toEqual(['/api/elsewhere']);
+  });
+
+  it("a test's own refresh route wins over the default", async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/auth/refresh', status: 401, body: { error: 'UNAUTHORIZED' } }]);
+    renderPage(<p>x</p>, { user: { role: 'ADMIN' }, api });
+    await expect(apiClient.refreshToken()).resolves.toBe(false);
+    expect(api.calls('POST', '/api/auth/refresh')).toHaveLength(1);
+  });
 });
 
 // Options added 2026-10-21 for bug classes the default set-up hid.

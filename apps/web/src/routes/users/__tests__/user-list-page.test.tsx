@@ -42,10 +42,6 @@ function routes(opts: { users?: unknown[]; total?: number; reauth?: string[]; pe
     { path: '/api/roles/active', body: ROLES },
     { path: '/api/config/field-ids/current', body: [{ fieldId: 'FLD_USER_002', displayName: 'Employee Name' }] },
     { path: '/api/users', body: { data: users, total: opts.total ?? users.length } },
-    // useAuth() refreshes the token 5 s after mount (once per mounted consumer). A
-    // test that runs past 5 s on a loaded machine makes these calls; unrouted they
-    // landed in api.unmatched, which the console/a11y test asserts is empty.
-    { method: 'POST', path: '/api/auth/refresh', body: { token: 'test-token' } },
   ];
 }
 

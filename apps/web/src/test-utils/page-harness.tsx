@@ -18,6 +18,13 @@
  *
  * Unmatched requests answer 404 `NOT_MOCKED` and are listed in `api.unmatched`
  * so a test can assert the page asked for nothing unexpected.
+ *
+ * One exception: `POST /api/auth/refresh`, when no route of the test answers it,
+ * answers the caller's own token. `useAuth()` refreshes 5 s after mount, so any
+ * page test that runs past 5 s on a loaded machine makes this call; left
+ * unmatched it failed every "nothing unexpected" check for a reason the page
+ * under test has nothing to do with (2026-10-22). A test's own refresh route
+ * still wins, and the call is still recorded in `api.requests`.
  */
 import { render, type RenderResult } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -90,6 +97,10 @@ export function mockApi(routes: MockRoute[] = []): MockApi {
       if (r.times !== undefined && (used.get(r) ?? 0) >= r.times) return false;
       return typeof r.path === 'string' ? r.path === req.path : r.path.test(req.url);
     });
+    if (!route && req.method === 'POST' && req.path === '/api/auth/refresh') {
+      const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+      return new Response(JSON.stringify({ token }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     if (!route) {
       api.unmatched.push(req);
       return new Response(JSON.stringify({ error: 'NOT_MOCKED', message: `${req.method} ${req.url}` }), { status: 404, headers: { 'Content-Type': 'application/json' } });
