@@ -1,5 +1,92 @@
 # Changelog
 
+## [Unreleased] - Every pipeline shape completes; desktop + tablet operations fixes (2026-10-22, later)
+
+Operator decisions of 2026-10-22: every pipeline shape must work ("stage should be there, checklist
+should be there, all conditions should work, any stage anywhere and checklist also"); when a block
+has several equipment groups the operator picks one; a blank replacement tolerance means 0 days.
+Every fix started from a failing test. Nothing here is in an installer or APK yet.
+
+- **Every pipeline shape completes (`00bf4d3`).** A new permanent guard,
+  `pipeline-shape-matrix.e2e.test.ts`, drives a cycle the way the tablet does over 22 profile shapes
+  × QA interlock off/on × with/without an equipment group, plus offline replay and bulk start. Before:
+  44 of 84 runs never completed. After: 99/99. Six root causes, one shared rule each:
+  - a Dry In with no Dry In instrument could never be left (the readings step was never offered);
+  - recording the dryer readings counted as a new entry into Dry In, voiding a checklist answered
+    after the dryer started;
+  - a final Dry In completed the cycle when the dryer STARTED, so readings were never taken;
+  - a final Dry In followed by a checklist could not proceed at all;
+  - a checklist placed before the first stage was never asked (no live profile has one today);
+  - a final QA-gated stage with no checklist after it could never complete (422). The approval now
+    completes the cycle, as the approver, in the approval's transaction.
+  - One completion write set (`cycle-write/complete-cycle.ts`) for advance, submit-checklist and approve.
+- **A cycle keeps its equipment group (`00bf4d3`).** A client could send a different group for a
+  cycle already bound to one, so its readings were validated against the wrong ranges. Now 409
+  `EQUIPMENT_GROUP_MISMATCH`, online and on offline replay.
+- **Desktop could not finish a cycle whose last stage has a checklist (`6cadccf`).** A regression
+  from A-01 (2026-10-21): the server correctly refused the bare advance, and the Filter Operations
+  page only ever sent bare advances ("0 succeeded, 1 failed"). One shared rule,
+  `advanceMustCarryChecklist`, used by the server and the page; readings and checklist go in one call.
+- **Desktop batches are decided per filter (`fab68fc`).** Every step of a batch was shaped by the
+  FIRST filter's state, so a filter on another profile, group or checklist got a call meant for
+  another filter, including F-001's checklist answers sent to F-002's different checklist. One
+  planner (`lib/filter-ops/batch-plan.ts`); filters that cannot share the call go back to the queue,
+  ticked, with the reason. Also: opening any dialog replaced the operator's typed remark with the
+  default text on the record; a block-change refusal inside a readings batch was never shown.
+- **Equipment-group picker (`3d17200`, `6cadccf`).** A block with more than one active group asks
+  which group, in the readings dialog and the Dry In panel (tablet too). A fetch still running when
+  the pick changes is dropped, so the old group's value cannot land on the new one.
+- **Filter writes refuse non-filter ids (`874aa96`).** start-cycle, retire, replace and the manual
+  lifecycle move looked a filter up by id alone: a cleaning cycle could be opened on an AHU, and
+  retiring an AHU left its filter active under it. Now 404 before any write. Also: a checklist that
+  no longer exists can no longer be "answered" with an empty attestation (400
+  `NO_CHECKLIST_AT_TARGET`); every active group of a block is listed for an unbound cycle.
+- **Tablet (`2bdeb1f`):**
+  - Scans ran a stale handler, so the dryer duration set in the header did not reach the second scan.
+  - A refused filter in a batch start was counted as started.
+  - With START re-auth on, the readings start ran after the handler returned: the dialog stayed
+    open, nothing was reported, and the rest of an offline batch never started.
+  - Startup sync ran 5 times per app open; it now runs once.
+  - A refused login with an expired password was sent to a page that needs a session.
+  - Going offline briefly left no tablet-access list in force (fail-open); the live list is now kept.
+  - About 990 lines of unreachable page code were removed after a read.
+- **Signatures and remarks (`e6eaff8`, `e0dcb3c`, `edb2154`):**
+  - A wrong password on a signed checklist submit was reported as "1 failed: Invalid password" and
+    the prompt closed. It now goes back to the prompt.
+  - Account lockout during a signed bulk action was counted as one filter's failure, and the same
+    wrong password was re-sent for every remaining filter, one failed-signature audit row each.
+    The loop now stops at the first lockout.
+  - Decision flows require remarks, on the web and the API, checked before the password so a blank
+    decision costs no signature: filter-creation review / approve / reject, report-review approve,
+    password-reset and admin-request decisions.
+  - Cancelling a password prompt is silent everywhere. A source guard enforces it app-wide.
+  - Dialogs on Filter Operations no longer lose what the operator typed when the page re-renders.
+- **Admin pages (`edb2154`):** My Profile's Cancel SAVED the edits (a Button inside a form submitted
+  it; Button now defaults to `type="button"`); dashboard cards linked to pages the role could not
+  open; the dashboard drill-down listed blocks and AHUs as filters.
+- **Core API (`06fc578`, `8d43bec`):**
+  - The tablet's logout (no body) was refused and the session stayed active.
+  - A refused role-config save had already written its change, with no audit row.
+  - Long numeric usernames overflowed the next-user-id query.
+  - One upload limit (`lib/upload-limits.ts`); profile photos are checked by content.
+  - A role may not rank above SUPER_ADMIN.
+  - A malformed id in a path (151 routes checked) or in several request bodies answers 400, not a
+    database error.
+  - Deleting an admin or block-change request now also deletes its notifications.
+  - A blank replacement tolerance is 0 days (the "configured default" it promised never existed).
+- **PM (`d09dd71`, `cef0089`):**
+  - Creating a schedule directly now checks the configured upload role, like the upload.
+  - An AHU-year holding only archived versions could not be created or uploaded.
+  - West of UTC, a 1 January visit was filed under the previous year.
+  - The upload drop zone works from the keyboard. A second file dropped during the password prompt
+    replaced the first, so the operator signed for one file and another was uploaded.
+- **Reports and dates (`cb051e0`, `e303c72`, `248a77b`):**
+  - The Cleaning Record export printed "truncated at the 5,000-record server limit" on complete
+    exports (the server limit was removed on 2026-09-04).
+  - With many manual updates it silently dropped cycles.
+  - Filter Lifecycle stopped reading after 10,000 rows.
+  - "MMM DD, YYYY" now pads the day, and the Date & Time preview uses the app's formatter.
+
 ## [Unreleased] - Offline sync fixes, exact values, coverage wave 2 (2026-10-22)
 
 Operator decisions of 2026-10-22: fix the offline defects carefully; show a recorded reading exactly;
