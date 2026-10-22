@@ -265,7 +265,7 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve selected (2)' }));
   });
 
-  it('a gated approval prompts for the password and signs; cancelling re-enables the buttons', async () => {
+  it('a gated approval prompts for the password and signs; cancelling silently re-enables the buttons', async () => {
     const api = setup([{ method: 'POST', path: '/api/replacement-schedules/entries/approve', body: { processed: 1 } }], { reauthActions: ['APPROVE_REPLACEMENT_SCHEDULE'] });
     renderPage(<ReplacementSchedulePage />, { user: QA, api });
     await screen.findByText('305x610');
@@ -276,14 +276,55 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     expect(approveBtn).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(approveBtn).toBeEnabled());
-    // no onCancel on this page: the hook's fallback reports the cancel through onError, with an honest message
-    expect(await screen.findByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    // a dismissed prompt is a choice, not a failure: no error dialog
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
     expect(api.calls('POST', '/api/replacement-schedules/entries/approve')).toHaveLength(0);
     fireEvent.click(approveBtn);
     await passReauth();
     expect(await screen.findByText('1 entry approved')).toBeInTheDocument();
     expectSigned(api.calls('POST', '/api/replacement-schedules/entries/approve')[0]);
+  });
+
+  it('a cancelled review prompt is silent and re-enables the buttons', async () => {
+    const api = setup([], { reauthActions: ['REVIEW_REPLACEMENT_SCHEDULE'] });
+    renderPage(<ReplacementSchedulePage />, { user: MANAGER, api });
+    await screen.findByText('610x610');
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    const reviewBtn = within(rowOf('610x610')).getByRole('button', { name: 'Review ✓' });
+    fireEvent.click(reviewBtn);
+    await screen.findByPlaceholderText('Enter your password');
+    expect(reviewBtn).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(reviewBtn).toBeEnabled());
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
+    expect(api.calls('POST', '/api/replacement-schedules/entries/review')).toHaveLength(0);
+  });
+
+  it('a cancelled reject prompt is silent; the reject dialog stays open with the remarks kept', async () => {
+    const api = setup([{ method: 'POST', path: '/api/replacement-schedules/entries/reject', body: { processed: 1 } }], { reauthActions: ['REJECT_REPLACEMENT_SCHEDULE'] });
+    renderPage(<ReplacementSchedulePage />, { user: QA, api });
+    await screen.findByText('305x610');
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.click(within(rowOf('305x610')).getByRole('button', { name: 'Reject' }));
+    const dlg = screen.getByRole('heading', { name: 'Reject Entry' }).parentElement!;
+    fireEvent.change(within(dlg).getByPlaceholderText('Reason for rejection…'), { target: { value: 'Qty mismatch' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Reject' }));
+    const pw = await screen.findByPlaceholderText('Enter your password');
+    fireEvent.click(within(pw.closest('.max-w-lg') as HTMLElement).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Reject Entry' })).toBeInTheDocument();
+    expect(within(dlg).getByPlaceholderText('Reason for rejection…')).toHaveValue('Qty mismatch');
+    await waitFor(() => expect(within(dlg).getByRole('button', { name: 'Reject' })).toBeEnabled());
+    expect(api.calls('POST', '/api/replacement-schedules/entries/reject')).toHaveLength(0);
+    // and the retry goes through, signed
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Reject' }));
+    await passReauth();
+    expect(await screen.findByText('1 entry rejected')).toBeInTheDocument();
+    expectSigned(api.calls('POST', '/api/replacement-schedules/entries/reject')[0]);
   });
 
   it('a stale gate: the server answers REAUTH_REQUIRED, the prompt opens and the retry is signed', async () => {

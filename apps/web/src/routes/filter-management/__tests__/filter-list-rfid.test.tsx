@@ -107,7 +107,7 @@ describe('Filters page — RFID tag panel', () => {
     expectSigned(dels[2]);
   });
 
-  it('a cancelled assign prompt unlocks the panel; the panel closes from its backdrop', async () => {
+  it('a cancelled assign prompt silently unlocks the panel; the panel closes from its backdrop', async () => {
     const api = setupApi({ base: { reauthActions: ['CREATE_ASSET_IDENTIFIER'] } });
     renderFilters(RFID_ROLE, api);
     await waitForReauthConfig(api);
@@ -118,9 +118,8 @@ describe('Filters page — RFID tag panel', () => {
     await cancelReauth();
     await waitFor(() => expect(within(panel('RFID Tag Management')).getByRole('button', { name: 'Assign Tag' })).toBeEnabled());
     expect(api.calls('POST', '/api/assets/identifiers')).toHaveLength(0);
-    // the reauth fallback reports a cancel through onError (honest text, no "Failed")
-    expect(await screen.findByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
     const backdrop = panel('RFID Tag Management').previousElementSibling as HTMLElement;
     fireEvent.click(backdrop);
     expect(screen.queryByRole('heading', { name: 'RFID Tag Management' })).toBeNull();

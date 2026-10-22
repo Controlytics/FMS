@@ -165,6 +165,8 @@ export function ReplacementSchedulePage() {
   const plural = (n: number) => `${n} entr${n === 1 ? 'y' : 'ies'}`;
   const done = (title: string, msg: string) => { toast.success(title, msg); setSelected(new Set()); mutate('/api/replacement-schedules'); setBusy(false); };
   const onActionError = (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setBusy(false); };
+  // A dismissed password prompt is not a failure: re-enable the buttons, say nothing.
+  const onActionCancel = () => setBusy(false);
 
   // ─── Workflow actions (reuse the PM workflow config; reauth-gated) ───
   // Each takes a LIST of entry ids — one row or a bulk selection, one signature.
@@ -175,7 +177,7 @@ export function ReplacementSchedulePage() {
       const body = { entryIds: ids, action: 'approve' as const };
       const res: any = pw ? await apiClient.postWithReauth('/api/replacement-schedules/entries/review', body, pw) : await apiClient.post('/api/replacement-schedules/entries/review', body);
       if (typeof res?.processed === 'number') processed = res.processed;
-    }, { onSuccess: () => done('Reviewed', `${plural(processed)} sent for approval`), onError: onActionError });
+    }, { onSuccess: () => done('Reviewed', `${plural(processed)} sent for approval`), onError: onActionError, onCancel: onActionCancel });
   };
   const approve = (ids: string[]) => {
     setBusy(true);
@@ -184,7 +186,7 @@ export function ReplacementSchedulePage() {
       const body = { entryIds: ids };
       const res: any = pw ? await apiClient.postWithReauth('/api/replacement-schedules/entries/approve', body, pw) : await apiClient.post('/api/replacement-schedules/entries/approve', body);
       if (typeof res?.processed === 'number') processed = res.processed;
-    }, { onSuccess: () => done('Approved', `${plural(processed)} approved`), onError: onActionError });
+    }, { onSuccess: () => done('Approved', `${plural(processed)} approved`), onError: onActionError, onCancel: onActionCancel });
   };
   const submitReject = () => {
     if (!rejectFor || rejectRemarks.trim().length < 3) return;
@@ -197,7 +199,7 @@ export function ReplacementSchedulePage() {
       const body = stage === 'review' ? { entryIds: ids, action: 'reject' as const, remarks: rejectRemarks.trim() } : { entryIds: ids, remarks: rejectRemarks.trim() };
       const res: any = pw ? await apiClient.postWithReauth(url, body, pw) : await apiClient.post(url, body);
       if (typeof res?.processed === 'number') processed = res.processed;
-    }, { onSuccess: () => { setRejectFor(null); done('Rejected', `${plural(processed)} rejected`); }, onError: onActionError });
+    }, { onSuccess: () => { setRejectFor(null); done('Rejected', `${plural(processed)} rejected`); }, onError: onActionError, onCancel: onActionCancel });
   };
 
   const exportExcel = async () => {

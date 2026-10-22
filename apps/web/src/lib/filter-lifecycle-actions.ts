@@ -37,6 +37,8 @@ export async function retireOrReplaceFilter(
   callbacks: {
     onSuccess: (result: ReplaceFilterResult | null) => void;
     onError: (err: unknown) => void;
+    /** A dismissed password prompt. Without it, useReauth reports the cancel to onError. */
+    onCancel?: () => void;
   },
 ): Promise<void> {
   const endpoint =
@@ -53,6 +55,7 @@ export async function retireOrReplaceFilter(
     {
       onSuccess: () => callbacks.onSuccess(result),
       onError: callbacks.onError,
+      onCancel: callbacks.onCancel,
     },
   );
 }

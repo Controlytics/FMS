@@ -414,6 +414,8 @@ export function FilterListPage() {
           toast.error('Error', e?.message ?? 'Failed');
           setCreating(false);
         },
+        // A dismissed password prompt is not a failure: unlock, say nothing.
+        onCancel: () => setCreating(false),
       },
     );
   };
@@ -437,6 +439,8 @@ export function FilterListPage() {
           toast.error('Error', (err as any)?.message ?? 'Failed to delete block');
           setDeletingBlock(false);
         },
+        // A dismissed password prompt is not a failure: unlock, say nothing.
+        onCancel: () => setDeletingBlock(false),
       });
     } catch (e: any) {
       toast.error('Error', e?.message ?? 'Failed to delete block');
@@ -607,6 +611,8 @@ export function FilterListPage() {
           toast.error('Update Failed', err.message ?? 'Something went wrong');
           setStatusPanelSubmitting(false);
         },
+        // A dismissed password prompt is not a failure: unlock, say nothing.
+        onCancel: () => setStatusPanelSubmitting(false),
       },
     );
   };
@@ -668,6 +674,8 @@ export function FilterListPage() {
         mutate('/api/assets/identifiers');
       },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed to assign tag'); setRfidSubmitting(false); },
+      // A dismissed password prompt is not a failure: unlock, say nothing.
+      onCancel: () => setRfidSubmitting(false),
     });
   };
 
@@ -683,6 +691,8 @@ export function FilterListPage() {
         mutate('/api/assets/identifiers');
       },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed to remove tag'); setRfidSubmitting(false); },
+      // A dismissed password prompt is not a failure: unlock, say nothing.
+      onCancel: () => setRfidSubmitting(false),
     });
   };
 
@@ -704,6 +714,8 @@ export function FilterListPage() {
         toast.error('Action Failed', err?.message ?? 'Something went wrong');
         setPanelSubmitting(false);
       },
+      // A dismissed password prompt is not a failure: unlock, say nothing.
+      onCancel: () => setPanelSubmitting(false),
     });
   };
 
@@ -972,6 +984,8 @@ export function FilterListPage() {
           toast.error('Update Failed', err.message ?? 'Something went wrong');
           setStatusPanelSubmitting(false);
         },
+        // A dismissed password prompt is not a failure: unlock, say nothing.
+        onCancel: () => setStatusPanelSubmitting(false),
       },
     );
   };
@@ -1037,6 +1051,8 @@ export function FilterListPage() {
           toast.error('Bulk action failed', err?.message ?? 'Something went wrong');
           setPanelSubmitting(false);
         },
+        // A dismissed password prompt is not a failure: unlock, say nothing.
+        onCancel: () => setPanelSubmitting(false),
       },
     );
   };
@@ -1138,6 +1154,8 @@ export function FilterListPage() {
         setHierarchyEditError(err?.message ?? 'Failed to update');
         setHierarchyEditSubmitting(false);
       },
+      // A dismissed password prompt is not a failure: unlock, say nothing.
+      onCancel: () => setHierarchyEditSubmitting(false),
     });
   };
 
@@ -1159,6 +1177,8 @@ export function FilterListPage() {
         toast.error('Delete failed', err?.message ?? 'Could not delete');
         setHierarchyDeleteSubmitting(false);
       },
+      // A dismissed password prompt is not a failure: unlock, say nothing.
+      onCancel: () => setHierarchyDeleteSubmitting(false),
     });
   };
 
@@ -1355,6 +1375,8 @@ export function FilterListPage() {
           setCreateFilterError(err?.message ?? 'Failed to create filter');
           setCreateFilterSubmitting(false);
         },
+        // A dismissed password prompt is not a failure: unlock, say nothing.
+        onCancel: () => setCreateFilterSubmitting(false),
       });
     } catch (err: any) {
       setCreateFilterError(err?.message ?? 'Failed to create filter');
@@ -1484,6 +1506,8 @@ export function FilterListPage() {
           setBulkUploadFailed(1);
           setBulkUploadStep('results');
         },
+        // A dismissed password prompt is not a failure: back on the preview, no error row.
+        onCancel: () => setBulkUploadStep('preview'),
       },
     );
   };

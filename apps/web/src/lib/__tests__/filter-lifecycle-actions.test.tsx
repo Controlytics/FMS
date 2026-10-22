@@ -92,4 +92,29 @@ describe('retireOrReplaceFilter', () => {
     expect(onSuccess).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Filter has an active cleaning cycle' }));
   });
+
+  it('a dismissed password prompt reaches the caller\'s onCancel only: nothing sent, no error', async () => {
+    api = mockApi([
+      { path: '/api/config/action-reauth/my-actions', body: { actions: ['RETIRE_FILTER'] } },
+      { method: 'POST', path: '/api/filters/f-1/retire', body: { success: true } },
+    ]);
+    const { result } = await setupReauth(['RETIRE_FILTER']);
+    const onSuccess = vi.fn(); const onError = vi.fn(); const onCancel = vi.fn();
+    await act(async () => { await retireOrReplaceFilter(result.current, 'retire', 'f-1', 'x', { onSuccess, onError, onCancel }); });
+    expect(result.current.isOpen).toBe(true);
+    act(() => { result.current.cancel(); });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(api.calls('POST', '/api/filters/f-1/retire')).toEqual([]);
+  });
+
+  it('a caller without onCancel keeps the hook fallback: the cancel reaches onError as REAUTH_CANCELLED (the tablet Replace view today)', async () => {
+    api = mockApi([{ path: '/api/config/action-reauth/my-actions', body: { actions: ['REPLACE_FILTER'] } }]);
+    const { result } = await setupReauth(['REPLACE_FILTER']);
+    const onError = vi.fn();
+    await act(async () => { await retireOrReplaceFilter(result.current, 'replace', 'f-1', 'x', { onSuccess: vi.fn(), onError }); });
+    act(() => { result.current.cancel(); });
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ error: 'REAUTH_CANCELLED' }));
+  });
 });

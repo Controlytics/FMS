@@ -203,42 +203,49 @@ export function FilterOperationsPage() {
   // core.submitChecklist so the D4 clobber-races are no longer expressible.
   // Capture narrowed state once so TypeScript's type narrowing holds inside
   // each compat alias (ternary RHS resets the narrowing).
+  // Memoised on the dialog state (2026-10-22): each dialog resets its own inputs when
+  // its `dialog` prop changes, so a fresh object on every render wiped a half-filled
+  // checklist, typed readings (and aborted their fetch) and the chosen cleaning reason
+  // on ANY re-render - a reader burst into the scan box, a toast, a refresh.
   const _ds = core.dialogState;
-  const reasonDialog = _ds.kind === 'awaiting_reason'
-    ? {
-        filterId: _ds.filterId,
-        filterName: _ds.filterName,
-        stage: CLEANING_STAGES.find(s => s.key === _ds.stage) as typeof CLEANING_STAGES[0],
-        block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
-      }
-    : null;
-  const checklistDialog = _ds.kind === 'awaiting_checklist'
-    ? {
-        filterId: _ds.filterId,
-        filterName: _ds.filterName,
-        checklists: _ds.checklists as PendingChecklist[],
-      }
-    : null;
-  const equipmentDialog = _ds.kind === 'awaiting_equipment'
-    ? {
-        filterId: _ds.filterId,
-        filterName: _ds.filterName,
-        stage: CLEANING_STAGES.find(s => s.key === _ds.stage) as typeof CLEANING_STAGES[0],
-        groups: _ds.groups as any[],
-        cycleEquipmentGroup: _ds.cycleGroup,
-        block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
-      }
-    : null;
-  const dryerDialog = _ds.kind === 'awaiting_dryer'
-    ? {
-        filterId: _ds.filterId,
-        filterName: _ds.filterName,
-        block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
-      }
-    : null;
-  const blockChangeDialog = _ds.kind === 'awaiting_block_change'
-    ? _ds
-    : null;
+  const { reasonDialog, checklistDialog, equipmentDialog, dryerDialog, blockChangeDialog } = useMemo(() => {
+    const reasonDialog = _ds.kind === 'awaiting_reason'
+      ? {
+          filterId: _ds.filterId,
+          filterName: _ds.filterName,
+          stage: CLEANING_STAGES.find(s => s.key === _ds.stage) as typeof CLEANING_STAGES[0],
+          block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+        }
+      : null;
+    const checklistDialog = _ds.kind === 'awaiting_checklist'
+      ? {
+          filterId: _ds.filterId,
+          filterName: _ds.filterName,
+          checklists: _ds.checklists as PendingChecklist[],
+        }
+      : null;
+    const equipmentDialog = _ds.kind === 'awaiting_equipment'
+      ? {
+          filterId: _ds.filterId,
+          filterName: _ds.filterName,
+          stage: CLEANING_STAGES.find(s => s.key === _ds.stage) as typeof CLEANING_STAGES[0],
+          groups: _ds.groups as any[],
+          cycleEquipmentGroup: _ds.cycleGroup,
+          block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+        }
+      : null;
+    const dryerDialog = _ds.kind === 'awaiting_dryer'
+      ? {
+          filterId: _ds.filterId,
+          filterName: _ds.filterName,
+          block: selectedBlock ? { id: selectedBlock.id, name: selectedBlock.name } : undefined,
+        }
+      : null;
+    const blockChangeDialog = _ds.kind === 'awaiting_block_change'
+      ? _ds
+      : null;
+    return { reasonDialog, checklistDialog, equipmentDialog, dryerDialog, blockChangeDialog };
+  }, [_ds, selectedBlock]);
 
   const [reasonError, setReasonError] = useState('');
   // PM-due context for the reason dialog: pre-select PM + show the PM banner.
@@ -1111,6 +1118,8 @@ export function FilterOperationsPage() {
         else setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
       }, {
         onError: (e: unknown) => { setReasonError((e as any)?.message ?? 'Failed'); setPopupError((e as any)?.message ?? 'Failed'); },
+        // A dismissed password prompt is not a failure: the reason dialog stays for a retry, nothing is shown.
+        onCancel: () => { setLoading(false); setSubmitting(false); },
       });
       setLoading(false); setSubmitting(false);
       return;
@@ -1197,6 +1206,8 @@ export function FilterOperationsPage() {
             }
             setReasonError(err?.message ?? 'Failed'); setPopupError(err?.message ?? 'Failed');
           },
+          // A dismissed password prompt is not a failure: the reason dialog stays for a retry, nothing is shown.
+          onCancel: () => { setLoading(false); setSubmitting(false); },
         });
       } else {
         // Non-WASH_IN or offline: check equipment groups (offline uses cache), then start-and-advance
@@ -1749,6 +1760,11 @@ export function FilterOperationsPage() {
             success++;
             if (!executed) failed.push(`${item.filterName}: queued for sync`);
           } catch (e: any) {
+            // Re-auth answers escape the loop so the prompt handles them (re-prompt on a
+            // wrong password, open on a stale gate) — never "failed" filters (2026-10-22;
+            // the tablet copy already did this).
+            const code = e?.error ?? e?.code;
+            if (code === 'REAUTH_FAILED' || code === 'REAUTH_REQUIRED') throw e;
             failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
           }
         }
@@ -1810,9 +1826,19 @@ export function FilterOperationsPage() {
           });
           return;
         }
-        setChecklistError(e.message ?? 'Failed to submit checklist');
-        setPopupError(e.message ?? 'Failed to submit checklist');
+        // Everything else goes to onError below — including the re-auth answers,
+        // which the hook must see (a wrong password re-prompts; a stale gate opens it).
+        throw e;
       }
+    }, {
+      onError: (e: unknown) => {
+        const message = (e as { message?: string } | null)?.message ?? 'Failed to submit checklist';
+        setChecklistError(message);
+        setPopupError(message);
+        setChecklistLoading(false);
+      },
+      // A dismissed password prompt is not a failure: the checklist stays open, nothing is shown.
+      onCancel: () => setChecklistLoading(false),
     });
     setChecklistLoading(false);
   };

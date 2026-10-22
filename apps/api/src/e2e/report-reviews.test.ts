@@ -210,9 +210,9 @@ describe('queue, list, and who may see a snapshot', () => {
 describe('review stage', () => {
   it('always demands a signature: no password 401, wrong password 401', async () => {
     const id = await submit(U.GEN, { assigneeUserId: uid[U.REV1] });
-    const noPw = await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', assigneeRole: R.APP }, null);
+    const noPw = await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', remarks: 'reviewed', assigneeRole: R.APP }, null);
     expect(noPw.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'REVIEW_REPORT' });
-    const bad = await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', assigneeRole: R.APP }, 'Wrong@Pass1');
+    const bad = await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', remarks: 'reviewed', assigneeRole: R.APP }, 'Wrong@Pass1');
     expect(bad.statusCode).toBe(401);
     expect(bad.json().error).toBe('REAUTH_FAILED');
     expect((await row(id))?.status).toBe('PENDING_REVIEW');
@@ -222,13 +222,13 @@ describe('review stage', () => {
 
   it('only the assignee may review; the generator may not even as SUPER_ADMIN (separation of duties)', async () => {
     const id = await submit(U.GEN, { assigneeUserId: uid[U.REV1] });
-    const notMine = await call('POST', `${base}/${id}/review`, U.REV2, { action: 'approve', assigneeRole: R.APP });
+    const notMine = await call('POST', `${base}/${id}/review`, U.REV2, { action: 'approve', remarks: 'reviewed', assigneeRole: R.APP });
     expect(notMine.statusCode).toBe(403);
     expect(notMine.json()).toMatchObject({ error: 'NOT_ASSIGNEE', message: 'This report is not assigned to you or your role.' });
     expect((await call('POST', `${base}/${id}/review`, U.APP1, { action: 'approve' })).statusCode).toBe(403); // no REPORT_REVIEW
 
     const saOwn = await submit(U.SA, { assigneeRole: R.REV });
-    const self = await call('POST', `${base}/${saOwn}/review`, U.SA, { action: 'approve', assigneeRole: R.APP });
+    const self = await call('POST', `${base}/${saOwn}/review`, U.SA, { action: 'approve', remarks: 'reviewed', assigneeRole: R.APP });
     expect(self.statusCode).toBe(403);
     expect(self.json().error).toBe('SELF_REVIEW');
     expect((await row(saOwn))?.status).toBe('PENDING_REVIEW');
@@ -238,9 +238,9 @@ describe('review stage', () => {
     const id = await submit(U.GEN, { assigneeUserId: uid[U.REV1] });
     for (const remarks of [undefined, ' ok ']) {
       const r = await call('POST', `${base}/${id}/review`, U.REV1, { action: 'reject', ...(remarks !== undefined ? { remarks } : {}) });
-      expect(r.json()).toMatchObject({ error: 'REMARKS_REQUIRED' });
+      expect(r.json()).toMatchObject({ error: 'VALIDATION' }); // refused before the signature (2026-10-22)
     }
-    expect((await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve' })).json().error).toBe('ASSIGNEE_REQUIRED');
+    expect((await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', remarks: 'reviewed' })).json().error).toBe('ASSIGNEE_REQUIRED');
     expect((await call('POST', `${base}/${id}/review`, U.REV1, { action: 'maybe' })).statusCode).toBe(400);
     expect((await row(id))?.status).toBe('PENDING_REVIEW');
     expect((await audits(id)).map((a) => a.action)).toEqual(['REPORT_REVIEW_SUBMITTED']);
@@ -262,9 +262,9 @@ describe('review stage', () => {
     // The reviewer, now a past actor, can still read the snapshot.
     expect((await call('GET', `${base}/${id}`, U.REV1)).statusCode).toBe(200);
 
-    const again = await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', assigneeRole: R.APP });
+    const again = await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', remarks: 'reviewed', assigneeRole: R.APP });
     expect(again.json()).toMatchObject({ error: 'INVALID_STATUS', message: 'This report is not awaiting review.' });
-    expect((await call('POST', `${base}/${randomUUID()}/review`, U.REV1, { action: 'approve' })).statusCode).toBe(404);
+    expect((await call('POST', `${base}/${randomUUID()}/review`, U.REV1, { action: 'approve', remarks: 'reviewed' })).statusCode).toBe(404);
   });
 
   it('reviewer rejects (by role): REJECTED at REVIEW, assignees cleared, submitter told', async () => {
@@ -281,41 +281,41 @@ describe('review stage', () => {
 describe('approval stage', () => {
   const toApproval = async (approver: { assigneeUserId?: string; assigneeRole?: string }) => {
     const id = await submit(U.GEN, { assigneeUserId: uid[U.REV1] });
-    expect((await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', ...approver })).statusCode).toBe(200);
+    expect((await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', remarks: 'reviewed', ...approver })).statusCode).toBe(200);
     return id;
   };
 
   it('guards: wrong stage, wrong approver, no signature, short rejection remarks', async () => {
     const pendingReview = await submit(U.GEN, { assigneeRole: R.APP });
-    expect((await call('POST', `${base}/${pendingReview}/approve`, U.APP1, { action: 'approve' })).json()).toMatchObject({ error: 'INVALID_STATUS', message: 'This report is not awaiting approval.' });
+    expect((await call('POST', `${base}/${pendingReview}/approve`, U.APP1, { action: 'approve', remarks: 'approved' })).json()).toMatchObject({ error: 'INVALID_STATUS', message: 'This report is not awaiting approval.' });
     const id = await toApproval({ assigneeUserId: uid[U.APP1] });
     // It now sits in the approver's queue at the APPROVE stage, and left the reviewer's.
     expect((await call('GET', `${base}/queue`, U.APP1)).json().data.find((r: any) => r.id === id)).toMatchObject({ stage: 'APPROVE', status: 'PENDING_APPROVAL' });
     expect((await call('GET', `${base}/queue`, U.REV1)).json().data.some((r: any) => r.id === id)).toBe(false);
-    expect((await call('POST', `${base}/${id}/approve`, U.APP2, { action: 'approve' })).json().error).toBe('NOT_ASSIGNEE');
-    expect((await call('POST', `${base}/${id}/approve`, U.APP1, { action: 'approve' }, null)).json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'APPROVE_REPORT' });
-    expect((await call('POST', `${base}/${id}/approve`, U.APP1, { action: 'reject', remarks: 'no' })).json().error).toBe('REMARKS_REQUIRED');
+    expect((await call('POST', `${base}/${id}/approve`, U.APP2, { action: 'approve', remarks: 'approved' })).json().error).toBe('NOT_ASSIGNEE');
+    expect((await call('POST', `${base}/${id}/approve`, U.APP1, { action: 'approve', remarks: 'approved' }, null)).json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'APPROVE_REPORT' });
+    expect((await call('POST', `${base}/${id}/approve`, U.APP1, { action: 'reject', remarks: 'no' })).json().error).toBe('VALIDATION'); // refused before the signature (2026-10-22)
     expect((await call('POST', `${base}/${id}/approve`, U.REV1, { action: 'approve' })).statusCode).toBe(403); // no REPORT_APPROVE
-    expect((await call('POST', `${base}/${randomUUID()}/approve`, U.APP1, { action: 'approve' })).statusCode).toBe(404);
+    expect((await call('POST', `${base}/${randomUUID()}/approve`, U.APP1, { action: 'approve', remarks: 'approved' })).statusCode).toBe(404);
     expect((await row(id))?.status).toBe('PENDING_APPROVAL');
   });
 
   it('the reviewer cannot also approve — SUPER_ADMIN included', async () => {
     const id = await submit(U.GEN, { assigneeRole: R.REV });
-    expect((await call('POST', `${base}/${id}/review`, U.SA, { action: 'approve', assigneeRole: R.APP })).statusCode).toBe(200);
-    const res = await call('POST', `${base}/${id}/approve`, U.SA, { action: 'approve' });
+    expect((await call('POST', `${base}/${id}/review`, U.SA, { action: 'approve', remarks: 'reviewed', assigneeRole: R.APP })).statusCode).toBe(200);
+    const res = await call('POST', `${base}/${id}/approve`, U.SA, { action: 'approve', remarks: 'approved' });
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe('SELF_APPROVE');
     const own = await submit(U.SA, { assigneeRole: R.REV });
-    expect((await call('POST', `${base}/${own}/review`, U.REV1, { action: 'approve', assigneeRole: R.APP })).statusCode).toBe(200);
-    expect((await call('POST', `${base}/${own}/approve`, U.SA, { action: 'approve' })).json().error).toBe('SELF_APPROVE');
+    expect((await call('POST', `${base}/${own}/review`, U.REV1, { action: 'approve', remarks: 'reviewed', assigneeRole: R.APP })).statusCode).toBe(200);
+    expect((await call('POST', `${base}/${own}/approve`, U.SA, { action: 'approve', remarks: 'approved' })).json().error).toBe('SELF_APPROVE');
   });
 
   it('approver approves -> APPROVED, signed, assignees cleared, submitter told; approver keeps read access', async () => {
     const id = await toApproval({ assigneeRole: R.APP });
-    const res = await call('POST', `${base}/${id}/approve`, U.APP2, { action: 'approve', remarks: '   ' });
+    const res = await call('POST', `${base}/${id}/approve`, U.APP2, { action: 'approve', remarks: '  signed off  ' });
     expect(res.json()).toEqual({ id, status: 'APPROVED' });
-    expect(await row(id)).toMatchObject({ approvedBy: uid[U.APP2], approvedByName: U.APP2, approvalRemarks: null, assigneeUserId: null, assigneeRole: null });
+    expect(await row(id)).toMatchObject({ approvedBy: uid[U.APP2], approvedByName: U.APP2, approvalRemarks: 'signed off', assigneeUserId: null, assigneeRole: null });
     expect((await audits(id)).map((a) => a.action)).toEqual(['REPORT_REVIEW_SUBMITTED', 'REPORT_REVIEW_REVIEWED', 'REPORT_REVIEW_APPROVED']);
     expect(await noteFor(id, 'REPORT_REVIEW_APPROVED')).toMatchObject({ forUserId: U.GEN, title: 'Report approved' });
     expect((await call('GET', `${base}/${id}`, U.APP2)).statusCode).toBe(200);
@@ -334,7 +334,7 @@ describe('approval stage', () => {
   it('a maximum-length title never stops a decision from being signed and recorded', async () => {
     const id = await submit(U.GEN, { assigneeUserId: uid[U.REV1] }, `${PREFIX} ${'L'.repeat(495)}`);
     expect((await row(id))!.title).toHaveLength(500);
-    expect((await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', assigneeUserId: uid[U.APP1] })).statusCode).toBe(200);
+    expect((await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', remarks: 'reviewed', assigneeUserId: uid[U.APP1] })).statusCode).toBe(200);
     // "rejected at approval" is the longest signature suffix.
     const res = await call('POST', `${base}/${id}/approve`, U.APP1, { action: 'reject', remarks: 'title too long to read' });
     expect(res.statusCode, res.body).toBe(200);
@@ -351,7 +351,7 @@ describe('approval stage', () => {
   it('concurrent approvers: exactly one decision lands; never "approved and rejected at once"', async () => {
     const id = await toApproval({ assigneeRole: R.APP });
     const results = await Promise.all(Array.from({ length: 10 }, (_, i) =>
-      call('POST', `${base}/${id}/approve`, i % 2 ? U.APP1 : U.APP2, i % 3 ? { action: 'approve' } : { action: 'reject', remarks: `race ${i}` })));
+      call('POST', `${base}/${id}/approve`, i % 2 ? U.APP1 : U.APP2, i % 3 ? { action: 'approve', remarks: `race ${i}` } : { action: 'reject', remarks: `race ${i}` })));
     const ok = results.filter((r) => r.statusCode === 200);
     expect(ok).toHaveLength(1);
     for (const r of results.filter((x) => x.statusCode !== 200)) {
@@ -363,5 +363,59 @@ describe('approval stage', () => {
     expect(!!final?.approvedBy && !!final?.rejectedBy).toBe(false);
     const decisions = (await audits(id)).filter((a) => a.action === 'REPORT_REVIEW_APPROVED' || a.action === 'REPORT_REVIEW_REJECTED');
     expect(decisions).toHaveLength(1);
+  });
+});
+
+describe('remarks on every decision, approve included (2026-10-22)', () => {
+  // Approval/decision flows require remarks (CLAUDE.md). Approve used to be optional.
+  const REFUSED = { error: 'VALIDATION', message: 'Remarks are required to approve or reject a report (at least 3 characters).' };
+  const signatures = (who: string, since: Date) =>
+    prisma.auditTrail.count({ where: { userId: who, action: { in: ['REAUTH_SUCCESS', 'REAUTH_FAILED'] }, timestamp: { gte: since } } });
+  const attempts = async (who: string) => (await prisma.user.findUnique({ where: { id: uid[who] } }))!.failedLoginAttempts;
+
+  it('review: approve and reject without 3+ characters of remarks are refused BEFORE the signature', async () => {
+    const id = await submit(U.GEN, { assigneeUserId: uid[U.REV1] });
+    const since = new Date();
+    const bodies = [
+      { action: 'approve', assigneeRole: R.APP },
+      { action: 'approve', assigneeRole: R.APP, remarks: '  ok  ' },
+      { action: 'reject' },
+      { action: 'reject', remarks: '   ' },
+    ];
+    for (const body of bodies) {
+      const r = await call('POST', `${base}/${id}/review`, U.REV1, body);
+      expect({ body, status: r.statusCode, json: r.json() }).toEqual({ body, status: 400, json: REFUSED });
+    }
+    // A wrong password is never checked, so it costs no attempt and signs nothing.
+    const before = await attempts(U.REV1);
+    const wrong = await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', assigneeRole: R.APP }, 'Wrong@Pass1');
+    expect(wrong.json()).toEqual(REFUSED);
+    expect(await attempts(U.REV1)).toBe(before);
+    expect(await signatures(U.REV1, since)).toBe(0);
+    expect((await row(id))?.status).toBe('PENDING_REVIEW');
+    expect((await audits(id)).map((a) => a.action)).toEqual(['REPORT_REVIEW_SUBMITTED']);
+  });
+
+  it('approval: the same rule; an approve with remarks records them on the row and in the signed audit row', async () => {
+    const id = await submit(U.GEN, { assigneeUserId: uid[U.REV1] });
+    expect((await call('POST', `${base}/${id}/review`, U.REV1, { action: 'approve', remarks: 'reviewed', assigneeUserId: uid[U.APP1] })).statusCode).toBe(200);
+    const since = new Date();
+    for (const body of [{ action: 'approve' }, { action: 'approve', remarks: ' ok ' }, { action: 'reject', remarks: 'no' }]) {
+      const r = await call('POST', `${base}/${id}/approve`, U.APP1, body);
+      expect({ body, status: r.statusCode, json: r.json() }).toEqual({ body, status: 400, json: REFUSED });
+    }
+    expect(await signatures(U.APP1, since)).toBe(0);
+    expect((await row(id))?.status).toBe('PENDING_APPROVAL');
+
+    const res = await call('POST', `${base}/${id}/approve`, U.APP1, { action: 'approve', remarks: '  readings verified  ' });
+    expect(res.json()).toEqual({ id, status: 'APPROVED' });
+    expect(await row(id)).toMatchObject({ approvalRemarks: 'readings verified' });
+    expect((await audits(id)).at(-1)).toMatchObject({ action: 'REPORT_REVIEW_APPROVED', afterValue: expect.objectContaining({ approvalRemarks: 'readings verified' }) });
+  });
+
+  it('the permission gate still answers first: a role without REPORT_APPROVE gets 403, not the remarks message', async () => {
+    const id = await submit(U.GEN, { assigneeUserId: uid[U.REV1] });
+    expect((await call('POST', `${base}/${id}/approve`, U.REV1, { action: 'approve' })).statusCode).toBe(403);
+    expect((await call('POST', `${base}/${id}/review`, U.APP1, { action: 'approve' })).statusCode).toBe(403);
   });
 });

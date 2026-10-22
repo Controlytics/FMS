@@ -47,7 +47,7 @@ describe('report-review — concurrent decisions', () => {
     mockPrisma.reportReview.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.reportReview.findUniqueOrThrow.mockResolvedValue({ ...row, status: 'APPROVED' });
 
-    await reportReviewService.approve(ctx, 'r1', 'approve', 'ok');
+    await reportReviewService.approve(ctx, 'r1', 'approve', 'all good');
 
     expect(mockPrisma.reportReview.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'r1', status: 'PENDING_APPROVAL' } }),
@@ -56,12 +56,25 @@ describe('report-review — concurrent decisions', () => {
     expect(mockPrisma.reportReview.update).not.toHaveBeenCalled();
   });
 
+  it('an approve or reject without 3+ characters of remarks is refused before any write (2026-10-22)', async () => {
+    const { auditLog } = await import('../../../lib/audit.js');
+    mockPrisma.reportReview.findUnique.mockResolvedValue(row);
+    for (const remarks of [undefined, '', '  ', ' ok ']) {
+      for (const action of ['approve', 'reject'] as const) {
+        await expect(reportReviewService.approve(ctx, 'r1', action, remarks))
+          .rejects.toMatchObject({ statusCode: 400, code: 'REMARKS_REQUIRED' });
+      }
+    }
+    expect(mockPrisma.reportReview.updateMany).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
   it('the loser of a race is rejected with 409, not silently applied', async () => {
     mockPrisma.reportReview.findUnique.mockResolvedValue(row);
     // Someone else decided between our read and our write → zero rows match.
     mockPrisma.reportReview.updateMany.mockResolvedValue({ count: 0 });
 
-    await expect(reportReviewService.approve(ctx, 'r1', 'approve', 'ok'))
+    await expect(reportReviewService.approve(ctx, 'r1', 'approve', 'all good'))
       .rejects.toMatchObject({ statusCode: 409, code: 'CONCURRENT_DECISION' });
   });
 
@@ -71,7 +84,7 @@ describe('report-review — concurrent decisions', () => {
     mockPrisma.reportReview.findUnique.mockResolvedValue(row);
     mockPrisma.reportReview.updateMany.mockResolvedValue({ count: 0 });
 
-    await expect(reportReviewService.approve(ctx, 'r1', 'approve', 'ok')).rejects.toThrow();
+    await expect(reportReviewService.approve(ctx, 'r1', 'approve', 'all good')).rejects.toThrow();
 
     // The whole point: the loser must produce NO side effects. An audit
     // e-signature for a decision that never applied is worse than the race.

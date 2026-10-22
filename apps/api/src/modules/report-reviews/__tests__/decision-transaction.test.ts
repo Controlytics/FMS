@@ -44,7 +44,7 @@ beforeEach(() => {
 describe('decision + its audit row are one transaction', () => {
   it('the status update and the signature audit row use the same transaction client', async () => {
     (auditLog as any).mockResolvedValue('audit-id');
-    await reportReviewService.approve(ctx, 'r1', 'approve', 'ok');
+    await reportReviewService.approve(ctx, 'r1', 'approve', 'all good');
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.reportReview.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'r1', status: 'PENDING_APPROVAL' } }));
     expect(mockPrisma.reportReview.updateMany).not.toHaveBeenCalled(); // never outside the transaction

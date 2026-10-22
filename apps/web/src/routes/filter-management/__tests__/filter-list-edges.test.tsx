@@ -139,7 +139,7 @@ describe('Filters page — bulk result wording', () => {
     });
   });
 
-  it('bulk status: a cancelled prompt is reported (fallback onError) and the panel unlocks', async () => {
+  it('bulk status: a cancelled prompt is silent and the panel unlocks', async () => {
     const api = setupApi({ base: { reauthActions: ['UPDATE_FILTER_LIFECYCLE'] }, extra: [
       { path: /\/api\/filters\/f\d\/stage-options/, body: { hasProfile: true, options: [opt('CLEANING_CYCLE_COMPLETED', 'COMPLETE')] } },
     ] });
@@ -154,10 +154,9 @@ describe('Filters page — bulk result wording', () => {
     fireEvent.change(field('Remarks', p), { target: { value: 'Close' } });
     fireEvent.click(within(p).getByRole('button', { name: 'Update 1 Filter(s)' }));
     await cancelReauth();
-    expect(await screen.findByText('Update Failed')).toBeInTheDocument();
-    expect(screen.getByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
-    expect(within(panel('Bulk Status Update')).getByRole('button', { name: 'Update 1 Filter(s)' })).toBeEnabled();
+    await waitFor(() => expect(within(panel('Bulk Status Update')).getByRole('button', { name: 'Update 1 Filter(s)' })).toBeEnabled());
+    expect(screen.queryByText('Update Failed')).toBeNull();
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
     expect(api.requests.filter((r) => r.method === 'PATCH')).toHaveLength(0);
   });
 

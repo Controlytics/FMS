@@ -90,6 +90,8 @@ export function CleaningProfileListPage() {
           toast.error('Error', msg);
           setDeleting(false);
         },
+        // A dismissed password prompt is not a failure: re-enable the confirm, say nothing.
+        onCancel: () => setDeleting(false),
       },
     );
   };

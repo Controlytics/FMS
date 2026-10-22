@@ -186,7 +186,7 @@ describe('Cleaning Profiles list', () => {
     expect(await screen.findByText('DB unavailable')).toBeInTheDocument();
   });
 
-  it('a gated delete is signed; cancelling the prompt re-enables the dialog', async () => {
+  it('a gated delete is signed; cancelling the prompt silently re-enables the dialog', async () => {
     const api = setup([{ method: 'DELETE', path: '/api/filter-cleaning-profiles/p1', status: 204 }], { reauthActions: ['DELETE_CLEANING_PROFILE'] });
     renderPage(ui(), { user: SA, api });
     await screen.findByRole('heading', { name: 'WET CLEAN' });
@@ -197,8 +197,11 @@ describe('Cleaning Profiles list', () => {
     expect(screen.getByRole('button', { name: 'Deleting...' })).toBeDisabled();
     fireEvent.click(within(pw.closest('.max-w-lg') as HTMLElement).getByRole('button', { name: 'Cancel' }));
     expect(await screen.findByRole('button', { name: 'Delete' })).toBeEnabled();
-    expect(await screen.findByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    // A dismissed prompt is a choice, not a failure: no error toast, the confirm stays for a retry.
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
+    expect(screen.getByText(/WET CLEAN/, { selector: 'strong, b, span, p' })).toBeInTheDocument();
+    expect(api.calls('DELETE', '/api/filter-cleaning-profiles/p1')).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await passReauth();
     expect(await screen.findByText('Cleaning profile "WET CLEAN" deleted')).toBeInTheDocument();

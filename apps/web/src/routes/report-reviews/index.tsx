@@ -55,11 +55,12 @@ export function ReportReviewsPage() {
     if (!dlg) return;
     const { item, action } = dlg;
     const isReview = item.stage === 'REVIEW';
-    if (action === 'reject' && remarks.trim().length < 3) { toast.error('Remarks required', 'Add at least 3 characters.'); return; }
     if (isReview && action === 'approve' && !approverRole) { toast.error('Approver required', 'Choose a role to approve this.'); return; }
+    // Approve and reject both say why (2026-10-22) — the server refuses either without 3+ characters.
+    if (remarks.trim().length < 3) { toast.error('Remarks required', 'Add at least 3 characters.'); return; }
 
     const url = `/api/report-reviews/${item.id}/${isReview ? 'review' : 'approve'}`;
-    const body: Record<string, unknown> = { action, remarks: remarks.trim() || undefined };
+    const body: Record<string, unknown> = { action, remarks: remarks.trim() };
     if (isReview && action === 'approve') body.assigneeRole = approverRole;
     const reauthAction = isReview ? 'REVIEW_REPORT' : 'APPROVE_REPORT';
 
@@ -178,10 +179,10 @@ export function ReportReviewsPage() {
                 </div>
               )}
               <div>
-                <label htmlFor="rr-remarks" className="text-xs font-semibold text-slate-500">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
+                <label htmlFor="rr-remarks" className="text-xs font-semibold text-slate-500">Remarks <span className="text-rose-500">*</span></label>
                 <textarea id="rr-remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
                   className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15"
-                  placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'Optional remarks'} />
+                  placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'Reason for approval (required)'} />
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-2">

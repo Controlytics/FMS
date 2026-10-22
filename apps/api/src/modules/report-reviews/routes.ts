@@ -1,7 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
-import { reportReviewService as svc } from './service.js';
+import { reportReviewService as svc, hasDecisionRemarks, DECISION_REMARKS_MESSAGE } from './service.js';
 
 // report_reviews.id is @db.Uuid. Validated in the route schema so a mistyped id is
 // a 400 VALIDATION_ERROR, not a Prisma P2023 surfaced as DATA_CONSTRAINT.
@@ -85,6 +85,10 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Remarks first (approve and reject alike): no signature for a decision that will be refused.
+    if (!hasDecisionRemarks((req.body as { remarks?: unknown })?.remarks)) {
+      return reply.code(400).send({ error: 'VALIDATION', message: DECISION_REMARKS_MESSAGE });
+    }
     const { ok } = await enforceReauthAlways('REVIEW_REPORT', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
@@ -109,6 +113,10 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Remarks first (approve and reject alike): no signature for a decision that will be refused.
+    if (!hasDecisionRemarks((req.body as { remarks?: unknown })?.remarks)) {
+      return reply.code(400).send({ error: 'VALIDATION', message: DECISION_REMARKS_MESSAGE });
+    }
     const { ok } = await enforceReauthAlways('APPROVE_REPORT', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };

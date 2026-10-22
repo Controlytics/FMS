@@ -13,6 +13,18 @@ import { getLogger } from '../../lib/logger.js';
 
 const reportReviewLog = getLogger('report-reviews', 'application');
 
+/**
+ * Approval/decision flows require remarks (CLAUDE.md): an approve says why as
+ * much as a reject does (2026-10-22; approve remarks used to be optional). ONE
+ * rule — the routes check it before the re-auth gate (400 VALIDATION, so no
+ * signature is spent on a decision that will be refused) and the service checks
+ * it again for any other caller.
+ */
+export const DECISION_REMARKS_MESSAGE = 'Remarks are required to approve or reject a report (at least 3 characters).';
+export function hasDecisionRemarks(remarks: unknown): remarks is string {
+  return typeof remarks === 'string' && remarks.trim().length >= 3;
+}
+
 type NotifyType = 'REPORT_REVIEW_REQUESTED' | 'REPORT_REVIEW_APPROVED' | 'REPORT_REVIEW_REJECTED';
 
 // Notify the current-stage assignee (a specific user OR a role). forUserId holds
@@ -229,9 +241,9 @@ export const reportReviewService = {
     if (ctx.userSub === row.generatedBy) {
       throw new AppError(403, 'SELF_REVIEW', 'You cannot review a report you generated (separation of duties).');
     }
+    if (!hasDecisionRemarks(remarks)) throw new AppError(400, 'REMARKS_REQUIRED', DECISION_REMARKS_MESSAGE);
 
     if (action === 'reject') {
-      if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 chars).');
       const updated = await this.decideAndSign(ctx, id, 'PENDING_REVIEW', {
         status: 'REJECTED', rejectionStage: 'REVIEW', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
         reviewRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
@@ -243,7 +255,7 @@ export const reportReviewService = {
     const assignee = requireOneAssignee(nextUserId, nextRole);
     const updated = await this.decideAndSign(ctx, id, 'PENDING_REVIEW', {
       status: 'PENDING_APPROVAL', reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(),
-      reviewRemarks: remarks?.trim() || null, ...assignee,
+      reviewRemarks: remarks.trim(), ...assignee,
     }, 'REPORT_REVIEW_REVIEWED', signatureFor(row.title, 'reviewed (sent for approval)'));
     await notifyAssignee(updated, 'REPORT_REVIEW_REQUESTED', 'Report awaiting your approval', `"${row.title}" was reviewed by ${ctx.userId} and needs your approval.`, ctx.userId);
     return updated;
@@ -259,9 +271,9 @@ export const reportReviewService = {
     if (ctx.userSub === row.generatedBy || ctx.userSub === row.reviewedBy) {
       throw new AppError(403, 'SELF_APPROVE', 'You cannot approve a report you generated or reviewed (separation of duties).');
     }
+    if (!hasDecisionRemarks(remarks)) throw new AppError(400, 'REMARKS_REQUIRED', DECISION_REMARKS_MESSAGE);
 
     if (action === 'reject') {
-      if (!remarks || remarks.trim().length < 3) throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 chars).');
       const updated = await this.decideAndSign(ctx, id, 'PENDING_APPROVAL', {
         status: 'REJECTED', rejectionStage: 'APPROVAL', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(),
         approvalRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
@@ -271,7 +283,7 @@ export const reportReviewService = {
     }
     const updated = await this.decideAndSign(ctx, id, 'PENDING_APPROVAL', {
       status: 'APPROVED', approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(),
-      approvalRemarks: remarks?.trim() || null, assigneeUserId: null, assigneeRole: null,
+      approvalRemarks: remarks.trim(), assigneeUserId: null, assigneeRole: null,
     }, 'REPORT_REVIEW_APPROVED', signatureFor(row.title, 'approved'));
     await notifySubmitter(updated, 'REPORT_REVIEW_APPROVED', 'Report approved', `"${row.title}" was approved by ${ctx.userId}.`, ctx.userId);
     return updated;

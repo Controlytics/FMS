@@ -355,7 +355,7 @@ describe('Filters page — bulk selection', () => {
     expectSigned(api.calls('POST', '/api/filters/f2/replace')[0]);
   });
 
-  it('bulk replace: a non-reauth transport failure on the prompt path reports "Bulk action failed"', async () => {
+  it('bulk replace: a cancelled prompt is silent and the panel unlocks', async () => {
     const api = setupApi({
       base: { reauthActions: ['REPLACE_FILTER'] },
       extra: [{ method: 'POST', path: /\/api\/filters\/f\d\/replace/, body: { newFilterName: 'x' } }],
@@ -369,10 +369,10 @@ describe('Filters page — bulk selection', () => {
     fireEvent.change(within(p).getByPlaceholderText('Enter reason for replacement...'), { target: { value: 'Swap' } });
     fireEvent.click(within(p).getByRole('button', { name: 'Replace 1 Filter(s)' }));
     await cancelReauth();
-    expect(await screen.findByText('Bulk action failed')).toBeInTheDocument();
-    expect(screen.getByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
-    expect(within(panel('Bulk Replacement')).getByRole('button', { name: 'Replace 1 Filter(s)' })).toBeEnabled();
+    await waitFor(() => expect(within(panel('Bulk Replacement')).getByRole('button', { name: 'Replace 1 Filter(s)' })).toBeEnabled());
+    expect(screen.queryByText('Bulk action failed')).toBeNull();
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(api.calls('POST', '/api/filters/f1/replace')).toHaveLength(0);
   });
 
   it('bulk bar actions follow FILTER_STATUS_UPDATE / RETIRE / REPLACE; SA sees all three', async () => {

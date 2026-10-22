@@ -115,7 +115,12 @@ describe('Report Reviews — queue', () => {
     expect(api.calls('POST', '/api/report-reviews/rr-1/review')).toHaveLength(0);
 
     fireEvent.change(select, { target: { value: 'QA' } });
-    fireEvent.change(within(dialog).getByPlaceholderText('Optional remarks'), { target: { value: '  looks complete  ' } });
+    // an approval says why, like a rejection (2026-10-22): no remarks, no request
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    expect(await screen.findByText('Remarks required')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(api.calls('POST', '/api/report-reviews/rr-1/review')).toHaveLength(0);
+    fireEvent.change(within(dialog).getByPlaceholderText('Reason for approval (required)'), { target: { value: '  looks complete  ' } });
     const before = api.calls('GET', '/api/report-reviews/queue').length;
     fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
 
@@ -151,7 +156,7 @@ describe('Report Reviews — queue', () => {
     expect(await screen.findByText('Report rejected')).toBeInTheDocument();
   });
 
-  it('approval-stage approve POSTs /approve without remarks or assignee', async () => {
+  it('approval-stage approve needs 3+ characters of remarks, then POSTs /approve with them and no assignee', async () => {
     const api = mockApi([
       { method: 'POST', path: '/api/report-reviews/rr-2/approve', body: { ok: true } },
       ...routes([APPROVE_ROW], []),
@@ -159,9 +164,19 @@ describe('Report Reviews — queue', () => {
     renderPage(<ReportReviewsPage />, { user: APPROVER, api });
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
     expect(screen.getByText('Approve report')).toBeInTheDocument();
+    const remarks = screen.getByLabelText(/^Remarks/);
+    expect(remarks).toHaveAttribute('placeholder', 'Reason for approval (required)');
+    for (const value of ['', ' ok ']) {
+      fireEvent.change(remarks, { target: { value } });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+      expect(await screen.findByText('Remarks required')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    }
+    expect(api.calls('POST', '/api/report-reviews/rr-2/approve')).toHaveLength(0);
+    fireEvent.change(remarks, { target: { value: '  Readings verified  ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(api.calls('POST', '/api/report-reviews/rr-2/approve')).toHaveLength(1));
-    expect(api.calls('POST', '/api/report-reviews/rr-2/approve')[0].json).toEqual({ action: 'approve' });
+    expect(api.calls('POST', '/api/report-reviews/rr-2/approve')[0].json).toEqual({ action: 'approve', remarks: 'Readings verified' });
     expect(await screen.findByText('Report approved')).toBeInTheDocument();
   });
 
@@ -172,6 +187,7 @@ describe('Report Reviews — queue', () => {
     ]);
     renderPage(<ReportReviewsPage />, { user: APPROVER, api });
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText(/^Remarks/), { target: { value: 'Checked' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     expect(await screen.findByText('This report is assigned to another role')).toBeInTheDocument();
     // dialog stays open, button is back to "Confirm" (not stuck on "Working…")
@@ -186,7 +202,7 @@ describe('Report Reviews — queue', () => {
     renderPage(<ReportReviewsPage />, { user: APPROVER, api });
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
-    fireEvent.change(screen.getByPlaceholderText('Optional remarks'), { target: { value: 'ok' } });
+    fireEvent.change(screen.getByPlaceholderText('Reason for approval (required)'), { target: { value: 'all good' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
 
     expect(await screen.findByText('Confirm Your Identity')).toBeInTheDocument();
@@ -198,7 +214,7 @@ describe('Report Reviews — queue', () => {
     await waitFor(() => expect(api.calls('POST', '/api/report-reviews/rr-2/approve')).toHaveLength(1));
     const sent = api.calls('POST', '/api/report-reviews/rr-2/approve')[0];
     expect(sent.headers['x-reauth-password']).toBe('Secret@1');
-    expect(sent.json).toEqual({ action: 'approve', remarks: 'ok', _currentPassword: 'Secret@1' });
+    expect(sent.json).toEqual({ action: 'approve', remarks: 'all good', _currentPassword: 'Secret@1' });
     expect(await screen.findByText('Report approved')).toBeInTheDocument();
   });
 
@@ -234,6 +250,7 @@ describe('Report Reviews — queue', () => {
       body: () => { n += 1; return { error: 'REAUTH_REQUIRED', message: 'Re-authentication required' }; } });
     renderPage(<ReportReviewsPage />, { user: APPROVER, api });
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText(/^Remarks/), { target: { value: 'Checked' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     expect(await screen.findByText('Confirm Your Identity')).toBeInTheDocument();
     expect(n).toBe(1);
@@ -341,7 +358,7 @@ describe('Report Reviews — accessibility + console', () => {
     const dlg = await screen.findByRole('dialog', { name: 'Review report' });
     expect(dlg).toHaveAttribute('aria-modal', 'true');
     expect(within(dlg).getByLabelText('Send to (approver role)')).toHaveDisplayValue('Select a role…');
-    expect(within(dlg).getByLabelText(/^Remarks/)).toHaveAttribute('placeholder', 'Optional remarks');
+    expect(within(dlg).getByLabelText(/^Remarks/)).toHaveAttribute('placeholder', 'Reason for approval (required)');
     expectAllControlsNamed();
     expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);

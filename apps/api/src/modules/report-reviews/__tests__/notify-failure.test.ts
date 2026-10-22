@@ -25,7 +25,7 @@ describe('notifySubmitter failure', () => {
     const row = { id: 'r1', title: 'T', status: 'PENDING_APPROVAL', generatedBy: 'gen', reviewedBy: 'rev', assigneeUserId: 'app', assigneeRole: null, reportType: 'x', generatedByName: 'gen' };
     mockPrisma.reportReview.findUnique.mockResolvedValueOnce(row).mockResolvedValueOnce({ ...row, status: 'APPROVED' });
     mockPrisma.reportReview.updateMany.mockResolvedValue({ count: 1 });
-    const out = await reportReviewService.approve({ userSub: 'app', userId: 'approver', userRole: 'QA' } as any, 'r1', 'approve', undefined);
+    const out = await reportReviewService.approve({ userSub: 'app', userId: 'approver', userRole: 'QA' } as any, 'r1', 'approve', 'all good');
     expect(out.status).toBe('APPROVED');
     expect(auditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'REPORT_REVIEW_APPROVED', targetId: 'r1' }), mockPrisma);
   });

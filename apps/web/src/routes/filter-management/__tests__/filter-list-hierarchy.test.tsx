@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { screen, fireEvent, within } from '@testing-library/react';
+import { screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { usePageTestLifecycle, SA, role, passReauth, expectSigned, reauthOnce } from './fm-test-kit';
 import { setupApi, renderFilters, openBlock, field, waitForReauthConfig, cancelReauth, card, switchUser } from './filter-list-fixtures';
 
@@ -160,7 +160,7 @@ describe('Filters page — edit / delete hierarchy nodes', () => {
     expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument();
   });
 
-  it('cancelling the edit prompt is reported in the dialog, not left on "Saving..."', async () => {
+  it('cancelling the edit prompt is silent and leaves Save usable, not "Saving..."', async () => {
     const api = setupApi({ base: { reauthActions: ['EDIT_HIERARCHY_NODE'] } });
     renderFilters(SA, api);
     await waitForReauthConfig(api);
@@ -168,8 +168,8 @@ describe('Filters page — edit / delete hierarchy nodes', () => {
     fireEvent.click(screen.getByTitle('Edit Area'));
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     await cancelReauth();
-    expect(await screen.findByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled());
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
     expect(api.calls('PUT', '/api/assets/instances/ar1')).toHaveLength(0);
   });
 
