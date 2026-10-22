@@ -1,5 +1,4 @@
 import { Fragment, useState, useEffect, useRef, useMemo } from 'react';
-import { ALL_ROWS } from '@/lib/page-size';
 import { Navigate, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
@@ -67,7 +66,6 @@ const filterDetailPairs = (f: any): Array<[string, string]> =>
 // CLEANING_STAGE_EVENT_TYPES (hierarchy.service.ts). "Last Cleaned" tracks the
 // latest of these, so the tablet's date moves on EVERY stage (each WASH/DRY/
 // STORAGE advance + bypass + completion), not only on full-cycle completion.
-const CLEANING_STAGE_EVENTS = new Set(['STATE_TRANSITION', 'BYPASS_DEVIATION', 'CYCLE_COMPLETED']);
 
 // Cycle status chip — uses effectiveCycleStatus so a cycle ended by retire/replace
 // shows "Retired"/"Replaced" (not the raw "Terminated"), matching the web record.
@@ -89,27 +87,17 @@ const REPL_STATUS_META: Record<string, { label: string; cls: string }> = {
   COMPLETED:   { label: 'Completed',   cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
 };
 
-// Latest cleaning-stage event time for a filter across the given cycles (each
-// cycle carries `events` when fetched with includeEvents=true).
-function latestStageEventAt(cycles: any[], filterId: string): string | null {
-  let latest: string | null = null;
-  for (const c of cycles) {
-    if (c.filterId !== filterId) continue;
-    for (const ev of (c.events ?? [])) {
-      if (!CLEANING_STAGE_EVENTS.has(ev.eventType) || !ev.performedAt) continue;
-      if (!latest || ev.performedAt > latest) latest = ev.performedAt;
-    }
-  }
-  return latest;
-}
-
-// Effective "Last Cleaned" for the tablet — mirrors the server's zipLastCleaned:
-// prefer the latest cleaning-stage event timestamp, else fall back to the manual
-// attributes.lastCleaningDate seed (strict YYYY-MM-DD; 'NA' / blank ignored).
-// Keeps the tablet consistent with the Web Filters page.
-function effectiveLastCleaned(cycleAt: string | undefined | null, attrs: any): string | null {
-  if (cycleAt) return cycleAt;
-  const raw = attrs?.lastCleaningDate;
+// "Last Cleaned" on the tablet: the server's own value — `lastCleanedAt` on every
+// /api/assets/instances row (lib/last-cleaned.ts zipLastCleaned: the latest
+// cleaning-stage event, a completed cycle, or the seed date), the same value the
+// web Filters page shows — else, for a row cached before the server sent it, the
+// manual attributes.lastCleaningDate seed (strict YYYY-MM-DD; 'NA' / blank
+// ignored). Never re-derived from the cycle history (2026-10-22): that read EVERY
+// cycle ever recorded, with its events (limit 1,000,000) — millions of rows at a
+// year of data, an out-of-memory risk on the tablet's WebView.
+function lastCleanedOf(filter: any): string | null {
+  if (filter?.lastCleanedAt) return filter.lastCleanedAt;
+  const raw = filter?.attributes?.lastCleaningDate;
   return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
 }
 
@@ -378,16 +366,9 @@ function MobileShell() {
   };
 
 
-  // Issue #7 fix (2026-05-18): cleaning-cycles list for mobile.
-  // 2026-05-20: also load when view==='status' so the new stage-detail drill-down
-  // can derive "Last cleaned" per filter from the most-recent COMPLETED cycle.
-  // The status / rfid-assign / replace views keep the full list: they load it
-  // once, and only as a fallback for "last cleaned" when the server's
-  // `lastCleanedAt` is absent.
-  const { data: cyclesData } =
-    useSWR<any>(online && (view === 'status' || view === 'rfid-assign' || view === 'replace')
-      ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true`
-      : null);
+  // Issue #7 fix (2026-05-18): cleaning-cycles list for mobile (the Cycles view
+  // below). The status / rfid-assign / replace views read no cycles: their
+  // "Last Cleaned" is the server's value on the instance rows (lastCleanedOf).
   const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
   // 2026-05-21: cycle list filters + selected-cycle for detail view.
@@ -1512,20 +1493,8 @@ function MobileShell() {
           //
           // For each filter we look up:
           //   - AHU name via instances.find(parentId)
-          //   - Last cleaned timestamp via the most recent cleaning-stage EVENT
-          //     across the filter's cycles (loaded with includeEvents when
-          //     view==='status'), so it moves on every stage — not just on
-          //     full-cycle completion.
-          const cycles: any[] = (cyclesData?.data ?? []) as any[];
-          const lastCleanedByFilter = new Map<string, string>();
-          for (const c of cycles) {
-            if (!c.filterId) continue;
-            for (const ev of (c.events ?? [])) {
-              if (!CLEANING_STAGE_EVENTS.has(ev.eventType) || !ev.performedAt) continue;
-              const prev = lastCleanedByFilter.get(c.filterId);
-              if (!prev || ev.performedAt > prev) lastCleanedByFilter.set(c.filterId, ev.performedAt);
-            }
-          }
+          //   - Last cleaned: the server's value on the row (lastCleanedOf),
+          //     which moves on every stage — not just on full-cycle completion.
           // 2026-05-21: walk the hierarchy filter→AHU→Area→Block. Each instance
           // row carries `parentId`; we use that to build per-filter ancestry,
           // then derive distinct sets at each tier for the cascading dropdowns.
@@ -1770,7 +1739,7 @@ function MobileShell() {
                 const ahu = ahuById.get(f.parentId);
                 // Prefer the server's authoritative lastCleanedAt (lib/last-cleaned.ts);
                 // fall back to the client cycle-derivation only when offline / absent.
-                const lastCleaned = f.lastCleanedAt ?? effectiveLastCleaned(lastCleanedByFilter.get(f.id), f.attributes);
+                const lastCleaned = lastCleanedOf(f);
                 return (
                   <div key={f.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3">
                     <div className="flex items-start justify-between gap-3">
@@ -2585,10 +2554,8 @@ function MobileShell() {
 
           // ── Selected-filter full detail (rendered in the selected branch below).
           // Block/Area/AHU come from the local ancestor map; the rest off the
-          // filter row's attributes. Last Cleaned is derived from cleaning-cycle
-          // stage events (same as the Status view) since the instances payload
-          // does not carry a server-computed lastCleanedAt — cyclesData is now
-          // loaded for this view too.
+          // filter row's attributes. Last Cleaned is the server's value on the
+          // row (lastCleanedOf), as in the Status view.
           const rfidSelFilter = rfidSelectedFilter
             ? (allFilters as any[]).find((f: any) => f.id === rfidSelectedFilter.id)
             : null;
@@ -2596,10 +2563,7 @@ function MobileShell() {
           const rfidSelBlock = rfidSelAnc?.blockId ? rfidInstById.get(rfidSelAnc.blockId) : null;
           const rfidSelArea = rfidSelAnc?.areaId ? rfidInstById.get(rfidSelAnc.areaId) : null;
           const rfidSelAhu = rfidSelAnc?.ahuId ? rfidInstById.get(rfidSelAnc.ahuId) : null;
-          const rfidSelCycles: any[] = (cyclesData?.data ?? []) as any[];
-          const rfidSelLastCleaned = rfidSelFilter
-            ? (rfidSelFilter.lastCleanedAt ?? effectiveLastCleaned(latestStageEventAt(rfidSelCycles, rfidSelFilter.id), rfidSelFilter.attributes))
-            : null;
+          const rfidSelLastCleaned = rfidSelFilter ? lastCleanedOf(rfidSelFilter) : null;
           const rfidSelStage = rfidSelFilter ? STAGES.find((s) => s.key === rfidSelFilter.currentLifecycleState) : null;
           const rfidSelSet = rfidSelFilter?.filterSet ? `Set ${String(rfidSelFilter.filterSet).replace('SET_', '')}` : 'NA';
           const rfidSelDate = (iso: string | null) => (iso ? (formatDate(iso) || 'NA') : 'NA');
@@ -2939,10 +2903,7 @@ function MobileShell() {
           const repSelBlock = repSelAnc?.blockId ? repInstById.get(repSelAnc.blockId) : null;
           const repSelArea = repSelAnc?.areaId ? repInstById.get(repSelAnc.areaId) : null;
           const repSelAhu = repSelAnc?.ahuId ? repInstById.get(repSelAnc.ahuId) : null;
-          const repSelCycles: any[] = (cyclesData?.data ?? []) as any[];
-          const repSelLastCleaned = repSelFilter
-            ? (repSelFilter.lastCleanedAt ?? effectiveLastCleaned(latestStageEventAt(repSelCycles, repSelFilter.id), repSelFilter.attributes))
-            : null;
+          const repSelLastCleaned = repSelFilter ? lastCleanedOf(repSelFilter) : null;
           const repSelStage = repSelFilter ? STAGES.find((s) => s.key === repSelFilter.currentLifecycleState) : null;
           const repSelSet = repSelFilter?.filterSet ? `Set ${String(repSelFilter.filterSet).replace('SET_', '')}` : 'NA';
           const repSelDate = (iso: string | null) => (iso ? (formatDate(iso) || 'NA') : 'NA');
@@ -3238,9 +3199,8 @@ function MobileShell() {
               const ahu = scanAnc.ahuId ? instByIdLookup.get(scanAnc.ahuId) : null;
               const area = scanAnc.areaId ? instByIdLookup.get(scanAnc.areaId) : null;
               const block = scanAnc.blockId ? instByIdLookup.get(scanAnc.blockId) : null;
-              // Latest cleaning-stage event (every stage, not just completion).
-              const cycles: any[] = (cyclesData?.data ?? []) as any[];
-              const lastCleaned = effectiveLastCleaned(latestStageEventAt(cycles, filter.id), filter.attributes);
+              // The server's last-cleaned (every stage, not just completion).
+              const lastCleaned = lastCleanedOf(filter);
               result = { kind: 'ok', tag, filter, ahu, area, block, lastCleaned };
             }
           }

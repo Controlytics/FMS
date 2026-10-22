@@ -269,7 +269,6 @@ describe('Replace Filter — access', () => {
 describe('Replace Filter — single', () => {
   it('scan-to-select opens the confirm panel; Replace sends the remarks and reports the new filter', async () => {
     const { api } = await openReplace({ routes: [
-      { path: '/api/filters/cycles', body: { data: [{ filterId: 'f101', events: [{ eventType: 'STATE_TRANSITION', performedAt: '2026-10-18T07:00:00.000Z' }] }] } },
       { method: 'POST', path: '/api/filters/f101/replace', body: { success: true, newFilterName: 'F-101-R1', identifiersMoved: 1 } },
     ] });
     fireEvent.keyDown(replaceScanInput(), { key: 'Enter' }); // blank: nothing
@@ -287,7 +286,9 @@ describe('Replace Filter — single', () => {
     expect(panel).toHaveTextContent('SetSet A');
     expect(panel).toHaveTextContent('Dimensions610x610');
     expect(panel).toHaveTextContent('Micron Size0.3');
-    await waitFor(() => expect(panel).toHaveTextContent('Last Cleaned18/10/2026'));
+    // the server's last-cleaned (instances row), never re-derived from a cycle read
+    await waitFor(() => expect(panel).toHaveTextContent('Last Cleaned20/10/2026'));
+    expect(api.calls('GET', '/api/filters/cycles')).toEqual([]);
     expect(panel).toHaveTextContent('RFID tag (carries over)E200A1');
     const go = screen.getByRole('button', { name: 'Replace Filter' });
     expect(go).toBeDisabled();

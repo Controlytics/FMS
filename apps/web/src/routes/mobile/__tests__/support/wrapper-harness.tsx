@@ -23,8 +23,10 @@ export const A2 = { id: 'a2', name: 'Pack Hall', templateId: 'tpl-area', parentI
 export const H1 = { id: 'h1', name: 'AHU-01', templateId: 'tpl-ahu', parentId: 'a1' };
 export const H2 = { id: 'h2', name: 'AHU-02', templateId: 'tpl-ahu', parentId: 'b1' };
 export const H3 = { id: 'h3', name: 'AHU-03', templateId: 'tpl-ahu', parentId: 'a2' };
+// lastCleanedAt: what /api/assets/instances attaches to every filter row
+// (lib/last-cleaned.ts zipLastCleaned — the server's single source of truth).
 export const F101 = {
-  id: 'f101', name: 'F-101', templateId: 'tpl-filter', parentId: 'h1', currentLifecycleState: 'WASH_IN',
+  id: 'f101', name: 'F-101', templateId: 'tpl-filter', parentId: 'h1', currentLifecycleState: 'WASH_IN', lastCleanedAt: '2026-10-20T11:45:00.000Z',
   filterSet: 'SET_A', attributes: { ahuType: 'Recirc', filterType: 'HEPA', filterSize: '610x610', micronSize: '0.3', manufacturer: 'Camfil', note: { nested: true } },
 };
 export const F102 = { id: 'f102', name: 'F-102', templateId: 'tpl-filter', parentId: 'h1', currentLifecycleState: 'DRY_IN', lastCleanedAt: '2026-10-20T09:30:00.000Z', attributes: {} };

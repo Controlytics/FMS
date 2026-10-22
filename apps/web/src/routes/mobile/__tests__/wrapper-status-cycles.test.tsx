@@ -59,7 +59,7 @@ describe('Filter Status — tiles and list', () => {
     expect(screen.queryByText('F-OLD')).toBeNull();
     expect(screen.queryByText('F-OFF')).toBeNull();
     const row = (n: string) => screen.getByText(n).closest('div.bg-white')! as HTMLElement;
-    // last cleaned: server value wins; else the latest cleaning-STAGE event; else the seed date; else —
+    // last cleaned: the server's value (instances rows); else the seed date; else —
     await waitFor(() => expect(row('F-101')).toHaveTextContent('Last Cleaned: 20/10/2026 11:45'));
     expect(row('F-102')).toHaveTextContent('Last Cleaned: 20/10/2026 09:30');
     expect(row('F-201')).toHaveTextContent('Last Cleaned: 05/01/2026');
@@ -67,10 +67,11 @@ describe('Filter Status — tiles and list', () => {
     expect(row('F-101')).toHaveTextContent('AHU: AHU-01');
     expect(row('F-101')).toHaveTextContent('WASH IN');
     expect(row('F-201')).toHaveTextContent('To Be Cleaned');
-    // the status view loads the cycle list (no 30-day window here)
-    const cyc = api.calls('GET', '/api/filters/cycles')[0];
-    expect(cyc.query.get('includeEvents')).toBe('true');
-    expect(cyc.query.get('from')).toBeNull();
+    // 2026-10-22: it no longer re-derives last-cleaned from the cycle history —
+    // that read EVERY cycle ever, with events (limit 1,000,000), an OOM risk on
+    // the WebView at a year of data. The server's value is on the rows.
+    await flush();
+    expect(api.calls('GET', '/api/filters/cycles')).toEqual([]);
   });
 
   it('a stage tile filters the list and tapping it again (or "Show all") clears it; counts never change', async () => {
