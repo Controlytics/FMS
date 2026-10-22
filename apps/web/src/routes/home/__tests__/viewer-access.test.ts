@@ -87,6 +87,16 @@ describe('rolesForStep', () => {
     const out = rolesForStep(step, 'dashboard', [SA, pinnedOperator], true)!.map((r) => r.name);
     expect(out).toEqual(['SUPER_ADMIN', 'OPERATOR']);
   });
+
+  it('a step with no gate, no gateRoles and no access marker falls back to every role that can see the module', () => {
+    const noPerms: RoleAccess = { ...OPERATOR, name: 'BLANK', permissions: [] };
+    const step: FlowStep = { label: 'Read-only view', gate: [], kind: 'system' };
+    // BLANK holds no permission, so it cannot see the module and is excluded.
+    const out = rolesForStep(step, 'dashboard', [SA, OPERATOR, CUSTOM, noPerms])!.map((r) => r.name);
+    expect(out).toEqual(['SUPER_ADMIN', 'OPERATOR', 'APPROVER']);
+    // an empty gateRoles list is treated the same way
+    expect(rolesForStep({ ...step, gateRoles: [] }, 'dashboard', [SA, OPERATOR])!.map((r) => r.name)).toEqual(['SUPER_ADMIN', 'OPERATOR']);
+  });
 });
 
 describe('rolesForGate (branches)', () => {

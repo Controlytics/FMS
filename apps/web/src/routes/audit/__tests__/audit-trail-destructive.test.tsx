@@ -1,0 +1,406 @@
+import { describe, it, expect, afterEach, beforeEach, vi, type MockInstance } from 'vitest';
+import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
+import { mockApi, renderPage } from '@/test-utils/page-harness';
+import { unlabeledControls, captureConsole, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { DELETER, SA, REC, page, auditRoutes as routes, listCalls, myActionsLoaded, rowOf, ack, signWith } from './audit-page-fixtures';
+import { AuditTrailPage } from '../index';
+
+// Full-page renders through the real SWR/auth/re-auth stack; under a loaded machine the
+// default 5 s budget is too tight for the multi-step flows (budget only, no behaviour change).
+vi.setConfig({ testTimeout: 20_000 });
+
+/**
+ * Audit Trail — the destructive and corrective actions: redact (chain-
+ * preserving, SUPER_ADMIN only), hard delete (breaks the chain, AUDIT_DELETE)
+ * and the SUPER_ADMIN row edit. Real SWR / apiClient / useAuth / useCan /
+ * useReauth; only fetch (and window.prompt, the reason box) are stubbed.
+ */
+
+const A1 = 'User "101020" updated by 101010';
+const A2 = 'Failed login attempt for "intruder"';
+
+let con: ConsoleCapture;
+let prompt: MockInstance<typeof window.prompt>;
+beforeEach(() => {
+  con = captureConsole();
+  prompt = vi.spyOn(window, 'prompt').mockReturnValue(null);
+});
+afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); con.restore(); prompt.mockRestore(); });
+
+async function ready(api: ReturnType<typeof mockApi>, checkboxes = 6) {
+  await myActionsLoaded(api);
+  await screen.findByText(A1);
+  if (checkboxes) await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(checkboxes));
+}
+const box = (i: number) => screen.getAllByRole('checkbox')[i];
+
+describe('SUPER_ADMIN — selection and redact (chain-preserving)', () => {
+  it('gets selection, redact (not on a redacted row), delete on every row, edit (not on redacted / meta-audit rows)', async () => {
+    const api = mockApi(routes());
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    expect(screen.getAllByTitle(/^Redact record/)).toHaveLength(4);
+    expect(within(rowOf(/PII entered by mistake/)).queryByTitle(/^Redact record/)).toBeNull();
+    expect(screen.getAllByTitle(/^Delete permanently/)).toHaveLength(5);
+    expect(screen.getAllByTitle(/^Edit record/)).toHaveLength(3);
+    expect(within(rowOf('AHU-7')).queryByTitle(/^Edit record/)).toBeNull();
+    await waitFor(() => expect(api.calls('GET', '/api/users')).toHaveLength(1));
+    expect(api.calls('GET', '/api/users')[0].query.get('limit')).toBe('1000000');
+  });
+
+  it('select one / all / none, Clear Selection, and a re-sort clears the selection', async () => {
+    const api = mockApi(routes());
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+
+    fireEvent.click(box(1));
+    expect(screen.getByText('1 audit record selected')).toBeInTheDocument();
+    expect(box(1).closest('tr')).toHaveClass('bg-red-50/40');
+    fireEvent.click(box(1));
+    expect(screen.queryByText(/audit records? selected/)).toBeNull();
+
+    fireEvent.click(box(0));
+    expect(screen.getByText('5 audit records selected')).toBeInTheDocument();
+    expect(box(0)).toBeChecked();
+    fireEvent.click(box(0));
+    expect(screen.queryByText(/audit records? selected/)).toBeNull();
+
+    fireEvent.click(box(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Selection' }));
+    expect(screen.queryByText(/audit records? selected/)).toBeNull();
+
+    fireEvent.click(box(3));
+    expect(screen.getByText('1 audit record selected')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Action/ }));
+    await waitFor(() => expect(screen.queryByText(/audit records? selected/)).toBeNull());
+  });
+
+  it('redacting one row asks for a reason (>= 5 chars) and POSTs it trimmed; blank / short / cancelled sends nothing', async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/audit/a1/redact', body: { ok: true } }, ...routes()]);
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    const redactA1 = () => within(rowOf(A1)).getByTitle(/^Redact record/);
+
+    prompt.mockReturnValueOnce(null);
+    fireEvent.click(redactA1());
+    prompt.mockReturnValueOnce('abc ');
+    fireEvent.click(redactA1());
+    expect(api.calls('POST', '/api/audit/a1/redact')).toHaveLength(0);
+
+    const before = listCalls(api).length;
+    prompt.mockReturnValueOnce('  Entered in error  ');
+    fireEvent.click(redactA1());
+    await waitFor(() => expect(api.calls('POST', '/api/audit/a1/redact')).toHaveLength(1));
+    expect(api.calls('POST', '/api/audit/a1/redact')[0].json).toEqual({ reason: 'Entered in error' });
+    expect(prompt).toHaveBeenLastCalledWith('Reason for redacting this audit record (min 5 characters):');
+    await waitFor(() => expect(listCalls(api).length).toBeGreaterThan(before));
+  });
+
+  it('a refused redaction is reported, never silent', async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/audit/a1/redact', status: 409, body: { error: 'ALREADY_REDACTED', message: 'Record already redacted' } }, ...routes()]);
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    prompt.mockReturnValue('Entered in error');
+    fireEvent.click(within(rowOf(A1)).getByTitle(/^Redact record/));
+    expect(await screen.findByText('Redaction Failed')).toBeInTheDocument();
+    expect(screen.getByText('Record already redacted')).toBeInTheDocument();
+  });
+
+  it('REDACT_AUDIT_RECORD re-auth: password prompt, then the redaction carries the password', async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/audit/a1/redact', body: { ok: true } }, ...routes({ reauth: ['REDACT_AUDIT_RECORD'] })]);
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    prompt.mockReturnValue('Entered in error');
+    fireEvent.click(within(rowOf(A1)).getByTitle(/^Redact record/));
+    expect(await screen.findByText('Confirm Your Identity')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/audit/a1/redact')).toHaveLength(0);
+    await signWith('Pw@12345');
+    await waitFor(() => expect(api.calls('POST', '/api/audit/a1/redact')).toHaveLength(1));
+    const req = api.calls('POST', '/api/audit/a1/redact')[0];
+    expect(req.headers['x-reauth-password']).toBe('Pw@12345');
+    expect(req.json).toEqual({ reason: 'Entered in error', _currentPassword: 'Pw@12345' });
+  });
+
+  it('bulk redact: confirm dialog names the count, Cancel closes it, a short reason is refused, then the ids are sent', async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/audit/bulk-redact', body: { redacted: 2 } }, ...routes()]);
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    fireEvent.click(box(1));
+    fireEvent.click(box(2));
+
+    fireEvent.click(screen.getByRole('button', { name: /Redact Selected/ }));
+    expect(screen.getByText('Redact Audit Records')).toBeInTheDocument();
+    expect(screen.getByText(/preserves the tamper-evident hash chain/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Redact Audit Records')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Redact Selected/ }));
+    prompt.mockReturnValueOnce('no');
+    fireEvent.click(screen.getByRole('button', { name: 'Redact 2 Records' }));
+    expect(api.calls('POST', '/api/audit/bulk-redact')).toHaveLength(0);
+    expect(screen.getByText('Redact Audit Records')).toBeInTheDocument();
+
+    prompt.mockReturnValueOnce('Duplicate test entries');
+    fireEvent.click(screen.getByRole('button', { name: 'Redact 2 Records' }));
+    await waitFor(() => expect(api.calls('POST', '/api/audit/bulk-redact')).toHaveLength(1));
+    expect(prompt).toHaveBeenLastCalledWith('Reason for redacting 2 audit records (min 5 characters):');
+    expect(api.calls('POST', '/api/audit/bulk-redact')[0].json).toEqual({ ids: ['a1', 'a2'], reason: 'Duplicate test entries' });
+    await waitFor(() => expect(screen.queryByText('Redact Audit Records')).toBeNull());
+    expect(screen.queryByText(/audit records? selected/)).toBeNull();
+  });
+
+  it('a refused bulk redaction is reported and the dialog button is usable again', async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/audit/bulk-redact', status: 400, body: { error: 'BAD_REQUEST', message: 'Reason too short' } }, ...routes()]);
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    fireEvent.click(box(1));
+    fireEvent.click(screen.getByRole('button', { name: /Redact Selected/ }));
+    prompt.mockReturnValue('Duplicate test entries');
+    fireEvent.click(screen.getByRole('button', { name: 'Redact 1 Record' }));
+    expect(await screen.findByText('Bulk Redaction Failed')).toBeInTheDocument();
+    expect(screen.getByText('Reason too short')).toBeInTheDocument();
+    await ack('Bulk Redaction Failed');
+    expect(screen.getByRole('button', { name: 'Redact 1 Record' })).toBeEnabled();
+  });
+
+  it('cancelling the bulk-redact password prompt unwinds the busy state; the signed retry carries the password', async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/audit/bulk-redact', body: { ok: true } }, ...routes({ reauth: ['BULK_REDACT_AUDIT_RECORDS'] })]);
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    fireEvent.click(box(1));
+    fireEvent.click(screen.getByRole('button', { name: /Redact Selected/ }));
+    prompt.mockReturnValue('Duplicate test entries');
+    fireEvent.click(screen.getByRole('button', { name: 'Redact 1 Record' }));
+    expect(await screen.findByText('Confirm Your Identity')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Redacting...' })).toBeDisabled();
+    // two Cancel buttons are on screen (bulk dialog + password dialog); the password one renders last
+    const cancels = screen.getAllByRole('button', { name: 'Cancel' });
+    fireEvent.click(cancels[cancels.length - 1]);
+    await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
+    expect(screen.getByRole('button', { name: 'Redact 1 Record' })).toBeEnabled();
+    expect(api.calls('POST', '/api/audit/bulk-redact')).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Redact 1 Record' }));
+    await signWith('Pw@12345');
+    await waitFor(() => expect(api.calls('POST', '/api/audit/bulk-redact')).toHaveLength(1));
+    expect(api.calls('POST', '/api/audit/bulk-redact')[0].headers['x-reauth-password']).toBe('Pw@12345');
+  });
+});
+
+describe('Hard delete (breaks the chain)', () => {
+  it('AUDIT_DELETE without SUPER_ADMIN: selection + Delete Permanently, but no redact and no edit', async () => {
+    const api = mockApi(routes());
+    renderPage(<AuditTrailPage />, { user: DELETER, api });
+    await ready(api);
+    expect(screen.getAllByTitle(/^Delete permanently/)).toHaveLength(5);
+    expect(screen.queryByTitle(/^Redact record/)).toBeNull();
+    expect(screen.queryByTitle(/^Edit record/)).toBeNull();
+    fireEvent.click(box(1));
+    expect(screen.getByRole('button', { name: /Delete Permanently/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Redact Selected/ })).toBeNull();
+    expect(api.calls('GET', '/api/users')).toHaveLength(0);
+  });
+
+  it('deleting one row sends DELETE with the reason; a short reason sends nothing; a refusal is reported', async () => {
+    const api = mockApi([
+      { method: 'DELETE', path: '/api/audit/a2', status: 500, times: 1, body: { error: 'INTERNAL', message: 'trigger still enabled' } },
+      { method: 'DELETE', path: '/api/audit/a2', body: { ok: true } },
+      ...routes(),
+    ]);
+    renderPage(<AuditTrailPage />, { user: DELETER, api });
+    await ready(api);
+    const delA2 = () => within(rowOf(A2)).getByTitle(/^Delete permanently/);
+
+    prompt.mockReturnValueOnce('tiny');
+    fireEvent.click(delA2());
+    expect(api.calls('DELETE', '/api/audit/a2')).toHaveLength(0);
+
+    prompt.mockReturnValueOnce('Test data from OQ run');
+    fireEvent.click(delA2());
+    expect(await screen.findByText('Delete Failed')).toBeInTheDocument();
+    expect(screen.getByText('trigger still enabled')).toBeInTheDocument();
+    await ack('Delete Failed');
+
+    prompt.mockReturnValueOnce('Test data from OQ run');
+    fireEvent.click(delA2());
+    await waitFor(() => expect(api.calls('DELETE', '/api/audit/a2')).toHaveLength(2));
+    expect(api.calls('DELETE', '/api/audit/a2')[1].json).toEqual({ reason: 'Test data from OQ run' });
+    expect(String(prompt.mock.calls.at(-1)?.[0])).toMatch(/PERMANENTLY deletes the record and breaks the tamper-evident hash chain/);
+  });
+
+  it('DELETE_AUDIT_RECORD re-auth: the DELETE carries the password', async () => {
+    const api = mockApi([{ method: 'DELETE', path: '/api/audit/a2', body: { ok: true } }, ...routes({ reauth: ['DELETE_AUDIT_RECORD'] })]);
+    renderPage(<AuditTrailPage />, { user: DELETER, api });
+    await ready(api);
+    prompt.mockReturnValue('Test data from OQ run');
+    fireEvent.click(within(rowOf(A2)).getByTitle(/^Delete permanently/));
+    await signWith('Pw@12345');
+    await waitFor(() => expect(api.calls('DELETE', '/api/audit/a2')).toHaveLength(1));
+    const req = api.calls('DELETE', '/api/audit/a2')[0];
+    expect(req.headers['x-reauth-password']).toBe('Pw@12345');
+    expect(req.json).toEqual({ reason: 'Test data from OQ run', _currentPassword: 'Pw@12345' });
+  });
+
+  it('bulk delete: the confirm dialog warns about the chain; a cancelled reason sends nothing; then the ids + reason are POSTed', async () => {
+    const api = mockApi([{ method: 'POST', path: '/api/audit/bulk-delete', body: { deleted: 1 } }, ...routes()]);
+    renderPage(<AuditTrailPage />, { user: DELETER, api });
+    await ready(api);
+    fireEvent.click(box(2));
+    fireEvent.click(screen.getByRole('button', { name: /Delete Permanently/ }));
+    expect(screen.getByText('Delete Audit Records')).toBeInTheDocument();
+    expect(screen.getByText(/BREAKS the 21 CFR Part 11 tamper-evident hash chain/)).toBeInTheDocument();
+
+    prompt.mockReturnValueOnce(null);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 1 Record' }));
+    expect(api.calls('POST', '/api/audit/bulk-delete')).toHaveLength(0);
+
+    prompt.mockReturnValueOnce('Test data from OQ run');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 1 Record' }));
+    await waitFor(() => expect(api.calls('POST', '/api/audit/bulk-delete')).toHaveLength(1));
+    expect(api.calls('POST', '/api/audit/bulk-delete')[0].json).toEqual({ ids: ['a2'], reason: 'Test data from OQ run' });
+    expect(String(prompt.mock.calls.at(-1)?.[0])).toMatch(/PERMANENTLY deletes 1 record\(s\)/);
+    await waitFor(() => expect(screen.queryByText('Delete Audit Records')).toBeNull());
+  });
+
+  it('BULK_DELETE_AUDIT_RECORDS re-auth: a refusal is reported and the button recovers; the signed retry succeeds', async () => {
+    const api = mockApi([
+      { method: 'POST', path: '/api/audit/bulk-delete', status: 403, times: 1, body: { error: 'FORBIDDEN', message: 'Insufficient permissions' } },
+      { method: 'POST', path: '/api/audit/bulk-delete', body: { deleted: 1 } },
+      ...routes({ reauth: ['BULK_DELETE_AUDIT_RECORDS'] }),
+    ]);
+    renderPage(<AuditTrailPage />, { user: DELETER, api });
+    await ready(api);
+    fireEvent.click(box(1));
+    fireEvent.click(screen.getByRole('button', { name: /Delete Permanently/ }));
+    prompt.mockReturnValue('Test data from OQ run');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 1 Record' }));
+    expect(await screen.findByRole('button', { name: 'Deleting...' })).toBeDisabled();
+    await signWith('Pw@12345');
+    expect(await screen.findByText('Bulk Delete Failed')).toBeInTheDocument();
+    await ack('Bulk Delete Failed');
+    expect(screen.getByRole('button', { name: 'Delete 1 Record' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 1 Record' }));
+    await signWith('Pw@12345');
+    await waitFor(() => expect(api.calls('POST', '/api/audit/bulk-delete')).toHaveLength(2));
+    expect(api.calls('POST', '/api/audit/bulk-delete')[1].headers['x-reauth-password']).toBe('Pw@12345');
+    await waitFor(() => expect(screen.queryByText('Delete Audit Records')).toBeNull());
+  });
+});
+
+describe('SUPER_ADMIN row edit (UPDATE_AUDIT_RECORD)', () => {
+  const EDITABLE = [
+    REC({ userName: '101010', userRole: 'ADMIN', signatureMeaning: '' }),
+    REC({ id: 'legacy', action: 'LEGACY_THING', userId: 'old', targetId: null, beforeValue: null, afterValue: null }),
+  ];
+
+  it('opens with the chain warning and lookups; Save sends only the changed fields + reason (a blanked role is dropped)', async () => {
+    const api = mockApi([{ method: 'PUT', path: '/api/audit/a1', body: { ok: true } }, ...routes({ list: page(EDITABLE) })]);
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api, 3);
+    await waitFor(() => expect(api.calls('GET', '/api/users')).toHaveLength(1));
+    const before = listCalls(api).length;
+    fireEvent.click(within(rowOf(A1)).getByTitle(/^Edit record/));
+
+    const dlg = await screen.findByRole('dialog', { name: 'Edit audit record - USER UPDATED' });
+    expect(within(dlg).getByText(/permanently breaks the audit hash chain/)).toBeInTheDocument();
+    expect(within(dlg).getByRole('option', { name: 'Asha Rao (101010)' })).toBeInTheDocument();
+    expect(within(dlg).getByRole('option', { name: 'Administrator' })).toBeInTheDocument();
+    expect(within(dlg).getByRole('option', { name: 'USER UPDATED' })).toBeInTheDocument();
+    const save = within(dlg).getByRole('button', { name: 'Save changes' });
+    expect(save).toBeDisabled();
+
+    fireEvent.change(within(dlg).getByLabelText('Target type'), { target: { value: 'user-account' } });
+    fireEvent.change(within(dlg).getByLabelText('Role'), { target: { value: '' } });
+    fireEvent.change(within(dlg).getByLabelText(/Reason for this change/), { target: { value: 'Correcting the target' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+
+    await waitFor(() => expect(api.calls('PUT', '/api/audit/a1')).toHaveLength(1));
+    expect(api.calls('PUT', '/api/audit/a1')[0].json).toEqual({ targetType: 'user-account', reason: 'Correcting the target' });
+    expect(await screen.findByText('Audit record updated')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /Edit audit record/ })).toBeNull();
+    await waitFor(() => expect(listCalls(api).length).toBeGreaterThan(before));
+  });
+
+  it('a row whose action has no template still lists its own action first; Close dismisses the dialog', async () => {
+    const api = mockApi(routes({ list: page(EDITABLE) }));
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api, 3);
+    fireEvent.click(within(rowOf(/legacy thing by old/)).getByTitle(/^Edit record/));
+    const dlg = await screen.findByRole('dialog', { name: 'Edit audit record - LEGACY THING' });
+    const opts = within(dlg).getByLabelText(/^Action/).querySelectorAll('option');
+    expect(opts[0].textContent).toBe('LEGACY THING');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: /Edit audit record/ })).toBeNull();
+  });
+
+  it('opened before the user / role lookups arrive, User and Role offer only "keep current"; a role without a display name is listed by its name', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const api = mockApi([
+      { path: '/api/roles/active', body: [{ name: 'ADMIN', displayName: 'Administrator', color: 'bg-blue-600' }, { name: 'QA', color: 'bg-emerald-600' }] },
+      ...routes({ list: page(EDITABLE) }),
+    ]);
+    const stubbed = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input);
+      if (u.includes('/api/users') || u.includes('/api/roles/active')) await gate;
+      return stubbed(input, init);
+    }) as typeof fetch;
+    try {
+      renderPage(<AuditTrailPage />, { user: SA, api });
+      await ready(api, 3);
+      fireEvent.click(within(rowOf(A1)).getByTitle(/^Edit record/));
+      const dlg = await screen.findByRole('dialog', { name: /Edit audit record/ });
+      expect(Array.from(within(dlg).getByLabelText('User').querySelectorAll('option')).map((o) => o.textContent)).toEqual(['-- keep current --']);
+      expect(Array.from(within(dlg).getByLabelText('Role').querySelectorAll('option')).map((o) => o.textContent)).toEqual(['-- keep current --']);
+      release();
+      await waitFor(() => expect(within(dlg).getByRole('option', { name: 'Asha Rao (101010)' })).toBeInTheDocument());
+      expect(within(dlg).getByRole('option', { name: 'QA' })).toBeInTheDocument();
+      expect(within(dlg).getByRole('option', { name: 'Administrator' })).toBeInTheDocument();
+    } finally {
+      release();
+      globalThis.fetch = stubbed;
+    }
+  });
+
+  it('with the re-auth row on, the PUT carries the password', async () => {
+    const api = mockApi([{ method: 'PUT', path: '/api/audit/a1', body: { ok: true } }, ...routes({ list: page(EDITABLE), reauth: ['UPDATE_AUDIT_RECORD'] })]);
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api, 3);
+    fireEvent.click(within(rowOf(A1)).getByTitle(/^Edit record/));
+    const dlg = await screen.findByRole('dialog', { name: /Edit audit record/ });
+    fireEvent.change(within(dlg).getByLabelText('Target id'), { target: { value: 'u-10' } });
+    fireEvent.change(within(dlg).getByLabelText(/Reason for this change/), { target: { value: 'Correcting the target' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save changes' }));
+    await signWith('Pw@12345');
+    await waitFor(() => expect(api.calls('PUT', '/api/audit/a1')).toHaveLength(1));
+    const put = api.calls('PUT', '/api/audit/a1')[0];
+    expect(put.headers['x-reauth-password']).toBe('Pw@12345');
+    expect(put.json).toEqual({ targetId: 'u-10', reason: 'Correcting the target', _currentPassword: 'Pw@12345' });
+  });
+});
+
+describe('Accessibility + console (SUPER_ADMIN view with a filter chip)', () => {
+  it('reports unnamed controls; normal use logs nothing', async () => {
+    const api = mockApi(routes());
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    fireEvent.change(screen.getByPlaceholderText('Search by user, action, target...'), { target: { value: 'x' } });
+    await screen.findByText('Search: x');
+    const unl = unlabeledControls();
+    // Findings: the select-all + 5 row checkboxes have no label; the two
+    // datetime inputs' <label>s are not associated (no htmlFor/id); the
+    // "Search: x" chip's remove (x) button is an unlabeled svg; the search box
+    // is named only by its placeholder.
+    // Only the known findings may be unnamed; fixing them must not fail this test.
+    const known = (d: string) => d.startsWith('input[type=checkbox]')
+      || d.startsWith('input[type=datetime-local]') || d.startsWith('button class="ml-1');
+    expect(unl.none.filter((d) => !known(d))).toEqual([]);
+    expect(unl.placeholderOnly.filter((d) => !d.includes('Search by user, action, target...'))).toEqual([]);
+    expect(con.errors).toEqual([]);
+    expect(con.warnings).toEqual([]);
+    expect(api.unmatched).toEqual([]);
+  });
+});
